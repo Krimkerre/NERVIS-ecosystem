@@ -1086,6 +1086,11 @@ ravis/
 
 # 19. Development principles for AI coding agents
 
+**Engineering standards live in `ECOSYSTEM_RUNBOOK.md` §14** — complexity ceiling, naming,
+comments, error handling, tests, and the CI gates that enforce them — and are not restated here.
+The numbered principles below are RAVIS's wire-compatibility rules, which no general coding standard implies, and they add to that standard rather than replacing
+it. Where one of them tightens a §14 rule, the tighter rule wins.
+
 1. RAVIS exposes OpenAI compatibility externally but uses normalized objects internally only
    where useful.
 2. Do not normalize or re-serialize an already-compatible stream unnecessarily.

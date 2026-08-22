@@ -28,6 +28,13 @@
 Clarvis owns coding-agent behaviour inside one workspace. It does not own model selection
 across vendors (RAVIS), benchmark truth (SIRVIS) or ecosystem visualisation (NERVIS).
 
+**Engineering standards are `ECOSYSTEM_RUNBOOK.md` §14** — complexity ceiling, naming, comments,
+error handling and tests — with the TypeScript column of §14.1 as the enforced set. Clarvis is
+the one product that already exists as code, so the standard applies **to new and changed code
+rather than as a retrofit**: the boy-scout rule, not a rewrite. §14 must never be cited as a
+reason to touch a source-established invariant listed in §3, and a §14 rule that would require
+such a change is a STOP item, not a refactor.
+
 ---
 
 # 2. The headline: RAVIS needs no Clarvis feature

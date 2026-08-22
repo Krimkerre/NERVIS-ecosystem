@@ -768,6 +768,11 @@ nervis/
 
 # 20. Development principles for AI coding agents
 
+**Engineering standards live in `ECOSYSTEM_RUNBOOK.md` §14** — complexity ceiling, naming,
+comments, error handling, tests, and the CI gates that enforce them — and are not restated here.
+The numbered principles below are NERVIS's observation-only rules, which no general coding standard implies, and they add to that standard rather than replacing
+it. Where one of them tightens a §14 rule, the tighter rule wins.
+
 1. NERVIS is a control plane, not a replacement for the specialist apps.
 2. APIs are authoritative; never couple to another app's database.
 3. Clarvis's workspace containment stays intact.
