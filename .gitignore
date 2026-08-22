@@ -1,2 +1,10 @@
 .DS_Store
 *.bak
+
+# Python: virtual environments and bytecode never belong in the tree.
+# Added after a `git add -A` swept a whole .venv — including a 21 MB binary —
+# into a documentation commit.
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
