@@ -1,4 +1,4 @@
-# The Clarvis Ecosystem
+# The NERVIS Ecosystem
 
 **From ELI5 to technical architecture**
 

@@ -1,6 +1,10 @@
-# The Clarvis Ecosystem
+# The NERVIS Ecosystem
 
 > **SIRVIS knows. RAVIS chooses. CLARVIS acts. NERVIS connects.**
+
+Named for the control plane rather than for Clarvis, because the set is four
+applications and no one of them is the centre — NERVIS is simply the one that has to
+know about all of them.
 
 Two things live here, and they are two halves of the same work.
 
