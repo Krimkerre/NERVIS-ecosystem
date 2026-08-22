@@ -1174,6 +1174,26 @@ const API={
      over the API yet, and a toggle wired to nothing would be a claim that one
      exists. That is the ecosystem's governing rule applied to a settings page. */
   async settings(){return{
+   /* Where RAVIS listens. One port carries all three surfaces (RAVIS.md §3), so
+      a client's base URL, the management API and the MEP endpoints move together
+      or not at all.
+
+      `mutable:false` here is not a gap in this template — §15.1 defines no
+      mutation for it, and the reason is structural: you cannot rebind the socket
+      a request arrived on without dropping that request. It is set at start by
+      `ravis serve`, and changing it is a restart plus an update to everything
+      that has the old address written down. Those dependants are listed so the
+      restart does not silently orphan a client. */
+   listen:{mutable:false,restart_required:true,
+    host:'127.0.0.1',port:8731,tls:false,remote_access:false,
+    set_by:'ravis serve --host <host> --port <port>',
+    surfaces:[['/v1','OpenAI-compatible client API','Clarvis, NERVIS chat, any OpenAI client'],
+              ['/api/v1','management API','NERVIS dashboard and the CLI'],
+              ['/ecosystem','MEP metadata and events','the registry and the event hub']],
+    dependants:[['Clarvis','custom provider base URL','reports the provider offline until it is updated'],
+                ['NERVIS','registry entry for ravis','marks RAVIS unreachable and every RAVIS surface goes absent'],
+                ['SIRVIS','none','does not call RAVIS']],
+    note:'bind locally by default — remote access is an explicit deployment choice and requires TLS, authentication and authorization, not just a different host here'},
    serving:{mutable:false,
     endpoints:[['GET /v1/models','required','cache-backed · unauthenticated 200 within 2 s'],
                ['POST /v1/chat/completions','required','streaming and non-streaming'],
@@ -1641,7 +1661,7 @@ async function settingsView(){
  $('#content').innerHTML=`<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
    ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="notify('Health test: ${name} — identity, version and capabilities')">Test</button></span></div>`).join('')}
-   <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.</small></div>
+   <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>
   <div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
    <div class="table-row"><span>Content logging</span><span>${flag(s.privacy.content_logging,false)}</span><span style="opacity:.7;grid-column:3/-1">prompts and completions are never written to the event or trace store</span></div>
@@ -2435,7 +2455,19 @@ async function ravisSettings(){
    <div class="trace-step" style="margin-top:10px"><b>request logging</b><span>${s.privacy.request_logging}</span></div>
    <div class="trace-step"><b>persist content</b><span>${s.privacy.persist_content?'yes':'no'}</span></div>
    <small class="mono dim">a privacy level is a hard constraint: it can never be overridden by score, which is what makes <b>LOCAL_ONLY</b> a promise rather than a preference. Prompt and response content is not persisted by default, so there is no content log to expose here.</small>`,'ravis')}</div>
+  <div class="card full"><h3>Listen address <span class="chip${s.listen.tls?'':' warn'}">${s.listen.tls?'tls':'loopback, no tls'}</span></h3>${cell(`
+   <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
+   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">http://${s.listen.host}:${s.listen.port}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
+   <div class="trace-step" style="margin-top:11px"><b>set by</b><span class="mono">${escapeHtml(s.listen.set_by)}</span></div>
+   <div class="trace-step"><b>takes effect</b><span>${s.listen.restart_required?'on restart':'immediately'}</span></div>
+   <div class="trace-step"><b>remote access</b><span>${s.listen.remote_access?'enabled':'off — loopback only'}</span></div>
+   <small class="mono dim">all three surfaces share one port, so they move together. There is no endpoint to change this and that is structural rather than an omission: rebinding the socket a request arrived on would drop that request. It is set at start and changed by restarting.<br>${s.listen.note}.</small>`,'ravis')}</div>
+  <div class="card wide"><h3>What breaks if the port changes</h3>${cell(`
+   <div class="table-row head"><span>Service</span><span>Holds</span><span style="grid-column:3/-1">If it is not updated</span></div>
+   ${s.listen.dependants.map(([svc,holds,effect])=>`<div class="table-row"><span>${svc}</span><span class="mono" style="opacity:.75">${holds}</span><span style="grid-column:3/-1;opacity:.75">${effect}</span></div>`).join('')}
+   <small class="mono dim">this is why the address is not a field you edit in one place and forget. Clarvis probes <b>/v1/models</b> unauthenticated with a 2 s timeout and reads any failure as <b>provider offline</b>, so a moved port looks to a user like RAVIS is down rather than like RAVIS moved. NERVIS's copy lives in its own registry, on <b>NERVIS → Settings</b>, and is edited there because it is NERVIS's configuration rather than RAVIS's.</small>`,'ravis')}</div>
   <div class="card narrow"><h3>Not changeable here</h3>${cell(`
+   <div class="trace-step"><b>listen address</b><span>restart · no endpoint</span></div>
    <div class="trace-step"><b>serving surface</b><span>no endpoint</span></div>
    <div class="trace-step"><b>budget thresholds</b><span>no endpoint</span></div>
    <div class="trace-step"><b>privacy level</b><span>no endpoint</span></div>
