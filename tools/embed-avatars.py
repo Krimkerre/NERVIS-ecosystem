@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild index.html's AVATAR_SOURCE_B64 block from avatars/*.html.
 
-The four avatar pages are embedded rather than linked because each one runs in its
+The avatar pages are embedded rather than linked because each one runs in its
 own iframe via `srcdoc` — that is what keeps four stylesheets, four id spaces and
 four scripts from colliding, and it means the template stays a single file you can
 open from disk with no server.
@@ -11,7 +11,10 @@ Run after editing any avatar:  python3 tools/embed-avatars.py
 import base64, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-APPS = ["nervis", "sirvis", "ravis", "clarvis"]
+# Order matters only for readability; "miku" is the easter-egg avatar and is
+# embedded the same way as the four app avatars. Leaving it out of this list
+# would silently drop it from index.html the next time this runs.
+APPS = ["miku", "nervis", "sirvis", "ravis", "clarvis"]
 
 def main() -> int:
     index = ROOT / "index.html"
