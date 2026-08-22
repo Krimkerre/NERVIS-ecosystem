@@ -19,7 +19,9 @@ async models(){return (await fetch(BASE.sirvis + '/api/v1/models')).json()}
 That is the whole change. The views are already `async` and already `await`, so a
 method that starts doing I/O behaves exactly as the mock did.
 
-`BASE` holds the four service origins in one place.
+`BASE` holds the four service origins in one place. Their default ports are assigned in
+`../../ECOSYSTEM_RUNBOOK.md` §5 — the template hardcodes them because it runs from disk
+with no configuration, but a real client reads them from configuration or the registry.
 
 ## LM Studio is already wired, in the only sense that matters
 
@@ -111,15 +113,23 @@ each pool's own invariant:
 
 ```js
 const fits = r => local.filter(b =>
-  (r.tools !== 'REQUIRED' || b.tools) &&
+  (r.tools !== 'REQUIRED' || toolsWork(b)) &&
   (!r.minimum_context || b.runtime_config.max_context_length >= r.minimum_context) &&
   (!r.vision || b.vision)).length
 ```
 
-So `ravis/clarvis-agent` has eight members on this machine because eight installed
-builds advertise `tool_use` at 32K or better — not because anyone typed an eight.
-Install another tool-capable build and the number moves on its own. This is the
-pattern to copy when a figure could be computed from data already on the page.
+So `ravis/clarvis-agent` has ten members on this machine — not because anyone typed a
+ten, but because ten of eleven installed builds satisfy the invariant at 32K or better.
+Install another tool-capable build and the number moves on its own. This is the pattern
+to copy when a figure could be computed from data already on the page.
+
+**Filter on `toolsWork(b)`, never on a raw field.** An earlier version of this passage
+filtered on `b.tools`, which stopped existing when the measured record arrived — the
+build list emits `tools_advertised`. Copied as it stood, that predicate matched nothing
+and emptied the pool silently, which is exactly the failure this file records at the
+`toolsWork` definition. `toolsWork` is the point: it prefers measured tool-call
+reliability and falls back to the advertised flag only where no measurement exists,
+which is why the count is ten rather than the eight that advertise.
 
 ## Four rules that keep it mechanical
 

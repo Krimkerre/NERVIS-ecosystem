@@ -97,6 +97,12 @@ Every service endpoint exposes:
 - **`GET /ecosystem/capabilities`** → `{revision, capabilities[]}`, each with a stable
   `id`, semantic `version`, state (`available|degraded|unavailable|disabled`),
   `constraints`, and optional `reason`.
+
+  Written prose and UI refer to a capability as `<id>@<major>` — for example
+  `ravis.openai_compatible.chat_completions@1`. That notation is shorthand for the pair
+  `{id, version}` and is **never a wire value**: the `id` field carries the identifier
+  alone, the `version` field carries the full semantic version, and `@<major>` names only
+  the compatibility boundary a consumer negotiates against.
 - **`GET /ecosystem/version`** → `{build_version, api_version, protocol_version,
   schema_versions, compatible_protocol:{min,max}}`. Must answer even when `ready` is false.
 - **`GET /ecosystem/events`** → SSE stream. Accepts `Last-Event-ID`. Each frame uses
@@ -212,6 +218,19 @@ Before integration work begins:
 - Local secrets use OS keychain or equivalent secure storage. Fixtures contain no
   production credentials.
 - Ports, sockets, data directories, log retention and collision behaviour are documented.
+  Default loopback ports, assigned here because they cross product boundaries:
+
+  | Service | Default | Notes |
+  |---|---|---|
+  | NERVIS | `127.0.0.1:8711` | serves the dashboard and `/code/` when the Code tab is embedded |
+  | SIRVIS | `127.0.0.1:8721` | |
+  | RAVIS | `127.0.0.1:8731` | one port carries `/v1`, `/api/v1` and `/ecosystem` together (RAVIS §3) |
+  | Clarvis Bridge | `127.0.0.1:7071` first instance, then the next free port | **per extension host, not per machine** — two workspaces run two Bridges, so the port is dynamic and discovered through registration, never assumed |
+  | code-server | pinned by its own deployment | proxied, never assumed |
+
+  A service whose default port is occupied fails to start with the conflict named; it does
+  not silently pick another. Consumers read addresses from configuration or the registry —
+  **a hardcoded peer port is an invented contract.**
 
 **Prerequisite gate:** every repository builds independently, protocol conformance
 fixtures pass in isolation, and a standalone smoke test of each product requires no other
@@ -244,6 +263,13 @@ was verified against source, not assumed — see `CLARVIS.md` §3.
 ### 6.2 Stages
 
 Stages 4 and 2–3 may run concurrently. Everything else is sequential.
+
+Each product document maps its own milestones onto these stages — `RAVIS.md` §20.1,
+`SIRVIS.md` §21.2, `NERVIS.md` §21.1, `CLARVIS.md` §8.1. **Every milestone appears in exactly
+one row of its product's table, including an explicit "unscheduled" row**, so that a milestone
+nobody scheduled is a visible decision rather than an omission. **Where a product's milestone numbering and these
+stages disagree about order, the stages win**; a milestone number is an identifier, not a
+schedule.
 
 #### Stage 0 — Baseline and invariant lock
 
@@ -284,10 +310,16 @@ streaming, tools, cancellation. No native-provider translation. No routing intel
 
 Then build the Clarvis conformance harness (`ravis conformance clarvis`) covering fast
 cached `/v1/models`, stream termination and `[DONE]`, fragmented tool-call arguments,
-tool-call indexes and IDs, tool result IDs, `reasoning_content` preservation, client
-cancellation, tool-support probing, and separate chat/agent pools.
+tool-call indexes and IDs, tool result IDs, `reasoning_content` preservation and client
+cancellation.
 
-**Exit:** the conformance suite passes against the transparent route. The goal is stated
+**Tool-support probing, separate chat/agent pools and fallback are Stage 3 additions to the
+same suite**, not Stage 2 scenarios — each needs the routing this stage forbids, and fallback
+cannot be static configuration at all. Do not weaken the suite to fit the stage, and do not
+pull routing forward to satisfy it; the transparent path is only useful as a control while it
+stays unintelligent. `RAVIS.md` §8.8 carries the split.
+
+**Exit:** the Stage 2 half of the conformance suite passes against the transparent route. The goal is stated
 precisely: *Clarvis cannot tell that an intermediary was inserted.*
 
 #### Stage 3 — Live Clarvis ↔ RAVIS integration
@@ -470,10 +502,31 @@ sequence, trace linkage, redaction and persisted state — not screenshots alone
   retention at the collector.
 - Protect against SSRF, malicious service registration, replay, path traversal,
   cross-workspace confusion, origin and WebSocket abuse, and confused-deputy control requests.
+- **Retrieved content is evidence, never intent.** Web results, RAG passages, uploaded files,
+  tool output, log lines and model output inform an answer. **None of them can authorize an
+  action, approve a gate, select a target or elevate a caller** — only an authenticated actor
+  can. Text that reads as an instruction is still data. Every path that places retrieved
+  content in a prompt passes it through the producer's fencing helper first. Ownership is
+  named, so the rule has somewhere to be tested: **Clarvis** fences file, diff, tool, terminal
+  and web content entering agent prompts (`CLARVIS.md` §9) and is where this is most exposed;
+  **NERVIS** fences the AI-assisted diagnostic packet (`NERVIS.md` §11.5); **SIRVIS** fences
+  generated output entering an external judge (`SIRVIS.md` §4.5); **RAVIS owns no such path and
+  must not acquire one** (`RAVIS.md` §14). Each carries the negative test in its own release
+  gate.
+- **The owner enforces permission; the caller never asserts it.** A service that holds a
+  resource applies its own checks to every request for it. A caller passing an identity is
+  passing a claim, not a grant — Clarvis approves its own gates, NERVIS supervises only what
+  it started, and RAVIS resolves its own credentials. **No component gains authority by being
+  asked politely by another.**
 
 **Security gate:** threat-model review complete; negative tests pass; privilege matrix
 documented; secret scan and dependency checks pass; audit events exist for control actions
-without leaking secrets.
+without leaking secrets. Negative tests cover both invariants above: retrieved text shaped like
+an instruction changes nothing, and a caller-supplied identity grants nothing.
+
+> The two invariants were named against the action-policy layer of Alexander Keisse's
+> `ai-router` (<https://github.com/alexander-keisse>, MIT), which states them as operating
+> rules for a gated action surface.
 
 ---
 

@@ -117,12 +117,14 @@ Consequences worth knowing:
   free, LM Studio 0.4.21 / llama.cpp 2.29.1 / MLX 1.11.0, all read from this
   machine. Memory figures elsewhere are sized against 24 GB, not the 64 GB the
   first draft assumed.
-- **`tool_use` is load-bearing.** Eight of eleven builds advertise it. The three
-  that do not — both qwen2.5-coder builds and phi-4-mini — are excluded from
-  `ravis/clarvis-agent` by the pool invariant, and two of them are the largest
-  coding builds installed. That exclusion is a real capability record, not a
-  staged one, and it is the clearest argument in the template for probing
-  capabilities instead of trusting model names.
+- **`tool_use` is load-bearing, and measurement outranks it.** Eight of eleven
+  builds advertise it — but `ravis/clarvis-agent` has ten members, because
+  `toolsWork()` prefers measured tool-call reliability over the advertised flag.
+  Three builds advertise nothing and work anyway; one advertises support and loses
+  seven calls in eight to the MLX runtime's parser. Those disagreements run both
+  ways, which is the clearest argument in the template for probing capabilities
+  instead of trusting model names — and the reason `toolsWork` keeps the measured
+  and advertised fields separate rather than reconciling them at the source.
 - **Pool membership is derived**, not written down: `API.ravis.pools()` filters the
   real build list by each pool's own invariant. Install a build with tool_use
   tomorrow and the agent pool grows without anyone editing a number.
@@ -225,7 +227,8 @@ iframe.
 1. `python3 tools/check.py` — parses the JS, balances the CSS, lists cited endpoints.
 2. Open `index.html`, click the **SIMULATE** strip bottom-right. Cycling a service
    through `healthy → degraded → unreachable` should change only the surfaces that
-   depend on it. That is the E-N2 gate, and it is walkable rather than asserted.
+   depend on it. That is the runbook's Stage 6 degradation requirement (`NERVIS.md` §21.1,
+   M1 + M2), and it is walkable rather than asserted.
 3. To add a screen: write the function, register it in `SIRVIS_VIEWS` /
    `RAVIS_VIEWS` (or the `if` chain in `nervis()`), and read from an endpoint that
    already exists. If the endpoint does not exist, check the specs one directory up for the

@@ -98,7 +98,11 @@ lightweight shell. **The web backend must stay independently runnable.**
 ## 3.1 MEP identity
 
 NERVIS implements *and* consumes the MEP, and publishes its own identity and capabilities for
-diagnostics and automation:
+diagnostics and automation. **The server half is M0 and the client half is M2**, because Stage 1
+requires every service — NERVIS included — to answer identity, health, capabilities and version
+before anything probes anyone. A control plane that demands an authentication reference from its
+peers (§5.1) while publishing nothing of its own is asking for a guarantee it does not offer.
+The capabilities it publishes:
 
 ```text
 nervis.registry@1          nervis.sirvis_views@1
@@ -218,9 +222,11 @@ consumes its richer data rather than duplicating it.
 
 # 7. General chat
 
-NERVIS chat is a **normal client of RAVIS's published OpenAI-compatible API**, using a dedicated
-virtual profile that RAVIS accepts. Default `ravis/auto`; modes Auto, Balanced, Fast,
-Performance, Cheap, Local, API, Private; optional explicit model selection.
+NERVIS chat is a **normal client of RAVIS's published OpenAI-compatible API**, addressing the
+pools RAVIS already publishes. Default `ravis/auto`; the mode selector offers `ravis/balanced`,
+`ravis/fast`, `ravis/performance`, `ravis/cheap`, `ravis/local`, `ravis/api` and
+`ravis/private`, labelled from RAVIS §9.3's display names rather than spelled a third way here;
+optional explicit model selection.
 
 > **Do not invent a `nervis-chat` profile.** RAVIS must publish and accept it before
 > implementation.
@@ -235,6 +241,12 @@ details, model selection. **Later:** images, files, voice, search, artifacts.
 **Also required:** stop/cancel, model and profile disclosure, a route-explanation link,
 usage/cost display, session history per configured retention, error and fallback presentation,
 and privacy controls.
+
+**Background calls.** NERVIS chat generates conversation titles (§7.2), and may later add
+summaries or suggestions. Each is a RAVIS background call and must carry RAVIS's declared
+marker (RAVIS §9.6.1) rather than arriving as an ordinary completion on the user's chosen
+profile. An untitled conversation is a smaller failure than a title billed to a frontier
+model.
 
 ## 7.1 Routing inspector
 
@@ -447,6 +459,18 @@ Credentials are never displayed; content follows logging and privacy settings.
 An **Analyze** action builds a bounded diagnostic packet — selected trace, relevant errors,
 service health, runtime status, recent configuration changes — and sends it through RAVIS.
 
+**This is NERVIS's fencing path, and the only one it owns.** Under runbook §9 retrieved content
+is evidence and never intent, and the producer fences it. Every field in this packet is
+retrieved: an error message, a log line, a span label and a configuration value are all strings
+some other system produced, and any of them can be made to read as an instruction — a repository
+whose build fails with a crafted message reaches this prompt through an ordinary error. So the
+packet's contents are fenced as untrusted data before the prompt is assembled, and **nothing the
+model returns from analysing it may become an action**: the Analyze result is text shown to the
+operator, never a control call, never a supervision decision, never a gate resolution.
+
+**Gate:** a log line containing text directed at the analysing model changes neither the
+packet's construction nor anything NERVIS does with the result.
+
 ```text
 The failure originated in RAVIS.
 1. Clarvis submitted the request correctly.
@@ -480,6 +504,19 @@ or package identity, working and data directories, an environment allowlist, rea
 stop, escalation policy, backoff, a crash-loop limit and audit. **It must not recursively kill
 broad process groups, or anything it did not start.** Never assume a process exists from a stale
 PID.
+
+**The control surface is closed.** Supervision offers an enumerated set of operations against
+registered service instances — **there is no free-form command, script or process-selection
+path**, and an operation that is not in the set does not exist rather than failing at
+validation. Each family of control operations carries its own switch, every switch defaults to
+off, and **no development, single-user or unauthenticated mode weakens any of this**; a relaxed
+auth mode relaxes identification, never authority. Repeated control failures against one
+service open that service's supervision circuit until an operator with control authority
+clears it, so a crash-loop cannot be re-entered by retry.
+
+> Shape adapted from the action-policy layer of Alexander Keisse's `ai-router`
+> (<https://github.com/alexander-keisse>, MIT): a closed registry, per-family switches
+> defaulting off, and no privilege from a relaxed auth mode.
 
 **Gate:** start/stop/restart, crash loop, stale PID, PID reuse, partial start, NERVIS
 crash/restart and unauthorized-actor tests never affect external instances.
@@ -755,15 +792,15 @@ nervis/
 
 # 21. Milestones
 
-Ecosystem gates from the addenda (E-N0…E-N9) fold in as extra exit criteria; mapping in §21.1.
+Milestone numbers identify work; the runbook's stages schedule it, and §21.1 maps between them.
 
 | # | Milestone | Exit |
 |---|---|---|
-| **M0** | Foundation — package, FastAPI, config, SQLite, migrations, logging, web shell, CLI | `nervis serve` starts; the browser opens the dashboard; `nervis doctor` works; the database migrates cleanly; **no external service is required** |
+| **M0** | Foundation — package, FastAPI, config, SQLite, migrations, logging, web shell, CLI, **NERVIS's own `/ecosystem/*` surface** (§3.1) | `nervis serve` starts; the browser opens the dashboard; `nervis doctor` works; the database migrates cleanly; **no external service is required**; NERVIS answers its own identity, health, capabilities and version, and MEP conformance fixtures pass at one pinned protocol version — Stage 1 exits here, and M2 is the client half |
 | **M1** | System telemetry — CPU, RAM, swap, disk, process list, basic thermal | Dashboard updates live; sampling does not noticeably load the machine; missing telemetry degrades to Unknown; metrics survive a browser reconnect |
 | **M2** | Service registry — health model, registry, RAVIS/SIRVIS/LM Studio/Ollama probes, capability negotiation | Each service shows state independently; an offline service never breaks the page; health timeouts are bounded; status changes update live; spoofing, duplicate, stale, auth and version tests pass |
 | **M3** | RAVIS integration — health, providers, models, routes, usage, sessions | NERVIS inspects RAVIS **without touching its DB**; provider health and recent routes visible; the RAVIS-unavailable state works |
-| **M4** | General chat — RAVIS-backed, streaming, history, mode selector, route inspector | `ravis/auto` chat works; streaming works; route details correspond to the real RAVIS decision; history persists locally; a RAVIS outage produces a clear error; **a NERVIS session never appears as a Clarvis session** |
+| **M4** | General chat — RAVIS-backed, streaming, history, mode selector, route inspector | `ravis/auto` chat works; streaming works; route details correspond to the real RAVIS decision; history persists locally; a RAVIS outage produces a clear error; **a NERVIS session never appears as a Clarvis session**; title generation is marked as a background call |
 | **M5** | SIRVIS integration — models, benchmark queue, results, system, recommendations | Existing SIRVIS results appear; a benchmark launches through the SIRVIS API; progress streams live; **no benchmark business logic exists in NERVIS**; provenance renders correctly |
 | **M6** | Event hub — envelope, ingestion, SSE broadcast, bounded persistence, filters | Events appear live; RAVIS events ingest; retention is enforced; **an invalid event cannot crash the hub** |
 | **M7** | Distributed tracing — trace IDs, correlation, timeline | One RAVIS request forms a trace; multiple events correlate; missing spans render gracefully; filters work |
@@ -772,7 +809,7 @@ Ecosystem gates from the addenda (E-N0…E-N9) fold in as extra exit criteria; m
 | **M10** | Raw logs — per-source adapters with rotation and retention | Filters work; rotation and retention enforced; secrets redacted; a missing file does not error globally |
 | **M11** | API Inspector — RAVIS request stages, normalized request, route, provider metadata, final response | One request inspectable end to end; credentials never displayed; content follows privacy settings; transparent vs translated distinguished honestly |
 | **M12** | AI diagnostics — trace packet builder, redaction, RAVIS analysis request, local-only option | A trace can be analyzed; **the user sees exactly what will be sent**; local-only policy enforced; analysis failure does not alter logs |
-| **M13** | code-server spike — **do not build the integration yet** | An exit report covering every capability in `CLARVIS.md` §7.1, with `SUPPORTED` / `SUPPORTED_WITH_CHANGES` / `UNSUPPORTED` per capability |
+| **M13** | code-server spike — **do not build the integration yet** | An exit report covering every capability in `CLARVIS.md` §7.1, graded `PASS` / `PASS_WITH_LIMITATION` / `FAIL` / `NOT_TESTED` — the runbook §6.2 Stage 9 vocabulary, which CLARVIS.md §7.1 also uses. **`NOT_TESTED` is the value this report most needs**: an untested combination that has to be graded pass or fail gets guessed or dropped |
 | **M14** | Code tab *(only if M13 succeeds)* — code-server management, reverse proxy, workspace launcher, Clarvis install | Code tab loads; Clarvis activates; the WebSocket survives; the workspace opens; the Clarvis panel renders; the terminal works; the proxy security suite passes |
 | **M15** | Browser Clarvis compatibility — **address only issues found in M13**, no speculative porting | The existing VSIX stays one artifact if possible; VS Code stable and VSCodium still pass regression; the code-server path passes the agreed matrix |
 | **M16** | Service supervision — ownership modes, start, stop, restart, PID verification | Only managed services are controlled; **external services are never killed**; crash recovery works; a restart does not create a duplicate process |
@@ -782,18 +819,20 @@ Ecosystem gates from the addenda (E-N0…E-N9) fold in as extra exit criteria; m
 
 ## 21.1 Ecosystem gate mapping
 
-| Addendum gate | Lands in |
+| Runbook stage | Lands in |
 |---|---|
-| E-N0 contract replacement audit | Before M3 — every conceptual peer call is `REAL CONTRACT`, `LABELLED TEST DOUBLE`, `DEFERRED` or `STOP`; **no invented endpoint remains** |
-| E-N1 MEP client/server and registry | M2 |
-| E-N2 dashboard and degradation | M1 + M2 |
-| E-N3 RAVIS chat and views | M3 + M4 |
-| E-N4 SIRVIS views and control | M5 |
-| E-N5 Clarvis visibility | M8 + M9 |
-| E-N6 event hub, traces, diagnostics | M6 + M7 + M10 + M17 |
-| E-N7 supervision | M16 |
-| E-N8 code-server proxy | M13 + M14 + M15 |
-| E-N9 whole-ecosystem release | after M19 |
+| Stage 0 — baseline and invariant lock | Before M3 — every conceptual peer call is `REAL CONTRACT`, `LABELLED TEST DOUBLE`, `DEFERRED` or `STOP`; **no invented endpoint remains** |
+| Stage 0 — baseline and invariant lock | M0 (foundation), and the contract-replacement audit below |
+| Stage 1 — shared protocol | M0's own `/ecosystem/*` server surface; M2 supplies the client half and the registry at Stage 6 |
+| Stage 6 — NERVIS core | M1 + M2 (dashboard, degradation and the registry), M3 + M4 (RAVIS views and chat), M5 (SIRVIS views and control), M11 (API inspector), M16 (supervision) |
+| Stage 7 — events and tracing | M6 + M7 + M10 + M12 (AI diagnostics — §11.5's fencing rule is part of its exit) |
+| Stage 8 — Clarvis Bridge | M8 + M9 + M17 — M17's exit requires a Clarvis → RAVIS → provider trace, and the runbook is explicit that Clarvis joins at Stage 8. Its Stage 7 half (RAVIS → provider correlation) may land earlier; the Clarvis leg cannot |
+| Stage 9 — code-server compatibility and the Code tab | M13 + M14 + M15 |
+| Stage 10 — whole-ecosystem hardening | M19 |
+| **Unscheduled — after Stage 10, or never** | M18 (polish). Listed so no milestone is silently unassigned |
+
+> NERVIS core is Stage 6 — after RAVIS is live with Clarvis and after the SIRVIS evidence
+> plane exists. Everything NERVIS displays belongs to a peer that must already publish it.
 
 ## 21.2 Core integration gate
 
@@ -839,7 +878,7 @@ repairs.
 | Trace headers | Plan proposed `X-Nervis-Trace-ID`; the MEP requires W3C `traceparent` | **W3C `traceparent` wins.** The vendor headers are dropped, not carried alongside |
 | Event envelope | Plan used a simpler `{timestamp, service, component, event, level, …}` shape | The MEP envelope is canonical; the plan's fields map onto it |
 | Chat profile | Plan defaulted to `ravis/auto`; the addendum forbids inventing a `nervis-chat` profile | `ravis/auto` for MVP; a dedicated profile only once RAVIS publishes and accepts one |
-| Milestone numbering | Plan M0–M19; addenda E-N0–E-N9 | M-numbers are the spine; E-N gates fold in (§21.1) |
+| Milestone numbering | Plan M0–M19; addenda E-N0–E-N9 | M-numbers identify the work. The addenda's E-N gates are retired — those documents are not in this set — and §21.1 now maps the milestones onto the runbook's stages, which schedule them |
 | Dead citations | `fileciteturn…` markers throughout | Removed; Clarvis facts now point at `CLARVIS.md` §3, which cites real source |
 
 ---

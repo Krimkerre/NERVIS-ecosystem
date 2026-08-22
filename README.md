@@ -41,6 +41,22 @@ Each application's own repository stays authoritative for its internals. Most im
 Where a document here and the runbook disagree about a **cross-product** contract, the runbook
 wins. Where they disagree about an application's **internals**, the application document wins.
 
+## Acknowledgements
+
+Several operational contracts in these documents were identified against
+[Alexander Keisse](https://github.com/alexander-keisse)'s `ai-router`, an MIT-licensed local
+LLM router, used here with his permission:
+
+| Contract | Taken from |
+|---|---|
+| RAVIS §4.4 — inbound limits and admission control | its enforced request boundaries |
+| RAVIS §9.6.1 — background and utility calls | its handling of a chat client's hidden calls |
+| NERVIS §12 — closed control surface | its action registry and per-family switches |
+| RUNBOOK §9 — evidence is not intent; the owner enforces permission | its action-policy layer |
+
+Where its code is lifted rather than its lessons, the MIT copyright notice travels with the
+file.
+
 ## The rule that governs every one of them
 
 > **No agent may invent another ecosystem component's API, schema, capability or behaviour
