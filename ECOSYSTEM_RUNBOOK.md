@@ -785,11 +785,48 @@ conformance test asserting an ordered sequence of events is testing one concept.
 state the behaviour and read as sentences — `cancellation_reaches_upstream_without_triggering_
 fallback`, not `test_cancel_2`. Test code is production code and is reviewed as such.
 
-### 14.6 Where a product may differ
+### 14.6 Verify, don't assume
+
+The gates in §14.1 catch mechanical error. This section is about the other kind — the mistake
+that lints clean, types clean, and is confidently wrong. It cannot be a CI gate, so it is
+written as behaviour instead, and every rule below comes from something that actually went
+wrong in this repository rather than from general advice.
+
+**The claim you cannot check is a claim you do not make.** State what you verified and how. If
+something cannot be verified right now, say so and say what would settle it — an unverifiable
+claim delivered confidently is worse than an open question, because the next person builds on it.
+
+**Before editing, confirm the thing you are editing exists.** Every symbol, field, setting and
+anchor. A capability check was once written against a `capable()` helper that did not exist in
+the file; it would have thrown on first render. Grep for the definition, not just the usage.
+
+**Before asserting a number, compute it.** `WIRING.md` documented a pool with eight members,
+filtering on a field named `b.tools`. Executing the real data layer gave eleven builds, eight
+advertising the capability, ten satisfying the invariant — and the documented predicate matched
+**zero**, because the field had been renamed. Three numbers in one sentence, all wrong, in the
+file implementers copy from.
+
+**Before deleting, read the target and check what points at it.** Removing `archive/` meant
+first confirming nothing loaded from it, that its claim of a byte-identical avatar was true, and
+that no reference would dangle afterwards — two did, in `AGENTS.md`, and one of them was
+instructing future agents to recreate the folder.
+
+**Before acting on someone else's finding, verify it yourself.** An eight-way audit of this
+repository produced forty-eight candidate findings; an adversarial pass refuted nineteen of
+them. Confidence that has not survived an attempt to refute it is not evidence.
+
+**After changing something, run the check.** Not before, not instead. And when a check reports
+a problem in its own output, fix the check first — a checker that cries wolf teaches people to
+ignore it, which is worse than having no checker.
+
+**A slow right answer beats a fast wrong one**, because in a system of four products with
+published contracts, a wrong answer does not stay local. It gets cited.
+
+### 14.7 Where a product may differ
 
 A product document may add rules and may tighten these. It may not loosen them silently: a
 deliberate exception is written down in that document with its reason, and anything not written
-down there is governed by this section.
+down there is governed by this section. §14.6 is not among the things a product may loosen.
 
 ---
 

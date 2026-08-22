@@ -46,6 +46,10 @@ Two parts of it are easy to get wrong from habit, so they are worth naming here:
 - **Absence is a domain value.** Null, `UNKNOWN` and 404 carry meaning in this system and are
   not defects to be optimised away — but they must never stand in for *empty* or for *failure*.
   See §14.4.
+- **Verify rather than assume**, and say what you checked. Confirm a symbol exists before
+  editing it, compute a number before stating it, read what you are about to delete, and run
+  the check after the change rather than before. §14.6 lists the cases this repository has
+  actually produced — every one of them passed lint and type-checking first.
 
 ## One copy of everything
 
