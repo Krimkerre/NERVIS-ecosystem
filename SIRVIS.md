@@ -725,13 +725,29 @@ while M13, M15 and M16 stated their exits unconditionally. The accepted threshol
 role is:
 
 ```text
-clarvis-agent  tool_call_pass_rate ≥ 0.95 over ≥ 50 attempts, at suite version 1
+clarvis-agent  tool_call_pass_rate ≥ 0.95
+               over ≥ 8 distinct prompt phrasings × ≥ 3 repetitions each
+               at suite version 1
 ```
 
-The number is versioned with the suite, and the suite version is part of evidence identity
+**Two axes, not one, and the phrasing axis is the one that catches failures.** An earlier
+version of this threshold said "≥ 50 attempts" and was wrong in kind rather than in size: it
+assumed repetition of a single prompt. The working harness this suite wraps
+(`clarvis-firstrun/tools/suite2.py`, verified 2026-08-23: `RUNS = 3`, eight entries in
+`TOOL_PROMPTS`) runs eight different ways of asking for the same file, precisely because
+`granite-4.0-h-tiny` passed a single prompt three times out of three and then lost the filename
+on all eight. Fifty repetitions of one phrasing would have scored it a clean pass. A model's
+tool reliability is phrasing-sensitive, so a rate measured along one phrasing is not a rate.
+
+**A call counts only when the path actually arrives.** A `readFile` emitted with no arguments is
+worse than no call at all — the consumer cannot act on it and nothing explains why — so it
+scores as a failure, not as a partial success.
+
+The threshold is versioned with the suite, and the suite version is part of evidence identity
 (§12.2), so changing it produces new evidence rather than silently reinterpreting old evidence.
-A run of fewer than 50 attempts yields `UNKNOWN`, never a pass. Any later role suite records its
-threshold the same way before a milestone may depend on it.
+A run that covers fewer phrasings or fewer repetitions than the minimum yields `UNKNOWN`, never
+a pass. Any later role suite records its threshold on both axes the same way before a milestone
+may depend on it.
 
 **`clarvis-chat`** evaluates instruction following, clarity, conversation quality, code
 explanation, diff explanation, summarization, planning quality, conversational latency and

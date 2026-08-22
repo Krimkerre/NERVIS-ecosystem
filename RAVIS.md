@@ -196,10 +196,11 @@ origin check does not identify the caller. Both are required.
 occurs without authentication having run; a wrong-`Origin` mutation is rejected; and a
 non-loopback bind with a credential but no TLS fails to start.
 
-> Identified 2026-08-22 against Alexander Keisse's `ai-router`
-> (<https://github.com/alexander-keisse>, MIT), a working local router where each of these
-> five is implemented and documented as an enforced boundary. None appeared in RAVIS's
-> plans.
+> Six of these — body size, image count, inbound rate limiting, URL refusal, client address
+> and startup refusal — were identified against Alexander Keisse's `ai-router`
+> (<https://github.com/alexander-keisse>, MIT), a working local router where each is
+> implemented and documented as an enforced boundary. None appeared in RAVIS's plans. Origin
+> and Host validation came from a later audit of these documents, not from that source.
 
 ---
 
@@ -592,7 +593,7 @@ field, not from a user agent, and not from `X-Ecosystem-Actor`, which the runboo
 already forbids trusting from an unauthenticated caller. RAVIS reports the resolved identity
 back through that header on management surfaces; it does not read it as an assertion.
 
-An unauthenticated caller is **not refused** — §4.3 requires `GET /v1/models` to answer 200
+An unauthenticated caller is **not refused** — §5.0.1 requires `GET /v1/models` to answer 200
 without credentials — it resolves to the built-in `anonymous` identity, which is
 least-privileged by construction:
 

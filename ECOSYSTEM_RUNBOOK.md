@@ -372,6 +372,18 @@ exists elsewhere in the ecosystem — Clarvis has measured local models against 
 roles — **wrap it before replacing it**, and convert its output into the canonical
 evidence schema.
 
+That tooling is `clarvis-firstrun/tools/`, named here so nobody rebuilds it from scratch
+having failed to find it: `suite2.py` (timings at the character caps the product actually
+reads to, plus tool-call trials across eight phrasings), `score.py` (accuracy by *executing*
+generated code, and Clarvis's own grounding guard), `tokrate.py` (counted tokens from the
+server's usage figures, generation rate separated from effective rate), `screen.py`
+(pre-download screening by running a chat template rather than grepping it) and
+`agentrole.js` (the working role, driven through Clarvis's real prompt and tool schemas).
+The write-up of a real run, including the machine and runtime identity SIRVIS needs, is
+`clarvis/docs/benchmarks.md`. What that tooling does **not** have is the instrument around
+it — memory telemetry, thermal capture, validity classification, resource leases, a queue —
+which is the part SIRVIS actually builds.
+
 **Exit:** SIRVIS contract tests pass; `ESTIMATED` and `UNKNOWN` never silently become
 `MEASURED`; an offline fixture produces deterministic results.
 
