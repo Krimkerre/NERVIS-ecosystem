@@ -1,0 +1,55 @@
+# The gates from ECOSYSTEM_RUNBOOK.md §14.1.
+#
+# §14.1 says the gate is the authority, not the prose describing it — so this
+# file is what that sentence means in practice. A rule that only exists in a
+# document is a preference; a rule that fails a build is a rule.
+name: checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  ravis:
+    name: ravis — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ravis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+
+      # Complexity <= 8, import order, naming, unused names and arguments.
+      - name: lint and complexity
+        run: ruff check src tests
+
+      - name: types
+        run: mypy
+
+      # §14.5: nothing here reaches a network or a live service, which is why
+      # this stage needs no credentials and no services.
+      - name: tests
+        run: pytest
+
+  template:
+    name: template — parse, endpoints, citations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Cross-checks every cited endpoint against the specification documents and
+      # requires a citation on every mutation, so an invented endpoint fails here
+      # rather than looking sanctioned in a list.
+      - name: template checks
+        run: python3 tools/check.py
+        working-directory: template
