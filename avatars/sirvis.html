@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIRVIS — Benchmark Rig</title>
+<style>
+  :root {
+    --bg:     #080a10;
+    --panel:  #10141d;
+    --mint:   #3ddc97;   /* SIRVIS identity: measurement */
+    --mint-d: #1f7a53;
+    --hot:    #ff9d3d;   /* thermal pressure */
+    --dim:    #37424f;   /* unpowered, or discarded */
+    --ink:    #cdd6e3;
+    --muted:  #67788c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse 70% 55% at 50% 38%, #0d1a16 0%, var(--bg) 72%);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 28px; padding: 32px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { width: 340px; height: 340px; display: grid; place-items: center; position: relative; }
+  .halo {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 50% 48%, rgba(61,220,151,.12) 0%, transparent 62%);
+    animation: haloBreath 4s ease-in-out infinite;
+  }
+  @keyframes haloBreath {
+    0%, 100% { transform: scale(1);    opacity: .9; }
+    50%      { transform: scale(1.06); opacity: .55; }
+  }
+  svg.rig { width: 320px; height: 320px; overflow: visible; display: block; }
+
+  /* ——— shared chrome ——— */
+  .reticle  { fill: none; stroke: var(--mint); stroke-opacity: .32; stroke-width: 1.2; }
+  #tickring { fill: none; stroke: var(--mint); stroke-opacity: .45; stroke-width: 3;
+              stroke-dasharray: 2.4 20.6; transform-origin: 100px 96px;
+              animation: spin 34s linear infinite; }
+  .cardinal { stroke: var(--mint); stroke-opacity: .7; stroke-width: 1.8; stroke-linecap: round; }
+  .bracket  { fill: none; stroke: var(--mint); stroke-opacity: .4; stroke-width: 1.6; stroke-linecap: round; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ——— specimen ——— */
+  /* The die is inert until the runtime powers it. Nothing pretends otherwise. */
+  #die { fill: #0a0e16; stroke: var(--dim); stroke-opacity: .45; stroke-width: 2;
+         transition: stroke .5s, stroke-opacity .5s, filter .5s; }
+  #dieCore { fill: var(--dim); fill-opacity: .45; transition: fill .5s, fill-opacity .5s; }
+  .grid { stroke: var(--dim); stroke-opacity: .22; stroke-width: 1; transition: stroke .5s; }
+  .pin  { stroke: var(--dim); stroke-opacity: .6; stroke-width: 2.4; stroke-linecap: round;
+          transition: stroke .35s, stroke-opacity .35s; }
+
+  /* pins come up in order as the model loads — a progress bar you can read at a glance */
+  .lit .pin { stroke: var(--mint); stroke-opacity: 1; }
+  .powered #die     { stroke: var(--mint); stroke-opacity: 1; }
+  .powered #dieCore { fill: var(--mint); fill-opacity: .85; }
+  .powered .grid    { stroke: var(--mint); }
+
+  /* ——— calipers ——— */
+  .caliper { fill: none; stroke: var(--mint); stroke-opacity: .5; stroke-width: 2.2;
+             stroke-linecap: round; transform-origin: 100px 88px; transition: stroke .5s; }
+
+  /* ——— gauges ——— */
+  /* pathLength=100 turns every arc into a percentage, so a fill is one dasharray away. */
+  #progTrack { fill: none; stroke: var(--mint); stroke-opacity: .18; stroke-width: 3; }
+  #prog {
+    fill: none; stroke: var(--mint); stroke-width: 3; stroke-linecap: round;
+    stroke-dasharray: 0 100; transform-origin: 100px 88px; transform: rotate(-90deg);
+    filter: drop-shadow(0 0 6px rgba(61,220,151,.8));
+    transition: stroke-dasharray .6s ease;
+  }
+  #thermTrack { fill: none; stroke: var(--mint); stroke-opacity: .2; stroke-width: 4; stroke-linecap: round; }
+  #therm {
+    fill: none; stroke: var(--mint); stroke-width: 4; stroke-linecap: round;
+    stroke-dasharray: 0 100; transition: stroke-dasharray .6s ease, stroke .5s;
+    filter: drop-shadow(0 0 7px rgba(61,220,151,.75));
+  }
+  #chev { opacity: 0; transition: opacity .3s; }
+  #chev path { fill: none; stroke: var(--hot); stroke-width: 2; stroke-linecap: round; }
+
+  /* ——— the plot ——— */
+  .axis { fill: none; stroke: var(--mint); stroke-opacity: .26; stroke-width: 1.2; }
+  .warm { fill: none; stroke: var(--dim); stroke-width: 1.6; opacity: 0; transition: opacity .35s; }
+  .s    { fill: var(--mint); opacity: 0; transition: opacity .35s, fill .4s;
+          filter: drop-shadow(0 0 6px rgba(61,220,151,.75)); }
+  #band { fill: var(--mint); fill-opacity: 0; transition: fill-opacity .5s; }
+  #median {
+    stroke: var(--mint); stroke-width: 1.6; stroke-dasharray: 5 4; stroke-opacity: 0;
+    filter: drop-shadow(0 0 5px rgba(61,220,151,.7)); transition: stroke-opacity .5s;
+  }
+  #landing { fill: none; stroke: var(--mint); stroke-width: 1.2; opacity: 0; }
+  #badge { opacity: 0; transition: opacity .4s; }
+  #badge circle { fill: none; stroke: var(--mint); stroke-width: 1.8;
+                  filter: drop-shadow(0 0 8px rgba(61,220,151,.6)); }
+  #badge path   { fill: none; stroke: var(--mint); stroke-width: 2.4;
+                  stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ═══ idle ═══ nothing loaded, nothing claimed */
+  /* A round line-cap paints a dot even at zero length, so hide the gauges outright
+     rather than leaving two pips implying a reading that does not exist. */
+  .state-idle #prog, .state-idle #therm { opacity: 0; }
+
+  /* ═══ loading ═══ pins come up, progress creeps */
+  .state-loading #prog  { animation: creep 3.4s ease-in-out infinite; }
+  @keyframes creep { 0% { stroke-dasharray: 3 100; } 100% { stroke-dasharray: 34 100; } }
+  .state-loading #therm { stroke-dasharray: 10 100; }
+  .state-loading #die   { animation: wake 1.6s ease-in-out infinite; }
+  @keyframes wake {
+    0%, 100% { filter: drop-shadow(0 0 3px rgba(61,220,151,.35)); }
+    50%      { filter: drop-shadow(0 0 12px rgba(61,220,151,.85)); }
+  }
+
+  /* ═══ warmup ═══ two runs happen and are thrown away, visibly */
+  .state-warmup #prog  { stroke-dasharray: 34 100; }
+  .state-warmup #therm { stroke-dasharray: 30 100; }
+  .state-warmup .warm  { opacity: 1; animation: discard 2.2s ease-in-out infinite; }
+  @keyframes discard { 0%, 100% { opacity: .8; } 50% { opacity: .25; } }
+  .state-warmup #die   { filter: drop-shadow(0 0 10px rgba(61,220,151,.7)); }
+
+  /* ═══ measuring ═══ samples land one at a time */
+  .state-measuring #prog  { animation: creep2 4s linear infinite; }
+  @keyframes creep2 { 0% { stroke-dasharray: 40 100; } 100% { stroke-dasharray: 78 100; } }
+  .state-measuring #therm { stroke-dasharray: 55 100; }
+  .state-measuring #tickring { animation-duration: 16s; }
+  .state-measuring .warm { opacity: 1; }
+  .state-measuring .s1, .state-measuring .s2, .state-measuring .s3 { opacity: 1; }
+  .state-measuring .s4, .state-measuring #landing { animation: land 1.8s ease-out infinite; }
+  @keyframes land {
+    0%   { opacity: 0; transform: translateY(-9px); }
+    35%  { opacity: 1; transform: translateY(0); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .state-measuring .s4 { transform-box: fill-box; transform-origin: center; }
+  .state-measuring #die { filter: drop-shadow(0 0 14px rgba(61,220,151,.9)); }
+
+  /* ═══ thermal ═══ the run is compromised and says so, rather than hiding it */
+  .state-thermal { --mint: #ff9d3d; }        /* chrome retints; the reading is the warning */
+  .state-thermal #die     { stroke: var(--hot); animation: flicker .5s steps(1) infinite; }
+  .state-thermal #dieCore { fill: var(--hot); fill-opacity: .9; }
+  .state-thermal .grid    { stroke: var(--hot); }
+  .state-thermal .pin     { stroke: var(--hot); stroke-opacity: 1; }
+  @keyframes flicker {
+    0%, 70%   { filter: drop-shadow(0 0 16px rgba(255,157,61,.95)); }
+    71%, 100% { filter: drop-shadow(0 0 6px rgba(255,157,61,.5)); }
+  }
+  .state-thermal #therm { stroke: var(--hot); stroke-dasharray: 94 100;
+                          animation: thermPush .9s ease-in-out infinite alternate; }
+  @keyframes thermPush { from { stroke-dasharray: 88 100; } to { stroke-dasharray: 97 100; } }
+  .state-thermal #prog  { stroke-dasharray: 52 100; }
+  .state-thermal .warm  { opacity: 1; }
+  .state-thermal .s1, .state-thermal .s2, .state-thermal .s3, .state-thermal .s4 { opacity: 1; }
+  .state-thermal .s3, .state-thermal .s4 { fill: var(--hot);
+                                           filter: drop-shadow(0 0 7px rgba(255,157,61,.9)); }
+  .state-thermal #chev { opacity: 1; }
+  .state-thermal #chev path { animation: chev 1.5s ease-out infinite; }
+  .state-thermal #chev path:nth-child(2) { animation-delay: .18s; }
+  .state-thermal #chev path:nth-child(3) { animation-delay: .36s; }
+  @keyframes chev { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ═══ verdict ═══ five samples, a median, a spread — never one number */
+  .state-verdict #prog  { stroke-dasharray: 100 100; }
+  .state-verdict #therm { stroke-dasharray: 38 100; }
+  .state-verdict .warm  { opacity: 1; }
+  .state-verdict .s     { opacity: 1; }
+  .state-verdict #band  { fill-opacity: .14; }
+  .state-verdict #median { stroke-opacity: .95; }
+  .state-verdict #badge  { opacity: 1; animation: stamp .5s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes stamp {
+    0%   { opacity: 0; transform: scale(.5); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  #badge { transform-box: fill-box; transform-origin: center; }
+
+  /* ——— controls ——— */
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button {
+    font: inherit; font-weight: 500; color: var(--muted); background: var(--panel);
+    border: 1px solid #1c2331; border-radius: 999px; padding: 9px 20px; cursor: pointer;
+    transition: color .2s, border-color .2s, box-shadow .2s, transform .1s;
+  }
+  button:hover { color: var(--ink); border-color: #2b3547; }
+  button:active { transform: translateY(1px); }
+  button[aria-pressed="true"] {
+    color: var(--mint); border-color: var(--mint-d);
+    box-shadow: 0 0 0 1px rgba(61,220,151,.2), 0 0 18px -4px rgba(61,220,151,.6);
+  }
+  button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+  .status {
+    color: var(--muted); font-size: 12.5px; min-height: 1.5em; text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    max-width: 48ch; transition: opacity .25s;
+  }
+  .status b { color: var(--ink); font-weight: 500; }
+
+
+  /* ——— idle drift ———
+     Same 4s bob as Clarvis, and applied the same way: the chrome is a fixed frame,
+     so only what it frames moves. Children keep their own transform-origins, so the
+     spins and gauge fills compose on top of this untouched. */
+  #float { animation: bob 4s ease-in-out infinite; transform-origin: 100px 96px; }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0)     rotate(-1.1deg); }
+    50%      { transform: translateY(-11px) rotate(1.1deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="halo"></div>
+  <svg class="rig state-idle" id="sirvis" viewBox="0 0 200 200" role="img"
+       aria-label="SIRVIS, a benchmark rig measuring a model under test">
+
+    <!-- chrome -->
+    <circle class="reticle" cx="100" cy="96" r="92"/>
+    <circle id="tickring"   cx="100" cy="96" r="88"/>
+    <g class="cardinal"><path d="M100 2 v9"/><path d="M2 96 h9"/><path d="M189 96 h9"/></g>
+    <g class="bracket">
+      <path d="M14 34 V14 H34"/><path d="M166 14 H186 V34"/>
+      <path d="M186 172 V186 H172"/><path d="M28 186 H14 V172"/>
+    </g>
+
+    <g id="float">
+    <!-- benchmark progress -->
+    <circle id="progTrack" cx="100" cy="88" r="50"/>
+    <circle id="prog" cx="100" cy="88" r="50" pathLength="100"/>
+
+    <!-- calipers closing on the specimen -->
+    <g class="caliper">
+      <path d="M45.3 58.9 A62 62 0 0 1 70.9 33.3"/>
+      <path d="M129.1 33.3 A62 62 0 0 1 154.7 58.9"/>
+      <path d="M70.9 142.7 A62 62 0 0 1 45.3 117.1"/>
+      <path d="M154.7 117.1 A62 62 0 0 1 129.1 142.7"/>
+    </g>
+
+    <!-- thermal gauge, right flank -->
+    <path id="thermTrack" d="M146.8 28.1 A76 76 0 0 1 146.8 147.9"/>
+    <path id="therm"      d="M146.8 28.1 A76 76 0 0 1 146.8 147.9" pathLength="100"/>
+    <g id="chev">
+      <path d="M181.5 67.7 A84 84 0 0 1 181.5 108.3"/>
+      <path d="M187.3 66.2 A90 90 0 0 1 187.3 109.8"/>
+      <path d="M193.2 64.8 A96 96 0 0 1 193.2 111.2"/>
+    </g>
+
+    <!-- contact pins, in power-up order -->
+    <g class="pins">
+      <g class="pinset p1"><path class="pin" d="M84 64 V56"/><path class="pin" d="M84 112 V120"/>
+                          <path class="pin" d="M76 72 H68"/><path class="pin" d="M124 72 H132"/></g>
+      <g class="pinset p2"><path class="pin" d="M92 64 V56"/><path class="pin" d="M92 112 V120"/>
+                          <path class="pin" d="M76 80 H68"/><path class="pin" d="M124 80 H132"/></g>
+      <g class="pinset p3"><path class="pin" d="M100 64 V56"/><path class="pin" d="M100 112 V120"/>
+                          <path class="pin" d="M76 88 H68"/><path class="pin" d="M124 88 H132"/></g>
+      <g class="pinset p4"><path class="pin" d="M108 64 V56"/><path class="pin" d="M108 112 V120"/>
+                          <path class="pin" d="M76 96 H68"/><path class="pin" d="M124 96 H132"/></g>
+      <g class="pinset p5"><path class="pin" d="M116 64 V56"/><path class="pin" d="M116 112 V120"/>
+                          <path class="pin" d="M76 104 H68"/><path class="pin" d="M124 104 H132"/></g>
+    </g>
+
+    <!-- the die under test -->
+    <rect id="die" x="76" y="64" width="48" height="48" rx="7"/>
+    <path class="grid" d="M92 68 V108"/><path class="grid" d="M108 68 V108"/>
+    <path class="grid" d="M80 80 H120"/><path class="grid" d="M80 96 H120"/>
+    <rect id="dieCore" x="94" y="82" width="12" height="12" rx="2"/>
+
+    <!-- repeated measurements -->
+    <path class="axis" d="M46 130 V164 H154"/>
+    <rect id="band" x="50" y="134" width="102" height="24"/>
+    <path id="median" d="M50 146 H152"/>
+    <circle class="warm" cx="58" cy="157" r="3.2"/>
+    <circle class="warm" cx="81" cy="141" r="3.2"/>
+    <circle id="landing" cx="127" cy="136" r="8"/>
+    <circle class="s s1" cx="58"  cy="156" r="3.4"/>
+    <circle class="s s2" cx="81"  cy="140" r="3.4"/>
+    <circle class="s s3" cx="104" cy="149" r="3.4"/>
+    <circle class="s s4" cx="127" cy="136" r="3.4"/>
+    <circle class="s s5" cx="148" cy="152" r="3.4"/>
+
+    <!-- role verdict -->
+    <g id="badge">
+      <circle cx="166" cy="132" r="12"/>
+      <path d="M160.5 132 L164.5 136.5 L172 127"/>
+    </g>
+    </g>
+  </svg>
+</div>
+
+<div class="controls" role="group" aria-label="Rig state">
+  <button data-state="idle"      aria-pressed="true">Idle</button>
+  <button data-state="loading"   aria-pressed="false">Loading</button>
+  <button data-state="warmup"    aria-pressed="false">Warmup</button>
+  <button data-state="measuring" aria-pressed="false">Measuring</button>
+  <button data-state="thermal"   aria-pressed="false">Thermal</button>
+  <button data-state="verdict"   aria-pressed="false">Verdict</button>
+</div>
+
+<p class="status" id="status">No specimen · <b>LM Studio reachable</b></p>
+
+<script>
+const svg    = document.getElementById('sirvis');
+const status = document.getElementById('status');
+
+// `pins` is how many contact pins are powered — a readable stand-in for load progress.
+// `powered` lights the die itself. Everything else is per-state CSS.
+const STATES = {
+  idle:      { pins: 0, powered: false,
+               status: 'No specimen · <b>LM Studio reachable</b>' },
+  loading:   { pins: 3, powered: true,
+               status: 'Loading <b>MLX 4-bit</b> · 32K context · effective config pending' },
+  warmup:    { pins: 5, powered: true,
+               status: 'Warmup <b>2 of 2</b> · discarded, never scored' },
+  measuring: { pins: 5, powered: true,
+               status: 'Run <b>4 of 5</b> · 38.9 tok/s · TTFT 0.41s · no swap' },
+  thermal:   { pins: 5, powered: true,
+               status: 'Thermal pressure · runs <b>flagged, not discarded</b> · VALID_WITH_WARNINGS' },
+  verdict:   { pins: 5, powered: true,
+               status: 'n=5 · median <b>38.4 tok/s</b> · spread 4.9 · clarvis-agent <b>PASS</b>' }
+};
+
+function setState(name) {
+  const s = STATES[name];
+  svg.setAttribute('class', 'rig state-' + name + (s.powered ? ' powered' : ''));
+
+  document.querySelectorAll('.pinset').forEach((g, i) =>
+    g.classList.toggle('lit', i < s.pins));
+
+  status.style.opacity = 0;
+  setTimeout(() => { status.innerHTML = s.status; status.style.opacity = 1; }, 200);
+
+  document.querySelectorAll('.controls button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.state === name)));
+}
+
+document.querySelectorAll('.controls button')
+  .forEach(b => b.addEventListener('click', () => setState(b.dataset.state)));
+
+setState('idle');
+</script>
+</body>
+</html>
