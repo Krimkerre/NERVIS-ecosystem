@@ -668,7 +668,10 @@ same base model / GGUF Q4_K_M / llama.cpp / clarvis-agent
   "samples": 5,
   "metrics": {
     "generation_tok_s": {"median": 38.4, "min": 35.9, "max": 40.8},
-    "tool_call_pass_rate": {"passed": 49, "total": 50, "rate": 0.98}
+    "tool_call_pass_rate": {
+      "phrasings": 8, "repetitions": 3,
+      "passed": 23, "total": 24, "rate": 0.958
+    }
   },
   "validity": "VALID"
 }
@@ -768,8 +771,15 @@ agent slowdown, memory, swap and total task delay.
 ## 13.2 Tool-call pass rate is first-class
 
 ```json
-{"tool_call_pass_rate": {"passed": 49, "total": 50, "rate": 0.98}}
+{"tool_call_pass_rate": {
+  "phrasings": 8, "repetitions": 3, "passed": 23, "total": 24, "rate": 0.958
+}}
 ```
+
+**Both axes are part of the measurement, not annotations on it.** A rate reported without them
+is not comparable to one that carries them, because it does not say whether the model was asked
+the same way twenty-four times or eight different ways three times each — and §13.1 exists
+because those two produce different answers for the same model.
 
 This matters more to RAVIS's `ravis/clarvis-agent` routing than generic chat quality does.
 
