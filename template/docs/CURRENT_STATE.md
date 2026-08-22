@@ -10,10 +10,10 @@ One file, `index.html`, containing four applications' worth of UI: a top-level t
 bar (NERVIS / SIRVIS / RAVIS / CLARVIS), a per-app sidebar, and a data layer shaped
 like the API responses each service will eventually return.
 
-**Only Clarvis exists as real code** (`../clarvis`, a VS Code extension). SIRVIS,
+**Only Clarvis exists as real code** (`../../clarvis`, a VS Code extension). SIRVIS,
 RAVIS and NERVIS are specifications; their screens here are the first concrete thing
-about them. The specs are snapshotted in `docs/spec/` — canonical copies live in
-`../clarvis-ecosystem/`, so re-copy if those change.
+about them. Those specs are in the root of this repository — one directory up — and
+there is no second copy to keep in step.
 
 ## Architecture, in one pass
 
@@ -228,7 +228,7 @@ iframe.
    depend on it. That is the E-N2 gate, and it is walkable rather than asserted.
 3. To add a screen: write the function, register it in `SIRVIS_VIEWS` /
    `RAVIS_VIEWS` (or the `if` chain in `nervis()`), and read from an endpoint that
-   already exists. If the endpoint does not exist, check `docs/spec/` for the
+   already exists. If the endpoint does not exist, check the specs one directory up for the
    canonical one before writing a line of UI — and if the spec does not define it,
    stop and say so.
 

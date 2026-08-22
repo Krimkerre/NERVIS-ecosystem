@@ -174,4 +174,4 @@ delete that constant outright; do not port it, and do not add an endpoint for it
 `DEMO_API` covers the POSTs (run a benchmark, load a model, simulate a route,
 analyze a trace). Same rule: one method per real endpoint, replace the body, keep the
 signature. Mutations in the real build need `Idempotency-Key`, an actor identity and
-an audit event — see `docs/spec/RAVIS.md` §15.1 and `docs/spec/SIRVIS.md` §15.2.
+an audit event — see `../RAVIS.md` §15.1 and `../SIRVIS.md` §15.2.

@@ -11,8 +11,9 @@ OpenCode, Codex or anything else.*
    prevents it. Read it before your first script-driven edit to `index.html`;
    almost nothing here fails loudly.
 3. `docs/WIRING.md` — how the data layer becomes real services.
-4. `docs/spec/` — the four build plans and the runbook. These are the authority for
-   what each service owes the others.
+4. `../` — the four build plans, the overview and the runbook, in the root of this
+   repository. These are the authority for what each service owes the others, and
+   they are the same files the services are built from — not a copy of them.
 
 ## The rule that governs everything
 

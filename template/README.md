@@ -17,8 +17,9 @@ It is **not** a mockup in the usual sense. Every figure on screen comes from a d
 layer shaped like the real API responses, every screen degrades when its owning
 service is absent, and nothing is drawn that a live service would not supply.
 
-Only **Clarvis** exists as real code today (`../clarvis`). SIRVIS, RAVIS and NERVIS
-are specifications, in `docs/spec/`.
+Only **Clarvis** exists as real code today (`../../clarvis`). SIRVIS, RAVIS and NERVIS
+are specifications, and they live in the root of this repository alongside this
+template — [SIRVIS.md](../SIRVIS.md), [RAVIS.md](../RAVIS.md), [NERVIS.md](../NERVIS.md).
 
 ## Layout
 
@@ -30,7 +31,7 @@ tools/check.py          the smallest check that fails when the template is broke
 docs/CURRENT_STATE.md   what is built, what the data is, where to start
 docs/PITFALLS.md        every mistake made here, and the rule that prevents it
 docs/WIRING.md          how to replace the mock data with real services
-docs/spec/              snapshot of the four build plans and the runbook
+../*.md                 the build plans this scaffolding is built against
 AGENTS.md               working rules for an agent picking this up
 ```
 

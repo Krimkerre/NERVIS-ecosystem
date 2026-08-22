@@ -1,8 +1,22 @@
-# The Clarvis Ecosystem — documentation set
+# The Clarvis Ecosystem
 
 > **SIRVIS knows. RAVIS chooses. CLARVIS acts. NERVIS connects.**
 
-Six documents. One per application, one conceptual overview, one cross-product runbook.
+Two things live here, and they are two halves of the same work.
+
+**The specifications** — six documents, one per application plus a conceptual overview
+and a cross-product runbook. They are the authority for what each service owes the
+others.
+
+**[`template/`](./template/)** — an interactive, single-file prototype of the NERVIS
+dashboard and the three applications it observes. It is the visual scaffolding those
+build plans get poured into: every screen reads from a data layer shaped like the real
+API responses, and every endpoint it cites is cited from the spec beside it. Open
+`template/index.html` in a browser; no build step, no server.
+
+They were separate repositories until the obvious problem arrived: the template kept a
+*copy* of the specs, and a copy drifts. There is now exactly one of each document, and
+the template reads them from one directory up.
 
 | Document | What's in it | Read it when |
 |---|---|---|
