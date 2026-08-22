@@ -5,10 +5,13 @@ OpenCode, Codex or anything else.*
 
 ## Orient yourself
 
-1. `docs/CURRENT_STATE.md` — what is built, what is stubbed, and the mistakes that
-   have already been made here. Five minutes.
-2. `docs/WIRING.md` — how the data layer becomes real services.
-3. `docs/spec/` — the four build plans and the runbook. These are the authority for
+1. `docs/CURRENT_STATE.md` — what is built, what the data actually is, and where
+   to start. Five minutes.
+2. `docs/PITFALLS.md` — every defect this repo has produced and the rule that
+   prevents it. Read it before your first script-driven edit to `index.html`;
+   almost nothing here fails loudly.
+3. `docs/WIRING.md` — how the data layer becomes real services.
+4. `docs/spec/` — the four build plans and the runbook. These are the authority for
    what each service owes the others.
 
 ## The rule that governs everything

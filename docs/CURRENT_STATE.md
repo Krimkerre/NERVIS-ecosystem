@@ -206,37 +206,14 @@ iframe.
 
 ## Things that have actually gone wrong here
 
-Recorded because each one is silent in a browser and cost real time:
+Moved to **`docs/PITFALLS.md`**, which is now the single register of every defect
+this repository has produced and the rule that prevents each one. It is kept
+there rather than here because it is the file you want open while editing, not
+the one you read once to orient yourself — and because a second copy of a list
+like that drifts within a day.
 
-- **A CSS brace imbalance discards the rule that follows it.** Two stray `}` once ate
-  a whole rule and the avatar vanished with no error anywhere. `tools/check.py`
-  catches this.
-- **`replace()` without a count.** Python's `str.replace` replaces *every*
-  occurrence; one such edit injected a stylesheet into a JS string literal and broke
-  the page. Always pass a count.
-- **Slicing on `function render()`** matched inside `async function render()` and
-  silently removed the `async` keyword.
-- **A bulk region replacement deleted `chatView()`** because it happened to sit
-  between the two functions being replaced. Clicking Chat threw for two turns before
-  anyone noticed. Re-test the screens either side of a region edit.
-- **Grid items default to `min-width:auto`.** One long line of code widened a `1fr`
-  track and pushed a sibling panel outside its own container.
-- **A region replace built from two `h.index()` calls, where the end marker also
-  occurred earlier in the file.** `h[:start] + new + h[end:]` with `end < start`
-  re-emitted everything between them, so `downloads`, `machine`, `recommendations`
-  and `runtimeSet` appeared three times in the `API` object. It parsed, `check.py`
-  passed, and the *last* duplicate won — which was the stale copy, so the screens
-  kept rendering the old fixture while the new one sat above it doing nothing.
-  Assert `start < end` before slicing, and grep for duplicate method names after.
-- **Inline positions fought `.node:nth-of-type` rules.** The Ecosystem map sets
-  each node's `left`/`top` inline, but the Overview map's rules still matched and
-  contributed `right`/`bottom`; with both edges set, the boxes stretched to 754px
-  wide. Inline `right:auto;bottom:auto` fixes it. Nothing errored — the map just
-  looked wrong.
-- **Every `.table-row` is its own grid**, so `min-width:auto` let one long
-  identifier widen a track and knock that row out of line with the row above it.
-  Now fixed globally with `min-width:0` plus `overflow-wrap:anywhere`, so a long
-  capability string wraps instead of eliding or shoving its neighbours.
+Read it before your first script-driven edit to `index.html`. The short version:
+almost nothing here fails loudly.
 
 ## Conventions worth keeping
 

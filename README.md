@@ -27,7 +27,8 @@ index.html              the whole prototype — markup, styles, data layer, view
 avatars/*.html          the five animated avatars, embedded into index.html
 tools/embed-avatars.py  re-embeds avatars/ after you edit one
 tools/check.py          the smallest check that fails when the template is broken
-docs/CURRENT_STATE.md   what is built, what is stubbed, where to start
+docs/CURRENT_STATE.md   what is built, what the data is, where to start
+docs/PITFALLS.md        every mistake made here, and the rule that prevents it
 docs/WIRING.md          how to replace the mock data with real services
 docs/spec/              snapshot of the four build plans and the runbook
 AGENTS.md               working rules for an agent picking this up
