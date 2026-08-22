@@ -53,13 +53,37 @@ authoritative for that kind of fact.
 
 ## 3. Repository and change strategy
 
-Four independently buildable repositories. The protocol lives in a small, versioned
-`ecosystem-protocol` repository (schemas, examples, validators, conformance fixtures) or
-an equivalent generated package. It must not become a shared business-logic framework.
-Each repository pins a released protocol version, keeps its own domain models, and owns
-its adapters.
+**Two repositories.** Clarvis is one: different language, different runtime, shipped as a
+`.vsix` on its own cadence, and `clarvis/plan.md` is normative for it in a way no document here
+is. SIRVIS, RAVIS and NERVIS share the second, alongside the protocol package, these documents
+and the template.
 
-Cross-repository change order:
+The property that matters is **independent buildability, not repository count**, and the second
+repository preserves it explicitly: separate packages, separate entry points, separate
+databases, and a standalone smoke test per product that requires no other service (§5). What it
+removes is the coordination tax — a seven-step release dance for a protocol change, performed by
+one developer against three consumers, is ceremony that gets skipped, and a skipped step is how
+contracts drift.
+
+That is not a hypothesis. The template kept a second copy of these documents and it drifted
+within days; a consolidation audit then found twenty-nine contradictions among five documents
+already sitting in one directory. Splitting the artifacts that must agree makes agreeing harder,
+and nothing about a repository boundary enforces a module boundary.
+
+So the constraints below are **unchanged and are now the load-bearing ones**, because they are
+what the repository split used to be relied on for:
+
+> It must not become a shared business-logic framework. Each product pins a released protocol
+> version, keeps its own domain models, and owns its adapters. **Shared database tables,
+> provider clients, routing engines and benchmark logic are prohibited** — enforced by an import
+> check in CI rather than by the filesystem, which makes it a rule that is actually verified
+> instead of merely implied.
+
+Splitting later is cheap (`git subtree`, `git filter-repo`) and stays cheap for as long as those
+constraints hold — which is the real test of whether they are holding.
+
+Change order **within** the shared repository — one commit may span producer and consumer, so
+the sequencing is about behaviour, not merges:
 
 1. Write a protocol change proposal: owner, consumers, compatibility classification,
    security impact, examples, conformance tests.
@@ -71,9 +95,13 @@ Cross-repository change order:
 6. Run pairwise gates, then whole-ecosystem gates.
 7. Remove old behaviour only after the published deprecation window and rollback proof.
 
-Never coordinate unreleased repositories by copying private source types between them.
-Generated transport types are allowed. Shared database tables, provider clients, routing
-engines and benchmark logic are not.
+Never couple products by importing another's private types, in either layout. Generated
+transport types from the protocol package are allowed. Shared database tables, provider clients,
+routing engines and benchmark logic are not — sharing a repository makes these easier to reach
+for, which is exactly why the import check is a gate rather than a convention.
+
+Clarvis, being separate, follows the full seven steps above: its protocol version is pinned and
+released, never coordinated by copying source.
 
 ---
 

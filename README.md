@@ -31,9 +31,14 @@ the template reads them from one directory up.
 | **[RAVIS.md](./RAVIS.md)** | Full RAVIS build plan and contracts — the two execution paths, the Clarvis Compatibility Contract, routing pipeline, sessions, cost, management API, 25 milestones. | You are building RAVIS, or debugging why a stream broke. |
 | **[NERVIS.md](./NERVIS.md)** | Full NERVIS build plan and contracts — registry and capability negotiation, dashboard, general chat, event hub, tracing, diagnostics, supervision, the Code tab, 20 milestones. | You are building NERVIS, or deciding what a control plane is allowed to do. |
 
-## How these relate to the product repositories
+## How these relate to the products
 
-Each application's own repository stays authoritative for its internals. Most importantly:
+Two repositories, not four — see `ECOSYSTEM_RUNBOOK.md` §3 for why. **Clarvis is separate**
+(TypeScript, VS Code extension host, shipped as a `.vsix`). SIRVIS, RAVIS and NERVIS live here
+alongside the protocol package and the template, as separately buildable packages with their own
+entry points and their own databases.
+
+Each application stays authoritative for its own internals. Most importantly:
 
 > **`clarvis/plan.md` remains the only normative source for Clarvis's product behaviour.**
 > `CLARVIS.md` here adds ecosystem contracts on top of it and never overrides it.

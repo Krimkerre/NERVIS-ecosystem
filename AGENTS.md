@@ -15,8 +15,9 @@ anything in there. It also has [`template/docs/PITFALLS.md`](./template/docs/PIT
 which is every defect that repository has produced and the rule that prevents each one.
 Almost nothing in the template fails loudly, so read it before your first edit.
 
-**`archive/`** is superseded copies, kept for history. Nothing there is a source of
-truth and nothing loads from it.
+Superseded copies are **not kept in the working tree** — git history is the archive. A second
+copy of a document is the one failure this layout exists to prevent, and a folder blessing the
+practice invited it.
 
 ## The rule that governs everything
 
@@ -36,6 +37,6 @@ snapshot drifted. There is now one copy. The template reads these documents from
 directory up. **Do not reintroduce a copy of a spec inside `template/`**, however
 convenient it looks; that is the mistake this layout exists to prevent.
 
-The same applies to the avatars and the prototype itself: if you find yourself saving a
-second version of either, put it in `archive/` and say in `archive/README.md` where the
-live one is.
+The same applies to the avatars and the prototype itself. If you find yourself saving a second
+version of either, **don't** — commit the change and let git hold the previous one. A superseded
+copy that sits next to the live one gets read, edited and cited by mistake.
