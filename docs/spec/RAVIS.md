@@ -766,6 +766,61 @@ return the actual post-state plus revision. **Never expose credential values.**
 
 NERVIS controls must be capability-driven. **A UI need does not create a RAVIS API.**
 
+### 15.1.1 Proposed, not agreed — runtime listen address
+
+**Status: PROPOSED. Do not implement, and do not build UI against it.** Recorded here
+because the need is real and recurring, and because the reason it is not already in the
+list above is easy to mistake for an oversight.
+
+**The need.** RAVIS's bind address (§3) is configuration: one host and port carry `/v1`,
+`/api/v1` and `/ecosystem` together. Today it is set by `ravis serve` and changed by
+restarting. A dashboard that shows the address is naturally expected to change it.
+
+**Why it is not simply another mutation.** Rebinding the socket a request arrived on
+drops that request. Every other entry in §15.1 changes state that the answering process
+keeps serving from; this one changes the answering process's own front door.
+
+**Proposed shape**
+
+```text
+POST /api/v1/listen        { host, port }  →  the actual post-state plus revision
+GET  /api/v1/listen                        →  current binding, and any pending one
+```
+
+**Unresolved. Each of these blocks agreement:**
+
+1. **Response ordering.** Does the call answer on the old socket before rebinding, or
+   after? Answering first is a promise the caller cannot verify; answering after means
+   answering on a socket that no longer exists.
+2. **In-flight work.** Streaming completions may be open on the old listener. Drain them,
+   cut them, or keep both listeners alive during a handover window — and if a handover
+   window exists, what closes it when nothing drains?
+3. **Failure and rollback.** If the new bind fails (port in use, permission denied), the
+   old one has already been released in the naive implementation and RAVIS is now
+   reachable at neither address. Rollback must be part of the contract, not the
+   implementation's business.
+4. **Propagation.** Clarvis holds the address as a custom provider base URL and NERVIS
+   holds it as a registry entry. Does RAVIS announce the change on `/ecosystem/events`
+   before it moves, does it expect rediscovery, or is propagation entirely the operator's
+   problem? Note that Clarvis probes `/v1/models` unauthenticated with a two-second
+   timeout and reports **any** failure as *provider offline* (§5.0.1), so an unpropagated
+   move is indistinguishable to a user from RAVIS being down.
+5. **Ownership.** NERVIS may only restart a service it started (`nervis_managed`). For an
+   `external` RAVIS, a bind change NERVIS cannot complete is a control it must not offer.
+6. **Authorization.** This is not `routing-control` — it changes the process's exposure,
+   not its routing. It is closer to `supervisor`, and it deserves its own permission.
+
+> **A host change that leaves loopback is a security decision, not a preference.**
+> `GET /v1/models` answers unauthenticated within two seconds by design, because
+> Clarvis's availability probe sends no headers. Binding to `0.0.0.0` therefore publishes
+> an unauthenticated model gateway to the network. If this endpoint is ever accepted, the
+> safest version of it **refuses a non-loopback host outright** and leaves remote exposure
+> to the deployment path, which the runbook already requires to carry TLS, authentication
+> and authorization.
+
+**Until this is agreed:** show the binding, show what depends on it, and show the command
+that changes it. Do not render a field that writes it.
+
 ## 15.2 Events and traces
 
 ```text
