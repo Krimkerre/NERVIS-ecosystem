@@ -50,7 +50,7 @@ Every screen in the rail is built. Nothing falls back to a dashboard any more.
 |---|---|
 | NERVIS | Overview · Chat · Ecosystem map · Events · Traces · **System** · Diagnostics · Settings |
 | SIRVIS | Dashboard · Models · **Discover** · Benchmarks · Runtime sets · Results · Recommendations · Downloads |
-| RAVIS | Dashboard · Routes · Pools · Providers · Policies · Evidence · Logs · Diagnostics |
+| RAVIS | Dashboard · Routes · Pools · Providers · Policies · Evidence · Logs · Diagnostics · **Settings** |
 | CLARVIS | all seven — by design the rail drives the editor's side panel, it does not swap pages |
 
 Two of those moved or are new since the first pass:
@@ -67,6 +67,34 @@ Two of those moved or are new since the first pass:
 
 The wordmark top-left is a home link back to the NERVIS overview, keyboard
 reachable, and it leaves focus mode on the way.
+
+## The only mutating controls in the template
+
+RAVIS.md §15.1 defines exactly five mutations, and those are the only controls in
+this repository that change anything:
+
+```text
+POST /api/v1/profiles/{profile_id}/activate
+POST /api/v1/providers/{provider_id}/enable
+POST /api/v1/providers/{provider_id}/disable
+POST /api/v1/evidence/refresh
+POST /api/v1/route-tests
+```
+
+They live on the RAVIS **Dashboard** (the active profile) and **Settings** (the
+rest). Everything else on the Settings page — the serving surface, the budget
+ladder, the privacy level, credentials — is real configuration with no agreed
+endpoint, so it renders as state and says so. A settings screen is exactly where
+"a UI need does not create an API" is most tempting to break, because every row
+on it looks like it wants to be editable.
+
+**Activating a profile is not the same control as the chips on NERVIS's chat
+screen**, and they are deliberately styled differently. The chat chips set a
+profile for *one conversation*, as a parameter on that request; nothing is stored
+and no other client is affected. Activating changes the router's default for
+**every** client, Clarvis's agent runs included — so it arms first, states its
+blast radius, sends `If-Match` on the profile revision so it fails rather than
+racing another operator, and names the `routing-control` permission it needs.
 
 ## The data is this machine
 

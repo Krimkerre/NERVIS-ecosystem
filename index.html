@@ -384,6 +384,8 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
   padding:6px 9px;border-radius:2px;border:1px solid #1b4050;background:rgba(6,20,29,.9);
   color:#8494a5;cursor:pointer}
 .mode-chip.on{color:var(--accent);border-color:var(--accent)}
+/* armed = chosen, not yet committed. Deliberately not the active styling. */
+.mode-chip.armed{color:#ffb648;border-color:#ffb648;background:rgba(255,182,72,.09)}
 .route-card{border:1px solid rgba(var(--rgb),.22);border-radius:7px;padding:8px 10px;margin:2px 0 12px;
   background:rgba(var(--rgb),.04)}
 .route-card .table-row{padding:5px 2px}
@@ -410,7 +412,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
- ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Policies','Evidence','Logs','Diagnostics']},
+ ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
@@ -1160,6 +1162,45 @@ const API={
    ['reasoning_content preserved',true],['cancellation propagated',true],
    ['clarvis-agent tool invariant',true],['fallback keeps invariants',true]]}},
 
+  /* GET /api/v1/settings — how the router serves its clients. Assembled from the
+     behaviours RAVIS.md already fixes rather than invented here: the OpenAI-
+     compatible surface and its constraints (§4.2, §4.3, §5.0.1), the budget
+     thresholds (§14), the privacy ladder (§14) and request logging (§14, §15.2).
+
+     Read the `mutable` flag on every group before building a control for it.
+     Exactly four things in RAVIS have a canonical mutation endpoint — the active
+     profile, a provider's enabled state, an evidence refresh and a route test.
+     Everything else here is real configuration with no agreed way to change it
+     over the API yet, and a toggle wired to nothing would be a claim that one
+     exists. That is the ecosystem's governing rule applied to a settings page. */
+  async settings(){return{
+   serving:{mutable:false,
+    endpoints:[['GET /v1/models','required','cache-backed · unauthenticated 200 within 2 s'],
+               ['POST /v1/chat/completions','required','streaming and non-streaming'],
+               ['POST /v1/responses','after MVP','not served yet'],
+               ['POST /v1/embeddings','later','not served yet']],
+    supported:['system/user/assistant messages','temperature','max-token normalisation',
+               'stop sequences where supported','tools and functions','tool choice',
+               'structured output where feasible','usage metadata','cancellation propagation'],
+    error_shape:'OpenAI-compatible on /v1 · MEP envelope on the management API',
+    note:'Clarvis probes /v1/models unauthenticated with a 2 s timeout. A 401 there makes it report the provider offline rather than unauthorized, so the endpoint answers before it authenticates'},
+   budget:{mutable:false,monthly_eur:50,used_pct:1,currency:'EUR',
+    ladder:[[0,70,'normal routing'],[70,90,'prefer cheaper and local'],
+            [90,100,'strong cost penalty'],[100,null,'paid APIs blocked where the budget is hard']]},
+   privacy:{mutable:false,level:'NORMAL',
+    levels:['NORMAL','LOCAL_PREFERRED','TRUSTED_PROVIDERS','LOCAL_ONLY'],
+    never_overridden_by_score:true,
+    request_logging:'metadata only',persist_content:false},
+   credentials:{mutable:false,store:'macOS Keychain',plaintext_fallback:false,
+    note:'without secure storage a provider that needs a credential is unavailable — never downgraded to plaintext'},
+   /* The four that do have an endpoint, each named so a control can cite it. */
+   actions:[
+    ['Activate profile','POST /api/v1/profiles/{profile_id}/activate','routing-control'],
+    ['Enable provider','POST /api/v1/providers/{provider_id}/enable','routing-control'],
+    ['Disable provider','POST /api/v1/providers/{provider_id}/disable','routing-control'],
+    ['Refresh SIRVIS evidence','POST /api/v1/evidence/refresh','operator'],
+    ['Run conformance suite','POST /api/v1/route-tests','operator']]}},
+
   /* GET /api/v1/usage — counted by RAVIS from its own traffic, which is why the
      local share is an observation rather than a setting. */
   async usage(){return{spend_today_eur:0.42,budget_used_pct:1,local_pct:88,routing_p50_ms:3.1,
@@ -1293,6 +1334,16 @@ const DEMO_API={
  /* POST /api/v1/downloads — creates a persistent job and returns its id. The disk
     check happens before the job is queued, not while bytes are arriving. */
  download(variant,gb,freeAfter){notify(`Queued ${variant} · ${gb} GB · ${freeAfter} GB free after`);setAvatarState('active')},
+ /* POST /api/v1/profiles/{profile_id}/activate — changes the router's default
+    for every client, not just this page. Mutations carry Idempotency-Key and
+    If-Match on the profile revision, are separately authorized under
+    routing-control, are audited with actor, target, precondition and result, and
+    return the actual post-state plus the new revision. */
+ activateProfile(id,revision){notify(`Activated ${id} · If-Match rev ${revision} · audited`);setAvatarState('active')},
+ /* POST /api/v1/providers/{provider_id}/{enable|disable} */
+ setProvider(id,on){notify(`${on?'Enabled':'Disabled'} provider ${id} · audited · takes effect on the next decision`);setAvatarState('active')},
+ /* POST /api/v1/evidence/refresh */
+ refreshEvidence(){notify('Re-reading SIRVIS evidence · cached with a staleness policy')},
  runBenchmark(){notify('Benchmark started · warmups will not be scored');setAvatarState('active')},loadModel(){notify('Loading meta-llama-3.1-8b-instruct into MLX…');setAvatarState('active')},reroute(){notify('Route committed · local MLX pool selected');setAvatarState('active')},diagnose(){notify('Diagnostic sweep started across four services');setAvatarState('active')}};
 /* ── CLARVIS_BRIDGE ─────────────────────────────────────────────────────────
    The one channel by which a real Clarvis drives the header avatar. This is not
@@ -1491,9 +1542,9 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    <div class="table-row"><span>${d.selected}</span><span>${d.provider}</span><span class="mono">${d.execution_path}</span><span>€${d.cost_eur.toFixed(2)}</span></div>
    <small class="mono dim">${d.reasons.join(' · ')} ${prov(ekind[d.evidence.kind],d.evidence.samples?'SIRVIS n='+d.evidence.samples:'')} · TTFT ${d.ttft_s}s${d.not_selected.length?'<br>not selected — '+d.not_selected.map(n=>n.target+': '+n.why).join(' · '):'<br>no eligible alternative remained after the privacy constraint'}</small></div>`;
  $('#content').innerHTML=`<div class="card full chat">
-  <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');notify('Routing profile: '+this.dataset.profile)">${pr.label}</button>`).join('')}
+  <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');notify('This conversation will route on '+this.dataset.profile)">${pr.label}</button>`).join('')}
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
-   <span class="mono dim" style="margin:0 0 0 auto">${active.profile_id} · rev ${active.revision} · published by RAVIS</span></div>
+   <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
@@ -1719,7 +1770,7 @@ async function mikuMode(btn){
 const SIRVIS_VIEWS={'Models':sirvisModels,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
 const RAVIS_VIEWS={'Routes':ravisRoutes,'Pools':ravisPools,'Providers':ravisProviders,'Policies':ravisPolicies,
- 'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics};
+ 'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Load model</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
  const [mdl,ev,rs,rn,mc]=await Promise.all([API.sirvis.models(),API.sirvis.evidence(),
@@ -2085,12 +2136,29 @@ async function systemView(){
    <div class="table-row five"><span>Available memory</span><span class="mono">${m.available_gb} GB</span><span style="grid-column:3/-1;opacity:.75">bounds which builds and which combinations can be attempted at all</span></div>
    <small class="mono dim">these are read at the start and the end of every run. They are the difference between "this build is slow" and "this machine was busy".</small>`,'sirvis')}</div>`}
 
+/* Which profile the operator has selected but not yet committed. A single
+   module-level value: arming is transient UI state, not something the router
+   knows about, and it is cleared by any render that follows a commit or cancel. */
+let ARMED=null;
+function armProfile(id){ARMED=ARMED===id?null:id;render()}
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',`<button class="btn primary" onclick="DEMO_API.reroute()">Simulate request</button>`);
- const [rd,req,usage]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),API.ravis.usage()]);
+ const [rd,req,usage,prof]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),
+   API.ravis.usage(),API.ravis.profiles()]);
+ const active=prof.items.find(x=>x.default);
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
- $('#content').innerHTML=kpis([['Routing P50',usage.routing_p50_ms+' ms','cached · rule-based'],['Local',usage.local_pct+'%','of today'],
-   ['Spend','€'+usage.spend_today_eur.toFixed(2),`today · budget ${usage.budget_used_pct}% ${stamp(SERVICES.ravis.age)}`],['Pools',String(usage.pools.total),usage.pools.clarvis+' clarvis']],'ravis')
+ $('#content').innerHTML=kpis([['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`],
+   ['Routing P50',usage.routing_p50_ms+' ms','cached · rule-based'],['Local',usage.local_pct+'%','of today'],
+   ['Spend','€'+usage.spend_today_eur.toFixed(2),`today · budget ${usage.budget_used_pct}% ${stamp(SERVICES.ravis.age)}`]],'ravis')
+ +`<div class="card full"><h3>Routing profile <span class="chip">every client</span></h3>${cell(`
+   <div class="profile-row">${prof.items.map(x=>`<button class="mode-chip${x.profile_id===active.profile_id?' on':''}${ARMED===x.profile_id?' armed':''}" onclick="armProfile('${x.profile_id}')" title="${x.profile_id} · rev ${x.revision}">${x.label}</button>`).join('')}
+    <span class="mono dim" style="margin:0 0 0 auto">${prof.items.length} published by RAVIS</span></div>
+   ${ARMED&&ARMED!==active.profile_id?(()=>{const t=prof.items.find(x=>x.profile_id===ARMED);
+    return banner(`Activate ${t.profile_id}?`,
+     `This is not a preference for this page — it changes the router's default for <b>every client</b>, including Clarvis's agent and chat pools and any application already holding a session. Sessions with affinity keep their current target until they end; every decision after that uses <b>${t.label}</b>. Sent with <b>If-Match rev ${active.revision}</b>, so it fails rather than racing another operator, and it is audited with actor, target, precondition and result.
+      <br><button class="btn primary" onclick="DEMO_API.activateProfile('${t.profile_id}',${active.revision});ARMED=null;render()">Activate ${t.label}</button>
+      <button class="btn" onclick="ARMED=null;render()">Cancel</button>`)})():''}
+   <small class="mono dim">the chips on NERVIS's chat screen look like these and are not the same control: those set a profile <b>for one conversation</b>, as a parameter on that request, and change nothing for anyone else. This one is a stored state change under <b>routing-control</b>, which is why it asks first. Profiles are published by RAVIS and cannot be invented by a client — ${prof.items.map(x=>x.profile_id).join(', ')}.</small>`,'ravis')}</div>`
  +`<div class="card wide"><h3>${rd.pool} · candidates</h3>
   <small class="mono dim">eligible after hard constraints — ranked by preference</small>
   <div class="route-lanes">${rd.eligible.map(c=>`<div class="lane${c.selected?' selected':''}" onclick="selectOne(this,'.lane')"><b>${c.location} / ${c.target}</b><span>${c.score===null?'<small style="opacity:.5">no evidence</small>':c.score.toFixed(2)}</span><small>${c.notes.join(' · ')} ${c.ttft_s?' · TTFT '+c.ttft_s+'s':''}${c.cost_eur?' · €'+c.cost_eur+' est':''} ${prov(ekind[c.evidence.kind],c.evidence.samples?'SIRVIS n='+c.evidence.samples:c.evidence.kind==='PROVIDER_METADATA'?'provider metadata':'')}</small></div>`).join('')}</div>
@@ -2323,6 +2391,56 @@ async function ravisLogs(){
    <div class="trace-step"><b>credentials</b><span>never</span></div>
    <div class="trace-step"><b>timings and decisions</b><span>always</span></div>
    <small class="mono dim">this is a policy, not an empty table waiting to fill up. Turning payload capture on is a deliberate, audited change — and until someone makes it, "no prompts in the log" is a fact rather than a hope.</small>`,'ravis')}</div>`}
+
+/* Settings — how the router serves its clients, and the short list of things a
+   client may actually change.
+
+   The discipline that shapes this page: RAVIS.md §15.1 defines exactly five
+   mutations, and everything else on the screen is configuration with no agreed
+   endpoint behind it. Those get rendered as state with the reason stated, not as
+   toggles wired to a notify(). "A UI need does not create a RAVIS API" is the
+   spec's own sentence, and a settings page is where that rule is most tempting
+   to break — every row here looks like it wants to be editable. */
+async function ravisSettings(){
+ heading('Settings','How the router serves its clients — and the five things that have an endpoint to change them.',
+  `<button class="btn" onclick="DEMO_API.refreshEvidence()">Refresh evidence</button>`);
+ const [s,prof,pr]=await Promise.all([API.ravis.settings(),API.ravis.profiles(),API.ravis.providers()]);
+ const active=prof.items.find(x=>x.default);
+ const served=s.serving.endpoints.filter(e=>e[1]==='required').length;
+ const band=s.budget.ladder.find(([lo,hi])=>s.budget.used_pct>=lo&&(hi===null||s.budget.used_pct<hi));
+ $('#content').innerHTML=kpis([
+   ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
+   ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis'],
+   ['Budget',`${s.budget.used_pct}%`,`of €${s.budget.monthly_eur} · ${band[2]}`,'ravis'],
+   ['Privacy',s.privacy.level,'never overridden by score','ravis']])
+ +`<div class="card full"><h3>What a client can change <span class="chip">has an endpoint</span></h3>${cell(`
+   <div class="table-row head six"><span>Action</span><span style="grid-column:2/4">Endpoint</span><span>Permission</span><span style="grid-column:5/-1">Control</span></div>
+   <div class="table-row six"><span>Active profile</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[0][1])}</span><span class="mono">${s.actions[0][2]}</span><span style="grid-column:5/-1">on the Dashboard — it asks first</span></div>
+   ${pr.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">POST /api/v1/providers/${x.provider_id}/${x.enabled?'disable':'enable'}</span><span class="mono">routing-control</span><span style="grid-column:5/-1"><button class="btn" onclick="DEMO_API.setProvider('${x.provider_id}',${!x.enabled})">${x.enabled?'Disable':'Enable'}</button> <small class="mono" style="opacity:.55">${x.enabled?'in eligibility':'not a candidate'}</small></span></div>`).join('')}
+   <div class="table-row six"><span>SIRVIS evidence</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[3][1])}</span><span class="mono">${s.actions[3][2]}</span><span style="grid-column:5/-1"><button class="btn" onclick="DEMO_API.refreshEvidence()">Refresh</button></span></div>
+   <div class="table-row six"><span>Conformance suite</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[4][1])}</span><span class="mono">${s.actions[4][2]}</span><span style="grid-column:5/-1"><button class="btn" onclick="notify('ravis conformance clarvis — re-running the published suite')">Run</button></span></div>
+   <small class="mono dim">this is the whole list. Every mutation carries an <b>Idempotency-Key</b>, an <b>If-Match</b> where it changes state, a separate authorization under the permission named above, and an audit record with actor, target, precondition and result — and returns the actual post-state rather than the request echoed back.</small>`,'ravis')}</div>
+  <div class="card wide"><h3>Serving surface</h3>${cell(`
+   <div class="table-row head"><span>Endpoint</span><span>Status</span><span style="grid-column:3/-1">Constraint</span></div>
+   ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${escapeHtml(ep)}</span><span class="chip${st==='required'?'':' warn'}">${st}</span><span style="grid-column:3/-1;opacity:.75">${note}</span></div>`).join('')}
+   <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${s.serving.supported.length} supported</span></div>
+   <small class="mono dim" style="opacity:.8">${s.serving.supported.join(' · ')}</small>
+   <small class="mono dim">${s.serving.note}. Errors are <b>${s.serving.error_shape}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
+  <div class="card narrow"><h3>Budget</h3>${cell(`
+   ${s.budget.ladder.map(([lo,hi,what])=>`<div class="trace-step"${band[0]===lo?' style="border-left-color:#ffb648"':''}><b>${lo}–${hi===null?'100+':hi}%</b><span>${what}</span></div>`).join('')}
+   <small class="mono dim">€${s.budget.monthly_eur} monthly, ${s.budget.used_pct}% used, so routing is in <b>${band[2]}</b>. An unknown price stays unknown and the constraint fails predictably — an estimated cost is never presented as an invoice.</small>`,'ravis')}</div>
+  <div class="card wide"><h3>Privacy and logging</h3>${cell(`
+   <div class="table-row head"><span>Level</span><span>Now</span><span style="grid-column:3/-1">Effect</span></div>
+   ${s.privacy.levels.map(l=>`<div class="table-row"><span class="mono">${l}</span><span>${l===s.privacy.level?'<span class="chip">active</span>':'<span class="mono" style="opacity:.3">—</span>'}</span><span style="grid-column:3/-1;opacity:.7">${l==='LOCAL_ONLY'?'every cloud candidate removed before scoring, not out-ranked':l==='TRUSTED_PROVIDERS'?'only providers on the trusted list are eligible':l==='LOCAL_PREFERRED'?'local candidates weighted up; cloud still eligible':'no privacy constraint applied'}</span></div>`).join('')}
+   <div class="trace-step" style="margin-top:10px"><b>request logging</b><span>${s.privacy.request_logging}</span></div>
+   <div class="trace-step"><b>persist content</b><span>${s.privacy.persist_content?'yes':'no'}</span></div>
+   <small class="mono dim">a privacy level is a hard constraint: it can never be overridden by score, which is what makes <b>LOCAL_ONLY</b> a promise rather than a preference. Prompt and response content is not persisted by default, so there is no content log to expose here.</small>`,'ravis')}</div>
+  <div class="card narrow"><h3>Not changeable here</h3>${cell(`
+   <div class="trace-step"><b>serving surface</b><span>no endpoint</span></div>
+   <div class="trace-step"><b>budget thresholds</b><span>no endpoint</span></div>
+   <div class="trace-step"><b>privacy level</b><span>no endpoint</span></div>
+   <div class="trace-step"><b>credentials</b><span>${s.credentials.store}</span></div>
+   <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. Credentials are never editable from a dashboard at all: without secure storage a provider that needs one is unavailable, ${s.credentials.plaintext_fallback?'':'never downgraded to plaintext'}.</small>`,'ravis')}</div>`}
 
 /* Diagnostics — is this build actually Clarvis-compatible, and is anything in the
    way right now. The conformance suite is the release gate: every check passes or
