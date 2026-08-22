@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import httpx
 from fastapi import APIRouter, Request
@@ -137,8 +137,13 @@ def _stream_from_upstream(
 
 async def _relay(
     client: httpx.AsyncClient, target: str, headers: dict[str, str], body: bytes
-) -> AsyncIterator[bytes]:
+) -> AsyncGenerator[bytes, None]:
     """Yield upstream bytes until the stream ends or the client goes away.
+
+    Typed as a generator rather than an iterator because `aclose()` is part of
+    the contract, not an implementation detail: closing this is exactly how a
+    client disconnect becomes an upstream cancellation (§8.6), and an
+    `AsyncIterator` makes no promise that it can be closed.
 
     Cancellation is the important part (§8.6). When the client disconnects, this
     generator is closed, which exits the `async with` and tears down the upstream
