@@ -923,7 +923,12 @@ const API={
    const installed=lmstudioBuilds().map(b=>({catalog_id:'cat_'+b.model_artifact_id.slice(3),
     family:b.family,variant:b.variant,runtime:b.runtime,quantization:b.variant.split(' ')[1],
     params_b:b.params_b,architecture:b.architecture,source:b.source,size_gb:b.size_gb,
-    tools:b.tools,max_context_length:b.runtime_config.max_context_length,installed:true}));
+    /* An installed build has been run; a catalogue entry has only ever been
+       described. Carry both so the row can say which kind of answer it is
+       showing — `b.tools` stopped existing when the measured record arrived, and
+       reading it silently reported every installed build as tool-less. */
+    tools:toolsWork(b),tools_measured:b.measured&&b.measured.tools||null,
+    max_context_length:b.runtime_config.max_context_length,installed:true}));
    /* Not installed: real published builds, sized as they ship. Nothing here is
       recommended — the catalogue lists what exists, and whether any of it is
       worth loading on this machine is a benchmark's answer, not a browser's. */
@@ -1836,7 +1841,7 @@ function discoverFilter(items){
 function discoverRows(items,free){
  if(!items.length)return `<div class="table-row"><span style="grid-column:1/-1;opacity:.6">no catalog entry matches these filters</span></div>`;
  return items.map(x=>{const after=+(free-x.size_gb).toFixed(1),tight=after<0||after<free*0.1;
-  return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono" style="opacity:.75">${x.runtime} · ${x.quantization}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools?' <span class="chip">tools</span>':''}</span><span>${x.size_gb} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
+  return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono" style="opacity:.75">${x.runtime} · ${x.quantization}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools_measured?` <span class="chip${x.tools?'':' warn'}" title="measured">${x.tools_measured.join('/')}</span>`:x.tools?' <span class="chip" title="published claim, not measured" style="opacity:.6">claims</span>':''}</span><span>${x.size_gb} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
    ?'<span class="chip">installed</span>'
    :`<button class="btn" ${after<0?'disabled title="insufficient disk"':`onclick="DEMO_API.download('${x.family} · ${x.variant}',${x.size_gb},${after})"`}>Download</button>`}</span></div>`}).join('')}
 async function sirvisDiscover(){
@@ -1862,7 +1867,7 @@ async function sirvisDiscover(){
     <span data-filter="installed">${chip('installed','all','Any state')}${chip('installed','no','Not installed')}${chip('installed','yes','Installed')}</span></div>
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · quant</span><span>Params · tools</span><span>Size</span><span>Disk after</span><span>Action</span></div>
    <div id="discoverRows">${discoverRows(cat.items,free)}</div>
-   <small class="mono dim">the disk check runs before the job is queued: ${free} GB free, and each row says what would be left. A build that does not fit cannot be started — SIRVIS never auto-deletes a model to make room for another one.</small>`,'sirvis')}</div>
+   <small class="mono dim">the disk check runs before the job is queued: ${free} GB free, and each row says what would be left. A build that does not fit cannot be started — SIRVIS never auto-deletes a model to make room for another one.<br>the tools column reads two different ways on purpose: an installed build shows <b>calls made / attempted</b> from a real run, and a catalogue entry shows <b>claims</b>, which is the publisher's word and nothing more. On this machine those two disagree about four builds, so the distinction is not pedantry.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>What the catalog does not tell you</h3>${cell(`
    <div class="table-row head"><span>Question</span><span style="grid-column:2/-1">Answered by</span></div>
    <div class="table-row"><span>Will it download?</span><span style="grid-column:2/-1;opacity:.75">this page — size against ${free} GB of free disk</span></div>
