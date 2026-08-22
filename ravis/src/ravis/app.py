@@ -17,19 +17,24 @@ claimed otherwise.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ravis.admission import BodySizeLimiter, RateLimiter, check_origin, client_address
+from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings
 from ravis.ecosystem import router as ecosystem_router
 from ravis.errors import RavisError, to_response
 from ravis.identity import resolve_identity
 from ravis.observability import new_request_id
+from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.storage import prepare_database
+from ravis.upstream import create_client, upstream_from
 
 NextCall = Callable[[Request], Awaitable[Any]]
 
@@ -42,19 +47,64 @@ def create_app(settings: Settings) -> Any:
     connection or a limiter of its own. That is also what makes the whole thing
     testable without a running service.
     """
-    api = FastAPI(title="RAVIS", version="0.0.1", docs_url=None, redoc_url=None)
+    api = FastAPI(
+        title="RAVIS",
+        version="0.0.1",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=_lifespan(settings),
+    )
     _attach_shared_state(api, settings)
     _register_middleware(api, settings)
     _register_error_handling(api)
     api.include_router(ecosystem_router)
+    api.include_router(models_router)
+    api.include_router(chat_router)
     # Wrapping last means this ends up outermost, which is the entire point.
     return BodySizeLimiter(api, settings.max_request_bytes)
+
+
+def _lifespan(settings: Settings) -> Any:
+    """Own the things that must be opened once and closed on the way out.
+
+    The pooled upstream client and the catalogue refresher belong here rather
+    than at import time: a connection pool created at import outlives nothing
+    and is never closed, and a background task started at import runs before
+    there is a loop to run it on.
+    """
+
+    @asynccontextmanager
+    async def lifespan(api: FastAPI) -> Any:
+        # Warm the catalogue before serving. A first request must not be the
+        # thing that discovers the upstream is unreachable (§5.0.1).
+        await api.state.model_registry.refresh()
+        refresher = asyncio.create_task(
+            refresh_periodically(api.state.model_registry, settings.models_cache_ttl_seconds)
+        )
+        try:
+            yield
+        finally:
+            refresher.cancel()
+            await api.state.upstream_client.aclose()
+
+    return lifespan
 
 
 def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
+    api.state.upstream = upstream_from(settings)
+    # Built here rather than in the lifespan so nothing downstream has to cope
+    # with a half-constructed application. The lifespan owns *closing* the
+    # client and running the refresher; it does not own creating them, which
+    # keeps every attribute on `state` real from the moment the app exists.
+    api.state.upstream_client = create_client(settings)
+    api.state.model_registry = ModelRegistry(
+        upstream=api.state.upstream,
+        client=api.state.upstream_client,
+        ttl_seconds=settings.models_cache_ttl_seconds,
+    )
     api.state.rate_limiter = RateLimiter()
     # Identity of this installation. Opaque and locally generated — never derived
     # from hardware, a serial number or a username (runbook §4.1).
