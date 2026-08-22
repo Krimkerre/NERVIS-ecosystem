@@ -86,6 +86,14 @@ http://127.0.0.1:<port>/ecosystem MEP metadata and events
 
 Clients configure the base URL and optionally a RAVIS client credential.
 
+`/ecosystem` carries the five MEP metadata endpoints — `health`, `identity`,
+`capabilities`, `version` and the `events` SSE stream — **exactly as specified in
+`ECOSYSTEM_RUNBOOK.md` §4.1, which is authoritative for their shapes; nothing about them is
+restated here.** They are the runbook's Stage 1 exit condition and therefore precede the
+transparent gateway: RAVIS answers identity, health and capability negotiation before it
+proxies its first completion. `/ecosystem/*` returns the MEP error envelope, not the
+OpenAI-compatible shapes `/v1` returns (§21).
+
 ## 4.1 MEP capabilities
 
 | Capability | Advertise only when |
@@ -136,6 +144,62 @@ GET /v1/models must not:
 
 This matters specifically because Clarvis's OpenAI-compatible provider uses the model-list
 endpoint as part of availability and model-selection behaviour.
+
+## 4.4 Inbound limits and admission control
+
+RAVIS is a listening service, so the first thing it owes is the ability to refuse. These
+limits apply to `/v1`, `/api/v1` and `/ecosystem` alike.
+
+**Maximum request body.** A configured byte ceiling, enforced **before authentication and
+before parsing**. The ordering is the substance of the rule: a body large enough to hurt
+must be refused before RAVIS spends anything deciding who sent it. Exceeding it returns
+413.
+
+**Maximum images per request.** A configured count ceiling, independent of any per-image
+byte limit. A per-image limit alone does not bound a request carrying a thousand small
+images.
+
+**Inbound rate limiting, per client application.** §10's rate-limit handling covers
+*provider* limits applied *to* RAVIS. This is the opposite direction: a looping or
+misbehaving local client must not be able to saturate the gateway or the local runtime.
+Limits are keyed to application identity (§9.6); the runbook's 429 status mapping applies.
+
+**Client-supplied URLs are not dereferenced.** `/v1` accepts inline `data:` payloads for
+images and other binary inputs and **refuses `http(s)` URLs by default** — RAVIS does not
+fetch on a client's behalf. Refusal is the whole feature: a gateway that dereferences a
+caller's URL is an SSRF proxy into the local network, which the runbook §9 already forbids.
+Should a deployment ever enable fetching, it requires an egress allowlist excluding
+loopback, link-local and RFC1918, refusal to follow redirects into those ranges, and byte
+and time caps. On the transparent path the field is forwarded untouched — the upstream
+owns its own dereferencing policy.
+
+**Client address determination.** Where RAVIS sits behind a proxy, the address used for
+rate limiting comes from forwarded headers **only** for configured trusted proxies, and
+from the socket otherwise. An untrusted forwarded header is a rate-limit bypass.
+
+**Startup refusal.** The runbook requires binding locally by default, with remote exposure
+an explicit choice carrying **TLS and authentication** — both, not either. RAVIS enforces
+that rather than documenting it: a non-loopback bind **fails to start** unless TLS *and* a
+client credential are configured, naming whichever is missing. Fail closed. A
+credential-only non-loopback bind is the trap this closes: it would otherwise publish the
+model registry to the network in cleartext while passing every other check.
+
+**Origin and Host validation.** Loopback is not a boundary against a browser: any page the
+user visits can issue a cross-origin request to `127.0.0.1`. RAVIS therefore rejects
+requests whose `Origin` or `Host` is not allow-listed, requires a non-simple content type
+plus a CSRF token on every mutating endpoint, and applies the same origin policy to
+`/ecosystem/events` that it applies to HTTP. This is independent of §9.6's identity model —
+an identity check does not stop a browser the user is already authenticated in, and an
+origin check does not identify the caller. Both are required.
+
+**Gate:** every limit has a negative test proving refusal; the body-size test proves refusal
+occurs without authentication having run; a wrong-`Origin` mutation is rejected; and a
+non-loopback bind with a credential but no TLS fails to start.
+
+> Identified 2026-08-22 against Alexander Keisse's `ai-router`
+> (<https://github.com/alexander-keisse>, MIT), a working local router where each of these
+> five is implemented and documented as an enforced boundary. None appeared in RAVIS's
+> plans.
 
 ---
 
@@ -403,12 +467,22 @@ Use the real Clarvis OpenAI-compatible expectations wherever possible. If Clarvi
 existing provider request probe, adapt or mirror its behaviour rather than inventing a
 different interpretation of the protocol.
 
-Required scenarios: chat (`ravis/clarvis-chat`, streamed text, `[DONE]`); agent tool call
-(`ravis/clarvis-agent`, tools supplied, fragmented arguments, valid assembly); multiple tools
-(parallel and interleaved deltas); reasoning (`reasoning_content` stays separate); capability
-probe (agent pool correctly reports tool capability); cancellation (Clarvis abort reaches
-upstream); separate pools (chat and agent may route to different models); fallback (primary
-failure → valid compatible fallback).
+The suite is built in two passes, because the runbook forbids routing intelligence at Stage 2
+and two of these scenarios cannot be satisfied without it.
+
+**Stage 2 — wire-level, no routing.** Chat (streamed text, `[DONE]`); agent tool call (tools
+supplied, fragmented arguments, valid assembly); multiple tools (parallel and interleaved
+deltas); reasoning (`reasoning_content` stays separate); cancellation (Clarvis abort reaches
+upstream); cached `/v1/models`. All of these hold against a single configured upstream.
+
+**Stage 3 — added once routing exists.** Separate pools (chat and agent may route to different
+models — needs M5); capability probe (the agent pool correctly reports tool capability — needs
+M6); fallback (primary failure → valid compatible fallback — needs M12, and cannot be static
+configuration by definition).
+
+**Do not delete the Stage 3 scenarios to make Stage 2 pass, and do not pull routing into Stage
+2 to satisfy them.** The transparent path is only useful as a control while it stays
+unintelligent.
 
 ```bash
 ravis conformance clarvis
@@ -474,6 +548,13 @@ candidate, and the route explanation names the exclusion without leaking secrets
 `Auto`, `Balanced`, `Speed`, `Performance`, `Cheap`, `Local Only`, `API Only`, `Private`,
 `Coding`, `Reasoning`, `Long Context`, `Clarvis Chat`, `Clarvis Agent`.
 
+**These are display names for the §5 pools, one-to-one — not a second set of objects.**
+`Speed` is `ravis/fast`, `Local Only` is `ravis/local`, `API Only` is `ravis/api`; the rest
+lowercase and hyphenate directly. **The pool ID is the only form that appears on the wire, in
+storage, in a route explanation or in another product's UI.** A consumer that renders its own
+spelling — a mode selector, a settings picker, a test fixture — renders the pool ID or a label
+resolved from this mapping, never a third spelling of its own.
+
 ## 9.4 No opaque magic
 
 MVP routing is deterministic, explainable, rule-based and score-based. **No mandatory LLM
@@ -498,6 +579,69 @@ structured conditions and actions:
 ```text
 IF application == Clarvis AND model == ravis/clarvis-agent THEN require tools
 ```
+
+### 9.6.0 Resolving an application identity
+
+Everything above — routing defaults, budgets, privacy level, provider restrictions, logging,
+the §4.4 rate limit and the §9.6.1 background marker — is keyed to an application identity,
+so how that identity is established is a security contract, not a configuration detail.
+
+A caller presents its RAVIS client credential; RAVIS resolves it to exactly one
+`ClientApplication`. **A claimed identity is never accepted on its own** — not from a request
+field, not from a user agent, and not from `X-Ecosystem-Actor`, which the runbook §4.3
+already forbids trusting from an unauthenticated caller. RAVIS reports the resolved identity
+back through that header on management surfaces; it does not read it as an assertion.
+
+An unauthenticated caller is **not refused** — §4.3 requires `GET /v1/models` to answer 200
+without credentials — it resolves to the built-in `anonymous` identity, which is
+least-privileged by construction:
+
+```text
+anonymous  →  strictest inbound limit · no background marker honoured
+              no policy inheritance · no privacy level above NORMAL
+              no provider the default profile would not already allow
+```
+
+The failure this prevents is concrete: without it, any local process claims
+`application=Clarvis`, adds the background marker, and inherits Clarvis's privacy level,
+provider allow-list and budget relief — at which point §14's "privacy constraints can never
+be overridden by score" is advice rather than a boundary.
+
+**Gate:** an unauthenticated request resolves to `anonymous` and provably fails to obtain any
+privilege of a named application; a forged `X-Ecosystem-Actor` changes nothing.
+
+### 9.6.1 Background and utility calls
+
+Chat clients issue requests the user never sees: conversation titles, tag suggestions,
+summaries, autocomplete. They are short, frequent, latency-insensitive and disposable —
+and they arrive on the same endpoint as real work, indistinguishable from it unless the
+client says otherwise.
+
+Left unmarked they route as real requests. A title generated through `ravis/auto` can
+select a paid frontier model, so a string nobody reads becomes a billed call, repeatedly.
+
+**Clients declare them.** A background call carries an explicit marker — request
+`metadata`, or a distinct virtual model. **RAVIS never infers the class from prompt
+shape**, because a wrong inference in the other direction silently downgrades real work.
+
+**A declared background call is:** eligible for a cheap or local pool by default, exempt
+from session affinity, excluded from the default route-explanation view, and accounted
+separately under §14 so utility spend stays visible instead of blending into conversation
+cost.
+
+**The marker is a trust boundary.** It lowers cost and relaxes ordinary limits, so it is
+honoured only from an authenticated application identity, and the per-application inbound
+limit (§4.4) still applies — a lower one, never none. **It buys cost and limit relief and
+nothing else.** An identity permitted to mark background calls gains no policy exemption, no
+provider access and no management authority from that permission.
+
+**Gate:** a declared background call never selects a paid provider under the default
+profile, and no undeclared request is ever reclassified as background by heuristic.
+
+> The failure mode, and the labelled-identity approach to it, come from Alexander Keisse's
+> `ai-router` (<https://github.com/alexander-keisse>, MIT), which detects its chat client's
+> background calls and routes them to a cheap local model. Its own review flags the trust
+> boundary recorded above.
 
 ## 9.7 Explainability
 
@@ -724,6 +868,15 @@ constraints can never be overridden by score.
 **Request logging** defaults to metadata only. Do not persist prompt or response content by
 default.
 
+**Retrieved content and the fencing rule.** The runbook §9 requires every path that places
+retrieved content into a prompt to fence it first, and names the producer as the owner.
+**RAVIS owns no such path and must never acquire one:** it forwards what a client sends and
+returns what an upstream answers, and it does not search, retrieve, summarize or inject. Its
+obligation under that rule is therefore negative, and worth stating because a gateway is
+exactly where a well-meaning "enrich the request" feature would land: content passing through
+RAVIS is never treated as instruction to RAVIS, and no route decision is ever influenced by the
+*content* of a message — only by its declared capabilities, its pool and its policy.
+
 **Credentials** live in macOS Keychain. **Never store provider API keys in plaintext in SQLite**,
 and never let them traverse NERVIS, SIRVIS, Clarvis telemetry, route explanations or events.
 Without secure storage, providers needing credentials are simply unavailable — **never fall back
@@ -743,12 +896,21 @@ GET /api/v1/health          /api/v1/route-decisions
     /api/v1/models          /api/v1/sessions
     /api/v1/profiles        /api/v1/sessions/{session_id}
     /api/v1/profiles/{id}   /api/v1/usage
-    /api/v1/runtime-state   /api/v1/diagnostics
-    /api/v1/sirvis          /api/v1/settings
+    /api/v1/pools           /api/v1/diagnostics
+    /api/v1/policies        /api/v1/settings
+    /api/v1/runtime-state
+    /api/v1/sirvis
 ```
 
 List responses use `{items, next_cursor, snapshot_revision}`. Provider and model results are
 redacted and capability-evidenced.
+
+`/api/v1/pools` reads the `VirtualModelPool` set with each pool's declared requirements and its
+**currently eligible members, derived rather than stored** (§5.2) — so an installed model that
+gains or loses a capability moves the membership without anyone editing a list.
+`/api/v1/policies` reads `RoutingRule` in the `IF … THEN …` form of §9.6, marked hard or soft.
+Both are reads of state RAVIS already owns; neither accepts a mutation, because a profile change
+goes through `POST /api/v1/profiles/{id}/activate` and stays auditable.
 
 Canonical v1 mutations:
 
@@ -879,7 +1041,7 @@ that one incoming request equals one upstream call, but do not implement orchest
 # 17. Storage
 
 ```text
-Provider · ProviderCredentialRef · ProviderModel · ModelCapability
+Provider · ProviderCredentialRef · ProviderModel · ModelCapability · SirvisModelRef
 VirtualModelPool · RoutingProfile · RoutingRule · ModelAlias
 ClientApplication · ClientCredential
 RoutingSession
@@ -889,6 +1051,14 @@ UsageRecord · CostRecord · Budget
 SirvisEvidenceSnapshot
 Setting
 ```
+
+`SirvisModelRef` is the join RAVIS would otherwise have to guess. A provider reports a runtime
+name — `qwen3-30b-a3b-mlx` — while SIRVIS keys evidence by family, variant, source revision,
+format, quantization, runtime, runtime version, runtime configuration and role. §13.3 forbids
+inferring one from the other by name, and SIRVIS forbids RAVIS reading its database, so the
+reference is stored: one `ProviderModel` resolves to at most one SIRVIS build key, recorded
+when SIRVIS confirms it and **left null when it does not**. A null reference routes on `UNKNOWN`
+provenance, which is a correct outcome; a guessed one is not.
 
 ---
 
@@ -953,14 +1123,15 @@ ravis/
 
 # 20. Milestones
 
-Ecosystem gates from the addendum (E-R0…E-R7) fold in as extra exit criteria; mapping in §20.1.
+Milestone numbers identify work; they do not schedule it. The build order is the runbook's,
+and §20.1 maps these milestones onto its stages.
 
 | # | Milestone | Acceptance |
 |---|---|---|
-| **M0** | Foundation — Python package, FastAPI, configuration, SQLite, migrations, structured logging, CLI | `ravis doctor` and `ravis serve` work |
+| **M0** | Foundation — Python package, FastAPI, configuration, SQLite, migrations, structured logging, CLI, §4.4 admission control, §9.6.0 identity resolution, the `/ecosystem/*` MEP surface | `ravis doctor` and `ravis serve` work; each §4.4 limit refuses in a negative test; a non-loopback bind without a credential fails to start; `ravis doctor` prints the resolved model-to-provider truth table, naming the setting behind each resolution, without contacting any upstream; MEP conformance fixtures pass at one pinned protocol version and a mismatched major fails cleanly; an unauthenticated caller resolves to `anonymous` and gains no named application's privileges |
 | **M1** | OpenAI-compatible transparent pass-through — `/v1/models`, `/v1/chat/completions`, streaming, one compatible upstream, no routing intelligence | OpenAI SDK can use RAVIS; `/v1/models` is cache-backed; the stream reaches the client without buffering; `[DONE]` correct; cancellation reaches upstream |
 | **M2** | Clarvis wire-contract harness — conformance fixtures, tool-fragment tests, reasoning-field tests, cancellation tests | `ravis conformance clarvis` passes against the transparent route |
-| **M3** | Normalization/translation layer — `NormalizedRequest`, `NormalizedResponse`, `NormalizedStreamEvent`, `ProviderAdapter`, translated execution path | Transparent route still passes Clarvis conformance; translated adapter works independently |
+| **M3** | Two separable halves, and the stage mapping schedules them apart. **M3a — adapter interface:** `NormalizedRequest`, `NormalizedResponse`, `NormalizedStreamEvent`, the `ProviderAdapter` protocol and capability discovery. **M3b — translated execution path.** M3a is a prerequisite of M6's capability filtering and therefore of Stage 3; M3b is Stage 5 | Transparent route still passes Clarvis conformance; translated adapter works independently |
 | **M4** | Anthropic native adapter — text, streaming, tools, errors, usage | OpenAI SDK works through Anthropic; Clarvis tool semantics still pass where applicable |
 | **M5** | Basic routing — `auto`, `fast`, `performance`, `cheap`, `clarvis-chat`, `clarvis-agent` | Profiles select predictably; the agent pool enforces tools |
 | **M6** | Capability filtering — tools, vision, context, structured output, streaming | Incompatible candidates eliminated before scoring; the Clarvis agent pool cannot select a non-tool model |
@@ -973,7 +1144,7 @@ Ecosystem gates from the addendum (E-R0…E-R7) fold in as extra exit criteria; 
 | **M13** | SIRVIS evidence integration — evidence keyed by family, variant/build, runtime config, machine, role, suite | No one-number-per-model shortcut; repeated-measurement statistics preserved; provenance never upgraded |
 | **M14** | Local lifecycle intelligence — HOT/WARM/COLD, load penalty, resource awareness | Memory pressure produces a safe route change |
 | **M15** | Cost engine — pricing, estimates, actual usage, budgets | No double counting; estimates never presented as invoices |
-| **M16** | Policy engine — application policies, privacy, provider allow/deny, model exclusions | Each hard constraint provably excludes a top-ranked candidate |
+| **M16** | Policy engine — application policies, privacy, provider allow/deny, model exclusions, §9.6.1 background-call class | Each hard constraint provably excludes a top-ranked candidate; a declared background call never selects a paid provider under the default profile |
 | **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS | — |
 | **M18** | NERVIS management integration — management, events and tracing surfaces | Does not affect Clarvis wire compatibility |
 | **M19** | Production observations — rolling latency, TTFT, error rate, throughput | — |
@@ -985,16 +1156,23 @@ Ecosystem gates from the addendum (E-R0…E-R7) fold in as extra exit criteria; 
 
 ## 20.1 Ecosystem gate mapping
 
-| Addendum gate | Lands in |
+| Runbook stage | Lands in |
 |---|---|
-| E-R0 existing-plan mapping | M0 — no unresolved cross-owner assumption; a missing contract is a STOP item |
-| E-R1 MEP and OpenAI-compatible surface | M1 + M2 |
-| E-R2 provider adapters | M4 + M7 + M8 |
-| E-R3 profiles, policy, explanations | M5 + M6 + M16 |
-| E-R4 SIRVIS ingestion and runtime coordination | M13 + M14 |
-| E-R5 sessions, usage, NERVIS APIs | M11 + M15 + M18 |
-| E-R6 Clarvis pairwise integration | M9 (+ direct-provider fallback verified) |
-| E-R7 hardening and release | after M24 |
+| Stage 0 — baseline and invariant lock | M0 — no unresolved cross-owner assumption; a missing contract is a STOP item |
+| Stage 1 — shared protocol | M0 — the `/ecosystem/*` surface and MEP conformance at a pinned version |
+| Stage 2 — transparent gateway and Clarvis conformance | M1 + M2, **wire-level scenarios only** — stream termination and `[DONE]`, fragmented tool-call arguments, tool-call indexes and IDs, tool result IDs, `reasoning_content`, cancellation, fast cached `/v1/models`. Pool separation and fallback are Stage 3 additions to the same suite (§8.8). Plus M10, since an upstream needing a credential cannot be reached without it |
+| Stage 3 — live Clarvis ↔ RAVIS | M9, and with it M3a (the adapter interface M6 filters through), M5 (chat and agent pools resolve independently), M6 (the agent pool refuses a non-tool model) and M12 (fallback does not corrupt the stream) — each is named in the stage's own exit criteria. Direct-provider fallback verified |
+| Stage 5 — RAVIS intelligence | M3b + M4 + M7 + M8 (translated path, native and local adapters), M13 + M14 (SIRVIS evidence, local lifecycle), M16 (policy) |
+| Stage 6 — NERVIS core | M11 + M15 + M18 |
+| Stage 7 — events and tracing | M18 |
+| Stage 10 — whole-ecosystem hardening | M19 + M20 |
+| **Unscheduled — after Stage 10, or never** | M17 (RAVIS's own dashboard — §15 keeps the UI optional), M21, M22, M23, M24. Listed so that no milestone is silently unassigned: a milestone absent from every row above is deferred by decision, not by oversight |
+
+> **Ordering note.** M4 is numbered before M9 but executes after it, and M3 straddles them:
+> M3a lands at Stage 3 because M6 cannot filter on capabilities without the adapter that
+> discovers them, while M3b — the translated path — waits for Stage 5. §20.2 already says
+> translation comes only after the transparent Clarvis slice works. Where the numbering and the
+> stages disagree, the stages win.
 
 ## 20.2 First vertical slice
 
@@ -1011,6 +1189,11 @@ Clarvis → Custom OpenAI provider → RAVIS → transparent upstream
 including tool calls. **Only after that** add native-provider translation.
 
 ## 20.3 MVP definition
+
+**This is not the first release.** The runbook ships RAVIS twice: *RAVIS alpha* at Stages 2–3
+— transparent gateway plus Clarvis conformance — which with Clarvis is the first genuinely
+useful release in the ecosystem, and then the Stage 5 build described here. MVP below is the
+Stage 5 outcome. Do not treat it as the target for the first shippable thing.
 
 OpenAI-compatible clients connect; `/v1/models` is fast and cached; chat completions work;
 streaming works; cancellation works; tools work; OpenAI, Anthropic, Google, OpenRouter,
@@ -1041,7 +1224,7 @@ Clarvis Bridge, and NERVIS code-server integration.
 | Management API paths | Addendum used `/v1/providers` etc.; the plan used `/api/v1/…` | `/api/v1/…` for management — `/v1` is reserved for the OpenAI-compatible surface and must not be shared |
 | Profile IDs | Both propose `ravis/clarvis-chat` / `ravis/clarvis-agent`, but the addendum says confirm before coding | Retained as the proposal, with §5 requiring verification against the real Clarvis picker. RAVIS adapts, not Clarvis |
 | Evidence provenance enums | SIRVIS publishes 4 levels; RAVIS defines 5 of its own | Both kept; §13.3 defines the mapping and forbids promotion |
-| Milestone numbering | Plan M0–M24; addendum E-R0–E-R7 | M-numbers are the spine; E-R gates fold in (§20.1) |
+| Milestone numbering | Plan M0–M24; addendum E-R0–E-R7 | M-numbers identify the work. The addendum's E-R gates are retired — that document is not in this set — and §20.1 now maps the milestones onto the runbook's stages, which schedule them |
 | Dead citations | `fileciteturn…` markers throughout | Removed; the Clarvis-derived facts are restated as verified claims pointing at `CLARVIS.md` §3 |
 
 ---

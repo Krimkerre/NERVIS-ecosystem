@@ -215,7 +215,8 @@ In order of how much they have found here:
    `getComputedStyle()`, and re-reading the emitted text. Nearly every defect
    above was found this way or not at all.
 2. **Cycling the SIMULATE strip** and diffing which screens changed. This is the
-   E-N2 gate and it is walkable, not asserted.
+   runbook Stage 6 degradation requirement (`NERVIS.md` §21.1, M1 + M2) and it is
+   walkable, not asserted.
 3. **Reading numbers against each other** — resident versus budget, members versus
    invariants, exclusions versus counts.
 4. **`tools/check.py`** — catches JS that does not parse, unbalanced CSS braces,

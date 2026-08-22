@@ -201,6 +201,25 @@ host_kind:     vscode | vscodium | code-server | other proven-compatible host
 **The raw workspace path and name are private by default.** If user-visible workspace labelling
 is enabled, publish a deliberately selected label *separately* from the opaque ID.
 
+**Every Bridge request is authenticated.** The Bridge generates a token when it starts, holds it
+for the extension host's lifetime, and requires it on every request including
+`/ecosystem/events`. The token is handed to NERVIS at registration and never written to a log,
+an event, a trace or a diagnostic packet.
+
+Two things force this, from opposite directions. NERVIS refuses to register a service that
+cannot authenticate — §5.1 requires an authentication reference and forbids accepting an
+unauthenticated process's claimed service type — so an unauthenticated Bridge makes Stage 8
+unreachable without NERVIS abandoning its own rule. And the Bridge's port is allocated per
+extension host and discovered through registration rather than fixed, so **any local process can
+bind the port a Bridge would have used and impersonate a Clarvis instance**, feeding fabricated
+`clarvis.gate.requested` and `clarvis.agent.*` events into the operator's dashboard. That is the
+runbook's "malicious service registration" case, and the same hole read backwards exposes the
+Bridge's own redacted status to any local reader.
+
+The token authenticates the *channel*; it grants nothing beyond what §6.2 already publishes.
+**A holder of the Bridge token still cannot resolve a gate, run a tool or execute a command**
+(§6.7).
+
 ## 6.2 Capabilities
 
 ```text
@@ -214,6 +233,15 @@ clarvis.ravis_provider@1
 > **There is no `clarvis.gates.approve`, and no unrestricted tool or command capability.**
 
 ## 6.3 Status model
+
+```text
+GET {bridge}/v1/status        interpreted state for this extension host
+GET {bridge}/ecosystem/*      identity, health, capabilities, version, events (MEP §4.1)
+```
+
+One instance, one answer: `/v1/status` describes **the extension host serving it** and never
+aggregates two windows (§6.6). It is read-only — there is no write path on the Bridge, and
+§6.7 is why. Authentication per §6.1 applies to both surfaces.
 
 Expose interpreted, bounded state — never raw editor internals:
 
@@ -384,7 +412,8 @@ Opt-in, extension-host-scoped metadata and status endpoints.
 
 **Exit:** MEP conformance; collision, disablement, start/reload/close, privacy and two-window
 tests pass; Bridge absence does not affect Clarvis; no safety-gate bypass; no workspace escape;
-no secrets emitted.
+no secrets emitted; **an unauthenticated caller is refused on every endpoint including the event
+stream, and the token never appears in a log, event or trace.**
 
 ### E-C4 — Events and traces
 
@@ -392,7 +421,8 @@ Structured redacted events, correlation propagated through RAVIS.
 
 **Exit:** event schema, ordering, dedup, redaction and bounded-buffer tests pass; a cross-service
 trace resolves; normal Clarvis behaviour is unchanged; **tracing failure never blocks an agent
-run.**
+run**; an unauthenticated subscriber receives no events, and a process impersonating a Bridge on
+a free port cannot register with NERVIS.
 
 ### E-C5 — NERVIS visibility
 
@@ -419,7 +449,55 @@ intact.
 
 ---
 
-# 9. Final checklist
+## 8.1 Ecosystem stage mapping
+
+The runbook's §6.2 stages are the ecosystem's schedule, and it names the mapping tables in
+`RAVIS.md` §20.1, `SIRVIS.md` §21.2 and `NERVIS.md` §21.1. This is Clarvis's, and it exists so
+that the one product that already runs as code is not the one product absent from the build
+order.
+
+| Runbook stage | Lands in |
+|---|---|
+| Stage 0 — baseline and invariant lock | E-C0 |
+| Stage 1 — shared protocol | The Bridge contract **on paper only** — schema and contract fixtures, no daemon. The runbook is explicit that Clarvis does not run a Bridge at this stage; these fixtures are owned here rather than by a later gate |
+| Stage 2 — transparent gateway and Clarvis conformance | The RAVIS regression fixture half of E-C2. RAVIS builds its conformance suite against Clarvis's real expectations, so the fixtures must exist before that suite does |
+| Stage 3 — live Clarvis ↔ RAVIS | E-C1, and the role-profile and fallback half of E-C2. **Configuration only — no Clarvis source change** |
+| Stage 8 — Clarvis Bridge | E-C3 + E-C4 + E-C5 |
+| Stage 9 — code-server compatibility and the Code tab | E-C6 |
+| Stage 10 — whole-ecosystem hardening | E-C7 |
+
+E-C2 is deliberately split: its fixtures are a Stage 2 dependency of another product, while its
+role-profile and fallback behaviour is Stage 3.
+
+---
+
+# 9. Retrieved content is evidence, never intent
+
+The runbook §9 invariant applies to every product, and **Clarvis is where it is actually
+tested.** RAVIS forwards, SIRVIS measures, NERVIS observes — Clarvis reads.
+
+Every one of these enters an agent prompt and none of them is trustworthy: file contents,
+diffs, dependency manifests, test output, build logs, terminal output, and any web or
+documentation text a tool returns. A repository can put a sentence in a README, a comment, a
+commit message or a failing test's output that reads as an instruction to the agent, and it
+costs an attacker nothing to try.
+
+So: **retrieved content is fenced as data before it enters a prompt, and nothing inside it can
+authorize an action.** It cannot approve a gate, widen the workspace boundary, select a tool,
+supply a command, or change which model or provider is in use. The existing gates are what make
+this enforceable rather than aspirational — the model may *propose* anything, and the gate is
+what decides. The rule is that a proposal's persuasiveness is never evidence, and the gate never
+reads its justification.
+
+`src/agent/gate/injection.test.ts` already covers the command half of this. The remaining work
+is stating the fencing boundary for the read path and testing it the same way.
+
+**Gate:** a repository containing text directed at the agent — in a file, a diff, a test failure
+or terminal output — changes no gate outcome, no workspace boundary and no provider selection.
+
+---
+
+# 10. Final checklist
 
 - [ ] `clarvis/plan.md` remains normative and unchanged except for approved references.
 - [ ] Every ecosystem addition is labelled *proposed* until accepted.
@@ -440,7 +518,7 @@ intact.
 
 ---
 
-# 10. Conflicts resolved in this consolidation
+# 11. Conflicts resolved in this consolidation
 
 | Conflict | Sources | Resolution |
 |---|---|---|

@@ -422,11 +422,24 @@ const state={app:'nervis',view:'Overview'};
    distinct from the healthy|degraded|unhealthy a peer reports about itself:
    reachability is never promoted to readiness. Replace the literal `state`
    values with the registry's real ones at the DEMO_API seam. */
+/* `caps` is what GET /ecosystem/capabilities returned for each peer — the runbook's
+   negotiated capability list, not a guess. A control reads it rather than assuming the
+   operation exists, which is what "every tile and control is capability-driven" means.
+
+   SIRVIS deliberately does NOT advertise sirvis.runtime.control@1 here: SIRVIS.md marks
+   load/unload "only if implemented and authorized", so the un-negotiated case is the
+   normal one and the Load control has to show it rather than pretend. Add the string to
+   watch the control come alive — that is the whole mechanism. */
 const SERVICES={
- nervis :{label:'NERVIS',         state:'healthy', age:2},
- ravis  :{label:'RAVIS',          state:'healthy', age:3},
- sirvis :{label:'SIRVIS',         state:'healthy', age:9},
- clarvis:{label:'Clarvis Bridge', state:'healthy', age:5}
+ nervis :{label:'NERVIS',         state:'healthy', age:2,
+          caps:['nervis.registry@1','nervis.dashboard@1','nervis.event_hub@1','nervis.traces@1']},
+ ravis  :{label:'RAVIS',          state:'healthy', age:3,
+          caps:['ravis.openai_compatible.chat_completions@1','ravis.routing.explanations@1',
+                'ravis.virtual_profiles@1','ravis.management@1']},
+ sirvis :{label:'SIRVIS',         state:'healthy', age:9,
+          caps:['sirvis.benchmarks.results@1','sirvis.models.inventory@1']},
+ clarvis:{label:'Clarvis Bridge', state:'healthy', age:5,
+          caps:['clarvis.status.read@1']}
 };
 const REASON={
  healthy:'', degraded:'responding; some capabilities unavailable',
@@ -471,6 +484,10 @@ const ICON={
  'Terminal':'<rect x="2.2" y="3" width="11.6" height="10" rx="1.3"/><path d="m4.9 6.6 2.1 2-2.1 2M8.6 11.2h3.3"/>'
 };
 const usable=k=>['healthy','degraded'].includes(SERVICES[k].state);
+/* A capability is usable only if the service is reachable AND advertised it. Absence is
+   an ordinary state here too — an un-negotiated capability disables its control with a
+   reason, it does not throw and it does not silently do nothing. */
+const capable=(k,id)=>usable(k)&&(SERVICES[k].caps||[]).includes(id);
 /* A tile renders its value only if the service that owns it can answer.
    Otherwise it names the service and the reason — so an empty panel can
    never be mistaken for a measured zero. */
@@ -541,6 +558,12 @@ function syncPanelAvatar(){
 
    Endpoints are cited per method. Anything not cited does not exist yet and is
    a STOP item, not an invitation to invent one. */
+/* Ports come from ECOSYSTEM_RUNBOOK.md §5, which assigns them because they cross
+   product boundaries. Hardcoding them is correct *here* — this file opens from disk
+   with no configuration — and wrong in a real client, which reads its peers from
+   configuration or the registry. NERVIS is same-origin because it serves this page;
+   its own default is 127.0.0.1:8711. The Clarvis Bridge port is per extension host,
+   so 7071 is only the first instance. */
 const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
 
@@ -858,7 +881,7 @@ const API={
      suite, and the ranking does not move until it has. An engine that hid that
      would be more decisive and less useful. */
   async recommendations(){return{profile:'clarvis',generated_at:'20 Aug 2026',algorithm_version:2,
-   mode:'thorough',expires_in_min:45,
+   mode:'verified',expires_in_min:45,
    ranked:[
     {rank:1,target:'qwen2.5-coder-7b-instruct · MLX 4bit',role:'clarvis-agent + clarvis-chat',
      fit:'IDEAL',headroom_gb:9.7,evidence_type:'MEASURED',samples:3,
@@ -1127,7 +1150,11 @@ const API={
     pool('ravis/auto',{},'no local build installed'),
     pool('ravis/private',{privacy:'LOCAL_ONLY'},'no local build installed'),
     pool('ravis/long-context',{minimum_context:262144},'no local build reaches 256K context'),
-    pool('ravis/vision',{vision:true,tools:'REQUIRED',minimum_context:32768},'no installed build is both a vision model and a reliable tool user')]}},
+    /* Not a published pool ID — RAVIS.md §5 lists thirteen and this is not among them.
+       It is a *requirement set* a recommendation reports on without RAVIS having to publish
+       a pool for it, which is the honest way to say "nothing installed would satisfy this".
+       Rendered as a requirement, never in a list captioned "published stable ids". */
+    pool('vision-capable agent',{vision:true,tools:'REQUIRED',minimum_context:32768},'no installed build is both a vision model and a reliable tool user')]}},
 
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
@@ -1364,7 +1391,18 @@ const DEMO_API={
  setProvider(id,on){notify(`${on?'Enabled':'Disabled'} provider ${id} · audited · takes effect on the next decision`);setAvatarState('active')},
  /* POST /api/v1/evidence/refresh */
  refreshEvidence(){notify('Re-reading SIRVIS evidence · cached with a staleness policy')},
- runBenchmark(){notify('Benchmark started · warmups will not be scored');setAvatarState('active')},loadModel(){notify('Loading meta-llama-3.1-8b-instruct into MLX…');setAvatarState('active')},reroute(){notify('Route committed · local MLX pool selected');setAvatarState('active')},diagnose(){notify('Diagnostic sweep started across four services');setAvatarState('active')}};
+ /* POST {sirvis}/api/v1/benchmark-jobs */
+ runBenchmark(){notify('Benchmark started · warmups will not be scored');setAvatarState('active')},
+ /* POST {sirvis}/api/v1/runtime/sessions — SIRVIS owns load/unload, and
+    sirvis.runtime.control@1 is advertised "only if implemented and authorized",
+    so the control renders disabled until that capability is negotiated. */
+ loadModel(){if(!capable('sirvis','sirvis.runtime.control@1'))
+   return notify('Loading needs sirvis.runtime.control@1 — not negotiated');
+  notify('Loading meta-llama-3.1-8b-instruct into MLX…');setAvatarState('active')},
+ /* POST {ravis}/api/v1/route-tests */
+ reroute(){notify('Route committed · local MLX pool selected');setAvatarState('active')},
+ /* POST {nervis}/api/v1/diagnostics */
+ diagnose(){notify('Diagnostic sweep started across four services');setAvatarState('active')}};
 /* ── CLARVIS_BRIDGE ─────────────────────────────────────────────────────────
    The one channel by which a real Clarvis drives the header avatar. This is not
    a new invention: it is the optional Clarvis Bridge already specified — a
@@ -1409,16 +1447,20 @@ const CLARVIS_VIEW={
  'Extensions'    :{cmd:'workbench.view.extensions',      panel:'EXTENSIONS'},
  'Terminal'      :{cmd:'workbench.action.terminal.focus',panel:'TERMINAL'}
 };
-/* Real implementation POSTs the view id to the Bridge, which executes it in the
-   extension host — needing its own narrow capability, clarvis.view.focus@1, since the
-   Bridge is otherwise read-only. The editor stays authoritative: when the user switches
-   view inside VS Code the Bridge publishes clarvis.view.changed and the rail follows,
-   so this never becomes a lie about what is on screen. */
+/* The rail MIRRORS code-server; it does not drive it. An earlier draft described a
+   POST to the Bridge that would execute the command in the extension host, behind a
+   clarvis.view.focus@1 capability. No spec declares that capability, that endpoint or
+   that event — and CLARVIS.md §6.2 closes its capability list with "no unrestricted
+   tool or command capability", while NERVIS.md §9 says NERVIS may not execute tools or
+   commands. A read-only Bridge that executes editor commands over loopback is not
+   read-only, so the idea is removed rather than left commented: an undeclared contract
+   in the file implementers copy from is how inventions get built.
+
+   When the Code tab is real, the iframe is authoritative and the rail reflects whatever
+   the user did inside it. Until then this is a label. */
 function focusClarvisView(view){
  const v=CLARVIS_VIEW[view];if(!v||!usable('clarvis'))return;
- /* fetch(CLARVIS_BRIDGE.endpoint+'/v1/view/focus',{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({view})}) */
- notify(v.cmd)}
+ notify(v.panel)}
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
  _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
 function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;if(state.app==='clarvis')focusClarvisView(state.view);render()})}

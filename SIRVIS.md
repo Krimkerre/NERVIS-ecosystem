@@ -164,6 +164,11 @@ change requires a versioned contract change **before** consumer work begins.
 `/ecosystem/health` plus identity and capability summaries. The `/ecosystem/*` endpoints are
 canonical for negotiation.
 
+`GET /api/v1/models` accepts **`runtime_key`**, resolving the name a runtime reports for a build
+to that build's identity (§6, §12.2), for installed models whether or not they are loaded. This
+is the lookup RAVIS uses instead of matching on names, which §15.1 forbids. It answers 404 when
+no installed build carries that key, and 404 stays meaningfully different from a guess.
+
 Cancellation is idempotent. **A successful HTTP request is not a successful benchmark.**
 
 ## 4.3 Error model
@@ -186,10 +191,34 @@ client generation and breaking-change checks all derive from it.
 
 ## 4.5 Security and privacy
 
-Bind `127.0.0.1` by default; never expose to the LAN by default. Optional local API tokens,
-with future scopes `read`, `benchmark`, `runtime`, `admin`. Benchmark prompts and results
+Bind `127.0.0.1` by default; never expose to the LAN by default. Benchmark prompts and results
 stay local. External networking happens only for model discovery, model download, optional
 external judges and updates. **Never upload benchmark results automatically.**
+
+**A local API token is required, not optional.** SIRVIS's mutating surface starts
+multi-gigabyte downloads, loads and evicts models other clients hold, and saturates the machine
+with benchmark work; loopback is not a boundary against another local process, and §15.2's
+management gate — "read-only users cannot invoke it" — cannot be exited by a service with no
+concept of a user. Scopes are `read`, `benchmark`, `runtime` and `admin`. Every mutating
+endpoint requires a scope even on loopback. Reads may be unauthenticated where a peer needs
+them for negotiation, and `/ecosystem/*` follows the runbook.
+
+**Origin and Host validation.** SIRVIS serves a browser dashboard from the same origin as those
+mutating endpoints, so any page the user visits could otherwise POST to `127.0.0.1:8721`.
+Reject a non-allow-listed `Origin` or `Host`, require a non-simple content type plus a CSRF
+token on mutations, and apply the same origin policy to `/ecosystem/events`. A token check and
+an origin check answer different questions — the browser already carries the user's
+credentials — so both are required.
+
+**Retrieved content and the fencing rule.** Under runbook §9 the producer owns fencing. SIRVIS
+has exactly one such path: **optional external judges**, where a model's generated output
+becomes input to a judging prompt. That output is untrusted text by construction — it is the
+thing under test — so it is fenced before it enters a judge prompt, and a judge verdict is
+never accepted as an instruction to SIRVIS. Downloaded model metadata is fenced on the same
+grounds wherever it reaches a prompt.
+
+**Gate:** an unauthenticated mutation is refused; a wrong-`Origin` mutation is refused; a
+generated output containing judge-directed text does not change its own verdict.
 
 ---
 
@@ -225,11 +254,23 @@ Four separate concepts, never collapsed:
 |---|---|---|
 | **ModelFamily** | A conceptual base model (e.g. `Qwen3-30B-A3B`) | `family_id`, display name, architecture, parameter count, active parameter count, declared context, source metadata |
 | **ModelVariant** | A specific usable build/conversion (GGUF Q4_K_M, MLX 4-bit…) | `variant_id`, `family_id`, source repository, revision, runtime format, quantization, file info, size, architecture metadata |
-| **LocalModel** | An installed variant | `local_model_id`, `variant_id`, storage path, installed size, download source, installed timestamp |
+| **LocalModel** | An installed variant | `local_model_id`, `variant_id`, storage path, installed size, download source, installed timestamp, **`runtime_key`** — the name the runtime itself reports for this build, whether or not it is loaded |
 | **RuntimeModelInstance** | A currently loaded instance | `instance_id`, `local_model_id`, runtime, requested config, effective config, load time, loaded timestamp, runtime identifier |
 
 **Family linking preserves uncertainty.** Link equivalent variants under one family, but never
 assert equivalence solely because names look similar.
+
+**`runtime_key` is the join RAVIS needs, and it belongs to the installed model rather than to a
+loaded instance.** RAVIS sees only what a provider reports — `qwen3-30b-a3b-mlx` — and §15.1
+forbids it inferring equivalence by name or reading SIRVIS's database, so without a lookup that
+works on a *cold* model, exactly the case the load-or-don't decision needs evidence for, RAVIS
+must route on `UNKNOWN`. Resolve it with `GET /api/v1/models?runtime_key=…`, which returns the
+build identity (§12.2) or 404. **404 is a correct answer** and must stay distinguishable from a
+guess.
+
+One name for artifact identity, since four are currently in use: **`local_model_id`** is the
+installed build; `artifact_id`, `model_artifact` and a bare `model_id` are not separate things
+and should not appear.
 
 Responses must distinguish installed artifact from loadable configuration from running
 instance. Missing runtime and stale instance must be distinguishable. Do not claim tool use,
@@ -676,8 +717,21 @@ Minimum `clarvis-chat` and `clarvis-agent`; later `clarvis-joint` and `clarvis-c
 
 These are **SIRVIS workload specifications**, not RAVIS virtual profile definitions, though
 they may share stable references. Clarvis's separate chat and coding-model behaviour is
-source-established; these suites and their thresholds are proposed and require explicit
-acceptance. If a workload definition does not exist, **stop rather than guess**.
+source-established. If a workload definition does not exist, **stop rather than guess**.
+
+**Accepted, with the threshold recorded here.** These suites were previously marked "proposed,
+require explicit acceptance", which left `clarvis-agent: FAIL` with no evaluable pass condition
+while M13, M15 and M16 stated their exits unconditionally. The accepted threshold for the agent
+role is:
+
+```text
+clarvis-agent  tool_call_pass_rate ≥ 0.95 over ≥ 50 attempts, at suite version 1
+```
+
+The number is versioned with the suite, and the suite version is part of evidence identity
+(§12.2), so changing it produces new evidence rather than silently reinterpreting old evidence.
+A run of fewer than 50 attempts yields `UNKNOWN`, never a pass. Any later role suite records its
+threshold the same way before a milestone may depend on it.
 
 **`clarvis-chat`** evaluates instruction following, clarity, conversation quality, code
 explanation, diff explanation, summarization, planning quality, conversational latency and
@@ -900,9 +954,18 @@ RuntimeSet · RuntimeSetMember · RuntimeSession · ResourceLease
 DownloadJob
 BenchmarkSuite · BenchmarkTest
 Experiment · ExperimentTarget · ExperimentJob · Generation · Metric · Evaluation
+BenchmarkRun · BenchmarkResult
 EvidenceRecord
 RecommendationProfile · Recommendation · Tag
 ```
+
+`BenchmarkRun` and `BenchmarkResult` are stored because they are already served
+(`/api/v1/benchmark-runs/{run_id}`, `/benchmark-results/{result_id}`), already declared as
+domain identifiers, and already the target of `source_run_id` — the provenance pointer RAVIS
+must preserve and NERVIS must dereference to drill through to evidence. **A run is one execution
+of one `Experiment`**: an Experiment has many runs, a run has one result per
+`ExperimentTarget`, and a run never spans experiments. Without the entity and that cardinality
+written down, the drill-through cannot be built without inventing the mapping.
 
 High-frequency telemetry goes to Parquet where SQLite becomes unsuitable. Use database
 migrations from the first commit.
@@ -1008,16 +1071,16 @@ sirvis/
 
 # 21. Milestones
 
-Ecosystem gates from the addendum (E-S0…E-S7) are folded in as additional exit criteria; the
+Milestone numbers identify work; the runbook's stages schedule it, and §21.2 maps between them. The
 mapping is in §21.2.
 
 | # | Milestone | Build | Exit |
 |---|---|---|---|
-| **M0** | Foundation | Python package, config, SQLite, migrations, structured logging, FastAPI shell, CLI shell | `sirvis doctor` and `sirvis serve` work; health endpoint works; database migrates; no runtime dependency needed to start |
+| **M0** | Foundation | Python package, config, SQLite, migrations, structured logging, FastAPI shell, CLI shell, the `/ecosystem/*` MEP surface | `sirvis doctor` and `sirvis serve` work; database migrates; no runtime dependency needed to start; MEP conformance fixtures pass at one pinned protocol version and a mismatched major fails cleanly — Stage 1 exits here, not at M4 |
 | **M1** | Hardware/system detection | Apple Silicon detection, RAM, CPU, GPU where possible, macOS, disk, swap, thermal basics, `SystemSnapshot` | Immutable snapshot persisted; a missing metric returns Unknown rather than a fabricated value; system endpoint works |
 | **M2** | LM Studio adapter | health, runtime info, installed models, loaded models, load, unload, generation | Discover → load → generate → unload; effective configuration captured |
 | **M3** | Model domain and inventory | `ModelFamily`, `ModelVariant`, `LocalModel`, `RuntimeModelInstance`, family linking | GGUF and MLX variants represented separately; family relation without pretending exact equivalence; stable IDs survive restart; duplicate display names do not collide |
-| **M4** | Public API foundation | `/health`, `/system`, `/models`, `/runtime`, plus the MEP `/ecosystem/*` surface | An external script can inspect SIRVIS and control a model *through SIRVIS* rather than LM Studio directly; MEP conformance fixtures pass; unsupported-major and redaction tests pass |
+| **M4** | Public API foundation | `/health`, `/system`, `/models`, `/runtime`, plus §4.5 token scopes and origin validation | An external script can inspect SIRVIS and control a model *through SIRVIS* rather than LM Studio directly; MEP conformance fixtures pass; unsupported-major and redaction tests pass; an unauthenticated or wrong-origin mutation is refused |
 | **M5** | SDK foundation | TypeScript and Python clients | A Node client can reach health, system, models, runtime |
 | **M6** | Single-model benchmark engine | Experiment, warmups, repetitions, raw response capture, TTFT, tok/s, memory, load lifecycle | `sirvis benchmark run examples/basic.yaml` persists a valid result |
 | **M7** | Benchmark evidence schema | Canonical identity and repeated-measurement structure | No scalar-only canonical score; individual repetitions preserved; median and spread available; `ESTIMATED`/`UNKNOWN` never become `MEASURED` |
@@ -1056,16 +1119,22 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 
 ## 21.2 Ecosystem gate mapping
 
-| Addendum gate | Lands in |
+| Runbook stage | Lands in |
 |---|---|
-| E-S0 contract inventory | M0 (label every object `EXISTING`, `PROPOSED` or `CONFLICT`; unresolved fields are STOP items) |
-| E-S1 MEP surface | M4 |
-| E-S2 inventory/state | M3 + M4 |
-| E-S3 Runtime Sets | M9 |
-| E-S4 benchmark lifecycle | M6 + M10 |
-| E-S5 recommendations and Clarvis workloads | M13 + M15 |
-| E-S6 RAVIS/NERVIS/event integration | M16 + M21 — **no production test doubles** |
-| E-S7 hardening | after M22 |
+| Stage 0 — baseline and invariant lock | M0 — label every object `EXISTING`, `PROPOSED` or `CONFLICT`; unresolved fields are STOP items |
+| Stage 1 — shared protocol | M0 — the `/ecosystem/*` surface and MEP conformance. Stage 1 exits here; it cannot wait for M4, because M4 sits inside Stage 4 and Stage 4 may not start until Stage 1 has exited |
+| Stage 4 — SIRVIS evidence plane *(parallel; may start after Stage 1)* | M1 + M2 (machine detection and runtime integration — nothing can be measured without them), M3 + M4 (inventory, state and the public API), M7 (evidence and provenance schema — **its acceptance is verbatim this stage's exit criterion**), M8 (Resource Manager, which owns every load and unload), M6 + M10 (benchmark lifecycle), M9 (Runtime Sets), M13 + M15 (recommendations and Clarvis role workloads), **M16 (the RAVIS evidence API)** |
+| Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
+| Stage 10 — whole-ecosystem hardening | M22 |
+| **Unscheduled — after Stage 10, or never** | M5 (SDK), M11 (model browser and download), M12, M14 (web UI — §16 keeps it standalone), M17, M18, M19, M20. Listed so no milestone is silently unassigned |
+
+> Stage 4 runs alongside Stages 2–3 and must be finished before Stage 5, when RAVIS begins
+> ingesting evidence. SIRVIS has no inbound dependency before that point.
+>
+> **M16 is inside Stage 4, not after it.** It is the surface RAVIS reads, Stage 5 exits on a
+> SIRVIS result changing a RAVIS preference, and the runbook requires a real producer — not a
+> test double — for the SIRVIS→RAVIS pairwise gate. Scheduling it at Stage 6 would make Stage 5
+> unexitable by construction.
 
 ---
 
@@ -1111,7 +1180,7 @@ model deletion, AI-generated benchmark suites.
 | Health state enum | Plan: `HEALTHY/DEGRADED/OFFLINE/STARTING/UNKNOWN`; MEP: `healthy/degraded/unhealthy` | The service reports the MEP status. `OFFLINE`, `STARTING`, `stale` and similar are **observer-side** registry states owned by NERVIS, not values SIRVIS reports about itself |
 | Evidence levels | Plan: 4 levels incl. `PARTIALLY_MEASURED`; addendum: 3 | Keep all four. Consumers that do not model `PARTIALLY_MEASURED` treat it as `ESTIMATED`. Aggregation never promotes |
 | Benchmark job states | Plan: 12 internal phases; addendum: 7 contract states | Coarse enum `queued/preparing/running/succeeded/failed/cancelled/partial` is the published contract; the internal phase rides in a `detail` field |
-| Milestone numbering | Plan M0–M22; addendum E-S0–E-S7 | M-numbers are the build spine; E-S gates fold in as extra exit criteria (§21.2) |
+| Milestone numbering | Plan M0–M22; addendum E-S0–E-S7 | M-numbers identify the work. The addendum's E-S gates are retired — that document is not in this set — and §21.2 now maps the milestones onto the runbook's stages, which schedule them |
 | Dead citations | `fileciteturn…` markers throughout both sources | Removed. The 32% run-to-run variation claim is retained as a statement of Clarvis's own development finding (§11.7) |
 
 ---
