@@ -30,6 +30,23 @@ In the template that means: do not add a UI control without an endpoint that bac
 A screen implying an API nobody has agreed to is worse than a missing screen, because
 it looks finished.
 
+## Writing code here
+
+**`ECOSYSTEM_RUNBOOK.md` §14 is the engineering standard** — complexity ceiling of 8, naming,
+comments, error handling, tests, and the lint/type/test gates that enforce them. It is stated
+once there and is not repeated in this file or in any product document, for the same reason the
+specs are not repeated in the template.
+
+Two parts of it are easy to get wrong from habit, so they are worth naming here:
+
+- **Comments are generous by design.** This project is being built as a way of learning the
+  domain, so the reader to write for is the author six months from now, still learning. Explain
+  what a thing does and why it exists — including the domain reasoning, not only the code
+  reasoning — and cite the specification section that governs the rule. See §14.3.
+- **Absence is a domain value.** Null, `UNKNOWN` and 404 carry meaning in this system and are
+  not defects to be optimised away — but they must never stand in for *empty* or for *failure*.
+  See §14.4.
+
 ## One copy of everything
 
 The specs used to exist twice — here, and snapshotted inside the template — and the

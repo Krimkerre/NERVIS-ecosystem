@@ -674,7 +674,126 @@ Clarvis boundary.
 
 ---
 
-## 14. Whole-ecosystem acceptance checklist
+## 14. Engineering standards
+
+One standard for all four products, stated once here because a coding rule copied into four
+documents drifts exactly like a contract copied into four documents. Product documents add
+deltas; they do not restate this.
+
+### 14.1 What is enforced, and by what
+
+**A rule nobody checks is a preference.** Every mechanical rule below is a CI gate, and the
+gate is the authority — not this prose.
+
+| Rule | Python | TypeScript |
+|---|---|---|
+| Cyclomatic complexity **≤ 8** per function | `ruff` `C901`, `max-complexity = 8` | `eslint` `complexity: ["error", 8]` |
+| Line length ≤ 100 | `ruff` `E501`, `line-length = 100` | `eslint` `max-len` |
+| Import order, unused names and arguments, obvious simplifications | `ruff` `I`, `F`, `ARG`, `SIM` | `eslint` `no-unused-vars` |
+| Naming conventions | `ruff` `N` | `@typescript-eslint/naming-convention` |
+| Types at every public boundary | `mypy --strict` on the protocol package and every adapter | `tsc --noEmit` |
+| Tests pass without a live model, network or Redis | `pytest` | `npm test` |
+
+Eight is deliberate rather than conventional. The branchiest code in this ecosystem is
+eligibility filtering, capability negotiation and stream translation — precisely where a hidden
+path is a compatibility bug rather than a style problem. **An exemption is a `# noqa: C901` with
+a sentence saying why the branching is irreducible**, and a reviewer may reject the sentence.
+
+Function length is guidance, not a gate: under twenty lines is a good target, but line count is
+a poor proxy and complexity is the honest measure.
+
+### 14.2 Naming, structure and simplicity
+
+Intention-revealing names. Classes are nouns, methods are verbs. No `data`, `info`, `manager`,
+`helper` or `utils` as a name — if that is the best name available, the thing does not have one
+responsibility yet. No Hungarian notation, no type prefixes, no single-letter names outside a
+comprehension or a coordinate.
+
+A function does one thing at one level of abstraction, takes zero to two arguments (three at the
+absolute limit), and **takes no boolean flag argument** — a flag means two functions sharing a
+body. Commands change state and return nothing; queries return a value and change nothing. A
+function's name is a promise about its side effects.
+
+Prefer `dict` dispatch or `match` to a long conditional chain, and **do not build a class
+hierarchy to avoid a three-branch conditional** — that trades a small smell for a large one.
+DRY, YAGNI, KISS, and the boy-scout rule apply in that order of frequency: duplication is the
+common failure, speculative generality the expensive one.
+
+Composition over inheritance. Program against the protocol, not the implementation — the
+`ProviderAdapter` and `RuntimeAdapter` protocols exist for this. Construction is separated from
+use: adapters, clients and stores are injected, never constructed inside the function that uses
+them, because that is what makes them testable without a live service.
+
+### 14.3 Comments
+
+**Write for the author six months from now, still learning this domain.** That is the standard
+here, and it is deliberately not the industry default of "comment only where the why is
+non-obvious". This ecosystem is being built as a way of learning it, so a file that only a
+current expert can follow has failed even when every name is perfect.
+
+What that means concretely:
+
+- **Comment every public function and class**, and every non-trivial block, with what it does
+  and why it exists — not only where the code is surprising.
+- **Explain the domain, not just the code.** "Assemble fragmented tool-call arguments" says what
+  the loop does. The comment that earns its place says *why the arguments arrive in fragments at
+  all*, and what breaks downstream if they are reassembled wrongly. The second reader needs the
+  concept; the first only needs the syntax, and they can already read it.
+- **Cite the section that governs the rule.** Nearly every non-obvious constraint in this code
+  exists because a specification demands it. A comment ending `— RAVIS.md §8.3` turns the
+  codebase into something you can navigate back to the reasoning from, and turns a future
+  "why is this here?" into a lookup instead of an excavation.
+- **Record what went wrong.** A guard deserves the failure it prevents, in one sentence. The
+  template's comments do this well — read a few before writing your first — and that record is
+  what stops the guard being "simplified" away by someone who never saw the bug.
+- **Name the concept**, so it is searchable later: write "prompt-injection fence", "eligibility
+  filter", "transparent path" where those are what is happening.
+
+What is still noise: restating syntax (`# increment the counter`), an apology for unclear code —
+rename it instead — and a docstring that repeats the signature in prose.
+
+**Never comment out code.** Delete it; git holds it, and git is the archive (§3). A
+commented-out block in a file others copy from is how an undeclared contract gets built: this
+project has already had one, a commented `fetch` describing a Clarvis Bridge write path that no
+specification declared and that contradicted two of them.
+
+### 14.4 Errors, absence and the wire
+
+Internally, raise exceptions with context; do not return error codes or sentinel values, and do
+not signal failure through a boolean. **At the boundary this inverts**: `/v1` returns
+OpenAI-compatible error shapes and everything else returns the MEP envelope (§4.5), so an
+exception is translated exactly once, at the edge, and no exception type is ever visible on the
+wire. Write the failure path first when a call can fail.
+
+**Absence is a domain value in this system, and must not be optimised away.** The blanket "never
+return null" rule does not apply here and would do real damage: `SirvisModelRef` is null when
+SIRVIS has not confirmed a build, evidence provenance is `UNKNOWN` rather than absent, a
+capability lookup answers 404 rather than guessing, and a no-route decision is a first-class
+explainable outcome. What the rule is actually protecting against still holds — never return
+null to mean *empty* (return the empty collection) and never return null to mean *failure*
+(raise). But where absence is a fact the caller must handle, make it explicit and typed, and
+**keep it distinguishable from a guess.**
+
+### 14.5 Tests
+
+Fast, independent, repeatable, self-validating, written with the code. **No test touches a live
+model, a network or a real service** — the conformance suites replay recorded fixtures, which is
+what makes them runnable in seconds and trustworthy in CI.
+
+Arrange, act, assert. One concept per test, which is not always one assertion: a stream
+conformance test asserting an ordered sequence of events is testing one concept. Test names
+state the behaviour and read as sentences — `cancellation_reaches_upstream_without_triggering_
+fallback`, not `test_cancel_2`. Test code is production code and is reviewed as such.
+
+### 14.6 Where a product may differ
+
+A product document may add rules and may tighten these. It may not loosen them silently: a
+deliberate exception is written down in that document with its reason, and anything not written
+down there is governed by this section.
+
+---
+
+## 15. Whole-ecosystem acceptance checklist
 
 - [ ] All four repositories build and run independently.
 - [ ] The non-invention rule appears in every app document and in agent working instructions.
@@ -698,6 +817,7 @@ Clarvis boundary.
 - [ ] Security, threat-model and privacy gates pass.
 - [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
 - [ ] Compatibility matrix, operator runbook, release notes and known limitations are published.
+- [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.
 "Implemented" without a passing exit criterion is not completion.

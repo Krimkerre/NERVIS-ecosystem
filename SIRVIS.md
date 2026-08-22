@@ -1036,6 +1036,11 @@ sirvis/
 
 # 20. Development principles for AI coding agents
 
+**Engineering standards live in `ECOSYSTEM_RUNBOOK.md` §14** — complexity ceiling, naming,
+comments, error handling, tests, and the CI gates that enforce them — and are not restated here.
+The numbered principles below are SIRVIS's measurement and provenance rules, which no general coding standard implies, and they add to that standard rather than replacing
+it. Where one of them tightens a §14 rule, the tighter rule wins.
+
 1. Keep benchmark logic independent from presentation.
 2. Keep runtime-specific behaviour inside adapters.
 3. Never silently ignore unsupported load parameters.
