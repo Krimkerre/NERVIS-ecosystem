@@ -1,0 +1,65 @@
+[project]
+name = "ravis"
+version = "0.0.1"
+description = "Local-first AI routing gateway with an OpenAI-compatible API"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.8", "mypy>=1.13"]
+
+[project.scripts]
+ravis = "ravis.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ── Engineering standards, ECOSYSTEM_RUNBOOK.md §14.1 ─────────────────────────
+# These are gates, not preferences. The prose in §14 describes them; this file
+# is what actually fails a build, which is the distinction §14.1 draws.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle: whitespace and line length
+  "F",        # pyflakes: unused imports, undefined names
+  "I",        # isort: deterministic import order
+  "C90",      # mccabe: cyclomatic complexity, capped below
+  "N",        # pep8-naming: classes are nouns in CapWords, functions lower_snake
+  "ARG",      # unused arguments — dead parameters are dead code (§14 code smells)
+  "SIM",      # flake8-simplify: the obvious simplifications
+]
+
+[tool.ruff.lint.mccabe]
+# §14.1: eight rather than the conventional ten. The branchiest code in this
+# service is eligibility filtering, capability negotiation and stream
+# translation, where an extra unexercised path is a compatibility bug rather
+# than a style problem. An exemption is `# noqa: C901` plus a sentence saying
+# why the branching is irreducible — and a reviewer may reject the sentence.
+max-complexity = 8
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/ravis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# §14.5: no test may reach a live model, a network or a real service. Nothing
+# here grants network access, and the fixtures are recorded rather than live.
+addopts = "-q"

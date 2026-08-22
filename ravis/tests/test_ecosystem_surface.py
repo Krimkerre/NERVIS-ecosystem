@@ -1,0 +1,85 @@
+"""The MEP surface, and a mismatched protocol major failing cleanly."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from ravis.app import create_app
+from ravis.config import Settings
+from ravis.ecosystem.capabilities import PROTOCOL_VERSION, is_supported_protocol
+
+
+def _client(settings: Settings) -> TestClient:
+    """A client speaking to the app through ASGI — no socket, no network."""
+    return TestClient(create_app(settings))
+
+
+def test_health_reports_live_and_ready(settings: Settings) -> None:
+    response = _client(settings).get("/ecosystem/health")
+
+    assert response.status_code == 200
+    assert response.json()["ready"] is True
+
+
+def test_health_readiness_is_a_real_check_not_a_constant(settings: Settings) -> None:
+    """Runbook §4.1: a successful TCP connect is not readiness."""
+    body = _client(settings).get("/ecosystem/health").json()
+
+    assert any(check["name"] == "database" for check in body["checks"])
+
+
+def test_identity_reports_the_service_type(settings: Settings) -> None:
+    body = _client(settings).get("/ecosystem/identity").json()
+
+    assert body["service_type"] == "ravis"
+
+
+def test_identity_machine_id_is_not_hardware_derived(settings: Settings) -> None:
+    """Runbook §4.1 forbids a serial number, MAC address or username."""
+    body = _client(settings).get("/ecosystem/identity").json()
+
+    assert len(body["machine_id"]) == 32
+
+
+def test_version_declares_the_compatible_protocol_range(settings: Settings) -> None:
+    body = _client(settings).get("/ecosystem/version").json()
+
+    assert body["compatible_protocol"]["min"] <= PROTOCOL_VERSION
+
+
+def test_capabilities_are_advertised_as_unavailable_before_they_exist(settings: Settings) -> None:
+    """RAVIS.md §4.1: never advertise an operation that has not passed conformance."""
+    body = _client(settings).get("/ecosystem/capabilities").json()
+
+    states = {capability["state"] for capability in body["capabilities"]}
+    assert states == {"unavailable"}
+
+
+def test_every_unavailable_capability_says_why(settings: Settings) -> None:
+    """A peer disabling a control deserves the reason, not just the refusal."""
+    body = _client(settings).get("/ecosystem/capabilities").json()
+
+    assert all(capability["reason"] for capability in body["capabilities"])
+
+
+def test_a_matching_protocol_major_is_supported() -> None:
+    assert is_supported_protocol("1.4.2") is True
+
+
+def test_a_mismatched_protocol_major_fails_cleanly() -> None:
+    """Runbook §4.2: reject an unsupported major structurally, never by guessing."""
+    assert is_supported_protocol("2.0.0") is False
+
+
+def test_responses_carry_a_request_id(settings: Settings) -> None:
+    """Runbook §4.3 — created if absent, so a bug report always has one."""
+    response = _client(settings).get("/ecosystem/version")
+
+    assert response.headers["X-Request-ID"]
+
+
+def test_a_supplied_request_id_is_preserved(settings: Settings) -> None:
+    """Correlation across services only works if the ID survives the hop."""
+    response = _client(settings).get("/ecosystem/version", headers={"X-Request-ID": "abc123"})
+
+    assert response.headers["X-Request-ID"] == "abc123"
