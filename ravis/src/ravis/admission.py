@@ -47,6 +47,17 @@ class BodySizeLimiter:
         self._app = app
         self._max_bytes = max_bytes
 
+    @property
+    def app(self) -> ASGIApp:
+        """The wrapped application.
+
+        Public because the wrapper is a transport layer rather than an
+        encapsulation boundary: whatever wired this up still needs to reach the
+        application it wrapped, and reading a private attribute to do so would
+        make every caller complicit in an accident waiting to happen.
+        """
+        return self._app
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self._app(scope, receive, send)

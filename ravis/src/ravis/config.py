@@ -60,6 +60,21 @@ class Settings(BaseSettings):
     tls_certificate_path: str = ""
     tls_key_path: str = ""
 
+    # ── The single upstream M1 forwards to (RAVIS.md §6, Path A) ────────────
+    # One upstream, no routing: M1 proves the boring path works before anything
+    # intelligent sits on it. Empty means no upstream is configured, which is a
+    # legitimate state — /v1/models answers from an empty cache rather than
+    # failing, because a client's availability probe must still get a 200.
+    upstream_base_url: str = ""
+    upstream_api_key: str = ""
+    # Generous, because a large local model's first token can be slow and a
+    # timeout here reads to the client as the model failing.
+    upstream_timeout_seconds: float = 300.0
+    # How long a cached model list is served before a refresh is due. The list
+    # is always served from cache regardless (§4.3); this only paces the
+    # background refresh.
+    models_cache_ttl_seconds: float = 300.0
+
     database_path: str = "ravis.db"
     log_level: str = "INFO"
 
