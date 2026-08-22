@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAVIS — Model Router</title>
+<style>
+  :root {
+    --bg:    #080a10;
+    --panel: #10141d;
+    --mag:   #ff6ec7;   /* RAVIS identity: signal, decision */
+    --mag-d: #9c3a7a;
+    --gold:  #ffc861;   /* score and budget — preferences, never constraints */
+    --dim:   #3b3346;   /* eliminated, or not in play */
+    --red:   #ff5c6a;   /* cut by a hard constraint, or no route at all */
+    --ink:   #cdd6e3;
+    --muted: #67788c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse 70% 55% at 50% 42%, #1a0f1a 0%, var(--bg) 72%);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 28px; padding: 32px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { width: 340px; height: 340px; display: grid; place-items: center; position: relative; }
+  .halo {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 46% 50%, rgba(255,110,199,.12) 0%, transparent 62%);
+    animation: haloBreath 4s ease-in-out infinite;
+  }
+  @keyframes haloBreath {
+    0%, 100% { transform: scale(1);    opacity: .9; }
+    50%      { transform: scale(1.06); opacity: .55; }
+  }
+  svg.router { width: 320px; height: 320px; overflow: visible; display: block; }
+
+  /* ——— chrome ——— */
+  .reticle  { fill: none; stroke: var(--mag); stroke-opacity: .3; stroke-width: 1.2; }
+  #tickring { fill: none; stroke: var(--mag); stroke-opacity: .45; stroke-width: 3;
+              stroke-dasharray: 2.4 20.6; transform-origin: 100px 100px;
+              animation: spin 30s linear infinite; }
+  .cardinal { stroke: var(--mag); stroke-opacity: .7; stroke-width: 1.8; stroke-linecap: round; }
+  .bracket  { fill: none; stroke: var(--mag); stroke-opacity: .4; stroke-width: 1.6; stroke-linecap: round; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ——— the policy gate ——— */
+  /* Hard constraints live here, upstream of every score. Nothing gets past it on merit. */
+  #gate { fill: none; stroke: var(--mag); stroke-opacity: .3; stroke-width: 5; stroke-linecap: round; }
+
+  /* ——— candidate lanes ——— */
+  .lane      { transition: opacity .4s; }
+  .lane .seg { fill: none; stroke: var(--dim); stroke-opacity: .22; stroke-width: 1.4;
+               stroke-dasharray: 3 6; transition: stroke .4s, stroke-opacity .4s, stroke-width .4s; }
+  .lane .node { fill: #0a0e16; stroke: var(--dim); stroke-opacity: .4; stroke-width: 2;
+                transition: stroke .4s, stroke-opacity .4s, filter .4s; }
+  .lane .port { fill: #0a0e16; stroke: var(--dim); stroke-width: 1.8;
+                transition: stroke .4s, filter .4s; }
+  .lane .kill { stroke: var(--red); stroke-width: 1.6; stroke-linecap: round;
+                opacity: 0; transform-box: fill-box; transform-origin: center;
+                transition: opacity .3s; }
+  .lane .brk  { stroke: var(--red); stroke-width: 2.2; stroke-linecap: round; opacity: 0;
+                filter: drop-shadow(0 0 6px rgba(255,92,106,.9)); }
+  .lane .score { fill: none; stroke: var(--gold); stroke-width: 3.4; stroke-linecap: round;
+                 stroke-dasharray: 0 100; transition: stroke-dasharray .5s ease;
+                 filter: drop-shadow(0 0 6px rgba(255,200,97,.8)); }
+
+  /* eligible but not yet chosen */
+  .lane.open .seg  { stroke: var(--mag); stroke-opacity: .4; }
+  .lane.open .node { stroke: var(--mag); stroke-opacity: 1; filter: drop-shadow(0 0 7px rgba(255,110,199,.35)); }
+  .lane.open .port { stroke: var(--mag); filter: drop-shadow(0 0 6px rgba(255,110,199,.6)); }
+
+  /* selected: solid, flowing, unmistakable */
+  .lane.live .seg  { stroke: var(--mag); stroke-opacity: .95; stroke-width: 2.2;
+                     stroke-dasharray: 5 5; animation: flow .8s linear infinite; }
+  .lane.live .node { stroke: var(--mag); stroke-opacity: 1; filter: drop-shadow(0 0 9px rgba(255,110,199,.85)); }
+  .lane.live .port { stroke: var(--mag); filter: drop-shadow(0 0 8px rgba(255,110,199,.9)); }
+  @keyframes flow { to { stroke-dashoffset: -20; } }
+
+  /* cut by a hard constraint — a different event from losing on score, and shown as one */
+  .lane.cut { opacity: .55; }
+  .lane.cut .port { stroke: var(--red); }
+  .lane.cut .kill { opacity: 1; animation: stamp .35s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes stamp { 0% { opacity: 0; transform: scale(.4) rotate(-25deg); }
+                     100% { opacity: 1; transform: scale(1) rotate(0); } }
+
+  .lane.dim { opacity: .4; }
+
+  /* upstream died mid-flight */
+  .lane.broken .brk { opacity: 1; animation: snap .9s ease-out infinite; }
+  @keyframes snap { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  .lane.broken .seg { stroke: var(--dim); stroke-opacity: .3; }
+
+  /* ——— decision core ——— */
+  /* A diamond, so it is never mistaken for NERVIS's hexagon. */
+  #core { fill: #0a0e16; stroke: var(--dim); stroke-opacity: .5; stroke-width: 2;
+          transition: stroke .5s, stroke-opacity .5s, filter .5s; }
+  #coreFill { fill: var(--dim); fill-opacity: .5; transition: fill .5s, fill-opacity .5s; }
+  .hot #core     { stroke: var(--mag); stroke-opacity: 1;
+                   filter: drop-shadow(0 0 13px rgba(255,110,199,.85)); }
+  .hot #coreFill { fill: var(--mag); fill-opacity: 1; animation: corePulse 1.5s ease-in-out infinite; }
+  @keyframes corePulse { 0%, 100% { fill-opacity: 1; } 50% { fill-opacity: .55; } }
+
+  /* ——— the chosen route leaves to the right ——— */
+  #out { opacity: 0; transition: opacity .4s; }
+  #out path { fill: none; stroke: var(--mag); stroke-width: 2.6;
+              stroke-linecap: round; stroke-linejoin: round;
+              filter: drop-shadow(0 0 8px rgba(255,110,199,.9)); }
+  #out circle { fill: var(--mag); filter: drop-shadow(0 0 8px rgba(255,110,199,.9));
+                animation: emit 1.2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes emit { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.35); } }
+  #nogo { opacity: 0; transition: opacity .4s; }
+  #nogo path { fill: none; stroke: var(--red); stroke-linecap: round; }
+
+  /* ——— budget ——— */
+  #budgetTrack { fill: none; stroke: var(--gold); stroke-opacity: .18; stroke-width: 4; stroke-linecap: round; }
+  #budget { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linecap: round;
+            stroke-dasharray: 0 100; transition: stroke-dasharray .6s ease;
+            filter: drop-shadow(0 0 7px rgba(255,200,97,.75)); }
+
+  /* ═══ per-state ═══ */
+  .state-idle #budget        { stroke-dasharray: 22 100; }
+  .state-eligibility #budget { stroke-dasharray: 28 100; }
+  .state-ranking #budget     { stroke-dasharray: 34 100; }
+  .state-selected #budget    { stroke-dasharray: 41 100; }
+  .state-fallback #budget    { stroke-dasharray: 58 100; }
+  .state-blocked #budget     { stroke-dasharray: 83 100; }
+
+  .state-selected #out, .state-fallback #out { opacity: 1; }
+  .state-blocked  #nogo { opacity: 1; animation: refuse 1.1s ease-in-out infinite; }
+  @keyframes refuse { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+
+  /* a no-route is a first-class outcome, so it retints the whole instrument */
+  .state-blocked { --mag: #ff5c6a; }
+  .state-blocked #core     { stroke: var(--red); stroke-opacity: .8;
+                             filter: drop-shadow(0 0 9px rgba(255,92,106,.8)); }
+  .state-blocked #coreFill { fill: var(--red); fill-opacity: .8; }
+  .state-blocked #tickring { animation-duration: 60s; }
+
+  /* ——— controls ——— */
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button {
+    font: inherit; font-weight: 500; color: var(--muted); background: var(--panel);
+    border: 1px solid #211a28; border-radius: 999px; padding: 9px 20px; cursor: pointer;
+    transition: color .2s, border-color .2s, box-shadow .2s, transform .1s;
+  }
+  button:hover { color: var(--ink); border-color: #33283c; }
+  button:active { transform: translateY(1px); }
+  button[aria-pressed="true"] {
+    color: var(--mag); border-color: var(--mag-d);
+    box-shadow: 0 0 0 1px rgba(255,110,199,.2), 0 0 18px -4px rgba(255,110,199,.6);
+  }
+  button:focus-visible { outline: 2px solid var(--mag); outline-offset: 2px; }
+  .status {
+    color: var(--muted); font-size: 12.5px; min-height: 1.5em; text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    max-width: 50ch; transition: opacity .25s;
+  }
+  .status b { color: var(--ink); font-weight: 500; }
+
+
+  /* ——— idle drift ———
+     Same 4s bob as Clarvis, and applied the same way: the chrome is a fixed frame,
+     so only what it frames moves. Children keep their own transform-origins, so the
+     spins and gauge fills compose on top of this untouched. */
+  #float { animation: bob 4s ease-in-out infinite; transform-origin: 100px 100px; }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0)     rotate(-1.1deg); }
+    50%      { transform: translateY(-11px) rotate(1.1deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="halo"></div>
+  <svg class="router state-idle" id="ravis" viewBox="0 0 200 200" role="img"
+       aria-label="RAVIS, a model router choosing one route from five candidates">
+
+    <!-- chrome -->
+    <circle class="reticle" cx="100" cy="100" r="92"/>
+    <circle id="tickring"   cx="100" cy="100" r="88"/>
+    <g class="cardinal"><path d="M100 185 v9"/><path d="M6 100 h9"/><path d="M185 100 h9"/></g>
+    <g class="bracket">
+      <path d="M14 40 V20 H34"/><path d="M166 20 H186 V40"/>
+      <path d="M186 166 V186 H166"/><path d="M34 186 H14 V166"/>
+    </g>
+
+    <g id="float">
+    <!-- eligibility gate -->
+    <path id="gate" d="M64.2 135.7 A49 49 0 0 1 64.2 64.3"/>
+
+    <!-- five candidates, left flank only: this is a flow, not an orbit -->
+    <g class="lane" id="l0">
+      <path class="seg" d="M43.2 154.9 L64.8 134.0"/>
+      <path class="seg gateseg" d="M64.8 134.0 L100 100"/>
+      <path class="score" d="M45.2 170.1 A89 89 0 0 1 26.2 149.8" pathLength="100"/>
+      <path class="brk" d="M49 149 l10 10 M59 149 l-10 10"/>
+      <circle class="port" cx="64.8" cy="134.0" r="4.4"/>
+      <path class="kill" d="M60.4 129.6 l8.8 8.8 M69.2 129.6 l-8.8 8.8"/>
+      <circle class="node" cx="43.2" cy="154.9" r="6.5"/>
+    </g>
+    <g class="lane" id="l1">
+      <path class="seg" d="M26.8 129.6 L54.6 118.4"/>
+      <path class="seg gateseg" d="M54.6 118.4 L100 100"/>
+      <path class="score" d="M22.9 144.5 A89 89 0 0 1 13.0 118.5" pathLength="100"/>
+      <path class="brk" d="M35 119 l10 10 M45 119 l-10 10"/>
+      <circle class="port" cx="54.6" cy="118.4" r="4.4"/>
+      <path class="kill" d="M50.2 114.0 l8.8 8.8 M59.0 114.0 l-8.8 8.8"/>
+      <circle class="node" cx="26.8" cy="129.6" r="6.5"/>
+    </g>
+    <g class="lane" id="l2">
+      <path class="seg" d="M21 100 L51 100"/>
+      <path class="seg gateseg" d="M51 100 L100 100"/>
+      <path class="score" d="M11.9 112.4 A89 89 0 0 1 12.4 84.6" pathLength="100"/>
+      <path class="brk" d="M31 95 l10 10 M41 95 l-10 10"/>
+      <circle class="port" cx="51" cy="100" r="4.4"/>
+      <path class="kill" d="M46.6 95.6 l8.8 8.8 M55.4 95.6 l-8.8 8.8"/>
+      <circle class="node" cx="21" cy="100" r="6.5"/>
+    </g>
+    <g class="lane" id="l3">
+      <path class="seg" d="M26.8 70.4 L54.6 81.6"/>
+      <path class="seg gateseg" d="M54.6 81.6 L100 100"/>
+      <path class="score" d="M13.6 78.5 A89 89 0 0 1 24.5 52.8" pathLength="100"/>
+      <path class="brk" d="M35 71 l10 10 M45 71 l-10 10"/>
+      <circle class="port" cx="54.6" cy="81.6" r="4.4"/>
+      <path class="kill" d="M50.2 77.2 l8.8 8.8 M59.0 77.2 l-8.8 8.8"/>
+      <circle class="node" cx="26.8" cy="70.4" r="6.5"/>
+    </g>
+    <g class="lane" id="l4">
+      <path class="seg" d="M43.2 45.1 L64.8 66.0"/>
+      <path class="seg gateseg" d="M64.8 66.0 L100 100"/>
+      <path class="score" d="M28.0 47.7 A89 89 0 0 1 47.7 28.0" pathLength="100"/>
+      <path class="brk" d="M49 46 l10 10 M59 46 l-10 10"/>
+      <circle class="port" cx="64.8" cy="66.0" r="4.4"/>
+      <path class="kill" d="M60.4 61.6 l8.8 8.8 M69.2 61.6 l-8.8 8.8"/>
+      <circle class="node" cx="43.2" cy="45.1" r="6.5"/>
+    </g>
+
+    <!-- decision core -->
+    <path id="core" d="M100 78 L122 100 L100 122 L78 100 Z"/>
+    <path id="coreFill" d="M100 88 L112 100 L100 112 L88 100 Z"/>
+
+    <!-- the selected route -->
+    <g id="out">
+      <path d="M122 100 H164"/>
+      <path d="M158 93 L166 100 L158 107"/>
+      <circle cx="176" cy="100" r="5"/>
+    </g>
+    <g id="nogo">
+      <path d="M122 100 H150" stroke-width="2.2" stroke-opacity=".45" stroke-dasharray="3 5"/>
+      <path d="M156 94 L170 108 M170 94 L156 108" stroke-width="2.6"
+            style="filter: drop-shadow(0 0 7px rgba(255,92,106,.9))"/>
+    </g>
+
+    <!-- budget -->
+    <path id="budgetTrack" d="M144.5 171.2 A84 84 0 0 1 55.5 171.2"/>
+    <path id="budget"      d="M144.5 171.2 A84 84 0 0 1 55.5 171.2" pathLength="100"/>
+    </g>
+  </svg>
+</div>
+
+<div class="controls" role="group" aria-label="Routing stage">
+  <button data-state="idle"        aria-pressed="true">Idle</button>
+  <button data-state="eligibility" aria-pressed="false">Eligibility</button>
+  <button data-state="ranking"     aria-pressed="false">Ranking</button>
+  <button data-state="selected"    aria-pressed="false">Selected</button>
+  <button data-state="fallback"    aria-pressed="false">Fallback</button>
+  <button data-state="blocked"     aria-pressed="false">Blocked</button>
+</div>
+
+<p class="status" id="status">Idle · <b>5 candidates</b> eligible · no traffic</p>
+
+<script>
+const svg    = document.getElementById('ravis');
+const status = document.getElementById('status');
+
+// lanes: 'open' | 'cut' | 'live' | 'dim'.  scores are only ever applied to survivors —
+// a preference can never rescue something the gate already cut.
+const STATES = {
+  idle: {
+    lanes: ['open','open','open','open','open'], scores: {}, hot: false,
+    status: 'Idle · <b>5 candidates</b> eligible · no traffic' },
+  eligibility: {
+    lanes: ['cut','open','open','cut','open'], scores: {}, hot: false,
+    status: 'Hard constraints · <b>2 eliminated</b> · tools required, min context 32K' },
+  ranking: {
+    lanes: ['cut','open','open','cut','open'], scores: {1:.55, 2:.95, 4:.7}, hot: true,
+    status: 'Ranking survivors · latency · quality · cost · <b>SIRVIS evidence</b>' },
+  selected: {
+    lanes: ['cut','dim','live','cut','dim'], scores: {2:.95}, hot: true,
+    status: 'Route selected · <b>local coder</b> · 41.2 tok/s · €0.00' },
+  fallback: {
+    lanes: ['cut','dim','broken','cut','live'], scores: {4:.7}, hot: true,
+    status: 'Primary failed · <b>fallback holds every pool invariant</b> · not a retry' },
+  blocked: {
+    lanes: ['cut','cut','cut','cut','cut'], scores: {}, hot: false,
+    status: 'No route · local-only policy · <b>failed closed</b>, never routed around' }
+};
+
+function setState(name) {
+  const s = STATES[name];
+  svg.setAttribute('class', 'router state-' + name + (s.hot ? ' hot' : ''));
+
+  s.lanes.forEach((st, i) => {
+    const lane = document.getElementById('l' + i);
+    lane.className.baseVal = 'lane ' + (st === 'broken' ? 'dim broken' : st);
+    // a round line-cap paints a dot even at zero length, so hide unscored arcs outright
+    const score = lane.querySelector('.score');
+    score.style.strokeDasharray = (s.scores[i] || 0) * 100 + ' 100';
+    score.style.opacity = s.scores[i] ? 1 : 0;
+  });
+
+  status.style.opacity = 0;
+  setTimeout(() => { status.innerHTML = s.status; status.style.opacity = 1; }, 200);
+
+  document.querySelectorAll('.controls button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.state === name)));
+}
+
+document.querySelectorAll('.controls button')
+  .forEach(b => b.addEventListener('click', () => setState(b.dataset.state)));
+
+setState('idle');
+</script>
+</body>
+</html>
