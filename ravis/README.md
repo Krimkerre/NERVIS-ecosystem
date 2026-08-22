@@ -42,10 +42,17 @@ default.
 These are `ECOSYSTEM_RUNBOOK.md` §14, and they are what actually fails a build:
 
 ```bash
-.venv/bin/ruff check src tests    # lint, imports, naming, complexity <= 8
-.venv/bin/mypy                    # strict types
-.venv/bin/pytest                  # no test touches a network or a live service
+.venv/bin/ruff check src tests        # lint, imports, naming, complexity <= 8
+.venv/bin/mypy                        # strict types
+.venv/bin/pytest                      # no test touches a network or a live service
+.venv/bin/ravis conformance clarvis   # the §8.9 release gate
 ```
+
+The conformance suite reads each recorded stream twice — once straight, once
+after it has been through the real application — using a faithful port of
+Clarvis's own reader, and requires the two readings to be identical. The fixture
+is the oracle, so the suite cannot certify RAVIS against RAVIS's own idea of the
+protocol. It runs in-process against recorded fixtures, in well under a second.
 
 ## Two things worth knowing before editing
 

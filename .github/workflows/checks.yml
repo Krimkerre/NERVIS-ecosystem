@@ -36,6 +36,12 @@ jobs:
       - name: tests
         run: pytest
 
+      # RAVIS.md §8.9 makes this the release gate for claiming Clarvis
+      # compatibility. Running it on every push rather than only at release
+      # means a regression is attributed to the commit that caused it.
+      - name: clarvis conformance
+        run: ravis conformance clarvis
+
   template:
     name: template — parse, endpoints, citations
     runs-on: ubuntu-latest

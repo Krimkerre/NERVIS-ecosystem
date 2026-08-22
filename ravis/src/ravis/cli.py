@@ -21,6 +21,9 @@ from ravis.providers_map import resolve_provider_map
 
 EXIT_OK = 0
 EXIT_FATAL_CONFIGURATION = 1
+# Distinct from a configuration failure so CI can tell "RAVIS will not start"
+# apart from "RAVIS starts but would break Clarvis" — different people fix those.
+EXIT_CONFORMANCE_FAILED = 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -36,6 +39,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_logging(settings.log_level)
     if arguments.command == "doctor":
         return _run_doctor(settings)
+    if arguments.command == "conformance":
+        return _run_conformance()
     return _run_serve(settings)
 
 
@@ -46,6 +51,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "doctor", help="check configuration and print the resolved routing table"
     )
     subcommands.add_parser("serve", help="run the gateway")
+    conformance = subcommands.add_parser(
+        "conformance", help="run a consumer's wire-contract suite"
+    )
+    conformance.add_argument("suite", choices=["clarvis"], help="which suite to run")
     return parser
 
 
@@ -98,6 +107,29 @@ def _print_provider_map(settings: Settings) -> None:
     print(f"  {'model':<28} {'provider':<18} decided by")
     for entry in entries:
         print(f"  {entry.model:<28} {entry.provider:<18} {entry.decided_by}")
+
+
+def _run_conformance() -> int:
+    """Run the Clarvis wire-contract suite and report (RAVIS.md §8.8).
+
+    Imported here rather than at module scope so `doctor` stays runnable without
+    the suite's dependencies, and so a broken suite cannot stop the gateway
+    starting — a diagnostic that can take the service down is a liability.
+    """
+    import asyncio
+    import logging
+
+    from ravis.compatibility.clarvis.conformance import render, run_suite
+
+    # The suite makes dozens of in-process HTTP calls and httpx logs each at
+    # INFO. That buries the checklist this command exists to print, so the
+    # transport chatter is silenced for the run — a diagnostic nobody can read
+    # is a diagnostic nobody runs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    result = asyncio.run(run_suite())
+    print(render(result))
+    return EXIT_OK if result.passed else EXIT_CONFORMANCE_FAILED
 
 
 def _run_serve(settings: Settings) -> int:
