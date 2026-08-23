@@ -718,11 +718,24 @@ absent, which is the cheaper kind of gap: nobody is building on top of it.
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
-session loaded four onto the developer's machine without asking. The cause is
-fixed and `sirvis benchmark run` now names what it is about to load and waits
-for an answer — refusing outright when stdin is not a terminal, because an
-unattended script that meant to do this can pass `--yes` and one that did not
-should not find out by discovering a 14 GB model resident an hour later.
+session loaded four onto the developer's machine without asking. `sirvis
+benchmark run` now names what it is about to load and waits — refusing outright
+when stdin is not a terminal, because an unattended script that meant to do this
+can pass `--yes` and one that did not should not find out by discovering a 14 GB
+model resident an hour later.
+
+**It happened twice more anyway, in the session that built that prompt**, and
+how is the part worth keeping. Both were diagnostics rather than benchmarks — a
+model loaded to test a thermal API, another to re-check a throughput figure —
+and neither felt like "loading a model" at the time, which is exactly the
+failure mode described below. The user caught both.
+
+**The prompt did not help, because the same session passed `--yes` on every
+invocation.** A guard routinely bypassed is not a guard; it is a step that has
+been optimised away. The prompt protects an operator typing the command. It
+cannot protect anyone from an agent scripting it, and nothing in the code can.
+The only thing that works is asking in chat and waiting for an answer — for
+probes and one-off checks too, not just for deliberate benchmarks.
 
 **A confirmation prompt is not the same as the habit**, and the habit is what
 actually prevents this:
@@ -982,6 +995,24 @@ reviewer who disagrees should say so rather than assume it was an accident.
   reason it is worth anything. Declaring a good model's rival tool-incapable to
   force the same ordering would have been lying about capability to buy a
   ranking, and remains the one thing not to do.
+- **A tool refusal still fails the request instead of trying the next model,
+  and the one-line fix is a regression.** `TOOL_INCOMPATIBILITY` carries
+  `(retry=False, fallback=False, scope=NONE)`, grouped with `INVALID_REQUEST`
+  under "the request itself is the problem". That reasoning is false here: tool
+  support is a property of the *model*, and every fallback in the chain is
+  tool-capable by construction, so the pool's next candidate would very likely
+  work. Reaching this failure at all means a capability claim was wrong.
+  **Flipping `may_fall_back` alone makes it worse.** With scope still `NONE` no
+  circuit opens, the router re-picks the same primary forever, and each of
+  Clarvis's per-turn POSTs — up to 25 in one task — becomes a silent double
+  upstream call while the upstream's own diagnostic is swallowed once a fallback
+  succeeds. And `HealthScope.MODEL` is barred: the health registry is keyed on
+  `(scope, target)` with no pool dimension, so it would evict the model from
+  `ravis/clarvis-chat` too, contradicting `ECOSYSTEM_RUNBOOK.md` §2.1's
+  requirement that a tool-failing model stay eligible for a chat pool.
+  What it needs is a **(model, capability)-scoped, time-boxed suppression**,
+  which is a scope the registry does not have. The pressure for it is §8.7
+  rather than §10 — §10 names the class once and assigns it no rule at all.
 - **§8.7's literal instruction is still not followed: RAVIS routes tool probes
   to cold candidates.** The poisoning it caused is fixed from both ends (below),
   but §8.7 does not say "answer the probe carefully" — it says *do not route a
@@ -999,6 +1030,27 @@ reviewer who disagrees should say so rather than assume it was an accident.
 ---
 
 ## Things that bit, so they do not bite twice
+
+**Five of the defects below are the same defect.** Worth naming the shape before
+the list, because recognising it is faster than rediscovering it: *a value that
+changed what was measured was recorded in prose instead of in the key, or a
+signal could only say yes.*
+
+- An adapted prompt was noted in a warning while the evidence identity still
+  said the suite's declared question.
+- The effective context was noted in a warning while the identity still said the
+  requested one.
+- The thermal probe mapped "no warning has been recorded" to `nominal`, so it
+  could report health and never its absence.
+- Clarvis's tool probe returned a boolean for a three-valued question, so "could
+  not tell" had to arrive as an exception or not at all.
+- The pre-commit gate had no failure class permitting a fallback, so a detected
+  refusal could abandon a model and then give up.
+
+The test for it: **can this thing express a negative, and does anything that
+changes the measurement reach the key rather than a note beside it?** A warning
+is prose; whoever compares two evidence IDs never reads it.
+
 
 - `python -m pytest` puts the working directory on `sys.path`; bare `pytest` does
   not. CI runs it bare. `pythonpath = ["."]` in `pyproject.toml` now makes the two
