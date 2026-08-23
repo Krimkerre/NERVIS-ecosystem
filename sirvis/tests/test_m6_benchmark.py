@@ -442,6 +442,43 @@ async def test_a_configuration_the_runtime_did_not_honour_is_a_warning(tmp_path)
     assert any("4096" in note and "8192" in note for note in outcome.record.validity_notes)
 
 
+async def test_the_identity_records_the_configuration_that_ran(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Live, `lms load --context-length 8192` is honoured for ordinary builds
+    and ignored by LM Studio's vision models: `gemma-4-e2b` loaded at 131072.
+    Keying evidence on the *request* gave that run the same ID as one that
+    genuinely ran at 8192 — the collision §12.2 exists to prevent, and the same
+    reasoning already applied to an adapted prompt."""
+    honoured, _ = await _run(FakeRuntime(effective_context=8192), results_root=tmp_path)
+    ignored, _ = await _run(FakeRuntime(effective_context=131072), results_root=tmp_path)
+
+    assert honoured.record.identity.evidence_id != ignored.record.identity.evidence_id
+    assert ignored.record.identity.runtime_configuration["context_length"] == 131072
+    # The warning stays: the identity says what ran, the note says it was not
+    # what was asked for, and a reader needs both.
+    assert any("131072" in note for note in ignored.record.validity_notes)
+
+
+async def test_an_unverifiable_configuration_is_not_claimed_as_the_requested_one(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """A model the runtime does not list as resident tells us nothing about how
+    it was configured. Falling back to the requested value there would put a
+    number in the identity that nobody confirmed."""
+    class Silent(FakeRuntime):
+        """Loads happily and reports nothing as resident — which some runtimes
+        genuinely do, and which is not the same as reporting a match."""
+
+        async def list_loaded_models(self) -> list[LoadedModel]:
+            return []
+
+    outcome, _ = await _run(Silent(), results_root=tmp_path)
+
+    assert outcome.effective_configuration == {}
+    # Falls back to what was asked for, because there is nothing better — but
+    # the identity is not claiming the runtime confirmed it.
+    assert outcome.record.identity.runtime_configuration["context_length"] == 8192
+
+
 async def test_an_unexpected_stop_reason_is_recorded(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """§11.8 lists it as a validity warning. `stop` and `length` are the
     experiment's own choices; anything else happened to it."""

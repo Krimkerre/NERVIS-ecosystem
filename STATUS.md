@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 484 tests, no network, no live service
+.venv/bin/pytest                      # part of 486 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 188 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 190 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 484 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 486 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1068,6 +1068,20 @@ reviewer who disagrees should say so rather than assume it was an accident.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **The evidence identity recorded what was *asked for*, not what ran.** §12.2
+  keys evidence on the configuration a number was produced under, and the engine
+  put `spec.load` — the request — into that key. It went unnoticed while every
+  runtime honoured the request, and stopped being true the moment a build did
+  not: `lms load --context-length 8192` is applied for ordinary GGUF builds and
+  **ignored by LM Studio's vision models**, which load at their own default, so
+  `gemma-4-e2b` ran at 131072 and hashed to the same evidence ID as a run that
+  genuinely ran at 8192. The mismatch was reported as a validity warning
+  throughout — §7.1 working — but a warning is prose, and anyone comparing
+  evidence IDs saw two identical keys. The identity now carries the effective
+  values where the runtime reports them, and where it reports nothing the
+  request stands without pretending it was confirmed. The general lesson is the
+  one already learned about adapted prompts, arriving a second time: **anything
+  that changes what was measured belongs in the key, not in a note beside it.**
 - **The spread a benchmark publishes is not the spread it has.** Five
   repetitions of `granite-4.0-h-tiny` agreed to ±1.6% within a run, twice — and
   the two runs disagreed with each other by **16%**, on byte-identical work:

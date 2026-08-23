@@ -284,6 +284,9 @@ class ExperimentOutcome:
     # question and must not collide with the one the suite asked.
     thinking_suppression: str | None = None
     suppressions_tried: list[str] = field(default_factory=list)
+    # What the runtime actually loaded, for the settings the experiment asked
+    # about. This is what goes into the evidence identity — see `_evidence`.
+    effective_configuration: dict[str, Any] = field(default_factory=dict)
 
 
 async def run_experiment(
@@ -390,9 +393,9 @@ async def _execute(
         f"{'warm' if was_warm else f'loaded in {load_seconds:.2f}s'})"
     )
 
-    outcome.warnings.extend(
-        _configuration_warnings(spec, await runtime.list_loaded_models())
-    )
+    resident = await runtime.list_loaded_models()
+    outcome.effective_configuration = _effective_configuration(spec, resident)
+    outcome.warnings.extend(_configuration_warnings(spec, resident))
 
     try:
         for test in spec.tests:
@@ -605,6 +608,29 @@ def _resolve(inventory: Inventory, model_key: str) -> dict[str, Any]:
     return {"model": model, "variant": variant, "family": family}
 
 
+def _effective_configuration(
+    spec: ExperimentSpec, resident: Sequence[LoadedModel]
+) -> dict[str, Any]:
+    """The settings the run actually happened under, where the runtime says.
+
+    Only the keys the experiment asked about: a runtime reports plenty this
+    engine never requested, and copying all of it into the evidence identity
+    would make the key change whenever the runtime learned a new field.
+
+    Empty when the model is not resident — which is not the same as "matched".
+    An identity that silently fell back to the requested value there would
+    claim knowledge the run does not have.
+    """
+    loaded = next((model for model in resident if model.model_key == spec.model_key), None)
+    if loaded is None:
+        return {}
+    return {
+        key: loaded.effective[key]
+        for key in spec.load
+        if loaded.effective.get(key) is not None
+    }
+
+
 def _configuration_warnings(spec: ExperimentSpec, resident: Sequence[LoadedModel]) -> list[str]:
     """§7.1 and §11.8: an effective configuration that is not the requested one.
 
@@ -664,12 +690,22 @@ def _evidence(
     _add(measurements, "load_time_seconds", list(load), unit="seconds",
          direction="lower", method=METHOD_LOAD)
 
-    # The suppression belongs *in the identity*, not beside it. §12.2 keys
-    # evidence on the configuration a number was produced under, and a prompt
-    # that had to be changed to get an answer is a different configuration — so
-    # the adapted result gets its own evidence ID and can never be averaged with
-    # or mistaken for the one the suite asked for.
-    configuration = dict(spec.load)
+    # §12.2 keys evidence on the configuration a number was **produced under**,
+    # which is not always the one that was asked for. Two ways they diverge, and
+    # both belong in the identity rather than beside it:
+    #
+    # A prompt that had to be changed to get an answer is a different question,
+    # so an adapted result cannot be mistaken for the declared one.
+    #
+    # And a runtime that loaded a different configuration than requested is a
+    # different measurement. `lms load --context-length 8192` is honoured for
+    # ordinary builds and ignored for LM Studio's vision models, which load at
+    # their own default — 131072 for `gemma-4-e2b`. Keying on the request would
+    # give that run the same evidence ID as one that genuinely ran at 8192,
+    # which is exactly the collision §12.2 exists to prevent. The mismatch is
+    # still reported as a validity warning; this stops it also being invisible
+    # to anyone comparing evidence IDs.
+    configuration = {**spec.load, **outcome.effective_configuration}
     if outcome.thinking_suppression:
         configuration["thinking_suppression"] = outcome.thinking_suppression
 
