@@ -36,6 +36,13 @@ from sirvis.errors import (
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
 from sirvis.storage import list_runs, read_result, read_run
+from sirvis.storage.evidence import (
+    FILTERS,
+    EvidenceQuery,
+    known_roles,
+    query_evidence,
+    read_evidence,
+)
 from sirvis.storage.runtime_sets import (
     find_by_name,
     list_revisions,
@@ -427,6 +434,132 @@ async def _fit_for(request: Request, stored: RuntimeSet) -> Any:
     database = request.app.state.database
     snapshot = latest_snapshot(database, machine_identity(database)) or {}
     return estimate_fit(sizes, snapshot.get("unified_memory_bytes"))
+
+
+# ── Evidence, the surface RAVIS reads (§15.1) ────────────────────────────────
+
+
+@router.get("/evidence")
+async def read_evidence_index(request: Request) -> dict[str, Any]:
+    """§15.1's question, as an endpoint.
+
+    > Give me the best measured evidence for role `clarvis-agent` on this
+    > machine for these candidate builds, under these runtime configuration
+    > constraints.
+
+    **Nothing here ranks anything.** §12.2 forbids evidence keyed as model →
+    score, and a `best` flag would be that rule broken by a different spelling —
+    so this filters, orders by recency, and hands RAVIS every metric with its
+    provenance and validity attached. Which candidate is *best* is a routing
+    decision, and §15.1 says routing decisions are RAVIS's.
+
+    Query parameters are the filters §15.1 lists — machine, role, family,
+    variant, runtime, format, quantization, suite, suite version, evidence type
+    and validity — plus `candidate` (repeatable runtime keys), `config.<key>`
+    constraints, `since` for incremental reads, and `limit`.
+    """
+    require(request, Scope.READ)
+    parameters = request.query_params
+    candidates = parameters.getlist("candidate")
+    resolved, unresolved = await _resolve_candidates(request, candidates)
+    if candidates and not resolved:
+        # Every candidate is unknown to this machine. Answering with an empty
+        # list would say "these builds have no evidence", which is a different
+        # and much more actionable claim than "these builds are not installed".
+        return _listing([]) | {"unresolved_candidates": unresolved, "resolved_candidates": []}
+
+    answer = query_evidence(request.app.state.database, EvidenceQuery(
+        filters={name: parameters[name] for name, _ in FILTERS if parameters.get(name)},
+        candidates=tuple(resolved),
+        runtime_config=_config_constraints(parameters),
+        since=parameters.get("since"),
+        limit=min(int(parameters.get("limit", 50)), 200),
+    ))
+    response: dict[str, Any] = {
+        "items": answer.items,
+        "next_cursor": answer.next_cursor,
+        "snapshot_revision": SNAPSHOT_REVISION,
+        # Both halves reported, always. A consumer that asked about four builds
+        # and got evidence for two needs to know which two, and why the others
+        # are absent.
+        "resolved_candidates": sorted(resolved),
+        "unresolved_candidates": unresolved,
+        # §15.1 asks for tombstones. There are none, and there is no mechanism
+        # to produce one: evidence is append-only and nothing in SIRVIS deletes
+        # a result. Reported as an empty list rather than omitted so a consumer
+        # can code against the field before deletion exists — and so that
+        # whoever adds retention knows exactly what they have to start filling.
+        "tombstones": [],
+    }
+    if parameters.get("role") and not answer.items:
+        # A role that matched nothing is reported *with the roles that exist*,
+        # because the two ways to get an empty list here are very different
+        # findings. RAVIS names its pools `ravis/clarvis-agent`; this machine's
+        # evidence is filed under `agent`. SIRVIS must not invent a rule mapping
+        # one to the other — §15.1 forbids inferring equivalence — but a silent
+        # empty list would read as "measured, nothing found" when the truth is
+        # "nobody has agreed what this role is called".
+        response["available_roles"] = known_roles(request.app.state.database)
+    return response
+
+
+@router.get("/evidence/{evidence_id}")
+async def read_evidence_identity(request: Request, evidence_id: str) -> dict[str, Any]:
+    """Every result filed under one evidence identity (§12.2).
+
+    A list, not a record. An evidence ID identifies *measurement conditions*, so
+    running one suite against one build twice is two results under one identity
+    — and picking one to return would be the ranking this surface refuses to do
+    everywhere else.
+    """
+    require(request, Scope.READ)
+    records = read_evidence(request.app.state.database, evidence_id)
+    if not records:
+        raise BenchmarkNotFoundError(f"no evidence {evidence_id}")
+    return _listing(records)
+
+
+async def _resolve_candidates(
+    request: Request, candidates: list[str]
+) -> tuple[list[str], list[str]]:
+    """Runtime keys to the variants their evidence is filed under (§15.1).
+
+    This is the "do not force RAVIS to infer equivalence across builds" clause
+    made mechanical. RAVIS knows a runtime key and nothing else; evidence is
+    filed by variant; and the mapping needs §6's inventory, which is SIRVIS's.
+    A RAVIS doing this itself would be matching on names, which §15.1 forbids
+    and §6 exists to replace.
+
+    **An unreachable runtime resolves nothing and says so**, rather than
+    resolving to an empty set that reads like "no evidence". §15.4 makes a
+    stopped runtime the ordinary case, and the ordinary case must not produce a
+    confidently wrong answer.
+    """
+    if not candidates:
+        return [], []
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError:
+        return [], sorted(candidates)
+    resolved, unresolved = [], []
+    for key in candidates:
+        build = inventory.by_runtime_key(key)
+        (resolved.append(build.variant_id) if build else unresolved.append(key))
+    return resolved, sorted(unresolved)
+
+
+def _config_constraints(parameters: Any) -> dict[str, str]:
+    """`config.context_length=8192` style constraints, as a mapping.
+
+    Prefixed rather than free: a bare `context_length` parameter would collide
+    with a filter name the moment one is added, and a consumer would not find
+    out — the query would simply stop constraining on it.
+    """
+    return {
+        name[len("config."):]: value
+        for name, value in parameters.items()
+        if name.startswith("config.") and len(name) > len("config.")
+    }
 
 
 @router.post("/runtime/sessions")

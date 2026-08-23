@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 633 tests, no network, no live service
+.venv/bin/pytest                      # part of 654 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 633 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 654 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -99,8 +99,9 @@ into the order work actually happens.
 | 22 | **RAVIS M4** | The Anthropic native adapter — the first real provider on Path B. Request and response translation, streamed tool calls, capabilities read from the model catalogue, and four mappings decided deliberately rather than by default. Settled below |
 | 23 | **SIRVIS M9** | Runtime Sets — §10's versioned multi-model target. Definitions, revisions that only move when the definition does, role-addressable members, sessions opened against a set under one lease, and a fit estimate that can refuse but never approve. Settled below |
 | 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. **Run live against a GGUF/MLX pair, 2026-08-24** — the first measured pair in the corpus, numbers below |
+| 25 | **SIRVIS M16** | The RAVIS evidence API — §15.1's question as an endpoint, with every filter it names, cursor paging, staleness, stable references, and candidate runtime keys resolved by SIRVIS so RAVIS never infers equivalence. Nothing ranks. Found the role-vocabulary seam, below |
 
-**Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
+**Stages 0, 1, 2 and 3 are complete. Stage 4 is nearly done** — its benchmark, Runtime Set and RAVIS-facing halves have all landed, and what remains is the *Clarvis-specific* half: M12, M13 and M15.
 
 ### The protocol package, extracted when the second consumer arrived
 
@@ -885,6 +886,65 @@ were added immediately afterwards and are tested, and nothing was lost — the
 figures above come from this run's own `telemetry/measurements.jsonl`. The next
 run's matrix carries them inline.
 
+### What M16 settled, and the seam it exposed
+
+§15.1 states the question in RAVIS's own words, and the whole surface is shaped
+by three clauses inside it:
+
+> Give me the **best** measured evidence for role `clarvis-agent` on **this
+> machine** for **these candidate builds**, under these runtime configuration
+> constraints.
+
+**"Best" is not computed, and there is nowhere for it to live.** §12.2 forbids
+evidence keyed as model → score, and a `best=true` flag or an `ORDER BY score`
+would be that rule broken by a different spelling. So the endpoint filters,
+orders by *recency* — a fact about the record rather than a judgement about the
+model — and hands back every metric with its provenance, validity, sample count
+and versioned method. One test asserts structurally that no response field is
+named `score`, `rank`, `best`, `recommended` or `winner`, because the pressure
+to add one will come from a caller who finds choosing inconvenient, and choosing
+is RAVIS's job.
+
+**"These candidate builds" arrive as runtime keys and leave as variants.** That
+is §15.1's *do not force RAVIS to infer equivalence across builds* made
+mechanical: RAVIS knows a runtime key and nothing else, evidence is filed by
+variant, and the mapping needs §6's inventory — which is SIRVIS's. A RAVIS
+resolving it would be matching on names, which §15.1 forbids and §6 exists to
+replace. Two failure modes are kept apart rather than collapsed: a candidate
+this machine does not have comes back in `unresolved_candidates`, because *not
+installed* and *measured, no evidence* are different findings and an empty list
+for both would report a missing build as a disappointing one. An unreachable
+runtime resolves nothing and says so, rather than answering confidently from an
+empty inventory (§15.4).
+
+**Tombstones are reported as an empty list, and that is not a stub.** §15.1 asks
+for them; nothing in SIRVIS deletes a result, so there is no mechanism that
+could produce one. The field ships empty so a consumer can code against it
+before deletion exists, and so whoever adds retention knows exactly what they
+have to start filling.
+
+**The seam this milestone found is a missing milestone, not a defect.** RAVIS
+names its pools `ravis/clarvis-chat` and `ravis/clarvis-agent`. Every piece of
+evidence on this machine is filed under `agent`, `chat` or `general`, because
+those are the role names M6's suite and M9's Runtime Set members used. So a
+faithful RAVIS query for `clarvis-agent` returns nothing — and the correct
+response is emphatically *not* a rule mapping one vocabulary to the other, which
+would be the same equivalence-inference §15.1 forbids, merely performed by the
+other side. **SIRVIS M13 is the milestone that produces evidence under the
+`clarvis-chat` and `clarvis-agent` roles**, and until it runs the absence is
+real rather than a translation problem. What M16 does do is stop the mismatch
+lying: a role filter that matches nothing comes back with `available_roles`, so
+"nobody has agreed what this role is called" cannot present as "this build was
+measured and found wanting".
+
+Verified against the real corpus rather than only fixtures: `role=agent`,
+`evidence_type=MEASURED`, `config.context_length=8192` resolves to the M10
+co-residency record for `granite-4.0-h-tiny` GGUF — median 66.96 tokens/second
+across five repetitions with min, max, p10, p90, stddev, every repetition
+preserved, `MEASURED` provenance carrying the method version
+`stream.generation_tokens_per_second.v1`, and no single number anywhere that
+could be mistaken for a score.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -1031,7 +1091,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 25 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
+| 26 | **SIRVIS M12 + M13** | Clarvis role benchmarks. M12 is a *spike*, not a build — inspect Clarvis's existing benchmark assets and classify each `REUSE`, `WRAP`, `UNSUITABLE` or `MISSING`, explicitly without rewriting them. M13 then produces evidence under the `clarvis-chat` and `clarvis-agent` roles, with tool-call reliability in the agent evidence. **This is what closes the role-vocabulary seam M16 found** — the reason RAVIS asks for `clarvis-agent` and finds nothing is that nothing has yet measured that role, and the fix is the measurement rather than a mapping rule |
+| 27 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece: role profiles, fit, single-model *and Runtime Set* recommendation, evidence levels. M9 and M10 gave it pair evidence to recommend from, and §10.1 is why it could not have been built before them |
 
 ### After that
 
