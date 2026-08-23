@@ -94,6 +94,12 @@ class Holding:
     # early would pull the model out from under its own outer scope.
     references: dict[str, int] = field(default_factory=dict)
     acquired_at: float = 0.0
+    # Whether this manager loaded it. §11.2's lifecycle says "unload **if
+    # owned**", and the distinction is not academic: LM Studio JIT-loads
+    # instances by itself and a user can load anything by hand. Unloading one of
+    # those at the end of a benchmark would take away a model somebody else was
+    # using, which is the implicit preemption §9 forbids.
+    owned: bool = True
 
     @property
     def reference_count(self) -> int:
@@ -148,7 +154,7 @@ class ResourceManager:
         self._max_loaded = max_loaded
         self._holdings: dict[str, Holding] = {}
         self._leases: dict[str, Lease] = {}
-        self._loading: dict[str, asyncio.Task[LoadedModel]] = {}
+        self._loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]] = {}
         self._lock = asyncio.Lock()
 
     async def acquire(
@@ -170,11 +176,12 @@ class ResourceManager:
         session = session_id or uuid.uuid4().hex
         await self._expire_stale()
 
-        loaded = await self._ensure_loaded(model_key, configuration, policy)
+        loaded, owned = await self._ensure_loaded(model_key, configuration, policy)
         async with self._lock:
             holding = self._holdings.setdefault(
                 model_key,
-                Holding(model_key=model_key, loaded=loaded, acquired_at=self._clock()),
+                Holding(model_key=model_key, loaded=loaded, acquired_at=self._clock(),
+                        owned=owned),
             )
             holding.references[session] = holding.references.get(session, 0) + 1
             previous = self._leases.get(session)
@@ -268,6 +275,11 @@ class ResourceManager:
                     "reference_count": holding.reference_count,
                     "sessions": sorted(holding.references),
                     "effective_configuration": holding.loaded.effective,
+                    # Whether this manager loaded it, and therefore whether it
+                    # will ever unload it. A dashboard showing memory needs the
+                    # difference: an adopted instance occupies memory that
+                    # releasing every lease will not give back.
+                    "owned": holding.owned,
                 }
                 for key, holding in sorted(self._holdings.items())
             ],
@@ -312,6 +324,13 @@ class ResourceManager:
         """
         unloaded = []
         for model_key in model_keys:
+            holding = self._holdings.get(model_key)
+            if holding is not None and not holding.owned:
+                # Adopted, not loaded here. Dropping the bookkeeping is right;
+                # unloading is not ours to do (§11.2's "unload if owned").
+                async with self._lock:
+                    self._holdings.pop(model_key, None)
+                continue
             try:
                 await self._runtime.unload(model_key)
                 unloaded.append(model_key)
@@ -335,16 +354,23 @@ class ResourceManager:
 
     async def _ensure_loaded(
         self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
-    ) -> LoadedModel:
-        """Load a model, or join the load already in progress for it."""
+    ) -> tuple[LoadedModel, bool]:
+        """Get hold of a model, and say whether this manager owns the instance.
+
+        Returns the instance and whether it was loaded here. Both halves matter:
+        the caller needs the effective configuration, and the manager needs to
+        know at release time whether unloading is its business.
+        """
         async with self._lock:
             existing = self._holdings.get(model_key)
             if existing is not None:
-                return existing.loaded
+                return existing.loaded, existing.owned
             in_flight = self._loading.get(model_key)
             if in_flight is None:
                 self._make_room(policy)
-                in_flight = asyncio.create_task(self._runtime.load(model_key, configuration))
+                in_flight = asyncio.create_task(
+                    self._acquire_instance(model_key, configuration)
+                )
                 self._loading[model_key] = in_flight
 
         try:
@@ -357,6 +383,34 @@ class ResourceManager:
             async with self._lock:
                 if self._loading.get(model_key) is in_flight and in_flight.done():
                     del self._loading[model_key]
+
+    async def _acquire_instance(
+        self, model_key: str, configuration: dict[str, Any] | None
+    ) -> tuple[LoadedModel, bool]:
+        """Adopt an instance the runtime already holds, or load a new one.
+
+        **Asking first is not an optimisation.** LM Studio does not reconfigure
+        a resident model to satisfy a request it cannot serve — it loads another
+        instance, which is how three copies of one 7B model ended up resident on
+        this machine. A manager that issued a load for something already there
+        would trigger exactly that, and would then be accounting for one
+        instance while the machine held two.
+
+        An adopted instance is tracked but **not owned**: it is reported in
+        residency, it counts against capacity, and it is never unloaded here.
+        Whoever loaded it still decides when it goes.
+        """
+        try:
+            resident = await self._runtime.list_loaded_models()
+        except RuntimeUnavailableError:
+            # A runtime that will not answer the question gets the load request,
+            # which is where the failure belongs — refusing here would report a
+            # discovery problem as a load failure.
+            resident = []
+        existing = next((m for m in resident if m.model_key == model_key), None)
+        if existing is not None:
+            return existing, False
+        return await self._runtime.load(model_key, configuration), True
 
     def _make_room(self, policy: ConflictPolicy) -> None:
         """Ensure there is capacity, according to the policy the caller chose.

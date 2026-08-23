@@ -7,5 +7,27 @@ sibling of RAVIS's storage rather than an import of it.
 """
 
 from sirvis.storage.database import Database, current_version, prepare_database
+from sirvis.storage.repositories import (
+    RunState,
+    StoredResult,
+    create_experiment,
+    finish_run,
+    latest_runs,
+    read_run,
+    start_run,
+)
+from sirvis.storage.results import ResultDirectory
 
-__all__ = ["Database", "current_version", "prepare_database"]
+__all__ = [
+    "Database",
+    "ResultDirectory",
+    "RunState",
+    "StoredResult",
+    "create_experiment",
+    "current_version",
+    "finish_run",
+    "latest_runs",
+    "prepare_database",
+    "read_run",
+    "start_run",
+]

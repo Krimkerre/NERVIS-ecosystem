@@ -45,6 +45,7 @@ from ravis.reliability import (
     AttemptChain,
     FailureClass,
     HealthRegistry,
+    classify_error_body,
     classify_exception,
     classify_response,
     error_body,
@@ -55,6 +56,10 @@ from ravis.runtime.resources import read_memory
 from ravis.upstream import forwardable_headers
 
 logger = logging.getLogger(__name__)
+
+# The SSE fields that can precede a payload. Anything starting with one of these
+# — or with `:`, a comment — is framing rather than content.
+_SSE_FIELDS = (b"event:", b"id:", b"retry:")
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 
@@ -283,9 +288,18 @@ def _no_route(decision: RouteDecision) -> JSONResponse:
     no available model satisfies what was asked for — and §9.2 forbids relaxing
     a constraint to find something that fits. 422 says the request was
     well-formed but cannot be acted on, which is exactly the situation.
+
+    **Except while the circuits are merely resting.** A pool whose every
+    candidate is in cooldown is not a pool nothing satisfies — it is the same
+    pool a minute from now, and 503 is what says so. The distinction is not
+    cosmetic: Clarvis's §8.7 tool probe reads a 4xx as the model answering and
+    caches that answer for the session, so returning 422 here teaches it that a
+    perfectly capable model cannot call tools, and it keeps believing that long
+    after the circuit closes.
     """
+    resting = decision.blocked_only_by_circuits
     return JSONResponse(
-        status_code=422,
+        status_code=503 if resting else 422,
         content={
             "error": {
                 "message": decision.reason,
@@ -308,6 +322,12 @@ async def _forward_and_return(call: _Call) -> Response:
     rather than discarded when a fallback is about to be tried.
     """
     last: httpx.Response | None = None
+    # Whether `last` is a success status that RAVIS has established is not a
+    # success. Forwarding it verbatim is what made this gate a no-op for the
+    # ordinary case: with one eligible candidate, or with every candidate
+    # refusing the same way, the client still received the 200 — and Clarvis's
+    # §8.7 probe still read it as "this model supports tools".
+    misleading = False
     while (model := call.chain.next_target()) is not None:
         started = call.chain.begin(model)
         try:
@@ -320,6 +340,15 @@ async def _forward_and_return(call: _Call) -> Response:
         failure_class = classify_response(
             upstream_response.status_code, upstream_response.content
         )
+        misleading = False
+        if failure_class is None:
+            # The same trap as on the streaming path, and the more dangerous
+            # half: Clarvis's §8.7 tool probe comes through here, and it reads
+            # any 2xx as "this model supports tools" — so a 200 carrying an
+            # error object would teach it the opposite of the truth and be
+            # cached for the session.
+            failure_class = _refusal_class(upstream_response.content)
+            misleading = failure_class is not None
         if failure_class is None:
             call.chain.succeeded(model, started)
             call.finish()
@@ -330,7 +359,31 @@ async def _forward_and_return(call: _Call) -> Response:
         )
     call.finish()
     _log_exhaustion(call.chain)
-    return _passthrough(last) if last is not None else _chain_exhausted(call.chain)
+    return _exhausted_response(call, last, misleading)
+
+
+def _exhausted_response(
+    call: _Call, last: httpx.Response | None, misleading: bool
+) -> Response:
+    """The answer when no candidate worked, with a status that means something.
+
+    An upstream 429 still arrives as a 429 — turning it into a 500 would tell
+    the client to give up where it should have retried. But a **2xx carrying an
+    error object** must not be forwarded as-is: RAVIS has already decided it is
+    not an answer, and passing the status through would leave the record and the
+    response contradicting each other. The upstream's own words are kept; only
+    the status it chose is overruled.
+    """
+    if last is None:
+        return _chain_exhausted(call.chain)
+    if not misleading:
+        return _passthrough(last)
+    return Response(
+        content=last.content,
+        status_code=502,
+        headers=_forwardable_response_headers(last),
+        media_type=last.headers.get("content-type"),
+    )
 
 
 def _passthrough(upstream_response: httpx.Response) -> Response:
@@ -449,17 +502,124 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
                 _refuse(call, model, started, upstream.status_code, await upstream.aread())
             async for chunk in upstream.aiter_bytes():
                 if not committed:
+                    # The last moment a different model can still be chosen.
+                    # Looked at rather than buffered: this chunk is already in
+                    # hand and is forwarded immediately afterwards, so the
+                    # inspection costs no latency and holds nothing back.
+                    _commit_or_refuse(call, model, started, chunk)
                     committed = True
-                    call.chain.succeeded(model, started, ttft=call.chain.now() - started)
                 yield chunk
     except httpx.HTTPError as failure:
         yield _stream_failed(call, model, started, failure, committed)
         return
     if not committed:
-        # A stream that ended without a single byte. Not an error at the
-        # transport level, and not something to retry: the upstream answered,
-        # it simply had nothing to say.
-        call.chain.succeeded(model, started)
+        # A stream that ended without a single byte. This used to be recorded as
+        # a *success*, on the reasoning that the upstream answered and simply
+        # had nothing to say — but an SSE response with no frames is not an
+        # empty answer, it is a non-answer: the client is left waiting for a
+        # `[DONE]` that never comes, and the chain that could have tried another
+        # model has already been told everything went well.
+        #
+        # Not to be confused with a model that generates no *content*. A
+        # reasoning model can spend its whole budget thinking and legitimately
+        # return empty content — but it still emits frames. Zero bytes is a
+        # different thing, and it is never valid.
+        call.chain.failed(
+            model, started, FailureClass.INVALID_UPSTREAM_RESPONSE,
+            "the upstream closed the stream without sending a byte",
+        )
+        raise _TryNext(json.dumps(_error_body(
+            "the upstream closed the stream without sending a byte", "upstream_error"
+        )).encode())
+
+
+def _commit_or_refuse(call: _Call, model: str, started: float, chunk: bytes) -> None:
+    """Credit the attempt, unless the first chunk shows it is not an answer.
+
+    This is the entire pre-commit gate, and it sits at the only point where it
+    can: `committed` closes the switching window one statement later, and after
+    that the client holds bytes and a fallback would append a second answer to a
+    partial first one.
+
+    Two shapes are refused, both observed rather than imagined:
+
+    - **A 200 whose body is an error object.** The configured upstream answers
+      exactly this way for anything it will not serve, and RAVIS branched only
+      on `status >= 400` — so a request the runtime refused was forwarded to the
+      client as a successful stream and recorded as a working attempt.
+    - **A 200 whose first SSE frame carries an error.** The same refusal arriving
+      inside the protocol rather than instead of it.
+
+    Anything that does not parse is left alone. A partial frame, an unusual
+    keep-alive, a provider doing something unanticipated — none of those are
+    evidence of a refusal, and guessing would abandon a model that was about to
+    answer perfectly well.
+    """
+    refusal = _refusal_in(chunk)
+    if refusal is None:
+        call.chain.succeeded(model, started, ttft=call.chain.now() - started)
+        return
+    call.chain.failed(model, started, classify_error_body(refusal),
+                      "HTTP 200 carrying an error")
+    raise _TryNext(refusal)
+
+
+def _refusal_class(body: bytes) -> FailureClass | None:
+    """The failure a success-status body admits to, or None if it admits none.
+
+    Shared with the streaming gate deliberately: one definition of "this looks
+    like a refusal", so the two paths cannot drift into disagreeing about the
+    same upstream.
+    """
+    refusal = _refusal_in(body)
+    return classify_error_body(refusal) if refusal is not None else None
+
+
+def _refusal_in(chunk: bytes) -> bytes | None:
+    """The error object inside a success, or None for an ordinary stream frame.
+
+    Deliberately not an SSE parser. Only the first frame can matter — after it
+    the window is closed — so this reads one payload and gives up on anything it
+    cannot read, which is what keeps a false positive from costing a working
+    model its turn.
+    """
+    for line in chunk.split(b"\n"):
+        candidate = line.strip()
+        # Blank separators, keep-alive comments (`: ping`) and the other SSE
+        # fields legitimately precede the payload. Skipping them is what stops
+        # the gate being defeated by punctuation a provider sent for its own
+        # reasons — the first version read only the very first line and missed
+        # a refusal that arrived one comment later.
+        if not candidate or candidate.startswith(b":") or candidate.startswith(_SSE_FIELDS):
+            continue
+        if candidate.startswith(b"data:"):
+            candidate = candidate[len(b"data:"):].strip()
+        return _error_object(candidate)
+    return None
+
+
+def _error_object(text: bytes) -> bytes | None:
+    """The bytes of an error object, or None for anything else.
+
+    Returned verbatim rather than reshaped. It is the upstream's own words, and
+    `_refuse` forwards a >=400 body the same way — normalising here would invent
+    an error message the provider never produced.
+    """
+    if not text.startswith(b"{"):
+        return None
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        # A partial frame, split at an arbitrary byte boundary, is not evidence
+        # of anything. `UnicodeDecodeError` is a `ValueError`, so a chunk cut
+        # mid-character lands here too.
+        return None
+    # Truthiness, not presence. Some proxies include `"error": null` on a
+    # perfectly good response, and reading that as a refusal would cost a
+    # working model its turn for saying nothing went wrong.
+    if not isinstance(payload, dict) or not payload.get("error"):
+        return None
+    return text
 
 
 def _refuse(call: _Call, model: str, started: float, status: int, detail: bytes) -> None:

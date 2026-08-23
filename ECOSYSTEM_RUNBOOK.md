@@ -49,6 +49,63 @@ checklist.
 If two components appear to disagree about a fact, the owner in this table is
 authoritative for that kind of fact.
 
+### 2.1 Evidence about API-hosted models
+
+**Deferred by decision, not omitted.** Nothing here is built and nothing should
+be built before the milestones named at the end. It is written down now because
+the decision is cheap to get wrong later, in the direction of measuring the
+wrong thing.
+
+**SIRVIS may produce evidence about hosted models, and it is capability evidence
+only.** Tool-call reliability against real schemas and multi-step loops,
+structured-output adherence, instruction following, long-context behaviour — the
+questions whose answers change *which model a pool may use*. Throughput and
+time-to-first-token may be recorded from the same trial and are **never
+admissible as routing evidence**: measured across the public internet they
+describe the network and the hour of day as much as the model, and a provider's
+capacity is not a property of this machine. They are recorded at `ESTIMATED`
+and a router must not rank on them.
+
+The reason to measure at all is the one already proven on this hardware rather
+than assumed. LM Studio's `tool_use` flag disagrees with executed tool-call
+trials **in both directions**: three installed builds advertise nothing and pass
+3/3, and `granite-4.0-h-tiny` advertises tool support in both packagings while
+scoring 8/8 as GGUF against 1/8 as MLX. A hosted provider's documentation is an
+advertisement of exactly the same kind. "Supports tools" and "survives five
+sequential tool calls against a twelve-field schema" are different claims, and
+only the second one decides whether an agent pool should route there.
+
+**Identity is different, and the difference is the date.** SIRVIS.md §12.2 keys
+evidence on a local build — machine, format, quantization, runtime — and a
+hosted model has none of those. Hosted evidence is keyed on **provider + model
+alias + observation date**, with the date part of the key rather than metadata
+beside it: providers move weights behind a stable alias without notice, so a
+hosted result is a *dated observation* and not a reproducible measurement.
+
+Stale hosted evidence is **marked, never silently voided**. Expiring it into
+`UNKNOWN` would let §9.1's fail-closed rule turn a working route into "no
+candidates" overnight, which is a worse failure than acting on a claim from
+three months ago. Past its horizon the claim stands, the route explanation says
+how old it is, and re-measurement is scheduled rather than triggered by an
+outage.
+
+**SIRVIS never holds provider credentials, and this does not change that.** §2's
+table gives credentials to RAVIS. A hosted trial is therefore driven *through*
+RAVIS, addressing a model directly rather than through a pool — a directly named
+model never falls back, so the trial measures the model it named rather than
+whatever the chain reached. SIRVIS acquiring its own provider clients would
+duplicate RAVIS's adapters, which §3 forbids for precisely this reason.
+
+**It spends money, so it is never implicit.** Opt-in per provider, a stated
+ceiling before the run, and the estimated cost shown alongside the expanded
+trial count. No hosted trial runs as a side effect of anything else.
+
+**Lands after SIRVIS M16 and RAVIS M4/M7** — it needs the evidence API RAVIS
+reads and at least one hosted provider adapter to drive through. **Exit:** RAVIS
+refuses to route an agent pool to a hosted model whose tool-call trial failed,
+names the trial and its date in the route explanation, and leaves that same
+model eligible for a chat pool.
+
 ---
 
 ## 3. Repository and change strategy

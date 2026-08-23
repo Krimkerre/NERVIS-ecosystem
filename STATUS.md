@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 397 tests, no network, no live service
+.venv/bin/pytest                      # part of 471 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 122 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 175 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 397 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 471 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -92,6 +92,9 @@ into the order work actually happens.
 | 15 | **SIRVIS M4** | Token scopes, origin validation, and the mutating endpoints that let a script drive a model *through* SIRVIS |
 | 16 | **SIRVIS M7** | The evidence schema — **Stage 4's exit criterion verbatim** |
 | 17 | **SIRVIS M8** | The Resource Manager: reference counts, leases, conflict policy, and §9's rule that *all* load and unload flows through one owner |
+| 18 | **The four gaps that blocked M6** | Results storage (§17), streamed generation so time-to-first-token exists, memory sampling light enough for §11.8's eight points, §11.9's raw result directory — and the trivial fifth, a YAML parser |
+| 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Proven against a recorded runtime and not yet against a live one** — see below |
+| 20 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -220,6 +223,56 @@ when it is not loaded. An unknown key is a 404 and nothing falls back to a
 nearest match, because a fuzzy hit would be a guess wearing an identity's
 clothes and RAVIS would route on it.
 
+### What the switchboard could actually see, and what it was throwing away
+
+Started as a question rather than a milestone: *if RAVIS cannot tell whether a
+tool call worked, how does it switch models before the client sees an error?*
+The answer turned out to be that the switching window already existed and was
+being wasted.
+
+**The window.** From `chain.begin(model)` until the first chunk is read from
+httpx, `_TryNext` walks the fallback chain and the client — holding a 200 status
+line and zero bytes — sees only whichever model answers. The status is committed
+before any upstream is contacted, so a switch is invisible at the HTTP level.
+Nothing new was needed to switch silently.
+
+**Widening it was tried and refuted.** A hold-back buffer, implemented against
+the real relay, turns a *succeeding* stream into a client-visible error: to
+switch it must discard its buffered bytes and raise `_TryNext`, which is
+one-way, so a guess with no healthy fallback leaves the client with an error
+frame and nothing else. It also degrades the shipped non-buffering conformance
+check, and `RAVIS.md` §6 forbids buffering to completion in terms.
+
+**And the tool-call signal is unavailable in principle.** This repository's own
+recorded fixtures show the first frame of a perfect tool-calling stream and the
+first frame of a plain-chat stream are the same bytes — `{"delta":{"role":
+"assistant"}}`. Clarvis's parser says why: nothing marks a tool call finished
+mid-stream, so its arguments are known whole only once the stream is. The one
+measured incapacity on this machine — `granite-4.0-h-tiny` as MLX, 1/8, its
+arguments eaten by the runtime's parser — is invisible before the commit point
+by construction.
+
+So the gate catches **refusals**, which is a smaller claim and an achievable
+one. Three signals arrive inside the existing window and were discarded: a 200
+whose body is an error object, a 200 whose first SSE frame carries one, and a
+200 that closes without a byte — the last recorded as a *success*, leaving the
+client waiting for a `[DONE]` that never came. The first chunk is now inspected
+before it is forwarded: it is already in hand, so nothing is held back and no
+latency is added.
+
+The same hole existed on the non-streaming path, which is the worse half —
+Clarvis's §8.7 tool probe is a non-streamed request that reads any 2xx as "this
+model supports tools" and caches it for the session, so a lying 200 taught it
+the opposite of the truth. Both paths now share one definition of a refusal.
+
+**Learning from use is the other half, and it is post-commit.** Pre-commit
+switching can only ever catch refusals; whether a model did the job well is
+knowable only at the end of a stream, and only by Clarvis. `RAVIS.md` §13.5
+already describes recording success and error rate from real traffic and already
+names Clarvis reporting task outcomes — scheduled at M19, Stage 10, which is
+last. If routing that improves with use is the point of the system rather than a
+polish item, that ordering is worth re-deciding.
+
 ### The size tiebreak was ranking pools it had no business ranking
 
 Spotted by a reader asking why the same model kept being selected. It was worse
@@ -342,6 +395,70 @@ which is global, and broke M1's machine detection — which shells out to `sysct
 and has nothing to do with runtimes. A guard that disables unrelated code is a
 guard that gets deleted.
 
+### M6 — the engine, and the four things that had to exist first
+
+The audit below named four gaps that blocked this milestone. Each is now built,
+and each turned out to be load-bearing rather than bureaucratic:
+
+- **Streamed generation.** M2's `generate` is a round trip and stays one.
+  Time-to-first-token is §11.4's headline metric and is not recoverable from a
+  response that arrives whole. The streaming path re-meets LM Studio's
+  200-with-an-error-body trap in a new disguise: a refused request does not
+  arrive as SSE at all, so a parser that skipped non-`data:` lines would report
+  it as a model that produced nothing.
+- **Memory sampling at a weight that does not distort what it measures.** M1's
+  `detect_system` shells out four times and takes hundreds of milliseconds;
+  §11.8 wants eight readings around one generation plus a poll while it runs.
+  One `vm_stat` per sample, page size read from its own header, total memory
+  cached because it does not change. It repeats RAVIS's arithmetic — free +
+  inactive + speculative + purgeable — rather than importing it, because
+  runbook §3 permits sharing only the protocol package.
+- **Results storage.** `experiment`, `benchmark_run` and `benchmark_result`,
+  with §17's cardinality enforced by a unique constraint rather than remembered:
+  a run has exactly one result per target. Results and the run's terminal state
+  commit in one transaction, which is §11.10's "no result is visible before its
+  snapshot and provenance commit atomically" made mechanical.
+- **§11.9's raw directory.** `results/<experiment-id>/` with the specification,
+  the machine, the runtime, every response including warmups, telemetry and a
+  log. Raw responses are what make a rescoring cost an afternoon instead of a
+  week of GPU time.
+
+**What the engine refuses to do is most of what it is.** A token count nobody
+reported is never called measured — without `stream_options.include_usage` the
+only available number is a count of stream chunks, so throughput derived that
+way publishes at `ESTIMATED` and §12.1's lattice weakens the whole record. A
+warm model publishes **no load time at all**, because timing an already-
+satisfied acquire would produce a figure three orders of magnitude too fast that
+would look like the best result in the table. A model that returns nothing is a
+result with a warning rather than an error, because M2 found `qwen3-1.7b`
+spending an entire budget on reasoning: the call succeeded and the model said
+nothing, and those are two facts. A metric missing from even one repetition is
+omitted rather than summarised over the ones that worked.
+
+**Acquiring a warm model used to load a second copy of it, and a test found it.**
+The Resource Manager tracked only what *it* had loaded, so acquiring something
+LM Studio already held issued a load — and LM Studio does not reconfigure a
+resident model, it loads another instance. That is the mechanism behind three
+copies of one 7B model being resident during M9. Instances are now **adopted**:
+tracked, counted against capacity, reported with `owned: false`, and never
+unloaded here, which is §11.2's "unload **if owned**" read literally.
+
+**What M6 does not prove.** Every test behind it runs against a recorded
+runtime, which is runbook §14.5 working as intended and is also the whole gap:
+the exit criterion is a *persisted result*, and no result has been persisted
+from a real model. Nothing here has yet measured anything. The command exists,
+its refusals are tested, and the first live run is the next item in the list
+above.
+
+Three simplifications, stated rather than hidden. Telemetry is JSON Lines, not
+§11.9's Parquet — a columnar format and a pyarrow dependency answer a scale
+problem a single-model run does not have, and M10 is where that changes.
+§11.8's *peak prompt* and *peak generation* are collapsed into one poll across
+the whole generation, so the record carries the trough of available memory
+rather than two labelled peaks. And §11.2's **evaluate** step does nothing:
+evaluators are M18, and a specification carrying one is refused by name rather
+than run as though nothing had been asked for.
+
 ### Audited before M6 — what the specification asks for and does not have
 
 Checked the built surface against `SIRVIS.md` rather than discovering these
@@ -349,26 +466,32 @@ mid-milestone. **Four block M6.**
 
 | Gap | Section | Blocks M6 |
 |---|---|---|
-| **No storage for results.** M7 built the schema and no table; §17 names `BenchmarkRun` and `BenchmarkResult` with cardinality — an Experiment has many runs, a run has one result per target | §17 | **yes** — M6's exit is "persists a valid result" |
-| **No streaming generation.** M2's `generate` is deliberately a round trip; time-to-first-token cannot be measured without the first token's arrival | §11 | **yes** — TTFT is the headline metric |
-| **No lightweight memory sampling.** M1's `detect_system` shells out and is far too heavy to run at §11.8's eight points around a single generation | §11.8 | **yes** |
-| **No raw result directory.** §11.9's `results/<experiment-id>/` with responses preserved, so a rescoring does not need a rerun | §11.9 | **yes** |
-| **No YAML.** `sirvis benchmark run basic.yaml` needs a parser this package does not depend on | §18 | yes, trivially |
+| ~~**No storage for results.**~~ **Fixed.** `experiment`, `benchmark_run` and `benchmark_result`, with §17's one-result-per-target as a unique constraint and §11.10's atomic commit in one function | §17 | done |
+| ~~**No streaming generation.**~~ **Fixed.** `stream_generate`, with the 200-with-an-error-body trap handled in its streaming form | §11 | done |
+| ~~**No lightweight memory sampling.**~~ **Fixed.** One `vm_stat` per sample, plus a watcher that polls while a generation is in flight — a peak sampled only at the ends is not a peak | §11.8 | done |
+| ~~**No raw result directory.**~~ **Fixed.** §11.9's layout, including warmup responses: a warmup that failed explains a measured run that looks strange | §11.9 | done |
+| ~~**No YAML.**~~ **Fixed.** `pyyaml` declared explicitly rather than relied on transitively through `uvicorn[standard]` | §18 | done |
 | ~~**The error model is wrong.**~~ **Fixed.** §4.3's shape and its closed code list, with correlation IDs attached at the single translation point so no raiser can forget them | §4.3 | done |
 | ~~**`sirvis doctor` never learned about M1.**~~ **Fixed.** Machine, memory, disk, thermal, database, results directory, and the runtime — which it now contacts, reporting an absent one as a finding rather than a failure (§15.4) | §18 | done |
-| **CLI is far from parity.** §18's `models list`, `runtime list`, `runtime sessions`, `results latest` all have APIs and no command | §18 | no |
+| **CLI is still short of parity.** `benchmark run` and `results latest` exist now; §18's `models list`, `runtime list` and `runtime sessions` all have APIs and no command | §18 | no |
 | **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
-| **No job state machine.** §11.10's internal phases and coarse published enum, and "no result is visible before its snapshot and provenance commit atomically" | §11.10 | partly |
+| **No job state machine.** §11.10's coarse published enum and its atomic commit are built; the *queue* behind them — pause, resume, retry, reorder, and a job that survives a restart — is not | §11.10 | partly |
 | **Parquet telemetry** is named for high-frequency data where SQLite becomes unsuitable | §17 | no — not at one-run scale |
 
-The two that are shipped-and-wrong rather than merely absent — the error model
-and doctor — are worth fixing before more surface is built on top of them.
+Everything shipped-and-wrong on that list has been fixed. What remains is
+absent, which is the cheaper kind of gap: nobody is building on top of it.
 
-### Starting M6 — read this first
+### The rule about loading — still read this first
 
-M6 is the first milestone that **loads models to do its job**, and this session
-loaded four onto the developer's machine without asking. The cause is fixed
-(above) but the habit it exposed is not fixed by code:
+M6 is the first milestone that **loads models to do its job**, and an earlier
+session loaded four onto the developer's machine without asking. The cause is
+fixed and `sirvis benchmark run` now names what it is about to load and waits
+for an answer — refusing outright when stdin is not a terminal, because an
+unattended script that meant to do this can pass `--yes` and one that did not
+should not find out by discovering a 14 GB model resident an hour later.
+
+**A confirmation prompt is not the same as the habit**, and the habit is what
+actually prevents this:
 
 > **Say what you are about to load, and wait.** Not only for a deliberate load —
 > the four that happened were all indirect: a test suite reaching a live
@@ -383,14 +506,8 @@ loaded four onto the developer's machine without asking. The cause is fixed
 > **Never attribute an unexplained load to the user.** It was mine three times
 > out of three.
 
-What M6 needs that does not exist, from the audit below: results storage,
-streaming generation for time-to-first-token, memory sampling light enough for
-§11.8's eight points around one generation, a raw-result directory (§11.9), and
-a YAML parser. `sirvis doctor` now reports the results directory, so the last
-one is visible from the command line.
-
-And the approach the runbook asks for, which is easy to skip: **wrap
-`clarvis-firstrun/tools/suite2.py` before replacing it.** That tooling produced
+And the approach the runbook asks for, which is still ahead and is easy to skip:
+**wrap `clarvis-firstrun/tools/suite2.py` before replacing it.** That tooling produced
 the measurements in `ravis/measured-capabilities.json`; §21.1's first vertical
 slice is a *comparison* — one GGUF and one MLX build, benchmarked and compared —
 not one model measured well.
@@ -399,10 +516,10 @@ not one model measured well.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 18 | **The gaps below** | Found by auditing the built surface against the specification. Four of them block M6 |
-| 19 | **SIRVIS M6** | The benchmark engine. The first milestone that must load models to do its job |
-| 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
-| 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
+| 21 | **One live M6 run** | The engine's exit criterion is a *persisted result*, and every test behind it uses a recorded runtime. Until `sirvis benchmark run examples/basic.yaml` has loaded a real model and written a real row, M6 is code that should work. It also produces the first real numbers — TTFT and throughput on this machine — which is what M13 needs and what `measured-capabilities.json` is currently standing in for |
+| 22 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
+| 23 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
+| 24 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
 ### After that
 
@@ -528,6 +645,33 @@ reviewer who disagrees should say so rather than assume it was an accident.
   and whoever adds the first mutation should decide about it deliberately rather
   than inherit permission from this line. One allowlist, read by both halves of
   the decision, so refusal and permission cannot drift apart.
+- **A twelfth failure class, where §10 names eleven.**
+  `INVALID_UPSTREAM_RESPONSE` covers a success status that carried no usable
+  response — specifically a stream that closed without a single byte. Folding it
+  into an existing class would have meant a label that is a guess, and the
+  configured upstream answers 200 for endpoints it does not implement, so "the
+  status said fine" is not evidence that anything worked. Its policy permits a
+  fallback and scopes the circuit to the model. *If the eleven are meant to be
+  closed, say so in §10 and this becomes `UNKNOWN` with a worse explanation.*
+- **A benchmark's telemetry is JSON Lines, not Parquet.** §11.9's tree names
+  `telemetry/measurements.parquet`, and §17 scopes Parquet to "high-frequency
+  data where SQLite becomes unsuitable". A single-model run produces a few dozen
+  samples, so a columnar format and a pyarrow dependency would answer a scale
+  problem that does not exist yet. One JSON object per line, so M10 can change
+  the format when concurrent runs justify it without any reader here having
+  assumed a schema.
+- **Validity is `SUSPECT`, where §11.8 writes `VALID_WITH_WARNINGS`.** The same
+  three-state idea under a shorter name, chosen at M7 and kept rather than
+  renamed now that results are written against it. *If the specification's name
+  is preferred, change both together.*
+- **The Resource Manager adopts instances it did not load.** §9 gives it
+  ownership of every load and unload; it now also *tracks* a model the runtime
+  already holds, without owning it. The alternative was worse than a deviation:
+  issuing a load for something already resident makes LM Studio create a second
+  instance rather than reuse the first, which is how three copies of one 7B
+  model ended up in memory during M9. An adopted instance counts against
+  capacity, is reported with `owned: false`, and is never unloaded here —
+  §11.2's "unload **if owned**", read literally.
 - **`/api/v1/health` gained a `targets` array.** §15.1 lists the endpoint; this
   is what it now carries. Two kinds of health are reported separately on
   purpose: `upstream_reachable` is a live probe, `targets` is observed history.
@@ -598,6 +742,15 @@ reviewer who disagrees should say so rather than assume it was an accident.
   reason it is worth anything. Declaring a good model's rival tool-incapable to
   force the same ordering would have been lying about capability to buy a
   ranking, and remains the one thing not to do.
+- **§8.7's literal instruction is still not followed: RAVIS routes tool probes
+  to cold candidates.** The poisoning it caused is fixed from both ends (below),
+  but §8.7 does not say "answer the probe carefully" — it says *do not route a
+  tiny tool probe to a cold or unsupported candidate and thereby make the pool
+  appear incapable*, and calls it the sharpest wire-level constraint in the
+  integration. Doing that needs residency-aware pre-flight, and M14's
+  observation half already reports residency, so the missing part is small. Not
+  done, because it is a routing change rather than an error-handling one and it
+  deserves its own pass.
 - **Where the orchestration layer lives.** Alexander Keisse's router does
   prompt-shaping, multi-pass and RAG that this ecosystem currently has nowhere.
   The proposal on the table is that it becomes a client *of* RAVIS rather than
@@ -683,6 +836,74 @@ reviewer who disagrees should say so rather than assume it was an accident.
   `chat.baseUrl.${spec.id}` — keyed by *provider*, not by role — so the
   chat/agent split is two model settings against one endpoint. That is what
   makes M9 configuration rather than a code change.
+- **The one failure class allowed to retry the same target retried it forever.**
+  A refused connection is classified `CONNECTION`, the only class permitted a
+  same-target retry — and `next_target()` returned that retry *before* consulting
+  the budget, while `failed()` re-armed it on every failure. Against a closed LM
+  Studio the chain re-offered the primary indefinitely: the second candidate was
+  never reached, `max_attempts` was never enforced, and the request never
+  returned. A switchboard that cannot fail over is worse than one that fails.
+  The test that should have caught it is named `..._retries_the_same_target_once`
+  and asserted the *first* retry, never asking what came after — the same
+  situation-not-rule mistake as the capability list above. Reproduced in twelve
+  lines before anything was changed, which is why the fix is trustworthy.
+- **A half-open circuit could latch permanently, and the new failure class made
+  it likely.** An attempt is claimed on *both* the model's and the provider's
+  health record, so both can be left `probing`; a failure blames only one of
+  them, and the other stayed probing forever — `allows()` is false while
+  probing, only a success clears it, and no success can arrive while `allows()`
+  is false. Every model behind that provider then reads unavailable and every
+  request is a 422. Pre-existing, and reachable most easily on the *recovery*
+  path: a half-open probe is by definition the first request to a provider that
+  was just down, which is exactly when a runtime answers "model unloaded" while
+  it comes back up. Both records are now released; only one is blamed.
+- **Defaulting an unrecognised error to a fallback-eligible class was a fail-open
+  bug, not a convenience.** The first version of `classify_error_body` returned a
+  class permitting fallback when the marker table matched nothing, on the
+  reasoning that `UNKNOWN` would abandon a model and then give up. That makes the
+  *same* refusal produce opposite decisions depending on which status the
+  upstream attached, with the permissive branch being the 2xx one — and §10's
+  "do not route around a safety refusal" carries no status qualifier. It fails
+  closed now, and the marker table was widened so the shapes that actually occur
+  are recognised rather than defaulted.
+- **A gate that reads only the first line is defeated by punctuation.** A
+  provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
+  straight past the first version. It skips SSE framing now — which is not the
+  same as parsing the stream: the original bytes are still forwarded untouched.
+- **A three-valued answer stored in a two-valued type, twice.** Clarvis's §8.7
+  tool probe asks whether a model can call tools and can receive three answers —
+  yes, no, or *could not tell*. `supportsTools` returns a boolean and the result
+  is cached for the session, so "could not tell" was expressible only by
+  throwing, and the throw was gated on a list of three status codes. Every
+  status nobody had thought of was recorded as a definitive **no**. Clarvis had
+  already been burned by this once, with a bad credential, and had fixed the
+  *instance* — 401, 403, 429 — rather than the rule, which is exactly why RAVIS
+  answering 502 brought it straight back.
+  Fixed from both ends. Clarvis now decides by what a status *means*: a 4xx is
+  the server rejecting the request, and the only unusual thing in a probe is its
+  `tools` parameter, so that is an answer; anything else — a 502, a 503, a
+  timeout, a refused connection — is the server failing to answer, and is never
+  remembered. And RAVIS stopped sending a 4xx for a condition that resolves
+  itself: a pool whose candidates are all in breaker cooldown answers **503**,
+  while a pool nothing satisfies stays **422**. The distinction is carried
+  structurally on the route decision rather than recovered from prose, because
+  a status derived by matching strings is one that breaks when a message is
+  reworded.
+- **Acquiring a model that was already loaded used to load it a second time.**
+  Found by a test asserting that a warm benchmark performs no load at all. The
+  Resource Manager tracked only what *it* had loaded, so a model LM Studio held
+  — JIT-loaded, or loaded by hand — looked cold to it. LM Studio does not
+  reconfigure a resident model to satisfy a request; it loads another instance,
+  so the manager would have been accounting for one copy while the machine held
+  two. It now adopts what is already there. The lesson is the one M8 was already
+  built around and this still slipped past: **ownership and residency are
+  different questions**, and code that knows only its own bookkeeping will
+  happily duplicate the machine's.
+- **A `Measurement` that omits a metric beats one that averages what survived.**
+  The engine drops a metric entirely if even one repetition could not produce it
+  — a median over "the three takes that happened to report token counts" has a
+  sample size decided by coincidence, and §11.7's whole argument is that a
+  headline means something only in relation to the samples behind it.
 - `httpx.ConnectTimeout` is both a `TimeoutException` and a connection error, so
   `isinstance` order decides its classification. Reading it as a connection
   failure would retry the same target — §10 only permits that for a request that
@@ -700,7 +921,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0–M4, M7, M8)
+sirvis/                the evidence plane (M0–M4, M6, M7, M8)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

@@ -15,6 +15,7 @@ from ravis.reliability.attempts import Attempt, AttemptChain, RetryBudget
 from ravis.reliability.failures import (
     FailureClass,
     HealthScope,
+    classify_error_body,
     classify_exception,
     classify_response,
     error_body,
@@ -30,6 +31,7 @@ __all__ = [
     "HealthScope",
     "RetryBudget",
     "TargetHealth",
+    "classify_error_body",
     "classify_exception",
     "classify_response",
     "error_body",

@@ -1,6 +1,7 @@
 """Runtime adapters — the things that actually hold a model in memory (§7)."""
 
 from sirvis.runtimes.base import (
+    GenerationChunk,
     LoadedModel,
     RuntimeInfo,
     RuntimeState,
@@ -9,6 +10,7 @@ from sirvis.runtimes.base import (
 from sirvis.runtimes.lmstudio import LMStudioAdapter
 
 __all__ = [
+    "GenerationChunk",
     "LMStudioAdapter",
     "LoadedModel",
     "RuntimeInfo",

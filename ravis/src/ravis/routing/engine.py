@@ -295,10 +295,13 @@ def _exclusions(
     for model in sorted(candidates):
         reasons = pool.requirements.unmet_by(candidates[model])
         reasons += unmet_by(requirements, candidates[model])
-        if model in unavailable:
+        refused = model in unavailable
+        if refused:
             reasons.append(unavailable[model])
         if reasons:
-            excluded.append(ExcludedCandidate(model=model, reasons=reasons))
+            excluded.append(
+                ExcludedCandidate(model=model, reasons=reasons, circuit_open=refused)
+            )
     return excluded
 
 

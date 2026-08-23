@@ -1,8 +1,17 @@
-"""`sirvis doctor` and `sirvis serve` — §18, and M0's exit criterion.
+"""The command line (§18).
 
-`doctor` contacts nothing. That constraint is the feature: it has to be runnable
-on a laptop with no runtime installed and useful during an incident, when the
-thing being diagnosed is that something will not answer.
+`doctor` and `serve` are M0's exit criterion; `benchmark run` is M6's. The
+constraint that shaped `doctor` — it contacts nothing that must be running — is
+a feature: it has to be usable on a laptop with no runtime installed, and during
+an incident, when the thing being diagnosed is that something will not answer.
+
+**`benchmark run` asks before it loads anything, and that is not politeness.**
+Four models were loaded onto the developer's machine during this build without
+anyone intending it — a test suite reaching a live service, a `generate` call
+JIT-loading, a CLI shelling out — and none of them registered as "loading a
+model" at the time. A multi-gigabyte load is slow, changes what else fits in
+memory, and is exactly the kind of thing a person wants to be told about before
+it happens rather than after. `--yes` skips the prompt for scripted use.
 """
 
 from __future__ import annotations
@@ -12,7 +21,7 @@ import logging
 import os
 import pathlib
 import sys
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import uvicorn
 from ecosystem_protocol import configure_logging
@@ -22,7 +31,16 @@ from sirvis.config import ConfigurationReport, Settings, inspect_configuration
 from sirvis.storage import prepare_database
 from sirvis.telemetry import detect_system
 
+if TYPE_CHECKING:  # imported for types only — see `_run_benchmark` on why the
+    # real imports are deferred: nothing that starts a benchmark should be paid
+    # for by `sirvis doctor`, which is the command run when things are broken.
+    from sirvis.benchmarks import ExperimentOutcome, ExperimentSpec
+
 EXIT_OK = 0
+# A benchmark that ran and failed is a different outcome from a configuration
+# that would not let it start, and a script driving this needs to tell them
+# apart: one is worth retrying, the other is not.
+EXIT_BENCHMARK_FAILED = 1
 EXIT_FATAL_CONFIGURATION = 2
 
 
@@ -44,6 +62,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_doctor(settings)
     if arguments.command == "token":
         return _run_token(settings, arguments.mint, arguments.scopes)
+    if arguments.command == "benchmark":
+        return _run_benchmark(settings, arguments)
+    if arguments.command == "results":
+        return _run_results(settings, arguments.limit)
     return _run_serve(settings)
 
 
@@ -62,6 +84,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "--scopes", default="read",
         help="space-separated scopes for --mint: read, benchmark, runtime, admin",
     )
+
+    benchmark = subcommands.add_parser("benchmark", help="run a benchmark experiment")
+    benchmark_commands = benchmark.add_subparsers(dest="benchmark_command", required=True)
+    run = benchmark_commands.add_parser("run", help="run one experiment specification")
+    run.add_argument("specification", help="path to a YAML experiment specification (§11.5)")
+    run.add_argument(
+        "--model", default=None,
+        help="override the model the specification names, so an example file stays runnable",
+    )
+    run.add_argument("--warmups", type=int, default=None, help="override warmup runs")
+    run.add_argument(
+        "--repetitions", type=int, default=None, help="override measured repetitions"
+    )
+    run.add_argument(
+        "--yes", "-y", action="store_true",
+        help="do not ask before loading the model into the runtime",
+    )
+
+    results = subcommands.add_parser("results", help="show recent benchmark runs")
+    results_commands = results.add_subparsers(dest="results_command", required=True)
+    latest = results_commands.add_parser("latest", help="the most recent runs")
+    latest.add_argument("--limit", type=int, default=5)
     return parser
 
 
@@ -249,6 +293,139 @@ def _run_token(settings: Settings, mint_label: str | None, scope_names: str) -> 
         print(f"  {entry['label']:<16} {' '.join(entry['scopes'])}", file=sys.stderr)
     print("\n  mint another with: sirvis token --mint <label> --scopes \"read runtime\"",
           file=sys.stderr)
+    return EXIT_OK
+
+
+def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
+    """M6's exit criterion: run one specification and persist a valid result.
+
+    Everything the run needs is built here rather than through `create_app`:
+    a benchmark does not serve HTTP, and starting a web application to run one
+    would put a listening socket on a machine whose memory is about to be spent
+    on a model.
+    """
+    import asyncio
+    import dataclasses
+
+    from sirvis.benchmarks import load_experiment, run_experiment
+    from sirvis.errors import SirvisError
+    from sirvis.resources import ResourceManager
+    from sirvis.runtimes import LMStudioAdapter
+    from sirvis.storage import RunState
+
+    try:
+        spec = load_experiment(arguments.specification)
+    except SirvisError as failure:
+        print(f"error: {failure.message}", file=sys.stderr)
+        return EXIT_FATAL_CONFIGURATION
+
+    overrides = {
+        name: value
+        for name, value in (
+            ("model_key", arguments.model),
+            ("warmups", arguments.warmups),
+            ("repetitions", arguments.repetitions),
+        )
+        if value is not None
+    }
+    spec = dataclasses.replace(spec, **overrides)
+
+    if not _confirm_load(spec, settings, assume_yes=arguments.yes):
+        return EXIT_FATAL_CONFIGURATION
+
+    database = prepare_database(settings.database_path)
+    adapter = LMStudioAdapter(
+        base_url=settings.lmstudio_base_url, lms_path=settings.lmstudio_cli_path
+    )
+    resources = ResourceManager(
+        runtime=adapter,
+        default_lease_seconds=settings.default_lease_seconds,
+        max_loaded=settings.max_loaded_models,
+    )
+    try:
+        outcome = asyncio.run(run_experiment(
+            spec, runtime=adapter, resources=resources, database=database,
+            results_root=settings.results_path,
+        ))
+    except SirvisError as failure:
+        print(f"error: {failure.message}", file=sys.stderr)
+        return EXIT_BENCHMARK_FAILED
+
+    _print_outcome(outcome)
+    return EXIT_OK if outcome.state is RunState.SUCCEEDED else EXIT_BENCHMARK_FAILED
+
+
+def _confirm_load(spec: ExperimentSpec, settings: Settings, assume_yes: bool) -> bool:
+    """Say what is about to be loaded, and wait for an answer.
+
+    The load is the expensive, memory-spending, minutes-long part, and it is
+    invisible from the command that triggers it. Refusing rather than assuming
+    when there is nobody to ask is deliberate: an unattended script that meant
+    to run this can pass `--yes`, and one that did not should not discover the
+    difference by finding a 14 GB model resident an hour later.
+    """
+    print(f"about to load {spec.model_key} into the runtime at "
+          f"{settings.lmstudio_base_url}")
+    print(f"  configuration  {dict(spec.load) or 'runtime defaults'}")
+    print(f"  work           {spec.warmups} warmup(s) + {spec.repetitions} measured "
+          f"repetition(s) × {len(spec.tests)} test(s)")
+    print("  note           this occupies memory until the run finishes and the "
+          "lease is released")
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        print("\nrefusing to load a model with nobody to ask; pass --yes to proceed",
+              file=sys.stderr)
+        return False
+    answer = input("\nproceed? [y/N] ").strip().lower()
+    return answer in ("y", "yes")
+
+
+def _print_outcome(outcome: ExperimentOutcome) -> None:
+    """The run, in the shape an operator asked the question in.
+
+    Validity notes are printed even on a successful run, and prominently. A
+    result measured while the machine was swapping, or against a model loaded at
+    a context length nobody asked for, is still a result — and reading it as
+    though it answered the original question is the mistake §11.8 exists to
+    prevent."""
+    print(f"\nrun              {outcome.run_id} · {outcome.state.value}")
+    print(f"  experiment     {outcome.experiment_id}")
+    print(f"  raw results    {outcome.results_path}")
+    if outcome.record is None:
+        print(f"  detail         {outcome.detail}")
+        return
+    record = outcome.record
+    print(f"  evidence       {record.identity.evidence_id} "
+          f"({record.evidence_type.value.lower()})")
+    for name, measurement in sorted(record.measurements.items()):
+        spread = "" if measurement.spread is None else f" ± {measurement.spread:.3f}"
+        print(f"  {name:<30} {measurement.median:.3f}{spread} {measurement.unit} "
+              f"(n={measurement.samples})")
+    print(f"  validity       {record.validity.value}")
+    for note in record.validity_notes:
+        print(f"    warning      {note}")
+
+
+def _run_results(settings: Settings, limit: int) -> int:
+    """`sirvis results latest` (§18) — what has been measured on this machine."""
+    from sirvis.storage import latest_runs
+
+    database = prepare_database(settings.database_path)
+    runs = latest_runs(database, limit=limit)
+    if not runs:
+        print("no benchmark runs recorded yet — try: sirvis benchmark run examples/basic.yaml")
+        return EXIT_OK
+    for run in runs:
+        print(f"{run['run_id']}  {run['state']:<10} {run['started_at']}  "
+              f"{run['experiment_id']}")
+        for result in run["results"]:
+            metrics = result.get("metrics", {})
+            headline = ", ".join(
+                f"{name}={body['median']:.3f}{body['unit'][:1]}"
+                for name, body in sorted(metrics.items()) if "median" in body
+            )
+            print(f"    {result['target_key']:<40} {result['validity']:<8} {headline}")
     return EXIT_OK
 
 
