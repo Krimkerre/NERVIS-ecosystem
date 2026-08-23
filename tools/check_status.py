@@ -41,11 +41,15 @@ PACKAGES = ("protocol", "ravis", "sirvis")
 
 
 def _python() -> str:
-    """The interpreter that has RAVIS installed.
+    """The interpreter that has every package installed.
 
-    A local checkout keeps it in `ravis/.venv`; CI installs into the runner's
-    own environment and puts the console scripts on PATH. Preferring the venv
-    when it exists makes the same command work in both without a flag.
+    A local checkout keeps one venv in `ravis/.venv` and installs the siblings
+    into it; CI installs all three into the runner's own environment. Preferring
+    the venv when it exists makes the same command work in both without a flag.
+
+    Whichever it is, it must have *all* of `PACKAGES` importable — collecting a
+    suite whose package is missing yields -1, which is a hard failure by design
+    rather than a smaller number.
     """
     venv = RAVIS / ".venv/bin/python"
     return str(venv) if venv.exists() else sys.executable
