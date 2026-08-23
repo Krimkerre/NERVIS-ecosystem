@@ -93,7 +93,7 @@ into the order work actually happens.
 | 16 | **SIRVIS M7** | The evidence schema — **Stage 4's exit criterion verbatim** |
 | 17 | **SIRVIS M8** | The Resource Manager: reference counts, leases, conflict policy, and §9's rule that *all* load and unload flows through one owner |
 | 18 | **The four gaps that blocked M6** | Results storage (§17), streamed generation so time-to-first-token exists, memory sampling light enough for §11.8's eight points, §11.9's raw result directory — and the trivial fifth, a YAML parser |
-| 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Run live against six builds**, done 2026-08-23 — numbers below |
+| 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Run live against all 19 installed builds**, done 2026-08-23, in a cooled and control-bracketed sweep — numbers below |
 | 20 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
