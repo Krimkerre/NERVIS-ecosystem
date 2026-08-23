@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
+from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
 from sirvis.telemetry import detect_system
@@ -84,6 +85,88 @@ async def read_runtimes(request: Request) -> dict[str, Any]:
     row = info.as_dict()
     row["lifecycle_available"] = adapter.lifecycle_available()
     return _listing([row])
+
+
+async def _inventory(request: Request) -> Inventory:
+    """The §6 domain, derived on read from what the runtime currently reports.
+
+    Derived rather than stored, and that is a decision worth stating. §6's exit
+    requires stable IDs to survive a restart, and these are *hashes of the
+    attributes that identify a build* — so a fresh inventory on an empty
+    database produces the same IDs as the one before it. Persisting them would
+    add a table whose only job is to reproduce what the derivation already
+    guarantees, and a second source of truth that can disagree with the runtime.
+
+    A table arrives when something needs to record what cannot be re-derived —
+    an installed size, a download source, a benchmark's reference to a build
+    that has since been deleted. Not before.
+    """
+    adapter = request.app.state.lmstudio
+    return build_inventory(await adapter.list_models())
+
+
+@router.get("/models")
+async def read_models(request: Request, runtime_key: str | None = None) -> dict[str, Any]:
+    """Installed builds, or the one a runtime calls `runtime_key` (§4.2, §6).
+
+    The `runtime_key` form is the lookup RAVIS uses instead of matching on
+    names, which §15.1 forbids it doing. It resolves on a **cold** model
+    deliberately: the load-or-don't decision needs evidence about a build
+    exactly when it is not loaded.
+
+    **404 is a correct answer** and stays distinguishable from a guess (§6).
+    Nothing here falls back to a nearest match, because a fuzzy hit would be a
+    guess wearing an identity's clothes — and RAVIS would route on it.
+    """
+    inventory = await _inventory(request)
+    if runtime_key is None:
+        return _listing([_describe(inventory, model.runtime_key) for model in
+                         inventory.installed.values()])
+
+    found = inventory.by_runtime_key(runtime_key)
+    if found is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no installed build carries the runtime key {runtime_key!r}",
+        )
+    return _describe(inventory, found.runtime_key) | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+@router.get("/models/{local_model_id}")
+async def read_model(request: Request, local_model_id: str) -> dict[str, Any]:
+    """One installed build, with its variant, its family and any live instances."""
+    inventory = await _inventory(request)
+    for model in inventory.installed.values():
+        if model.local_model_id == local_model_id:
+            return _describe(inventory, model.runtime_key) | {
+                "snapshot_revision": SNAPSHOT_REVISION
+            }
+    raise HTTPException(status_code=404, detail=f"no installed build {local_model_id!r}")
+
+
+def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
+    """One installed build with everything §6 keeps separate, kept separate.
+
+    Artifact, loadable configuration and running instance are distinct in the
+    response because §6 requires it — and because on this machine the difference
+    between a build's advertised context and a loaded instance's effective one
+    has already caused a wrong route.
+    """
+    model = inventory.installed[runtime_key]
+    variant = inventory.variants[model.variant_id]
+    family = inventory.families[variant.family_id]
+    instances = inventory.instances_of(model.local_model_id)
+    return {
+        **model.as_dict(),
+        "variant": {
+            **variant.as_dict(),
+            "family_architecture_disagrees": variant.variant_id
+            in inventory.architecture_disagreements,
+        },
+        "family": family.as_dict(),
+        "instances": [instance.as_dict() for instance in instances],
+        "is_loaded": bool(instances),
+    }
 
 
 @router.get("/runtimes/{runtime_key}/models")
