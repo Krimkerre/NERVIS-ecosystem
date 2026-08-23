@@ -100,6 +100,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repetitions", type=int, default=None, help="override measured repetitions"
     )
     run.add_argument(
+        "--clarvis-role", default=None, choices=["clarvis-chat", "clarvis-agent"],
+        help="run Clarvis's own role workload instead of the specification's tests (M13); "
+             "the agent role also runs the tool-call trials",
+    )
+    run.add_argument(
         "--runtime-set", default=None,
         help="run the specification's tests against a stored Runtime Set (M10): "
              "every member is measured alone, then co-resident in §11.3's modes",
@@ -337,6 +342,17 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
     }
     spec = dataclasses.replace(spec, **overrides)
 
+    if arguments.clarvis_role:
+        # The role supplies the whole experiment — Clarvis's own scenes, and the
+        # tool-call trials for the agent — so the specification file contributes
+        # only the model and the repetition counts.
+        from sirvis.benchmarks.clarvis_roles import role_spec
+
+        spec = role_spec(
+            arguments.clarvis_role, spec.model_key,
+            warmups=spec.warmups, repetitions=spec.repetitions,
+        )
+
     if arguments.runtime_set:
         return _run_multi_benchmark(settings, arguments, spec)
 
@@ -466,6 +482,8 @@ def _confirm_load(spec: ExperimentSpec, settings: Settings, assume_yes: bool) ->
     to run this can pass `--yes`, and one that did not should not discover the
     difference by finding a 14 GB model resident an hour later.
     """
+    if spec.tool_trials:
+        print("this run also makes 9 tool-call generations after the prose tests (M13)")
     print(f"about to load {spec.model_key} into the runtime at "
           f"{settings.lmstudio_base_url}")
     print(f"  configuration  {dict(spec.load) or 'runtime defaults'}")

@@ -43,7 +43,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from sirvis.benchmarks.spec import BenchmarkTest, GenerationConfig
+from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, GenerationConfig
+from sirvis.core.evidence import EvidenceKind, Provenance, TrialRate
 
 # Clarvis's two roles, spelled as RAVIS's pools name them. M16 found the seam
 # this closes: evidence filed under `agent` cannot answer a query for
@@ -297,4 +298,205 @@ def role_tests(role: str) -> tuple[BenchmarkTest, ...]:
             generation=GenerationConfig(temperature=0, max_tokens=600),
         )
         for name, prompt in scenes
+    )
+
+
+# The versioned method names these trials publish (§12.1). A rate produced by
+# `v1` is never silently compared with one from a later version, and the whole
+# point of wrapping Clarvis's harness rather than reimplementing it is that this
+# version means *that* procedure — eight phrasings, streamed, assembled by index.
+METHOD_TOOL_CALL = "clarvis.tool_call.streamed.v1"
+METHOD_FOLLOWUP = "clarvis.tool_followup.f17.v1"
+
+
+@dataclass
+class ToolReliability:
+    """What the trials found, before it becomes evidence.
+
+    Kept separate from `TrialRate` so the per-attempt detail survives: §11.9
+    preserves raw results, and "which two phrasings failed" is the finding a
+    rate alone cannot carry.
+    """
+
+    trials: list[ToolTrial] = field(default_factory=list)
+    followup: str = ""
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for trial in self.trials if trial.passed)
+
+    @property
+    def total(self) -> int:
+        return len(self.trials)
+
+    @property
+    def outcomes(self) -> dict[str, int]:
+        """How many attempts ended each way — the shape a rate flattens."""
+        counted: dict[str, int] = {}
+        for trial in self.trials:
+            counted[trial.outcome] = counted.get(trial.outcome, 0) + 1
+        return counted
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed, "total": self.total,
+            "outcomes": self.outcomes,
+            "followup": self.followup,
+            "trials": [trial.as_dict() for trial in self.trials],
+            "method": METHOD_TOOL_CALL,
+        }
+
+
+async def run_tool_trials(
+    runtime: Any,
+    model_key: str,
+    *,
+    prompts: Sequence[str] = TOOL_PROMPTS,
+    repetitions: int = 1,
+) -> ToolReliability:
+    """Ask one build to call a tool, in every phrasing, the way Clarvis asks.
+
+    **Streamed, and assembled by index.** Not a stylistic choice: the same build
+    returns a well-formed call unstreamed and streams one whose arguments never
+    arrive, so a harness reading `message.tool_calls` off a finished response
+    scores 3/3 for something that fails every realistic request. Clarvis streams
+    every reply it makes, so this streams.
+
+    A phrasing that raises is recorded as an attempt that produced no call
+    rather than skipped. A build that makes the runtime fall over on two of
+    eight prompts has a tool-call reliability of six in eight, and dropping
+    those two would publish eight in eight for it.
+    """
+    trials: list[ToolTrial] = []
+    for _ in range(max(1, repetitions)):
+        for prompt in prompts:
+            trials.append(await _one_trial(runtime, model_key, prompt))
+    return ToolReliability(
+        trials=trials,
+        followup=await run_followup(runtime, model_key),
+    )
+
+
+async def _one_trial(runtime: Any, model_key: str, prompt: str) -> ToolTrial:
+    """One phrasing, once."""
+    try:
+        text, calls = await _streamed_turn(
+            runtime, model_key, [{"role": "user", "content": prompt}], [READ_FILE_TOOL]
+        )
+    except Exception as failure:  # noqa: BLE001 - a runtime is third-party code
+        return ToolTrial(prompt=prompt, text=f"runtime error: {failure}")
+    return ToolTrial(prompt=prompt, calls=calls, text=text)
+
+
+async def run_followup(runtime: Any, model_key: str) -> str:
+    """The F17 test: does it *use* a tool result, or reissue the same call?
+
+    One-shot code generation cannot see this failure. The model that malformed a
+    path and then retried the dead path four times — twice after being told
+    plainly to use `listFiles` — writes perfectly good Python. This replays that
+    exchange: the model asks for a file, the tool answers with a real error and
+    a specific instruction, and what it does next is the measurement.
+    """
+    try:
+        _, first = await _streamed_turn(
+            runtime, model_key,
+            [{"role": "user", "content": TOOL_PROMPTS[0]}], [READ_FILE_TOOL],
+        )
+        if not first:
+            return NO_CALL
+        asked = first[0].path
+        if asked is None:
+            return LOST_ARGUMENTS
+        prose, second = await _streamed_turn(
+            runtime, model_key, followup_messages(asked, first[0]),
+            [READ_FILE_TOOL, LIST_FILES_TOOL],
+        )
+        return score_followup(first, second, prose)
+    except Exception:  # noqa: BLE001 - a runtime is third-party code
+        return NO_CALL
+
+
+async def _streamed_turn(
+    runtime: Any, model_key: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+) -> tuple[str, list[AssembledCall]]:
+    """One turn, streamed, with the tool deltas assembled as Clarvis assembles them."""
+    text = ""
+    frames: list[Mapping[str, Any]] = []
+    async for chunk in runtime.stream_generate(
+        model_key, messages, tools=tools, max_tokens=300, temperature=0
+    ):
+        text += chunk.content
+        frames.extend(chunk.tool_calls)
+    return text, absorb_tool_deltas(frames)
+
+
+def tool_rate(reliability: ToolReliability, *, phrasings: int) -> TrialRate:
+    """The trials as §13.2's rate, which is not a distribution.
+
+    A `Measurement` here would invite a median over ones and zeros. `passed` and
+    `total` both travel because 6/8 and 60/80 are different amounts of evidence
+    for the same rate.
+    """
+    return TrialRate(
+        passed=reliability.passed,
+        total=reliability.total,
+        provenance=Provenance(kind=EvidenceKind.MEASURED, method=METHOD_TOOL_CALL),
+        phrasings=phrasings,
+        repetitions_each=reliability.total // max(1, phrasings),
+    )
+
+
+def followup_rate(reliability: ToolReliability) -> TrialRate:
+    """The follow-up outcome as a one-attempt rate.
+
+    One trial, and it is still a rate rather than a flag: the outcome vocabulary
+    has five failures and one success, so a boolean would discard which one
+    happened — and `retried` versus `gave-up` are different bugs.
+    """
+    return TrialRate(
+        passed=1 if reliability.followup in FOLLOWUP_PASSES else 0,
+        total=1,
+        provenance=Provenance(
+            kind=EvidenceKind.MEASURED, method=METHOD_FOLLOWUP,
+            notes=f"outcome: {reliability.followup or 'not run'}",
+        ),
+        phrasings=1,
+        repetitions_each=1,
+    )
+
+
+def role_spec(
+    role: str,
+    model_key: str,
+    *,
+    suite_version: str = "1",
+    warmups: int = 1,
+    repetitions: int = 3,
+) -> ExperimentSpec:
+    """One Clarvis role as a runnable experiment.
+
+    **The role name is RAVIS's pool name**, not a shortened form of it. M16
+    found that evidence filed under `agent` cannot answer a query for
+    `clarvis-agent`, and the fix is to measure the role RAVIS asks about — not
+    to teach either side a mapping between two vocabularies, which is exactly
+    the equivalence-inference §15.1 forbids.
+
+    `tool_trials` follows the role rather than being a separate flag to
+    remember: §13.2 makes tool-call reliability part of what the agent role
+    *is*, so an agent verdict without it is a verdict about something else.
+    """
+    if role not in (ROLE_CHAT, ROLE_AGENT):
+        raise ValueError(
+            f"unknown Clarvis role {role!r}; expected {ROLE_CHAT} or {ROLE_AGENT}"
+        )
+    return ExperimentSpec(
+        suite_id=f"clarvis-role-{role}",
+        suite_version=suite_version,
+        model_key=model_key,
+        tests=role_tests(role),
+        warmups=warmups,
+        repetitions=repetitions,
+        role=role,
+        tool_trials=role == ROLE_AGENT,
+        notes="Clarvis role workload, wrapped from clarvis-firstrun/tools/suite2.py",
     )

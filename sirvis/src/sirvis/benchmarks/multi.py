@@ -822,3 +822,8 @@ class _OutcomeView:
         self.effective_configuration = dict(spec.per_role[0].load)
         self.thermal_before: str | None = None
         self.thermal_after: str | None = None
+        # M13's trials do not run under a multi-model experiment: the tool-call
+        # question is about one build, and asking it while a second model is
+        # resident measures the pair. None rather than an empty result, so the
+        # record carries no rate at all rather than a rate of zero.
+        self.tool_reliability: Any = None

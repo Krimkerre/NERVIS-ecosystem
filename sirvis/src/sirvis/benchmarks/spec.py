@@ -165,6 +165,12 @@ class ExperimentSpec:
     # asked differently". Nothing is hidden by it — the suppression that fired
     # lands in the evidence identity and in the record's validity notes.
     suppress_thinking: tuple[str, ...] = THINKING_SUPPRESSIONS
+    # Whether to run M13's tool-call trials after the prose tests. Off by
+    # default because they cost nine extra generations, and on for the
+    # `clarvis-agent` role because §13.2 makes tool-call reliability part of
+    # what that role *is* — an agent verdict without it is a verdict about
+    # something else.
+    tool_trials: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """The specification as stored beside its results (§11.9).

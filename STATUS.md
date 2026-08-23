@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 656 tests, no network, no live service
+.venv/bin/pytest                      # part of 676 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 656 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 676 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -100,6 +100,7 @@ into the order work actually happens.
 | 23 | **SIRVIS M9** | Runtime Sets — §10's versioned multi-model target. Definitions, revisions that only move when the definition does, role-addressable members, sessions opened against a set under one lease, and a fit estimate that can refuse but never approve. Settled below |
 | 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. **Run live against a GGUF/MLX pair, 2026-08-24** — the first measured pair in the corpus, numbers below |
 | 25 | **SIRVIS M16** | The RAVIS evidence API — §15.1's question as an endpoint, with every filter it names, cursor paging, staleness, stable references, and candidate runtime keys resolved by SIRVIS so RAVIS never infers equivalence. Nothing ranks. Found the role-vocabulary seam, below |
+| 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 is nearly done** — its benchmark, Runtime Set and RAVIS-facing halves have all landed, and what remains is the *Clarvis-specific* half: M12, M13 and M15.
 
@@ -1000,6 +1001,58 @@ and use a non-simple content type. The test that guarded the old line asserted
 POST was not advertised — it is replaced by one asserting what actually protects
 anything, that an unlisted origin gets no CORS headers at all.
 
+### What M12 and M13 settled
+
+M12's instruction is *inspect Clarvis's existing benchmark assets — do not
+rewrite* — and the classification it produced is short, because three things in
+`clarvis-firstrun/tools/suite2.py` are `REUSE` and each encodes a failure that
+cost a real debugging session:
+
+- **Eight phrasings, not one.** `granite-4.0-h-tiny` passed a single-prompt
+  tool-call check three times out of three and lost the filename on every one of
+  the eight. A harness with one prompt measures whether that phrasing works.
+- **Assembled from the stream, by index.** The original harness sent
+  `stream: false` and read `message.tool_calls` off a finished response. Clarvis
+  never does that. The two modes **disagree**: the same build returns a
+  well-formed call unstreamed and streams one whose arguments never arrive, so
+  the old harness scored 3/3 for a build that fails every realistic request.
+- **The follow-up turn.** One-shot code generation cannot see the failure where
+  a model malforms a path and then retries the dead path four times, twice after
+  being told plainly to use a different tool. The model that did that writes
+  perfectly good Python.
+
+M13 wrapped those and added the evidence contract around them. **`TrialRate` has
+had no producer since M7 declared it** — the shape was right and nothing filled
+it — and it is filled now: eight phrasings become `tool_call_well_formed`, the
+follow-up becomes `tool_followup_used_result`, and both carry versioned method
+names so a rate from `clarvis.tool_call.streamed.v1` is never silently compared
+with a later one.
+
+Three decisions worth the veto:
+
+- **A rate, never a measurement.** A median over ones and zeros is meaningless.
+  `passed` and `total` both travel, because 6/8 and 60/80 are different amounts
+  of evidence for the same rate.
+- **A runtime failure is a failed attempt, not a skipped one.** A build that
+  makes the runtime fall over on two of eight prompts has a reliability of six
+  in eight; dropping those two would publish eight in eight for it.
+- **Absence is not zero.** A run without trials carries *no* tool rate at all
+  rather than `0/0`. That field is what a router reads to decide whether a build
+  can call tools, and a rate nobody measured sitting in it is the exact
+  metadata-only claim M13's acceptance forbids.
+
+**The role is spelled the way RAVIS names its pool.** M16 found that evidence
+filed under `agent` cannot answer a query for `clarvis-agent`; the fix is to
+measure the role RAVIS asks about, not to teach either side a mapping — which
+would be the equivalence-inference §15.1 forbids, performed by the other side.
+That seam is closed by construction.
+
+**Nothing has been measured yet.** `sirvis benchmark run <suite> --clarvis-role
+clarvis-agent` is the entry point, it warns that nine extra generations are
+coming, and no build has been through it. Until one has, the tool columns on
+Models, Runtime sets and Results stay absent — but they are wired to a real
+producer now rather than to a milestone number.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -1170,7 +1223,6 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 26 | **SIRVIS M12 + M13** | Clarvis role benchmarks. M12 is a *spike*, not a build — inspect Clarvis's existing benchmark assets and classify each `REUSE`, `WRAP`, `UNSUITABLE` or `MISSING`, explicitly without rewriting them. M13 then produces evidence under the `clarvis-chat` and `clarvis-agent` roles, with tool-call reliability in the agent evidence. **This is what closes the role-vocabulary seam M16 found** — the reason RAVIS asks for `clarvis-agent` and finds nothing is that nothing has yet measured that role, and the fix is the measurement rather than a mapping rule |
 | 27 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece: role profiles, fit, single-model *and Runtime Set* recommendation, evidence levels. M9 and M10 gave it pair evidence to recommend from, and §10.1 is why it could not have been built before them |
 
 ### After that

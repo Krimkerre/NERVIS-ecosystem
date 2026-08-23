@@ -671,7 +671,17 @@ function sirvisEvidence(result){
      count against total latency, and the envelope publishes a rate rather than
      a count. Absent beats invented. */
   metrics:{generation_tok_s:med('generation_tokens_per_second'),
-           first_token_s:med('time_to_first_token_seconds')},
+           first_token_s:med('time_to_first_token_seconds'),
+           /* M13's trial rates. `EvidenceRecord.as_dict()` merges rates into
+              `metrics` beside the measurements, so a rate arrives here as
+              {passed,total} rather than a median — which is the distinction
+              §13.2 draws: a median over ones and zeros means nothing, and 6/8
+              versus 60/80 are different amounts of evidence for one rate.
+
+              Absent on every record until a `clarvis-agent` role run has been
+              made, because nothing else asks a build to call a tool. */
+           tool_calls:rate('tool_call_well_formed'),
+           follow_up:followupOf(result)},
   validity:result.validity,warnings:result.validity_notes||[],
   evidence_id:result.evidence_id,measured_at:result.created_at,
   caveat:null,note:null,live:true}}
@@ -1001,6 +1011,16 @@ const API={
        rate rather than a count. Null median, guarded at both display sites,
        beats a plausible number nobody measured. */
     const med=n=>(e.metrics||{})[n]?Math.round(e.metrics[n].median*100)/100:null;
+ /* A trial rate as the [passed,total] pair the tables render, or null when the
+    trials did not run. Never a zero pair: "nobody asked" and "asked eight times
+    and failed" are different findings, and only one of them is about the model. */
+ const rate=name=>{const r=(result.metrics||{})[name];
+   return r&&typeof r.total==='number'&&r.total?[r.passed,r.total]:null};
+ const followupOf=r=>{const f=(r.metrics||{})['tool_followup_used_result'];
+   if(!f||!f.total)return null;
+   const notes=(f.provenance||{}).notes||'';
+   const m=notes.match(/outcome: (.+)$/);
+   return m?m[1]:(f.passed?'used-result':null)};
     return{source:'live',suite:(e.suite||{}).id,version:(e.suite||{}).version,
      role:e.role,target:e.target_key,samples:e.samples,
      generation_tok_s:{median:med('generation_tokens_per_second')},

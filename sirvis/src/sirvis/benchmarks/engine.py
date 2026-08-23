@@ -49,6 +49,7 @@ from sirvis.core.evidence import (
     EvidenceRecord,
     Measurement,
     Provenance,
+    TrialRate,
     Validity,
 )
 from sirvis.core.inventory import Inventory, build_inventory
@@ -310,6 +311,11 @@ class ExperimentOutcome:
     # were not.
     thermal_before: str | None = None
     thermal_after: str | None = None
+    # M13's tool-call trials, when the spec asked for them. `None` and "ran and
+    # scored zero" are different findings and stay different: a build nobody
+    # asked to call a tool has no tool evidence, which is not the same as a
+    # build that was asked eight times and never managed it.
+    tool_reliability: Any = None
 
 
 async def run_experiment(
@@ -426,6 +432,8 @@ async def _execute(
     try:
         for test in spec.tests:
             await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
+        if spec.tool_trials:
+            await _run_tool_trials(spec, runtime, directory, outcome)
     finally:
         outcome.thermal_after = thermal()
         outcome.telemetry.append(sampler.sample(POST_RUN))
@@ -440,6 +448,32 @@ async def _execute(
             Repetition(test_id="__load__", phase="load", index=0,
                        total_seconds=load_seconds, content="")
         )
+
+
+async def _run_tool_trials(
+    spec: ExperimentSpec,
+    runtime: GenerationRuntime,
+    directory: ResultDirectory,
+    outcome: ExperimentOutcome,
+) -> None:
+    """M13's trials, run against a model that is already loaded and warm.
+
+    After the prose tests rather than before, deliberately: they share the
+    warmup those tests paid for, and a tool call measured on a cold runtime
+    would carry the first-call cost that the warmups exist to absorb.
+
+    Every attempt is written out (§11.9). "Six of eight, and here are the two
+    phrasings that failed" is the finding; the rate alone cannot carry it.
+    """
+    from sirvis.benchmarks.clarvis_roles import run_tool_trials
+
+    reliability = await run_tool_trials(runtime, spec.model_key)
+    outcome.tool_reliability = reliability
+    directory.write_response("__tools__", "trial", 0, reliability.as_dict())
+    directory.append_log(
+        f"tool calls: {reliability.passed}/{reliability.total} well-formed; "
+        f"follow-up {reliability.followup}"
+    )
 
 
 async def _run_test(
@@ -770,10 +804,37 @@ def _evidence(
     return EvidenceRecord(
         identity=identity,
         measurements=measurements,
+        # §13.2's rates, when the trials ran. `TrialRate` has been on this
+        # record since M7 and was constructed nowhere until M13 — the shape was
+        # right and the producer was missing.
+        rates=_rates(outcome),
         validity=Validity.SUSPECT if warnings else Validity.VALID,
         validity_notes=tuple(warnings),
         machine_snapshot_id=str(machine["snapshot_id"]),
     )
+
+
+def _rates(outcome: ExperimentOutcome) -> dict[str, TrialRate]:
+    """Tool-call reliability as trial rates, or nothing at all.
+
+    Nothing rather than a zero when the trials did not run. §12.1's whole
+    argument is that absence and a bad result are different claims, and a
+    `0/0` here would be neither — it would be a rate nobody measured, sitting
+    in the field a router reads to decide whether a build can call tools.
+    """
+    reliability = outcome.tool_reliability
+    if reliability is None or not reliability.total:
+        return {}
+    from sirvis.benchmarks.clarvis_roles import (
+        TOOL_PROMPTS,
+        followup_rate,
+        tool_rate,
+    )
+
+    return {
+        "tool_call_well_formed": tool_rate(reliability, phrasings=len(TOOL_PROMPTS)),
+        "tool_followup_used_result": followup_rate(reliability),
+    }
 
 
 def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
