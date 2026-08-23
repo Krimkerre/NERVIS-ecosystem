@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 338 tests, no network, no live service
+.venv/bin/pytest                      # part of 364 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 63 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 89 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 338 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 364 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -90,6 +90,7 @@ into the order work actually happens.
 | 13 | **SIRVIS M1 + M2** | Machine detection with honest gaps, and the LM Studio adapter. Verified live: discover → load → generate → unload |
 | 14 | **SIRVIS M3** | The four-concept model domain, and the `runtime_key` lookup RAVIS needs |
 | 15 | **SIRVIS M4** | Token scopes, origin validation, and the mutating endpoints that let a script drive a model *through* SIRVIS |
+| 16 | **SIRVIS M7** | The evidence schema — **Stage 4's exit criterion verbatim** |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -242,11 +243,46 @@ alphabetical is at least not systematically biased towards whatever is smallest.
 correctly reported. Inventing preferences their §5 descriptions do not imply
 would be the opaque magic §9.4 forbids, in exchange for looking better.
 
+### M7 — four rules, enforced by construction rather than convention
+
+Stage 4's exit criterion is this milestone's acceptance, word for word, so each
+clause is a property of the types rather than a promise about how they are used.
+
+- **No scalar-only canonical score.** A `Measurement` is built from its
+  repetitions and derives the headline. There is no constructor that accepts
+  `38.4` and forgets where it came from, so no code path can produce a number
+  whose samples were discarded. `EvidenceRecord` has no `score` field and no
+  place to add one.
+- **Every repetition is preserved.** §11.7 exists because Clarvis's own work saw
+  identical prompt variants differ by ~32% and concluded a single take can
+  measure noise rather than a difference. The samples publish alongside the
+  summary, always.
+- **Provenance can only weaken.** `combine` is a lattice: all measured stays
+  `MEASURED`; any mixture becomes `PARTIALLY_MEASURED`; nothing measured falls
+  to `ESTIMATED` or `UNKNOWN`. A record's provenance is *derived*, not a field,
+  because a field could be written `MEASURED` onto a record holding an estimate.
+  Aggregating nothing is `UNKNOWN`, not `MEASURED` — the vacuous-truth reading
+  is the bug that function exists to prevent.
+- **Absence never becomes zero.** A single take has a median and `spread: null`,
+  because reporting `0.0` would claim perfect consistency measured once.
+  Percentiles are absent below five samples, since with four takes a P10
+  describes the sample rather than the thing sampled.
+
+Two separations that would be easy to collapse and cost something if they were.
+**Validity is not provenance**: a number can be genuinely `MEASURED` and still
+`SUSPECT` because the machine was throttling, and merging them leaves a consumer
+unable to tell "not measured" from "measured uselessly". **A verdict belongs to
+a build, a config and a role** (§12.5), never to a family — the type carries a
+variant's identity and there is no constructor that takes a family.
+
+**No table and no endpoint were added.** M6 produces evidence and M16 serves it
+to RAVIS; a schema with no writer is a claim nobody is keeping.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 16 | **SIRVIS M7** | The evidence schema. **Its acceptance is verbatim Stage 4's exit criterion**, so this is the milestone the stage turns on |
+| 17 | **SIRVIS M6 + M8** | The benchmark engine and the Resource Manager. M6 is the first milestone that must load models to do its job, and M8 is what makes every load and unload flow through one owner (§9) |
 | 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
 | 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
@@ -546,7 +582,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0–M4)
+sirvis/                the evidence plane (M0–M4, M7)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime
