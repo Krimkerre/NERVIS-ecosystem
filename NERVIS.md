@@ -179,6 +179,12 @@ may follow. **Do not require Bonjour or mDNS for MVP.**
 
 # 6. Dashboard and telemetry
 
+**Built from `../template/index.html`, not instead of it** — §25 states what transfers verbatim
+and what must be rebuilt, and the render layer is the part that must not be carried over. The
+layout below is already implemented there, including the degradation behaviour that is the hard
+part of it: `SERVICES[key].state` drives every tile through `usable()` and `cell()`, and absence
+renders as an ordinary state rather than an error.
+
 Home answers: *is everything healthy, and what is the AI stack doing right now?*
 
 ```text
@@ -834,7 +840,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | Stage 8 — Clarvis Bridge | M8 + M9 + M17 — M17's exit requires a Clarvis → RAVIS → provider trace, and the runbook is explicit that Clarvis joins at Stage 8. Its Stage 7 half (RAVIS → provider correlation) may land earlier; the Clarvis leg cannot |
 | Stage 9 — code-server compatibility and the Code tab | M13 + M14 + M15 |
 | Stage 10 — whole-ecosystem hardening | M19 |
-| **Unscheduled — after Stage 10, or never** | M18 (polish). Listed so no milestone is silently unassigned |
+| **Unscheduled — deferred by decision** | M18 (polish — responsive layout, onboarding, backup/export). Deferred rather than dropped: the prototype already carries the layout and the error states, so what remains here is genuine polish on top of a working interface rather than the interface itself. Listed so no milestone is silently unassigned |
 
 > NERVIS core is Stage 6 — after RAVIS is live with Clarvis and after the SIRVIS evidence
 > plane exists. Everything NERVIS displays belongs to a peer that must already publish it.

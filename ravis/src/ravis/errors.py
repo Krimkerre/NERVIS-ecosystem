@@ -97,6 +97,19 @@ class OriginRejectedError(RavisError):
     status = 403
 
 
+class NotFoundError(RavisError):
+    """The addressed thing does not exist, or no longer does.
+
+    Raised rather than using FastAPI's HTTPException so the response goes
+    through `to_response` and comes out in the dialect the path owes — §4.5
+    requires the MEP envelope on `/api/v1`, and HTTPException renders
+    `{"detail": …}`, which is neither of our two contracts.
+    """
+
+    code = "NOT_FOUND"
+    status = 404
+
+
 class UnsupportedProtocolVersionError(RavisError):
     """A peer asked for a protocol major this build does not implement.
 

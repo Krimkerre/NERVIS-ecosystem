@@ -124,10 +124,18 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # static invariants say.
         request=normalize(body, payload),
     )
-    # Recorded on the request so logging and, later, /api/v1/route-decisions can
-    # read it without re-running the decision — a re-run is not guaranteed to
-    # reach the same answer once health and load are inputs.
+    # Recorded rather than recomputed. Re-running the router later would use a
+    # different catalogue, residency and memory reading, and could reach a
+    # different answer than the one being asked about — an explanation you
+    # recompute is a guess about the past (§9.7).
+    identity = getattr(request.state, "identity", None)
+    recorded = request.app.state.decision_log.record(
+        decision,
+        application_id=identity.application_id if identity else "anonymous",
+        request_id=getattr(request.state, "request_id", ""),
+    )
     request.state.route_decision = decision
+    request.state.decision_id = recorded.decision_id
     return decision
 
 
