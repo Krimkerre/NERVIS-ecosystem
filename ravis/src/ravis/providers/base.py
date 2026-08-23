@@ -48,6 +48,18 @@ class ProtocolMode(str, Enum):
     TRANSLATED = "TRANSLATED"
 
 
+class TranslationError(Exception):
+    """A request a translating adapter refuses, rather than mistranslates.
+
+    Part of the adapter contract rather than of any one provider, because §6's
+    fork is what has to classify it: a request RAVIS itself could not render is
+    an **invalid request**, not an upstream failure, so it must not retry, must
+    not fall back, and must not count against the provider's circuit breaker.
+    One client's malformed body taking a provider offline for every other
+    caller on the machine is the failure this distinction prevents.
+    """
+
+
 class ProviderHealth:
     """Whether an upstream is reachable, and what it said if not."""
 

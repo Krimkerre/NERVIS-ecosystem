@@ -77,6 +77,20 @@ class Settings(BaseSettings):
     # background refresh.
     models_cache_ttl_seconds: float = 300.0
 
+    # ── Anthropic, the first translated provider (§6, Path B — M4) ──────────
+    # The key is what decides whether the adapter is registered at all: a
+    # provider with no credential is not a provider RAVIS can reach, and
+    # registering one anyway would put an address in the routing table that
+    # fails at the far end rather than being absent at the near one.
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+    # Anthropic requires `max_tokens` on every request; OpenAI treats it as
+    # optional. This is what a request that named no limit gets — a default for
+    # the unstated case, not a cap on a stated one. Generous on purpose: a low
+    # number truncates an answer mid-sentence and reads to the client as the
+    # model failing.
+    anthropic_max_output_tokens: int = 16000
+
     # Operator-declared model capabilities, as {model: {capability: state}}.
     # The only way to make a tool-requiring pool usable before probing (§8.7) or
     # SIRVIS evidence (M13) exists — a generic OpenAI-compatible endpoint

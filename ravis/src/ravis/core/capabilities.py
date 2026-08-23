@@ -165,3 +165,41 @@ class ModelCapabilities:
         limit nobody knows is how that happens.
         """
         return self.context_window is not None and self.context_window >= minimum
+
+
+def apply_configured(known: ModelCapabilities, declared: dict[str, str]) -> None:
+    """Record an operator's declared capabilities for one model.
+
+    Shared by every adapter rather than reimplemented per provider, because the
+    override is a fact about the *operator's deployment* and not about the
+    upstream: the same declaration must mean the same thing whichever provider
+    it is attached to, and two copies of this loop is how they stop meaning it.
+
+    An unrecognised capability or state name is ignored rather than raising: a
+    typo in configuration should cost that one claim, not the ability to route
+    at all. It stays UNKNOWN, which fails closed — the safe direction for a
+    mistake to fail in.
+    """
+    # `context_window` is a number rather than a capability state, and it is an
+    # operator's only way to make a pool with a minimum context usable against
+    # an upstream that publishes no windows — a declared minimum fails closed on
+    # an unknown one.
+    window = declared.get("context_window")
+    if window is not None and str(window).isdigit():
+        known.context_window = int(window)
+    for name, state in declared.items():
+        if name == "context_window":
+            continue
+        try:
+            capability = Capability(name)
+            claimed = CapabilityState(state)
+        except ValueError:
+            continue
+        known.record(
+            CapabilityClaim(
+                capability=capability,
+                state=claimed,
+                provenance=Provenance.CONFIGURED,
+                detail="declared in configuration",
+            )
+        )

@@ -107,3 +107,99 @@ def failing_transport(status: int, body: dict[str, Any]) -> httpx.MockTransport:
         return httpx.Response(status, content=json.dumps(body).encode())
 
     return httpx.MockTransport(handle)
+
+
+# One Anthropic message, streamed: a sentence, then a tool call. The order is
+# the point — the tool call is Anthropic content block **1**, and OpenAI tool
+# index **0**, which is the translation that misassembles every fragment when it
+# is wrong. The arguments are split mid-string for the same reason the OpenAI
+# fixture above splits them.
+ANTHROPIC_TOOL_FRAMES = [
+    b'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_01",'
+    b'"model":"claude-opus-5","usage":{"input_tokens":42}}}\n\n',
+    b'event: content_block_start\ndata: {"type":"content_block_start","index":0,'
+    b'"content_block":{"type":"text","text":""}}\n\n',
+    b'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,'
+    b'"delta":{"type":"text_delta","text":"Editing."}}\n\n',
+    b'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+    b'event: content_block_start\ndata: {"type":"content_block_start","index":1,'
+    b'"content_block":{"type":"tool_use","id":"toolu_9","name":"edit_file","input":{}}}\n\n',
+    b'event: content_block_delta\ndata: {"type":"content_block_delta","index":1,'
+    b'"delta":{"type":"input_json_delta","partial_json":"{\\"pa"}}\n\n',
+    b'event: content_block_delta\ndata: {"type":"content_block_delta","index":1,'
+    b'"delta":{"type":"input_json_delta","partial_json":"th\\":\\"foo.ts\\"}"}}\n\n',
+    b'event: content_block_stop\ndata: {"type":"content_block_stop","index":1}\n\n',
+    b'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"},'
+    b'"usage":{"output_tokens":17}}\n\n',
+    b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+]
+
+# What `GET /v1/models/{id}` answers. Trimmed to the leaves the adapter reads,
+# and deliberately **without** a tool-support key: that is the real catalogue's
+# shape, and the reason tool support stays UNKNOWN until an operator says
+# otherwise.
+ANTHROPIC_CATALOGUE_ENTRY = {
+    "id": "claude-opus-5",
+    "display_name": "Claude Opus 5",
+    "max_input_tokens": 1000000,
+    "max_tokens": 128000,
+    "capabilities": {
+        "image_input": {"supported": True},
+        "structured_outputs": {"supported": True},
+        "thinking": {"supported": True},
+    },
+}
+
+
+class RecordingAnthropic:
+    """A fake Anthropic Messages API, in process, that records what reached it.
+
+    Answers the three endpoints the adapter uses and nothing else. `requests`
+    holds every httpx request it saw, which is how a test asserts on the
+    *translated body* rather than on what the adapter says it sent.
+    """
+
+    def __init__(
+        self,
+        frames: list[bytes] | None = None,
+        message: dict[str, Any] | None = None,
+        status: int = 200,
+        error: dict[str, Any] | None = None,
+    ) -> None:
+        self.frames = frames if frames is not None else ANTHROPIC_TOOL_FRAMES
+        self.message = message or {
+            "id": "msg_01",
+            "type": "message",
+            "model": "claude-opus-5",
+            "content": [{"type": "text", "text": "Hello."}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 12, "output_tokens": 3},
+        }
+        self.status = status
+        self.error = error
+        self.frames_pulled = 0
+        self.requests: list[httpx.Request] = []
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self._handle)
+
+    def body_of(self, index: int = -1) -> dict[str, Any]:
+        """The JSON body of one recorded request — what translation produced."""
+        return json.loads(self.requests[index].content)
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if self.error is not None:
+            return httpx.Response(self.status, json=self.error)
+        if request.url.path.startswith("/v1/models/"):
+            return httpx.Response(200, json=ANTHROPIC_CATALOGUE_ENTRY)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "claude-opus-5"}]})
+        if b'"stream": true' in request.content or b'"stream":true' in request.content:
+            return httpx.Response(200, stream=_IterableStream(self._frames()))
+        return httpx.Response(self.status, json=self.message)
+
+    def _frames(self) -> Iterator[bytes]:
+        for frame in self.frames:
+            self.frames_pulled += 1
+            yield frame

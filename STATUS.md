@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 525 tests, no network, no live service
+.venv/bin/pytest                      # part of 581 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 525 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 581 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -96,6 +96,7 @@ into the order work actually happens.
 | 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Run live against all 19 installed builds**, done 2026-08-23, in a cooled and control-bracketed sweep — numbers below |
 | 20 | **RAVIS M3b** | The translated execution path (§6, Path B): normalized events rendered as an OpenAI stream, the fork decided once by the addressed provider, and `execution_path` on every route decision. Transparent route still passes conformance — M3's exit criterion, verbatim |
 | 21 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
+| 22 | **RAVIS M4** | The Anthropic native adapter — the first real provider on Path B. Request and response translation, streamed tool calls, capabilities read from the model catalogue, and four mappings decided deliberately rather than by default. Settled below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -761,6 +762,75 @@ the measurements in `ravis/measured-capabilities.json`; §21.1's first vertical
 slice is a *comparison* — one GGUF and one MLX build, benchmarked and compared —
 not one model measured well.
 
+### What M4 settled
+
+The first real provider on Path B, and the value was never the plumbing — M3b
+had already proven that with a test double. It was the **four mappings that had
+no obvious right answer**, each of which produces a plausible-looking response
+when it is wrong, which is why each is written down here rather than only in a
+comment.
+
+- **A stream index is not a tool index.** Anthropic numbers *content blocks* and
+  text blocks take numbers; OpenAI numbers *tool calls*. A response that opens
+  with a sentence and then calls a tool is Anthropic block 1 and OpenAI tool 0.
+  Passing the block index through would file every fragment under a call that
+  does not exist, and the client would see a tool call with no name and no id.
+- **Parallel tool results must arrive in one message.** OpenAI sends one
+  `role: "tool"` message per result; Anthropic takes them as `tool_result`
+  blocks inside a single user turn. One turn per result is valid JSON, is
+  accepted, and quietly trains the model to stop calling tools in parallel —
+  a regression that would look like the model getting worse.
+- **`stop_reason: "refusal"` maps to `content_filter`.** It is a real terminal
+  state — HTTP 200, usually no content, a `stop_details.category` naming the
+  classifier — and OpenAI has no word for it. `content_filter` is the only
+  finish reason in that vocabulary meaning *the provider declined*, which is
+  what happened. The category has no equivalent at all, so it is logged and put
+  on the event's `raw`, never invented onto the wire. `pause_turn` and anything
+  unrecognised become `null` rather than `stop`: publishing "stop" would assert
+  the model finished when nobody established that.
+- **A trailing assistant message is refused, not forwarded.** That is a prefill,
+  and current Anthropic models reject it with a 400. Refusing locally costs
+  prefill on Anthropic's older models — a real loss, taken deliberately over
+  keeping a model-version table that would be wrong the week it was written —
+  and buys an error that names the cause instead of a provider 400 two layers
+  from the request that caused it.
+
+**`temperature` is dropped, and the drop is logged.** Sampling parameters are
+rejected outright by every current Anthropic model, and most OpenAI clients set
+one by default — so forwarding it turns ordinary traffic into a hard failure.
+§7 says an unsupported feature must never silently disappear, and a log line is
+how that promise is kept without refusing requests RAVIS exists to serve. It is
+listed under the deviations below because it is the weaker half of a rule.
+
+**The adapter speaks HTTP rather than the `anthropic` SDK.** RAVIS already owns
+retries and the retry budget, circuit breakers, timeouts, and §8.6's rule that
+closing a generator stops the upstream — an SDK would have to be switched off on
+each of those to avoid retrying a request the chain has already decided not to
+retry, and its typed stream events are a re-serialisation of the frames this
+adapter needs verbatim. M7 and M8 add four more providers behind the same
+interface, and five vendor SDKs in a gateway is a gateway that has stopped being
+one HTTP client. The translation itself is pure and tested without a socket:
+`providers/anthropic_wire.py`, 38 tests, no event loop.
+
+**What M4 deliberately does not claim is tool support.** `capabilities()`
+records what the model catalogue advertises — context window, vision,
+structured output, reasoning — and Anthropic's catalogue documents no
+tool-support key. §5.1's hard invariant is that every member of
+`ravis/clarvis-agent` satisfies the tool requirement, so the claim stays
+`UNKNOWN` and any pool requiring tools fails closed until an operator declares
+it or M13's evidence arrives. This will look like a bug and is §5.2 working.
+Direct addressing — `ravis/anthropic/<model>` — is unaffected, and that is what
+M4's acceptance criterion exercises: an unmodified OpenAI client, through
+Anthropic, unable to tell from the wire which of §6's two paths ran.
+
+**One bug was found by writing the tests rather than by running them.** A
+translation RAVIS refuses was being recorded as `UNKNOWN` — a class that counts
+against the provider — so one client's malformed body would have walked
+Anthropic's circuit breaker toward open and taken the provider offline for every
+other caller on the machine. `TranslationError` now lives on the adapter
+contract in `providers/base.py`, is classified `INVALID_REQUEST`, and returns a
+400 naming the cause instead of a 502 saying every candidate failed.
+
 ### Which prototype screens read real services
 
 `nervis/index.html` renders every screen against mocks. Three now read live
@@ -794,9 +864,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 21 | **M4 (RAVIS)** | The Anthropic native adapter — text, streaming, tools, errors, usage. M3b built the path and nothing yet drives it; this is where tool-call framing actually gets hard, and the first real test of whether the serializer's fragment rule survives a provider that fragments differently. **Load the `claude-api` skill before writing a line of it** — the Messages API has drifted in ways a training prior gets wrong, and several of them land squarely on a translator: assistant prefill now returns 400, `budget_tokens` is removed in favour of `thinking: {type: "adaptive"}`, structured output moved to `output_config.format`, and `stop_reason: "refusal"` is a real terminal state with a `stop_details` category that has no OpenAI equivalent and needs a deliberate mapping rather than a default |
-| 22 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
-| 23 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
+| 23 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
+| 24 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
 ### After that
 
@@ -804,10 +873,12 @@ Stage 5 is the rest of RAVIS intelligence: **M7** (Google, OpenRouter), **M8**
 (LM Studio, Ollama, generic adapters), **M13** (SIRVIS evidence), the rest of
 **M14**, **M16** (policy). Stage 6 is NERVIS core — **M11** + **M15**.
 
-**M3b and M4 are no longer blocked.** They were held back because §20.2 says
-translation comes only after the transparent Clarvis slice works, and the
-transparent path was the control — its correctness proven by nothing but
-fixtures. That is no longer true as of M9.
+**M3b and M4 are done, out of stage order.** Both belong to Stage 5 and both
+were held back because §20.2 says translation comes only after the transparent
+Clarvis slice works — the transparent path was the control, and its correctness
+was proven by nothing but fixtures. M9 ended that, so the translated path was
+built and then given a real provider to drive it. The rest of Stage 5 is still
+where the table above puts it.
 
 ---
 
@@ -895,6 +966,14 @@ reviewer who disagrees should say so rather than assume it was an accident.
   OpenAI-compatible endpoint publishes no windows, so failing closed on RAVIS's
   own arithmetic would make every large request unroutable. Surfaced as
   `unverified` in the route explanation rather than passed silently.
+- **`temperature` is dropped on the Anthropic path rather than forwarded or
+  refused.** §7 says an unsupported feature must never silently disappear, and
+  this is the weakest form of keeping that promise: the parameter is left off
+  the request and the drop is logged, because every current Anthropic model
+  rejects sampling parameters with a 400 and most OpenAI clients set one by
+  default. Forwarding it would fail ordinary traffic; refusing it would refuse
+  the clients RAVIS exists to serve. *If a route explanation ever carries
+  per-request notes, the drop belongs there instead of only in a log.*
 - **§10's circuit breaker is scoped by failure class, not only by provider.**
   §10 says "provider health", and with one provider that reading takes every
   model out of service the first time one model OOMs. So each failure class
@@ -1378,7 +1457,7 @@ NERVIS.md CLARVIS.md
 ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
-ravis/                 the routing gateway (M0–M18a, M12, M9)
+ravis/                 the routing gateway (M0–M18a, M12, M9, M3b, M4)
 sirvis/                the evidence plane (M0–M4, M6, M7, M8)
 ```
 

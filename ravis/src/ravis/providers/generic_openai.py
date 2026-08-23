@@ -33,6 +33,7 @@ from ravis.core.capabilities import (
     CapabilityState,
     ModelCapabilities,
     Provenance,
+    apply_configured,
 )
 from ravis.core.requests import NormalizedRequest
 from ravis.providers.base import ProtocolMode, ProviderHealth
@@ -121,41 +122,8 @@ class GenericOpenAiAdapter:
                     detail="implied by the OpenAI chat-completions protocol",
                 )
             )
-        self._apply_configured(known, model)
+        apply_configured(known, self._configured.get(model, {}))
         return known
-
-    def _apply_configured(self, known: ModelCapabilities, model: str) -> None:
-        """Record operator-declared capabilities for one model.
-
-        An unrecognised capability or state name is ignored rather than raising:
-        a typo in configuration should cost that one claim, not the ability to
-        route at all. It stays UNKNOWN, which fails closed — the safe direction
-        for a mistake to fail in.
-        """
-        declared = self._configured.get(model, {})
-        # `context_window` is a number rather than a capability state, and it is
-        # the operator's only way to make a pool with a minimum context usable
-        # today: a generic OpenAI-compatible endpoint publishes no windows, and
-        # a declared minimum fails closed on an unknown one.
-        window = declared.get("context_window")
-        if window is not None and str(window).isdigit():
-            known.context_window = int(window)
-        for name, state in declared.items():
-            if name == "context_window":
-                continue
-            try:
-                capability = Capability(name)
-                claimed = CapabilityState(state)
-            except ValueError:
-                continue
-            known.record(
-                CapabilityClaim(
-                    capability=capability,
-                    state=claimed,
-                    provenance=Provenance.CONFIGURED,
-                    detail="declared in configuration",
-                )
-            )
 
     async def estimate_cost(self, request: NormalizedRequest) -> float | None:
         """Unknown until the cost engine lands at M15.
