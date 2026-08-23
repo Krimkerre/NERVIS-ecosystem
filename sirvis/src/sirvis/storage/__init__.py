@@ -12,7 +12,8 @@ from sirvis.storage.repositories import (
     StoredResult,
     create_experiment,
     finish_run,
-    latest_runs,
+    list_runs,
+    read_result,
     read_run,
     start_run,
 )
@@ -26,8 +27,9 @@ __all__ = [
     "create_experiment",
     "current_version",
     "finish_run",
-    "latest_runs",
+    "list_runs",
     "prepare_database",
+    "read_result",
     "read_run",
     "start_run",
 ]

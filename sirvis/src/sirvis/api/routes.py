@@ -28,6 +28,7 @@ from sirvis.errors import (
 )
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
+from sirvis.storage import list_runs, read_result, read_run
 from sirvis.telemetry import detect_system
 
 router = APIRouter(prefix="/api/v1", tags=["sirvis"])
@@ -223,6 +224,59 @@ def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
         "instances": [instance.as_dict() for instance in instances],
         "is_loaded": bool(instances),
     }
+
+
+@router.get("/benchmark-runs")
+async def read_benchmark_runs(
+    request: Request, limit: int = 20, cursor: str | None = None
+) -> dict[str, Any]:
+    """Recent benchmark runs, newest first (§4.2).
+
+    §4.2 names the detail path for this group and defines a list envelope with
+    `limit` and `cursor`; a group carrying an envelope nobody can request would
+    be a contract for a response that never exists, so the list is built here.
+
+    Each run arrives with its results embedded. They are one per
+    `ExperimentTarget` and there is currently one target per run, so a caller
+    that had to fetch them separately would make two requests for one answer —
+    and §17's whole reason for recording the cardinality is that the drill from
+    a run to its evidence is the path RAVIS and NERVIS actually walk.
+    """
+    runs, following = list_runs(request.app.state.database, limit=limit, cursor=cursor)
+    return {
+        "items": runs,
+        "next_cursor": following,
+        "snapshot_revision": SNAPSHOT_REVISION,
+    }
+
+
+@router.get("/benchmark-runs/{run_id}")
+async def read_benchmark_run(request: Request, run_id: str) -> dict[str, Any]:
+    """One run and its results, or a 404 that means what it says.
+
+    A 404 here is a real absence, unlike `/machines/{id}`: a run either happened
+    or it did not, and there is no third state where the run exists but has not
+    been captured yet.
+    """
+    found = read_run(request.app.state.database, run_id)
+    if found is None:
+        raise BenchmarkNotFoundError(f"no benchmark run {run_id!r}", run_id=run_id)
+    return found | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+@router.get("/benchmark-results/{result_id}")
+async def read_benchmark_result(request: Request, result_id: str) -> dict[str, Any]:
+    """One result — the evidence envelope, with the run that produced it.
+
+    This is the end of the drill-through §17 describes: a route decision keeps
+    a `source_run_id`, the run names its results, and a result carries the
+    provenance, the repetitions and the validity notes that say whether any of
+    it should be believed.
+    """
+    found = read_result(request.app.state.database, result_id)
+    if found is None:
+        raise BenchmarkNotFoundError(f"no benchmark result {result_id!r}", result_id=result_id)
+    return found | {"snapshot_revision": SNAPSHOT_REVISION}
 
 
 @router.post("/runtime/sessions")

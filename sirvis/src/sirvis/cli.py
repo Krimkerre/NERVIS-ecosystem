@@ -409,10 +409,10 @@ def _print_outcome(outcome: ExperimentOutcome) -> None:
 
 def _run_results(settings: Settings, limit: int) -> int:
     """`sirvis results latest` (§18) — what has been measured on this machine."""
-    from sirvis.storage import latest_runs
+    from sirvis.storage import list_runs
 
     database = prepare_database(settings.database_path)
-    runs = latest_runs(database, limit=limit)
+    runs, _ = list_runs(database, limit=limit)
     if not runs:
         print("no benchmark runs recorded yet — try: sirvis benchmark run examples/basic.yaml")
         return EXIT_OK

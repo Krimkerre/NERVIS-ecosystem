@@ -144,13 +144,59 @@ def read_run(database: Database, run_id: str) -> dict[str, Any] | None:
     return _run_with_results(database, row) if row is not None else None
 
 
-def latest_runs(database: Database, limit: int = 5) -> list[dict[str, Any]]:
-    """The most recent runs, newest first — what `sirvis results latest` shows."""
-    rows = database.connection.execute(
-        "SELECT * FROM benchmark_run ORDER BY started_at DESC, rowid DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return [_run_with_results(database, row) for row in rows]
+def read_result(database: Database, result_id: str) -> dict[str, Any] | None:
+    """One result, or None when there is no such result.
+
+    Carries its run's identifier rather than only its own: a result is evidence
+    about a target, and the first question anyone asks of one is which run
+    produced it — §17 makes `source_run_id` the provenance pointer RAVIS
+    preserves and NERVIS dereferences.
+    """
+    row = database.connection.execute(
+        "SELECT * FROM benchmark_result WHERE result_id = ?", (result_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "result_id": row["result_id"],
+        "run_id": row["run_id"],
+        "target_key": row["target_key"],
+        "evidence_id": row["evidence_id"],
+        "validity": row["validity"],
+        "created_at": row["created_at"],
+        **json.loads(row["payload"]),
+    }
+
+
+def list_runs(database: Database, limit: int = 5,
+              cursor: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """A page of runs, newest first, and where the next page starts.
+
+    **Ordered by `rowid`, not by `started_at`.** Two runs begun in the same
+    second sort arbitrarily by timestamp, and a paging key that can tie will
+    eventually skip a row or repeat one — the failure is rare, silent, and
+    impossible to reproduce on demand. `rowid` is unique and monotonic, so the
+    order it gives is both stable and the insertion order anyone reading
+    "newest first" means.
+
+    One row beyond the limit is fetched and discarded, which is how the cursor
+    knows whether there is anything after this page without a second count
+    query — and how the last page correctly returns `None` rather than a cursor
+    pointing at nothing.
+    """
+    if cursor is None:
+        rows = database.connection.execute(
+            "SELECT rowid AS position, * FROM benchmark_run"
+            " ORDER BY rowid DESC LIMIT ?", (limit + 1,),
+        ).fetchall()
+    else:
+        rows = database.connection.execute(
+            "SELECT rowid AS position, * FROM benchmark_run WHERE rowid < ?"
+            " ORDER BY rowid DESC LIMIT ?", (cursor, limit + 1),
+        ).fetchall()
+    page = rows[:limit]
+    following = str(page[-1]["position"]) if page and len(rows) > limit else None
+    return [_run_with_results(database, row) for row in page], following
 
 
 def _run_with_results(database: Database, row: Any) -> dict[str, Any]:

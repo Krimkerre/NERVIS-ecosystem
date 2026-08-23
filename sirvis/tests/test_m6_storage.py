@@ -19,7 +19,7 @@ from sirvis.storage import (
     StoredResult,
     create_experiment,
     finish_run,
-    latest_runs,
+    list_runs,
     prepare_database,
     read_run,
     start_run,
@@ -102,7 +102,38 @@ def test_the_newest_run_is_the_one_latest_shows() -> None:
     _run(database)
     _, newest = _run(database)
 
-    assert latest_runs(database, limit=1)[0]["run_id"] == newest
+    page, _ = list_runs(database, limit=1)
+    assert page[0]["run_id"] == newest
+
+
+def test_paging_never_skips_or_repeats_a_run() -> None:
+    """Ordered by rowid rather than `started_at`, because two runs begun in the
+    same second sort arbitrarily by timestamp — and a paging key that can tie
+    eventually drops a row or serves it twice, rarely and unreproducibly."""
+    database = prepare_database(":memory:")
+    created = [_run(database)[1] for _ in range(5)]
+
+    seen, cursor = [], None
+    for _ in range(10):
+        page, cursor = list_runs(database, limit=2, cursor=cursor)
+        seen += [r["run_id"] for r in page]
+        if cursor is None:
+            break
+
+    assert seen == list(reversed(created))
+    assert len(seen) == len(set(seen))
+
+
+def test_the_last_page_offers_no_cursor() -> None:
+    """A cursor on the final page points at nothing and invites one more
+    request that returns nothing."""
+    database = prepare_database(":memory:")
+    _run(database)
+
+    page, cursor = list_runs(database, limit=5)
+
+    assert len(page) == 1
+    assert cursor is None
 
 
 def test_the_raw_directory_has_the_shape_the_specification_names(tmp_path) -> None:  # type: ignore[no-untyped-def]

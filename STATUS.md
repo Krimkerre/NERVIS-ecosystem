@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 491 tests, no network, no live service
+.venv/bin/pytest                      # part of 500 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 195 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 204 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 491 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 500 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -708,6 +708,7 @@ mid-milestone. **Four block M6.**
 | ~~**The error model is wrong.**~~ **Fixed.** §4.3's shape and its closed code list, with correlation IDs attached at the single translation point so no raiser can forget them | §4.3 | done |
 | ~~**`sirvis doctor` never learned about M1.**~~ **Fixed.** Machine, memory, disk, thermal, database, results directory, and the runtime — which it now contacts, reporting an absent one as a finding rather than a failure (§15.4) | §18 | done |
 | **CLI is still short of parity.** `benchmark run` and `results latest` exist now; §18's `models list`, `runtime list` and `runtime sessions` all have APIs and no command | §18 | no |
+| ~~**Benchmark runs and results are stored and unserved.**~~ **Fixed.** `/benchmark-runs`, `/benchmark-runs/{id}` and `/benchmark-results/{id}` — §17 says these are stored *because* they are served, and until now they were not | §4.2 | done |
 | **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
 | **No job state machine.** §11.10's coarse published enum and its atomic commit are built; the *queue* behind them — pause, resume, retry, reorder, and a job that survives a restart — is not | §11.10 | partly |
 | **Parquet telemetry** is named for high-frequency data where SQLite becomes unsuitable | §17 | no — not at one-run scale |
@@ -812,6 +813,13 @@ they are not disagreements with the specification — they are additions to it,
 and an addition nobody wrote down is how a plan quietly stops describing the
 build.
 
+- **A list endpoint for benchmark runs.** §4.2 names the two *detail* paths for
+  this group and separately defines a list envelope taking `limit` and `cursor`.
+  A group carrying an envelope nobody can request would be a contract for a
+  response that never exists, so `/api/v1/benchmark-runs` was added. Paged on
+  `rowid` rather than `started_at`: two runs begun in the same second sort
+  arbitrarily by timestamp, and a paging key that can tie eventually drops a row
+  or serves it twice — rarely, silently, and unreproducibly.
 - **CORS on the read surface.** Stage 3's *visible increment* is the prototype
   reading RAVIS's management API, and a browser cannot read a cross-origin
   response without `Access-Control-Allow-Origin`. The increment is in the
