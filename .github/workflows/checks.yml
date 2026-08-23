@@ -7,7 +7,11 @@ name: checks
 
 on:
   push:
-    branches: [master]
+    # `main`, renamed from `master`. The rename silently disarmed this gate —
+    # a push-triggered workflow naming a branch that no longer exists does not
+    # fail, it just never runs, and the first commit after the rename went in
+    # unchecked. A gate that cannot fail is not a gate.
+    branches: [main]
   pull_request:
 
 jobs:
