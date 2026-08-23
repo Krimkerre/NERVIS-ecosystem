@@ -26,7 +26,14 @@ from __future__ import annotations
 from typing import Mapping
 
 from ravis.core.capabilities import Capability, ModelCapabilities
-from ravis.core.pools import POOLS_BY_ID, VirtualModelPool, direct_target, is_pool_id
+from ravis.core.pools import (
+    POOLS_BY_ID,
+    VirtualModelPool,
+    direct_target,
+    is_pool_id,
+    parameter_scale,
+    size_rank,
+)
 from ravis.core.requests import NormalizedRequest
 from ravis.routing.explain import ExcludedCandidate, RouteDecision
 from ravis.routing.requirements import RequestRequirements, analyse, unmet_by, unverified_notes
@@ -258,10 +265,16 @@ def _rank(
     ]
     pressured = memory.under_pressure
 
-    def key(model: str) -> tuple[int, int, str]:
+    def key(model: str) -> tuple[int, int, int, float, str]:
         preference = pool.preference_rank(model)
         warmth = residency_rank(residency.state_of(model))
-        return (warmth, preference, model) if pressured else (preference, warmth, model)
+        lead = (warmth, preference) if pressured else (preference, warmth)
+        # Size is the *last* thing consulted, after everything the pool declared
+        # and everything the runtime knows. It only ever separates candidates
+        # that are otherwise identical, where the alternative was alphabetical
+        # order — which is why a 14B once beat a 7B that scored the same at
+        # three times the rate.
+        return (*lead, *size_rank(model))
 
     return sorted(members, key=key)
 
@@ -300,12 +313,48 @@ def _selection_reason(
             "models were preferred over the pool's usual ordering"
         )
 
+    parts.append(_size_note(pool, eligible, residency, memory))
     others = len(eligible) - 1
     tail = f"; {others} other eligible candidate(s) ranked lower" if others else ""
     return (
-        f"{'. '.join(parts)}. No benchmark evidence or cost data is available yet, and "
+        f"{'. '.join(part for part in parts if part)}. "
+        f"No benchmark evidence or cost data is available yet, and "
         f"health is used to exclude rather than to rank, so nothing ranked it above the "
         f"others on quality{tail}"
+    )
+
+
+def _size_note(
+    pool: VirtualModelPool,
+    eligible: list[str],
+    residency: ResidencySnapshot,
+    memory: MemoryReading,
+) -> str:
+    """Say so when size, rather than anything meaningful, broke the tie.
+
+    §9.7 requires an explanation to separate facts from unknowns, and "it is
+    smaller" is a weak reason that must not be allowed to read as a strong one.
+    Naming it is also what stops the tiebreak becoming invisible policy: a
+    reader who disagrees with it can see it happening.
+
+    Returns an empty string when nothing was tied, which is the common case.
+    """
+    del memory  # Pressure changes the ordering, not whether size was the tiebreak.
+    selected = eligible[0]
+    peers = [
+        model
+        for model in eligible[1:]
+        if pool.preference_rank(model) == pool.preference_rank(selected)
+        and residency_rank(residency.state_of(model))
+        == residency_rank(residency.state_of(selected))
+    ]
+    if not peers:
+        return ""
+    scale = parameter_scale(selected)
+    measure = f"smallest at {scale:g}B" if scale is not None else "first in stable order"
+    return (
+        f"{len(peers)} other candidate(s) matched this pool exactly as well, and it was "
+        f"chosen as the {measure} — a tiebreak on cost to run, not on quality"
     )
 
 

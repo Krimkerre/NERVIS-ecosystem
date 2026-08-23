@@ -13,8 +13,12 @@ from ravis.routing.engine import RoutingEngine
 from ravis.runtime.residency import Residency, ResidencySnapshot
 from ravis.runtime.resources import MemoryReading
 
-# A pool with no declared preference, so residency is the only signal in play.
-CHAT = "ravis/clarvis-chat"
+# A pool with no declared preference and no invariant, so residency is the only
+# signal in play. Deliberately `ravis/auto` rather than `ravis/clarvis-chat`,
+# which gained a preference in M12 — a test whose premise says "no preference"
+# must be pointed at a pool that actually has none, or it starts passing for a
+# reason its own comment denies.
+UNCONSTRAINED = "ravis/auto"
 # A pool that prefers coding models, so declared intent and residency compete.
 AGENT_POOL_PREFERENCE = "ravis/coding"
 
@@ -40,7 +44,7 @@ def test_a_loaded_model_wins_a_tie() -> None:
     something for no benefit at all.
     """
     decision = RoutingEngine().select(
-        CHAT, _candidates("alpha", "zeta"), residency=_loaded("zeta"), memory=_memory(0.5)
+        UNCONSTRAINED, _candidates("alpha", "zeta"), residency=_loaded("zeta"), memory=_memory(0.5)
     )
 
     assert decision.selected == "zeta"
@@ -86,7 +90,7 @@ def test_pressure_never_changes_which_models_are_eligible() -> None:
     degrading a hard invariant to save memory would be the wrong trade entirely.
     """
     decision = RoutingEngine().select(
-        CHAT, _candidates("only-cold"), residency=_loaded(), memory=_memory(0.01)
+        UNCONSTRAINED, _candidates("only-cold"), residency=_loaded(), memory=_memory(0.01)
     )
 
     assert decision.selected == "only-cold"
@@ -95,7 +99,10 @@ def test_pressure_never_changes_which_models_are_eligible() -> None:
 def test_unknown_residency_leaves_ordering_untouched() -> None:
     """A router with no runtime visibility behaves exactly as it did before."""
     decision = RoutingEngine().select(
-        CHAT, _candidates("alpha", "zeta"), residency=ResidencySnapshot(), memory=_memory(0.5)
+        UNCONSTRAINED,
+        _candidates("alpha", "zeta"),
+        residency=ResidencySnapshot(),
+        memory=_memory(0.5),
     )
 
     assert decision.selected == "alpha"
@@ -104,7 +111,7 @@ def test_unknown_residency_leaves_ordering_untouched() -> None:
 def test_the_explanation_says_the_model_was_already_loaded() -> None:
     """§9.7: a route explanation names the factors that decided it."""
     decision = RoutingEngine().select(
-        CHAT, _candidates("alpha", "zeta"), residency=_loaded("zeta"), memory=_memory(0.5)
+        UNCONSTRAINED, _candidates("alpha", "zeta"), residency=_loaded("zeta"), memory=_memory(0.5)
     )
 
     assert "already loaded" in decision.reason
@@ -124,7 +131,10 @@ def test_the_explanation_says_when_pressure_changed_the_route() -> None:
 def test_the_explanation_warns_when_a_load_will_be_paid() -> None:
     """So a slow first response is explained rather than mysterious."""
     decision = RoutingEngine().select(
-        CHAT, _candidates("alpha"), residency=_loaded("something-else"), memory=_memory(0.5)
+        UNCONSTRAINED,
+        _candidates("alpha"),
+        residency=_loaded("something-else"),
+        memory=_memory(0.5),
     )
 
     assert "will cost a load" in decision.reason

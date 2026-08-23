@@ -166,3 +166,122 @@ def test_no_pool_id_contains_a_substring_clarvis_filters_out() -> None:
     ]
 
     assert offenders == []
+
+
+# ── The size tiebreak (§9.2's "prefer fast" and "prefer cheap") ──────────────
+#
+# Every test below concerns the *last* thing consulted when ranking. It only
+# ever separates candidates a pool already considers identical, and the reason
+# it exists is a concrete regression: alphabetical order put a 14B ahead of a
+# 7B that scored the same on every accuracy measure at three times the rate,
+# purely because "1" sorts before "7".
+
+
+def _tool_model(name: str) -> ModelCapabilities:
+    """A candidate the agent pool will admit, so ranking is what is under test."""
+    return _model(name, tools=True, context=32768)
+
+
+def test_size_breaks_a_tie_between_equally_preferred_candidates() -> None:
+    """The regression, in one test. Both match 'coder'; the smaller one wins."""
+    candidates = {
+        name: _tool_model(name)
+        for name in ("qwen2.5-coder-14b-instruct-mlx", "qwen2.5-coder-7b-instruct")
+    }
+
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert decision.selected == "qwen2.5-coder-7b-instruct"
+    assert decision.fallbacks == ["qwen2.5-coder-14b-instruct-mlx"]
+
+
+def test_the_explanation_names_the_tiebreak_and_calls_it_weak() -> None:
+    """§9.7: a weak reason must not be allowed to read as a strong one.
+
+    A tiebreak that decides routes invisibly is policy nobody agreed to. This is
+    the sentence that lets a reader disagree with it.
+    """
+    candidates = {
+        name: _tool_model(name)
+        for name in ("qwen2.5-coder-14b-instruct-mlx", "qwen2.5-coder-7b-instruct")
+    }
+
+    reason = RoutingEngine().select("ravis/clarvis-agent", candidates).reason
+
+    assert "smallest at 7B" in reason
+    assert "not on quality" in reason
+
+
+def test_declared_preference_outranks_size() -> None:
+    """Size is a tiebreak, never a score.
+
+    A tiny model that does not match the pool's intent must not beat a large one
+    that does — otherwise `ravis/clarvis-agent` would drift towards whatever is
+    smallest rather than whatever codes.
+    """
+    candidates = {
+        name: _tool_model(name) for name in ("qwen2.5-coder-14b-instruct-mlx", "tinyllama-1b")
+    }
+
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert decision.selected == "qwen2.5-coder-14b-instruct-mlx"
+
+
+def test_an_unparseable_size_sorts_last_rather_than_smallest() -> None:
+    """A name that carries no size is an unknown, not a zero (runbook §14.4).
+
+    `phi-4-mini-instruct` is genuinely small and says so in words. Treating the
+    absence as "smallest" would let any model with an unconventional name win
+    every tie on a size nobody measured.
+    """
+    candidates = {
+        name: _tool_model(name) for name in ("phi-4-mini-instruct", "qwen-7b-instruct")
+    }
+
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert decision.selected == "qwen-7b-instruct"
+
+
+def test_a_mixture_of_experts_is_read_by_its_active_parameters() -> None:
+    """`qwen3-30b-a3b` answers at 3B speed, not 30B speed, and the tiebreak is
+    about how fast a thing answers."""
+    candidates = {name: _tool_model(name) for name in ("qwen3-30b-a3b", "qwen3-8b")}
+
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert decision.selected == "qwen3-30b-a3b"
+
+
+def test_the_chat_pool_prefers_an_instruction_tuned_build() -> None:
+    """§5.1 names instruction following; until M12 the pool declared nothing.
+
+    With no preference the selection was purely alphabetical, which against a
+    real catalogue picked the slowest installed model by accident.
+    """
+    candidates = {name: _model(name) for name in ("aardvark-2b", "meta-llama-8b-instruct")}
+
+    decision = RoutingEngine().select("ravis/clarvis-chat", candidates)
+
+    assert decision.selected == "meta-llama-8b-instruct"
+
+
+def test_the_pool_listing_agrees_with_what_the_router_would_pick() -> None:
+    """`/api/v1/pools` and the router must not order members differently.
+
+    They are two code paths over the same intent, and a dashboard that lists a
+    pool's members in one order while the router picks from another is the kind
+    of disagreement nobody notices until it is being debugged under pressure.
+    """
+    candidates = {
+        name: _tool_model(name)
+        for name in ("qwen2.5-coder-14b-instruct-mlx", "qwen2.5-coder-7b-instruct", "llama-8b")
+    }
+    pool = POOLS_BY_ID["ravis/clarvis-agent"]
+
+    listed = pool.eligible(candidates)
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert listed[0] == decision.selected
+    assert listed[1:3] == decision.fallbacks
