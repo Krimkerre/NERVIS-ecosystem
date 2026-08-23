@@ -43,6 +43,8 @@ from ravis.content import check_image_count
 from ravis.core.pools import direct_provider
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent
+from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
+from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.providers.base import ProviderAdapter, TranslatingAdapter, TranslationError
 from ravis.registry import ModelRegistry
 from ravis.reliability import (
@@ -388,7 +390,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     adapter: ProviderAdapter = request.app.state.adapter
     registry: ModelRegistry = request.app.state.model_registry
     health: HealthRegistry = request.app.state.health
-    candidates = {model: await adapter.capabilities(model) for model in registry.model_ids()}
+    candidates = await candidates_with_evidence(
+        adapter, registry.model_ids(), getattr(request.app.state, "evidence", None)
+    )
     decision = engine.select(
         payload.get("model") or "",
         candidates,

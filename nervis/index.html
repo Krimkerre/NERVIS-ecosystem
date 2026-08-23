@@ -1464,6 +1464,15 @@ const API={
      {tools:'REQUIRED', minimum_context, vision, privacy}. Translating the
      mock's spelling back would invent `privacy` and `vision` requirements no
      pool declares. */
+  /* GET /api/v1/evidence on RAVIS — what SIRVIS said and what RAVIS concluded.
+     Null rather than a mock when RAVIS is not answering: a verdict is a claim
+     about *this* deployment's evidence, and a transcribed one would assert that
+     a build was admitted or refused on measurements nobody made here. */
+  async evidenceVerdicts(){
+   try{const r=await fetch(BASE.ravis+'/api/v1/evidence',{signal:AbortSignal.timeout(2000)});
+       return r.ok?await r.json():null}
+   catch(e){return null}},
+
   async pools(){return live('ravis','/api/v1/pools',this._poolsMock,payload=>({
    items:payload.items.map(x=>({
     pool_id:x.pool_id,
@@ -3003,7 +3012,8 @@ async function ravisPolicies(){
    §13.4 optionality made visible rather than asserted. */
 async function ravisEvidence(){
  heading('Evidence','What the ranking is standing on, and which service owns each part of it.');
- const [ev,req,usage]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),API.ravis.usage()]);
+ const [ev,req,usage,verdicts]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
+   API.ravis.usage(),API.ravis.evidenceVerdicts()]);
  /* RAVIS's own provenance enum, and the mapping it applies on the way in. It never
     upgrades a value: SIRVIS's PARTIALLY_MEASURED arrives as ESTIMATED, not MEASURED. */
  const MAP=[['MEASURED_BY_SIRVIS','MEASURED','repeated benchmark runs on this machine, with spread and sample count'],
@@ -3018,6 +3028,10 @@ async function ravisEvidence(){
    ['Measured',String(measured),'runs on this machine · n=3','sirvis'],
    ['Observed by RAVIS',String(observed),'live TTFT from real traffic','ravis'],
    ['Routing p50',usage.routing_p50_ms+' ms','decision cost, cached evidence','ravis']])
+ +(verdicts?`<div class="card full"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
+   <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
+   ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${v.state==='SUPPORTED'?'':' warn'}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
+   <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${(verdicts.source.threshold.tool_call_pass_rate*100)}%</b> over <b>${verdicts.source.threshold.phrasings}</b> phrasings × <b>${verdicts.source.threshold.repetitions_each}</b> repetitions.</small>`,'ravis')}</div>`:'')
  +`<div class="card full"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}

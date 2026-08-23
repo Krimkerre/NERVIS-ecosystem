@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 676 tests, no network, no live service
+.venv/bin/pytest                      # part of 697 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 676 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 697 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -101,6 +101,7 @@ into the order work actually happens.
 | 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. **Run live against a GGUF/MLX pair, 2026-08-24** — the first measured pair in the corpus, numbers below |
 | 25 | **SIRVIS M16** | The RAVIS evidence API — §15.1's question as an endpoint, with every filter it names, cursor paging, staleness, stable references, and candidate runtime keys resolved by SIRVIS so RAVIS never infers equivalence. Nothing ranks. Found the role-vocabulary seam, below |
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
+| 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 is nearly done** — its benchmark, Runtime Set and RAVIS-facing halves have all landed, and what remains is the *Clarvis-specific* half: M12, M13 and M15.
 
@@ -1120,6 +1121,66 @@ carries measurements and trial rates together, the listing discriminated on
 printed its throughput and not the 8-in-8 that was the point of it. Both
 printers now render rates as `passed/total`.
 
+### What RAVIS M13 settled
+
+§13.1 opens with a prohibition — *never reduce SIRVIS results to model → score*
+— so nothing in this milestone computes one. What crosses the boundary is a
+**capability claim**: this build satisfies a pool invariant, or does not, or
+nobody knows. Ranking stays with RAVIS, and one test asserts structurally that
+no field anywhere is named `score`, `rank` or `rating`.
+
+**The threshold is two axes and the second one is load-bearing.** SIRVIS.md
+§13.2 sets it: `tool_call_pass_rate ≥ 0.95` over **≥ 8 phrasings × ≥ 3
+repetitions**. A build clearing the rate on too few attempts establishes
+*nothing* — which is a different answer from failing, and the surface says which.
+That is not hypothetical: the first role run on this machine scored 8/8 over 8
+attempts, which is a perfect rate over a third of the required sample, and RAVIS
+correctly declines to admit it.
+
+Live, against the two granite packagings measured earlier the same day:
+
+```text
+lmstudio-community/granite-4.0-h-tiny  UNKNOWN      8/8 over 8 phrasings — clears the rate
+                                                    but not the sample (24 attempts needed)
+mlx-community/granite-4.0-h-tiny       UNSUPPORTED  1/8 — below the 95% threshold
+```
+
+**Stage 5's exit criterion is met**: a SIRVIS result changed a RAVIS preference.
+The MLX build moved from `UNKNOWN` to `UNSUPPORTED` on measured evidence, which
+is a route effect — it is now excluded on a measurement rather than on ignorance.
+
+The decisions worth the veto:
+
+- **Absence, staleness and unreachability are three findings, not one.** Never
+  measured is UNKNOWN. Measured too long ago is UNKNOWN *and* degrades the
+  source. A SIRVIS that will not answer drops every claim and says so — serving
+  the last read on would be presenting a cached measurement as a current one,
+  which §13.3 forbids outright.
+- **Provenance is never upgraded.** SIRVIS's `PARTIALLY_MEASURED` arrives as
+  `ESTIMATED` and cannot establish an invariant, per §13.3's own mapping.
+- **An operator's declaration still outranks a measurement.** §9.5's ordering
+  survives M13 intact: `CONFIGURED` beats `MEASURED`, because an operator knows
+  things about their deployment RAVIS cannot observe.
+- **An unsupported major is refused rather than parsed optimistically.** The
+  fields might line up; that is not a reason to route on a shape nobody verified.
+
+**Two gaps this milestone found in surfaces built for it.** M16's evidence
+endpoint returned resolved variants but no mapping back to the runtime keys the
+caller asked about — so a consumer holding several candidates could not tell
+which record answered which question, and would have had to match on names,
+which §15.1 forbids and that endpoint exists to prevent. Added as
+`candidate_variants`.
+
+And **SIRVIS was advertising every capability as unavailable.** M1, M2, M3, M6,
+M7 and M16 had all shipped; the declaration still said `unavailable` for all of
+them, including `sirvis.evidence.query@1` — the one RAVIS was built to
+negotiate. The file's own docstring warned that a sibling service had let these
+go stale for four milestones. Nothing fails when a service under-advertises: no
+error, no failing test, just a peer that cannot integrate and no clue why. The
+test that pinned this asserted "everything is unavailable" and went on passing
+for six milestones after that stopped being true; it now pins the split, so a
+milestone that makes a capability real has to say so.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -1249,6 +1310,7 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | RAVIS **Routes** | live | `/api/v1/route-decisions` |
 | RAVIS **Pools** | live | `/api/v1/pools` + `/api/v1/models`; every build reads *out · tool support unknown — fails closed*, which is true |
 | SIRVIS **Runtime** | live | `/api/v1/runtime/residency`, and the four session mutations — the first controls on this page that reach a service |
+| RAVIS **Evidence** | live | `/api/v1/evidence` — what SIRVIS said and what RAVIS concluded, with the reason a build was refused |
 | SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
 | Recommendations, Downloads | mocks | need M15 and M11 |
 

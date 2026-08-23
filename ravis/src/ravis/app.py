@@ -42,6 +42,7 @@ from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
+from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
@@ -96,13 +97,23 @@ def _lifespan(settings: Settings) -> Any:
         # Warm the catalogue before serving. A first request must not be the
         # thing that discovers the upstream is unreachable (§5.0.1).
         await api.state.model_registry.refresh()
+        # Evidence is read after the catalogue, because it is asked *about* the
+        # catalogue: SIRVIS resolves the runtime keys RAVIS holds, so there is
+        # nothing to ask until RAVIS knows what it has. Out of band for the same
+        # reason the catalogue is — a route decision must not wait on a second
+        # service's latency, and §13.4 requires routing to continue without it.
+        await _refresh_evidence(api)
         refresher = asyncio.create_task(
             refresh_periodically(api.state.model_registry, settings.models_cache_ttl_seconds)
+        )
+        evidence_refresher = asyncio.create_task(
+            _refresh_evidence_periodically(api, settings.models_cache_ttl_seconds)
         )
         try:
             yield
         finally:
             refresher.cancel()
+            evidence_refresher.cancel()
             await api.state.upstream_client.aclose()
 
     return lifespan
@@ -142,6 +153,14 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # provider clients: which providers exist is configuration, and a table
     # assembled by probing would make startup depend on the network.
     api.state.translating = _translating_adapters(settings, api.state.upstream_client)
+    # SIRVIS's evidence, cached with a staleness policy (§13.3). Absent until
+    # a base URL is configured, and RAVIS routes without it — §13.4 makes the
+    # source optional and the degradation visible rather than silent.
+    api.state.evidence = EvidenceStore(
+        base_url=settings.sirvis_base_url,
+        role=settings.sirvis_evidence_role,
+        max_age_seconds=settings.sirvis_evidence_max_age_seconds,
+    )
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,
@@ -262,3 +281,31 @@ def _translating_adapters(
             configured_capabilities=resolved_capabilities(settings),
         )
     return adapters
+
+
+async def _refresh_evidence(api: FastAPI) -> None:
+    """Re-read SIRVIS for the models this RAVIS actually has.
+
+    Failures are the store's business, not this function's: `refresh` records a
+    degraded source and returns, because §13.4 makes SIRVIS optional and a
+    router that would not start without it would have made it mandatory.
+    """
+    store: EvidenceStore = api.state.evidence
+    if not store.is_configured:
+        return
+    await store.refresh(api.state.upstream_client, api.state.model_registry.model_ids())
+
+
+async def _refresh_evidence_periodically(api: FastAPI, seconds: float) -> None:
+    """Keep the evidence cache warm, tolerating everything.
+
+    A refresh that raised would kill the task and freeze the cache at whatever
+    it last held — which is the one state §13.3 forbids, because stale evidence
+    served as current is indistinguishable from measured evidence.
+    """
+    while True:
+        await asyncio.sleep(seconds)
+        try:
+            await _refresh_evidence(api)
+        except Exception:  # noqa: BLE001 - a background task must not die
+            continue

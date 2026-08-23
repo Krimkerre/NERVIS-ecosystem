@@ -91,6 +91,21 @@ class Settings(BaseSettings):
     # model failing.
     anthropic_max_output_tokens: int = 16000
 
+    # ── SIRVIS evidence (§13 — M13) ─────────────────────────────────────────
+    # Where SIRVIS answers. Empty means RAVIS runs without it, which §13.4
+    # requires to keep working: provider metadata and RAVIS's own observations
+    # carry routing, with the degradation labelled rather than hidden.
+    sirvis_base_url: str = ""
+    # The role RAVIS asks about. One role rather than all of them because a
+    # pool's invariant is role-specific — `ravis/clarvis-agent` is admitted on
+    # `clarvis-agent` evidence and nothing else, and evidence for a different
+    # role is about a different question.
+    sirvis_evidence_role: str = "clarvis-agent"
+    # How long a measurement is believed (§13.3's staleness policy). Thirty days:
+    # the evidence identity already pins machine, runtime and configuration, so
+    # what expires is confidence that nothing else changed.
+    sirvis_evidence_max_age_seconds: float = 30 * 24 * 3600
+
     # Operator-declared model capabilities, as {model: {capability: state}}.
     # The only way to make a tool-requiring pool usable before probing (§8.7) or
     # SIRVIS evidence (M13) exists — a generic OpenAI-compatible endpoint

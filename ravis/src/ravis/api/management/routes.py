@@ -32,6 +32,8 @@ from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS
 from ravis.errors import NotFoundError
+from ravis.evidence import EvidenceStore
+from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
 
@@ -57,7 +59,9 @@ async def _candidates(request: Request) -> dict[str, Any]:
     """Capabilities for every model the upstream currently offers."""
     adapter = request.app.state.adapter
     registry = request.app.state.model_registry
-    return {model: await adapter.capabilities(model) for model in registry.model_ids()}
+    return await candidates_with_evidence(
+        adapter, registry.model_ids(), getattr(request.app.state, "evidence", None)
+    )
 
 
 @router.get("/health")
@@ -227,6 +231,29 @@ async def read_policies() -> dict[str, Any]:
     an invented default that would misrepresent what RAVIS is doing.
     """
     return _listing([])
+
+
+@router.get("/evidence")
+async def read_evidence(request: Request) -> dict[str, Any]:
+    """What SIRVIS told RAVIS, and what RAVIS concluded from it (§13).
+
+    This endpoint exists because the capability surface cannot carry it.
+    `/api/v1/models` publishes the *winning* claim per capability, and an
+    UNKNOWN verdict deliberately records no claim at all — so the most useful
+    sentence in the system, *why* a build was not admitted to a pool, had
+    nowhere to live. "No reliable tool calls" and "measured once where the
+    threshold needs three repetitions" send a reader to entirely different
+    places, and §9.7 requires a route to be able to say which.
+
+    The threshold travels with the verdicts. It is SIRVIS's to set (§13.2) and
+    RAVIS's to apply, and a consumer reading a refusal should not have to find
+    the specification to learn what bar was missed.
+    """
+    store: EvidenceStore = request.app.state.evidence
+    registry = request.app.state.model_registry
+    return _listing([
+        {"model_id": model, **store.explain(model)} for model in registry.model_ids()
+    ]) | {"source": store.snapshot()}
 
 
 @router.get("/route-decisions")

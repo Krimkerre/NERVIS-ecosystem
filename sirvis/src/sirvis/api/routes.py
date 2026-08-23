@@ -465,12 +465,16 @@ async def read_evidence_index(request: Request) -> dict[str, Any]:
     """
     parameters = request.query_params
     candidates = parameters.getlist("candidate")
-    resolved, unresolved = await _resolve_candidates(request, candidates)
+    resolved, unresolved, by_key = await _resolve_candidates(request, candidates)
     if candidates and not resolved:
         # Every candidate is unknown to this machine. Answering with an empty
         # list would say "these builds have no evidence", which is a different
         # and much more actionable claim than "these builds are not installed".
-        return _listing([]) | {"unresolved_candidates": unresolved, "resolved_candidates": []}
+        return _listing([]) | {
+            "unresolved_candidates": unresolved,
+            "resolved_candidates": [],
+            "candidate_variants": {},
+        }
 
     answer = query_evidence(request.app.state.database, EvidenceQuery(
         filters={name: parameters[name] for name, _ in FILTERS if parameters.get(name)},
@@ -488,6 +492,13 @@ async def read_evidence_index(request: Request) -> dict[str, Any]:
         # are absent.
         "resolved_candidates": sorted(resolved),
         "unresolved_candidates": unresolved,
+        # Which runtime key each variant came from. Added when RAVIS tried to
+        # consume this surface and could not: it asks by runtime key, evidence
+        # comes back keyed by variant, and without this mapping a consumer
+        # holding several candidates cannot tell which record answers which
+        # question — leaving it to match on names, which §15.1 forbids and this
+        # endpoint exists to prevent.
+        "candidate_variants": by_key,
         # §15.1 asks for tombstones. There are none, and there is no mechanism
         # to produce one: evidence is append-only and nothing in SIRVIS deletes
         # a result. Reported as an empty list rather than omitted so a consumer
@@ -524,7 +535,7 @@ async def read_evidence_identity(request: Request, evidence_id: str) -> dict[str
 
 async def _resolve_candidates(
     request: Request, candidates: list[str]
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], dict[str, str]]:
     """Runtime keys to the variants their evidence is filed under (§15.1).
 
     This is the "do not force RAVIS to infer equivalence across builds" clause
@@ -539,16 +550,20 @@ async def _resolve_candidates(
     confidently wrong answer.
     """
     if not candidates:
-        return [], []
+        return [], [], {}
     try:
         inventory = await _inventory(request)
     except RuntimeUnavailableError:
-        return [], sorted(candidates)
-    resolved, unresolved = [], []
+        return [], sorted(candidates), {}
+    resolved, unresolved, by_key = [], [], {}
     for key in candidates:
         build = inventory.by_runtime_key(key)
-        (resolved.append(build.variant_id) if build else unresolved.append(key))
-    return resolved, sorted(unresolved)
+        if build is None:
+            unresolved.append(key)
+            continue
+        resolved.append(build.variant_id)
+        by_key[key] = build.variant_id
+    return resolved, sorted(unresolved), by_key
 
 
 def _config_constraints(parameters: Any) -> dict[str, str]:

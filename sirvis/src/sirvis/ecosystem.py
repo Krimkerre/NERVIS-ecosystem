@@ -11,11 +11,19 @@ not passed conformance, and RAVIS routes on this list. An optimistic
 **The sibling service let these go stale**, advertising `unavailable` for four
 milestones after the work shipped. Revisiting this file is part of finishing a
 milestone, not a separate chore.
+
+**And then this file did the same thing**, which is worth recording rather than
+quietly fixing: M1, M2, M3, M6, M7 and M16 all shipped while every entry below
+still said `unavailable`. It was found when RAVIS tried to negotiate
+`sirvis.evidence.query@1` before reading evidence and was told the surface it
+had just been built against did not exist. A warning in a docstring is not a
+mechanism, and the reason this went unnoticed is that nothing fails when a
+service under-advertises — it just quietly cannot be integrated with.
 """
 
 from __future__ import annotations
 
-from ecosystem_protocol import UNAVAILABLE, Capability, EcosystemSurface
+from ecosystem_protocol import AVAILABLE, UNAVAILABLE, Capability, EcosystemSurface
 
 # The build's own version, distinct from the protocol it speaks. Consumers must
 # never infer behaviour from it (runbook §4.2) — that is what capabilities are
@@ -25,30 +33,30 @@ BUILD_VERSION = "0.0.1"
 DECLARED: dict[str, Capability] = {
     "sirvis.system.snapshot@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="machine detection lands at M1",
+        state=AVAILABLE,
+        reason="machine detection, M1",
     ),
     "sirvis.runtime.lmstudio@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the LM Studio adapter lands at M2",
+        state=AVAILABLE,
+        reason="the LM Studio adapter, M2",
     ),
     "sirvis.models.inventory@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the model domain and inventory land at M3",
+        state=AVAILABLE,
+        reason="the model domain and inventory, M3",
     ),
     "sirvis.benchmarks.single_model@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the benchmark engine lands at M6",
+        state=AVAILABLE,
+        reason="the benchmark engine, M6 — run live against 19 builds",
     ),
     # The one RAVIS is waiting on. Named here from the start so a peer can see
     # it is planned and absent, rather than having to infer it from silence.
     "sirvis.evidence.query@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the evidence schema is M7 and the RAVIS query API is M16",
+        state=AVAILABLE,
+        reason="the evidence schema (M7) and the query API RAVIS reads (M16)",
     ),
     "sirvis.recommendations@1": Capability(
         version="1.0.0",
