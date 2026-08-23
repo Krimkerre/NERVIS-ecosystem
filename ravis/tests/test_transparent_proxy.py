@@ -15,6 +15,7 @@ from tests.conftest_upstream import TOOL_CALL_FRAMES, RecordingUpstream, failing
 
 from ravis.api.openai.chat import _relay
 from ravis.app import create_app
+from ravis.compatibility.clarvis.conformance import _single_attempt
 from ravis.config import Settings
 
 
@@ -105,7 +106,10 @@ async def test_a_disconnect_stops_the_upstream_generation() -> None:
     """
     upstream = RecordingUpstream()
     client = httpx.AsyncClient(transport=upstream.transport())
-    relay = _relay(client, "http://upstream.invalid/v1/chat/completions", {}, b'{"stream":true}')
+    # The call is built by the conformance harness rather than here: it is
+    # shipped code written for exactly this — driving the relay without an HTTP
+    # client — and a second copy of the setup is a second thing to keep correct.
+    relay = _relay(_single_attempt(client, "any"))
 
     await relay.__anext__()
     await relay.aclose()

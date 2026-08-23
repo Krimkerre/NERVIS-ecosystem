@@ -68,7 +68,7 @@ Two of those moved or are new since the first pass:
 The wordmark top-left is a home link back to the NERVIS overview, keyboard
 reachable, and it leaves focus mode on the way.
 
-## The only mutating controls in the template
+## The only mutating controls on the page
 
 RAVIS.md §15.1 defines exactly five mutations, and those are the only controls in
 this repository that change anything:
@@ -106,7 +106,7 @@ capability. `lmstudioBuilds()` maps that payload onto SIRVIS's build identity, a
 endpoint does not.
 
 It is embedded rather than fetched because this file opens from disk with no
-server, and a runtime fetch would make the template depend on LM Studio being up
+server, and a runtime fetch would make it depend on LM Studio being up
 to render at all. Keeping the payload in its own shape is what makes the swap
 real: the mapper an implementation needs already exists and has been exercised
 against a genuine response.
@@ -122,7 +122,7 @@ Consequences worth knowing:
   `toolsWork()` prefers measured tool-call reliability over the advertised flag.
   Three builds advertise nothing and work anyway; one advertises support and loses
   seven calls in eight to the MLX runtime's parser. Those disagreements run both
-  ways, which is the clearest argument in the template for probing capabilities
+  ways, which is the clearest argument on this page for probing capabilities
   instead of trusting model names — and the reason `toolsWork` keeps the measured
   and advertised fields separate rather than reconciling them at the source.
 - **Pool membership is derived**, not written down: `API.ravis.pools()` filters the

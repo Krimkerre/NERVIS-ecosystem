@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
+from fastapi.testclient import TestClient
+from tests.conftest_upstream import RecordingUpstream
 
 from ravis.admission import RateLimiter, check_origin, client_address
+from ravis.app import create_app
 from ravis.config import Settings
 from ravis.content import check_image_count, check_no_remote_urls
 from ravis.errors import (
@@ -13,6 +17,28 @@ from ravis.errors import (
     RemoteUrlRefusedError,
     TooManyImagesError,
 )
+
+
+def _app_with_origins(
+    origins: list[str], **overrides: object
+) -> tuple[TestClient, Settings]:
+    """The real app with a browser allowlist, and a fake upstream underneath.
+
+    Only the transport is swapped, so the middleware nesting §4.4 depends on is
+    the nesting under test rather than a rearranged one.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        upstream_base_url="http://upstream.invalid",
+        allowed_origins=origins,
+        _env_file=None,  # type: ignore[call-arg]
+        **overrides,  # type: ignore[arg-type]
+    )
+    app = create_app(settings)
+    fake_client = httpx.AsyncClient(transport=RecordingUpstream().transport())
+    app.app.state.upstream_client = fake_client
+    app.app.state.model_registry.use_client(fake_client)
+    return TestClient(app), settings
 
 
 def _image_message(url: str) -> dict:
@@ -87,3 +113,66 @@ def test_forwarded_address_is_honoured_from_a_trusted_proxy() -> None:
     address = client_address({"x-forwarded-for": "10.0.0.9"}, peer="203.0.113.5", settings=settings)
 
     assert address == "10.0.0.9"
+
+
+def test_a_preflight_from_an_allow_listed_origin_is_answered_without_charge() -> None:
+    """A preflight does no work, so it must not consume a rate-limit allowance.
+
+    Charging it would halve every browser client's effective allowance: each
+    real request would cost two. Asserted by preflighting past the limit and
+    then checking a real request still gets through.
+    """
+    client, _ = _app_with_origins(["http://127.0.0.1:8080"], rate_limit_per_minute=3)
+    with client:
+        for _ in range(5):
+            preflight = client.options(
+                "/api/v1/pools",
+                headers={
+                    "origin": "http://127.0.0.1:8080",
+                    "access-control-request-method": "GET",
+                },
+            )
+            assert preflight.status_code == 204
+
+        real = client.get("/api/v1/pools", headers={"origin": "http://127.0.0.1:8080"})
+
+    assert real.status_code == 200
+
+
+def test_an_allow_listed_origin_gets_headers_a_browser_will_accept() -> None:
+    """Without these the request succeeds and the browser throws the answer away."""
+    client, _ = _app_with_origins(["http://127.0.0.1:8080"])
+    with client:
+        response = client.get("/api/v1/pools", headers={"origin": "http://127.0.0.1:8080"})
+
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:8080"
+    assert response.headers["vary"] == "Origin"
+    # Never a wildcard, and never with credentials: the two together are what
+    # would let a hostile page make authenticated reads.
+    assert "*" not in response.headers["access-control-allow-origin"]
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_an_unlisted_origin_is_refused_and_told_nothing() -> None:
+    """An origin nobody listed should not learn what would have been permitted."""
+    client, _ = _app_with_origins(["http://127.0.0.1:8080"])
+    with client:
+        preflight = client.options(
+            "/api/v1/pools",
+            headers={"origin": "http://evil.example", "access-control-request-method": "GET"},
+        )
+        read = client.get("/api/v1/pools", headers={"origin": "http://evil.example"})
+
+    assert preflight.status_code == 403
+    assert "access-control-allow-origin" not in preflight.headers
+    assert read.status_code == 403
+
+
+def test_a_non_browser_caller_is_unaffected() -> None:
+    """No Origin header means no browser, and the ordinary caller sends none."""
+    client, _ = _app_with_origins([])
+    with client:
+        response = client.get("/api/v1/pools")
+
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers

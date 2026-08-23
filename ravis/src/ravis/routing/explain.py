@@ -42,6 +42,12 @@ class RouteDecision:
     requested: str
     pool_id: str | None = None
     selected: str | None = None
+    # The ranked alternatives that may be tried if `selected` fails (§10's
+    # Primary → Fallback 1 → Fallback 2). Every entry has already passed the
+    # same eligibility filter as the primary, which is how §10's requirement —
+    # that a fallback still satisfy the original hard constraints and the pool
+    # invariants — is guaranteed rather than re-checked at failure time.
+    fallbacks: list[str] = field(default_factory=list)
     reason: str = ""
     considered: list[str] = field(default_factory=list)
     excluded: list[ExcludedCandidate] = field(default_factory=list)
@@ -65,6 +71,7 @@ class RouteDecision:
             "requested": self.requested,
             "pool": self.pool_id,
             "selected": self.selected,
+            "fallbacks": self.fallbacks,
             "reason": self.reason,
             "requirements": self.requirements,
             "unverified": self.unverified,
@@ -83,6 +90,8 @@ class RouteDecision:
                 lines.append(f"  required: {' · '.join(self.requirements)}")
         else:
             lines = [f"Selected: {self.selected}", f"  {self.reason}"]
+            if self.fallbacks:
+                lines.append(f"  fallback order: {' → '.join(self.fallbacks)}")
         for note in self.unverified:
             lines.append(f"  unverified: {note}")
         for candidate in self.excluded:

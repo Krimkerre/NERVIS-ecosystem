@@ -10,14 +10,20 @@ so this runs first and separately, and a candidate removed here is never
 reconsidered by scoring.
 
 Ranking, at M5, is declared preference then alphabetical order — and nothing
-more. There is no benchmark evidence yet (M13), no cost data (M15) and no health
-history (M12), so any richer score would be arithmetic over numbers nobody
-measured. §9.4 rules out exactly that: routing must be explainable rather than an
+more. There is no benchmark evidence yet (M13) and no cost data (M15), so any
+richer score would be arithmetic over numbers nobody measured. Health (M12) is
+deliberately not a score either: §10 says do not keep routing to a failing
+provider, which is an exclusion, and turning "it failed twice" into a ranking
+weight would be inventing a quality signal out of an availability one.
+
+§9.4 rules out exactly that: routing must be explainable rather than an
 opaque oracle, and an explanation that cites an invented weighting is worse than
 one that admits the choice was made on stable ordering.
 """
 
 from __future__ import annotations
+
+from typing import Mapping
 
 from ravis.core.capabilities import Capability, ModelCapabilities
 from ravis.core.pools import POOLS_BY_ID, VirtualModelPool, direct_target, is_pool_id
@@ -26,6 +32,13 @@ from ravis.routing.explain import ExcludedCandidate, RouteDecision
 from ravis.routing.requirements import RequestRequirements, analyse, unmet_by, unverified_notes
 from ravis.runtime.residency import Residency, ResidencySnapshot, residency_rank
 from ravis.runtime.resources import MemoryReading
+
+# How many alternatives a decision publishes. §10 describes the chain as
+# Primary → Fallback 1 → Fallback 2, so two is the specified depth rather than
+# an arbitrary cap. Deeper is not obviously better: by the third alternative the
+# request has already waited through two failures, and a client that has been
+# waiting that long is usually better served by an error it can act on.
+MAX_FALLBACKS = 2
 
 
 class RoutingEngine:
@@ -44,6 +57,7 @@ class RoutingEngine:
         residency: ResidencySnapshot | None = None,
         memory: MemoryReading | None = None,
         request: NormalizedRequest | None = None,
+        unavailable: Mapping[str, str] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -56,6 +70,13 @@ class RoutingEngine:
         preference then alphabetical — rather than a router quietly acting on
         assumptions about a runtime it cannot see. `request` is optional for the
         same reason: without it only the pool's own invariants apply.
+
+        `unavailable` carries the models whose circuit breaker is currently open
+        (§10), each with the reason it opened. It is passed in rather than read
+        from anywhere, because this class performs no I/O and holds no state —
+        health lives in the reliability layer, and keeping the engine a pure
+        function of its arguments is what makes §9.7's determinism gate
+        testable.
         """
         requirements = analyse(request) if request else RequestRequirements()
         if is_pool_id(requested):
@@ -65,6 +86,7 @@ class RoutingEngine:
                 residency or ResidencySnapshot(),
                 memory or MemoryReading(),
                 requirements,
+                unavailable or {},
             )
 
         target = direct_target(requested)
@@ -118,6 +140,7 @@ class RoutingEngine:
         residency: ResidencySnapshot,
         memory: MemoryReading,
         requirements: RequestRequirements,
+        unavailable: Mapping[str, str],
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -133,8 +156,8 @@ class RoutingEngine:
             requirements=_all_requirements(pool, requirements),
             unverified=unverified_notes(requirements, candidates),
         )
-        decision.excluded = _exclusions(pool, candidates, requirements)
-        eligible = _rank(pool, candidates, residency, memory, requirements)
+        decision.excluded = _exclusions(pool, candidates, requirements, unavailable)
+        eligible = _rank(pool, candidates, residency, memory, requirements, unavailable)
 
         if not eligible:
             # §5.2: a pool with no satisfying candidate is *unavailable*. Never
@@ -148,6 +171,11 @@ class RoutingEngine:
             return decision
 
         decision.selected = eligible[0]
+        # §10 requires every fallback candidate to satisfy the original hard
+        # constraints and the pool invariants. Taking them from the ranked
+        # eligible list makes that structural: a candidate that failed either
+        # check is not in this list to be chosen from.
+        decision.fallbacks = eligible[1 : 1 + MAX_FALLBACKS]
         decision.reason = _selection_reason(pool, eligible, residency, memory)
         return decision
 
@@ -178,17 +206,24 @@ def _exclusions(
     pool: VirtualModelPool,
     candidates: dict[str, ModelCapabilities],
     requirements: RequestRequirements,
+    unavailable: Mapping[str, str],
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
-    Pool invariants and request requirements are reported together and
-    undifferentiated, because the person reading this wants to know why a model
-    was not used — not which of two rule sources rejected it.
+    Pool invariants, request requirements and open circuits are reported
+    together and undifferentiated, because the person reading this wants to know
+    why a model was not used — not which of three rule sources rejected it.
+
+    An open circuit is listed here, among the hard exclusions, rather than
+    treated as a preference. §10 is unambiguous that a failing provider is to be
+    routed *away from*, and a soft penalty would keep sending it traffic.
     """
     excluded = []
     for model in sorted(candidates):
         reasons = pool.requirements.unmet_by(candidates[model])
         reasons += unmet_by(requirements, candidates[model])
+        if model in unavailable:
+            reasons.append(unavailable[model])
         if reasons:
             excluded.append(ExcludedCandidate(model=model, reasons=reasons))
     return excluded
@@ -200,6 +235,7 @@ def _rank(
     residency: ResidencySnapshot,
     memory: MemoryReading,
     requirements: RequestRequirements,
+    unavailable: Mapping[str, str],
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -216,7 +252,9 @@ def _rank(
     """
     members = [
         model for model, known in candidates.items()
-        if not pool.requirements.unmet_by(known) and not unmet_by(requirements, known)
+        if not pool.requirements.unmet_by(known)
+        and not unmet_by(requirements, known)
+        and model not in unavailable
     ]
     pressured = memory.under_pressure
 
@@ -265,8 +303,9 @@ def _selection_reason(
     others = len(eligible) - 1
     tail = f"; {others} other eligible candidate(s) ranked lower" if others else ""
     return (
-        f"{'. '.join(parts)}. No benchmark evidence, cost data or health history is "
-        f"available yet, so nothing ranked it above the others on quality{tail}"
+        f"{'. '.join(parts)}. No benchmark evidence or cost data is available yet, and "
+        f"health is used to exclude rather than to rank, so nothing ranked it above the "
+        f"others on quality{tail}"
     )
 
 

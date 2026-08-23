@@ -292,11 +292,11 @@ was verified against source, not assumed — see `CLARVIS.md` §3.
 
 Stages 4 and 2–3 may run concurrently. Everything else is sequential.
 
-**Every stage lands something visible.** `template/index.html` already renders every screen
+**Every stage lands something visible.** `nervis/index.html` already renders every screen
 this ecosystem will have, against mock data shaped like the real responses, and each of its
 `API` methods cites the endpoint it will call. So a stage's UI increment is not "build a
 screen" — it is **replace one mock body with a `fetch` and watch the screen light up with real
-data** (`template/docs/WIRING.md`). That costs minutes rather than a milestone, which is what
+data** (`nervis/docs/WIRING.md`). That costs minutes rather than a milestone, which is what
 makes it reasonable to ask for at every stage rather than deferring the interface to the end.
 
 This matters beyond morale. A screen driven by real data is a test no unit test replaces: it
@@ -438,12 +438,12 @@ NERVIS calls only published contracts — never a peer's database, never reverse
 private state.
 
 **Wrap the prototype before replacing it**, exactly as Stage 4 says of the benchmark tooling.
-`template/index.html` is not a sketch: it is the screen inventory, the degradation model
+`nervis/index.html` is not a sketch: it is the screen inventory, the degradation model
 (`usable()` / `cell()`, absence rendered as a state rather than an error), the `API` method
 signatures, and a data layer already exercised against a genuine LM Studio response — it is
 what caught a capability filter that matched nothing. Rebuilding those from scratch discards
 work that has already been validated, and rediscovers the pitfalls
-`template/docs/PITFALLS.md` records.
+`nervis/docs/PITFALLS.md` records.
 
 **What must not be carried over is its render layer.** `NERVIS.md` §25 states which parts
 transfer verbatim and which must be rebuilt; do not port `innerHTML` interpolation into a

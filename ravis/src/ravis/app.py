@@ -23,19 +23,28 @@ from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
-from ravis.admission import BodySizeLimiter, RateLimiter, check_origin, client_address
+from ravis.admission import (
+    BodySizeLimiter,
+    RateLimiter,
+    check_origin,
+    client_address,
+    cors_headers,
+    is_preflight,
+)
 from ravis.api.management import management_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
-from ravis.config import Settings
+from ravis.config import Settings, resolved_capabilities
 from ravis.ecosystem import router as ecosystem_router
 from ravis.errors import RavisError, to_response
 from ravis.identity import resolve_identity
 from ravis.observability import new_request_id
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
+from ravis.reliability import HealthRegistry
+from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
 from ravis.storage import prepare_database
 from ravis.upstream import create_client, upstream_from
@@ -123,7 +132,19 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,
-        configured_capabilities=settings.model_capabilities,
+        configured_capabilities=resolved_capabilities(settings),
+    )
+    # Health and circuit breakers (§10). Process-wide and in memory, for the same
+    # reason the decision log is: this is operational state about *now*, and a
+    # breaker that survived a restart would keep a provider closed off on the
+    # strength of failures that happened before the code changed.
+    api.state.health = HealthRegistry(
+        failure_threshold=settings.breaker_failure_threshold,
+        cooldown_seconds=settings.breaker_cooldown_seconds,
+    )
+    api.state.retry_budget = RetryBudget(
+        max_attempts=settings.retry_max_attempts,
+        max_total_seconds=settings.retry_max_seconds,
     )
     api.state.rate_limiter = RateLimiter()
     # Identity of this installation. Opaque and locally generated — never derived
@@ -143,6 +164,10 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
     after it can be logged against a request ID, identity next because the rate
     limit is keyed to it, and origin before the limit because a rejected origin
     should not consume somebody's allowance.
+
+    A CORS preflight is answered before all of it. It carries no payload and
+    does no work, so charging it against a rate limit would halve the effective
+    allowance of every browser client — each real request would cost two.
     """
 
     @api.middleware("http")
@@ -150,6 +175,14 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
         request.state.trace_id = request.headers.get("traceparent", "")
         headers = {key.lower(): value for key, value in request.headers.items()}
+        allowed = cors_headers(headers.get("origin", ""), settings)
+
+        if is_preflight(request.method, headers):
+            # 204 with the headers when the origin is allow-listed, 403 with
+            # none when it is not. The browser turns the second into a CORS
+            # error, which is the correct outcome: an origin nobody listed
+            # should not learn what this service would have permitted.
+            return Response(status_code=204 if allowed else 403, headers=allowed)
 
         identity = resolve_identity(headers, settings)
         request.state.identity = identity
@@ -169,6 +202,7 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
         # Report the resolved identity back; never read it as an assertion
         # (RAVIS.md §9.6.0).
         response.headers["X-Ecosystem-Actor"] = identity.application_id
+        response.headers.update(allowed)
         return response
 
 

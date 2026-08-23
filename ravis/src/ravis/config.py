@@ -8,6 +8,8 @@ with no services up, which is also what makes it useful during an incident.
 from __future__ import annotations
 
 import ipaddress
+import json
+import pathlib
 from dataclasses import dataclass, field
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,6 +86,34 @@ class Settings(BaseSettings):
     # is the only way today to satisfy a pool that declares a minimum context.
     # Example: {"qwen/qwen3-4b-2507": {"tools": "SUPPORTED", "context_window": "32768"}}
     model_capabilities: dict[str, dict[str, str]] = {}
+    # A file holding the same structure, merged underneath the env setting. It
+    # exists because the honest version of this data is too big and too
+    # *reviewable* to live in an environment variable: on this machine it
+    # records that two packagings of one model disagree about whether tools
+    # work, which is a claim that deserves a diff and a comment, not a shell
+    # blob. Entries in `model_capabilities` win, so an operator can override one
+    # model without editing the file.
+    model_capabilities_path: str = ""
+
+    # ── §10 reliability: circuit breakers, retries and fallback ─────────────
+    # Three consecutive failures, not one: a single failure is ordinary — a
+    # model finishing a load, a connection dropped mid-restart — and opening a
+    # circuit on it would take a healthy provider out of service for the length
+    # of the cooldown every time one request was unlucky.
+    breaker_failure_threshold: int = 3
+    # Long enough that a restarting service is actually back, short enough that
+    # nobody notices the outage outlived the cause. The half-open probe means
+    # this is a *maximum* delay before recovery is retested, not a fixed wait.
+    breaker_cooldown_seconds: float = 30.0
+    # §10's retry budget. Three attempts is the primary plus §10's two
+    # fallbacks, so the chain length and the attempt ceiling agree rather than
+    # one silently truncating the other.
+    retry_max_attempts: int = 3
+    # Deliberately larger than `upstream_timeout_seconds`. The budget is checked
+    # before each new attempt, so a ceiling below one timeout would mean a
+    # timed-out request could never fall back — which is the case fallback
+    # exists for. Keep this above the upstream timeout if you change either.
+    retry_max_seconds: float = 600.0
 
     database_path: str = "ravis.db"
     log_level: str = "INFO"
@@ -100,6 +130,45 @@ class Settings(BaseSettings):
             return ipaddress.ip_address(self.host).is_loopback
         except ValueError:
             return self.host == "localhost"
+
+
+def resolved_capabilities(settings: Settings) -> dict[str, dict[str, str]]:
+    """Operator-declared capabilities, from the file and the environment.
+
+    The file is the base and the environment overrides it, per model. That
+    direction is deliberate: the file is a considered, checked-in record, and
+    the environment is what someone reaches for when they need to change one
+    thing right now — so the immediate one has to win, or it does nothing.
+
+    A path that cannot be read yields nothing rather than raising, because this
+    is also called by `doctor`, whose job is to *report* a broken configuration
+    rather than die on it. `inspect_configuration` is what turns the same
+    problem into a refusal to serve.
+    """
+    merged = _capabilities_file(settings.model_capabilities_path)
+    for model, declared in settings.model_capabilities.items():
+        merged[model] = {**merged.get(model, {}), **declared}
+    return merged
+
+
+def _capabilities_file(path: str) -> dict[str, dict[str, str]]:
+    """Read the capability file, or return empty when there is nothing to read."""
+    if not path:
+        return {}
+    try:
+        loaded = json.loads(pathlib.Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    # Keys beginning with an underscore are notes for whoever reads the file —
+    # JSON has no comments, and a capability record that cannot explain where
+    # its claims came from is the thing this whole file exists to avoid.
+    return {
+        model: {str(k): str(v) for k, v in declared.items()}
+        for model, declared in loaded.items()
+        if not model.startswith("_") and isinstance(declared, dict)
+    }
 
 
 @dataclass
@@ -153,7 +222,74 @@ def inspect_configuration(settings: Settings) -> ConfigurationReport:
                 f"browser origins allowed: {', '.join(settings.allowed_origins)}",
             )
         )
+    if "null" in settings.allowed_origins:
+        # A page opened from disk sends `Origin: null` — and so does every other
+        # page opened from disk, and every sandboxed iframe. Allow-listing the
+        # literal string therefore allow-lists a *category*, not a page. Nothing
+        # RAVIS reads out is a credential (§9.7 keeps them out by construction),
+        # so this is advisory rather than fatal, but it is worth saying out loud
+        # because it does not look like a wildcard and behaves like one.
+        report.findings.append(
+            ConfigurationFinding(
+                False,
+                "allowed_origins",
+                "'null' matches any page opened from a file:// URL, not one page — "
+                "serve the dashboard over http://127.0.0.1 and allow that origin instead",
+            )
+        )
+    _check_capabilities_file(settings, report)
+    if settings.retry_max_seconds < settings.upstream_timeout_seconds:
+        # Advisory rather than fatal: the service works, it just cannot do the
+        # one thing the setting exists for. §10's budget is checked before each
+        # new attempt, so a ceiling below a single upstream timeout means the
+        # first timeout also ends the chain — fallback configured, never reached.
+        report.findings.append(
+            ConfigurationFinding(
+                False,
+                "retry_max_seconds",
+                f"{settings.retry_max_seconds:.0f}s is below the upstream timeout of "
+                f"{settings.upstream_timeout_seconds:.0f}s, so a timed-out request can "
+                "never fall back",
+            )
+        )
     return report
+
+
+def _check_capabilities_file(settings: Settings, report: ConfigurationReport) -> None:
+    """Refuse to serve on a capability file that was named and cannot be read.
+
+    Fatal rather than advisory, and the reason is the failure it replaces:
+    without the file every capability stays UNKNOWN, every requiring pool fails
+    closed (§5.2), and `ravis/clarvis-agent` becomes unroutable — which reaches
+    the operator as "the agent is broken" rather than as "you typed the path
+    wrong". A named file that is missing is a mistake, not a preference.
+    """
+    path = settings.model_capabilities_path
+    if not path:
+        return
+    location = pathlib.Path(path)
+    if not location.is_file():
+        report.findings.append(
+            ConfigurationFinding(True, "model_capabilities_path", f"{path} does not exist")
+        )
+        return
+    if not _capabilities_file(path):
+        report.findings.append(
+            ConfigurationFinding(
+                True,
+                "model_capabilities_path",
+                f"{path} is not a readable JSON object of {{model: {{capability: state}}}}",
+            )
+        )
+        return
+    declared = _capabilities_file(path)
+    report.findings.append(
+        ConfigurationFinding(
+            False,
+            "model_capabilities_path",
+            f"{len(declared)} model(s) declared from {path}",
+        )
+    )
 
 
 def _check_remote_exposure(settings: Settings, report: ConfigurationReport) -> None:

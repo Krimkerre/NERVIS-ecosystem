@@ -1,6 +1,6 @@
 # Wiring this to real services
 
-The template is built so this is mechanical. Nothing about the render path changes.
+This page is built so this is mechanical. Nothing about the render path changes.
 
 ## The swap
 
@@ -20,7 +20,7 @@ That is the whole change. The views are already `async` and already `await`, so 
 method that starts doing I/O behaves exactly as the mock did.
 
 `BASE` holds the four service origins in one place. Their default ports are assigned in
-`../../ECOSYSTEM_RUNBOOK.md` §5 — the template hardcodes them because it runs from disk
+`../../ECOSYSTEM_RUNBOOK.md` §5 — this page hardcodes them because it runs from disk
 with no configuration, but a real client reads them from configuration or the registry.
 
 ## LM Studio is already wired, in the only sense that matters
@@ -35,7 +35,7 @@ GET http://127.0.0.1:1234/api/v0/models
 onto SIRVIS's build identity — family, variant, runtime, runtime config, plus
 `tool_use` and vision from the capability array. The payload is embedded as
 `LMSTUDIO_SNAPSHOT` because this file opens from disk with no server, and a
-runtime fetch would make the template fail to render whenever LM Studio is down.
+runtime fetch would make it fail to render whenever LM Studio is down.
 
 Going live is therefore one line:
 

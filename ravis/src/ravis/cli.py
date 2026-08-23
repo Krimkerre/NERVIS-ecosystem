@@ -41,6 +41,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_doctor(settings)
     if arguments.command == "conformance":
         return _run_conformance()
+    if arguments.command == "preflight":
+        return _run_preflight(settings)
     return _run_serve(settings)
 
 
@@ -55,6 +57,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "conformance", help="run a consumer's wire-contract suite"
     )
     conformance.add_argument("suite", choices=["clarvis"], help="which suite to run")
+    preflight = subcommands.add_parser(
+        "preflight",
+        help="check whether a consumer pointed here right now would work",
+    )
+    preflight.add_argument("consumer", choices=["clarvis"], help="which consumer to check")
     return parser
 
 
@@ -130,6 +137,23 @@ def _run_conformance() -> int:
     result = asyncio.run(run_suite())
     print(render(result))
     return EXIT_OK if result.passed else EXIT_CONFORMANCE_FAILED
+
+
+def _run_preflight(settings: Settings) -> int:
+    """Print the Clarvis configuration and whether it would actually work.
+
+    Unlike `doctor` this contacts the upstream, which is the whole point: the
+    question is not "is the configuration coherent" but "would Clarvis get an
+    answer". Imported here for the same reason the conformance suite is — so
+    `doctor` stays runnable when an import in this path is broken.
+    """
+    import asyncio
+
+    from ravis.compatibility.clarvis.preflight import render, run_preflight
+
+    result = asyncio.run(run_preflight(settings))
+    print(render(result, settings))
+    return EXIT_OK if result.ready else EXIT_FATAL_CONFIGURATION
 
 
 def _run_serve(settings: Settings) -> int:

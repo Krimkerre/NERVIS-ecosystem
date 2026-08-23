@@ -25,20 +25,29 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # 173 tests, no network, no live service
-.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 12 checks
+.venv/bin/pytest                      # 243 tests, no network, no live service
+.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-Expected: all clean, 173 passing, conformance `PASS`. CI runs the same four on
-every push (`.github/workflows/checks.yml`), plus `template/tools/check.py`.
+Expected: all clean, 243 passing, conformance `PASS`. CI runs the same four on
+every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
 
 ```bash
 RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 .venv/bin/ravis doctor
+RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 .venv/bin/ravis preflight clarvis
 RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 .venv/bin/ravis serve
 curl -s localhost:8731/api/v1/pools | python3 -m json.tool | head -30
 ```
+
+`preflight` is the one to run before M9. It prints the VS Code settings to paste
+and then resolves both Clarvis pools against the live catalogue, so the two
+failure modes that read as "Clarvis is broken" — a base URL with `/v1` on the
+end, and an agent pool with no tool-capable candidate — are named before anyone
+opens an editor. On this machine, against LM Studio's twelve models, chat
+resolves and **the agent pool does not**, because nothing has declared tool
+support yet. That is §5.2 working as written, and it is the next thing to fix.
 
 ---
 
@@ -58,12 +67,14 @@ into the order work actually happens.
 |---|---|---|
 | 1 | **M0** | Package, config, SQLite + migrations, structured logging, CLI, `/ecosystem/*` MEP surface, §4.4 admission control, §9.6.0 identity |
 | 2 | **M1** | Transparent `/v1/models` and `/v1/chat/completions`, streaming, cancellation |
-| 3 | **M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 checks |
+| 3 | **M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 Stage 2 checks (16 today; M12 added §8.8's Stage 3 four) |
 | 4 | **M3a** | `ProviderAdapter` protocols, normalized request/response/stream shapes, capability discovery |
 | 5 | **M5** | The 13 virtual pools, route resolution, route explanations |
 | 6 | **M14** *(observation half)* | Residency preference, memory-pressure route change |
 | 7 | **M6** | Request-derived hard constraints — tools, vision, context, schema, streaming |
 | 8 | **M18a** | Read-only management API — pools, models, providers, profiles, policies, route decisions, usage |
+| 9 | **M12** | Failure classification, provider and model health, circuit breakers, retry budget, and the fallback chain — plus the §8.8 Stage 3 conformance scenarios the earlier milestones had left unwritten |
+| 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it. Not M9 itself — that needs a real editor pointed at a running gateway |
 
 Stages 0, 1 and 2 are complete. Stage 3 is in progress.
 
@@ -71,11 +82,13 @@ Stages 0, 1 and 2 are complete. Stage 3 is in progress.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 9 | **M12** | Health, retries, fallback, circuit breaker. Stage 3's exit requires that fallback never corrupts a stream and that cancellation never triggers one |
-| 10 | **M9** | **Live Clarvis ↔ RAVIS.** Point unmodified Clarvis at RAVIS, configuration only. No Clarvis source change is permitted to make this pass |
+| 11 | **M9** | **Live Clarvis ↔ RAVIS.** Point unmodified Clarvis at RAVIS, configuration only. No Clarvis source change is permitted to make this pass. Everything RAVIS owes it is built; what remains needs a running LM Studio, a running gateway and VS Code — `ravis preflight clarvis` is the ten seconds that tells you whether to bother |
 
 Reaching M9 completes Stage 3 and is the first genuinely useful release
-(`ECOSYSTEM_RUNBOOK.md` §12).
+(`ECOSYSTEM_RUNBOOK.md` §12). Everything Stage 3's exit criteria name is now
+built except the live integration itself: chat and agent resolve independently,
+the agent pool refuses a non-tool model, and fallback does not corrupt the
+stream — each asserted by `ravis conformance clarvis` rather than by prose.
 
 ### After that
 
@@ -116,6 +129,32 @@ because a fresh reader will otherwise find only the result and wonder.
 
 ---
 
+## Work that no milestone names
+
+Three things here were built because something else needed them, not because a
+milestone called for them. Listed separately from the deviations below because
+they are not disagreements with the specification — they are additions to it,
+and an addition nobody wrote down is how a plan quietly stops describing the
+build.
+
+- **CORS on the read surface.** Stage 3's *visible increment* is the prototype
+  reading RAVIS's management API, and a browser cannot read a cross-origin
+  response without `Access-Control-Allow-Origin`. The increment is in the
+  runbook; the mechanism it requires was not.
+- **`ravis preflight clarvis`.** M9's two failure modes are both silent from
+  inside VS Code, and both cost an hour to diagnose the first time. Ten seconds
+  of command beats an hour of confusion, but no milestone asked for it.
+- **`model_capabilities_path`, and `ravis/measured-capabilities.json`.** §5.2
+  makes operator declaration the only capability truth until M13, and the
+  setting to do it already existed — but only as an environment variable. The
+  honest version of this data records *where each claim came from* and needs to
+  be diffable, which a shell blob is not.
+
+Each is small, tested, and reversible. If any looks like scope creep rather than
+groundwork, delete it — nothing in the milestone list depends on it.
+
+---
+
 ## Deliberate deviations from the specification
 
 These are decisions, not drift. Each is defensible and each is reversible; a
@@ -135,6 +174,41 @@ reviewer who disagrees should say so rather than assume it was an accident.
   OpenAI-compatible endpoint publishes no windows, so failing closed on RAVIS's
   own arithmetic would make every large request unroutable. Surfaced as
   `unverified` in the route explanation rather than passed silently.
+- **§10's circuit breaker is scoped by failure class, not only by provider.**
+  §10 says "provider health", and with one provider that reading takes every
+  model out of service the first time one model OOMs. So each failure class
+  declares its own scope: a refused connection opens the *provider* circuit, an
+  unloaded model or a local OOM opens only that *model's*. This is what makes
+  falling back to the next candidate on the same upstream possible at all.
+- **An authentication failure opens nothing.** It is scoped `NONE`, which looks
+  wrong until you follow it through: opening the provider circuit converts a
+  fixable 401 — which names the problem — into a 422 no-route, which does not.
+  It is still counted in the health record; only the breaker ignores it.
+- **A context overflow is rejected rather than escalated.** §10 says context is
+  handled by routing to a larger-context model *or* rejecting, and the routing
+  half is M6's pre-flight filter. The fallback chain is ordered by pool
+  preference, not by context size, so the next candidate is not known to be
+  larger — falling back to it would be a guess dressed as a recovery.
+- **A directly named model never falls back, but its circuit is still
+  honoured.** §5.3 puts an explicit request above inference, so the breaker is
+  not consulted while *choosing* — substituting a different model would be
+  exactly the second-guessing §5.3 forbids. It is consulted before *calling*,
+  which is how a named model with an open circuit fails fast (503) instead of
+  paying another timeout to rediscover what is already known.
+- **CORS is reads-only and never sends credentials.** A browser dashboard cannot
+  read `/api/v1/*` without `Access-Control-Allow-Origin`, so the middleware now
+  emits it — for an allow-listed origin only, echoed rather than `*`, and with
+  `Access-Control-Allow-Credentials` deliberately absent, because that header
+  plus an echoed origin is what lets a hostile page make *authenticated* reads.
+  `GET`/`HEAD`/`OPTIONS` only: every `/api/v1` endpoint that exists is a read,
+  and whoever adds the first mutation should decide about it deliberately rather
+  than inherit permission from this line. One allowlist, read by both halves of
+  the decision, so refusal and permission cannot drift apart.
+- **`/api/v1/health` gained a `targets` array.** §15.1 lists the endpoint; this
+  is what it now carries. Two kinds of health are reported separately on
+  purpose: `upstream_reachable` is a live probe, `targets` is observed history.
+  A provider can answer a probe instantly while failing every completion, and a
+  single boolean would have to pick one of those to report.
 
 ---
 
@@ -149,6 +223,28 @@ reviewer who disagrees should say so rather than assume it was an accident.
   (§8.7) and SIRVIS evidence is M13, so `ravis/clarvis-agent` is unroutable until
   an operator declares tools and a context window for at least one model. This is
   §5.2 working as written, not a defect, but it will surprise.
+  **Answered for this machine** by `ravis/measured-capabilities.json`, derived
+  from `clarvis/docs/benchmarks.md` — real executed tool-call trials, not LM
+  Studio's `tool_use` flag, which disagrees with the measurements in *both*
+  directions. Three models advertise nothing and score 3/3; `granite-4.0-h-tiny`
+  advertises tool support in both packagings and scores 8/8 as GGUF against 1/8
+  as MLX. RAVIS records all of it at CONFIGURED provenance, which is a
+  *downgrade* from MEASURED and therefore safe — it never claims to have
+  measured what it was told (§13.3 forbids the upgrade, not the downgrade). M13
+  should replace this file rather than sit beside it.
+- **The pools now resolve, and they resolve to the wrong models.** With the
+  measured file loaded, `clarvis-agent` selects `qwen2.5-coder-14b-instruct-mlx`
+  and `clarvis-chat` selects `lfm2.5-2.6b-mlx`. Both are alphabetical accidents
+  and both are measurably poor choices: the 14B scores *identically* to the 7B
+  at a third of its generation rate, and lfm2.5 takes 5.5s to first token and
+  produced no visible output in the rate test. **This is not a bug to patch.**
+  M5 ranks on declared preference then alphabetical order and says so in the
+  route explanation, because there is no evidence to rank on until M13 — and
+  `clarvis-agent`'s `prefer=("coder", "code")` matches both coder builds equally,
+  so the tie falls to sorting. The two honest fixes are M13, or a considered
+  change to §5's `prefer` tuples. Declaring a good model's rival as
+  tool-incapable to force an ordering would be lying about capability to get a
+  ranking, and is the one thing not to do.
 - **Where the orchestration layer lives.** Alexander Keisse's router does
   prompt-shaping, multi-pass and RAG that this ecosystem currently has nowhere.
   The proposal on the table is that it becomes a client *of* RAVIS rather than
@@ -170,6 +266,30 @@ reviewer who disagrees should say so rather than assume it was an accident.
 - `TestClient` buffers a whole response, so it cannot express a mid-stream
   disconnect. The cancellation test drives the relay generator directly, which is
   what Starlette actually does.
+- `TestClient` must be used as a context manager or the lifespan never runs, the
+  model catalogue is never warmed, and **every pool resolves to "no models
+  available"** — a failure that looks like a routing bug and is a harness bug.
+  `tests/test_fallback.py` says so where it builds its client.
+- A lookup that creates. `HealthRegistry.of()` creates a record on first sight,
+  which is right when something is about to be called and wrong when routing is
+  merely *asking* about every model in the catalogue — the health snapshot
+  filled up with rows for models nobody had ever called. `allows()` and
+  `refusal()` are the non-creating pair, and the query/command split (§14.2) is
+  the rule that was being broken.
+- **Clarvis's base URL must not end in `/v1`.** It appends the path itself —
+  `${baseUrl}/v1/models`, `${baseUrl}/v1/chat/completions`, verified in
+  `clarvis/src/model/OpenAiCompatibleProvider.ts`. A base of
+  `http://127.0.0.1:8731/v1` produces `/v1/v1/models`, a 404, and a provider
+  Clarvis reports as **offline** — a message naming nothing. `ravis preflight
+  clarvis` prints the correct string so nobody has to remember this.
+- One base URL serves both Clarvis roles. `ModelService.baseUrl` reads
+  `chat.baseUrl.${spec.id}` — keyed by *provider*, not by role — so the
+  chat/agent split is two model settings against one endpoint. That is what
+  makes M9 configuration rather than a code change.
+- `httpx.ConnectTimeout` is both a `TimeoutException` and a connection error, so
+  `isinstance` order decides its classification. Reading it as a connection
+  failure would retry the same target — §10 only permits that for a request that
+  provably never arrived, and a connect *timeout* may well have arrived.
 
 ---
 
@@ -180,8 +300,8 @@ ECOSYSTEM_RUNBOOK.md   cross-product authority — protocol, build order, gates,
 RAVIS.md SIRVIS.md     per-product build plans; the runbook wins on anything crossing a boundary
 NERVIS.md CLARVIS.md
 ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
-template/              the prototype — every screen, wired to mocks shaped like the real responses
-ravis/                 the only service with code (M0–M18a)
+nervis/                the prototype — every screen, wired to mocks shaped like the real responses
+ravis/                 the only service with code (M0–M18a, and M12)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

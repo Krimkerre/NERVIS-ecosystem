@@ -1,0 +1,323 @@
+"""Provider and model health, and the circuit breakers that read it (§10).
+
+§10 asks for two things that are usually built as one: health *tracking*
+(availability, HTTP errors, timeouts, rate limits, TTFT, request latency,
+stream interruptions) and circuit *breaking* (`CLOSED`, `OPEN`, `HALF_OPEN` —
+do not keep routing to a failing provider). They are one structure here,
+because a breaker that reads from a separate health store is two sources of
+truth about the same target, and they drift.
+
+The breaker's job is narrow and worth stating plainly: it stops RAVIS sending
+requests to something that has already proved it cannot answer them. Without it
+a dead provider is discovered again on every single request, and every one of
+those requests pays the full timeout before failing.
+
+**Time is injected.** Every state change here is a function of elapsed time, so
+a test that had to sleep through a cooldown would either be slow or be lying
+about what it exercised. `clock` defaults to `time.monotonic` — monotonic
+rather than wall time, because a clock adjustment must not reopen a circuit.
+
+**No locking.** This runs on one asyncio event loop, and none of these methods
+await, so no other coroutine can observe a half-applied update. Adding a thread
+would break that assumption, which is exactly why it is written down.
+"""
+
+from __future__ import annotations
+
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable
+
+from ravis.reliability.failures import FailureClass, HealthScope
+
+# How many recent latencies to keep per target. Enough to average out one slow
+# response, small enough that a bounded structure stays bounded. These feed
+# diagnostics only — no routing decision reads them yet, and M19's production
+# observations are where they acquire weight.
+LATENCY_SAMPLES = 32
+
+
+class BreakerState(Enum):
+    """§10's three states, and what each one permits.
+
+    `HALF_OPEN` is the one that matters. Without it, recovery needs either a
+    background prober or an operator, and a circuit that only a human can close
+    turns a thirty-second outage into a thirty-minute one.
+    """
+
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+
+@dataclass
+class TargetHealth:
+    """What has happened to one provider or one model, and whether to use it.
+
+    Counters are cumulative for the process lifetime; they answer "has this ever
+    misbehaved, and how", which is the question during an incident. The breaker
+    state answers "should the next request go here", which is a different
+    question with a much shorter memory — hence `consecutive_failures`, which any
+    success resets, rather than a ratio over all time. A provider that failed
+    ten times an hour ago and has worked since is healthy, and a ratio would
+    keep insisting otherwise.
+    """
+
+    target: str
+    scope: HealthScope
+    failure_threshold: int
+    cooldown_seconds: float
+    clock: Callable[[], float] = time.monotonic
+
+    requests: int = 0
+    successes: int = 0
+    failures_by_class: dict[str, int] = field(default_factory=dict)
+    stream_interruptions: int = 0
+    consecutive_failures: int = 0
+    opened_at: float | None = None
+    last_failure: str = ""
+    # Time to first byte, in seconds, for streamed responses. Separate from
+    # total latency because they measure different experiences: TTFT is how long
+    # the user stares at nothing, and it is the number §10 names first.
+    ttft_samples: deque[float] = field(default_factory=lambda: deque(maxlen=LATENCY_SAMPLES))
+    latency_samples: deque[float] = field(default_factory=lambda: deque(maxlen=LATENCY_SAMPLES))
+    # Set while a HALF_OPEN probe is in flight, so a burst of concurrent
+    # requests sends exactly one probe rather than all of them at a target that
+    # is still presumed broken.
+    probing: bool = False
+
+    @property
+    def state(self) -> BreakerState:
+        """The breaker's state *now*, with the cooldown applied on read.
+
+        Computed rather than stored, because the OPEN → HALF_OPEN transition is
+        caused by time passing and nothing else. A stored state would need
+        something to notice the cooldown expired — a timer, or a sweep — and
+        both are machinery for a fact that can simply be derived.
+        """
+        if self.opened_at is None:
+            return BreakerState.CLOSED
+        if self.clock() - self.opened_at < self.cooldown_seconds:
+            return BreakerState.OPEN
+        return BreakerState.HALF_OPEN
+
+    def allows(self) -> bool:
+        """Whether a request may be sent to this target right now.
+
+        A HALF_OPEN target admits one probe at a time. The probe is not marked
+        here: `allows` is a query and must not change what it reports on
+        (runbook §14.2). `begin` is the command that claims it.
+        """
+        state = self.state
+        if state is BreakerState.CLOSED:
+            return True
+        return state is BreakerState.HALF_OPEN and not self.probing
+
+    def refusal(self) -> str:
+        """Why this target is being skipped, in words a route explanation shows.
+
+        Written for the person reading `Not qwen2.5-coder-7b — …` and wondering
+        whether RAVIS is broken or the model is.
+        """
+        remaining = 0.0
+        if self.opened_at is not None:
+            remaining = max(0.0, self.cooldown_seconds - (self.clock() - self.opened_at))
+        return (
+            f"circuit open after {self.consecutive_failures} consecutive failures "
+            f"({self.last_failure}); retrying in {remaining:.0f}s"
+        )
+
+    def begin(self) -> float:
+        """Claim an attempt and return its start time.
+
+        Returns the timestamp rather than storing it, so concurrent attempts do
+        not overwrite each other's start — the caller holds its own.
+        """
+        self.requests += 1
+        if self.state is BreakerState.HALF_OPEN:
+            self.probing = True
+        return self.clock()
+
+    def succeeded(self, started_at: float, ttft: float | None = None) -> None:
+        """Record a working request, and close the circuit.
+
+        One success closes it outright rather than decrementing towards closed.
+        The alternative — requiring several — leaves a recovered provider
+        throttled for no reason, and the failure counter will reopen the circuit
+        immediately if the recovery was illusory.
+        """
+        self.successes += 1
+        self.consecutive_failures = 0
+        self.opened_at = None
+        self.probing = False
+        self.latency_samples.append(self.clock() - started_at)
+        if ttft is not None:
+            self.ttft_samples.append(ttft)
+
+    def failed(self, failure_class: FailureClass, started_at: float) -> None:
+        """Record a failure, and open the circuit if it has earned it.
+
+        Only failures whose scope matches this target count against the breaker.
+        A malformed request is recorded — it is a fact about traffic — but it is
+        the client's fault, and letting it open a circuit would take a provider
+        out of service because somebody sent bad JSON.
+        """
+        name = failure_class.value
+        self.failures_by_class[name] = self.failures_by_class.get(name, 0) + 1
+        self.latency_samples.append(self.clock() - started_at)
+        self.probing = False
+        if failure_class.policy.scope is not self.scope:
+            return
+        self.last_failure = name
+        self.consecutive_failures += 1
+        # A failure during a probe reopens immediately, whatever the count: the
+        # probe existed to answer one question, and it answered it.
+        if self.state is BreakerState.HALF_OPEN or self.consecutive_failures >= (
+            self.failure_threshold
+        ):
+            self.opened_at = self.clock()
+
+    def interrupted(self) -> None:
+        """A stream that started and then broke (§10's stream interruptions).
+
+        Counted separately and never fed to the breaker. By the time a stream
+        breaks the client already holds part of an answer, and RAVIS cannot
+        retry or fall back without corrupting it — so this is a number to look
+        at rather than one to act on.
+        """
+        self.stream_interruptions += 1
+
+    def as_dict(self) -> dict[str, Any]:
+        """Diagnostics only: counts and states, never a URL or a credential."""
+        return {
+            "target": self.target,
+            "scope": self.scope.value,
+            "state": self.state.value,
+            "requests": self.requests,
+            "successes": self.successes,
+            "failures": dict(self.failures_by_class),
+            "stream_interruptions": self.stream_interruptions,
+            "consecutive_failures": self.consecutive_failures,
+            "mean_ttft_seconds": _mean(self.ttft_samples),
+            "mean_latency_seconds": _mean(self.latency_samples),
+        }
+
+
+class HealthRegistry:
+    """Every target RAVIS has spoken to, keyed by scope and name.
+
+    Providers and models share one registry but not one namespace: a provider
+    called `local` and a model called `local` are different things, and merging
+    them would let one open the other's circuit.
+
+    Entries are created on first use and never expire. The set of targets is
+    bounded by configuration — the models an upstream serves — so this cannot
+    grow without bound the way a per-request key would.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        cooldown_seconds: float = 30.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._targets: dict[tuple[HealthScope, str], TargetHealth] = {}
+        self._failure_threshold = failure_threshold
+        self._cooldown_seconds = cooldown_seconds
+        # Public, because it is the *only* clock anything in this layer may
+        # read. An attempt's start and its end must be measured against one
+        # clock or the elapsed time is meaningless, and the cheapest way to
+        # guarantee that is to have exactly one to reach for.
+        self.clock = clock
+
+    def of(self, scope: HealthScope, target: str) -> TargetHealth:
+        """The health record for one target, created on first sight."""
+        key = (scope, target)
+        if key not in self._targets:
+            self._targets[key] = TargetHealth(
+                target=target,
+                scope=scope,
+                failure_threshold=self._failure_threshold,
+                cooldown_seconds=self._cooldown_seconds,
+                clock=self.clock,
+            )
+        return self._targets[key]
+
+    def record(self, failure_class: FailureClass, target: str, provider: str,
+               started_at: float) -> None:
+        """Attribute a failure to whichever target its class blames.
+
+        The failure decides where it lands, not the caller. A model that OOMs
+        and a provider that refuses connections arrive through the same code
+        path, and getting the attribution wrong is what makes a breaker either
+        useless or catastrophic.
+        """
+        scope = failure_class.policy.scope
+        if scope is HealthScope.MODEL:
+            self.of(HealthScope.MODEL, target).failed(failure_class, started_at)
+        elif scope is HealthScope.PROVIDER:
+            self.of(HealthScope.PROVIDER, provider).failed(failure_class, started_at)
+        else:
+            # Recorded against the model so the counters stay complete, while
+            # `failed` itself declines to open a circuit on a scope mismatch.
+            self.of(HealthScope.MODEL, target).failed(failure_class, started_at)
+
+    def allows(self, scope: HealthScope, target: str) -> bool:
+        """Whether a target may be called — **without** creating a record for it.
+
+        Separate from `of` because this is a query and `of` is not: `of` creates
+        on first sight, which is right when something is about to be attempted
+        and wrong when something is merely being asked about. Routing asks about
+        every model in the catalogue on every request, and the creating version
+        filled the health snapshot with rows for models nobody had ever called
+        (runbook §14.2 — a query must not change what it reports on).
+
+        An unknown target is allowed. Nothing has failed, because nothing has
+        happened.
+        """
+        known = self._targets.get((scope, target))
+        return known is None or known.allows()
+
+    def refusal(self, scope: HealthScope, target: str) -> str:
+        """Why a target is being skipped, or empty when it is not being skipped."""
+        known = self._targets.get((scope, target))
+        return known.refusal() if known is not None else ""
+
+    def unavailable(self, models: list[str], provider: str) -> dict[str, str]:
+        """The models routing must currently avoid, each with its reason.
+
+        Returned as a mapping rather than a set because the reason has to reach
+        the route explanation. §9.7 requires every excluded candidate to say why
+        it was excluded, and "the circuit is open" is only a useful answer when
+        it arrives with the count and the cooldown attached.
+
+        A provider-level circuit takes every model behind it out at once, which
+        is the point of scoping: one refused connection should not have to be
+        rediscovered thirteen times.
+        """
+        if not self.allows(HealthScope.PROVIDER, provider):
+            refusal = self.refusal(HealthScope.PROVIDER, provider)
+            return {model: refusal for model in models}
+        return {
+            model: self.refusal(HealthScope.MODEL, model)
+            for model in models
+            if not self.allows(HealthScope.MODEL, model)
+        }
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Every target's current state, for diagnostics and the CLI."""
+        return [health.as_dict() for _, health in sorted(self._targets.items(),
+                                                         key=lambda item: item[0][1])]
+
+
+def _mean(samples: deque[float]) -> float | None:
+    """The average of a sample window, or None when nothing was measured.
+
+    None rather than 0.0, and the difference is not pedantic: a target that has
+    never been called and a target that answers instantly are not the same
+    thing, and reporting zero for the first would be a lie a dashboard repeats
+    (runbook §14.4).
+    """
+    return sum(samples) / len(samples) if samples else None

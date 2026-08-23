@@ -163,3 +163,33 @@ def test_policies_are_empty_until_the_policy_engine_exists() -> None:
     client = _client()
     with client:
         assert client.get("/api/v1/policies").json()["items"] == []
+
+
+def test_health_reports_observed_target_state_alongside_the_live_probe() -> None:
+    """§10's counters have to be visible somewhere, or they are only a comment.
+
+    The probe and the observed history are separate keys on purpose: a provider
+    can be reachable and open-circuited at the same time, and a single "healthy"
+    boolean would have to pick one of those to report.
+    """
+    client = _client()
+    with client:
+        client.post("/v1/chat/completions", json={"model": "any"})
+        body = client.get("/api/v1/health").json()
+
+    observed = {target["target"]: target for target in body["targets"]}
+    assert observed["upstream"]["state"] == "CLOSED"
+    assert observed["upstream"]["successes"] == 1
+    assert observed["any"]["scope"] == "model"
+    # Only what was actually called. A model that was considered and not chosen
+    # has no health record, because nothing has happened to it.
+    assert set(observed) == {"upstream", "any"}
+
+
+def test_health_reports_nothing_observed_before_any_traffic() -> None:
+    """An empty list, not a missing key: nothing seen is not nothing wrong."""
+    client = _client()
+    with client:
+        body = client.get("/api/v1/health").json()
+
+    assert body["targets"] == []
