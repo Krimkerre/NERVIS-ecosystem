@@ -80,7 +80,9 @@ class Settings(BaseSettings):
     # SIRVIS evidence (M13) exists — a generic OpenAI-compatible endpoint
     # publishes model IDs and nothing about what they can do, so without this
     # every capability stays UNKNOWN and every requiring pool fails closed.
-    # Example: {"qwen/qwen3-4b-2507": {"tools": "SUPPORTED"}}
+    # `context_window` is accepted alongside capability states as a number, and
+    # is the only way today to satisfy a pool that declares a minimum context.
+    # Example: {"qwen/qwen3-4b-2507": {"tools": "SUPPORTED", "context_window": "32768"}}
     model_capabilities: dict[str, dict[str, str]] = {}
 
     database_path: str = "ravis.db"
