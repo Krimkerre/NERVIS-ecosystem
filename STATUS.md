@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 488 tests, no network, no live service
+.venv/bin/pytest                      # part of 491 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 192 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 195 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 488 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 491 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1099,6 +1099,24 @@ reviewer who disagrees should say so rather than assume it was an accident.
   request stands without pretending it was confirmed. The general lesson is the
   one already learned about adapted prompts, arriving a second time: **anything
   that changes what was measured belongs in the key, not in a note beside it.**
+- **The thermal reading said `nominal` through a 48% throttle.** A fanless
+  MacBook Air, asked to load and benchmark eighteen models back to back, slows
+  down — and the same build measured **38.4 tokens/second heat-soaked against
+  56.8 after ten minutes of rest**, on byte-identical work. That is most of the
+  variance recorded above, and the machine had been reporting `nominal`
+  throughout, because `pmset -g therm` prints "No thermal warning level has been
+  recorded" on Apple Silicon whatever is happening and the probe read that as
+  good news. A reading that cannot say *no* is not a reading.
+  `NSProcessInfo.thermalState` is documented, unprivileged and does move —
+  `nominal` for 64 seconds under sustained inference, `fair` at ~72. §11.8's
+  thermal flag is built on it now, sampled at both ends of the measured work
+  because the case that matters is a machine that became compromised *while*
+  being measured. Unknown is deliberately not treated as compromised: silence
+  from a platform that does not implement this is not evidence of heat.
+  **Absolute temperature is not available** without the private
+  `IOHIDEventSystemClient` API, and pressure answers the question anyway — the
+  question is whether a number was taken under duress, not how many degrees it
+  was.
 - **The spread a benchmark publishes is not the spread it has.** Five
   repetitions of `granite-4.0-h-tiny` agreed to ±1.6% within a run, twice — and
   the two runs disagreed with each other by **16%**, on byte-identical work:

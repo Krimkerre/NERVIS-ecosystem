@@ -25,6 +25,8 @@ import subprocess
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from sirvis.telemetry.thermal import read_thermal_pressure
+
 # Long enough for a cold `system_profiler`-class call, short enough that a wedged
 # tool cannot stop the service starting.
 PROBE_TIMEOUT_SECONDS = 5.0
@@ -207,11 +209,19 @@ def _thermal_state() -> str | None:
     of result validity, so the distinction between "nothing recorded" and "known
     fine" matters, and this returns the weaker of the two readings.
     """
+    # The documented API first, because `pmset` lies by omission on Apple
+    # Silicon — see `thermal.py`. This machine reported `nominal` through a 48%
+    # thermal throttle on the strength of the string matched below.
+    pressure = read_thermal_pressure()
+    if pressure is not None:
+        return pressure
     output = _run(["pmset", "-g", "therm"])
     if not output:
         return None
     if "No thermal warning level has been recorded" in output:
-        return "nominal"
+        # Not `nominal`: it means no warning was *recorded*, which on hardware
+        # that never records one is no information at all.
+        return None
     found = re.search(r"CPU_Scheduler_Limit\s*=\s*(\d+)", output)
     if found:
         return "nominal" if found.group(1) == "100" else f"limited to {found.group(1)}%"

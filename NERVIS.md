@@ -224,6 +224,41 @@ RAVIS 182 MB · SIRVIS 294 MB · NERVIS 165 MB · code-server 812 MB · LM Studi
 SIRVIS owns **benchmark-quality model and runtime telemetry.** Where SIRVIS is connected, NERVIS
 consumes its richer data rather than duplicating it.
 
+## 6.2 Thermal state is an indicator, not a decoration
+
+The dashboard above shows `Thermal Nominal`, and getting that row right is harder than it looks
+— it was **wrong in SIRVIS for the whole of M6**, reporting a comfortable machine while the same
+benchmark lost 48% of its throughput to heat.
+
+Three findings, established on a fanless MacBook Air rather than reasoned about:
+
+- **`pmset -g therm` is useless on Apple Silicon.** It prints "No thermal warning level has been
+  recorded" whatever the machine is doing, and reading that as `nominal` is how the false reading
+  happened. It is an Intel-era interface.
+- **`NSProcessInfo.thermalState` is the one that works** — documented, unprivileged, four levels
+  (`nominal`, `fair`, `serious`, `critical`). Under sustained inference it held `nominal` for 64
+  seconds and moved to `fair` at ~72.
+- **Actual temperatures need a private API.** `IOHIDEventSystemClient`, undocumented and shifting
+  between macOS releases. Not worth binding a dashboard to; pressure answers the question anyway.
+
+What that means for this UI:
+
+**`unknown` must render differently from `nominal`.** They are different claims, and collapsing
+them is precisely the bug above. A machine that will not report is not a machine that is cool,
+and §6's own rule — say when something is stale or unknown — applies to this row first.
+
+**A throttled machine must be visible while it is throttled**, not only in hindsight. On fanless
+hardware thermal pressure is the largest single influence on any number this ecosystem shows: the
+same model, same prompt, same engine measured 38.4 tokens/second heat-soaked and 56.8 rested.
+Anyone reading a benchmark, a route decision or a token rate while the indicator is above nominal
+is reading a number about the cooling system.
+
+**Results carry their own thermal verdict, and NERVIS surfaces it rather than recomputing it.**
+SIRVIS records thermal pressure at both ends of every benchmark and marks a compromised run
+`SUSPECT` with a note (§11.8). NERVIS shows that verdict beside the result — the dashboard's live
+reading answers *is it hot now*, which is a different question from *was it hot when this was
+measured*, and a comparison view needs the second one.
+
 ---
 
 # 7. General chat

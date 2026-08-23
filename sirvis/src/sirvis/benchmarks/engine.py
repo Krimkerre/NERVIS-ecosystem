@@ -76,6 +76,8 @@ from sirvis.telemetry import (
     MemoryWatcher,
     SystemSnapshot,
     detect_system,
+    is_compromised,
+    read_thermal_pressure,
 )
 
 OWNER = "sirvis.benchmark"
@@ -301,6 +303,13 @@ class ExperimentOutcome:
     # What the runtime actually loaded, for the settings the experiment asked
     # about. This is what goes into the evidence identity — see `_evidence`.
     effective_configuration: dict[str, Any] = field(default_factory=dict)
+    # §11.8's thermal reading, at both ends of the measured work. Two samples
+    # rather than one because the interesting case is a machine that *became*
+    # compromised while being measured — a run that starts nominal and ends
+    # `fair` has its later repetitions taken under conditions its earlier ones
+    # were not.
+    thermal_before: str | None = None
+    thermal_after: str | None = None
 
 
 async def run_experiment(
@@ -313,6 +322,7 @@ async def run_experiment(
     probe: MemoryProbe | None = None,
     snapshot: SystemSnapshot | None = None,
     clock: Callable[[], float] = time.perf_counter,
+    thermal: Callable[[], str | None] = read_thermal_pressure,
 ) -> ExperimentOutcome:
     """Run one single-model experiment end to end and persist its result.
 
@@ -350,7 +360,7 @@ async def run_experiment(
     )
 
     try:
-        await _execute(spec, runtime, resources, sampler, directory, outcome, clock)
+        await _execute(spec, runtime, resources, sampler, directory, outcome, clock, thermal)
     except (RuntimeUnavailableError, RuntimeUnreachableError) as failure:
         # A runtime that stopped answering mid-run is the ordinary failure here,
         # and the partial telemetry is worth more than the exception: it says
@@ -386,6 +396,7 @@ async def _execute(
     directory: ResultDirectory,
     outcome: ExperimentOutcome,
     clock: Callable[[], float],
+    thermal: Callable[[], str | None],
 ) -> None:
     """§11.2's lifecycle for a single model, between acquire and release."""
     resident_before = {model.model_key for model in await runtime.list_loaded_models()}
@@ -411,10 +422,12 @@ async def _execute(
     outcome.effective_configuration = _effective_configuration(spec, resident)
     outcome.warnings.extend(_configuration_warnings(spec, resident))
 
+    outcome.thermal_before = thermal()
     try:
         for test in spec.tests:
             await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
     finally:
+        outcome.thermal_after = thermal()
         outcome.telemetry.append(sampler.sample(POST_RUN))
         # §11.2: unload if owned. `release` unloads only what nobody else holds,
         # which is the whole reason the manager exists — a model RAVIS is also
@@ -699,6 +712,7 @@ def _evidence(
     measured = [r for r in outcome.repetitions if r.phase == "measured"]
     warnings = list(outcome.warnings) + _generation_warnings(measured)
     warnings += _suppression_warnings(outcome, measured)
+    warnings += _thermal_warnings(outcome)
     # Either the runtime reported nothing, or it reported a count the content
     # stream contradicts. Both mean the numerator is inferred rather than
     # counted, and §12.1's lattice then weakens the whole record — which is the
@@ -783,6 +797,32 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
     if unexpected:
         warnings.append(f"unexpected generation stop: {', '.join(str(r) for r in unexpected)}")
     return warnings
+
+
+def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:
+    """§11.8: flag a thermally compromised run. Never discard it.
+
+    The numbers are real; what they measure is a machine under duress, and on
+    fanless hardware that is most of the difference between one result and
+    another. The same build on this machine measured 38.4 tokens/second while
+    heat-soaked and 56.8 after ten minutes of rest — a 48% swing that no
+    within-run spread could show, because every repetition inside a run shares
+    the condition.
+    """
+    before, after = outcome.thermal_before, outcome.thermal_after
+    if is_compromised(before) and before == after:
+        return [
+            f"the machine reported thermal pressure '{before}' throughout; these "
+            "numbers describe a throttled machine and are not comparable with "
+            "results taken from a rested one"
+        ]
+    if before != after and (is_compromised(before) or is_compromised(after)):
+        return [
+            f"thermal pressure changed from '{before or 'unknown'}' to "
+            f"'{after or 'unknown'}' during the run, so the later repetitions were "
+            "not taken under the same conditions as the earlier ones"
+        ]
+    return []
 
 
 def _suppression_warnings(

@@ -160,13 +160,14 @@ def _spec(**overrides: Any) -> ExperimentSpec:
 
 
 async def _run(runtime: FakeRuntime, spec: ExperimentSpec | None = None,
-               results_root: Any = None) -> Any:
+               results_root: Any = None,
+               thermal: Any = None) -> Any:
     database = prepare_database(":memory:")
     resources = ResourceManager(runtime=runtime)
     outcome = await run_experiment(
         spec or _spec(), runtime=runtime, resources=resources, database=database,
         results_root=str(results_root), probe=SteadyProbe(), snapshot=SNAPSHOT,
-        clock=Ticking(),
+        clock=Ticking(), thermal=thermal or (lambda: "nominal"),
     )
     return outcome, database
 
@@ -465,6 +466,39 @@ async def test_a_stream_that_only_ever_thinks_has_no_answer_to_measure(tmp_path)
     assert outcome.record.validity is Validity.SUSPECT
     assert "time_to_first_token_seconds" not in outcome.record.measurements
     assert any("no content" in note for note in outcome.record.validity_notes)
+
+
+async def test_a_run_taken_on_a_throttled_machine_says_so(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """§11.8: flag a thermally compromised run, never discard it. The numbers
+    are real — they describe a machine under duress, which on fanless hardware
+    is most of the difference between one result and another. The same build
+    here measured 38.4 tok/s heat-soaked and 56.8 rested."""
+    outcome, _ = await _run(FakeRuntime(), results_root=tmp_path, thermal=lambda: "serious")
+
+    assert outcome.record.validity is Validity.SUSPECT
+    assert any("thermal pressure 'serious'" in note for note in outcome.record.validity_notes)
+
+
+async def test_a_machine_that_heats_up_mid_run_is_flagged_too(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The interesting case, and the one a single reading misses: repetitions
+    taken after the machine changed state are not comparable with the ones
+    before it, and every repetition inside a run shares the same summary."""
+    readings = iter(["nominal", "fair"])
+
+    outcome, _ = await _run(
+        FakeRuntime(), results_root=tmp_path, thermal=lambda: next(readings, "fair")
+    )
+
+    assert any("changed from 'nominal' to 'fair'" in n for n in outcome.record.validity_notes)
+
+
+async def test_a_machine_that_will_not_report_is_not_called_hot(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Unknown is not compromised. Treating silence as heat would put a warning
+    on every result from every platform that does not implement this."""
+    outcome, _ = await _run(FakeRuntime(), results_root=tmp_path, thermal=lambda: None)
+
+    assert outcome.record.validity is Validity.VALID
+    assert not any("thermal" in note for note in outcome.record.validity_notes)
 
 
 async def test_a_configuration_the_runtime_did_not_honour_is_a_warning(tmp_path) -> None:  # type: ignore[no-untyped-def]

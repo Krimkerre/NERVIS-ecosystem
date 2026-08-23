@@ -23,6 +23,7 @@ from sirvis.telemetry.memory import (
     MemoryWatcher,
 )
 from sirvis.telemetry.system import SystemSnapshot, detect_system
+from sirvis.telemetry.thermal import NOMINAL, is_compromised, read_thermal_pressure
 
 __all__ = [
     "AFTER_LOAD",
@@ -34,6 +35,9 @@ __all__ = [
     "MemoryProbe",
     "MemorySample",
     "MemoryWatcher",
+    "NOMINAL",
     "SystemSnapshot",
     "detect_system",
+    "is_compromised",
+    "read_thermal_pressure",
 ]
