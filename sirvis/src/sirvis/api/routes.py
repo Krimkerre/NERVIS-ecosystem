@@ -19,8 +19,15 @@ from fastapi import APIRouter, Request
 from sirvis.api.security import Scope, redacted, require, token_summary
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
+from sirvis.core.runtime_sets import (
+    RuntimeSet,
+    RuntimeSetError,
+    RuntimeSetMember,
+    estimate_fit,
+)
 from sirvis.errors import (
     BenchmarkNotFoundError,
+    InsufficientMemoryError,
     InvalidConfigurationError,
     ModelNotFoundError,
     ResourceBusyError,
@@ -29,6 +36,13 @@ from sirvis.errors import (
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
 from sirvis.storage import list_runs, read_result, read_run
+from sirvis.storage.runtime_sets import (
+    find_by_name,
+    list_revisions,
+    list_runtime_sets,
+    read_runtime_set,
+    save_runtime_set,
+)
 from sirvis.telemetry import detect_system
 
 router = APIRouter(prefix="/api/v1", tags=["sirvis"])
@@ -279,6 +293,142 @@ async def read_benchmark_result(request: Request, result_id: str) -> dict[str, A
     return found | {"snapshot_revision": SNAPSHOT_REVISION}
 
 
+
+# ── Runtime Sets (§10) ───────────────────────────────────────────────────────
+
+
+@router.post("/runtime-sets")
+async def define_runtime_set(request: Request) -> dict[str, Any]:
+    """Define a set, or re-save one — §10's versioning at its only entry point.
+
+    Idempotent by definition rather than by flag: an unchanged definition
+    returns the revision it already had and writes nothing. A UI that saves on
+    every edit, or a script re-applying the same YAML, must not walk the
+    revision number upward while the combination stays the same — a version
+    that increments for no reason is a version nobody reads.
+    """
+    require(request, Scope.RUNTIME)
+    body = await _json_body(request)
+    definition = _definition_from(body)
+    stored = save_runtime_set(request.app.state.database, definition)
+    return await _runtime_set_view(request, stored)
+
+
+@router.get("/runtime-sets")
+async def read_runtime_sets(request: Request) -> dict[str, Any]:
+    """Every set's latest revision.
+
+    The fit estimate is deliberately *not* computed here. It needs the runtime's
+    inventory, and a list endpoint that reaches a possibly-stopped runtime to
+    decorate every row would fail as a whole because one number was
+    unavailable — §15.4 requires SIRVIS to work standalone.
+    """
+    require(request, Scope.READ)
+    return _listing(
+        [item.as_dict() for item in list_runtime_sets(request.app.state.database)]
+    )
+
+
+@router.get("/runtime-sets/{runtime_set_id}")
+async def read_one_runtime_set(
+    request: Request, runtime_set_id: str, revision: int | None = None
+) -> dict[str, Any]:
+    """One set — its latest revision, or the one named by `?revision=`.
+
+    Asking for a revision that does not exist is a 404 rather than a fall back
+    to the latest. A caller naming revision 2 is asking about the definition a
+    result cited, and answering with revision 5 would silently substitute a
+    different combination for the one under investigation.
+    """
+    require(request, Scope.READ)
+    stored = read_runtime_set(request.app.state.database, runtime_set_id, revision)
+    if stored is None:
+        raise ModelNotFoundError(
+            f"no runtime set {runtime_set_id}"
+            + (f" at revision {revision}" if revision is not None else "")
+        )
+    return await _runtime_set_view(request, stored)
+
+
+@router.get("/runtime-sets/{runtime_set_id}/revisions")
+async def read_runtime_set_revisions(request: Request, runtime_set_id: str) -> dict[str, Any]:
+    """Every revision of one set, oldest first.
+
+    §10's gate — *two revisions are distinguishable, and old results retain the
+    original revision* — is a claim somebody has to be able to check. This is
+    where they check it.
+    """
+    require(request, Scope.READ)
+    revisions = list_revisions(request.app.state.database, runtime_set_id)
+    if not revisions:
+        raise ModelNotFoundError(f"no runtime set {runtime_set_id}")
+    return _listing([item.as_dict() for item in revisions])
+
+
+def _definition_from(body: dict[str, Any]) -> RuntimeSet:
+    """One request body as a validated definition, or a 422 that says why."""
+    members = body.get("models") or body.get("members") or []
+    if not isinstance(members, list):
+        raise InvalidConfigurationError("models must be a list")
+    try:
+        return RuntimeSet.define(
+            name=str(body.get("name") or ""),
+            members=[_member_from(entry) for entry in members],
+            purpose=str(body.get("purpose") or ""),
+            load_order=body.get("load_order"),
+        )
+    except RuntimeSetError as failure:
+        raise InvalidConfigurationError(str(failure)) from failure
+
+
+def _member_from(entry: Any) -> RuntimeSetMember:
+    """One member entry, in §10's YAML shape."""
+    if not isinstance(entry, dict):
+        raise InvalidConfigurationError("each member must be an object")
+    context = entry.get("context_length")
+    return RuntimeSetMember(
+        role=str(entry.get("role") or ""),
+        model_id=str(entry.get("model") or entry.get("model_id") or ""),
+        context_length=int(context) if context is not None else None,
+        configuration=entry.get("configuration") or {},
+    )
+
+
+async def _runtime_set_view(request: Request, stored: RuntimeSet) -> dict[str, Any]:
+    """A set, plus what can be said about whether it fits — labelled as estimate.
+
+    The estimate is attached rather than stored, because it is a fact about the
+    *machine right now* and not about the definition. Storing it on the revision
+    would freeze a memory figure into something immutable and let it go stale
+    silently, which is the failure §12.1 exists to prevent.
+    """
+    return stored.as_dict() | {
+        "fit": (await _fit_for(request, stored)).as_dict(),
+        "snapshot_revision": SNAPSHOT_REVISION,
+    }
+
+
+async def _fit_for(request: Request, stored: RuntimeSet) -> Any:
+    """Weigh a set's members against this machine (§10.1).
+
+    A runtime that cannot be reached yields unknown sizes and therefore an
+    UNKNOWN verdict, which is the honest answer — not a refusal, and certainly
+    not an approval.
+    """
+    try:
+        inventory = await _inventory(request)
+        by_key = {
+            model.runtime_key: model.installed_size_bytes
+            for model in inventory.installed.values()
+        }
+    except RuntimeUnavailableError:
+        by_key = {}
+    sizes = {member.model_id: by_key.get(member.model_id) for member in stored.members}
+    database = request.app.state.database
+    snapshot = latest_snapshot(database, machine_identity(database)) or {}
+    return estimate_fit(sizes, snapshot.get("unified_memory_bytes"))
+
+
 @router.post("/runtime/sessions")
 async def open_session(request: Request) -> dict[str, Any]:
     """Acquire one or more models under a lease (§9).
@@ -291,9 +441,7 @@ async def open_session(request: Request) -> dict[str, Any]:
     """
     require(request, Scope.RUNTIME)
     body = await _json_body(request)
-    wanted = body.get("models") or []
-    if not isinstance(wanted, list) or not wanted:
-        raise InvalidConfigurationError("models must be a non-empty list")
+    wanted, pinned = await _session_members(request, body)
 
     manager: ResourceManager = request.app.state.resources
     owner = str(body.get("owner") or "anonymous")
@@ -327,7 +475,74 @@ async def open_session(request: Request) -> dict[str, Any]:
         raise RuntimeUnreachableError(str(failure)) from failure
 
     assert lease is not None  # the loop ran at least once, or 422 was raised
-    return lease.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+    return lease.as_dict() | pinned | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+async def _session_members(
+    request: Request, body: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """What to acquire, from an explicit list or from a Runtime Set (§9, §10).
+
+    Returns the members and whatever the response must carry about *where they
+    came from*. For a set that second half is the point: a session opened
+    against `clarvis-balanced` records the revision it resolved, so a result
+    produced under it names the definition that was actually loaded rather than
+    whatever the name means by the time anyone reads it. §10 calls a set
+    immutable **at use**, and resolving the revision once — here — is what that
+    means in practice.
+    """
+    named = body.get("runtime_set") or body.get("runtime_set_id")
+    if not named:
+        wanted = body.get("models") or []
+        if not isinstance(wanted, list) or not wanted:
+            raise InvalidConfigurationError("models must be a non-empty list")
+        return list(wanted), {}
+
+    stored = _resolve_set(request, str(named), body.get("revision"))
+    fit = await _fit_for(request, stored)
+    if fit.verdict == fit.REFUSED:
+        # §4.3's own example message. Refused only when the weights *alone*
+        # exceed the machine, which is arithmetic rather than a prediction —
+        # a set that clears this bar has not been approved, only un-refused.
+        raise InsufficientMemoryError(
+            f"Requested Runtime Set cannot be loaded safely. {fit.detail}"
+        )
+    members = [
+        {"model_id": member.model_id, "role": member.role,
+         "configuration": _member_configuration(member)}
+        for member in stored.members_in_load_order()
+    ]
+    return members, {
+        "runtime_set_id": stored.runtime_set_id,
+        "revision": stored.revision,
+        "roles": {member.role: member.model_id for member in stored.members},
+        "fit": fit.as_dict(),
+    }
+
+
+def _resolve_set(request: Request, named: str, revision: Any) -> RuntimeSet:
+    """A set by ID or by name, at a revision if one was asked for."""
+    database = request.app.state.database
+    wanted_revision = int(revision) if revision is not None else None
+    stored = read_runtime_set(database, named, wanted_revision)
+    if stored is None and wanted_revision is None:
+        stored = find_by_name(database, named)
+    if stored is None:
+        raise ModelNotFoundError(f"no runtime set {named!r}")
+    return stored
+
+
+def _member_configuration(member: Any) -> dict[str, Any]:
+    """A member's load configuration, with its context length folded in.
+
+    The context length is part of what makes two co-resident models fit or not
+    — §10 stores it per member for exactly that reason — so it has to reach the
+    runtime rather than stay a label on the definition.
+    """
+    configuration = dict(member.configuration)
+    if member.context_length is not None:
+        configuration.setdefault("context_length", member.context_length)
+    return configuration
 
 
 @router.delete("/runtime/sessions/{session_id}")

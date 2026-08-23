@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 581 tests, no network, no live service
+.venv/bin/pytest                      # part of 611 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 581 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 611 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -97,6 +97,7 @@ into the order work actually happens.
 | 20 | **RAVIS M3b** | The translated execution path (§6, Path B): normalized events rendered as an OpenAI stream, the fork decided once by the addressed provider, and `execution_path` on every route decision. Transparent route still passes conformance — M3's exit criterion, verbatim |
 | 21 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 | 22 | **RAVIS M4** | The Anthropic native adapter — the first real provider on Path B. Request and response translation, streamed tool calls, capabilities read from the model catalogue, and four mappings decided deliberately rather than by default. Settled below |
+| 23 | **SIRVIS M9** | Runtime Sets — §10's versioned multi-model target. Definitions, revisions that only move when the definition does, role-addressable members, sessions opened against a set under one lease, and a fit estimate that can refuse but never approve. Settled below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -718,6 +719,71 @@ mid-milestone. **Four block M6.**
 Everything shipped-and-wrong on that list has been fixed. What remains is
 absent, which is the cheaper kind of gap: nobody is building on top of it.
 
+### What M9 settled, and one thing it deliberately cannot do yet
+
+§10's gate is three claims — *two models stay loaded and independently
+addressable; two revisions distinguishable; old results retain their revision* —
+and the third is the one that is easy to believe and hard to keep.
+
+**A revision row is written once and never updated.** There is no `UPDATE`
+against `runtime_set_revision` anywhere, and adding one would silently rewrite
+history that has already been cited. Everything else follows from that: `save`
+does not mean "write these fields", it means *find the revision whose definition
+matches, or add the next one*. So re-saving an unchanged definition returns the
+revision it already had and writes nothing — a UI that saves on every keystroke,
+or a script re-applying the same YAML, must not walk the number upward while the
+combination stays the same. **A version that increments for no reason is a
+version nobody reads.**
+
+The other decisions, each of which had an obvious alternative that is wrong:
+
+- **A set's identity is its name; the revision is which definition it currently
+  means.** `clarvis-balanced` keeps one `runtime_set_id` while its membership
+  changes, which is what makes "how has this set performed over time" a question
+  with an answer. Hashing the membership into the ID would make every revision a
+  different set.
+- **Two members cannot claim one role.** Refused at definition time, not
+  discovered at load time with half the set already resident. "Independently
+  addressable" is exactly what a duplicate role breaks: which one is *the* chat
+  model?
+- **Load order defaults to declaration order and is part of the hash.** Largest
+  first would allocate more predictably, but §11.2 loads role A then role B and
+  the order changes what a multi-model run measures — so chat-then-agent and
+  agent-then-chat are different definitions, not two spellings of one.
+- **A session resolves the revision once.** §10 calls a set immutable *at use*;
+  editing the set while a session is open must not change what that session is a
+  session of, so the revision is pinned when the session opens and reported back.
+- **The fit estimate can refuse and can never approve.** `REFUSED` means the
+  weights *alone* already exceed the machine, which is arithmetic. `PLAUSIBLE`
+  means only that this one obstacle is absent — it is never permission, because
+  §10.1 is precisely the warning that separate fits do not compose. One unknown
+  size makes the whole total unknown rather than smaller: a sum missing a term is
+  not a sum, and treating an unrecorded size as zero would approve a set that
+  cannot load.
+
+**And the thing it cannot do yet, stated plainly because the code looks like it
+can.** Nothing in SIRVIS records an installed size — `LocalModel.installed_size_bytes`
+is declared and never populated, because LM Studio's catalogue does not report
+one — so on this machine `estimate_fit` returns `UNKNOWN` for every set that
+exists. The refusal path is real and unit-tested against known weights; it is
+inert against the live inventory. That is why a session is *not* blocked by an
+estimate that cannot be made: refusing on an absent number would make every set
+unloadable on the strength of arithmetic nobody could do. Whatever captures
+installed sizes makes this live, and until then the endpoint honestly answers
+`{"verdict": "UNKNOWN", "basis": "estimate"}`.
+
+Two smaller limits worth knowing before writing a set: the Resource Manager
+holds **two** models by default (`DEFAULT_MAX_LOADED`), so a three-member set is
+a `RESOURCE_BUSY` rather than a load; and "old results retain their revision" is
+so far only half-demonstrated — the storage guarantees it, and no result cites a
+set until M10 produces one.
+
+**Not yet verified live.** M9's first clause — two models stay loaded and
+independently addressable — is asserted against a fake runtime, which proves the
+manager holds both under one lease and proves nothing about this machine. That
+check needs two real models resident at once, and per the rule above it does not
+happen without being asked for first.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -855,7 +921,7 @@ synthesising pairs from single-model runs would assert precisely what §10.1
 exists to deny: *two models fitting separately does not prove they work well
 together.* The screen's own subtitle says memory behaved as arithmetic predicted
 and behaviour did not — fabricating those rows would make the page contradict
-the finding it was built to show. It waits for M9 + M10.
+the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. The rows that screen needs come from M10.
 
 Live wiring is why the reconciliation above exists, and that is the argument for
 doing it early rather than last: a queue view counts states, and a log does not.
@@ -864,8 +930,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 23 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
-| 24 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
+| 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over the sets M9 now defines. §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
+| 25 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
 ### After that
 
@@ -1458,7 +1524,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9, M3b, M4)
-sirvis/                the evidence plane (M0–M4, M6, M7, M8)
+sirvis/                the evidence plane (M0–M4, M6, M7, M8, M9)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

@@ -172,6 +172,44 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON benchmark_result (evidence_id, created_at DESC);
         """,
     ),
+    (
+        6,
+        "runtime sets and their revisions, per SIRVIS.md §10",
+        """
+        -- §10's versioning, made mechanical. The identity row carries what is
+        -- stable about a set — its name — and the revision rows carry the
+        -- definitions. Splitting them is what lets `clarvis-balanced` keep one
+        -- identity while its membership changes, so "how has this set performed
+        -- over time" is answerable at all.
+        CREATE TABLE IF NOT EXISTS runtime_set (
+            runtime_set_id TEXT PRIMARY KEY,
+            name           TEXT NOT NULL UNIQUE,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- **Never updated, only inserted.** §10's gate is that old results
+        -- retain the revision they measured, and a row a result points at must
+        -- therefore be immutable. There is no UPDATE anywhere against this
+        -- table, and adding one would silently rewrite history that has already
+        -- been cited.
+        CREATE TABLE IF NOT EXISTS runtime_set_revision (
+            runtime_set_id  TEXT NOT NULL REFERENCES runtime_set(runtime_set_id),
+            revision        INTEGER NOT NULL,
+            -- The hash of everything that changes what gets loaded. Two saves
+            -- of an identical definition find this and return the existing
+            -- revision rather than manufacturing a new one, so a revision
+            -- number always means the definition actually changed.
+            definition_hash TEXT NOT NULL,
+            purpose         TEXT NOT NULL DEFAULT '',
+            payload         TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (runtime_set_id, revision)
+        );
+
+        CREATE INDEX IF NOT EXISTS runtime_set_revision_by_hash
+            ON runtime_set_revision (runtime_set_id, definition_hash);
+        """,
+    ),
 ]
 
 
