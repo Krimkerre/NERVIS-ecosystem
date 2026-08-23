@@ -13,6 +13,11 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "httpx>=0.27",
+  # Benchmark definitions are version-controlled YAML files (§11.5), so a parser
+  # is not optional. Declared explicitly rather than relied on transitively:
+  # `uvicorn[standard]` happens to install it today, and a benchmark engine that
+  # stops importing when a web server changes its extras is a trap.
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +67,14 @@ quote-style = "double"
 python_version = "3.11"
 strict = true
 files = ["src/sirvis"]
+
+# PyYAML ships no types. The stub package would add a dependency to describe one
+# call — `safe_load`, which returns `Any` in the stubs too — and every field of
+# that result is validated by hand in `benchmarks/spec.py` before anything reads
+# it. Nothing is lost by not installing it.
+[[tool.mypy.overrides]]
+module = ["yaml", "yaml.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

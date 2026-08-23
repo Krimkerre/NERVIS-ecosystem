@@ -86,6 +86,14 @@ class FailureClass(Enum):
     TOOL_INCOMPATIBILITY = "tool_incompatibility"
     CONTEXT_OVERFLOW = "context_overflow"
     CONTENT_REFUSAL = "content_refusal"
+    # A success status carrying something that is not a usable response: a 200
+    # with an error object in its body, or a stream that closes without a single
+    # byte. §10's list does not name this, and it is added rather than folded
+    # into an existing class because the alternative is a label that is a guess
+    # — the configured upstream on this machine answers 200 for endpoints it
+    # does not implement (STATUS.md), so "the status said fine" is not evidence
+    # that anything worked.
+    INVALID_UPSTREAM_RESPONSE = "invalid_upstream_response"
     UNKNOWN = "unknown"
 
     @property
@@ -128,6 +136,12 @@ _POLICIES: dict[FailureClass, FailurePolicy] = {
     # §10, verbatim: do not route around a safety refusal merely to find a more
     # permissive provider. This line is that sentence.
     FailureClass.CONTENT_REFUSAL: FailurePolicy(False, False, HealthScope.NONE),
+    # The upstream said 200 and delivered nothing usable. Falling back is right:
+    # nothing about the *request* has been shown to be wrong, and the next
+    # candidate is a different model behind the same provider — which is also
+    # why the circuit is scoped to the model. Not retried against the same
+    # target: the request plainly arrived, since something came back.
+    FailureClass.INVALID_UPSTREAM_RESPONSE: FailurePolicy(False, True, HealthScope.MODEL),
     FailureClass.UNKNOWN: FailurePolicy(False, False, HealthScope.NONE),
 }
 
@@ -153,7 +167,16 @@ _STATUS_CLASSES: dict[int, FailureClass] = {
 # far, which is why anything unmatched becomes INVALID_REQUEST rather than a
 # more specific guess.
 _BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
-    (FailureClass.CONTENT_REFUSAL, ("content_filter", "content policy", "content management")),
+    # Widened beyond the OpenAI/Azure `code` spellings, because the fallback
+    # decision now depends on recognising a refusal: Azure's own prose, Gemini's
+    # "blocked due to SAFETY" and any plain-language wording all missed the
+    # three-substring version, and a refusal that is not recognised is a refusal
+    # that gets routed around — which §10 forbids in terms.
+    (
+        FailureClass.CONTENT_REFUSAL,
+        ("content_filter", "content policy", "content management", "content filtering",
+         "safety", "blocked due to", "responsible ai", "violates"),
+    ),
     (
         FailureClass.CONTEXT_OVERFLOW,
         ("context length", "context window", "maximum context", "too many tokens",
@@ -165,7 +188,14 @@ _BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
          "unsupported parameter: 'tools'"),
     ),
     (FailureClass.LOCAL_OOM, ("out of memory", "insufficient memory", "failed to allocate")),
-    (FailureClass.MODEL_UNAVAILABLE, ("model not found", "no model loaded", "model_not_found")),
+    # "model unloaded or unavailable" is what the configured LM Studio answers
+    # with — inside a 200 — for a model it is no longer holding, and it matched
+    # none of the original three.
+    (
+        FailureClass.MODEL_UNAVAILABLE,
+        ("model not found", "no model loaded", "model_not_found", "unloaded",
+         "not loaded", "model is not available", "no models loaded"),
+    ),
 )
 
 
@@ -203,6 +233,33 @@ def classify_response(status: int, body: bytes) -> FailureClass | None:
     # A 4xx nobody recognised is the client's problem by definition; a 5xx
     # nobody recognised is not something to reason further about.
     return FailureClass.INVALID_REQUEST if status < 500 else FailureClass.UNKNOWN
+
+
+def classify_error_body(body: bytes) -> FailureClass:
+    """Name a failure from the upstream's own words, with no status to help.
+
+    `classify_response` short-circuits on any status below 400, which is correct
+    for the case it was written for and blind to the one that matters most on a
+    local runtime: **a 200 carrying an error object**. LM Studio answers exactly
+    that way for anything it will not serve, so a caller that has already
+    established the body is an error — rather than inferring it from a status —
+    needs the marker table without the status gate.
+
+    **Fails closed, like `classify_response` does.** An unrecognised error body
+    becomes `UNKNOWN`, which permits no fallback — and that is deliberate, after
+    the alternative was tried and refuted. Defaulting to a fallback-eligible
+    class means the *same* refusal produces opposite decisions depending on the
+    status the upstream happened to attach, and the permissive branch would be
+    the 2xx one: §10's "do not route around a safety refusal merely to find a
+    more permissive provider" carries no status qualifier, and the marker table
+    cannot be exhaustive over every provider's wording.
+
+    Failing closed is also never a regression. Before this existed, a 200
+    carrying an error was forwarded as a successful answer; now it is at worst
+    forwarded as the failure it is, and at best — when its words are
+    recognisable — it moves to the next candidate.
+    """
+    return _from_body(body) or FailureClass.UNKNOWN
 
 
 def _from_body(body: bytes) -> FailureClass | None:

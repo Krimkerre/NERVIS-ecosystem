@@ -99,6 +99,79 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        5,
+        "experiments, runs and results, per SIRVIS.md §17 and §11.10",
+        """
+        -- §17's cardinality, written down because the drill-through RAVIS and
+        -- NERVIS need cannot be built without it: an Experiment has many runs,
+        -- a run has one result per ExperimentTarget, and a run never spans
+        -- experiments. The foreign keys and the unique constraint below are
+        -- that sentence made mechanical rather than remembered.
+        CREATE TABLE IF NOT EXISTS experiment (
+            experiment_id    TEXT PRIMARY KEY,
+            suite_id         TEXT NOT NULL,
+            suite_version    TEXT NOT NULL,
+            -- `controlled` or `shared` (§11.1). Stored on the experiment rather
+            -- than inferred later, because §11.1 forbids silently comparing the
+            -- two and a comparison cannot refuse what it cannot see.
+            environment_mode TEXT NOT NULL,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            -- The specification as given, whole. A column per field would need
+            -- a migration every time a suite learns a new knob, and the fields
+            -- that matter for querying are lifted out above.
+            payload          TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS benchmark_run (
+            run_id              TEXT PRIMARY KEY,
+            experiment_id       TEXT NOT NULL REFERENCES experiment(experiment_id),
+            -- The conditions this run happened under. Nullable only because a
+            -- machine that reports nothing is still allowed to run a benchmark;
+            -- the result then says so rather than claiming a snapshot it lacks.
+            machine_snapshot_id TEXT REFERENCES machine_snapshot(snapshot_id),
+            -- §11.10's *coarse* published enum: queued, preparing, running,
+            -- succeeded, failed, cancelled, partial. The internal phase lives
+            -- in `detail`, which is for humans; consumers switch on `state`.
+            state               TEXT NOT NULL,
+            detail              TEXT NOT NULL DEFAULT '',
+            runtime_key         TEXT NOT NULL,
+            runtime_snapshot    TEXT NOT NULL,
+            -- Where §11.9's raw responses went. A path rather than a blob: the
+            -- point of preserving raw output is that it can be rescored without
+            -- rerunning inference, and a database is the wrong home for it.
+            results_path        TEXT,
+            started_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            finished_at         TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS benchmark_run_by_experiment
+            ON benchmark_run (experiment_id, started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS benchmark_result (
+            result_id  TEXT PRIMARY KEY,
+            run_id     TEXT NOT NULL REFERENCES benchmark_run(run_id),
+            -- Which ExperimentTarget this result is about. A single-model
+            -- experiment has one; a Runtime Set (M9) has one per role.
+            target_key TEXT NOT NULL,
+            -- §12.2's derived key. Stored so a consumer can find every result
+            -- about the same build, runtime config and role without recomputing
+            -- the hash, and never as the primary key: two runs of one suite
+            -- against one build are two results and one evidence identity.
+            evidence_id TEXT NOT NULL,
+            validity    TEXT NOT NULL,
+            payload     TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            -- "A run has one result per ExperimentTarget" (§17). Enforced here
+            -- so a retry that writes twice fails loudly instead of leaving two
+            -- results that disagree about the same target.
+            UNIQUE (run_id, target_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS benchmark_result_by_evidence
+            ON benchmark_result (evidence_id, created_at DESC);
+        """,
+    ),
 ]
 
 

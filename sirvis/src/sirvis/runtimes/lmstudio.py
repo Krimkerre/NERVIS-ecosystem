@@ -27,11 +27,12 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
 from sirvis.runtimes.base import (
+    GenerationChunk,
     LoadedModel,
     RuntimeInfo,
     RuntimeState,
@@ -163,6 +164,54 @@ class LMStudioAdapter:
         body = {"model": model_key, "messages": messages, **options}
         return await self._post("/v1/chat/completions", body, timeout=LOAD_TIMEOUT_SECONDS)
 
+    async def stream_generate(
+        self, model_key: str, messages: list[dict[str, Any]], **options: Any
+    ) -> AsyncIterator[GenerationChunk]:
+        """One completion, streamed, so the first token's arrival can be timed.
+
+        This is the M6 half of generation. `generate` above is a round trip and
+        stays one: it is the probe that proves the path works. Time-to-first-
+        token is a headline metric (§11.4) and is simply not recoverable from a
+        response that arrives whole, so the benchmark engine reads this instead.
+
+        **The 200-with-an-error-body trap applies here too, and looks different.**
+        An unsupported request does not arrive as SSE at all — it arrives as one
+        JSON object with an `error` key and a 200 beside it. So the first line
+        is inspected before the stream is believed, and anything that is not a
+        `data:` frame is collected and re-raised rather than silently yielding
+        an empty completion, which would read as a model that said nothing.
+
+        `stream_options.include_usage` asks the runtime for token counts on the
+        final frame. A runtime that ignores it produces chunks with no `usage`,
+        and the caller is expected to notice rather than to assume.
+        """
+        body: dict[str, Any] = {
+            "model": model_key,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            **options,
+        }
+        client = self._client
+        owned = client is None
+        if client is None:
+            client = httpx.AsyncClient(timeout=LOAD_TIMEOUT_SECONDS)
+        try:
+            async with client.stream(
+                "POST", f"{self.base_url}/v1/chat/completions",
+                json=body, timeout=LOAD_TIMEOUT_SECONDS,
+            ) as response:
+                response.raise_for_status()
+                async for chunk in _read_sse(response):
+                    yield chunk
+        except (httpx.HTTPError, ValueError) as failure:
+            raise RuntimeUnavailableError(
+                f"POST /v1/chat/completions (stream): {failure}"
+            ) from failure
+        finally:
+            if owned:
+                await client.aclose()
+
     # ── Lifecycle, over the CLI, because no API offers it ───────────────────
 
     def lifecycle_available(self) -> bool:
@@ -287,6 +336,68 @@ class LMStudioAdapter:
         except (subprocess.SubprocessError, OSError) as failure:
             raise RuntimeUnavailableError(f"lms {' '.join(arguments)}: {failure}") from failure
         return finished.stdout.strip()
+
+
+async def _read_sse(response: httpx.Response) -> AsyncIterator[GenerationChunk]:
+    """Turn an SSE body into chunks, refusing anything that is not one.
+
+    Separate from the adapter so the parsing can be exercised against recorded
+    frames without a client, and because the error path is the interesting half:
+    LM Studio answers 200 with a plain JSON error object for a request it will
+    not serve, and a parser that skipped every line failing to start with
+    `data:` would turn that into a successful empty completion.
+    """
+    saw_frame = False
+    stray: list[str] = []
+    async for line in response.aiter_lines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("data:"):
+            stray.append(stripped)
+            continue
+        saw_frame = True
+        payload = stripped[len("data:"):].strip()
+        if payload == "[DONE]":
+            break
+        yield _chunk_of(_decode_frame(payload))
+    if not saw_frame:
+        # Nothing that could be believed arrived. Whatever the body was, it is
+        # reported verbatim rather than summarised: a 200 carrying an error
+        # object is the case this exists for, and paraphrasing it loses the
+        # only sentence that says what went wrong.
+        raise RuntimeUnavailableError(
+            f"stream carried no data frames: {' '.join(stray)[:200] or 'empty body'}"
+        )
+
+
+def _decode_frame(payload: str) -> dict[str, Any]:
+    """One frame's JSON, with LM Studio's 200-shaped error caught."""
+    try:
+        frame = json.loads(payload)
+    except ValueError as failure:
+        raise RuntimeUnavailableError(f"malformed stream frame: {failure}") from failure
+    if not isinstance(frame, dict):
+        raise RuntimeUnavailableError("stream frame was not an object")
+    if "error" in frame:
+        raise RuntimeUnavailableError(f"stream: {frame['error']}")
+    return frame
+
+
+def _chunk_of(frame: dict[str, Any]) -> GenerationChunk:
+    """One SSE frame in the shape the engine measures against."""
+    choices = frame.get("choices") or []
+    delta: dict[str, Any] = {}
+    finish: str | None = None
+    if choices and isinstance(choices[0], dict):
+        delta = choices[0].get("delta") or {}
+        finish = choices[0].get("finish_reason")
+    usage = frame.get("usage")
+    return GenerationChunk(
+        content=str(delta.get("content") or ""),
+        finish_reason=finish,
+        usage=usage if isinstance(usage, dict) else None,
+    )
 
 
 def parse_lms_json(output: str) -> list[dict[str, Any]]:

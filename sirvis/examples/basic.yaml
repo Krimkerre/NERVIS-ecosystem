@@ -1,0 +1,61 @@
+# The specification M6's exit criterion names:
+#
+#     sirvis benchmark run examples/basic.yaml
+#
+# It measures one installed model against one short deterministic prompt, which
+# is the smallest thing that exercises §11.2's whole lifecycle — acquire, load,
+# verify the effective configuration, warm up, repeat, persist.
+#
+# `target.model` is the name **the runtime** uses for a build, not a SIRVIS
+# identity. List what this machine has with `sirvis doctor`, or override without
+# editing this file:
+#
+#     sirvis benchmark run examples/basic.yaml --model <runtime-key>
+#
+# Nothing here is silently ignored. A key this engine cannot honour — an
+# `evaluator`, a Runtime Set, a sweep — is refused with the milestone that will
+# implement it, because a specification that runs with half its instructions
+# dropped produces a result nobody can interpret.
+
+id: basic
+suite: performance-basic
+suite_version: "1"
+
+# §12.5 attaches verdicts to a build *and a role*. This experiment measures raw
+# throughput rather than fitness for a Clarvis role, so it says `general` rather
+# than borrowing a role name it has not tested for.
+role: general
+
+# `shared` is the truth on an ordinary laptop: other applications are running
+# and this makes no attempt to stop them. §11.1 forbids comparing a `shared`
+# result with a `controlled` one as though they were equivalent, which is only
+# possible because each says which it was.
+environment: shared
+
+target:
+  model: qwen2.5-coder-7b-instruct
+  load:
+    # What to ask the runtime for. Whatever it actually loads is recorded
+    # separately, and a difference between the two becomes a validity warning
+    # rather than a footnote (§7.1).
+    context_length: 8192
+
+# §11.7's defaults. Two warmups absorb the runtime's first-call costs; five
+# measured repetitions exist because Clarvis's own work saw identical prompt
+# variants differ by ~32%, and a single take can measure noise rather than a
+# difference.
+warmups: 2
+repetitions: 5
+
+tests:
+  - id: short-prompt-256-out
+    version: 1
+    prompt: |
+      Write a Python function that merges two sorted lists into one sorted
+      list. Return only the code.
+    generation:
+      # Zero temperature because §11.4's performance workloads are synthetic and
+      # deterministic: a benchmark run at the runtime's default temperature
+      # measures something slightly different every time it is run.
+      temperature: 0
+      max_tokens: 256

@@ -85,6 +85,33 @@ class LoadedModel:
         }
 
 
+@dataclass(frozen=True)
+class GenerationChunk:
+    """One fragment of a streamed completion, as the benchmark engine sees it.
+
+    Streaming exists here for exactly one reason: **time-to-first-token cannot
+    be measured from a round trip.** M2's `generate` deliberately did not
+    stream, because M2 only had to prove the path worked; §11.4 makes TTFT a
+    headline metric, and the arrival time of the first token is not recoverable
+    from a response that arrives whole.
+
+    `usage` arrives on the final chunk when the runtime reports it, and is
+    `None` when it does not — which is the difference between counting tokens
+    and guessing at them. The engine downgrades a throughput figure derived
+    without it rather than presenting an estimate as a measurement (§12.1).
+
+    `content` is empty on the final chunk and on any chunk carrying only a role
+    or a reasoning delta, so a caller timing the first *token* must look for the
+    first chunk with text in it — a reasoning model can spend its whole budget
+    thinking and return nothing, which M2 found on this machine and which is a
+    result about the run rather than a fault in the adapter.
+    """
+
+    content: str = ""
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
+
+
 class RuntimeUnavailableError(Exception):
     """A runtime refused an operation, or could not be reached at all.
 

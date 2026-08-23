@@ -22,6 +22,7 @@ from ravis.reliability import (
     HealthRegistry,
     HealthScope,
     RetryBudget,
+    classify_error_body,
     classify_exception,
     classify_response,
 )
@@ -92,6 +93,81 @@ def test_a_connect_timeout_is_a_timeout_not_a_connection_failure() -> None:
     """
     assert classify_exception(httpx.ConnectTimeout("slow")) is FailureClass.TIMEOUT
     assert classify_exception(httpx.ConnectError("refused")) is FailureClass.CONNECTION
+
+
+def test_an_error_body_is_classified_without_a_status_to_help() -> None:
+    """`classify_response` short-circuits below 400, which is blind to the case
+    that matters most on a local runtime: a 200 carrying an error object."""
+    assert classify_error_body(b'{"error":"model not found"}') is FailureClass.MODEL_UNAVAILABLE
+    assert classify_error_body(b'{"error":"out of memory"}') is FailureClass.LOCAL_OOM
+
+
+def test_an_unrecognised_error_body_fails_closed() -> None:
+    """The first version defaulted to a fallback-eligible class, and that was
+    wrong: the *same* refusal would then produce opposite decisions depending on
+    the status the upstream happened to attach, with the permissive branch being
+    the 2xx one. §10's "do not route around a safety refusal" carries no status
+    qualifier, and no marker table is exhaustive over every provider's wording.
+
+    Failing closed is never a regression either — before the gate existed, a 200
+    carrying an error was forwarded as a successful answer."""
+    assert classify_error_body(b'{"error":"something new"}') is FailureClass.UNKNOWN
+    assert FailureClass.UNKNOWN.policy.may_fall_back is False
+
+
+def test_the_runtimes_own_wording_for_an_unloaded_model_is_recognised() -> None:
+    """Which is what makes failing closed affordable. "Model unloaded or
+    unavailable" is what the configured LM Studio answers with — inside a 200 —
+    and it matched none of the original three markers."""
+    assert classify_error_body(
+        b'{"error":"Model unloaded or unavailable"}'
+    ) is FailureClass.MODEL_UNAVAILABLE
+    assert FailureClass.MODEL_UNAVAILABLE.policy.may_fall_back is True
+
+
+def test_a_safety_refusal_inside_a_success_status_is_still_never_routed_around() -> None:
+    """The markers were three OpenAI/Azure `code` spellings. Azure's own prose,
+    Gemini's "blocked due to SAFETY" and any plain-language wording all missed
+    them — and a refusal that is not recognised is one that gets routed around."""
+    for wording in (
+        b'{"error":"blocked due to SAFETY"}',
+        b'{"error":"the request violates our content filtering policy"}',
+    ):
+        assert classify_error_body(wording) is FailureClass.CONTENT_REFUSAL
+
+
+def test_a_success_that_delivered_nothing_is_the_models_problem_not_the_providers() -> None:
+    """Scoped to the model so the pool's next candidate — on the same upstream —
+    is still reachable. A provider-scoped circuit would take every model out
+    because one of them was unloaded."""
+    policy = FailureClass.INVALID_UPSTREAM_RESPONSE.policy
+
+    assert policy.scope is HealthScope.MODEL
+    assert policy.retry_same_target is False
+
+
+def test_a_model_scoped_failure_releases_the_providers_half_open_probe() -> None:
+    """The latch, and it is terminal for the process when it happens.
+
+    An attempt is claimed on *both* records, so both may be left `probing`, and
+    a failure blames only one of them. The unblamed one stays probing forever:
+    `allows()` is False while probing, only a success clears it, and no success
+    can arrive while `allows()` is False. Reached most easily on the recovery
+    path — a half-open probe is by definition the first request to a provider
+    that was just down, which is exactly the moment a runtime answers "model
+    unloaded" while it comes back up.
+    """
+    clock = FakeClock()
+    health = HealthRegistry(failure_threshold=1, cooldown_seconds=60.0, clock=clock)
+    health.record(FailureClass.CONNECTION, "model-a", "upstream", clock())
+    clock.advance(61.0)
+    chain = _chain(clock, health)
+    chain.load("model-a", [])
+    started = chain.begin("model-a")
+
+    chain.failed("model-a", started, FailureClass.MODEL_UNAVAILABLE)
+
+    assert health.allows(HealthScope.PROVIDER, "upstream") is True
 
 
 def test_a_safety_refusal_is_never_routed_around() -> None:
@@ -302,6 +378,65 @@ def test_a_connection_failure_retries_the_same_target_once() -> None:
     chain.failed(chain.next_target() or "", clock(), FailureClass.CONNECTION)
 
     assert chain.next_target() == "primary"
+
+
+def test_the_same_target_is_never_retried_twice() -> None:
+    """"Once" was the intent and was not what the code did.
+
+    `failed` re-armed the retry on every connection failure, so a target that
+    refused every connection was offered again indefinitely — and the test above
+    passed throughout, because it asserted the *first* retry and never asked
+    what came after it. It encoded the situation rather than the rule.
+    """
+    clock = FakeClock()
+    chain = _chain(clock, budget=RetryBudget(max_attempts=9, max_total_seconds=600.0))
+    chain.load("primary", ["second"])
+    chain.failed(chain.next_target() or "", clock(), FailureClass.CONNECTION)
+    chain.failed(chain.next_target() or "", clock(), FailureClass.CONNECTION)
+
+    assert chain.next_target() == "second"
+
+
+def test_a_chain_against_an_upstream_that_refuses_everything_terminates() -> None:
+    """The livelock, as a regression test.
+
+    A refused connection is classified `CONNECTION`, which is the one class
+    permitted to retry the same target — and the retry was returned *before* the
+    budget was consulted, so nothing bounded it. Against a closed LM Studio the
+    chain re-offered the primary forever: the second candidate was never
+    reached, `max_attempts` was never enforced, and the request never returned.
+    A switchboard that cannot fail over is worse than one that fails.
+
+    The loop below is capped only so a regression fails the suite instead of
+    hanging it.
+    """
+    clock = FakeClock()
+    chain = _chain(clock)
+    chain.load("primary", ["second", "third"])
+
+    tried = []
+    for _ in range(20):
+        target = chain.next_target()
+        if target is None:
+            break
+        tried.append(target)
+        chain.failed(target, clock(), FailureClass.CONNECTION, "connection refused")
+    else:  # pragma: no cover - only reached if the livelock returns
+        raise AssertionError(f"the chain never ended; it tried {tried}")
+
+    assert tried == ["primary", "primary", "second"]
+    assert "retry budget spent" in chain.summary()["stopped_because"]
+
+
+def test_a_same_target_retry_spends_the_budget_like_any_other_attempt() -> None:
+    """A retry is another attempt and another slice of the client's patience."""
+    clock = FakeClock()
+    chain = _chain(clock, budget=RetryBudget(max_attempts=1, max_total_seconds=600.0))
+    chain.load("primary", ["second"])
+    chain.failed(chain.next_target() or "", clock(), FailureClass.CONNECTION)
+
+    assert chain.next_target() is None
+    assert "retry budget spent" in chain.summary()["stopped_because"]
 
 
 def test_the_chain_skips_a_candidate_behind_an_open_circuit_and_says_so() -> None:

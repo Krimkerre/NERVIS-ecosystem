@@ -156,6 +156,19 @@ class TargetHealth:
         if ttft is not None:
             self.ttft_samples.append(ttft)
 
+    def probe_ended(self) -> None:
+        """Release a half-open probe this attempt claimed but did not judge.
+
+        `AttemptChain.begin` claims an attempt on **both** the model and the
+        provider, so both may be left `probing`. A failure blames only one of
+        them — and the other has to be released here, or the circuit latches:
+        `allows()` is False while probing, only a success clears it, and no
+        success can arrive while `allows()` is False. Terminal for the process,
+        and reached most easily on the recovery path, since a half-open probe is
+        by definition the first request sent to a provider that was just down.
+        """
+        self.probing = False
+
     def failed(self, failure_class: FailureClass, started_at: float) -> None:
         """Record a failure, and open the circuit if it has earned it.
 
@@ -254,15 +267,19 @@ class HealthRegistry:
         path, and getting the attribution wrong is what makes a breaker either
         useless or catastrophic.
         """
+        # Both records were claimed by `AttemptChain.begin`, so both must be
+        # released here even though only one is blamed. Skipping the other
+        # leaves a half-open circuit latched forever.
         scope = failure_class.policy.scope
-        if scope is HealthScope.MODEL:
-            self.of(HealthScope.MODEL, target).failed(failure_class, started_at)
-        elif scope is HealthScope.PROVIDER:
+        if scope is HealthScope.PROVIDER:
             self.of(HealthScope.PROVIDER, provider).failed(failure_class, started_at)
+            self.of(HealthScope.MODEL, target).probe_ended()
         else:
-            # Recorded against the model so the counters stay complete, while
-            # `failed` itself declines to open a circuit on a scope mismatch.
+            # MODEL and NONE both land on the model record: NONE is recorded so
+            # the counters stay complete, while `failed` itself declines to open
+            # a circuit on a scope mismatch.
             self.of(HealthScope.MODEL, target).failed(failure_class, started_at)
+            self.of(HealthScope.PROVIDER, provider).probe_ended()
 
     def allows(self, scope: HealthScope, target: str) -> bool:
         """Whether a target may be called — **without** creating a record for it.

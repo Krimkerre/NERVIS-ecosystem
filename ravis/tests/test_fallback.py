@@ -59,10 +59,16 @@ class ScriptedUpstream:
         refuse: dict[str, tuple[int, dict[str, Any]]] | None = None,
         break_after: dict[str, int] | None = None,
         frames: list[bytes] | None = None,
+        answers: dict[str, Any] | None = None,
     ) -> None:
         self.catalogue = catalogue
         # model → (status, body) for models that answer with an HTTP error.
         self.refuse = refuse or {}
+        # model → what it answers with a **200**. A dict is a JSON body where a
+        # stream was asked for, which is how LM Studio reports anything it will
+        # not serve; a list is a frame sequence, and an empty one is a stream
+        # that closes without a byte. Both look like success to a status check.
+        self.answers = answers or {}
         # model → how many frames to emit before the connection dies. This is
         # the mid-stream failure: the client already holds part of an answer.
         self.break_after = break_after or {}
@@ -84,6 +90,11 @@ class ScriptedUpstream:
         if model in self.refuse:
             status, body = self.refuse[model]
             return httpx.Response(status, json=body)
+        if model in self.answers:
+            scripted = self.answers[model]
+            if isinstance(scripted, dict):
+                return httpx.Response(200, json=scripted)
+            return httpx.Response(200, stream=_Frames(iter(scripted)))
         if not payload.get("stream"):
             return httpx.Response(200, json={"id": "c1", "choices": [], "model": model})
         return httpx.Response(200, stream=_Frames(self._emit(model)))
@@ -220,6 +231,210 @@ def test_a_fallback_before_the_first_byte_leaves_the_stream_intact() -> None:
         assert upstream.served == ["coder-a", "coder-b"]
         assert received == b"".join(FRAMES)
         assert received.count(b"[DONE]") == 1
+
+
+def test_a_200_carrying_an_error_object_is_a_refusal_not_an_answer() -> None:
+    """The trap the configured upstream actually sets.
+
+    LM Studio answers **200 with an error body** for anything it will not serve
+    — a model that has been unloaded, an endpoint it does not implement. RAVIS
+    branched only on `status >= 400`, so this was forwarded to the client as a
+    successful stream and recorded as a working attempt: no fallback, and a
+    health record saying the model is fine.
+    """
+    upstream = ScriptedUpstream(
+        TWO_CODERS, answers={"coder-a": {"error": "Model unloaded or unavailable"}}
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert received == b"".join(FRAMES)
+    assert received.count(b"[DONE]") == 1
+
+
+def test_an_error_in_the_first_frame_switches_before_the_client_sees_it() -> None:
+    """The same refusal arriving inside the protocol rather than instead of it."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        answers={"coder-a": [b'data: {"error":{"message":"no model loaded"}}\n\n']},
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert b"no model loaded" not in received
+    assert received == b"".join(FRAMES)
+
+
+def test_a_200_that_sends_no_bytes_at_all_is_not_a_success() -> None:
+    """Recorded as a success until now, on the reasoning that the upstream had
+    nothing to say. An SSE response with no frames is not an empty answer — the
+    client waits for a `[DONE]` that never arrives, and the chain that could
+    have tried another model has been told everything went well."""
+    upstream = ScriptedUpstream(TWO_CODERS, answers={"coder-a": []})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert received == b"".join(FRAMES)
+
+
+def test_a_model_talking_about_errors_is_not_refusing() -> None:
+    """The false positive that would matter most: a coding assistant discussing
+    an error message is the ordinary case, not a refusal. Only a top-level
+    `error` key counts, and content is never scanned."""
+    talkative = [
+        b'data: {"choices":[{"delta":{"content":"{\"error\": handle it}"},"index":0}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+    upstream = ScriptedUpstream(TWO_CODERS, answers={"coder-a": talkative})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a"]
+    assert received == b"".join(talkative)
+
+
+def test_an_explicit_absence_of_an_error_is_not_an_error() -> None:
+    """Some proxies include `"error": null` on a perfectly good response.
+    Reading presence rather than truthiness would cost a working model its turn
+    for saying that nothing went wrong."""
+    polite = [
+        b'data: {"error":null,"choices":[{"delta":{"content":"hi"},"index":0}]}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+    upstream = ScriptedUpstream(TWO_CODERS, answers={"coder-a": polite})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a"]
+    assert received == b"".join(polite)
+
+
+def test_an_exhausted_chain_forwards_the_upstreams_own_words() -> None:
+    """When every candidate refuses this way there is nothing to fall back to,
+    and the client is owed the reason rather than a generic failure."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        answers={
+            "coder-a": {"error": "Model unloaded or unavailable"},
+            "coder-b": {"error": "Model unloaded or unavailable"},
+        },
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert b"Model unloaded" in received
+    assert received.endswith(b"data: [DONE]\n\n")
+
+
+def test_the_non_streaming_path_refuses_a_200_carrying_an_error_too() -> None:
+    """The more dangerous half of the same hole. Clarvis's §8.7 tool probe is a
+    non-streamed request and treats any 2xx as "this model supports tools" —
+    caching it for the session — so a 200 with an error object taught it the
+    opposite of the truth."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS, answers={"coder-a": {"error": "Model unloaded or unavailable"}}
+    )
+    with _app_with(upstream) as client:
+        response = client.post(
+            "/v1/chat/completions", json={"model": AGENT_POOL, "stream": False}
+        )
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert response.status_code == 200
+    assert "error" not in response.json()
+
+
+def test_an_exhausted_non_streaming_chain_does_not_forward_a_status_it_disbelieved(
+) -> None:
+    """The gate was a no-op for the ordinary case until this.
+
+    With one eligible candidate — or with every candidate refusing the same way,
+    which is what a runtime holding nothing produces — the chain exhausts and
+    the last response was forwarded verbatim. RAVIS recorded a failure, opened
+    the model's circuit, logged that no attempt succeeded, and then answered
+    200 OK: the record and the response contradicting each other, and Clarvis's
+    §8.7 probe still reading a 2xx.
+    """
+    refused = {"error": "Model unloaded or unavailable"}
+    upstream = ScriptedUpstream(
+        TWO_CODERS, answers={"coder-a": refused, "coder-b": refused}
+    )
+    with _app_with(upstream) as client:
+        response = client.post(
+            "/v1/chat/completions", json={"model": AGENT_POOL, "stream": False}
+        )
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert response.status_code == 502
+    # The upstream's own words survive; only the status it chose is overruled.
+    assert "Model unloaded" in response.text
+
+
+def test_a_genuine_upstream_status_still_reaches_the_client_unchanged() -> None:
+    """The other half: a 429 must arrive as a 429, or the client gives up where
+    it should have retried."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        refuse={"coder-a": (429, {"error": "slow down"}),
+                "coder-b": (429, {"error": "slow down"})},
+    )
+    with _app_with(upstream) as client:
+        response = client.post(
+            "/v1/chat/completions", json={"model": AGENT_POOL, "stream": False}
+        )
+
+    assert response.status_code == 429
+
+
+def test_a_keep_alive_comment_does_not_hide_a_refusal() -> None:
+    """Ordinary SSE framing defeated the first version of the gate: it read only
+    the very first line, so a provider's own `: ping` — or an `event:` field —
+    carried the refusal straight past it."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        answers={"coder-a": [b': ping\n\nevent: message\ndata: {"error":"no model loaded"}\n\n']},
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert received == b"".join(FRAMES)
+
+
+def test_an_unrecognisable_refusal_stops_the_chain_rather_than_shopping_around() -> None:
+    """§10: do not route around a refusal merely to find a more permissive
+    provider. The words are not in any marker table, so RAVIS does not know
+    whether this was a runtime fault or a safety decision — and the safe reading
+    of that ambiguity is the one that does not go looking for a yes."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS, answers={"coder-a": {"error": "this request was declined"}}
+    )
+    with _app_with(upstream) as client:
+        response = client.post(
+            "/v1/chat/completions", json={"model": AGENT_POOL, "stream": False}
+        )
+
+    assert upstream.served == ["coder-a"]
+    assert response.status_code == 502
+    assert "declined" in response.text
 
 
 def test_a_failure_after_the_first_byte_does_not_fall_back() -> None:
@@ -364,12 +579,18 @@ def test_a_repeatedly_failing_model_is_dropped_from_routing() -> None:
 
 
 def test_every_candidate_behind_an_open_circuit_is_refused_without_a_call() -> None:
-    """503, not 502: RAVIS declined to try rather than tried and failed.
+    """503, not 502 and not 422: RAVIS declined to try rather than tried and failed.
 
     A 404 is scoped to the model, so opening both models' circuits takes the
-    whole pool out — and the pool being unavailable is a no-route (§5.2), which
-    is a 422 rather than an upstream error. The distinction matters to whoever
-    is debugging: nothing was asked, so nothing upstream is implicated.
+    whole pool out. Nothing was asked upstream, so nothing upstream is
+    implicated — but this is also not the same refusal as a pool nothing
+    satisfies. The circuits are resting and the pool works again when they
+    close, which is what 503 says and 422 does not.
+
+    The difference is load-bearing rather than pedantic. Clarvis's §8.7 tool
+    probe treats a 4xx as the model answering and remembers it for the session,
+    so a 422 here teaches it that a capable model cannot call tools and it goes
+    on believing that long after the cooldown expires.
     """
     upstream = ScriptedUpstream(
         TWO_CODERS,
@@ -384,8 +605,22 @@ def test_every_candidate_behind_an_open_circuit_is_refused_without_a_call() -> N
         response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
 
         assert upstream.served == []
-        assert response.status_code == 422
+        assert response.status_code == 503
         assert response.json()["error"]["code"] == "no_route"
+
+
+def test_a_pool_nothing_satisfies_is_still_a_422() -> None:
+    """The other side of that line. A model excluded for a reason a cooldown will
+    not fix is a configuration answer, and retrying changes nothing."""
+    upstream = ScriptedUpstream(
+        {"chatty": {"tools": "UNSUPPORTED", "context_window": "8192"}},
+        refuse={"chatty": (404, {"error": "model_not_found"})},
+    )
+    with _app_with(upstream, breaker_failure_threshold=1) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "no_route"
 
 
 def test_a_directly_named_model_still_respects_its_own_circuit() -> None:

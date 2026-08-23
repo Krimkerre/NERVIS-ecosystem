@@ -346,6 +346,51 @@ async def test_models_the_manager_did_not_load_are_reported_not_reclaimed() -> N
     assert runtime.unloads == []
 
 
+async def test_an_instance_already_resident_is_adopted_rather_than_loaded_again() -> None:
+    """LM Studio does not reconfigure a resident model to satisfy a request it
+    cannot serve — it loads *another instance*, which is how three copies of one
+    7B model ended up resident on this machine. A manager that issued a load for
+    something already there would cause exactly that, and would then be
+    accounting for one instance while the machine held two."""
+    runtime = FakeRuntime()
+    await runtime.load("already-there")
+    manager = _manager(runtime)
+
+    await manager.acquire(owner="benchmark", model_key="already-there")
+
+    assert runtime.loads == ["already-there"]  # the test's own load, and no second
+    assert manager.residency()["holdings"][0]["owned"] is False
+
+
+async def test_releasing_an_adopted_instance_never_unloads_it() -> None:
+    """§11.2's lifecycle says "unload **if owned**", and this is the half that
+    sentence exists for: taking away a model a user loaded by hand, because a
+    benchmark borrowed it for thirty seconds, is the implicit preemption §9
+    forbids."""
+    runtime = FakeRuntime()
+    await runtime.load("someone-elses")
+    manager = _manager(runtime)
+    lease = await manager.acquire(owner="benchmark", model_key="someone-elses")
+
+    unloaded = await manager.release(lease.session_id)
+
+    assert unloaded == []
+    assert runtime.unloads == []
+
+
+async def test_a_model_this_manager_loaded_is_still_unloaded_at_zero_references() -> None:
+    """The other half. Adoption must not become a loophole that leaves every
+    model resident forever."""
+    runtime = FakeRuntime()
+    manager = _manager(runtime)
+    lease = await manager.acquire(owner="benchmark", model_key="ours")
+
+    unloaded = await manager.release(lease.session_id)
+
+    assert unloaded == ["ours"]
+    assert runtime.unloads == ["ours"]
+
+
 async def test_a_failed_unload_still_frees_the_capacity() -> None:
     """Keeping a record of something the manager can no longer control means a
     stuck entry occupying capacity forever."""

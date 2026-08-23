@@ -94,6 +94,11 @@ class AttemptChain:
 
     _queue: list[str] = field(default_factory=list, init=False)
     _retry: str | None = field(default=None, init=False)
+    # Targets that have already had their one same-target retry. Without this
+    # the retry re-arms on every failure of the same class, and a target that
+    # refuses every connection is offered again forever — the chain never
+    # reaches its second candidate and the request never returns.
+    _retried: set[str] = field(default_factory=set, init=False)
     _attempts: list[Attempt] = field(default_factory=list, init=False)
     _last_class: FailureClass | None = field(default=None, init=False)
     _started_at: float = field(default=0.0, init=False)
@@ -121,10 +126,23 @@ class AttemptChain:
         Three things can finish it: the budget, the previous failure's policy
         (an invalid request is not retried anywhere), and running out of
         candidates whose circuit is closed.
+
+        **The budget governs a same-target retry exactly as it governs a
+        fallback**, and it used to be bypassed by it. The retry was returned
+        before any ceiling was consulted, so against an upstream refusing every
+        connection the chain re-offered the same target indefinitely: the second
+        candidate was never reached, `max_attempts` was never enforced, and the
+        client waited on a loop that could not end. A retry is another attempt
+        and another slice of someone's patience, which is precisely what the
+        budget exists to bound.
+
+        The fallback-eligibility half is deliberately *not* applied to a retry.
+        It asks whether **another model** would fail the same way, which is a
+        different question from whether this one deserves a second try.
         """
         if self._retry is not None:
             target, self._retry = self._retry, None
-            return target
+            return None if self._budget_spent() else target
         if not self._may_continue():
             return None
         return self._next_permitted()
@@ -157,7 +175,13 @@ class AttemptChain:
         self.health.record(failure_class, target, self.provider, started_at)
         self._attempts.append(Attempt(target, failure_class.value, detail))
         self._last_class = failure_class
-        if failure_class.policy.retry_same_target:
+        # At most one same-target retry, ever. The policy says this class of
+        # failure proves the request never arrived, which justifies a second
+        # attempt — not an unbounded series of them. A target that has had its
+        # retry falls through to the next candidate instead, which is the point
+        # of having a chain.
+        if failure_class.policy.retry_same_target and target not in self._retried:
+            self._retried.add(target)
             self._retry = target
 
     def cancelled(self, target: str) -> None:
@@ -216,11 +240,21 @@ class AttemptChain:
         tried = ", ".join(f"{a.model} ({a.outcome})" for a in self._attempts) or "nothing"
         return f"No upstream attempt succeeded. Tried: {tried}. {self._stopped}".strip()
 
-    def _may_continue(self) -> bool:
-        """Whether the chain is allowed another target at all."""
+    def _budget_spent(self) -> bool:
+        """Whether the chain has used up its allowance, recording why if so.
+
+        Separate from `_may_continue` because a same-target retry has to consult
+        this and must *not* consult the fallback-eligibility rule below.
+        """
         spent = self.budget.exceeded_by(len(self._attempts), self.now() - self._started_at)
         if spent is not None:
             self._stopped = spent
+            return True
+        return False
+
+    def _may_continue(self) -> bool:
+        """Whether the chain is allowed another target at all."""
+        if self._budget_spent():
             return False
         if self._last_class is not None and not self._last_class.policy.may_fall_back:
             self._stopped = (

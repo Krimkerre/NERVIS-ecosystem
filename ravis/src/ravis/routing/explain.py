@@ -27,6 +27,12 @@ class ExcludedCandidate:
 
     model: str
     reasons: list[str]
+    # Whether an open circuit was one of those reasons. Kept as a flag rather
+    # than left to be read back out of the prose, because the *status* of a
+    # no-route depends on it: a pool nothing satisfies is a configuration
+    # answer, while a pool whose candidates are all in cooldown is a temporary
+    # one, and a client that cannot tell them apart caches the wrong lesson.
+    circuit_open: bool = False
 
 
 @dataclass
@@ -60,6 +66,20 @@ class RouteDecision:
     @property
     def routed(self) -> bool:
         return self.selected is not None
+
+    @property
+    def blocked_only_by_circuits(self) -> bool:
+        """Whether this no-route resolves itself once a cooldown expires.
+
+        True only when candidates existed and *every* one of them was excluded
+        by an open circuit and nothing else. A candidate that also failed a
+        capability requirement would still be excluded with the circuits closed,
+        so the pool is not merely resting.
+        """
+        return bool(self.excluded) and all(
+            candidate.circuit_open and len(candidate.reasons) == 1
+            for candidate in self.excluded
+        )
 
     def as_dict(self) -> dict[str, Any]:
         """The shape published in diagnostics and events.

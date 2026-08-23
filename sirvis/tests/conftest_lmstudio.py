@@ -12,6 +12,7 @@ lost by a cleaner fixture:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -74,5 +75,45 @@ def unreachable() -> httpx.MockTransport:
 
     def handle(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
+
+    return httpx.MockTransport(handle)
+
+
+def sse(frames: list[dict[str, Any]], done: bool = True, trailer: str = "") -> bytes:
+    """Recorded server-sent events, in LM Studio's streaming shape.
+
+    Built rather than pasted so a test can say what it is testing — a frame with
+    usage, a frame with no content, a stream that stops without `[DONE]` — and
+    have the body follow from that.
+    """
+    body = "".join(f"data: {json.dumps(frame)}\n\n" for frame in frames)
+    if done:
+        body += "data: [DONE]\n\n"
+    return (body + trailer).encode()
+
+
+def delta(content: str = "", finish: str | None = None,
+          usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    """One streaming frame."""
+    frame: dict[str, Any] = {
+        "id": "chatcmpl-1",
+        "choices": [{"index": 0, "delta": {"content": content} if content else {},
+                     "finish_reason": finish}],
+    }
+    if usage is not None:
+        frame["usage"] = usage
+    return frame
+
+
+def streaming_transport(body: bytes) -> httpx.MockTransport:
+    """A runtime that streams `body` for a completion and nothing else."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(200, content=body,
+                                  headers={"content-type": "text/event-stream"})
+        if request.url.path == "/api/v0/models":
+            return httpx.Response(200, json={"object": "list", "data": INSTALLED})
+        return httpx.Response(200, json={"error": "Unexpected endpoint or method."})
 
     return httpx.MockTransport(handle)
