@@ -13,7 +13,10 @@ sibling service rather than reasoned about:
   handlers in a threadpool. One connection per thread, created on first use.
 - **`":memory:"` gives each *connection* a private database**, so a test that
   migrates on one connection and reads on another finds an empty schema. The
-  shared-cache URI form is what makes an in-memory database one database.
+  shared-cache URI form is what makes an in-memory database one database — and
+  it then needs an *anchor*, because a shared-cache in-memory database is
+  destroyed when its last connection closes. Both halves are required; having
+  only the first presents as `no such table` from an unrelated line.
 """
 
 from __future__ import annotations
@@ -52,6 +55,33 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        3,
+        "machine identity and immutable snapshots, per SIRVIS.md §5.1",
+        """
+        CREATE TABLE IF NOT EXISTS machine (
+            machine_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- Snapshots are append-only and never updated. §5.1 requires every
+        -- benchmark to reference an *immutable* snapshot: if the row could be
+        -- edited, the machine's description could drift away from the
+        -- conditions a result was measured under, which is the whole reason
+        -- the reference exists. The payload is stored whole rather than as
+        -- columns so that a field added at M14 does not need a migration to
+        -- appear in results captured before it.
+        CREATE TABLE IF NOT EXISTS machine_snapshot (
+            snapshot_id TEXT PRIMARY KEY,
+            machine_id  TEXT NOT NULL REFERENCES machine(machine_id),
+            captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+            payload     TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS machine_snapshot_by_machine
+            ON machine_snapshot (machine_id, captured_at DESC);
+        """,
+    ),
 ]
 
 
@@ -64,9 +94,16 @@ class Database:
     threadpool.
     """
 
-    def __init__(self, path: str, version: int) -> None:
+    def __init__(self, path: str, version: int,
+                 anchor: sqlite3.Connection | None = None) -> None:
         self.path = path
         self.version = version
+        # An in-memory database exists only while a connection to it is open.
+        # The migrating connection is kept here as that anchor: without it the
+        # schema is applied, the connection is garbage-collected, the database
+        # evaporates, and the next thread opens an empty one — which presents
+        # as `no such table: setting` from a completely unrelated line.
+        self._anchor = anchor
         self._local = threading.local()
 
     @property
@@ -126,7 +163,9 @@ def prepare_database(path: str) -> Database:
     resolved = resolved_path(path)
     connection = _connect(resolved)
     version = _apply_migrations(connection)
-    return Database(path=resolved, version=version)
+    # Only an in-memory database needs the anchor; a file survives on its own.
+    anchor = connection if resolved != path else None
+    return Database(path=resolved, version=version, anchor=anchor)
 
 
 def _apply_migrations(connection: sqlite3.Connection) -> int:

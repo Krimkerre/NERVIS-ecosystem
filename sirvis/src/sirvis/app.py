@@ -15,8 +15,10 @@ from ecosystem_protocol import new_request_id
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 
+from sirvis.api import router as api_router
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
+from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database
 
 NextCall = Callable[[Request], Awaitable[Any]]
@@ -33,6 +35,7 @@ def create_app(settings: Settings) -> FastAPI:
     _attach_shared_state(api, settings)
     _register_correlation(api)
     api.include_router(ecosystem_router)
+    api.include_router(api_router)
     return api
 
 
@@ -47,6 +50,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     installation = uuid.uuid5(uuid.NAMESPACE_DNS, settings.database_path).hex[:12]
     api.state.service_id = f"sirvis-{installation}"
     api.state.machine_id = uuid.uuid5(uuid.NAMESPACE_DNS, "sirvis-machine").hex
+    # Built once, holds no state about what is loaded: the runtime is the
+    # authority on that (§7), and a cache would be wrong the first time anything
+    # else on this machine loaded something.
+    api.state.lmstudio = LMStudioAdapter(base_url=settings.lmstudio_base_url)
     api.state.ecosystem = sirvis_surface(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,
