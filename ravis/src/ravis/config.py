@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     # background refresh.
     models_cache_ttl_seconds: float = 300.0
 
+    # Operator-declared model capabilities, as {model: {capability: state}}.
+    # The only way to make a tool-requiring pool usable before probing (§8.7) or
+    # SIRVIS evidence (M13) exists — a generic OpenAI-compatible endpoint
+    # publishes model IDs and nothing about what they can do, so without this
+    # every capability stays UNKNOWN and every requiring pool fails closed.
+    # Example: {"qwen/qwen3-4b-2507": {"tools": "SUPPORTED"}}
+    model_capabilities: dict[str, dict[str, str]] = {}
+
     database_path: str = "ravis.db"
     log_level: str = "INFO"
 
