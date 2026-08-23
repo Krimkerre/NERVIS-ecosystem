@@ -21,6 +21,7 @@ from sirvis.cli import main
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
 from sirvis.storage import current_version, prepare_database
+from sirvis.storage.database import MIGRATIONS
 
 
 def _client(settings: Settings) -> TestClient:
@@ -47,8 +48,8 @@ def test_the_service_starts_with_no_runtime_present(settings: Settings) -> None:
 def test_the_database_migrates_to_the_latest_version(settings: Settings) -> None:
     database = prepare_database(settings.database_path)
 
-    assert database.version == 2
-    assert current_version(database.connection) == 2
+    assert database.version == len(MIGRATIONS)
+    assert current_version(database.connection) == len(MIGRATIONS)
 
 
 def test_migrating_twice_is_a_no_op() -> None:
@@ -170,4 +171,5 @@ def test_an_in_memory_database_is_one_database_not_one_per_connection() -> None:
     database = prepare_database(":memory:")
     second = sqlite3.connect(database.path, uri=True)
 
-    assert second.execute("SELECT COUNT(*) FROM applied_migration").fetchone()[0] == 2
+    applied = second.execute("SELECT COUNT(*) FROM applied_migration").fetchone()[0]
+    assert applied == len(MIGRATIONS)

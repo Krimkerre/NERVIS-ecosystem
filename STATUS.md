@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 286 tests, no network, no live service
+.venv/bin/pytest                      # part of 305 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 13 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 32 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 286 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 305 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -87,6 +87,7 @@ into the order work actually happens.
 | 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it |
 | 11 | **M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
 | 12 | **`ecosystem-protocol`, and SIRVIS M0** | The MEP surface extracted to the shared package the runbook has always named, and the second service standing on it |
+| 13 | **SIRVIS M1 + M2** | Machine detection with honest gaps, and the LM Studio adapter. Verified live: discover → load → generate → unload |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -164,12 +165,34 @@ cancelled stream recorded nothing, every warning discarded its reason, and a
 typo in a pool ID silently bypassed routing altogether. Each is in the sections
 below.
 
+### What M1 and M2 turned up
+
+Four facts about this machine's runtime, each established by probing it rather
+than by reading documentation, and each now encoded somewhere that will fail if
+it stops being true.
+
+- **LM Studio answers `200` for endpoints it does not implement**, with an error
+  body. A randomly invented path answers exactly like a plausible one. An
+  adapter trusting the status code reports an unsupported operation as success,
+  which is worse than failing because it is silent. Every response is checked
+  for an `error` key.
+- **There is no HTTP load or unload.** Lifecycle lives in the `lms` CLI, which
+  §7 permits precisely because no API exists for it — "CLI tooling may exist as
+  a debug fallback but must not be the primary abstraction while an API exists".
+  Everything LM Studio *does* expose over HTTP is read over HTTP.
+- **`loaded_context_length` is routinely smaller than `max_context_length`**,
+  which is §7.1's requested-versus-effective distinction in the wild rather than
+  in principle. See the open decision below, because it has already bitten.
+- **A reasoning model can return empty content** at a low token cap: `qwen3-1.7b`
+  spent all eight on thinking. Not an adapter fault, and exactly what
+  `clarvis/docs/benchmarks.md` screened for — but it means "the call succeeded"
+  and "the model said something" are separate checks, which M6 will need.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 13 | **SIRVIS M1 + M2** | Machine detection and the LM Studio adapter. Nothing can be measured without them, and §21.1's first vertical slice starts here |
-| 14 | **SIRVIS M3 + M4** | Model domain, inventory and the public API |
+| 14 | **SIRVIS M3 + M4** | Model domain, inventory and the public API. M3 is where a runtime's records become SIRVIS identities — deliberately not done in the adapter, so the mapping exists once |
 | 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
 | 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
@@ -294,6 +317,23 @@ reviewer who disagrees should say so rather than assume it was an accident.
 ---
 
 ## Open decisions — yours, not mine
+
+- **A model's advertised context is not the context it is loaded with, and RAVIS
+  is currently told the advertised one.** `ravis/measured-capabilities.json`
+  declares `context_window: 32768` for `qwen2.5-coder-7b-instruct` — its
+  maximum. LM Studio had it *loaded* at 8192. RAVIS's `clarvis-agent` pool
+  requires a 32768 minimum, so it routed agent traffic there on the strength of
+  a number describing a configuration that was not running.
+  Nothing broke, and the reason is worth knowing: **LM Studio JIT-loaded two
+  further instances at 32768** rather than reconfiguring the first, so three
+  copies of one 7B model are resident. That is the runtime quietly spending
+  memory to cover a mismatch, and it is what §9's Resource Manager (M8) exists
+  to make visible and deliberate. It is also the most likely explanation for the
+  4-second time-to-first-token measured during M9 against a benchmark figure of
+  0.26s.
+  The honest fix is M3 + M13: SIRVIS reports the *effective* configuration of a
+  loaded instance, and RAVIS filters on that rather than on a model card. Until
+  then, declaring 8192 would under-route and declaring 32768 over-promises.
 
 - **Vision.** Clarvis has no image handling and NERVIS defers images to "Later".
   RAVIS filters on vision because it came free with the generic mechanism. An
@@ -440,7 +480,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0)
+sirvis/                the evidence plane (M0–M2)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime
