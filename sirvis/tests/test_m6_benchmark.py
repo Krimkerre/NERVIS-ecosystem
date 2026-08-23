@@ -23,6 +23,7 @@ import pytest
 from tests.conftest_lmstudio import INSTALLED
 
 from sirvis.benchmarks import BenchmarkTest, ExperimentSpec, GenerationConfig, run_experiment
+from sirvis.benchmarks.engine import answer_offset
 from sirvis.core.evidence import EvidenceKind, Validity
 from sirvis.errors import ModelNotFoundError
 from sirvis.resources import ResourceManager
@@ -380,6 +381,53 @@ async def test_an_experiment_may_refuse_to_be_adapted(tmp_path) -> None:  # type
     assert outcome.thinking_suppression is None
     assert outcome.suppressions_tried == []
     assert runtime.generations == 3
+
+
+def test_the_answer_starts_after_a_think_block_and_not_before() -> None:
+    """`None` is a third answer — *not yet knowable* — and it has to be, because
+    a stream arrives in arbitrary chunks. A first chunk of `<th` is neither a
+    think block nor an answer until more of it exists, and deciding early either
+    way mis-times the first token."""
+    assert answer_offset("") is None
+    assert answer_offset("<th") is None
+    assert answer_offset("<think>still going") is None
+    assert answer_offset("<think>done</think>the answer") == len("<think>done</think>")
+    assert answer_offset("a plain answer") == 0
+    assert answer_offset("   leading space") == 3
+    # A model whose answer merely mentions the tag is not opening one.
+    assert answer_offset("the <think> tag is used by") == 0
+
+
+async def test_thinking_that_arrives_as_content_is_not_measured_as_an_answer(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """Some runtimes route thinking to `reasoning_content`, where this engine
+    never sees it. Others do not: `tencent/Hunyuan-1.8B` streams it as ordinary
+    content, and a run of it reported a 0.043 s time-to-first-token and 55
+    tokens/second over 256 tokens containing no answer — and looked clean, since
+    from the stream's point of view the model was talking."""
+    runtime = FakeRuntime(content=("<thi", "nk>", "hmm", "</think>", "ans", "wer"))
+
+    outcome, _ = await _run(runtime, _spec(warmups=0, repetitions=3), results_root=tmp_path)
+
+    first = outcome.repetitions[0]
+    assert first.content == "answer"
+    assert first.thinking == "<think>hmm</think>"
+    # Timed from the answer's first token, not the thinking's: three clock ticks
+    # in (start, first answer chunk), not one.
+    assert first.ttft_seconds == pytest.approx(0.5)
+    assert first.chunk_count == 2
+
+
+async def test_a_stream_that_only_ever_thinks_has_no_answer_to_measure(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The case that defeated the empty-content check. It fires again now."""
+    runtime = FakeRuntime(content=("<think>", "and never stops"))
+
+    outcome, _ = await _run(runtime, _spec(warmups=1, repetitions=2), results_root=tmp_path)
+
+    assert outcome.record.validity is Validity.SUSPECT
+    assert "time_to_first_token_seconds" not in outcome.record.measurements
+    assert any("no content" in note for note in outcome.record.validity_notes)
 
 
 async def test_a_configuration_the_runtime_did_not_honour_is_a_warning(tmp_path) -> None:  # type: ignore[no-untyped-def]

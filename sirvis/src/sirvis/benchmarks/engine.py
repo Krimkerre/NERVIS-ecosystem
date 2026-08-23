@@ -101,6 +101,17 @@ METHOD_LOAD = "resource_manager.load_time.v1"
 # below it, the reported count is describing work the content window never saw.
 CONTENT_TOKEN_AGREEMENT = 0.8
 
+# Some runtimes route a model's thinking into `reasoning_content`, where this
+# engine never sees it. Others do not, and the thinking arrives as ordinary
+# content wrapped in these tags — `tencent/Hunyuan-1.8B` does exactly that here.
+#
+# Measuring that as an answer is not a small error. A Hunyuan run reported a
+# 0.043 s time-to-first-token and 55 tokens/second over 256 tokens that
+# contained no answer at all, and looked clean doing it: the empty-content check
+# could not fire, because from the stream's point of view the model was talking.
+THINK_OPEN = "<think>"
+THINK_CLOSE = "</think>"
+
 # Finish reasons that mean the model stopped for a reason the experiment chose.
 # Anything else is §11.8's "unexpected generation stop" and becomes a warning.
 _EXPECTED_STOPS = ("stop", "length", "eos", None)
@@ -126,6 +137,26 @@ class GenerationRuntime(Protocol):
         ...
 
 
+def answer_offset(text: str) -> int | None:
+    """Where the answer starts in a stream that may open with a think block.
+
+    `None` means *not yet knowable*, which is a third answer and the reason this
+    is a function rather than a condition inline: a stream arrives in arbitrary
+    chunks, so the first one may be `<th` — neither a think block nor an answer
+    until more of it exists. Deciding early either way mis-times the first token.
+    """
+    head = text.lstrip()
+    if not head:
+        return None
+    if head.startswith(THINK_OPEN):
+        closed = text.find(THINK_CLOSE)
+        return None if closed < 0 else closed + len(THINK_CLOSE)
+    if THINK_OPEN.startswith(head[: len(THINK_OPEN)]):
+        # Still could become "<think>" once another chunk lands.
+        return None
+    return len(text) - len(head)
+
+
 @dataclass(frozen=True)
 class Repetition:
     """One generation, measured. Every one of these is preserved (§11.7).
@@ -140,6 +171,9 @@ class Repetition:
     phase: str
     index: int
     total_seconds: float
+    # The answer only. Thinking that arrived inline is split off into
+    # `thinking`, so a metric computed from this is about what the model said
+    # rather than about what it thought first.
     content: str
     ttft_seconds: float | None = None
     finish_reason: str | None = None
@@ -148,6 +182,10 @@ class Repetition:
     chunk_count: int = 0
     token_source: str = "reported"
     lowest_available_bytes: int | None = None
+    # Preserved rather than discarded: §11.9 keeps raw output so a result can be
+    # re-read later, and "the model thought for 900 characters and never
+    # answered" is the finding, not noise to drop.
+    thinking: str = ""
 
     @property
     def hidden_tokens(self) -> int:
@@ -221,6 +259,7 @@ class Repetition:
             "token_source": self.token_source,
             "generation_tokens_per_second": self.generation_tokens_per_second,
             "content": self.content,
+            "thinking": self.thinking,
             "lowest_available_bytes": self.lowest_available_bytes,
         }
 
@@ -473,7 +512,8 @@ async def _measure(
     outcome.telemetry.append(sampler.sample(BEFORE_GENERATION))
     started = clock()
     first_token_at: float | None = None
-    pieces: list[str] = []
+    text = ""
+    answer_from: int | None = None
     finish_reason: str | None = None
     usage: Mapping[str, Any] | None = None
     chunks = 0
@@ -483,22 +523,32 @@ async def _measure(
             spec.model_key, test.messages(), **test.generation.as_options()
         ):
             if chunk.content:
-                chunks += 1
-                if first_token_at is None:
-                    first_token_at = clock()
-                pieces.append(chunk.content)
+                text += chunk.content
+                if answer_from is None:
+                    # Still inside a think block, or too little text to tell.
+                    # Neither the clock nor the chunk counter may start yet: both
+                    # describe the answer, and the answer has not begun.
+                    offset = answer_offset(text)
+                    if offset is not None and len(text) > offset:
+                        answer_from = offset
+                        first_token_at = clock()
+                        chunks = 1
+                else:
+                    chunks += 1
             finish_reason = chunk.finish_reason or finish_reason
             usage = chunk.usage or usage
 
     total = clock() - started
     outcome.telemetry.extend(watcher.samples)
     completion, source = _completion_tokens(usage, chunks)
+    thought = text if answer_from is None else text[:answer_from]
     return Repetition(
         test_id=test.id,
         phase=phase,
         index=index,
         total_seconds=total,
-        content="".join(pieces),
+        content="" if answer_from is None else text[answer_from:],
+        thinking=thought,
         ttft_seconds=None if first_token_at is None else first_token_at - started,
         finish_reason=finish_reason,
         prompt_tokens=_count(usage, "prompt_tokens"),
