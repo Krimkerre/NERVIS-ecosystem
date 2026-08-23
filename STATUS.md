@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 317 tests, no network, no live service
+.venv/bin/pytest                      # part of 338 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 44 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 63 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 317 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 338 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -89,6 +89,7 @@ into the order work actually happens.
 | 12 | **`ecosystem-protocol`, and SIRVIS M0** | The MEP surface extracted to the shared package the runbook has always named, and the second service standing on it |
 | 13 | **SIRVIS M1 + M2** | Machine detection with honest gaps, and the LM Studio adapter. Verified live: discover → load → generate → unload |
 | 14 | **SIRVIS M3** | The four-concept model domain, and the `runtime_key` lookup RAVIS needs |
+| 15 | **SIRVIS M4** | Token scopes, origin validation, and the mutating endpoints that let a script drive a model *through* SIRVIS |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -217,11 +218,35 @@ when it is not loaded. An unknown key is a 404 and nothing falls back to a
 nearest match, because a fuzzy hit would be a guess wearing an identity's
 clothes and RAVIS would route on it.
 
+### The size tiebreak was ranking pools it had no business ranking
+
+Spotted by a reader asking why the same model kept being selected. It was worse
+than it looked: **eight of the thirteen pools resolved to `qwen/qwen3-1.7b`** —
+the one model `clarvis/docs/benchmarks.md` explicitly never measured — and
+`ravis/balanced` was selecting the smallest installed thing available.
+
+The flaw was in the justification, not the arithmetic. "Among candidates a pool
+already considers identical, the smaller is faster and cheaper" assumes the pool
+has *expressed* something for them to be equal on. A pool with an empty `prefer`
+considers everything equal, so size stopped being the last word and became the
+entire ranking.
+
+Now applied only where a pool declared a preference. `fast`, `performance`,
+`coding` and the two Clarvis pools are unaffected and still select what they
+should. The six that declare nothing — `auto`, `balanced`, `cheap`, `local`,
+`api`, `private` — fall back to alphabetical order, which is meaningless and is
+the honest state: they have no basis to distinguish on until M13, and
+alphabetical is at least not systematically biased towards whatever is smallest.
+
+**They still all select the same model**, and that is not fixed — it is
+correctly reported. Inventing preferences their §5 descriptions do not imply
+would be the opaque magic §9.4 forbids, in exchange for looking better.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 15 | **SIRVIS M4** | The public API proper — §4.5 token scopes and origin validation, so an external script can drive a model *through* SIRVIS rather than through LM Studio |
+| 16 | **SIRVIS M7** | The evidence schema. **Its acceptance is verbatim Stage 4's exit criterion**, so this is the milestone the stage turns on |
 | 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
 | 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
@@ -328,6 +353,18 @@ reviewer who disagrees should say so rather than assume it was an accident.
   exactly the second-guessing §5.3 forbids. It is consulted before *calling*,
   which is how a named model with an open circuit fails fast (503) instead of
   paying another timeout to rediscover what is already known.
+- **SIRVIS's CSRF token is deferred, and the gap is stated rather than stubbed.**
+  §4.5 asks for an origin check, a non-simple content type *and* a CSRF token on
+  mutations. The first two are built and tested; the third needs a session to
+  bind to, and SIRVIS has no sessions until the dashboard at M14. A token bound
+  to nothing would look like protection and provide none, so it is absent and
+  recorded. §4.5's own gate — unauthenticated refused, wrong-origin refused —
+  is met.
+- **SIRVIS's load and unload bypass a Resource Manager that does not exist.**
+  §9 requires every load and unload to flow through it; M8 builds it. Until
+  then these are the primitives it will wrap, with no reference counting and no
+  ownership: an unload does not ask whether another client is mid-request. That
+  is why both endpoints require the `runtime` scope rather than being open.
 - **CORS is reads-only and never sends credentials.** A browser dashboard cannot
   read `/api/v1/*` without `Access-Control-Allow-Origin`, so the middleware now
   emits it — for an allow-listed origin only, echoed rather than `*`, and with
@@ -509,7 +546,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0–M3)
+sirvis/                the evidence plane (M0–M4)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

@@ -143,6 +143,11 @@ def size_rank(model: str) -> tuple[int, float, str]:
     smaller model is *better* — only that when RAVIS has no evidence either way,
     the cheaper one to run is the better default. Real ranking is M13.
 
+    **Only consulted for a pool that declared a preference.** The engine applies
+    that restriction, and it exists because the first version did not: with no
+    preference to be equal *on*, every candidate ties and size becomes the whole
+    ranking rather than the last word in it.
+
     The model name is retained as the final component so the order stays total
     and reproducible, which §9.7's determinism gate requires.
     """

@@ -14,8 +14,10 @@ from typing import Any, Awaitable, Callable
 from ecosystem_protocol import new_request_id
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from sirvis.api import router as api_router
+from sirvis.api.security import AuthorizationError, ensure_bootstrap_token
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
 from sirvis.runtimes import LMStudioAdapter
@@ -34,6 +36,7 @@ def create_app(settings: Settings) -> FastAPI:
     api = FastAPI(title="SIRVIS", version="0.0.1", docs_url=None, redoc_url=None)
     _attach_shared_state(api, settings)
     _register_correlation(api)
+    _register_error_handling(api)
     api.include_router(ecosystem_router)
     api.include_router(api_router)
     return api
@@ -43,6 +46,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
+    # §4.5 requires a token and a fresh install has none, so the first run mints
+    # one. It is deliberately not logged or printed here — `sirvis token` is the
+    # one place it can be read, and only once.
+    ensure_bootstrap_token(api.state.database)
     # Identity of this installation. Opaque and locally generated — never
     # derived from hardware, a serial number or a username (runbook §4.1).
     # A real machine identity, which is a different thing, arrives with M1's
@@ -59,6 +66,20 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         machine_id=api.state.machine_id,
         database=api.state.database,
     )
+
+
+def _register_error_handling(api: FastAPI) -> None:
+    """Turn a refusal into a response, in one place.
+
+    One translation point so the wire shape of a refusal cannot drift per
+    endpoint — and so no handler can accidentally include the presented
+    credential in the body while explaining why it was rejected.
+    """
+
+    @api.exception_handler(AuthorizationError)
+    async def handle_refusal(request: Request, exc: AuthorizationError) -> JSONResponse:
+        del request
+        return JSONResponse(status_code=exc.status, content={"detail": exc.message})
 
 
 def _register_correlation(api: FastAPI) -> None:
