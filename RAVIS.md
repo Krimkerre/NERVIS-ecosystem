@@ -999,6 +999,13 @@ Export failure never blocks routing.**
 
 ## 15.3 Dashboard
 
+**These screens already exist, rendered by `../template/index.html`.** It is not a mockup of
+this section — it is a working implementation whose data layer is shaped like §15.1's responses
+and whose every method cites the endpoint it will call. From Stage 3 it reads RAVIS's real
+read-only management API (M18a), so the screens below are how RAVIS is observed *during* the
+build rather than after it. Do not build a second implementation inside RAVIS: M17 is deferred
+for exactly this reason, and NERVIS serves these properly from Stage 6 (`NERVIS.md` §25).
+
 Current profile, requests today, local %, cloud %, spend, estimated savings, provider status,
 loaded models, SIRVIS status, recent routes, errors.
 

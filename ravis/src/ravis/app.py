@@ -26,6 +26,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ravis.admission import BodySizeLimiter, RateLimiter, check_origin, client_address
+from ravis.api.management import management_router
+from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings
 from ravis.ecosystem import router as ecosystem_router
@@ -62,6 +64,7 @@ def create_app(settings: Settings) -> Any:
     api.include_router(ecosystem_router)
     api.include_router(models_router)
     api.include_router(chat_router)
+    api.include_router(management_router)
     # Wrapping last means this ends up outermost, which is the entire point.
     return BodySizeLimiter(api, settings.max_request_bytes)
 
@@ -113,6 +116,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Stateless and I/O-free: capabilities are passed in, so a decision is
     # reproducible and testable without a provider (§9.7's determinism gate).
     api.state.routing_engine = RoutingEngine()
+    # Bounded and in memory: route decisions are diagnostic rather than business
+    # state, and §17's storage model does not list them. Losing them on restart
+    # costs a debugging session; persisting every one costs disk forever.
+    api.state.decision_log = DecisionLog()
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,

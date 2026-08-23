@@ -938,6 +938,13 @@ disk and runtime failures expose truthful readiness and actionable structured er
 
 # 16. Web dashboard
 
+**`../template/index.html` already renders the Models, Benchmarks, Runtime Sets and Results
+screens**, against a transcription of a real benchmark run on a real machine — including the
+provenance rendering this section insists on. It is the reference implementation, not a sketch,
+and this stage's visible increment is wiring those screens to real endpoints rather than
+building them (`ECOSYSTEM_RUNBOOK.md` §6.2 Stage 4). Read `../template/docs/WIRING.md` before
+starting; read `../template/docs/PITFALLS.md` before writing the replacement.
+
 Pages: Dashboard, Models, Downloads, Benchmarks, Queue, Results, Recommendations, Runtime,
 System, Settings.
 
