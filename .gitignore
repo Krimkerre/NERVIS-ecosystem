@@ -8,3 +8,10 @@
 __pycache__/
 *.pyc
 *.egg-info/
+
+# SQLite databases created by running the service. `ravis serve` writes
+# `ravis.db` into its working directory by default, and a database committed
+# alongside the code is a state file masquerading as source.
+*.db
+*.db-wal
+*.db-shm
