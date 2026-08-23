@@ -30,7 +30,13 @@ from sirvis.config import Settings
 from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database
 
-LOAD = "/api/v1/runtime/load"
+# §4.2 lists `/api/v1/runtime/sessions` and no `/runtime/load`. M4 shipped the
+# latter, which was an invented path — the ecosystem's governing rule forbids
+# inventing another component's API surface, and that applies to inventing one's
+# own just as much when a specification already names it. M8 replaced it with
+# the canonical session endpoint, which is also the only shape that can carry a
+# lease.
+LOAD = "/api/v1/runtime/sessions"
 JSON = {"content-type": "application/json"}
 
 
@@ -57,7 +63,7 @@ def test_an_unauthenticated_mutation_is_refused() -> None:
     on this machine can reach the port."""
     client, _ = _app()
 
-    response = client.post(LOAD, json={"runtime_key": "anything"}, headers=JSON)
+    response = client.post(LOAD, json={"models": [{"model_id": "anything"}]}, headers=JSON)
 
     assert response.status_code == 401
 
@@ -74,7 +80,7 @@ def test_a_wrong_origin_mutation_is_refused_even_with_a_valid_token() -> None:
 
     response = client.post(
         LOAD,
-        json={"runtime_key": "anything"},
+        json={"models": [{"model_id": "anything"}]},
         headers={**JSON, "authorization": f"Bearer {token}", "origin": "http://evil.example"},
     )
 
@@ -88,7 +94,7 @@ def test_an_allow_listed_origin_with_a_token_is_permitted() -> None:
 
     response = client.post(
         LOAD,
-        json={"runtime_key": "qwen2.5-coder-7b-instruct"},
+        json={"models": [{"model_id": "qwen2.5-coder-7b-instruct"}]},
         headers={**JSON, "authorization": f"Bearer {token}",
                  "origin": "http://127.0.0.1:8080"},
     )
@@ -108,7 +114,7 @@ def test_a_form_content_type_is_refused() -> None:
 
     response = client.post(
         LOAD,
-        content="runtime_key=anything",
+        content="model_id=anything",
         headers={"content-type": "application/x-www-form-urlencoded",
                  "authorization": f"Bearer {token}"},
     )
@@ -123,7 +129,7 @@ def test_a_token_without_the_scope_is_refused() -> None:
 
     response = client.post(
         LOAD,
-        json={"runtime_key": "anything"},
+        json={"models": [{"model_id": "anything"}]},
         headers={**JSON, "authorization": f"Bearer {read_only}"},
     )
 

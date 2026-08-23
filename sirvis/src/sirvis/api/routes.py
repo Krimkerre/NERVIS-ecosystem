@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from sirvis.api.security import Scope, redacted, require, token_summary
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
+from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
 from sirvis.telemetry import detect_system
 
@@ -215,53 +216,99 @@ def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
     }
 
 
-@router.post("/runtime/load")
-async def load_model(request: Request) -> dict[str, Any]:
-    """Load a build through SIRVIS rather than through LM Studio directly.
+@router.post("/runtime/sessions")
+async def open_session(request: Request) -> dict[str, Any]:
+    """Acquire one or more models under a lease (§9).
 
-    M4's exit criterion in one endpoint: "an external script can inspect SIRVIS
-    and control a model *through SIRVIS*". Requires `runtime` scope, because a
-    load spends the machine's memory and can push out something another client
-    is mid-request against.
-
-    **§9's Resource Manager does not exist yet (M8), and this is the primitive
-    it will wrap rather than a replacement for it.** Until then there is no
-    reference counting and no ownership: two clients loading the same build get
-    whatever the runtime does, and an unload here does not ask whether anybody
-    else is using the thing. That is a real gap, recorded rather than papered
-    over, and it is why this endpoint is scoped `runtime` rather than open.
+    The shape §9 specifies: a set of models with roles, and a lease. A session
+    is how an external client says "I am using these" so that nothing else
+    unloads them — and the lease is how SIRVIS recovers when that client dies
+    without saying it has finished, which is indistinguishable from it being
+    slow.
     """
     require(request, Scope.RUNTIME)
     body = await _json_body(request)
-    runtime_key = str(body.get("runtime_key") or "").strip()
-    if not runtime_key:
-        raise HTTPException(status_code=422, detail="runtime_key is required")
+    wanted = body.get("models") or []
+    if not isinstance(wanted, list) or not wanted:
+        raise HTTPException(status_code=422, detail="models must be a non-empty list")
 
-    adapter: LMStudioAdapter = request.app.state.lmstudio
-    configuration = body.get("configuration") or {}
+    manager: ResourceManager = request.app.state.resources
+    owner = str(body.get("owner") or "anonymous")
+    seconds = body.get("lease_seconds")
+    session_id: str | None = None
+    lease = None
     try:
-        loaded = await adapter.load(runtime_key, configuration)
+        for entry in wanted:
+            model_key = str((entry or {}).get("model_id") or "").strip()
+            if not model_key:
+                raise HTTPException(status_code=422, detail="each model needs a model_id")
+            lease = await manager.acquire(
+                owner=owner,
+                model_key=model_key,
+                configuration=(entry or {}).get("configuration"),
+                policy=ConflictPolicy(str(body.get("policy") or "wait")),
+                lease_seconds=float(seconds) if seconds else None,
+                session_id=session_id,
+            )
+            session_id = lease.session_id
+    except ResourceExhaustedError as failure:
+        # Partial acquisition is released rather than left dangling: a session
+        # that got two of its three models is not a session anybody asked for,
+        # and leaving the two held would strand them behind a lease nobody owns.
+        if session_id:
+            await manager.release(session_id)
+        raise HTTPException(status_code=409, detail=str(failure)) from failure
     except RuntimeUnavailableError as failure:
+        if session_id:
+            await manager.release(session_id)
         raise HTTPException(status_code=502, detail=str(failure)) from failure
-    # Both configurations, and anything the runtime would not honour (§7.1).
-    return loaded.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+
+    assert lease is not None  # the loop ran at least once, or 422 was raised
+    return lease.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
 
 
-@router.post("/runtime/unload")
-async def unload_model(request: Request) -> dict[str, Any]:
-    """Unload a build. Same scope and the same M8 caveat as `load`."""
+@router.delete("/runtime/sessions/{session_id}")
+async def close_session(request: Request, session_id: str) -> dict[str, Any]:
+    """Release a session's claims. Idempotent (§9)."""
     require(request, Scope.RUNTIME)
-    body = await _json_body(request)
-    runtime_key = str(body.get("runtime_key") or "").strip()
-    if not runtime_key:
-        raise HTTPException(status_code=422, detail="runtime_key is required")
+    manager: ResourceManager = request.app.state.resources
+    unloaded = await manager.release(session_id)
+    return {"session_id": session_id, "state": "released", "unloaded": unloaded}
 
-    adapter: LMStudioAdapter = request.app.state.lmstudio
-    try:
-        await adapter.unload(runtime_key)
-    except RuntimeUnavailableError as failure:
-        raise HTTPException(status_code=502, detail=str(failure)) from failure
-    return {"runtime_key": runtime_key, "state": "unloaded"}
+
+@router.post("/runtime/sessions/{session_id}/renew")
+async def renew_session(request: Request, session_id: str) -> dict[str, Any]:
+    """Extend a lease before it lapses — §9's heartbeat.
+
+    A lapsed lease is a 404 rather than a silent re-creation: its models have
+    already been released, and handing back a fresh lease would tell the client
+    it still holds something it does not.
+    """
+    require(request, Scope.RUNTIME)
+    manager: ResourceManager = request.app.state.resources
+    renewed = manager.renew(session_id)
+    if renewed is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"session {session_id!r} has lapsed; its models were already released",
+        )
+    return renewed.as_dict()
+
+
+@router.get("/runtime/residency")
+async def read_residency(request: Request) -> dict[str, Any]:
+    """What is loaded, who holds it, and what the runtime holds that SIRVIS does not.
+
+    The view §9 exists to make possible. `foreign` is the interesting column:
+    models the runtime loaded by itself — LM Studio does this when a request
+    wants more context than the running copy has — which occupy memory SIRVIS
+    is accounting for and does not own.
+    """
+    manager: ResourceManager = request.app.state.resources
+    return manager.residency() | {
+        "foreign": await manager.foreign_instances(),
+        "snapshot_revision": SNAPSHOT_REVISION,
+    }
 
 
 async def _json_body(request: Request) -> dict[str, Any]:

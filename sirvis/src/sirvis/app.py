@@ -20,6 +20,7 @@ from sirvis.api import router as api_router
 from sirvis.api.security import AuthorizationError, ensure_bootstrap_token
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
+from sirvis.resources import ResourceManager
 from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database
 
@@ -61,6 +62,16 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # authority on that (§7), and a cache would be wrong the first time anything
     # else on this machine loaded something.
     api.state.lmstudio = LMStudioAdapter(base_url=settings.lmstudio_base_url)
+    # §9: *all* load and unload operations flow through this. The adapter is
+    # still reachable for reads — discovery, generation — but nothing else in
+    # the service is allowed to drive lifecycle directly, because the moment two
+    # code paths can unload a model, one of them does it while the other is
+    # using it.
+    api.state.resources = ResourceManager(
+        runtime=api.state.lmstudio,
+        default_lease_seconds=settings.default_lease_seconds,
+        max_loaded=settings.max_loaded_models,
+    )
     api.state.ecosystem = sirvis_surface(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,
