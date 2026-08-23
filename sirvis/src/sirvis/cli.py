@@ -34,6 +34,8 @@ from sirvis.telemetry import detect_system
 if TYPE_CHECKING:  # imported for types only — see `_run_benchmark` on why the
     # real imports are deferred: nothing that starts a benchmark should be paid
     # for by `sirvis doctor`, which is the command run when things are broken.
+    from typing import Any
+
     from sirvis.benchmarks import ExperimentOutcome, ExperimentSpec
 
 EXIT_OK = 0
@@ -96,6 +98,11 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--warmups", type=int, default=None, help="override warmup runs")
     run.add_argument(
         "--repetitions", type=int, default=None, help="override measured repetitions"
+    )
+    run.add_argument(
+        "--runtime-set", default=None,
+        help="run the specification's tests against a stored Runtime Set (M10): "
+             "every member is measured alone, then co-resident in §11.3's modes",
     )
     run.add_argument(
         "--yes", "-y", action="store_true",
@@ -330,6 +337,9 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
     }
     spec = dataclasses.replace(spec, **overrides)
 
+    if arguments.runtime_set:
+        return _run_multi_benchmark(settings, arguments, spec)
+
     if not _confirm_load(spec, settings, assume_yes=arguments.yes):
         return EXIT_FATAL_CONFIGURATION
 
@@ -358,6 +368,93 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
 
     _print_outcome(outcome)
     return EXIT_OK if outcome.state is RunState.SUCCEEDED else EXIT_BENCHMARK_FAILED
+
+
+def _run_multi_benchmark(
+    settings: Settings, arguments: argparse.Namespace, spec: ExperimentSpec
+) -> int:
+    """M10: the specification's tests, against every member of a stored set.
+
+    The YAML file supplies the *suite* — tests, warmups, repetitions — and the
+    set supplies the *targets*. Reusing the single-model file format rather than
+    inventing a second one means every suite already written can be pointed at a
+    combination unchanged.
+    """
+    import asyncio
+
+    from sirvis.benchmarks.multi import MultiModelSpec, run_multi_experiment
+    from sirvis.errors import SirvisError
+    from sirvis.resources import ResourceManager
+    from sirvis.runtimes import LMStudioAdapter
+    from sirvis.storage import RunState, reconcile_interrupted
+    from sirvis.storage.runtime_sets import find_by_name, read_runtime_set
+
+    database = prepare_database(settings.database_path)
+    stored = read_runtime_set(database, arguments.runtime_set) or find_by_name(
+        database, arguments.runtime_set
+    )
+    if stored is None:
+        print(f"error: no runtime set named {arguments.runtime_set!r}", file=sys.stderr)
+        return EXIT_FATAL_CONFIGURATION
+
+    multi = MultiModelSpec.from_set(
+        stored, suite_id=spec.suite_id, suite_version=spec.suite_version,
+        tests=spec.tests, warmups=spec.warmups, repetitions=spec.repetitions,
+    )
+    if not _confirm_multi_load(multi, settings, assume_yes=arguments.yes):
+        return EXIT_FATAL_CONFIGURATION
+
+    for abandoned in reconcile_interrupted(database):
+        print(f"marked interrupted run {abandoned} unrecoverable", file=sys.stderr)
+    adapter = LMStudioAdapter(
+        base_url=settings.lmstudio_base_url, lms_path=settings.lmstudio_cli_path
+    )
+    resources = ResourceManager(
+        runtime=adapter,
+        default_lease_seconds=settings.default_lease_seconds,
+        max_loaded=settings.max_loaded_models,
+    )
+    try:
+        outcome = asyncio.run(run_multi_experiment(
+            multi, runtime=adapter, resources=resources, database=database,
+            results_root=settings.results_path,
+        ))
+    except SirvisError as failure:
+        print(f"error: {failure.message}", file=sys.stderr)
+        return EXIT_BENCHMARK_FAILED
+
+    print(f"run {outcome.run_id}: {outcome.state.value} — {outcome.detail}")
+    print(f"results: {outcome.results_path}")
+    for warning in outcome.warnings:
+        print(f"warning: {warning}")
+    # A co-residency failure exits non-zero even though results were written:
+    # the run is a recorded finding either way, and the exit code answers the
+    # different question a script is asking — "did the combination work?"
+    return EXIT_OK if outcome.state is RunState.SUCCEEDED else EXIT_BENCHMARK_FAILED
+
+
+def _confirm_multi_load(multi: Any, settings: Settings, assume_yes: bool) -> bool:
+    """Name every model about to be loaded — all of them, before any of them.
+
+    The single-model prompt names one model. This run will load each member
+    alone and then all of them together, and the person at the keyboard is
+    entitled to the whole bill before the first byte moves.
+    """
+    members = ", ".join(
+        f"{member.role}={member.model_key}" for member in multi.per_role
+    )
+    print(
+        f"about to load {len(multi.per_role)} models into the runtime at "
+        f"{settings.lmstudio_base_url}: {members}\n"
+        "each is measured alone, then ALL are loaded together for the "
+        "co-residency modes"
+    )
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        print("refusing to load models without a terminal to ask; pass --yes", file=sys.stderr)
+        return False
+    return input("proceed? [y/N] ").strip().lower() in {"y", "yes"}
 
 
 def _confirm_load(spec: ExperimentSpec, settings: Settings, assume_yes: bool) -> bool:

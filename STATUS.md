@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 611 tests, no network, no live service
+.venv/bin/pytest                      # part of 630 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 611 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 630 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -98,6 +98,7 @@ into the order work actually happens.
 | 21 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 | 22 | **RAVIS M4** | The Anthropic native adapter — the first real provider on Path B. Request and response translation, streamed tool calls, capabilities read from the model catalogue, and four mappings decided deliberately rather than by default. Settled below |
 | 23 | **SIRVIS M9** | Runtime Sets — §10's versioned multi-model target. Definitions, revisions that only move when the definition does, role-addressable members, sessions opened against a set under one lease, and a fit estimate that can refuse but never approve. Settled below |
+| 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. Settled below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -784,6 +785,63 @@ manager holds both under one lease and proves nothing about this machine. That
 check needs two real models resident at once, and per the rule above it does not
 happen without being asked for first.
 
+### What M10 settled
+
+§10's gate has two clauses and only one of them is about producing something:
+
+    Interaction matrix produced; a simultaneous-load failure is recorded as a
+    result, not converted into separate-model success.
+
+**The second clause is the hard one, and the reason is timing.** The alone phase
+runs first and succeeds. So at the moment co-residency fails, there is a
+directory full of good measurements sitting there, and the wrong behaviour is
+not a crash — it is a *plausible success*. A run that reported those numbers
+would be stating that the combination works, on the strength of evidence that
+each model works by itself, which is precisely the inference §10.1 exists to
+forbid. `_load_together` refuses it: the failure is persisted as a result, the
+alone measurements are kept and labelled alone-only, the matrix reports
+`complete: false` with the co-resident columns *absent* rather than filled, and
+the run finishes FAILED. Three tests hold each half of that.
+
+The decisions that shaped the rest:
+
+- **Alone is measured in the same run, not borrowed from M6's corpus.** Reusing
+  those numbers would be cheaper and wrong: they were taken on another day, at
+  another thermal state, against another background, so a degradation
+  percentage computed across them measures the week rather than the
+  co-residency. The run pays three times the generation cost to make its own
+  comparison internally valid, and the matrix says `basis: measured in this run`
+  so nobody has to guess which it was.
+- **Co-residency is part of the evidence identity.** It rides in
+  `runtime_configuration`, which §12.2 already makes identifying, so the same
+  build measured alone and measured beside another model produce different
+  `evidence_id`s. Without that they would be one key holding two different
+  numbers — the corpus disagreeing with itself, which is the failure this
+  repository already had once when the identity recorded what was asked for
+  rather than what ran.
+- **A result is keyed by role, not by model.** §17 allows one result per
+  ExperimentTarget, and for a set the target is the role: two roles could name
+  one build, and two results about "that build" would collide on the run's
+  unique constraint for a reason invisible from outside.
+- **Concurrent mode gathers rather than task-groups.** A set where the agent
+  falls over under concurrent load while chat keeps answering is exactly the
+  finding the mode exists to produce; cancelling the survivor would destroy the
+  evidence for it. The failure becomes a warning and the survivor is measured.
+- **Alternating interleaves by repetition**, not by member. Running each
+  member's repetitions in a block would let the runtime settle between switches
+  and measure nothing about switching, which is the whole cost the mode is for.
+- **Every measurement primitive is M6's.** A member carries a real
+  `ExperimentSpec`, so a role's alone phase is *literally* a single-model run —
+  warmups, thinking suppression, TTFT splitting and token accounting are the
+  same code, not a second implementation free to drift.
+
+**Nothing has been measured.** M10 is an engine and a matrix shape; the corpus
+holds zero pairs. `sirvis benchmark run <suite> --runtime-set <name>` is the
+entry point, it names every model it is about to load before loading any of
+them, and it refuses outright without a terminal to ask. Until someone runs it,
+the Runtime Sets screen stays on mocks and §21.1's second vertical slice is
+unstarted — which is the honest state, not a formality.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -921,7 +979,7 @@ synthesising pairs from single-model runs would assert precisely what §10.1
 exists to deny: *two models fitting separately does not prove they work well
 together.* The screen's own subtitle says memory behaved as arithmetic predicted
 and behaviour did not — fabricating those rows would make the page contradict
-the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. The rows that screen needs come from M10.
+the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. The rows that screen needs now have a producer — M10's engine emits the interaction matrix — but not one measured pair exists yet, because a multi-model run loads models and has not been asked for. The screen stays on mocks until a real run fills it.
 
 Live wiring is why the reconciliation above exists, and that is the argument for
 doing it early rather than last: a queue view counts states, and a log does not.
@@ -930,7 +988,6 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over the sets M9 now defines. §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
 | 25 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
 ### After that
@@ -1524,7 +1581,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9, M3b, M4)
-sirvis/                the evidence plane (M0–M4, M6, M7, M8, M9)
+sirvis/                the evidence plane (M0–M4, M6–M10)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime
