@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 486 tests, no network, no live service
+.venv/bin/pytest                      # part of 488 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 190 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 192 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 486 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 488 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -608,6 +608,8 @@ thinking off`, and the template kwarg:
 | `qwen3-1.7b` | yes | `/no_think`, `/nothink`, either turn, **and a plain instruction** |
 | `tencent/Hunyuan-1.8B` | yes | `/no_think` |
 | `smollm3-3b` | yes | `/no_think` **in the system message only** |
+| `gemma-4-e2b`, `gemma-4-e4b` | yes | nothing — 77 of 79 tokens spent thinking |
+| `bonsai-27b` | yes | nothing |
 | `exaone-deep-2.4b` | yes | nothing — and it does not delimit its thinking at all |
 | `lfm2.5-2.6b-mlx` | yes | nothing stops it; an instruction gets it answering *while still thinking* |
 | `deepseek-r1-distill-qwen-1.5b` | yes | **nothing** — all six failed, no content in any |
@@ -631,6 +633,21 @@ rate, but the tokens are reasoning rather than an answer, and **no structural
 check can tell**. Distinguishing them needs something that can judge whether the
 output answers the question, which is §11.6's evaluators and M18. Stated as a
 limit rather than papered over.
+
+**A template default is not a model's behaviour.** Gemma-4's template sets
+`enable_thinking` to `false` unless asked, which reads like a family that does
+not reason — and produced the wrong prediction. Both Gemma-4 builds spend their
+whole budget thinking: the probe returned `reasoning_content` beginning
+*"Thinking Process: 1. Understand the Goal"* and a usage block reporting **77
+reasoning tokens out of 79**. The default governs what the *template injects*,
+not what the weights do. Reading a template settles what a runtime can be told;
+only running the model settles what it does.
+
+That probe also found a number this engine had been inferring. LM Studio reports
+`usage.completion_tokens_details.reasoning_tokens` — exactly the quantity the
+chunk-count threshold exists to approximate. It is used where offered and the
+threshold stays for runtimes that say nothing, because `None` and `0` are
+different claims and only the second licenses trusting the total.
 
 **One correction worth keeping.** Qwen3's template never parses `/no_think` — it
 knows only `enable_thinking`. The suffix works because the *model* was trained

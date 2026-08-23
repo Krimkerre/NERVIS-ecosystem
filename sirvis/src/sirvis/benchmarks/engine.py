@@ -180,6 +180,12 @@ class Repetition:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     chunk_count: int = 0
+    # What the runtime says it spent thinking, when it says so at all. LM Studio
+    # reports `usage.completion_tokens_details.reasoning_tokens` — 77 of 79 for
+    # `gemma-4-e2b` — which is an exact figure where the chunk-count comparison
+    # below is an inference. Absent for a model whose thinking arrives as
+    # ordinary content, which is why both paths exist.
+    reasoning_tokens: int | None = None
     token_source: str = "reported"
     lowest_available_bytes: int | None = None
     # Preserved rather than discarded: §11.9 keeps raw output so a result can be
@@ -198,6 +204,9 @@ class Repetition:
         handful of tokens is ordinary stream bookkeeping, and two hundred is a
         model that thought first.
         """
+        # An exact answer beats a threshold whenever the runtime offers one.
+        if self.reasoning_tokens:
+            return self.reasoning_tokens
         if self.completion_tokens is None or not self.chunk_count:
             return 0
         if self.chunk_count >= self.completion_tokens * CONTENT_TOKEN_AGREEMENT:
@@ -215,6 +224,10 @@ class Repetition:
         """
         if self.completion_tokens is None:
             return self.chunk_count or None
+        if self.reasoning_tokens:
+            # Counted, not inferred: the answer is what is left once the
+            # runtime's own reasoning figure is taken off the total.
+            return max(self.completion_tokens - self.reasoning_tokens, 0)
         return self.chunk_count if self.hidden_tokens else self.completion_tokens
 
     @property
@@ -255,6 +268,7 @@ class Repetition:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "chunk_count": self.chunk_count,
+            "reasoning_tokens": self.reasoning_tokens,
             "hidden_tokens": self.hidden_tokens,
             "token_source": self.token_source,
             "generation_tokens_per_second": self.generation_tokens_per_second,
@@ -556,6 +570,7 @@ async def _measure(
         finish_reason=finish_reason,
         prompt_tokens=_count(usage, "prompt_tokens"),
         completion_tokens=completion,
+        reasoning_tokens=_reasoning_tokens(usage),
         chunk_count=chunks,
         token_source=source,
         lowest_available_bytes=watcher.lowest_available_bytes,
@@ -574,6 +589,21 @@ def _completion_tokens(usage: Mapping[str, Any] | None, chunks: int) -> tuple[in
     if reported is not None:
         return reported, "reported"
     return (chunks or None), "stream_chunks"
+
+
+def _reasoning_tokens(usage: Mapping[str, Any] | None) -> int | None:
+    """What the runtime says went on thinking, if it says.
+
+    Nested under `completion_tokens_details`, which is where the OpenAI schema
+    puts it and where LM Studio follows. `None` rather than `0` when absent:
+    "the runtime did not say" and "it says none" are different claims, and only
+    the second one licenses trusting the total.
+    """
+    details = (usage or {}).get("completion_tokens_details")
+    if not isinstance(details, Mapping):
+        return None
+    value = details.get("reasoning_tokens")
+    return int(value) if isinstance(value, int) else None
 
 
 def _count(usage: Mapping[str, Any] | None, key: str) -> int | None:

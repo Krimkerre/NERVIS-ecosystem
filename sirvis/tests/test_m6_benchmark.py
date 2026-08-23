@@ -269,6 +269,43 @@ async def test_tokens_that_never_arrived_as_content_do_not_inflate_throughput(
     assert any("reasoning" in note for note in outcome.record.validity_notes)
 
 
+async def test_a_reported_reasoning_count_beats_the_chunk_heuristic(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """LM Studio reports `usage.completion_tokens_details.reasoning_tokens` —
+    77 of 79 for `gemma-4-e2b`. That is an exact figure where the chunk-count
+    comparison is an inference, so it wins wherever it is offered, and the
+    threshold stays only for runtimes that say nothing."""
+    runtime = FakeRuntime(
+        content=("an", "swer"),
+        usage={"prompt_tokens": 9, "completion_tokens": 200,
+               "completion_tokens_details": {"reasoning_tokens": 190}},
+    )
+
+    outcome, _ = await _run(runtime, _spec(repetitions=2), results_root=tmp_path)
+
+    first = outcome.repetitions[0]
+    assert first.reasoning_tokens == 190
+    assert first.hidden_tokens == 190
+    # 200 counted, 190 of them thinking: the answer is the 10 that remain, not
+    # the two chunks the heuristic would have guessed.
+    assert first.content_tokens == 10
+
+
+async def test_a_runtime_that_reports_no_reasoning_is_not_assumed_to_have_none(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """`None` and `0` are different claims. Absent means the runtime did not
+    say, which is exactly when the chunk-count fallback has to do the work."""
+    runtime = FakeRuntime(
+        content=("an", "swer"), usage={"prompt_tokens": 9, "completion_tokens": 200}
+    )
+
+    outcome, _ = await _run(runtime, _spec(repetitions=2), results_root=tmp_path)
+
+    first = outcome.repetitions[0]
+    assert first.reasoning_tokens is None
+    assert first.hidden_tokens == 198  # inferred, because nothing was reported
+
+
 async def test_an_ordinary_stream_is_not_mistaken_for_a_thinking_one(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Real streams show content chunks for 93–100% of their reported tokens —
     a handful of tokens never appear, and that is ordinary bookkeeping rather
