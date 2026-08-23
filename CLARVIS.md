@@ -71,6 +71,11 @@ regression requirement, not an ecosystem proposal.
 | Clarvis acts only when asked. Unsolicited observation never becomes a code change. | `plan.md` §4 |
 | `ModelProvider` abstracts completion, streaming, tool support and model listing. Providers include direct cloud, local hosts, and arbitrary OpenAI-compatible endpoints. | `src/model/ModelProvider.ts`, `src/model/OpenAiCompatibleProvider.ts` |
 | **Chat and coding/agent roles use independently configured providers and models.** | settings `clarvis.chat.provider` / `clarvis.chat.model` and `clarvis.agent.provider` / `clarvis.agent.model` |
+| **A turn's *mode* does not choose the role — a turn that writes does.** `AgentRunner.loop` selects `role: 'chat'` for a read-only turn (capped at 10 steps, `tools: readOnlyTools()`) and `role: 'agent'` only when the turn may mutate the workspace. So "agent mode" answering a question about a file runs on the **chat** model, with tools, and only an edit reaches the agent model. | `src/agent/AgentRunner.ts:195,199,430` |
+| Provider and model inherit *independently*: an unset `clarvis.agent.provider` falls back to chat's, and a model name is only carried across when both roles share a provider. | `src/model/roles.ts`, `resolveRole` |
+| A provider's base URL is keyed by **provider, not role** — `chat.baseUrl.${spec.id}` — so both roles share one endpoint and differ only by model. | `src/model/ModelService.ts:74`, `:173` |
+| Clarvis builds the API path itself: `${baseUrl}/v1/models`, `${baseUrl}/v1/chat/completions`. A configured base URL must **not** end in `/v1`. | `src/model/OpenAiCompatibleProvider.ts:117`, `:164` |
+| The `custom` provider declares `needsKey: false` and `needsUrl: true`, and its default model is the placeholder `local-model` — which it will send before a model is chosen. | `src/model/providers.ts:102-110` |
 | A custom OpenAI-compatible base URL is a first-class configuration, asked for rather than guessed. | setting `clarvis.chat.baseUrl.custom`; `needsUrl` in `src/model/providers.ts` |
 | **Tool support is probed, not asserted from model-family heuristics.** `supportsTools()` sends a real one-tool, one-token request — "the only honest test". Model-family recognition exists for *defaults only* (`plan.md` M8j). | `src/model/OpenAiCompatibleProvider.ts:162` |
 | `[DONE]` and `reasoning_content` are already handled at the provider layer. Reasoning leaking into visible or spoken output is treated as a **defect**. | `src/model/OpenAiCompatibleProvider.ts`, `src/model/reasoning.ts` |
@@ -79,7 +84,33 @@ regression requirement, not an ecosystem proposal.
 | Multiple VS Code windows are separate Clarvis lifetimes and workspace states. | `plan.md` §7 |
 | A durable run ledger records what the agent did, and "why did you do that" is answered from it. | `src/agent/runLedger.ts` |
 
-## 3.1 Corrections to the source drafts
+## 3.1 What the first live integration established
+
+Verified on 2026-08-23 by pointing an unmodified Clarvis at a running RAVIS
+(runbook Stage 3 / RAVIS M9), configured through Clarvis's own provider UI
+rather than by editing `settings.json`. **No Clarvis source change was made or
+needed**, which is the claim §2 rests the whole build order on.
+
+Nineteen route decisions across one session: `ravis/clarvis-chat` succeeded
+seven times and was cancelled four, `ravis/clarvis-agent` succeeded five. No
+failure of any class, no interrupted stream, every circuit closed.
+
+Three things this surfaced that reading the source had not:
+
+- **The role split is triggered by writing, not by the UI mode.** Asking the
+  agent to *read* a file produced `ravis/clarvis-chat` requests carrying tool
+  definitions — correct per `AgentRunner.ts`, and the opposite of what anyone
+  testing this would predict. It is now an invariant in the table above,
+  because it decides what a tester has to do to exercise the agent pool at all.
+- **Clarvis issues paired requests**, roughly a second apart, of which the
+  second carries tools. Budget and rate-limit expectations should assume
+  two calls per visible reply rather than one.
+- **The agent loop's context grows across steps** — 2136 → 7032 → 7039
+  estimated tokens over five sequential completions — which is what makes
+  `ravis/clarvis-agent`'s 32K minimum-context invariant load-bearing rather
+  than decorative.
+
+## 3.2 Corrections to the source drafts
 
 - **M13 live VS Code log tailing is built, not planned.** The source addenda describe it as a
   planned milestone. It ships today behind a user approval prompt that names the risk

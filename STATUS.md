@@ -25,11 +25,11 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # 251 tests, no network, no live service
+.venv/bin/pytest                      # 257 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-Expected: all clean, 251 passing, conformance `PASS`. CI runs the same four on
+Expected: all clean, 257 passing, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -74,34 +74,65 @@ into the order work actually happens.
 | 7 | **M6** | Request-derived hard constraints — tools, vision, context, schema, streaming |
 | 8 | **M18a** | Read-only management API — pools, models, providers, profiles, policies, route decisions, usage |
 | 9 | **M12** | Failure classification, provider and model health, circuit breakers, retry budget, and the fallback chain — plus the §8.8 Stage 3 conformance scenarios the earlier milestones had left unwritten |
-| 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it. Not M9 itself — that needs a real editor pointed at a running gateway |
+| 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it |
+| 11 | **M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
 
-Stages 0, 1 and 2 are complete. Stage 3 is in progress.
+**Stages 0, 1, 2 and 3 are complete.**
+
+### M9, and what it actually proved
+
+An unmodified Clarvis was pointed at a running RAVIS through **its own provider
+UI**, not by editing `settings.json`. No Clarvis source change was made and none
+was needed, which is the claim `ECOSYSTEM_RUNBOOK.md` §6.1 rests the whole build
+order on — the riskiest unknown was proxy wire-compatibility, and it is now
+retired against real traffic rather than fixtures.
+
+Nineteen route decisions in one session, against LM Studio's twelve models with
+`measured-capabilities.json` loaded:
+
+| | |
+|---|---|
+| `ravis/clarvis-chat` | 7 succeeded, 4 cancelled |
+| `ravis/clarvis-agent` | 5 succeeded — a real write, five sequential tool-calling steps |
+| Failures of any class | none |
+| Interrupted streams | none |
+| Circuit state | all `CLOSED` throughout |
+
+Against Stage 3's exit criteria: chat streams; agent tool calls survive
+fragmentation; Stop cancels upstream work and never triggers a fallback; the two
+pools resolve independently; the agent pool never routed to a model without
+tools; and no Clarvis source was modified.
+
+**Two honest gaps in that.** Both pools resolve to `qwen2.5-coder-7b-instruct`,
+so "different models" is unproven — not because independence failed but because
+this catalogue's best model wins both roles, and forcing a split would mean
+choosing worse. And **fallback never ran live**: nothing failed all session, so
+no chain walked past its primary. It is covered by `ravis conformance clarvis`
+against a genuinely-failing primary, and by nothing else.
+
+**Running it early paid for itself in defects.** Three bugs surfaced in an hour
+that 251 tests had not, all in code that only matters during an incident: a
+cancelled stream recorded nothing, every warning discarded its reason, and a
+typo in a pool ID silently bypassed routing altogether. Each is in the sections
+below.
 
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 11 | **M9** | **Live Clarvis ↔ RAVIS.** Point unmodified Clarvis at RAVIS, configuration only. No Clarvis source change is permitted to make this pass. Everything RAVIS owes it is built; what remains needs a running LM Studio, a running gateway and VS Code — `ravis preflight clarvis` is the ten seconds that tells you whether to bother |
-
-Reaching M9 completes Stage 3 and is the first genuinely useful release
-(`ECOSYSTEM_RUNBOOK.md` §12). Everything Stage 3's exit criteria name is now
-built except the live integration itself: chat and agent resolve independently,
-the agent pool refuses a non-tool model, and fallback does not corrupt the
-stream — each asserted by `ravis conformance clarvis` rather than by prose.
+| 12 | **Stage 4 — SIRVIS** | Unblocked since Stage 1 and now the critical path: it is the real answer to ranking, which is currently a size tiebreak standing in for evidence. Must finish before Stage 5 |
+| 13 | **M3b + M4** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard |
 
 ### After that
 
-Stage 5 is RAVIS intelligence: **M3b** (translated execution path), **M4**
-(Anthropic native), **M7** (Google, OpenRouter), **M8** (LM Studio, Ollama,
-generic), **M13** (SIRVIS evidence), the rest of **M14**, **M16** (policy).
-Stage 4 — the whole of SIRVIS — may run in parallel from Stage 1 onward and must
-finish before Stage 5.
+Stage 5 is the rest of RAVIS intelligence: **M7** (Google, OpenRouter), **M8**
+(LM Studio, Ollama, generic adapters), **M13** (SIRVIS evidence), the rest of
+**M14**, **M16** (policy). Stage 6 is NERVIS core — **M11** + **M15**.
 
-**Do not start M3b or M4 before M9.** Both build a second execution path, and
-§20.2 says translation comes only after the transparent Clarvis slice works. The
-reason is not ceremony: the transparent path is the control, and its correctness
-is not yet proven by anything except fixtures.
+**M3b and M4 are no longer blocked.** They were held back because §20.2 says
+translation comes only after the transparent Clarvis slice works, and the
+transparent path was the control — its correctness proven by nothing but
+fixtures. That is no longer true as of M9.
 
 ---
 
@@ -288,6 +319,17 @@ reviewer who disagrees should say so rather than assume it was an accident.
   filled up with rows for models nobody had ever called. `allows()` and
   `refusal()` are the non-creating pair, and the query/command split (§14.2) is
   the rule that was being broken.
+- **A typo in RAVIS's own namespace used to succeed.** `ravis/chat` is not a
+  pool and has no second slash, so it was neither a pool ID nor a direct
+  address — and fell through to the plain-model-name path, which forwards
+  verbatim. LM Studio answered with whatever was loaded. The request *succeeded*
+  with no pool, no capability filtering, no tool invariant and no fallback, and
+  looked entirely fine; it also invented a health record for a model nobody has.
+  Now a 422 naming the near-miss. §5.3's "an explicit request outranks
+  inference" does not cover it, because `ravis/` is RAVIS's own namespace and no
+  upstream serves a model called `ravis/chat`. The suggestion uses containment
+  before edit distance: the real mistake is a dropped qualifier, and edit
+  distance confidently proposed `ravis/cheap` for `chat`.
 - **A cancelled stream used to leave its route decision looking unfinished.**
   Found by pointing the real Clarvis at a running gateway, not by a test. A
   mid-stream disconnect unwound out of the relay generator without running
