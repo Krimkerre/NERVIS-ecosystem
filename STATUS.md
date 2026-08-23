@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 505 tests, no network, no live service
+.venv/bin/pytest                      # part of 509 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 209 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 505 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 509 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -710,7 +710,7 @@ mid-milestone. **Four block M6.**
 | **CLI is still short of parity.** `benchmark run` and `results latest` exist now; §18's `models list`, `runtime list` and `runtime sessions` all have APIs and no command | §18 | no |
 | ~~**Benchmark runs and results are stored and unserved.**~~ **Fixed.** `/benchmark-runs`, `/benchmark-runs/{id}` and `/benchmark-results/{id}` — §17 says these are stored *because* they are served, and until now they were not | §4.2 | done |
 | **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
-| **No job state machine.** §11.10's coarse published enum and its atomic commit are built; the *queue* behind them — pause, resume, retry, reorder, and a job that survives a restart — is not. **Visible now:** two runs killed mid-flight today still read `running`, and nothing will ever reconcile them | §11.10 | partly |
+| **No job queue.** §11.10's coarse enum, its atomic commit, and — now — the unrecoverable half of "survive a restart or be marked unrecoverable" are built. The queue itself is not: no submit, pause, resume, retry or reorder, and nothing *resumes* an interrupted run | §11.10 | partly |
 | **Parquet telemetry** is named for high-frequency data where SQLite becomes unsuitable | §17 | no — not at one-run scale |
 
 Everything shipped-and-wrong on that list has been fixed. What remains is
@@ -1177,15 +1177,22 @@ is prose; whoever compares two evidence IDs never reads it.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
-- **A run killed mid-flight stays `running` for ever.** §11.10 asks that a job
-  either survive a restart or be truthfully marked unrecoverable; a run does
-  neither. `start_run` writes `RUNNING` before the work, which is right — a run
-  that was never recorded until it succeeded could not be recovered at all — and
-  nothing reconciles the row if the process dies. Two such rows exist from today
-  and will read `running` until somebody edits the database. The engine noticed
-  nothing; **the dashboard did**, the first time the Benchmarks screen was
-  pointed at real data, because a queue view counts states and a log does not.
-  That is the argument for wiring a screen early rather than last.
+- **A run killed mid-flight used to stay `running` for ever.** §11.10 asks that
+  a job either survive a restart or be truthfully marked unrecoverable; a run
+  did neither. `start_run` writes `RUNNING` before the work, which is right — a
+  run first recorded when it succeeds could not be recovered at all — and
+  nothing put the row right if the process died. Two such rows sat in this
+  machine's database for a day. The engine noticed nothing; **the dashboard
+  did**, the first time the Benchmarks screen was pointed at real data, because
+  a queue view counts states and a log does not. That is the argument for wiring
+  a screen early rather than last.
+  Reconciled at startup now, in the service and the CLI alike: whatever is still
+  unfinished belonged to a process that no longer exists. `FAILED`, not
+  `CANCELLED` — cancelled means a client asked to stop, a different fact about a
+  different actor — and not `PARTIAL`, which §11.10 reserves for a run that kept
+  *some* results, where these kept none. **The assumption to re-check is one
+  line in that function**: it reads "unfinished" as "abandoned", which is true
+  of one local service and false the moment two share a database.
 - **The evidence identity recorded what was *asked for*, not what ran.** §12.2
   keys evidence on the configuration a number was produced under, and the engine
   put `spec.load` — the request — into that key. It went unnoticed while every

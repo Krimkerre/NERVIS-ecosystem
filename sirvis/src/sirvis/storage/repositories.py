@@ -144,6 +144,49 @@ def read_run(database: Database, run_id: str) -> dict[str, Any] | None:
     return _run_with_results(database, row) if row is not None else None
 
 
+# The states a run can be left in by a process that stopped existing. Derived
+# from the enum rather than spelled out, so a new non-terminal state cannot be
+# added without this noticing it.
+_UNFINISHED = (RunState.QUEUED, RunState.PREPARING, RunState.RUNNING)
+
+INTERRUPTED = "the process running this ended before the run finished"
+
+
+def reconcile_interrupted(database: Database) -> list[str]:
+    """Mark runs that outlived the process which started them (§11.10).
+
+    §11.10 asks that a job survive a restart **or** be truthfully marked
+    unrecoverable. A run does neither on its own: `start_run` writes `RUNNING`
+    before the work — which is right, because a run first recorded when it
+    succeeds cannot be recovered at all — and nothing puts the row right if the
+    process is killed. Two such rows sat in this machine's database for a day
+    reading `running`, and the dashboard found them rather than the engine.
+
+    `FAILED` rather than `CANCELLED`: cancelled means a client asked to stop,
+    which is a different fact about a different actor. And not `PARTIAL`, which
+    §11.10 reserves for a run that produced *some* results — these produced
+    none, because `finish_run` is the only writer of results and it never ran.
+
+    **Called at startup, and that is the assumption to check if this ever runs
+    beside a second process.** It reads "unfinished" as "abandoned", which is
+    true of one local service and false the moment two share a database.
+    """
+    unfinished = [state.value for state in _UNFINISHED]
+    places = ",".join("?" * len(unfinished))
+    rows = database.connection.execute(
+        f"SELECT run_id FROM benchmark_run WHERE state IN ({places})", unfinished
+    ).fetchall()
+    if not rows:
+        return []
+    with database.connection as connection:
+        connection.execute(
+            "UPDATE benchmark_run SET state = ?, detail = ?, finished_at = datetime('now')"
+            f" WHERE state IN ({places})",
+            (RunState.FAILED.value, INTERRUPTED, *unfinished),
+        )
+    return [row["run_id"] for row in rows]
+
+
 def read_result(database: Database, result_id: str) -> dict[str, Any] | None:
     """One result, or None when there is no such result.
 

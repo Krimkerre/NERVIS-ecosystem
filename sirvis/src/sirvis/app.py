@@ -8,6 +8,7 @@ Stage 4 cannot start until it does.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Awaitable, Callable
 
@@ -23,7 +24,7 @@ from sirvis.ecosystem import sirvis_surface
 from sirvis.errors import SirvisError, to_response
 from sirvis.resources import ResourceManager
 from sirvis.runtimes import LMStudioAdapter
-from sirvis.storage import prepare_database
+from sirvis.storage import prepare_database, reconcile_interrupted
 
 NextCall = Callable[[Request], Awaitable[Any]]
 
@@ -58,6 +59,17 @@ def _attach_shared_state(
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
+    # §11.10: a job survives a restart or is truthfully marked unrecoverable. A
+    # run does neither by itself — `start_run` writes RUNNING before the work,
+    # and a killed process leaves that row claiming to be in progress for ever.
+    # This service is the thing that just started, so anything still unfinished
+    # belonged to a process that no longer exists.
+    abandoned = reconcile_interrupted(api.state.database)
+    if abandoned:
+        logging.getLogger(__name__).warning(
+            "marked %d interrupted run(s) unrecoverable", len(abandoned),
+            extra={"runs": abandoned},
+        )
     # §4.5 requires a token and a fresh install has none, so the first run mints
     # one. It is deliberately not logged or printed here — `sirvis token` is the
     # one place it can be read, and only once.

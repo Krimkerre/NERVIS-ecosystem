@@ -311,7 +311,7 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
     from sirvis.errors import SirvisError
     from sirvis.resources import ResourceManager
     from sirvis.runtimes import LMStudioAdapter
-    from sirvis.storage import RunState
+    from sirvis.storage import RunState, reconcile_interrupted
 
     try:
         spec = load_experiment(arguments.specification)
@@ -334,6 +334,11 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
         return EXIT_FATAL_CONFIGURATION
 
     database = prepare_database(settings.database_path)
+    # The same reconciliation the service does, for the same reason: this
+    # process is about to own the database, so an unfinished run belongs to a
+    # dead one.
+    for abandoned in reconcile_interrupted(database):
+        print(f"marked interrupted run {abandoned} unrecoverable", file=sys.stderr)
     adapter = LMStudioAdapter(
         base_url=settings.lmstudio_base_url, lms_path=settings.lmstudio_cli_path
     )

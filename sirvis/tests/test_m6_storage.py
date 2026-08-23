@@ -22,6 +22,7 @@ from sirvis.storage import (
     list_runs,
     prepare_database,
     read_run,
+    reconcile_interrupted,
     start_run,
 )
 
@@ -169,3 +170,63 @@ def test_a_specification_cannot_choose_where_results_are_written(tmp_path) -> No
     # `..` inside it harmlessly, but it can never carry a separator, so the file
     # always lands in this experiment's own responses directory.
     assert written.resolve().is_relative_to((tmp_path / "exp_1" / "responses").resolve())
+
+
+# ── Runs that outlived their process (§11.10) ────────────────────────────────
+
+
+def test_an_interrupted_run_is_marked_unrecoverable() -> None:
+    """§11.10 asks that a job survive a restart *or* be truthfully marked
+    unrecoverable. A run does neither on its own: `start_run` writes RUNNING
+    before the work — right, because a run first recorded on success could not
+    be recovered at all — and nothing puts the row right if the process dies.
+    Two such rows sat in this machine's database for a day."""
+    database = prepare_database(":memory:")
+    _, interrupted = _run(database)
+
+    abandoned = reconcile_interrupted(database)
+
+    stored = read_run(database, interrupted)
+    assert abandoned == [interrupted]
+    assert stored is not None
+    assert stored["state"] == RunState.FAILED.value
+    assert "ended before the run finished" in stored["detail"]
+    assert stored["finished_at"] is not None
+
+
+def test_a_finished_run_is_left_alone() -> None:
+    """Reconciliation reads *unfinished* as abandoned. A run that reached a
+    terminal state reached it honestly and is nobody's to rewrite."""
+    database = prepare_database(":memory:")
+    _, done = _run(database)
+    finish_run(database, done, state=RunState.SUCCEEDED, detail="completed",
+               results=[_result()])
+
+    assert reconcile_interrupted(database) == []
+    stored = read_run(database, done)
+    assert stored is not None
+    assert stored["state"] == RunState.SUCCEEDED.value
+    assert stored["detail"] == "completed"
+
+
+def test_reconciling_twice_changes_nothing() -> None:
+    """It runs at every startup, so it has to be a no-op on a clean database —
+    and must not keep rewriting `finished_at` on runs it already settled."""
+    database = prepare_database(":memory:")
+    _run(database)
+    first = reconcile_interrupted(database)
+
+    assert len(first) == 1
+    assert reconcile_interrupted(database) == []
+
+
+def test_a_failed_run_is_not_called_cancelled() -> None:
+    """Cancelled means a client asked to stop — a different fact about a
+    different actor — and partial means some results were kept, which these have
+    none of, because `finish_run` is the only writer of results."""
+    database = prepare_database(":memory:")
+    _run(database)
+    reconcile_interrupted(database)
+
+    states = {r["state"] for r in list_runs(database, limit=10)[0]}
+    assert states == {RunState.FAILED.value}

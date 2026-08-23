@@ -15,6 +15,7 @@ from sirvis.storage.repositories import (
     list_runs,
     read_result,
     read_run,
+    reconcile_interrupted,
     start_run,
 )
 from sirvis.storage.results import ResultDirectory
@@ -30,6 +31,7 @@ __all__ = [
     "list_runs",
     "prepare_database",
     "read_result",
+    "reconcile_interrupted",
     "read_run",
     "start_run",
 ]
