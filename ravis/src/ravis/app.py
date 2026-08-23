@@ -32,6 +32,7 @@ from ravis.ecosystem import router as ecosystem_router
 from ravis.errors import RavisError, to_response
 from ravis.identity import resolve_identity
 from ravis.observability import new_request_id
+from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.storage import prepare_database
 from ravis.upstream import create_client, upstream_from
@@ -104,6 +105,14 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         upstream=api.state.upstream,
         client=api.state.upstream_client,
         ttl_seconds=settings.models_cache_ttl_seconds,
+    )
+    # The discovery surface M6's capability filtering will read. It answers
+    # questions about the upstream; it does not carry traffic — the transparent
+    # path forwards bytes directly (§6), so nothing routes through here.
+    api.state.adapter = GenericOpenAiAdapter(
+        upstream=api.state.upstream,
+        client=api.state.upstream_client,
+        configured_capabilities=settings.model_capabilities,
     )
     api.state.rate_limiter = RateLimiter()
     # Identity of this installation. Opaque and locally generated — never derived

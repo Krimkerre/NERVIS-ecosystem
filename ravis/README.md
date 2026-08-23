@@ -23,6 +23,10 @@ because the runbook puts the MEP surface at Stage 1, before the gateway:
   resolves to the least-privileged `anonymous`, which is a real identity rather than a null.
 - **`ravis doctor`** — configuration findings and the resolved model-to-provider table,
   contacting nothing, so it works during the incident you are diagnosing.
+- **Capability discovery (§7, §9.5)** — the adapter surface M6 will filter against. Its
+  defining behaviour is refusing to guess: a generic OpenAI-compatible endpoint publishes
+  model IDs and nothing about what they can do, so tool support reads `UNKNOWN` and any
+  pool requiring it is unavailable until configuration, probing or SIRVIS says otherwise.
 
 ## Running it
 
