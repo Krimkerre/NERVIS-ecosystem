@@ -34,6 +34,7 @@ from ravis.identity import resolve_identity
 from ravis.observability import new_request_id
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
+from ravis.routing import RoutingEngine
 from ravis.storage import prepare_database
 from ravis.upstream import create_client, upstream_from
 
@@ -109,6 +110,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # The discovery surface M6's capability filtering will read. It answers
     # questions about the upstream; it does not carry traffic — the transparent
     # path forwards bytes directly (§6), so nothing routes through here.
+    # Stateless and I/O-free: capabilities are passed in, so a decision is
+    # reproducible and testable without a provider (§9.7's determinism gate).
+    api.state.routing_engine = RoutingEngine()
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,

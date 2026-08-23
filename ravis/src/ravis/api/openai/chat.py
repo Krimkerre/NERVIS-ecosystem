@@ -27,6 +27,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ravis.content import check_image_count
+from ravis.providers.base import ProviderAdapter
+from ravis.registry import ModelRegistry
+from ravis.routing.engine import RoutingEngine
+from ravis.routing.explain import RouteDecision
 from ravis.upstream import forwardable_headers
 
 logger = logging.getLogger(__name__)
@@ -60,6 +64,11 @@ async def create_chat_completion(request: Request) -> Response:
     if isinstance(parsed, JSONResponse):
         return parsed
 
+    decision = await _route(request, parsed)
+    if not decision.routed:
+        return _no_route(decision)
+    body = _with_selected_model(body, parsed, decision)
+
     headers = forwardable_headers(dict(request.headers), upstream)
     target = upstream.url_for("/v1/chat/completions")
     client: httpx.AsyncClient = request.app.state.upstream_client
@@ -89,6 +98,70 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     if isinstance(messages, list):
         check_image_count(messages, request.app.state.settings)
     return parsed
+
+
+async def _route(request: Request, payload: dict[str, Any]) -> RouteDecision:
+    """Resolve what the client addressed into a model to call (§9).
+
+    Capabilities are assembled per request rather than cached. That is cheap
+    today because the generic adapter performs no I/O to answer — it merges
+    protocol defaults with operator configuration — and the moment an adapter
+    needs a network call to answer, this is the line that has to change.
+    """
+    engine: RoutingEngine = request.app.state.routing_engine
+    adapter: ProviderAdapter = request.app.state.adapter
+    registry: ModelRegistry = request.app.state.model_registry
+    candidates = {model: await adapter.capabilities(model) for model in registry.model_ids()}
+    decision = engine.select(payload.get("model") or "", candidates)
+    # Recorded on the request so logging and, later, /api/v1/route-decisions can
+    # read it without re-running the decision — a re-run is not guaranteed to
+    # reach the same answer once health and load are inputs.
+    request.state.route_decision = decision
+    return decision
+
+
+def _with_selected_model(
+    body: bytes, payload: dict[str, Any], decision: RouteDecision
+) -> bytes:
+    """Rewrite only the `model` field, leaving the request otherwise untouched.
+
+    This is the one place the transparent path modifies what the client sent,
+    and the asymmetry is deliberate. A pool ID is not a model any upstream
+    knows, so resolving it means the substitution has to happen somewhere — and
+    §6's "minimal safe forwarding" is satisfied by changing one field rather
+    than by normalising and rebuilding the request.
+
+    Note what is *not* symmetric: the response stream is never rewritten. §8.3's
+    release-critical surfaces — tool-call indexes, fragmented arguments, finish
+    reasons, `[DONE]` — are all downstream, and none of them are touched.
+    """
+    if decision.selected == payload.get("model"):
+        return body
+    rewritten = dict(payload)
+    rewritten["model"] = decision.selected
+    return json.dumps(rewritten).encode()
+
+
+def _no_route(decision: RouteDecision) -> JSONResponse:
+    """A no-route is a first-class, explainable outcome (§9.2, §9.7).
+
+    Not a 500: nothing failed. The request was understood and refused, because
+    no available model satisfies what was asked for — and §9.2 forbids relaxing
+    a constraint to find something that fits. 422 says the request was
+    well-formed but cannot be acted on, which is exactly the situation.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "message": decision.reason,
+                "type": "no_route",
+                "param": "model",
+                "code": "no_route",
+                "route_decision": decision.as_dict(),
+            }
+        },
+    )
 
 
 async def _forward_and_return(

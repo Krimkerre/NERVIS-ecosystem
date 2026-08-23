@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from ravis.core.pools import DEFAULT_POOLS
 from ravis.upstream import Upstream
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ class ModelRegistry:
         """The current catalogue. Never blocks, never raises."""
         return self._snapshot
 
+    def model_ids(self) -> list[str]:
+        """The upstream model IDs, for routing to choose among."""
+        return [entry["id"] for entry in self._snapshot.models if entry.get("id")]
+
     def is_due_for_refresh(self, now: float | None = None) -> bool:
         moment = time.monotonic() if now is None else now
         return moment - self._snapshot.refreshed_at >= self._ttl_seconds
@@ -112,28 +117,30 @@ class ModelRegistry:
     def as_openai_list(self) -> dict[str, Any]:
         """The `GET /v1/models` body, in OpenAI's list shape.
 
-        `created` is set on every entry or on none — never a mix. Clarvis sorts
-        by timestamp only when *all* entries carry it and falls back to
-        alphabetical otherwise, so a partially-populated list scrambles whatever
-        order was intended (§5.0.1).
-        """
-        entries = self._snapshot.models
-        all_have_created = all("created" in entry for entry in entries)
-        return {
-            "object": "list",
-            "data": [self._entry(entry, all_have_created) for entry in entries],
-        }
+        Pools are listed first, then the upstream's own models. Listing pools at
+        all is what makes them reachable: Clarvis picks a model from this
+        response, so `ravis/clarvis-agent` has to appear here or it cannot be
+        selected in the UI (§5, §5.0.1).
 
-    @staticmethod
-    def _entry(entry: dict[str, Any], keep_created: bool) -> dict[str, Any]:
-        rendered = {
-            "id": entry.get("id", ""),
-            "object": "model",
-            "owned_by": entry.get("owned_by", "organization_owner"),
-        }
-        if keep_created and "created" in entry:
-            rendered["created"] = entry["created"]
-        return rendered
+        **`created` is omitted from every entry.** Clarvis sorts by timestamp
+        only when *all* entries carry it and falls back to alphabetical
+        otherwise — and pools have no meaningful creation time, so including it
+        on upstream models alone would produce exactly the mixed list that
+        scrambles the intended order (§5.0.1).
+        """
+        pools = [
+            {"id": pool.pool_id, "object": "model", "owned_by": "ravis"}
+            for pool in DEFAULT_POOLS
+        ]
+        upstream = [
+            {
+                "id": entry.get("id", ""),
+                "object": "model",
+                "owned_by": entry.get("owned_by", "organization_owner"),
+            }
+            for entry in self._snapshot.models
+        ]
+        return {"object": "list", "data": pools + upstream}
 
 
 async def refresh_periodically(registry: ModelRegistry, interval_seconds: float) -> None:
