@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 305 tests, no network, no live service
+.venv/bin/pytest                      # part of 317 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 32 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 44 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 305 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 317 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -88,6 +88,7 @@ into the order work actually happens.
 | 11 | **M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
 | 12 | **`ecosystem-protocol`, and SIRVIS M0** | The MEP surface extracted to the shared package the runbook has always named, and the second service standing on it |
 | 13 | **SIRVIS M1 + M2** | Machine detection with honest gaps, and the LM Studio adapter. Verified live: discover → load → generate → unload |
+| 14 | **SIRVIS M3** | The four-concept model domain, and the `runtime_key` lookup RAVIS needs |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -188,11 +189,39 @@ it stops being true.
   `clarvis/docs/benchmarks.md` screened for — but it means "the call succeeded"
   and "the model said something" are separate checks, which M6 will need.
 
+### What M3 settled
+
+§6's four concepts, kept apart, and each separation earns itself on this machine
+rather than in principle:
+
+- **`granite-4.0-h-tiny` is one family and two variants.** Same weights, GGUF
+  and MLX, and §12.2 makes format and quantization part of evidence identity —
+  which is why they must not merge: the two reach 8/8 and 1/8 on the same
+  tool-call trial.
+- **Their architectures disagree** — `granitehybrid` against `granitemoehybrid` —
+  and that is *recorded*, not resolved. §6 forbids asserting equivalence from
+  names; silently believing one packaging would be inventing agreement, and
+  refusing to link them would lose a relation that is real.
+- **Identifiers are derived, not generated.** An ID is a hash of the attributes
+  that identify a build, so a fresh inventory on an empty database reproduces
+  it. A random UUID would need a table to survive a restart, and a wiped
+  database would orphan every result referencing one.
+- **No table was added.** The inventory is derived on read, because everything
+  in it can be re-derived from what the runtime reports. Storage arrives when
+  something needs to record what cannot be — an installed size, a download
+  source, a benchmark's reference to a build since deleted.
+
+`GET /api/v1/models?runtime_key=…` is live and resolves a **cold** model, which
+is the point: the load-or-don't decision needs evidence about a build precisely
+when it is not loaded. An unknown key is a 404 and nothing falls back to a
+nearest match, because a fuzzy hit would be a guess wearing an identity's
+clothes and RAVIS would route on it.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 14 | **SIRVIS M3 + M4** | Model domain, inventory and the public API. M3 is where a runtime's records become SIRVIS identities — deliberately not done in the adapter, so the mapping exists once |
+| 15 | **SIRVIS M4** | The public API proper — §4.5 token scopes and origin validation, so an external script can drive a model *through* SIRVIS rather than through LM Studio |
 | 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
 | 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
@@ -480,7 +509,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0–M2)
+sirvis/                the evidence plane (M0–M3)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime
