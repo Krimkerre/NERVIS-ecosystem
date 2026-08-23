@@ -27,7 +27,7 @@ what it is measuring is worse than one that refuses to start.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -48,6 +48,22 @@ ENVIRONMENT_MODES = ("controlled", "shared")
 # mean anything, so M6 accepts only the one it can honour.
 ORDERINGS = ("fixed",)
 
+# Ways to ask a reasoning model to stop reasoning, tried in this order.
+#
+# **Every one of them is a prompt change**, which is why they are named rather
+# than applied invisibly: §11.5 freezes a suite's prompts once results exist, so
+# a run that quietly appended one would produce a number that is not about the
+# prompt the suite declares. A suppression that fires is recorded in the
+# evidence identity, so an adapted measurement cannot be mistaken for the one
+# that was asked for.
+#
+# There is no API-level switch to use instead. LM Studio accepts
+# `chat_template_kwargs: {"enable_thinking": false}` and **ignores it** — probed
+# on this machine, byte-identical to the baseline — which is §7.1's
+# accepted-then-silently-dropped trap and exactly why this engine will not
+# forward a setting it cannot verify.
+THINKING_SUPPRESSIONS = ("no_think_suffix", "direct_system")
+
 # `version` is accepted as a synonym for `suite_version`, because §11.5's own
 # example writes a bare `version: 1` at the top of a definition file and a
 # parser that refused the specification's own example would be wrong about which
@@ -55,6 +71,7 @@ ORDERINGS = ("fixed",)
 _EXPERIMENT_KEYS = {
     "id", "suite", "suite_version", "version", "role", "environment", "ordering",
     "seed", "target", "warmups", "repetitions", "tests", "notes", "tags",
+    "suppress_thinking",
 }
 _TARGET_KEYS = {"model", "load"}
 _TEST_KEYS = {"id", "version", "prompt", "system", "generation"}
@@ -136,6 +153,16 @@ class ExperimentSpec:
     role: str = "general"
     notes: str = ""
     tags: tuple[str, ...] = ()
+    # What to try when the model answers nothing at all, in order. Empty
+    # disables it, and the run then reports the empty result as it always did.
+    #
+    # Default is on, and that is a deliberate reading of what a benchmark is
+    # for: a build that spends its whole budget thinking is not *measured* by
+    # recording that it said nothing, and "cannot be measured as asked" is a
+    # more useful finding when it arrives with "but here is what it does when
+    # asked differently". Nothing is hidden by it — the suppression that fired
+    # lands in the evidence identity and in the record's validity notes.
+    suppress_thinking: tuple[str, ...] = THINKING_SUPPRESSIONS
 
     def as_dict(self) -> dict[str, Any]:
         """The specification as stored beside its results (§11.9).
@@ -146,6 +173,7 @@ class ExperimentSpec:
         """
         return {
             "suite": {"id": self.suite_id, "version": self.suite_version},
+            "suppress_thinking": list(self.suppress_thinking),
             "role": self.role,
             "target": {"model_key": self.model_key, "load": dict(self.load)},
             "warmups": self.warmups,
@@ -234,9 +262,51 @@ def parse_experiment(text: str, source: str = "<string>") -> ExperimentSpec:
         ordering=ordering,
         seed=document.get("seed"),
         role=str(document.get("role", "general")),
+        suppress_thinking=_suppressions(document.get("suppress_thinking"), source),
         notes=str(document.get("notes", "")),
         tags=tuple(str(tag) for tag in document.get("tags", []) or ()),
     )
+
+
+def suppressed(test: BenchmarkTest, strategy: str) -> BenchmarkTest:
+    """The same test, asked in a way that discourages thinking.
+
+    Each strategy is a *prompt* change and is family-specific in practice —
+    `/no_think` is a Qwen convention and inert text elsewhere — which is why the
+    engine tries them and keeps whichever produces an answer rather than
+    deciding from a model's name. §6 forbids asserting anything about a build
+    from its name, and that applies to how it is prompted as much as to what it
+    can do.
+    """
+    if strategy == "no_think_suffix":
+        return replace(test, prompt=f"{test.prompt.rstrip()} /no_think")
+    if strategy == "direct_system":
+        instruction = "Answer directly. Do not think step by step."
+        return replace(
+            test, system=f"{test.system}\n{instruction}" if test.system else instruction
+        )
+    raise InvalidConfigurationError(
+        f"unknown thinking suppression {strategy!r}", strategy=strategy
+    )
+
+
+def _suppressions(raw: Any, source: str) -> tuple[str, ...]:
+    """Which suppressions to try, defaulting to all of them."""
+    if raw is None:
+        return THINKING_SUPPRESSIONS
+    if raw in (False, "none", []):
+        return ()
+    if not isinstance(raw, list):
+        raise InvalidConfigurationError(
+            f"{source}: suppress_thinking must be a list of "
+            f"{', '.join(THINKING_SUPPRESSIONS)}, or `none`", path=source
+        )
+    unknown = sorted(set(map(str, raw)) - set(THINKING_SUPPRESSIONS))
+    if unknown:
+        raise InvalidConfigurationError(
+            f"{source}: unknown thinking suppression(s): {', '.join(unknown)}", path=source
+        )
+    return tuple(str(name) for name in raw)
 
 
 def _parse_tests(raw: Any, source: str) -> tuple[BenchmarkTest, ...]:
