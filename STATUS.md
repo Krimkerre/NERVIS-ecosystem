@@ -25,11 +25,11 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # 250 tests, no network, no live service
+.venv/bin/pytest                      # 251 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-Expected: all clean, 250 passing, conformance `PASS`. CI runs the same four on
+Expected: all clean, 251 passing, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -288,6 +288,28 @@ reviewer who disagrees should say so rather than assume it was an accident.
   filled up with rows for models nobody had ever called. `allows()` and
   `refusal()` are the non-creating pair, and the query/command split (§14.2) is
   the rule that was being broken.
+- **A cancelled stream used to leave its route decision looking unfinished.**
+  Found by pointing the real Clarvis at a running gateway, not by a test. A
+  mid-stream disconnect unwound out of the relay generator without running
+  `finish()`, so `execution` stayed `null` — the same thing an in-flight request
+  shows, which made "the user pressed Stop" and "this has been hanging for four
+  minutes" indistinguishable on a dashboard. Now recorded as a `cancelled`
+  attempt and re-raised, never handled: §10 still forbids the retry, and §8.6
+  still needs the exception to propagate so the upstream stops generating.
+  Neither call on that path awaits, which matters — an async generator that
+  awaits after catching `GeneratorExit` raises `RuntimeError` instead of
+  closing.
+- **A streaming response the client never reads a byte of records nothing at
+  all**, and cannot. Closing a not-yet-started async generator never runs its
+  body, so no code inside it can observe the disconnect. `execution` stays
+  `null`, correctly; the field's documentation says so rather than implying the
+  request is still running.
+- **Clarvis's `custom` provider probes with a placeholder model.** Before a
+  model is chosen it sends `local-model`, which is `defaultModel` in
+  `clarvis/src/model/providers.ts`. RAVIS answers with the upstream's 400,
+  classified `model_unavailable`, and Clarvis carries on to list the catalogue —
+  so this is noise rather than a fault, but it appears in the decision log and
+  looks like a failure until you know what it is.
 - **Clarvis's base URL must not end in `/v1`.** It appends the path itself —
   `${baseUrl}/v1/models`, `${baseUrl}/v1/chat/completions`, verified in
   `clarvis/src/model/OpenAiCompatibleProvider.ts`. A base of

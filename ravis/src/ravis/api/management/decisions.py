@@ -44,10 +44,17 @@ class RecordedDecision:
     # response completes, which for a stream is long after the decision was
     # recorded — hence a mutable field rather than a constructor argument.
     #
-    # `None` means the request has not finished yet, and is distinct from an
-    # empty attempt list, which would mean it finished without trying anything
-    # (runbook §14.4). A dashboard showing a route decision mid-stream is the
-    # normal case, not an error.
+    # `None` means the response was never consumed to completion, and is
+    # distinct from an empty attempt list, which would mean it finished without
+    # trying anything (runbook §14.4). A dashboard showing a route decision
+    # mid-stream is the normal case, not an error.
+    #
+    # A *cancelled* stream is not one of these: it records a `cancelled`
+    # attempt, because "the user pressed Stop" and "this is still running" are
+    # the two readings a person most needs to tell apart. The one case that
+    # genuinely stays `None` is a streaming response the client never read a
+    # byte of — the generator's body never runs, so nothing inside it can
+    # record anything.
     attempts: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
