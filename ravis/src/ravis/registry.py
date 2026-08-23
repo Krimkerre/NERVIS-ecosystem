@@ -25,6 +25,8 @@ from typing import Any
 import httpx
 
 from ravis.core.pools import DEFAULT_POOLS
+from ravis.runtime.lmstudio import probe_residency
+from ravis.runtime.residency import ResidencySnapshot
 from ravis.upstream import Upstream
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,15 @@ class ModelRegistry:
         self._client = client
         self._ttl_seconds = ttl_seconds
         self._snapshot = ModelSnapshot()
+        # Refreshed alongside the catalogue rather than queried per request:
+        # §9.8 budgets routing at P50 under 5 ms and requires it to read cached
+        # state, so a live probe on the hot path would blow the budget outright.
+        self._residency = ResidencySnapshot()
+
+    @property
+    def residency(self) -> ResidencySnapshot:
+        """Which models the runtime reports as loaded, as of the last refresh."""
+        return self._residency
 
     def use_client(self, client: httpx.AsyncClient) -> None:
         """Swap the HTTP client this registry refreshes through.
@@ -102,6 +113,9 @@ class ModelRegistry:
             self._snapshot.last_error = str(failure)
             return
         self._snapshot = ModelSnapshot(models=models, refreshed_at=time.monotonic())
+        # Best-effort and never fatal: an upstream that is not LM Studio simply
+        # 404s here, leaving residency UNKNOWN and routing exactly as it was.
+        self._residency = await probe_residency(self._upstream.base_url, self._client)
 
     async def _fetch(self) -> list[dict[str, Any]]:
         """Read the upstream catalogue and normalise only what must be."""

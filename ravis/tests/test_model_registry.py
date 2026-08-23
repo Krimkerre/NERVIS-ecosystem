@@ -49,6 +49,31 @@ async def test_reads_do_not_contact_the_upstream() -> None:
     assert fake.models_requests == 1
 
 
+async def test_residency_is_probed_on_refresh_not_per_request() -> None:
+    """§9.8 budgets routing at P50 under 5 ms, so residency is cached too."""
+    fake = RecordingUpstream()
+    registry = _registry(fake)
+    await registry.refresh()
+
+    for _ in range(100):
+        registry.residency.state_of("anything")
+
+    assert fake.residency_requests == 1
+
+
+async def test_a_non_lmstudio_upstream_leaves_residency_unknown() -> None:
+    """The ordinary case for any other server, and not a fault.
+
+    Unknown rather than empty: empty would mean "nothing is loaded", which makes
+    every model look equally cold and silently undoes the preference residency
+    exists to provide.
+    """
+    registry = _registry(RecordingUpstream())
+    await registry.refresh()
+
+    assert registry.residency.known is False
+
+
 async def test_a_failed_refresh_keeps_the_previous_catalogue() -> None:
     """Serving a slightly stale list beats serving an empty one.
 
