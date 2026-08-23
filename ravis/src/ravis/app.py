@@ -22,6 +22,8 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
+from ecosystem_protocol import new_request_id
+from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
@@ -37,10 +39,9 @@ from ravis.api.management import management_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
-from ravis.ecosystem import router as ecosystem_router
+from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.identity import resolve_identity
-from ravis.observability import new_request_id
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
@@ -152,9 +153,15 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     installation = uuid.uuid5(uuid.NAMESPACE_DNS, settings.database_path).hex[:12]
     api.state.service_id = f"ravis-{installation}"
     api.state.machine_id = uuid.uuid5(uuid.NAMESPACE_DNS, "ravis-machine").hex
-    # Bumped whenever the advertised capability set changes, so a consumer can
-    # distinguish a real change from a re-read.
-    api.state.capability_revision = 1
+    # What the shared MEP router publishes on RAVIS's behalf. Attached under the
+    # name that package looks for; everything service-specific in it — identity,
+    # capability declarations, the readiness check — is supplied from here, and
+    # nothing about RAVIS leaks into the protocol package.
+    api.state.ecosystem = ravis_surface(
+        service_id=api.state.service_id,
+        machine_id=api.state.machine_id,
+        database=api.state.database,
+    )
 
 
 def _register_middleware(api: FastAPI, settings: Settings) -> None:

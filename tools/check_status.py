@@ -33,6 +33,12 @@ ROOT = Path(__file__).resolve().parent.parent
 STATUS = ROOT / "STATUS.md"
 RAVIS = ROOT / "ravis"
 
+# Every package with a suite. Counted together because STATUS.md states one
+# number for the repository, and a gate that counted only the first package
+# would go quiet the moment work moved to another one — which is exactly what
+# happened when the protocol package and SIRVIS arrived.
+PACKAGES = ("protocol", "ravis", "sirvis")
+
 
 def _python() -> str:
     """The interpreter that has RAVIS installed.
@@ -51,14 +57,32 @@ def _ravis_cli() -> str:
 
 
 def counted_tests() -> int:
-    """How many tests the suite actually contains."""
+    """How many tests this repository contains, across every package.
+
+    Returns -1 when any package fails to report, rather than a partial sum: a
+    number that is quietly missing a suite is worse than an obvious failure,
+    because STATUS.md would then be "corrected" to the wrong figure.
+    """
+    total = 0
+    for package in PACKAGES:
+        counted = _counted_in(ROOT / package)
+        if counted < 0:
+            return -1
+        total += counted
+    return total
+
+
+def _counted_in(package: Path) -> int:
+    """Collect one package's suite, or -1 when it cannot be counted."""
+    if not (package / "tests").is_dir():
+        return 0
     result = subprocess.run(
-        [_python(), "-m", "pytest", "--collect-only", "-q"],
-        cwd=RAVIS, capture_output=True, text=True, check=False,
+        [_python(), "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
+        cwd=package, capture_output=True, text=True, check=False,
     )
     # `-q` is in addopts, so pytest prints a per-file tally rather than a
     # total. Summing those is more robust than fighting the quiet flag, and it
-    # fails loudly (0) if the format changes rather than silently passing.
+    # fails loudly if the format changes rather than silently passing.
     per_file = re.findall(r"^\S+: (\d+)$", result.stdout, re.M)
     return sum(int(count) for count in per_file) if per_file else -1
 
@@ -112,7 +136,8 @@ def check_referenced_paths(text: str, failures: list[str]) -> None:
     for path in sorted(set(re.findall(r"`([\w./-]+\.(?:md|py|toml|yml))`", text))):
         if path.startswith(("../", "http")) or path.startswith(SIBLING_REPOSITORIES):
             continue
-        candidates = [ROOT / path, RAVIS / path, RAVIS / "src/ravis" / path]
+        candidates = [ROOT / path, *(ROOT / pkg / path for pkg in PACKAGES),
+                      RAVIS / "src/ravis" / path]
         if not any(candidate.exists() for candidate in candidates):
             failures.append(f"STATUS.md references `{path}`, which does not exist")
 

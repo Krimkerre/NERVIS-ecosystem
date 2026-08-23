@@ -15,8 +15,9 @@ import argparse
 import sys
 from typing import Sequence
 
+from ecosystem_protocol import configure_logging
+
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
-from ravis.observability import configure_logging
 from ravis.providers_map import resolve_provider_map
 
 EXIT_OK = 0
