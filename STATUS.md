@@ -471,6 +471,22 @@ different suite with a different prompt — the two are not comparable and are
 never listed together, which is the whole reason §11.5 versions a suite by its
 prompts.
 
+**Read this table with a ±16% ruler, not a ±2% one.** Every row publishes a
+within-run spread of one or two percent, and that number describes how
+consistent five repetitions were *in one sitting* — not how repeatable the
+figure is. Re-running `granite-4.0-h-tiny` GGUF an hour later gave **61.1 tok/s
+against 52.7**, from byte-identical work: 256 content chunks and 256 reported
+tokens in both, with only the wall clock different (4.918 s against 4.214 s).
+The machine, not the model.
+
+So the wide gaps in this table are real — 101 against 10.8 is not noise — and
+**the middle of it is not**: 31.0, 29.8, 27.9 and 27.2 are one measurement
+apart and should not be read as a ranking. §11.7 says a single take can measure
+noise rather than a difference; this says the *spread a run publishes* does not
+capture that noise either, because it is computed inside one sitting. Comparing
+two builds measured at different times needs repeated experiments, not repeated
+repetitions — which is M20's historical comparison, and is not built.
+
 **The format pair is the point, and it splits in opposite directions.** Same
 family, same weights, two packagings: MLX generates at **1.9× the GGUF's rate**
 and takes **3.4× longer to reach its first token**. Neither is "the faster
@@ -1032,6 +1048,17 @@ reviewer who disagrees should say so rather than assume it was an accident.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **The spread a benchmark publishes is not the spread it has.** Five
+  repetitions of `granite-4.0-h-tiny` agreed to ±1.6% within a run, twice — and
+  the two runs disagreed with each other by **16%**, on byte-identical work:
+  same 256 content chunks, same 256 reported tokens, different wall clock. The
+  published number is a within-sitting consistency figure and says nothing about
+  whether the same build measured tomorrow lands in the same place. It was
+  caught by re-running one build to check that an engine change was neutral,
+  which it was; the machine was not. The consequence is a reading rule rather
+  than a fix: wide gaps in a comparison table are real, adjacent rows are not,
+  and closing that properly needs repeated experiments over time (M20) rather
+  than more repetitions inside one.
 - **A model can do its thinking *inside* the content stream, and be measured as
   though it were answering.** Some runtimes route thinking into
   `reasoning_content`, where this engine never sees it. `tencent/Hunyuan-1.8B`
