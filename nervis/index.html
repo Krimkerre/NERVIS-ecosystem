@@ -877,7 +877,45 @@ const API={
   /* GET /api/v1/models — installed builds, derived from the LM Studio snapshot
      above. Identity is family + variant + runtime + config; `state` is SIRVIS's
      closed runtime enum, mapped from LM Studio's own `state` field. */
-  async models(){return{snapshot_revision:412,items:lmstudioBuilds()}},
+  /* GET /api/v1/models -> the build row this page's tables already read.
+
+     Four fields the API does not carry, each rendered absent rather than
+     defaulted, because every default here would be a positive claim:
+
+       size_gb           nothing records an installed size — LM Studio's
+                         catalogue does not report one, so `installed_size_bytes`
+                         is declared and never populated.
+       resident_gb       the Resource Manager counts references, not bytes.
+       measured          throughput and tool reliability live on evidence
+                         records, not on a build; the Results screen has them.
+       tools_advertised  SIRVIS's inventory does not republish LM Studio's
+                         capability list, so "advertises nothing" is unknowable
+                         here and must not be printed as `none`.
+
+     `runtime` is derived from `runtime_format` and stops at absence: a null
+     format is not llama.cpp, it is a format nobody reported. Same rule the
+     variant string follows one line down. */
+  async models(){return live('sirvis','/api/v1/models',this._modelsMock,payload=>({
+   snapshot_revision:payload.snapshot_revision,
+   items:payload.items.map(m=>{const v=m.variant||{};
+    const instances=m.instances||[];
+    return{
+     model_id:m.runtime_key,
+     family:(m.family&&m.family.display_name)||m.display_name,
+     variant:[v.runtime_format&&v.runtime_format.toUpperCase(),v.quantization].filter(Boolean).join(' ')||null,
+     runtime:v.runtime_format==='mlx'?'mlx':v.runtime_format==='gguf'?'llama.cpp':null,
+     state:m.is_loaded?'loaded':'stopped',
+     instance_count:instances.length,
+     runtime_config:{
+      context_length:instances.length?instances[0].effective_context:null,
+      max_context_length:m.declared_context?m.declared_context.value:null},
+     size_gb:null,
+     resident_gb:null,
+     measured:null,
+     tools_advertised:null,
+     vision:null}})}))},
+
+  async _modelsMock(){return{snapshot_revision:412,items:lmstudioBuilds()}},
 
   /* GET /api/v1/benchmark-results — EvidenceRecord per SIRVIS.md §12.3, built
      from the real suite in ../clarvis/docs/benchmarks.md rather than written out.
@@ -1082,7 +1120,86 @@ const API={
      failed tool call correctly when it is alone, stopped using the tool in both
      pairings it appeared in. Nothing in either build's own record predicts that,
      and no amount of single-model benchmarking would have found it. */
+  /* Two endpoints, because the definition and the measurements live apart and
+     should: GET /api/v1/runtime-sets is what somebody *declared*, and the pair
+     numbers are on a benchmark result like any other measurement.
+
+     Joined on the set NAME **and** the revision, both of which the matrix
+     snapshots at run time. Name alone would let a revision-1 measurement
+     describe a revision-3 definition — the thing §10's immutable-at-use rule
+     exists to prevent, reintroduced in the presentation layer.
+
+     Three absences:
+       follow_up  no tool-call trial exists. `TrialRate` is declared on the
+                  evidence record and constructed nowhere, so this column has no
+                  source until M13. It is the most load-bearing column on the
+                  screen, so it renders absent and says why rather than showing
+                  a solo figure in a co-residency column.
+       peak_gb    M10's matrix carries `memory` per condition, added *after* the
+                  only run that exists — so this run's matrix has memory: null.
+                  The figures are in that run's telemetry, not on this endpoint.
+       pairs      one measured combination exists, not five. */
   async runtimeSet(){
+   const [sets,runs]=await Promise.all([
+     liveSirvis('/api/v1/runtime-sets'),
+     liveSirvis('/api/v1/benchmark-runs?limit=50')]);
+   if(!sets||!runs||!(sets.items||[]).length)return this._runtimeSetMock();
+
+   const measured=[];
+   for(const run of runs.items||[])for(const res of run.results||[])
+    if(res.interaction_matrix)measured.push({res,m:res.interaction_matrix});
+   if(!measured.length)return this._runtimeSetMock();
+
+   const newest=measured[0];
+   const set=(sets.items||[]).find(s=>s.name===newest.m.runtime_set)||sets.items[0];
+   const roles=newest.m.load_order||Object.keys(newest.m.rows||{});
+   const forRole={};
+   for(const {res,m} of measured)
+    if(m.runtime_set===newest.m.runtime_set&&m.revision===newest.m.revision)
+     forRole[res.target_key]=res;
+
+   const round=(n,d)=>n==null?null:Math.round(n*Math.pow(10,d==null?2:d))/Math.pow(10,d==null?2:d);
+   const fig=(role,cond)=>(((newest.m.rows||{})[role]||{}).figures||{})[cond]||{};
+   const deg=role=>((newest.m.rows||{})[role]||{}).degradation_percent||{};
+   const build=role=>{const r=forRole[role];if(!r)return role;
+    return [r.target.model_family,[r.target.format&&r.target.format.toUpperCase(),
+      r.target.quantization].filter(Boolean).join(' ')].filter(Boolean).join(' · ');};
+   const mem=newest.m.memory||{};
+   const gb=b=>b==null?null:round(b/1073741824,1);
+   const anyResult=forRole[roles[0]]||newest.res;
+
+   SOURCE.sirvis='live';
+   return{
+    runtime_set_id:set.runtime_set_id,name:set.name,revision:newest.m.revision,
+    evidence_type:anyResult.evidence_type,
+    samples:fig(roles[0],'alone').samples||0,
+    combined_peak_gb:gb((mem.concurrent||{}).lowest_available_bytes),
+    swap_gb:gb((mem.concurrent||{}).swap_used_bytes),
+    complete:newest.m.complete,
+    co_residency_failure:newest.m.co_residency_failure,
+    conditions:newest.m.conditions||[],
+    members:roles.map(role=>({
+     role,family:build(role),
+     alone_tok_s:round(fig(role,'alone').tokens_per_second,1),
+     sequential_tok_s:round(fig(role,'sequential').tokens_per_second,1),
+     concurrent_tok_s:round(fig(role,'concurrent').tokens_per_second,1),
+     first_token_alone_s:round(fig(role,'alone').time_to_first_token,3),
+     first_token_concurrent_s:round(fig(role,'concurrent').time_to_first_token,3),
+     degradation:deg(role),
+     follow_up_alone:null,follow_up_concurrent:null})),
+    pairs:[{members:roles.map(build),
+      peak_gb:gb((mem.concurrent||{}).lowest_available_bytes),
+      first_token_s:roles.map(r=>round(fig(r,'concurrent').time_to_first_token,3)),
+      follow_up:roles.map(function(){return null}),
+      note:`${(newest.m.conditions||[]).length} conditions · ${fig(roles[0],'alone').samples||0} repetitions each`}],
+    validity:{measurement:anyResult.validity,
+      notes:(anyResult.validity_notes||[]).join('; ')||'none recorded',
+      basis:newest.m.basis,
+      co_residency:newest.m.complete?'every member resident together':`FAILED — ${newest.m.co_residency_failure}`},
+    finding:roles.map(r=>`${r} lost ${round((deg(r).concurrent||{}).tokens_per_second,1)}% of its throughput under concurrent load`).join(', and ')};
+  },
+
+  async _runtimeSetMock(){
    const pair=BENCHMARK_PAIRS[1];
    return{runtime_set_id:'rs_clarvis_balanced',revision:3,name:'clarvis-balanced',
    evidence_type:'MEASURED',samples:3,combined_peak_gb:pair.peak_gb,swap_gb:0,
@@ -1311,7 +1428,30 @@ const API={
      the invariant itself, rather than written down beside it. That is the point:
      install a build with tool_use tomorrow and the agent pool grows without
      anyone editing a number here. */
-  async pools(){
+  /* GET /api/v1/pools -> the shape this page's tables already read.
+
+     Three renames and one absence. `requirements`->`requires` and
+     `member_count`->`members` are this page's names for the same facts. The
+     absence is `reason`: RAVIS publishes no per-pool explanation of why a pool
+     is unavailable, so it is null here and every consumer renders an em dash.
+     Route decisions do carry per-model exclusion reasons, but that is a
+     different question — why *this request* found no route — and borrowing it
+     would answer a question nobody asked.
+
+     `requires` keeps RAVIS's own vocabulary rather than the mock's: the API
+     publishes {required:[...], minimum_context:int}, and the mock spelled it
+     {tools:'REQUIRED', minimum_context, vision, privacy}. Translating the
+     mock's spelling back would invent `privacy` and `vision` requirements no
+     pool declares. */
+  async pools(){return live('ravis','/api/v1/pools',this._poolsMock,payload=>({
+   items:payload.items.map(x=>({
+    pool_id:x.pool_id,
+    requires:x.requirements,
+    members:x.member_count,
+    available:x.available,
+    reason:null}))}))},
+
+  async _poolsMock(){
    const local=lmstudioBuilds();
    const fits=r=>local.filter(b=>
     (r.tools!=='REQUIRED'||toolsWork(b))
@@ -1340,7 +1480,34 @@ const API={
      Keeping `effective` as a separate field rather than overwriting `advertised`
      is what lets a pool membership count be audited. Without it the agent pool is
      10 of 11 and nobody can say which one is missing or why. */
-  async models(){return{items:lmstudioBuilds().map(b=>({
+  /* GET /api/v1/models -> the per-build row the membership table reads.
+
+     `maximum_context` is nullable and usually null: RAVIS's context window
+     comes from operator configuration or evidence, and a generic
+     OpenAI-compatible upstream publishes neither. It stays null and the view
+     renders an em dash rather than a number nobody measured.
+
+     `tools.advertised` is null unless the winning claim IS an advertisement.
+     RAVIS keeps one claim per capability (the best-sourced one), so when
+     provenance is MEASURED or CONFIGURED the advertisement is gone and cannot
+     be reported. Null means "not knowable from this payload", which the view
+     now distinguishes from "advertises nothing".
+
+     `tools.measured` is always null. RAVIS publishes a state and a provenance,
+     never call counts — an "N/M" here would be a fabricated denominator. */
+  async models(){return live('ravis','/api/v1/models',this._modelsMock,payload=>({
+   items:payload.items.map(m=>{const tools=m.capabilities&&m.capabilities.tools||{};
+    return{
+     model_id:m.model_id,
+     maximum_context:m.context_window,
+     tools:{
+      effective:tools.state==='SUPPORTED',
+      state:tools.state||'UNKNOWN',
+      provenance:tools.provenance||null,
+      advertised:tools.provenance==='ADVERTISED'?tools.state==='SUPPORTED':null,
+      measured:null}}})}))},
+
+  async _modelsMock(){return{items:lmstudioBuilds().map(b=>({
    model_id:'local/'+b.lmstudio_id,family:b.family,variant:b.variant,runtime:b.runtime,
    maximum_context:b.runtime_config.max_context_length,vision:b.vision,
    tools:{advertised:b.tools_advertised,
@@ -2018,26 +2185,38 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  const loaded=builds.filter(m=>m.state!=='stopped');
  const resident=loaded.reduce((n,m)=>n+(m.resident_gb||0),0);
  const measured=builds.filter(m=>m.measured);
- const fastest=measured.filter(m=>m.measured.gen_tok_s).reduce((a,b)=>b.measured.gen_tok_s>a.measured.gen_tok_s?b:a);
- const K=n=>n>=1024?Math.round(n/1024)+'K':n;
- const ctx=c=>c.context_length?K(c.context_length)+' loaded':K(c.max_context_length)+' max';
+ /* Seeded, because live `/api/v1/models` carries no measurements at all —
+    throughput lives on evidence records, not on a build — so this array is
+    empty and an unseeded reduce throws. It threw on the *default* SIRVIS
+    screen, which is this one, and `render()` has no catch: the whole app
+    would have failed to paint the moment the accessor went live. */
+ const fastest=measured.filter(m=>m.measured&&m.measured.gen_tok_s)
+   .reduce((a,b)=>b.measured.gen_tok_s>a.measured.gen_tok_s?b:a,null);
+ const K=n=>n==null?null:n>=1024?Math.round(n/1024)+'K':n;
+ const ctx=c=>c.context_length?K(c.context_length)+' loaded'
+   :c.max_context_length?K(c.max_context_length)+' max':'—';
  /* Measured tool reliability, and the disagreement with the advertised flag where
     there is one. That mismatch is the most useful single fact in this data, so it
     is on the dashboard rather than buried a screen deep. */
  const toolCell=m=>{if(!m.measured)return `<span class="prov" data-kind="UNKNOWN">UNKNOWN</span>`;
   const [ok,n]=m.measured.tools,works=ok===n;
-  const clash=works!==m.tools_advertised;
+  /* Only a *known* advertisement can disagree with a measurement. Null is not
+     a "no", and comparing against it manufactures a clash on every row. */
+  const clash=m.tools_advertised!=null&&works!==m.tools_advertised;
   return `<span class="chip${works?'':' warn'}">${ok}/${n} tools</span>${clash?` <span class="prov" data-kind="ESTIMATED">claim says ${m.tools_advertised?'yes':'no'}</span>`:''}`};
  $('#content').innerHTML=kpis([
    ['Loaded',`${loaded.length} / ${builds.length}`,'builds resident now'],
    ['Memory',resident.toFixed(1)+' GB',`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
-   ['Fastest measured',String(fastest.measured.gen_tok_s),`tok/s · ${fastest.family}`],
+   ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
+     fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
  +`<div class="card wide"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
-   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="selectOne(this,'.model')"><b>${m.family}</b> · ${m.variant} · <span class="mono" style="opacity:.6">${m.source}</span> <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime} · ${ctx(m.runtime_config)} · ${m.size_gb} GB${m.resident_gb?' resident':' on disk'}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
+   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="selectOne(this,'.model')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime||'—'} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
    </div>
-   <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${fastest.family}</b> tops it at ${fastest.measured.gen_tok_s} tok/s${fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:''}.</small>`,'sirvis')}</div>
+   <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. ${fastest
+     ?`The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${fastest.family}</b> tops it at ${fastest.measured.gen_tok_s} tok/s${fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:''}.`
+     :`The bars are flat because this endpoint carries no throughput: SIRVIS files measurements against evidence records rather than against a build, so a rate belongs to a run under a named configuration and not to a name in a catalogue. The <b>Results</b> screen has them.`}</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>${rn.suite}@${rn.version}</h3>${cell(`
    <div class="trace-step"><b>target</b><span>${rn.target.split(' · ')[0]}</span></div>
    <div class="trace-step"><b>generating</b><span>${rn.generation_tok_s.median} tok/s</span></div>
@@ -2078,9 +2257,17 @@ async function sirvisModels(){
  /* Two different context numbers, and conflating them is a real error: the
     ceiling is what the build supports, and context_length is what it was actually
     loaded with. Evidence is filed against the second one. */
- const K=n=>n>=1024?Math.round(n/1024)+'K':n;
- const ctx=c=>c.context_length?K(c.context_length)+' loaded · '+K(c.max_context_length)+' max':K(c.max_context_length)+' max';
- const first=loaded[0]||m.items[0];
+ const K=n=>n==null?null:n>=1024?Math.round(n/1024)+'K':n;
+ /* Both halves are nullable on the live payload: nothing is resident, so there
+    is no loaded length, and `declared_context` is a Claim whose value is null
+    whenever the runtime reported no maximum. Unguarded this rendered the
+    literal string "null max". */
+ const ctx=c=>{const on=K(c.context_length),max=K(c.max_context_length);
+  return on?`${on} loaded${max?' · '+max+' max':''}`:max?`${max} max`:'—';};
+ /* An installed-but-empty catalogue is a real state: LM Studio running with
+    nothing downloaded answers 200 with no items, which `live()` accepts. The
+    mock could never be empty, so this guard exists because of the wiring. */
+ const first=loaded[0]||m.items[0]||null;
  $('#content').innerHTML=kpis([
    ['Installed',String(m.items.length),'builds, not families','sirvis'],
    ['Loaded',String(loaded.length),'holding memory now','sirvis'],
@@ -2088,15 +2275,21 @@ async function sirvisModels(){
    ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis']])
  +`<div class="card full"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
-   ${m.items.map(x=>{const t=x.measured&&x.measured.tools,works=t?t[0]===t[1]:null,clash=works!==null&&works!==x.tools_advertised;
-    return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono">${x.runtime} · ${ctx(x.runtime_config)}</span><span>${x.tools_advertised?'<span class="chip">tool_use</span>':'<span class="mono" style="opacity:.35">none</span>'}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${t?`<span class="chip${works?'':' warn'}">${t[0]}/${t[1]}</span>`:'<span class="prov" data-kind="UNKNOWN">UNKNOWN</span>'}</span><span class="mono">${x.size_gb} GB${x.resident_gb?' / '+x.resident_gb:''}</span><span class="chip${x.state==='stopped'?' warn':''}">${x.state}</span></div>`}).join('')}
-   <small class="mono dim">the two capability columns disagree about ${m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt — including the recommended build, which a dashboard trusting the flag would have excluded outright. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.</small>`,'sirvis')}</div>
+   ${m.items.map(x=>{const t=x.measured&&x.measured.tools,works=t?t[0]===t[1]:null;
+    /* Only a known advertisement can clash with a measurement; null is not a no. */
+    const clash=works!==null&&x.tools_advertised!=null&&works!==x.tools_advertised;
+    const advertised=x.tools_advertised==null?'<span class="mono" style="opacity:.35">—</span>'
+      :x.tools_advertised?'<span class="chip">tool_use</span>':'<span class="mono" style="opacity:.35">none</span>';
+    return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant||'—'}</span><span class="mono">${x.runtime||'—'} · ${ctx(x.runtime_config)}</span><span>${advertised}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${t?`<span class="chip${works?'':' warn'}">${t[0]}/${t[1]}</span>`:'<span class="prov" data-kind="UNKNOWN">UNKNOWN</span>'}</span><span class="mono">${x.size_gb==null?'—':x.size_gb+' GB'}${x.resident_gb?' / '+x.resident_gb:''}</span><span class="chip${x.state==='stopped'?' warn':''}">${x.state}</span></div>`}).join('')}
+   <small class="mono dim">${SOURCE.sirvis==='live'
+     ?`identity is the whole row: this machine has <b>granite-4.0-h-tiny</b> twice, once GGUF and once MLX, and they are different subjects with different evidence. Both capability columns are absent because SIRVIS's inventory publishes neither — it does not republish the runtime's advertised flags, and measurements are filed against evidence records rather than against a build. Two absences rather than two zeros: nobody has asked these builds to call a tool yet, which is <b>M13</b>.`
+     :`the two capability columns disagree about ${m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.`}</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Evidence identity</h3>${cell(`
-   <div class="trace-step"><b>family</b><span>${first.family}</span></div>
-   <div class="trace-step"><b>build · variant</b><span>${first.variant}</span></div>
-   <div class="trace-step"><b>runtime</b><span>${first.runtime}</span></div>
-   <div class="trace-step"><b>runtime config</b><span>${ctx(first.runtime_config)}</span></div>
-   <div class="trace-step"><b>machine</b><span>${mc.model} · ${mc.machine_id}</span></div>
+   <div class="trace-step"><b>family</b><span>${first?first.family:'—'}</span></div>
+   <div class="trace-step"><b>build · variant</b><span>${first&&first.variant||'—'}</span></div>
+   <div class="trace-step"><b>runtime</b><span>${first&&first.runtime||'—'}</span></div>
+   <div class="trace-step"><b>runtime config</b><span>${first?ctx(first.runtime_config):'—'}</span></div>
+   <div class="trace-step"><b>machine</b><span>${mc.model||'—'} · ${mc.machine_id}</span></div>
    <div class="trace-step"><b>role</b><span>set by the benchmark suite, not the model</span></div>
    <small class="mono dim">this chain is the key every benchmark result is filed under. Collapse any link of it and you get <b>model → score</b>, which is the one shape SIRVIS is not allowed to publish.</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>Memory</h3>${cell(`
@@ -2220,31 +2413,45 @@ async function sirvisBenchmarks(){
 async function sirvisRuntimeSets(){
  heading('Runtime sets','Measured combinations. Memory held; behaviour did not — and only the pair measurement shows it.');
  const rs=await API.sirvis.runtimeSet();
- const degraded=rs.pairs.filter(p=>p.follow_up.some(f=>f!=='used-result'&&f!=='never-reached'));
- const heaviest=rs.pairs.reduce((a,b)=>b.peak_gb>a.peak_gb?b:a);
+ /* A follow-up outcome of null is *unmeasured*, not a failure. Counting nulls
+    as degradation would report every pairing as broken the moment the column
+    lost its source. */
+ const known=p=>(p.follow_up||[]).filter(f=>f!=null);
+ const degraded=rs.pairs.filter(p=>known(p).some(f=>f!=='used-result'&&f!=='never-reached'));
+ const anyFollowUp=rs.pairs.some(p=>known(p).length);
+ const withPeak=rs.pairs.filter(p=>p.peak_gb!=null);
+ const heaviest=withPeak.length?withPeak.reduce((a,b)=>b.peak_gb>a.peak_gb?b:a):null;
+ const gbOr=v=>v==null?'—':v+' GB';
  const short=n=>n.replace(/^(lmstudio-community|mlx-community)\//,'').replace('-instruct','');
  $('#content').innerHTML=kpis([
    ['Pairings',String(rs.pairs.length),'measured co-resident','sirvis'],
-   ['Heaviest',heaviest.peak_gb+' GB','resident, no swap','sirvis'],
-   ['Degraded',String(degraded.length),'on behaviour, not memory','sirvis'],
+   ['Heaviest',heaviest?gbOr(heaviest.peak_gb):'—',heaviest?'resident, no swap':'peak memory not on this record','sirvis'],
+   ['Degraded',anyFollowUp?String(degraded.length):'—',anyFollowUp?'on behaviour, not memory':'no tool-call trial yet (M13)','sirvis'],
    ['Evidence',rs.samples+' runs',prov(rs.evidence_type)+' per pairing','sirvis']])
  +`<div class="card full"><h3>Every measured pairing</h3>${cell(`
    <div class="table-row head six"><span>Build A</span><span>Build B</span><span>Peak</span><span>First token</span><span>Follow-up</span><span>Note</span></div>
-   ${rs.pairs.map(p=>{const bad=p.follow_up.some(f=>f!=='used-result'&&f!=='never-reached');
-    return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${p.peak_gb} GB</span><span class="mono">${p.first_token_s.join(' · ')}s</span><span class="chip${bad?' warn':''}">${p.follow_up.join(' · ')}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
-   <small class="mono dim">holding two builds costs almost nothing up to ${heaviest.peak_gb} GB resident, and every pairing still clears the deadlines — the first-token penalty is a few hundred milliseconds. That is the finding that makes a two-model setup worth having, and it is the boring half. The interesting half is the follow-up column.</small>`,'sirvis')}</div>
+   ${rs.pairs.map(p=>{const bad=known(p).some(f=>f!=='used-result'&&f!=='never-reached');
+    return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${bad?' warn':''}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
+   <small class="mono dim">${SOURCE.sirvis==='live'
+     ?`the follow-up column is the interesting half of this screen and it has no source yet: nothing has asked these builds to call a tool while a second model is resident. <b>TrialRate</b> exists on the evidence record and is constructed nowhere — that is <b>M13</b>. Peak memory is absent for a different reason: M10's matrix carries it, but the rows were added after the only run that exists, so this run's figures are in its telemetry rather than on this record.`
+     :`holding two builds costs almost nothing up to ${heaviest?heaviest.peak_gb:'—'} GB resident, and every pairing still clears the deadlines — the first-token penalty is a few hundred milliseconds. That is the finding that makes a two-model setup worth having, and it is the boring half. The interesting half is the follow-up column.`}</small>`,'sirvis')}</div>
   <div class="card wide"><h3>${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
-   <div class="table-row head six"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Follow-up alone</span><span>Follow-up paired</span></div>
-   ${rs.members.map(m=>`<div class="table-row six"><span>${m.role}</span><span>${m.family}</span><span class="mono">${m.first_token_alone_s}s · ${m.alone_tok_s} tok/s</span><span class="mono">${m.first_token_concurrent_s}s</span><span class="chip">${m.follow_up_alone}</span><span class="chip${m.follow_up_concurrent==='used-result'?'':' warn'}">${m.follow_up_concurrent}</span></div>`).join('')}
-   <small class="mono dim">${rs.finding}. Sustained rate under contention was not measured for this pair, so <b>concurrent_tok_s</b> is null rather than carrying the solo figure — which would have read as "no degradation found" when nothing looked.</small>`,'sirvis')}</div>
+   <div class="table-row head six"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Concurrent</span><span>Follow-up</span></div>
+   ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
+    return `<div class="table-row six"><span>${m.role}</span><span>${m.family}</span><span class="mono">${n(m.first_token_alone_s,'s')} · ${n(m.alone_tok_s,' tok/s')}</span><span class="mono">${n(m.sequential_tok_s,' tok/s')}</span><span class="mono">${n(m.first_token_concurrent_s,'s')} · ${n(m.concurrent_tok_s,' tok/s')}</span><span class="chip">${m.follow_up_concurrent==null?'—':m.follow_up_concurrent}</span></div>`}).join('')}
+   <small class="mono dim">${rs.finding}. ${SOURCE.sirvis==='live'
+     ?`Co-resident is both models loaded with one generating; concurrent is both generating at once. The gap between those two columns is the whole reason a pair is its own subject — co-residency is nearly free and concurrency is not, and no single-model run produces either number. Follow-up is absent because no tool-call trial exists yet (M13).`
+     :`Sustained rate under contention was not measured for this pair, so <b>concurrent_tok_s</b> is null rather than carrying the solo figure — which would have read as "no degradation found" when nothing looked.`}</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
    +`<small class="mono dim">the measurement is valid and the combination is a bad idea. Those are different statements, kept in different fields — validity says the run can be trusted, and the finding above says what it found.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Why the pair is its own subject</h3>${cell(`
    <div class="trace-step"><b>predicted from members</b><span>fits · both clear every deadline</span></div>
    <div class="trace-step"><b>measured as a pair</b><span>fits · both clear every deadline</span></div>
    <div class="trace-step"><b>predicted from members</b><span>recovers from a failed tool call</span></div>
-   <div class="trace-step"><b>measured as a pair</b><span>stops calling the tool</span></div>
-   <small class="mono dim">the memory prediction was right and the behaviour prediction was wrong, which is the case against benchmarking members and inferring the set. The same build failed differently in each pairing — <b>no-call</b> at ${rs.pairs[1].peak_gb} GB and <b>gave-up</b> at ${rs.pairs[4].peak_gb} GB — so it is not one repeatable fault with a single cause either.</small>`,'sirvis')}</div>`}
+   <div class="trace-step"><b>measured as a pair</b><span>${SOURCE.sirvis==='live'?'not measured — no tool-call trial yet (M13)':'stops calling the tool'}</span></div>
+   <small class="mono dim">${SOURCE.sirvis==='live'
+     ?`measured on this machine: co-residency cost almost nothing and concurrency cost a third to a half of throughput, which no single-model run predicts. The behaviour half of that argument is still unmeasured here — it needs the tool-call trial M13 brings — so this card currently makes the memory case and only half the case it was built for.`
+     :`the memory prediction was right and the behaviour prediction was wrong, which is the case against benchmarking members and inferring the set. The same build failed differently in each pairing — <b>no-call</b> at ${rs.pairs[1]?rs.pairs[1].peak_gb:'—'} GB and <b>gave-up</b> at ${rs.pairs[4]?rs.pairs[4].peak_gb:'—'} GB — so it is not one repeatable fault with a single cause either.`}</small>`,'sirvis')}</div>`}
 
 /* Results — what the suite actually found, which includes what it failed to find.
    Two of the four accuracy measures did not discriminate at all, and saying so is
@@ -2516,12 +2723,38 @@ async function ravisPools(){
  heading('Pools','A pool is its invariants. Membership is counted from the builds that satisfy them, not written down.');
  const [p,mdl]=await Promise.all([API.ravis.pools(),API.ravis.models()]);
  const down=p.items.filter(x=>!x.available);
- const agent=p.items[0];
- const inv=r=>Object.entries(r).map(([k,v])=>`${k} ${typeof v==='number'?v.toLocaleString():v}`).join(' · ')||'none';
+ /* By id, not by position. The mock listed clarvis-agent first; the API
+    publishes §5's thirteen in their own order and items[0] is ravis/auto, so
+    every figure keyed off `agent` would have described the wrong pool. */
+ const agent=p.items.find(x=>x.pool_id==='ravis/clarvis-agent')||p.items[0];
+ /* RAVIS's requirement shape is {required:[capability], minimum_context:int},
+    and both halves have a meaningful empty: no required capability, and no
+    minimum. "required · minimum_context 0" states two constraints where there
+    are none, so each empty is dropped and a pool with neither says so. */
+ const inv=r=>{const parts=[];
+  if((r.required||[]).length)parts.push(`${r.required.join(' + ')} required`);
+  if(r.minimum_context)parts.push(`context ≥ ${r.minimum_context.toLocaleString()}`);
+  return parts.join(' · ')||'no constraint';};
  /* Re-run the agent pool's own invariant per build, so the row says why. */
- const verdict=m=>!m.tools.effective?['out','no reliable tool calls']
-   :m.maximum_context<agent.requires.minimum_context?['out',`context ceiling ${m.maximum_context.toLocaleString()}`]
-   :['in',m.tools.measured?`${m.tools.measured.join('/')} measured`:'advertised, unmeasured'];
+ /* Three absences, each rendered as one rather than guessed past.
+
+    `tools.effective` false covers UNKNOWN as well as UNSUPPORTED, and those are
+    different: fail-closed is RAVIS declining to admit a build it knows nothing
+    about, not a measurement that the build cannot call tools. The reason says
+    which, because "out" with the wrong reason sends a reader to fix the model.
+
+    A null `maximum_context` cannot be compared and cannot be formatted. Both
+    were unconditional here and both throw on the live payload, where every
+    window is null until an operator configures one. */
+ const ceiling=m=>m.maximum_context==null?'—':m.maximum_context.toLocaleString();
+ const verdict=m=>{
+  const need=agent&&agent.requires?agent.requires.minimum_context:null;
+  if(!m.tools.effective)return['out',m.tools.state==='UNKNOWN'
+    ?'tool support unknown — fails closed':'no reliable tool calls'];
+  if(need&&m.maximum_context==null)return['out','context window unknown — fails closed'];
+  if(need&&m.maximum_context<need)return['out',`context ceiling ${ceiling(m)}`];
+  return['in',m.tools.measured?`${m.tools.measured.join('/')} measured`
+    :m.tools.provenance?m.tools.provenance.toLowerCase():'unmeasured'];};
  const short=s=>s.replace('local/','').replace(/^(lmstudio-community|mlx-community|qwen)\//,'');
  $('#content').innerHTML=kpis([
    ['Pools',String(p.items.length),'published stable ids','ravis'],
@@ -2531,16 +2764,18 @@ async function ravisPools(){
  +`<div class="card full"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>`<div class="table-row five"><span class="mono">${x.pool_id}</span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${x.available?'':' warn'}">${x.available?'yes':'no'}</span><span style="opacity:.7">${x.reason||'—'}</span></div>`).join('')}
-   <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means tools are REQUIRED and context is at least ${(agent.requires.minimum_context/1024)}K — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
+   <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   <div class="card wide"><h3>${agent.pool_id} · membership <span class="chip">${agent.members} of ${mdl.items.length}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Context ceiling</span><span>Tools advertised</span><span>Tools measured</span><span>Verdict</span></div>
    ${mdl.items.map(m=>{const [v,why]=verdict(m);
-    return `<div class="table-row five"${v==='out'?' style="background:rgba(255,92,106,.06)"':''}><span>${short(m.model_id)}</span><span class="mono">${m.maximum_context.toLocaleString()}</span><span class="mono" style="opacity:.7">${m.tools.advertised?'tool_use':'none'}</span><span class="mono"${m.tools.measured&&m.tools.measured[0]!==m.tools.measured[1]?' style="color:#ffb648"':''}>${m.tools.measured?m.tools.measured.join('/'):'—'}</span><span class="chip${v==='in'?'':' warn'}">${v} · ${why}</span></div>`}).join('')}
-   <small class="mono dim">one build is out, and not the one the advertised column would predict. <b>granite-4.0-h-tiny · MLX</b> declares <b>tool_use</b> and delivered 1 call in 8; its GGUF packaging of the same weights delivered 8 in 8 and is in. Three builds advertise nothing and are in on measurement alone — including the one currently serving both roles. Every verdict here is the pool's own invariant re-run per build, so a reader can check the count rather than take it.</small>`,'ravis')}</div>
+    return `<div class="table-row five"${v==='out'?' style="background:rgba(255,92,106,.06)"':''}><span>${short(m.model_id)}</span><span class="mono">${ceiling(m)}</span><span class="mono" style="opacity:.7">${m.tools.advertised===null?'—':m.tools.advertised?'tool_use':'none'}</span><span class="mono"${m.tools.measured&&m.tools.measured[0]!==m.tools.measured[1]?' style="color:#ffb648"':''}>${m.tools.measured?m.tools.measured.join('/'):'—'}</span><span class="chip${v==='in'?'':' warn'}">${v} · ${why}</span></div>`}).join('')}
+   <small class="mono dim">${SOURCE.ravis==='live'
+     ?`every verdict is the pool's own invariant re-run per build, so the count above can be checked rather than taken. On this deployment every build is <b>out</b> for the same reason: RAVIS holds no tool-capability claim for any of them, and §5.1's invariant fails closed on what it does not know. That is the pool working, not the models failing — the claim arrives with SIRVIS evidence (RAVIS M13), and until then the honest membership of a tool-requiring pool is zero.`
+     :`one build is out, and not the one the advertised column would predict. <b>granite-4.0-h-tiny · MLX</b> declares <b>tool_use</b> and delivered 1 call in 8; its GGUF packaging of the same weights delivered 8 in 8 and is in. Three builds advertise nothing and are in on measurement alone. Every verdict here is the pool's own invariant re-run per build, so a reader can check the count rather than take it.`}</small>`,'ravis')}</div>
   ${down.map(x=>`<div class="card wide"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${inv(x.requires)}</span></div>
    <div class="trace-step"><b>members</b><span>${x.members}</span></div>
-   <div class="trace-step"><b>reason</b><span>${x.reason}</span></div>
+   <div class="trace-step"><b>reason</b><span>${x.reason||'not published — a pool reports availability, not a diagnosis'}</span></div>
    <small class="mono dim">a request to this pool returns NO_ROUTE. Serving it from the nearest thing available would answer with something that cannot hold the request, and the caller named the pool precisely because that matters.</small>`,'ravis')}</div>`).join('')}
   <div class="card narrow"><h3>Why pools, not models</h3>${cell(`
    <div class="trace-step"><b>caller names</b><span>a pool</span></div>
@@ -2761,8 +2996,8 @@ async function ravisDiagnostics(){
    ${pr.items.map(x=>`<div class="table-row five"><span>${x.label}</span><span class="chip${x.breaker==='CLOSED'?'':' warn'}">${x.breaker}</span><span>${Math.round(x.error_rate*100)}%</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span><span class="chip${x.enabled?'':' warn'}">${x.enabled?'yes':'no'}</span></div>`).join('')}
    <small class="mono dim">${breakers.length?`<b>${breakers[0].label}</b> is at ${breakers[0].breaker}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`:'Every breaker closed and every enabled provider answering.'}</small>`,'ravis')}</div>
   <div class="card narrow"><h3>Unavailable pools</h3>${cell(down.length?down.map(x=>`
-   <div class="trace-step"><b>${x.pool_id}</b><span>${x.reason}</span></div>`).join('')
-   +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE with this reason attached, which is the whole diagnosis: nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
+   <div class="trace-step"><b>${x.pool_id}</b><span>${x.reason||'no member satisfies its invariants'}</span></div>`).join('')
+   +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
    :`<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`,'ravis')}</div>`}
 
 /* ── EDITOR_PREVIEW ────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 654 tests, no network, no live service
+.venv/bin/pytest                      # part of 655 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 654 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 655 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1068,12 +1068,30 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 |---|---|---|
 | SIRVIS **Results** | live | `/api/v1/benchmark-runs`, one row per evidence identity |
 | SIRVIS **Benchmarks** | live | runs mapped onto the job record; there is no queue, and the screen says so |
-| SIRVIS **Dashboard** | live | the run-detail card; the rest of the screen is still mocks |
-| RAVIS Routes, Pools | ready | endpoints exist (M18a); not yet wired |
-| SIRVIS Models, Discover | ready | `/api/v1/models` exists; not yet wired |
-| SIRVIS **Runtime sets** | **ready** | `/api/v1/runtime-sets` exists (M9) and one measured pair exists (M10); not yet wired |
-| SIRVIS **Evidence** | **ready** | `/api/v1/evidence` exists (M16); no screen reads it yet |
+| SIRVIS **Dashboard** | live | the run-detail card and the build list |
+| SIRVIS **Models** | live | `/api/v1/models`; size, residency, advertised and measured capability all render absent, because the inventory carries none of them |
+| SIRVIS **Runtime sets** | live | `/api/v1/runtime-sets` joined to the M10 matrix on **name and revision**; peak memory and follow-up render absent |
+| RAVIS **Routes** | live | `/api/v1/route-decisions` |
+| RAVIS **Pools** | live | `/api/v1/pools` + `/api/v1/models`; every build reads *out · tool support unknown — fails closed*, which is true |
+| SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
 | Recommendations, Downloads | mocks | need M15 and M11 |
+
+**Wiring a screen is part of finishing a milestone from now on.** M9, M10 and
+M16 each shipped a producer and wired no consumer, and this table drifted from
+three live screens to a growing list of *endpoint exists, nothing reads it*. The
+argument against that was already in this file — a queue view counts states and
+a log does not — and the repository was not following it.
+
+**What wiring found, none of which the tests had.** Five reads shipped behind
+`Scope.READ` while every other read on SIRVIS is open; the browser sends no
+token, `live()` treats a 401 as "service absent", and both new screens would
+have rendered mocks while looking wired. A `reduce` with no seed on the SIRVIS
+dashboard threw on the first live payload and took the whole app's render with
+it. `null.toLocaleString()` blanked the Pools screen. And three separate cells
+turned an absent value into a confident negative — `tools_advertised: null`
+printing as **none** across every row is an assertion that no build advertises
+tool use, which is false. A passing test against a fixture cannot find any of
+these, because a fixture is never absent.
 
 **The Runtime Sets screen was blocked and is not any more, and the history is
 worth keeping** because it is the clearest case of the rule this table exists
