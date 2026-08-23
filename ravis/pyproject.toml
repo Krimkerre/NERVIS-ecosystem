@@ -65,3 +65,9 @@ testpaths = ["tests"]
 # here grants network access, and the fixtures are recorded rather than live.
 addopts = "-q"
 asyncio_mode = "auto"
+# Put the project root on sys.path so `from tests.conftest_upstream import …`
+# resolves. Without it the suite only passes when invoked as `python -m pytest`,
+# which injects the working directory as a side effect — bare `pytest` does not,
+# and CI runs it bare. Stating it here makes the two invocations equivalent
+# instead of leaving the suite dependent on how it happens to be launched.
+pythonpath = ["."]
