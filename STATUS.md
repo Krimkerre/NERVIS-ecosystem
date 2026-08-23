@@ -761,11 +761,40 @@ the measurements in `ravis/measured-capabilities.json`; §21.1's first vertical
 slice is a *comparison* — one GGUF and one MLX build, benchmarked and compared —
 not one model measured well.
 
+### Which prototype screens read real services
+
+`nervis/index.html` renders every screen against mocks. Three now read live
+services instead, and the rest still should not — a screen wired to an endpoint
+that does not exist is worse than a screen on mocks, because it looks finished.
+
+| Screen | Source | Notes |
+|---|---|---|
+| SIRVIS **Results** | live | `/api/v1/benchmark-runs`, one row per evidence identity |
+| SIRVIS **Benchmarks** | live | runs mapped onto the job record; there is no queue, and the screen says so |
+| SIRVIS **Dashboard** | live | the run-detail card; the rest of the screen is still mocks |
+| RAVIS Routes, Pools | ready | endpoints exist (M18a); not yet wired |
+| SIRVIS Models, Discover | ready | `/api/v1/models` exists; not yet wired |
+| SIRVIS **Runtime sets** | **do not wire** | see below |
+| Recommendations, Downloads | mocks | need M15 and M11 |
+
+**Runtime sets must stay on mocks, and the reason is not "M9 is unbuilt".** It
+reads measured *pairs* — peak co-resident memory, first token under
+co-residency, follow-up behaviour per pairing — and there are only two ways to
+produce those today. Inventing `/api/v1/runtime-sets` is forbidden outright. And
+synthesising pairs from single-model runs would assert precisely what §10.1
+exists to deny: *two models fitting separately does not prove they work well
+together.* The screen's own subtitle says memory behaved as arithmetic predicted
+and behaviour did not — fabricating those rows would make the page contradict
+the finding it was built to show. It waits for M9 + M10.
+
+Live wiring is why the reconciliation above exists, and that is the argument for
+doing it early rather than last: a queue view counts states, and a log does not.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 21 | **M4 (RAVIS)** | The Anthropic native adapter — text, streaming, tools, errors, usage. M3b built the path and nothing yet drives it; this is where tool-call framing actually gets hard, and the first real test of whether the serializer's fragment rule survives a provider that fragments differently |
+| 21 | **M4 (RAVIS)** | The Anthropic native adapter — text, streaming, tools, errors, usage. M3b built the path and nothing yet drives it; this is where tool-call framing actually gets hard, and the first real test of whether the serializer's fragment rule survives a provider that fragments differently. **Load the `claude-api` skill before writing a line of it** — the Messages API has drifted in ways a training prior gets wrong, and several of them land squarely on a translator: assistant prefill now returns 400, `budget_tokens` is removed in favour of `thinking: {type: "adaptive"}`, structured output moved to `output_config.format`, and `stop_reason: "refusal"` is a real terminal state with a `stop_details` category that has no OpenAI equivalent and needs a deliberate mapping rather than a default |
 | 22 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
 | 23 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
