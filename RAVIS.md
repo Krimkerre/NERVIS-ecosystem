@@ -1152,7 +1152,7 @@ and §20.1 maps these milestones onto its stages.
 | **M15** | Cost engine — pricing, estimates, actual usage, budgets | No double counting; estimates never presented as invoices |
 | **M16** | Policy engine — application policies, privacy, provider allow/deny, model exclusions, §9.6.1 background-call class | Each hard constraint provably excludes a top-ranked candidate; a declared background call never selects a paid provider under the default profile |
 | **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS | — |
-| **M18** | NERVIS management integration — management, events and tracing surfaces | Does not affect Clarvis wire compatibility |
+| **M18** | Two halves, scheduled apart. **M18a — read-only management API:** the `/api/v1` reads (`pools`, `policies`, `providers`, `models`, `profiles`, `route-decisions`, `usage`), which is what makes a route decision visible while it is being debugged. **M18b — events and tracing surfaces** for NERVIS | Does not affect Clarvis wire compatibility; M18a exposes no mutation and no credential |
 | **M19** | Production observations — rolling latency, TTFT, error rate, throughput | — |
 | **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — |
 | **M21** | Replay and evaluation — request replay, routing comparison | — |
@@ -1167,13 +1167,20 @@ and §20.1 maps these milestones onto its stages.
 | Stage 0 — baseline and invariant lock | M0 — no unresolved cross-owner assumption; a missing contract is a STOP item |
 | Stage 1 — shared protocol | M0 — the `/ecosystem/*` surface and MEP conformance at a pinned version |
 | Stage 2 — transparent gateway and Clarvis conformance | M1 + M2, **wire-level scenarios only** — stream termination and `[DONE]`, fragmented tool-call arguments, tool-call indexes and IDs, tool result IDs, `reasoning_content`, cancellation, fast cached `/v1/models`. Pool separation and fallback are Stage 3 additions to the same suite (§8.8). Plus M10, since an upstream needing a credential cannot be reached without it |
-| Stage 3 — live Clarvis ↔ RAVIS | M9, and with it M3a (the adapter interface M6 filters through), M5 (chat and agent pools resolve independently), M6 (the agent pool refuses a non-tool model), M12 (fallback does not corrupt the stream) and **M14** (see the note below) — each of the first four is named in the stage's own exit criteria. Direct-provider fallback verified |
+| Stage 3 — live Clarvis ↔ RAVIS | M9, and with it M3a (the adapter interface M6 filters through), M5 (chat and agent pools resolve independently), M6 (the agent pool refuses a non-tool model), M12 (fallback does not corrupt the stream), **M14** and **M18a** (see the notes below) — each of the first four is named in the stage's own exit criteria. Direct-provider fallback verified |
 | Stage 5 — RAVIS intelligence | M3b + M4 + M7 + M8 (translated path, native and local adapters), M13 (SIRVIS evidence), M16 (policy) |
-| Stage 6 — NERVIS core | M11 + M15 + M18 |
-| Stage 7 — events and tracing | M18 |
+| Stage 6 — NERVIS core | M11 + M15 |
+| Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
-| **Unscheduled — after Stage 10, or never** | M17 (RAVIS's own dashboard — §15 keeps the UI optional), M21, M22, M23, M24. Listed so that no milestone is silently unassigned: a milestone absent from every row above is deferred by decision, not by oversight |
+| **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `../template/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
 
+> **M18a moved to Stage 3, 2026-08-23.** The read-only half of the management API is what makes
+> the work visible while it is being done: the prototype's Routes and Pools screens read exactly
+> these endpoints, and a real route decision on screen — pool, selected model, requirements,
+> every excluded candidate and its reason — is how M9's integration gets debugged. Deferring it
+> to Stage 6 meant nothing was observable until after the hardest integration was finished. It
+> exposes reads only; every mutation, and the events and tracing surfaces, stay at M18b.
+>
 > **M14 moved to Stage 3, 2026-08-23.** Its *observation* half — residency preference and
 > memory-pressure awareness — turned out to be a prerequisite for M5 being usable rather than a
 > refinement of it. Routing with no view of what is loaded picks alphabetically, and during M5
