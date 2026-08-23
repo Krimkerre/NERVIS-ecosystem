@@ -1076,6 +1076,44 @@ attempts** rather than a catalogue. `ravis/clarvis-agent` is 0 of 20 today
 because RAVIS holds no such claim for any build; this is the first one that
 exists to be carried, and carrying it is RAVIS M13.
 
+### Two packagings of one model, and the case against model → score
+
+`mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
+`run_de31b9c876c84943`, evidence `ev_73e542e82096af09`, VALID. Identical weights
+to the GGUF build above, identical suite, same machine, same evening.
+
+```text
+                          GGUF Q4_K_M      MLX 4bit
+tool calls well-formed        8/8            1/8
+follow-up turn          used-result   lost-arguments
+generation tok/s             60.3          110.5
+time to first token         0.048s         0.210s
+```
+
+**The MLX packaging is 83% faster and cannot be used as an agent.** Seven of its
+eight calls arrived with the right tool name and *empty arguments* — the runtime
+discards them — and the one that worked is the only prompt naming a bare
+filename with no path. The follow-up turn scored `lost-arguments` for the same
+reason.
+
+This is §12.2's argument, measured rather than asserted. Evidence keyed as
+**model → score** would rank the MLX build above the GGUF one on every number a
+score would be computed from, and route `ravis/clarvis-agent` to the packaging
+that fails every realistic tool request. The two are different evidence under
+§12.2's identity — different `model_format`, different `quantization`, different
+`evidence_id` — and that separation is the only thing standing between a router
+and that mistake.
+
+It is also why §15.1 forbids making RAVIS infer equivalence across builds. These
+two share a family name, a parameter count and an architecture. Nothing
+observable from the name distinguishes them, and everything that matters does.
+
+**And it is the streamed harness earning its place.** An unstreamed check reads
+`message.tool_calls` off a finished response, where this build returns a
+well-formed call — the original harness scored it 3/3. Assembled from the stream
+the way Clarvis assembles it, it scores 1/8. The mode the product does not use
+measures nothing.
+
 Running it found the reporting gap either printer would have hidden: `metrics`
 carries measurements and trial rates together, the listing discriminated on
 `"median" in body`, and every rate fell through it silently. An agent run
