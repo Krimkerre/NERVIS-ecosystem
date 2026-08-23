@@ -2,6 +2,16 @@
 
 *Tool-agnostic: this applies to Claude Code, OpenCode, Codex or anything else.*
 
+## Read [`STATUS.md`](./STATUS.md) first
+
+It says what is built, what is next, and how to verify both yourself in four
+commands. **Milestone numbers are identifiers, not a schedule** — M4 is numbered
+before M9 and executes after it — so the ordering in STATUS.md is the one to
+follow, not the numbering in the milestone tables.
+
+Updating it is part of finishing a milestone. A status file that drifts is worse
+than none, because it is believed.
+
 ## What is here
 
 **The `.md` files in this directory are the specifications**, and they are the
