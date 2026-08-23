@@ -6,6 +6,9 @@ Named for the control plane rather than for Clarvis, because the set is four
 applications and no one of them is the centre — NERVIS is simply the one that has to
 know about all of them.
 
+**Building?** Start with [`STATUS.md`](./STATUS.md) — what is finished, what is
+next, and how to check both in four commands.
+
 Two things live here, and they are two halves of the same work.
 
 **The specifications** — six documents, one per application plus a conceptual overview
