@@ -7,6 +7,8 @@ compare what the upstream sent against what the client received, byte for byte.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 from fastapi.testclient import TestClient
 from tests.conftest_upstream import TOOL_CALL_FRAMES, RecordingUpstream, failing_transport
@@ -182,3 +184,79 @@ def test_malformed_json_is_refused_in_the_shape_v1_clients_parse() -> None:
 
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "invalid_request_error"
+
+
+def test_a_pool_id_is_resolved_before_forwarding() -> None:
+    """The one field the transparent path rewrites.
+
+    A pool ID is not a model any upstream knows, so resolving it means the
+    substitution has to happen somewhere. The upstream must receive a real model
+    name — and everything else the client sent must arrive unchanged.
+    """
+    upstream = RecordingUpstream()
+    client, _ = _app_with(upstream)
+
+    # Entering the client runs the lifespan, which warms the model catalogue.
+    # Without candidates there is nothing to resolve a pool to, and the request
+    # would be correctly refused before reaching the upstream.
+    with client:
+        client.post(
+            "/v1/chat/completions", json={"model": "ravis/clarvis-chat", "temperature": 0.4}
+        )
+
+    forwarded = json.loads(upstream.requests[-1].content)
+    assert forwarded["model"] != "ravis/clarvis-chat"
+    assert forwarded["temperature"] == 0.4
+
+
+def test_an_unresolvable_pool_never_reaches_the_upstream() -> None:
+    """§9.2 forbids relaxing a constraint to find something that fits, so the
+    request is refused here rather than sent somewhere it might succeed."""
+    upstream = RecordingUpstream()
+    client, _ = _app_with(upstream)
+    before = len(upstream.requests)
+
+    response = client.post("/v1/chat/completions", json={"model": "ravis/clarvis-agent"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["type"] == "no_route"
+    assert len(upstream.requests) == before
+
+
+def test_a_no_route_carries_its_explanation() -> None:
+    """§9.7: a no-route decision is first-class and explainable.
+
+    The upstream fixture serves a catalogue but the registry is only populated
+    by a refresh, so this exercises the empty-catalogue case — which is why the
+    assertion is on the requirements and the reason rather than on exclusions.
+    "Nothing is available" and "nothing qualifies" are different failures with
+    different fixes, and the explanation has to say which one happened.
+    """
+    client, _ = _app_with(RecordingUpstream())
+
+    body = client.post("/v1/chat/completions", json={"model": "ravis/clarvis-agent"}).json()
+
+    explanation = body["error"]["route_decision"]
+    assert "tools REQUIRED" in explanation["requirements"]
+    assert explanation["reason"]
+    assert explanation["pool"] == "ravis/clarvis-agent"
+
+
+def test_the_models_endpoint_advertises_the_clarvis_pools() -> None:
+    """Clarvis picks a model from this list, so the pools must appear in it (§5)."""
+    client, _ = _app_with(RecordingUpstream())
+
+    ids = [entry["id"] for entry in client.get("/v1/models").json()["data"]]
+
+    assert "ravis/clarvis-chat" in ids
+    assert "ravis/clarvis-agent" in ids
+
+
+def test_no_model_entry_carries_created() -> None:
+    """§5.0.1: Clarvis sorts by timestamp only when *every* entry has it, so a
+    mixed list scrambles the intended order. Pools have no creation time."""
+    client, _ = _app_with(RecordingUpstream())
+
+    entries = client.get("/v1/models").json()["data"]
+
+    assert all("created" not in entry for entry in entries)
