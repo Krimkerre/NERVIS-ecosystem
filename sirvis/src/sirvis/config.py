@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     # is absent is reported as absent, never as broken.
     lmstudio_base_url: str = "http://127.0.0.1:1234"
 
+    # ── §9 resource management ───────────────────────────────────────────────
+    # Two co-resident models cost almost nothing on 24 GB and the third is where
+    # `clarvis/docs/benchmarks.md` measured it getting tight, so two is a
+    # defensible default rather than a round number. Raise it on a bigger
+    # machine; the point is that a ceiling exists and is stated.
+    max_loaded_models: int = 2
+    # Long enough to outlast a benchmark suite, short enough that a client which
+    # died without releasing does not strand a multi-gigabyte model until
+    # somebody notices (§9's "conservative defaults").
+    default_lease_seconds: float = 3600.0
+
     database_path: str = "sirvis.db"
     log_level: str = "INFO"
 

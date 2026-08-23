@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 364 tests, no network, no live service
+.venv/bin/pytest                      # part of 385 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 89 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 110 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 364 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 385 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -91,6 +91,7 @@ into the order work actually happens.
 | 14 | **SIRVIS M3** | The four-concept model domain, and the `runtime_key` lookup RAVIS needs |
 | 15 | **SIRVIS M4** | Token scopes, origin validation, and the mutating endpoints that let a script drive a model *through* SIRVIS |
 | 16 | **SIRVIS M7** | The evidence schema — **Stage 4's exit criterion verbatim** |
+| 17 | **SIRVIS M8** | The Resource Manager: reference counts, leases, conflict policy, and §9's rule that *all* load and unload flows through one owner |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -278,11 +279,62 @@ variant's identity and there is no constructor that takes a family.
 **No table and no endpoint were added.** M6 produces evidence and M16 serves it
 to RAVIS; a schema with no writer is a claim nobody is keeping.
 
+### What M8 settled, and one test that had to be thrown away
+
+§9's exit names nine ways state can go wrong — concurrent, warm-reuse,
+cold-start, load-failure, hung-inference, crash, stale-lease, cancellation,
+exhaustion — and each is a test. The manager's whole value is being right when
+something fails; when nothing fails, a bare adapter would have done.
+
+Two decisions worth naming. **No lock is held across a load**: the runtime call
+happens outside the critical section so a multi-minute load does not freeze
+every other acquire, and what makes that safe is registering the in-flight load
+*inside* the lock so a second acquire joins it rather than starting a second.
+And **the load is shielded from cancellation**, because two clients can wait on
+one load and the first giving up must not take the second down with it.
+
+**`preempt` cannot currently do anything, and the first version of its test
+hid that.** §9 names the policy, and the code reclaims an unreferenced holding —
+but no such holding can exist, because release unloads at zero references. The
+original test manufactured one by reaching into the manager's internals, which
+made an unreachable branch look covered. A green tick over a state the system
+cannot enter is worse than an admitted gap: it is the gap, plus a reason not to
+look for it. The test now asserts the refusal that actually happens.
+
+**`/api/v1/runtime/load` was removed, and it should never have existed.** §4.2
+lists `/api/v1/runtime/sessions` and no such path; M4 invented one. The
+ecosystem's governing rule forbids inventing another component's API, and
+inventing one's own where the specification already names a shape is the same
+mistake with a shorter blast radius.
+
+### Audited before M6 — what the specification asks for and does not have
+
+Checked the built surface against `SIRVIS.md` rather than discovering these
+mid-milestone. **Four block M6.**
+
+| Gap | Section | Blocks M6 |
+|---|---|---|
+| **No storage for results.** M7 built the schema and no table; §17 names `BenchmarkRun` and `BenchmarkResult` with cardinality — an Experiment has many runs, a run has one result per target | §17 | **yes** — M6's exit is "persists a valid result" |
+| **No streaming generation.** M2's `generate` is deliberately a round trip; time-to-first-token cannot be measured without the first token's arrival | §11 | **yes** — TTFT is the headline metric |
+| **No lightweight memory sampling.** M1's `detect_system` shells out and is far too heavy to run at §11.8's eight points around a single generation | §11.8 | **yes** |
+| **No raw result directory.** §11.9's `results/<experiment-id>/` with responses preserved, so a rescoring does not need a rerun | §11.9 | **yes** |
+| **No YAML.** `sirvis benchmark run basic.yaml` needs a parser this package does not depend on | §18 | yes, trivially |
+| **The error model is wrong.** §4.3 specifies `{"error": {code, message, details, request_id, trace_id}}` with a named code list; the API currently returns FastAPI's default `{"detail": …}` | §4.3 | no — but it is shipped and wrong |
+| **`sirvis doctor` never learned about M1.** §18 says it checks Apple Silicon, RAM, disk, LM Studio, installed models and the results directory. It reports configuration and migrations only — M1 landed and doctor was not revisited | §18 | no |
+| **CLI is far from parity.** §18's `models list`, `runtime list`, `runtime sessions`, `results latest` all have APIs and no command | §18 | no |
+| **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
+| **No job state machine.** §11.10's internal phases and coarse published enum, and "no result is visible before its snapshot and provenance commit atomically" | §11.10 | partly |
+| **Parquet telemetry** is named for high-frequency data where SQLite becomes unsuitable | §17 | no — not at one-run scale |
+
+The two that are shipped-and-wrong rather than merely absent — the error model
+and doctor — are worth fixing before more surface is built on top of them.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
 |---|---|---|
-| 17 | **SIRVIS M6 + M8** | The benchmark engine and the Resource Manager. M6 is the first milestone that must load models to do its job, and M8 is what makes every load and unload flow through one owner (§9) |
+| 18 | **The gaps below** | Found by auditing the built surface against the specification. Four of them block M6 |
+| 19 | **SIRVIS M6** | The benchmark engine. The first milestone that must load models to do its job |
 | 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
 | 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
@@ -582,7 +634,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9)
-sirvis/                the evidence plane (M0–M4, M7)
+sirvis/                the evidence plane (M0–M4, M7, M8)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime
