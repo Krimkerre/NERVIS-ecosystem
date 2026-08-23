@@ -95,18 +95,24 @@ def check_numbers(text: str, failures: list[str]) -> None:
             )
 
 
+# Paths belonging to a sibling repository. Clarvis is checked out separately —
+# CI clones only this repository — so these cannot be verified from here and are
+# out of scope rather than broken. Stated explicitly so the exemption reads as a
+# decision: a typo inside one of these would go uncaught, which is the price of
+# not failing every CI run on a directory that is legitimately absent.
+SIBLING_REPOSITORIES = ("clarvis/",)
+
+
 def check_referenced_paths(text: str, failures: list[str]) -> None:
-    """Every repository path STATUS.md names must exist.
+    """Every path STATUS.md names *within this repository* must exist.
 
     Catches the other common drift: a file renamed or moved while the status
     file still sends a reader to where it used to be.
     """
     for path in sorted(set(re.findall(r"`([\w./-]+\.(?:md|py|toml|yml))`", text))):
-        if path.startswith(("../", "http")):
+        if path.startswith(("../", "http")) or path.startswith(SIBLING_REPOSITORIES):
             continue
-        # ROOT.parent covers the sibling repository: Clarvis lives outside this
-        # one, and STATUS.md legitimately points at `clarvis/plan.md`.
-        candidates = [ROOT / path, RAVIS / path, RAVIS / "src/ravis" / path, ROOT.parent / path]
+        candidates = [ROOT / path, RAVIS / path, RAVIS / "src/ravis" / path]
         if not any(candidate.exists() for candidate in candidates):
             failures.append(f"STATUS.md references `{path}`, which does not exist")
 
