@@ -27,6 +27,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ravis.content import check_image_count
+from ravis.core.requests import normalize
 from ravis.providers.base import ProviderAdapter
 from ravis.registry import ModelRegistry
 from ravis.routing.engine import RoutingEngine
@@ -65,7 +66,7 @@ async def create_chat_completion(request: Request) -> Response:
     if isinstance(parsed, JSONResponse):
         return parsed
 
-    decision = await _route(request, parsed)
+    decision = await _route(request, parsed, body)
     if not decision.routed:
         return _no_route(decision)
     body = _with_selected_model(body, parsed, decision)
@@ -101,7 +102,7 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     return parsed
 
 
-async def _route(request: Request, payload: dict[str, Any]) -> RouteDecision:
+async def _route(request: Request, payload: dict[str, Any], body: bytes) -> RouteDecision:
     """Resolve what the client addressed into a model to call (§9).
 
     Capabilities are assembled per request rather than cached. That is cheap
@@ -118,6 +119,10 @@ async def _route(request: Request, payload: dict[str, Any]) -> RouteDecision:
         candidates,
         residency=registry.residency,
         memory=read_memory(),
+        # The request's own hard requirements (§9.5): a request carrying tools
+        # or images demands a model that can handle them, whatever the pool's
+        # static invariants say.
+        request=normalize(body, payload),
     )
     # Recorded on the request so logging and, later, /api/v1/route-decisions can
     # read it without re-running the decision — a re-run is not guaranteed to

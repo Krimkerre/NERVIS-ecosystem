@@ -21,7 +21,9 @@ from __future__ import annotations
 
 from ravis.core.capabilities import Capability, ModelCapabilities
 from ravis.core.pools import POOLS_BY_ID, VirtualModelPool, direct_target, is_pool_id
+from ravis.core.requests import NormalizedRequest
 from ravis.routing.explain import ExcludedCandidate, RouteDecision
+from ravis.routing.requirements import RequestRequirements, analyse, unmet_by, unverified_notes
 from ravis.runtime.residency import Residency, ResidencySnapshot, residency_rank
 from ravis.runtime.resources import MemoryReading
 
@@ -41,6 +43,7 @@ class RoutingEngine:
         candidates: dict[str, ModelCapabilities],
         residency: ResidencySnapshot | None = None,
         memory: MemoryReading | None = None,
+        request: NormalizedRequest | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -51,31 +54,42 @@ class RoutingEngine:
         Residency and memory are optional and default to unknown, so a caller
         with no runtime visibility gets exactly the behaviour it had before —
         preference then alphabetical — rather than a router quietly acting on
-        assumptions about a runtime it cannot see.
+        assumptions about a runtime it cannot see. `request` is optional for the
+        same reason: without it only the pool's own invariants apply.
         """
+        requirements = analyse(request) if request else RequestRequirements()
         if is_pool_id(requested):
             return self._select_from_pool(
                 POOLS_BY_ID[requested],
                 candidates,
                 residency or ResidencySnapshot(),
                 memory or MemoryReading(),
+                requirements,
             )
 
         target = direct_target(requested)
         if target is not None:
-            return self._direct(requested, target, candidates)
+            return self._direct(requested, target, candidates, requirements)
 
         # A plain model name. RAVIS does not second-guess it: §5.3 puts an
         # explicit request above any inference, and the transparent path exists
-        # precisely so a client can address an upstream model directly.
+        # precisely so a client can address an upstream model directly. The
+        # request's own requirements are reported but not enforced — refusing a
+        # model the client named by name would be RAVIS overruling an explicit
+        # instruction on the strength of capability data it may not have.
         return RouteDecision(
             requested=requested,
             selected=requested,
             reason="named directly by the client; no pool resolution applied",
+            requirements=requirements.describe(),
         )
 
     def _direct(
-        self, requested: str, target: str, candidates: dict[str, ModelCapabilities]
+        self,
+        requested: str,
+        target: str,
+        candidates: dict[str, ModelCapabilities],
+        requirements: RequestRequirements,
     ) -> RouteDecision:
         """Handle `ravis/<provider>/<model>`.
 
@@ -94,6 +108,7 @@ class RoutingEngine:
             requested=requested,
             selected=target,
             reason="direct address; selection bypassed, policy and tracking still apply",
+            requirements=requirements.describe(),
         )
 
     def _select_from_pool(
@@ -102,16 +117,24 @@ class RoutingEngine:
         candidates: dict[str, ModelCapabilities],
         residency: ResidencySnapshot,
         memory: MemoryReading,
+        requirements: RequestRequirements,
     ) -> RouteDecision:
-        """Resolve a pool to one model, or explain why it cannot be resolved."""
+        """Resolve a pool to one model, or explain why it cannot be resolved.
+
+        Two independent sets of hard constraints apply, and both are checked
+        before anything is ranked (§9.1): the pool's own invariants, which are
+        configuration, and the request's requirements, which are derived from
+        what the client sent. A candidate failing either is gone before scoring.
+        """
         decision = RouteDecision(
             requested=pool.pool_id,
             pool_id=pool.pool_id,
             considered=sorted(candidates),
-            requirements=_describe_requirements(pool),
+            requirements=_all_requirements(pool, requirements),
+            unverified=unverified_notes(requirements, candidates),
         )
-        decision.excluded = _exclusions(pool, candidates)
-        eligible = _rank(pool, candidates, residency, memory)
+        decision.excluded = _exclusions(pool, candidates, requirements)
+        eligible = _rank(pool, candidates, residency, memory, requirements)
 
         if not eligible:
             # §5.2: a pool with no satisfying candidate is *unavailable*. Never
@@ -129,29 +152,43 @@ class RoutingEngine:
         return decision
 
 
+def _all_requirements(pool: VirtualModelPool, requirements: RequestRequirements) -> list[str]:
+    """Every hard constraint in force, from the pool and from the request.
+
+    "none" appears only when *both* sources are empty. Emitting it per source
+    produced explanations reading `['none', 'vision REQUIRED …']`, which says the
+    opposite of what it means in the place a reader looks first.
+    """
+    described = _describe_requirements(pool) + requirements.describe()
+    return described or ["none"]
+
+
 def _describe_requirements(pool: VirtualModelPool) -> list[str]:
-    """The pool's invariants, in the words a route explanation will show."""
+    """The pool's own invariants, in the words a route explanation will show."""
     described = [
         f"{capability.value} REQUIRED"
         for capability in sorted(pool.requirements.required, key=lambda item: item.value)
     ]
     if pool.requirements.minimum_context:
         described.append(f"minimum context {pool.requirements.minimum_context}")
-    return described or ["none"]
+    return described
 
 
 def _exclusions(
-    pool: VirtualModelPool, candidates: dict[str, ModelCapabilities]
+    pool: VirtualModelPool,
+    candidates: dict[str, ModelCapabilities],
+    requirements: RequestRequirements,
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
-    All reasons rather than the first: a model failing on both tools and context
-    needs a different fix from one failing on context alone, and an explanation
-    that stops at the first failure hides that.
+    Pool invariants and request requirements are reported together and
+    undifferentiated, because the person reading this wants to know why a model
+    was not used — not which of two rule sources rejected it.
     """
     excluded = []
     for model in sorted(candidates):
         reasons = pool.requirements.unmet_by(candidates[model])
+        reasons += unmet_by(requirements, candidates[model])
         if reasons:
             excluded.append(ExcludedCandidate(model=model, reasons=reasons))
     return excluded
@@ -162,6 +199,7 @@ def _rank(
     candidates: dict[str, ModelCapabilities],
     residency: ResidencySnapshot,
     memory: MemoryReading,
+    requirements: RequestRequirements,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -178,7 +216,7 @@ def _rank(
     """
     members = [
         model for model, known in candidates.items()
-        if not pool.requirements.unmet_by(known)
+        if not pool.requirements.unmet_by(known) and not unmet_by(requirements, known)
     ]
     pressured = memory.under_pressure
 

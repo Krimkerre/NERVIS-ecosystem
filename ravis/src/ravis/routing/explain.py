@@ -46,6 +46,10 @@ class RouteDecision:
     considered: list[str] = field(default_factory=list)
     excluded: list[ExcludedCandidate] = field(default_factory=list)
     requirements: list[str] = field(default_factory=list)
+    # Checks that could not be performed — distinct from checks that failed.
+    # §9.7 requires an explanation to separate facts from unknowns, and a
+    # requirement nobody could verify is an unknown rather than a pass.
+    unverified: list[str] = field(default_factory=list)
 
     @property
     def routed(self) -> bool:
@@ -63,6 +67,7 @@ class RouteDecision:
             "selected": self.selected,
             "reason": self.reason,
             "requirements": self.requirements,
+            "unverified": self.unverified,
             "considered": self.considered,
             "excluded": [
                 {"model": candidate.model, "reasons": candidate.reasons}
@@ -78,6 +83,8 @@ class RouteDecision:
                 lines.append(f"  required: {' · '.join(self.requirements)}")
         else:
             lines = [f"Selected: {self.selected}", f"  {self.reason}"]
+        for note in self.unverified:
+            lines.append(f"  unverified: {note}")
         for candidate in self.excluded:
             lines.append(f"  Not {candidate.model} — {'; '.join(candidate.reasons)}")
         return "\n".join(lines)

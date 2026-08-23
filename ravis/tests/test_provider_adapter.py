@@ -114,3 +114,26 @@ def test_describe_carries_no_credential_or_endpoint() -> None:
     summary = describe(_adapter())
 
     assert set(summary) == {"provider", "protocol_mode"}
+
+
+async def test_a_configured_context_window_is_recorded() -> None:
+    """The operator's only route to a pool that declares a minimum context.
+
+    A generic OpenAI-compatible endpoint publishes no windows, and a declared
+    minimum fails closed on an unknown one — so without this the agent pool
+    stays unroutable however capable its models actually are.
+    """
+    adapter = _adapter(configured={"m": {"context_window": "32768"}})
+
+    known = await adapter.capabilities("m")
+
+    assert known.meets_context(32768) is True
+
+
+async def test_a_nonsense_context_window_is_ignored_rather_than_crashing() -> None:
+    """A typo costs that one claim, and fails closed."""
+    adapter = _adapter(configured={"m": {"context_window": "lots"}})
+
+    known = await adapter.capabilities("m")
+
+    assert known.context_window is None
