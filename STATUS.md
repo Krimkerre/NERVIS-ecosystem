@@ -443,55 +443,61 @@ copies of one 7B model being resident during M9. Instances are now **adopted**:
 tracked, counted against capacity, reported with `owned: false`, and never
 unloaded here, which is §11.2's "unload **if owned**" read literally.
 
-### What the first live runs measured
+### What the live runs measured
 
-**Every installed build, ten of them**, one prompt, 2 warmups and 5 measured
-repetitions each at a requested 8192 context, on 2026-08-23. All at `MEASURED`
-provenance with real token counts — LM Studio reports usage, so nothing here is
-derived from counting stream chunks.
+**The corpus that counts is the cooled one.** Every earlier sweep mixed engine
+versions, ran builds back to back on a fanless machine, and measured the cooling
+system as much as the models. This one is 21 measurements on one engine in one
+sitting: a control build first, all 19 installed builds, then the same control
+again — each preceded by cooling to `nominal`, which took 50–110 seconds.
 
-| Build | Format | TTFT | tok/s | Load |
+| Build | tok/s | TTFT | Load | Notes |
 |---|---|---|---|---|
-| `granite-4.0-h-tiny` | mlx 4bit | 0.191 s | **101.0** | 3.79 s |
-| `granite-4.0-h-tiny` | gguf Q4_K_M | **0.056 s** | 52.7 | 1.45 s |
-| `phi-4-mini-instruct` | mlx 4bit | 0.479 s | 31.0 | 3.80 s |
-| `qwen2.5-coder-7b-instruct` | mlx 4bit | 0.296 s | 29.8 | 4.67 s |
-| `ministral-8b-instruct-2410` | mlx 4bit | 0.274 s | 27.9 | 4.17 s |
-| `qwen3-4b-2507` | mlx 4bit | 0.468 s | 27.2 | 3.47 s |
-| `meta-llama-3.1-8b-instruct` | mlx 4bit | 0.382 s | 18.6 | 4.47 s |
-| `qwen2.5-coder-14b-instruct-mlx` | mlx 4bit | 0.630 s | 10.8 | 4.87 s |
-| `qwen3-1.7b` | mlx 8bit | *no answer* | *no answer* | 3.31 s |
-| `lfm2.5-2.6b-mlx` | mlx 4bit | *no answer* | *no answer* | 4.61 s |
+| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262144, not the 8192 asked for |
+| `granite-4.0-h-tiny` mlx | 97.0 | 0.204 s | 3.77 s | |
+| `lfm2.5-2.6b-mlx` | 93.8 | 3.146 s | 3.91 s | adapted; TTFT is mostly thinking |
+| `qwen3-1.7b` | 66.1 | 0.225 s | 3.12 s | adapted |
+| `granite-4.0-h-tiny` gguf | 59.9 | **0.049 s** | 1.47 s | the control build |
+| `exaone-deep-2.4b` | 58.8 | 0.034 s | 0.92 s | measuring reasoning prose, not an answer |
+| `phi-4-mini-instruct` | 55.4 | 0.169 s | 3.57 s | |
+| `qwen3-4b-2507` | 52.6 | 0.177 s | 3.03 s | |
+| `hunyuan-1.8b` | 52.0 | 0.090 s | 1.23 s | adapted |
+| `smollm3-3b` | 50.2 | 0.035 s | 0.71 s | adapted |
+| `qwen2.5-coder-7b` | 31.4 | 0.282 s | 2.96 s | |
+| `meta-llama-3.1-8b` | 29.4 | 0.249 s | 3.51 s | |
+| `ministral-8b` | 28.7 | 0.271 s | 4.10 s | |
+| `qwen2.5-coder-14b` | 15.6 | 0.523 s | 4.38 s | |
+| `devstral-small-2507` | 9.6 | 0.698 s | 7.51 s | 13.28 GB resident |
+| `gemma-4-e2b`, `gemma-4-e4b` | — | — | 5.8 s | no answer; 253 of 256 tokens spent thinking |
+| `bonsai-27b` | — | — | 6.45 s | no answer; 255 of 256 |
+| `deepseek-r1-distill-1.5b` | — | — | 1.18 s | no answer; 254 of 256 |
 
-*No answer* means exactly that: the build ran, generated tokens and emitted no
-content, so there was no first token to time and no answer to divide by. It is
-not a gap in the measurement. **Every row above is the `performance-basic`
-suite**, and the `performance-no-think` number further down belongs to a
-different suite with a different prompt — the two are not comparable and are
-never listed together, which is the whole reason §11.5 versions a suite by its
-prompts.
+**The control bracket is the most useful number here, and it says the opposite
+of what was expected.** Opening control 56.0 ± 0.9, closing control **70.6 ±
+10.6** — the machine finished 26% *faster*, and the closing run's own spread was
+±15% against the opening one's ±1.6%. Drift on this hardware is not monotonic
+decline that cooldowns drain away; it is instability whose magnitude itself
+varies. Cooling to `nominal` first did not stop **9 of the 21 runs** crossing
+`nominal → fair` during their own five repetitions, which is why the flag
+records per-run rather than per-sweep.
 
-**Read this table with a ±16% ruler, not a ±2% one.** Every row publishes a
-within-run spread of one or two percent, and that number describes how
-consistent five repetitions were *in one sitting* — not how repeatable the
-figure is. Re-running `granite-4.0-h-tiny` GGUF an hour later gave **61.1 tok/s
-against 52.7**, from byte-identical work: 256 content chunks and 256 reported
-tokens in both, with only the wall clock different (4.918 s against 4.214 s).
-The machine, not the model.
-
-So the wide gaps in this table are real — 101 against 10.8 is not noise — and
-**the middle of it is not**: 31.0, 29.8, 27.9 and 27.2 are one measurement
-apart and should not be read as a ranking. §11.7 says a single take can measure
-noise rather than a difference; this says the *spread a run publishes* does not
-capture that noise either, because it is computed inside one sitting. Comparing
-two builds measured at different times needs repeated experiments, not repeated
-repetitions — which is M20's historical comparison, and is not built.
+So the reading rule survives the mitigation: **gaps of a few percent in this
+table mean nothing.** 105.8 against 9.6 is real. 55.4 against 52.6 is not, and
+neither is any pair inside about 25% of each other. Comparing builds at finer
+resolution needs repeated experiments over time (M20), not more repetitions
+inside one sitting.
 
 **The format pair is the point, and it splits in opposite directions.** Same
 family, same weights, two packagings: MLX generates at **1.9× the GGUF's rate**
 and takes **3.4× longer to reach its first token**. Neither is "the faster
 build". §12.2 makes format part of evidence identity, and this is why — the two
 carry different evidence IDs and there is no honest way to average them.
+
+Measured in the same sitting this time, so the comparison is between builds
+rather than between machine states: **97.0 against 59.9 tokens/second**, and
+**0.204 s against 0.049 s** to first token. MLX generates 1.6× faster; GGUF
+reaches the first token 4.2× faster. Both directions held across every sweep
+that has ever measured them, at magnitudes that did not.
 
 It matters more than a speed table, because `clarvis/docs/benchmarks.md` has the
 same pair at **8/8 GGUF against 1/8 MLX** on tool calls. The faster build is the
@@ -1136,6 +1142,18 @@ reviewer who disagrees should say so rather than assume it was an accident.
   `IOHIDEventSystemClient` API, and pressure answers the question anyway — the
   question is whether a number was taken under duress, not how many degrees it
   was.
+- **Cooling between runs did not make a fanless machine repeatable.** The
+  cooled sweep waited for `nominal` before every build — 50 to 110 seconds each
+  — and bracketed the whole thing with the same control build. The control came
+  out at 56.0 ± 0.9 at the start and **70.6 ± 10.6 at the end**: 26% *faster*,
+  with fifteen times the spread. The expectation was monotonic decline that
+  cooldowns would drain away; what the bracket found was instability whose
+  magnitude itself varies, and 9 of the 21 runs still crossed `nominal → fair`
+  inside their own five repetitions. The mitigation was worth building — it is
+  the difference between a corpus with a stated ±25% ruler and one with an
+  unexamined one — but **the bracket, not the cooldown, is what made the limit
+  knowable.** A control measured twice costs one extra run and converts an
+  invisible confounder into a number.
 - **The spread a benchmark publishes is not the spread it has.** Five
   repetitions of `granite-4.0-h-tiny` agreed to ±1.6% within a run, twice — and
   the two runs disagreed with each other by **16%**, on byte-identical work:
