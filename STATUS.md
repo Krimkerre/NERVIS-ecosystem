@@ -7,6 +7,13 @@ this describes what it *is*, as of the last commit that touched it.
 Keeping it honest is part of finishing a milestone, not a separate chore: a
 status file that drifts is worse than none, because it is believed.
 
+**That is enforced, not merely asked for.** `tools/check_status.py` runs in CI
+and fails the build when the numbers here stop matching the repository, when a
+path named here stops existing, or when a milestone appears as both done and
+next. It rests on one observation — finishing a milestone always adds tests — so
+an asserted test count doubles as a check that this file was updated when the
+last one landed.
+
 ---
 
 ## Verify this yourself — do not take it on faith

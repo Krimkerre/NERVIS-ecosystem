@@ -42,6 +42,24 @@ jobs:
       - name: clarvis conformance
         run: ravis conformance clarvis
 
+  status:
+    name: status — STATUS.md matches the repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+        working-directory: ravis
+      # STATUS.md is what a cold session reads to learn where the build is,
+      # which makes it the most damaging file to be wrong: a stale spec misleads
+      # someone who is checking, a stale status file misleads someone who is not.
+      # The gate checks only falsifiable claims — counts and paths — and rests on
+      # one observation: finishing a milestone always adds tests.
+      - name: STATUS.md is current
+        run: python3 tools/check_status.py
+
   template:
     name: template — parse, endpoints, citations
     runs-on: ubuntu-latest
