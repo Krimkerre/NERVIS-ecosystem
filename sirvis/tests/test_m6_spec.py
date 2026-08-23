@@ -92,13 +92,20 @@ def test_the_suppressions_are_the_ones_that_were_measured_to_work() -> None:
     `/nothink` (GLM's spelling, and Qwen3 honours it too), and a plain
     instruction (which is what got LFM2.5 answering).
 
+    The user-turn and system-message spellings of `/no_think` are separate
+    strategies because they are separately effective: SmolLM3's template looks
+    for the marker in the *system* message and nowhere else, so the suffix form
+    is invisible to it, while Qwen3 honours either.
+
     Nemotron's `detailed thinking off` system phrase is deliberately **not**
     here: its template already defaults to thinking off, so the strategy would
     have nothing to fix.
     """
     spec = parse_experiment(MINIMAL)
 
-    assert spec.suppress_thinking == ("no_think_suffix", "nothink_suffix", "direct_system")
+    assert spec.suppress_thinking == (
+        "no_think_suffix", "no_think_system", "nothink_suffix", "direct_system",
+    )
 
 
 def test_an_experiment_can_refuse_every_suppression() -> None:

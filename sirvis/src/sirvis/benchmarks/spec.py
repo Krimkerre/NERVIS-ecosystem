@@ -62,7 +62,9 @@ ORDERINGS = ("fixed",)
 # on this machine, byte-identical to the baseline — which is §7.1's
 # accepted-then-silently-dropped trap and exactly why this engine will not
 # forward a setting it cannot verify.
-THINKING_SUPPRESSIONS = ("no_think_suffix", "nothink_suffix", "direct_system")
+THINKING_SUPPRESSIONS = (
+    "no_think_suffix", "no_think_system", "nothink_suffix", "direct_system",
+)
 
 # `version` is accepted as a synonym for `suite_version`, because §11.5's own
 # example writes a bare `version: 1` at the top of a definition file and a
@@ -283,6 +285,16 @@ def suppressed(test: BenchmarkTest, strategy: str) -> BenchmarkTest:
         # knows `enable_thinking`), by Hunyuan, and parsed out of the content by
         # SmolLM3's and Nemotron v2's templates.
         return replace(test, prompt=f"{test.prompt.rstrip()} /no_think")
+    if strategy == "no_think_system":
+        # The *system* message, which is where SmolLM3's template looks and the
+        # only place it looks: `{%- if "/no_think" in system_message -%}`. The
+        # same marker in the user turn is invisible to it, which is why the two
+        # spellings are separate strategies rather than one — and Qwen3 honours
+        # this form too. Putting `/think` here forces thinking back on, which is
+        # how the template's behaviour was confirmed rather than assumed.
+        return replace(
+            test, system=f"{test.system}\n/no_think" if test.system else "/no_think"
+        )
     if strategy == "nothink_suffix":
         # GLM's spelling. Its template writes exactly this string into the user
         # message when asked to disable thinking, so the suffix is the mechanism

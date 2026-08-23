@@ -605,12 +605,32 @@ thinking off`, and the template kwarg:
 
 | Build | Thinks? | What works |
 |---|---|---|
-| `qwen3-1.7b` | yes | `/no_think`, `/nothink`, **and a plain instruction** |
+| `qwen3-1.7b` | yes | `/no_think`, `/nothink`, either turn, **and a plain instruction** |
 | `tencent/Hunyuan-1.8B` | yes | `/no_think` |
+| `smollm3-3b` | yes | `/no_think` **in the system message only** |
+| `exaone-deep-2.4b` | yes | nothing — and it does not delimit its thinking at all |
 | `lfm2.5-2.6b-mlx` | yes | nothing stops it; an instruction gets it answering *while still thinking* |
 | `deepseek-r1-distill-qwen-1.5b` | yes | **nothing** — all six failed, no content in any |
 | `qwen3.5-2b`, `qwen3-4b-2507` | no | — |
 | `granite-4.0-h-tiny`, `phi-4-mini`, `ministral-8b`, `llama-3.1-8b` | no | — |
+
+**The same marker in the wrong turn does nothing.** SmolLM3's template looks
+for `/no_think` in the *system* message and nowhere else —
+`{%- if "/no_think" in system_message -%}` — so the user-turn suffix that works
+on Qwen3 and Hunyuan is invisible to it. Putting `/think` there instead forces
+thinking back on, which is how that reading was confirmed rather than assumed.
+The two spellings are separate strategies in the engine for exactly that reason.
+
+**And thinking arrives in three shapes, not two.** Some runtimes route it to
+`reasoning_content`, where this engine never sees it. Some emit it as content
+inside `<think>` tags, which the engine now splits off. `exaone-deep-2.4b` does
+neither: it reasons in **undelimited prose** — *"Okay, I need to... Let me think
+about how to approach this"* — with no field and no tag to separate it from the
+answer. Its benchmark is therefore `VALID` and its 32.2 tok/s is a real token
+rate, but the tokens are reasoning rather than an answer, and **no structural
+check can tell**. Distinguishing them needs something that can judge whether the
+output answers the question, which is §11.6's evaluators and M18. Stated as a
+limit rather than papered over.
 
 **One correction worth keeping.** Qwen3's template never parses `/no_think` — it
 knows only `enable_thinking`. The suffix works because the *model* was trained
