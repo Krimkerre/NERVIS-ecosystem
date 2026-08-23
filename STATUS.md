@@ -460,8 +460,16 @@ derived from counting stream chunks.
 | `qwen3-4b-2507` | mlx 4bit | 0.468 s | 27.2 | 3.47 s |
 | `meta-llama-3.1-8b-instruct` | mlx 4bit | 0.382 s | 18.6 | 4.47 s |
 | `qwen2.5-coder-14b-instruct-mlx` | mlx 4bit | 0.630 s | 10.8 | 4.87 s |
-| `qwen3-1.7b` | mlx 8bit | — | — | 3.31 s |
-| `lfm2.5-2.6b-mlx` | mlx 4bit | — | — | 4.61 s |
+| `qwen3-1.7b` | mlx 8bit | *no answer* | *no answer* | 3.31 s |
+| `lfm2.5-2.6b-mlx` | mlx 4bit | *no answer* | *no answer* | 4.61 s |
+
+*No answer* means exactly that: the build ran, generated tokens and emitted no
+content, so there was no first token to time and no answer to divide by. It is
+not a gap in the measurement. **Every row above is the `performance-basic`
+suite**, and the `performance-no-think` number further down belongs to a
+different suite with a different prompt — the two are not comparable and are
+never listed together, which is the whole reason §11.5 versions a suite by its
+prompts.
 
 **The format pair is the point, and it splits in opposite directions.** Same
 family, same weights, two packagings: MLX generates at **1.9× the GGUF's rate**
