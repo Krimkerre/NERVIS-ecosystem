@@ -23,10 +23,12 @@ one that admits the choice was made on stable ordering.
 
 from __future__ import annotations
 
+from difflib import get_close_matches
 from typing import Mapping
 
 from ravis.core.capabilities import Capability, ModelCapabilities
 from ravis.core.pools import (
+    POOL_PREFIX,
     POOLS_BY_ID,
     VirtualModelPool,
     direct_target,
@@ -99,6 +101,9 @@ class RoutingEngine:
         target = direct_target(requested)
         if target is not None:
             return self._direct(requested, target, candidates, requirements)
+
+        if requested.startswith(POOL_PREFIX):
+            return _unknown_address(requested, candidates)
 
         # A plain model name. RAVIS does not second-guess it: §5.3 puts an
         # explicit request above any inference, and the transparent path exists
@@ -185,6 +190,67 @@ class RoutingEngine:
         decision.fallbacks = eligible[1 : 1 + MAX_FALLBACKS]
         decision.reason = _selection_reason(pool, eligible, residency, memory)
         return decision
+
+
+def _unknown_address(requested: str, candidates: dict[str, ModelCapabilities]) -> RouteDecision:
+    """A `ravis/…` name that is neither a pool nor a direct address.
+
+    §5.3 says an explicit request outranks any inference RAVIS could make, and
+    that is why a plain model name is forwarded untouched. It does not apply
+    here, because `ravis/` is **RAVIS's own namespace**: no upstream serves a
+    model called `ravis/chat`, so a name in that namespace that RAVIS does not
+    recognise is a typo rather than an instruction.
+
+    Forwarding it anyway is what this exists to stop, and the failure was worse
+    than an error. `ravis/chat` reached LM Studio, which answered with whatever
+    happened to be loaded — so the request succeeded with no pool, no capability
+    filtering, no tool invariant and no fallback, and looked entirely fine. It
+    also invented a health record for a model nobody has. A 422 that names the
+    near-miss turns twenty minutes of confusion into one line.
+    """
+    suggestion = _nearest_pool(requested)
+    advice = (
+        f"did you mean {suggestion}?"
+        if suggestion
+        else f"known pools are: {', '.join(sorted(POOLS_BY_ID))}"
+    )
+    return RouteDecision(
+        requested=requested,
+        selected=None,
+        reason=(
+            f"{requested} is not a pool, and is not a direct address of the form "
+            f"{POOL_PREFIX}<provider>/<model> — {advice}"
+        ),
+        considered=sorted(candidates),
+    )
+
+
+def _nearest_pool(requested: str) -> str:
+    """The pool someone probably meant, or empty when nothing is close enough.
+
+    Containment is tried before edit distance, because the mistake this actually
+    sees is *dropping the qualifier* — `ravis/chat` for `ravis/clarvis-chat`,
+    `ravis/agent` for `ravis/clarvis-agent`. Edit distance is hopeless at that:
+    the shared `ravis/` prefix dominates the ratio, and it confidently proposed
+    `ravis/cheap` for `chat` and `ravis/fast` for `agent`.
+
+    Edit distance still earns its place for the other shape, a genuine
+    misspelling — `clarvis-cat` — where containment finds nothing. The cutoff is
+    raised above the default because a wrong suggestion is worse than none: it
+    sends the reader to fix something that was never the problem.
+    """
+    remainder = requested[len(POOL_PREFIX):]
+    if not remainder:
+        return ""
+    contained = sorted(
+        (pool for pool in POOLS_BY_ID if remainder in pool[len(POOL_PREFIX):]),
+        key=len,
+    )
+    if contained:
+        return contained[0]
+    near = get_close_matches(remainder, [p[len(POOL_PREFIX):] for p in POOLS_BY_ID], n=1,
+                             cutoff=0.7)
+    return f"{POOL_PREFIX}{near[0]}" if near else ""
 
 
 def _all_requirements(pool: VirtualModelPool, requirements: RequestRequirements) -> list[str]:

@@ -285,3 +285,65 @@ def test_the_pool_listing_agrees_with_what_the_router_would_pick() -> None:
 
     assert listed[0] == decision.selected
     assert listed[1:3] == decision.fallbacks
+
+
+# ── A name in RAVIS's own namespace that RAVIS does not recognise ────────────
+
+
+def test_an_unrecognised_ravis_name_is_refused_rather_than_forwarded() -> None:
+    """Found by fat-fingering a pool ID against a running gateway.
+
+    `ravis/chat` is not a pool, and has no second slash so it is not a direct
+    address either. It used to fall through to the plain-model-name path and get
+    forwarded verbatim — and LM Studio answered with whatever happened to be
+    loaded. The request *succeeded*, with no pool, no capability filtering, no
+    tool invariant and no fallback, and looked entirely fine.
+
+    §5.3's "an explicit request outranks inference" does not cover this, because
+    `ravis/` is RAVIS's own namespace: no upstream serves a model called
+    `ravis/chat`, so a name in it that RAVIS does not know is a typo.
+    """
+    decision = RoutingEngine().select("ravis/chat", {"qwen3-4b": _model("qwen3-4b")})
+
+    assert decision.routed is False
+    assert "ravis/clarvis-chat" in decision.reason
+
+
+def test_the_refusal_suggests_the_pool_that_was_probably_meant() -> None:
+    """Containment before edit distance — the mistake is a dropped qualifier.
+
+    Edit distance alone proposed `ravis/cheap` for `chat` and `ravis/fast` for
+    `agent`, because the shared `ravis/` prefix dominates the ratio. A confident
+    wrong suggestion is worse than none: it sends the reader to fix something
+    that was never broken.
+    """
+    engine = RoutingEngine()
+
+    assert "ravis/clarvis-agent" in engine.select("ravis/agent", {}).reason
+    # A genuine misspelling has no containment match, so edit distance still
+    # earns its place — at a raised cutoff.
+    assert "ravis/clarvis-chat" in engine.select("ravis/clarvis-cat", {}).reason
+
+
+def test_a_name_close_to_nothing_lists_the_pools_instead_of_guessing() -> None:
+    reason = RoutingEngine().select("ravis/nonsense", {}).reason
+
+    assert "did you mean" not in reason
+    assert "ravis/clarvis-agent" in reason and "ravis/auto" in reason
+
+
+def test_a_direct_address_is_still_a_direct_address() -> None:
+    """The refusal must not swallow `ravis/<provider>/<model>`, which is §5's
+    documented way to bypass selection."""
+    candidates = {"qwen3-4b": _model("qwen3-4b")}
+
+    decision = RoutingEngine().select("ravis/lmstudio/qwen3-4b", candidates)
+
+    assert decision.selected == "qwen3-4b"
+
+
+def test_a_plain_model_name_is_still_forwarded_untouched() -> None:
+    """The refusal is scoped to RAVIS's namespace and must not widen (§5.3)."""
+    decision = RoutingEngine().select("some-vendor/some-model", {})
+
+    assert decision.selected == "some-vendor/some-model"
