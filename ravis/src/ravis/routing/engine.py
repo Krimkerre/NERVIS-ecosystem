@@ -335,11 +335,24 @@ def _rank(
         preference = pool.preference_rank(model)
         warmth = residency_rank(residency.state_of(model))
         lead = (warmth, preference) if pressured else (preference, warmth)
-        # Size is the *last* thing consulted, after everything the pool declared
-        # and everything the runtime knows. It only ever separates candidates
-        # that are otherwise identical, where the alternative was alphabetical
-        # order — which is why a 14B once beat a 7B that scored the same at
-        # three times the rate.
+        # Size is the *last* thing consulted, and only for a pool that declared
+        # a preference at all.
+        #
+        # The restriction is not fussiness. Its justification — "among
+        # candidates a pool already considers identical, the smaller is both
+        # faster and cheaper" — assumes the pool has *expressed* something for
+        # them to be equal on. A pool with an empty `prefer` considers
+        # everything equal, so size stops being a tiebreak and silently becomes
+        # the entire ranking. It did: eight of the thirteen pools resolved to
+        # the smallest installed model, which on this machine is a 1.7B nobody
+        # has ever benchmarked, and `ravis/balanced` selecting the tiniest thing
+        # available is self-evidently not balanced.
+        #
+        # Pools that say nothing fall back to alphabetical order, which is
+        # meaningless — and meaningless is the honest state until M13, because
+        # it is at least not systematically biased towards whatever is smallest.
+        if not pool.prefer:
+            return (*lead, 1, 0.0, model)
         return (*lead, *size_rank(model))
 
     return sorted(members, key=key)

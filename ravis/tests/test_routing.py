@@ -347,3 +347,37 @@ def test_a_plain_model_name_is_still_forwarded_untouched() -> None:
     decision = RoutingEngine().select("some-vendor/some-model", {})
 
     assert decision.selected == "some-vendor/some-model"
+
+
+def test_size_does_not_rank_a_pool_that_declared_no_preference() -> None:
+    """The regression a reader spotted: one model winning nearly every pool.
+
+    The size tiebreak's justification is "among candidates a pool already
+    considers identical, the smaller is cheaper" — and that assumes the pool
+    expressed something for them to be equal *on*. A pool with an empty `prefer`
+    considers everything equal, so size stopped being the last word and became
+    the whole ranking: eight of thirteen pools resolved to the smallest
+    installed model, a 1.7B nobody had benchmarked, and `ravis/balanced`
+    selecting the tiniest thing available is self-evidently not balanced.
+
+    Alphabetical order is meaningless here, and meaningless is the honest state
+    until M13 — it is at least not systematically biased towards whatever
+    happens to be smallest.
+    """
+    candidates = {name: _model(name) for name in ("zeta-70b", "alpha-1b")}
+
+    decision = RoutingEngine().select("ravis/auto", candidates)
+
+    assert decision.selected == "alpha-1b"  # alphabetical, not smallest-by-size
+
+
+def test_size_still_breaks_ties_where_a_preference_was_declared() -> None:
+    """The case the tiebreak was introduced for must keep working."""
+    candidates = {
+        name: _tool_model(name)
+        for name in ("qwen2.5-coder-14b-instruct-mlx", "qwen2.5-coder-7b-instruct")
+    }
+
+    decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
+
+    assert decision.selected == "qwen2.5-coder-7b-instruct"

@@ -82,6 +82,23 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON machine_snapshot (machine_id, captured_at DESC);
         """,
     ),
+    (
+        4,
+        "API tokens and their scopes, per SIRVIS.md §4.5",
+        """
+        -- Only the hash is stored. A token is a credential, and a credential a
+        -- database can hand back is one a database leak hands out — so the
+        -- plaintext exists exactly once, at the moment it is minted, and is
+        -- never recoverable afterwards. Losing one means minting another.
+        CREATE TABLE IF NOT EXISTS api_token (
+            token_hash TEXT PRIMARY KEY,
+            label      TEXT NOT NULL,
+            scopes     TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used  TEXT
+        );
+        """,
+    ),
 ]
 
 

@@ -33,6 +33,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_logging(settings.log_level)
     if arguments.command == "doctor":
         return _run_doctor(settings)
+    if arguments.command == "token":
+        return _run_token(settings, arguments.mint, arguments.scopes)
     return _run_serve(settings)
 
 
@@ -43,6 +45,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "doctor", help="check configuration and the database, contacting nothing"
     )
     subcommands.add_parser("serve", help="run the service")
+    token = subcommands.add_parser(
+        "token", help="show the bootstrap API token, or mint a scoped one"
+    )
+    token.add_argument("--mint", metavar="LABEL", help="mint a new token under this label")
+    token.add_argument(
+        "--scopes", default="read",
+        help="space-separated scopes for --mint: read, benchmark, runtime, admin",
+    )
     return parser
 
 
@@ -94,6 +104,46 @@ def _print_runtime_intent(settings: Settings) -> None:
     that lies whenever LM Studio happens to be closed.
     """
     print(f"runtime          lmstudio configured at {settings.lmstudio_base_url} (not contacted)")
+
+
+def _run_token(settings: Settings, mint_label: str | None, scope_names: str) -> int:
+    """Show or mint an API token (§4.5).
+
+    The only place a token's plaintext is ever revealed, and only at the moment
+    it is created. A token already minted cannot be shown again — the database
+    holds a hash, not the value — so this prints what exists and how to replace
+    it rather than pretending to recover it.
+    """
+    from sirvis.api.security import Scope, ensure_bootstrap_token, mint_token, token_summary
+
+    database = prepare_database(settings.database_path)
+    if mint_label:
+        try:
+            scopes = {Scope(name) for name in scope_names.split()}
+        except ValueError:
+            print(f"unknown scope in {scope_names!r}; valid: "
+                  f"{', '.join(s.value for s in Scope)}", file=sys.stderr)
+            return EXIT_FATAL_CONFIGURATION
+        print(mint_token(database, mint_label, scopes))
+        print(f"\n  label  {mint_label}\n  scopes {' '.join(sorted(s.value for s in scopes))}",
+              file=sys.stderr)
+        print("  This is the only time it can be read.", file=sys.stderr)
+        return EXIT_OK
+
+    fresh = ensure_bootstrap_token(database)
+    if fresh:
+        print(fresh)
+        print("\n  label  bootstrap\n  scopes admin", file=sys.stderr)
+        print("  This is the only time it can be read.", file=sys.stderr)
+        return EXIT_OK
+
+    print("a bootstrap token already exists and cannot be shown again — only a hash is stored",
+          file=sys.stderr)
+    for entry in token_summary(database):
+        print(f"  {entry['label']:<16} {' '.join(entry['scopes'])}", file=sys.stderr)
+    print("\n  mint another with: sirvis token --mint <label> --scopes \"read runtime\"",
+          file=sys.stderr)
+    return EXIT_OK
 
 
 def _run_serve(settings: Settings) -> int:

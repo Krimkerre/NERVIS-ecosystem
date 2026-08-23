@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from sirvis.api.security import Scope, redacted, require, token_summary
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
@@ -32,6 +33,51 @@ SNAPSHOT_REVISION = 1
 def _listing(items: list[dict[str, Any]]) -> dict[str, Any]:
     """§4.2's list envelope. `next_cursor` is null until a collection is unbounded."""
     return {"items": items, "next_cursor": None, "snapshot_revision": SNAPSHOT_REVISION}
+
+
+@router.get("/health")
+async def read_health(request: Request) -> dict[str, Any]:
+    """§4.2's convenience alias: the same readiness as `/ecosystem/health`,
+    plus identity and a capability summary.
+
+    `/ecosystem/*` stays canonical for negotiation — a peer deciding whether it
+    can talk to this build reads that one. This exists so a person or a script
+    can ask one question and get the whole picture, and it must never disagree
+    with the canonical answer, which is why it reads the same surface rather
+    than recomputing anything.
+    """
+    surface = request.app.state.ecosystem
+    checks = surface.run_checks()
+    ready = all(check["status"] == "pass" for check in checks)
+    return {
+        "status": "healthy" if ready else "degraded",
+        "live": True,
+        "ready": ready,
+        "checks": checks,
+        "service_id": surface.service_id,
+        "service_type": surface.service_type,
+        "capabilities": {
+            capability_id: capability.state
+            for capability_id, capability in sorted(surface.declared.items())
+        },
+        # Presence, never the value (§4.5). A few characters of a secret narrows
+        # a search, so not even a prefix.
+        "api_token": redacted("yes" if token_summary(request.app.state.database) else None),
+        "snapshot_revision": SNAPSHOT_REVISION,
+    }
+
+
+@router.get("/tokens")
+async def read_tokens(request: Request) -> dict[str, Any]:
+    """What tokens exist, and nothing that would let anyone use one.
+
+    A read, but an authenticated one — the list of what credentials exist is
+    itself worth protecting, since it tells an attacker which scopes are worth
+    stealing. Requires `admin`, because knowing the shape of the key ring is an
+    administrative fact rather than an operational one.
+    """
+    require(request, Scope.ADMIN)
+    return _listing(token_summary(request.app.state.database))
 
 
 @router.get("/system")
@@ -167,6 +213,71 @@ def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
         "instances": [instance.as_dict() for instance in instances],
         "is_loaded": bool(instances),
     }
+
+
+@router.post("/runtime/load")
+async def load_model(request: Request) -> dict[str, Any]:
+    """Load a build through SIRVIS rather than through LM Studio directly.
+
+    M4's exit criterion in one endpoint: "an external script can inspect SIRVIS
+    and control a model *through SIRVIS*". Requires `runtime` scope, because a
+    load spends the machine's memory and can push out something another client
+    is mid-request against.
+
+    **§9's Resource Manager does not exist yet (M8), and this is the primitive
+    it will wrap rather than a replacement for it.** Until then there is no
+    reference counting and no ownership: two clients loading the same build get
+    whatever the runtime does, and an unload here does not ask whether anybody
+    else is using the thing. That is a real gap, recorded rather than papered
+    over, and it is why this endpoint is scoped `runtime` rather than open.
+    """
+    require(request, Scope.RUNTIME)
+    body = await _json_body(request)
+    runtime_key = str(body.get("runtime_key") or "").strip()
+    if not runtime_key:
+        raise HTTPException(status_code=422, detail="runtime_key is required")
+
+    adapter: LMStudioAdapter = request.app.state.lmstudio
+    configuration = body.get("configuration") or {}
+    try:
+        loaded = await adapter.load(runtime_key, configuration)
+    except RuntimeUnavailableError as failure:
+        raise HTTPException(status_code=502, detail=str(failure)) from failure
+    # Both configurations, and anything the runtime would not honour (§7.1).
+    return loaded.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+@router.post("/runtime/unload")
+async def unload_model(request: Request) -> dict[str, Any]:
+    """Unload a build. Same scope and the same M8 caveat as `load`."""
+    require(request, Scope.RUNTIME)
+    body = await _json_body(request)
+    runtime_key = str(body.get("runtime_key") or "").strip()
+    if not runtime_key:
+        raise HTTPException(status_code=422, detail="runtime_key is required")
+
+    adapter: LMStudioAdapter = request.app.state.lmstudio
+    try:
+        await adapter.unload(runtime_key)
+    except RuntimeUnavailableError as failure:
+        raise HTTPException(status_code=502, detail=str(failure)) from failure
+    return {"runtime_key": runtime_key, "state": "unloaded"}
+
+
+async def _json_body(request: Request) -> dict[str, Any]:
+    """The request body, or a 422 that says so.
+
+    The content type was already required to be JSON by `require` — that is a
+    CSRF defence rather than a parsing convenience (§4.5) — so anything
+    unparseable here is a malformed request rather than a hostile one.
+    """
+    try:
+        parsed = await request.json()
+    except ValueError as failure:
+        raise HTTPException(status_code=422, detail="body is not valid JSON") from failure
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="body must be a JSON object")
+    return parsed
 
 
 @router.get("/runtimes/{runtime_key}/models")
