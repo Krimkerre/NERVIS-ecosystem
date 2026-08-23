@@ -26,6 +26,7 @@ client disconnect cannot be mistaken for one.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import aclosing
@@ -379,7 +380,9 @@ async def _relay(call: _Call) -> AsyncGenerator[bytes, None]:
     catches `BaseException`.
     """
     last_error: bytes | None = None
+    attempted = ""
     while (model := call.chain.next_target()) is not None:
+        attempted = model
         try:
             # `aclosing` rather than a bare `async for`, and the difference is
             # the whole of §8.6. When this generator is closed mid-stream, the
@@ -395,6 +398,21 @@ async def _relay(call: _Call) -> AsyncGenerator[bytes, None]:
             return
         except _TryNext as retry:
             last_error = retry.upstream_error or last_error
+        except (GeneratorExit, asyncio.CancelledError):
+            # The client went away. Recorded and re-raised, never handled: §10
+            # says cancellation is not a retry, and swallowing it here would
+            # both hide the disconnect and break the §8.6 propagation that
+            # stops the upstream generating.
+            #
+            # Neither call awaits, which matters — an async generator that
+            # awaits after catching `GeneratorExit` raises RuntimeError instead
+            # of closing. Without this the decision stayed `execution: null`
+            # forever, indistinguishable from a request still in flight, which
+            # is the one thing a person watching a dashboard needs to tell
+            # apart from "the user pressed Stop".
+            call.chain.cancelled(attempted)
+            call.finish()
+            raise
     call.finish()
     _log_exhaustion(call.chain)
     yield _sse_error(last_error or _exhausted_body(call.chain))

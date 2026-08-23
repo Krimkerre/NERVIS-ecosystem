@@ -160,6 +160,22 @@ class AttemptChain:
         if failure_class.policy.retry_same_target:
             self._retry = target
 
+    def cancelled(self, target: str) -> None:
+        """The client went away (§10: cancellation is not a retry).
+
+        Recorded as an outcome, not as a failure. Nothing is counted against
+        health — the model did nothing wrong and neither did the provider — and
+        no fallback follows, because the chain is never consulted again.
+
+        It has to be *recorded* rather than merely not-failed, though. Without
+        this a cancelled request leaves its route decision looking exactly like
+        one still in flight, and "the user pressed Stop" and "this has been
+        hanging for four minutes" are the two readings a person most needs to
+        tell apart.
+        """
+        self._attempts.append(Attempt(target, "cancelled"))
+        self._stopped = "the client disconnected; cancellation is never a failure (§10)"
+
     def interrupted(self, target: str) -> None:
         """A stream that broke after the client already had bytes (§10).
 

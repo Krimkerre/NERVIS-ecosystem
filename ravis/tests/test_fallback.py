@@ -19,10 +19,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai.chat import UPSTREAM_PROVIDER, _Call, _relay
 from ravis.app import create_app
 from ravis.config import Settings
 from ravis.reliability import AttemptChain, FailureClass, HealthRegistry, HealthScope
+from ravis.routing.explain import RouteDecision
 
 AGENT_POOL = "ravis/clarvis-agent"
 
@@ -286,8 +288,54 @@ async def test_cancellation_does_not_trigger_a_fallback() -> None:
     await client.aclose()
 
     assert upstream.served == ["coder-a"]
-    assert chain.summary()["attempts"] == [{"model": "coder-a", "outcome": "succeeded",
-                                            "detail": ""}]
+    # Succeeded on the first byte, then cancelled — and `coder-b` never
+    # appears, which is the whole assertion. The cancellation is *recorded*
+    # rather than merely not-retried: without it the route decision stays
+    # indistinguishable from a request still in flight.
+    assert [a["outcome"] for a in chain.summary()["attempts"]] == ["succeeded", "cancelled"]
+    assert "cancellation is never a failure" in chain.summary()["stopped_because"]
+
+
+async def test_a_cancelled_stream_records_that_it_was_cancelled() -> None:
+    """Found by pointing the real Clarvis at a running gateway.
+
+    A mid-stream disconnect — which is exactly what Clarvis's Stop button does,
+    and a Stage 3 exit criterion — left the recorded route decision with
+    `execution: null`. That is the same thing an unfinished request shows, so a
+    dashboard could not tell "the user pressed Stop" from "this has been hanging
+    for four minutes", which are the two readings a person most needs separated.
+    """
+    upstream = ScriptedUpstream(TWO_CODERS)
+    client = httpx.AsyncClient(transport=upstream.transport())
+    log = DecisionLog()
+    recorded = log.record(
+        RouteDecision(requested=AGENT_POOL, selected="coder-a", fallbacks=["coder-b"]),
+        application_id="clarvis",
+        request_id="r1",
+    )
+    chain = AttemptChain(health=HealthRegistry(), provider=UPSTREAM_PROVIDER)
+    chain.load("coder-a", ["coder-b"])
+    call = _Call(
+        client=client,
+        target="http://upstream.invalid/v1/chat/completions",
+        headers={},
+        body=json.dumps({"model": "coder-a", "stream": True}).encode(),
+        payload={"model": "coder-a", "stream": True},
+        chain=chain,
+        recorded=recorded,
+    )
+
+    relay = _relay(call)
+    await relay.__anext__()
+    await relay.aclose()
+    await client.aclose()
+
+    assert recorded.attempts is not None
+    assert recorded.attempts["attempts"][-1] == {
+        "model": "coder-a",
+        "outcome": "cancelled",
+        "detail": "",
+    }
 
 
 # ── The circuit breaker, seen from outside ───────────────────────────────────
