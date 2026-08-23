@@ -15,3 +15,12 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+
+# Benchmark artifacts. `sirvis benchmark run` writes a database and §11.9's raw
+# result tree into the working directory, and both are measurements *of this
+# machine* rather than source. STATUS.md records what was found; the raw
+# material stays where it was produced.
+sirvis.db
+sirvis.db-wal
+sirvis.db-shm
+sirvis/results/

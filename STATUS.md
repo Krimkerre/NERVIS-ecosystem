@@ -93,7 +93,7 @@ into the order work actually happens.
 | 16 | **SIRVIS M7** | The evidence schema — **Stage 4's exit criterion verbatim** |
 | 17 | **SIRVIS M8** | The Resource Manager: reference counts, leases, conflict policy, and §9's rule that *all* load and unload flows through one owner |
 | 18 | **The four gaps that blocked M6** | Results storage (§17), streamed generation so time-to-first-token exists, memory sampling light enough for §11.8's eight points, §11.9's raw result directory — and the trivial fifth, a YAML parser |
-| 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Proven against a recorded runtime and not yet against a live one** — see below |
+| 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Run live against six builds**, done 2026-08-23 — numbers below |
 | 20 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
@@ -443,21 +443,82 @@ copies of one 7B model being resident during M9. Instances are now **adopted**:
 tracked, counted against capacity, reported with `owned: false`, and never
 unloaded here, which is §11.2's "unload **if owned**" read literally.
 
-**What M6 does not prove.** Every test behind it runs against a recorded
-runtime, which is runbook §14.5 working as intended and is also the whole gap:
-the exit criterion is a *persisted result*, and no result has been persisted
-from a real model. Nothing here has yet measured anything. The command exists,
-its refusals are tested, and the first live run is the next item in the list
-above.
+### What the first live runs measured
 
-Three simplifications, stated rather than hidden. Telemetry is JSON Lines, not
-§11.9's Parquet — a columnar format and a pyarrow dependency answer a scale
-problem a single-model run does not have, and M10 is where that changes.
-§11.8's *peak prompt* and *peak generation* are collapsed into one poll across
-the whole generation, so the record carries the trough of available memory
-rather than two labelled peaks. And §11.2's **evaluate** step does nothing:
-evaluators are M18, and a specification carrying one is refused by name rather
-than run as though nothing had been asked for.
+**Every installed build, ten of them**, one prompt, 2 warmups and 5 measured
+repetitions each at a requested 8192 context, on 2026-08-23. All at `MEASURED`
+provenance with real token counts — LM Studio reports usage, so nothing here is
+derived from counting stream chunks.
+
+| Build | Format | TTFT | tok/s | Load |
+|---|---|---|---|---|
+| `granite-4.0-h-tiny` | mlx 4bit | 0.191 s | **101.0** | 3.79 s |
+| `granite-4.0-h-tiny` | gguf Q4_K_M | **0.056 s** | 52.7 | 1.45 s |
+| `phi-4-mini-instruct` | mlx 4bit | 0.479 s | 31.0 | 3.80 s |
+| `qwen2.5-coder-7b-instruct` | mlx 4bit | 0.296 s | 29.8 | 4.67 s |
+| `ministral-8b-instruct-2410` | mlx 4bit | 0.274 s | 27.9 | 4.17 s |
+| `qwen3-4b-2507` | mlx 4bit | 0.468 s | 27.2 | 3.47 s |
+| `meta-llama-3.1-8b-instruct` | mlx 4bit | 0.382 s | 18.6 | 4.47 s |
+| `qwen2.5-coder-14b-instruct-mlx` | mlx 4bit | 0.630 s | 10.8 | 4.87 s |
+| `qwen3-1.7b` | mlx 8bit | — | — | 3.31 s |
+| `lfm2.5-2.6b-mlx` | mlx 4bit | — | — | 4.61 s |
+
+**The format pair is the point, and it splits in opposite directions.** Same
+family, same weights, two packagings: MLX generates at **1.9× the GGUF's rate**
+and takes **3.4× longer to reach its first token**. Neither is "the faster
+build". §12.2 makes format part of evidence identity, and this is why — the two
+carry different evidence IDs and there is no honest way to average them.
+
+It matters more than a speed table, because `clarvis/docs/benchmarks.md` has the
+same pair at **8/8 GGUF against 1/8 MLX** on tool calls. The faster build is the
+one that cannot be trusted with the agent role, which is §12.5's "a verdict
+belongs to a build, a config and a role" arriving as data rather than as a
+principle. Note the provenance difference: the throughput here is `MEASURED`,
+while those tool-call rates stay `CONFIGURED` until M13 measures them.
+
+**Two of the ten produced no answer at all**, and the raw responses say why.
+`qwen3-1.7b` and `lfm2.5-2.6b-mlx` both finished on `length` having generated
+**255 tokens and zero content chunks**: reasoning models that spent the whole
+budget thinking and never began answering. M2 saw this at a cap of eight tokens
+and assumed the cap; it survives at 256, so it is the models. Both runs are
+`SUSPECT` with a note, and **no TTFT or throughput was published for either**,
+because a metric missing from even one repetition is omitted rather than
+summarised over the ones that happened to work.
+
+Two things follow. The token counts prove the work happened, so "no content" is
+not "no computation" — and this engine measures *answers*, so whatever those 255
+tokens cost is real and unmeasured. Reasoning throughput is a metric §11.4 does
+not name and these two builds need. And a 256-token cap cannot measure them at
+all, which is a *different experiment* rather than a repair to this one:
+§11.4's own performance workload says 256 output, so raising it silently would
+make the numbers incomparable with every other row above.
+
+**Turning the thinking off makes one of them measurable, and the other not.**
+Probed rather than assumed. `qwen3-1.7b` honours the `/no_think` soft switch in
+the prompt — 227 characters of answer against the baseline's zero — and
+`examples/no-think.yaml` measures it there: **65.2 tok/s at a 0.209 s TTFT**,
+which takes it from unmeasurable to the third-fastest build on this machine.
+`lfm2.5-2.6b-mlx` ignores `/no_think` (a Qwen convention), and a system
+instruction only gets it answering *while still thinking*, so there is no
+suppression to measure yet.
+
+It is a **separate suite** rather than a flag on `basic.yaml`. §11.5 freezes a
+suite's prompts once results exist for it, and results now exist — changing that
+prompt would quietly make new numbers incomparable with the ten above.
+
+Worth recording as a check on the schema: the two `performance-no-think` runs —
+one warm, one cold — produced **the same evidence ID** and agreed to within
+0.03% on both throughput and TTFT. Two results, one evidence identity, which is
+exactly what §12.2 says should happen and the first time it has been observed
+rather than asserted. The warm one is `SUSPECT`, because a warm acquire says
+nothing about load time and the engine refuses to publish one.
+
+**It also settled the M9 mystery.** `qwen2.5-coder-7b-instruct` reaches its
+first token in **0.296 s** here against the ~4 s measured during M9, and against
+the 0.26 s in `clarvis/docs/benchmarks.md`. The difference was never the model:
+M9 ran with three JIT-loaded instances of it resident, because RAVIS was told
+the advertised 32768 context and LM Studio would not reconfigure the running
+copy. See the open decision below, which this confirms rather than resolves.
 
 ### Audited before M6 — what the specification asks for and does not have
 
@@ -516,10 +577,9 @@ not one model measured well.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 21 | **One live M6 run** | The engine's exit criterion is a *persisted result*, and every test behind it uses a recorded runtime. Until `sirvis benchmark run examples/basic.yaml` has loaded a real model and written a real row, M6 is code that should work. It also produces the first real numbers — TTFT and throughput on this machine — which is what M13 needs and what `measured-capabilities.json` is currently standing in for |
-| 22 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
-| 23 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
-| 24 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
+| 21 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
+| 22 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
+| 23 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
 ### After that
 
@@ -698,6 +758,13 @@ reviewer who disagrees should say so rather than assume it was an accident.
   The honest fix is M3 + M13: SIRVIS reports the *effective* configuration of a
   loaded instance, and RAVIS filters on that rather than on a model card. Until
   then, declaring 8192 would under-route and declaring 32768 over-promises.
+  **M6's live runs confirm the diagnosis.** The same build, loaded once at 8192
+  by a benchmark that owns its lifecycle, reaches its first token in 0.296 s —
+  an order of magnitude better than M9's ~4 s, and in line with the 0.26 s in
+  `clarvis/docs/benchmarks.md`. The 4 s was the cost of three co-resident copies
+  of one 7B model, not a property of the model. That makes this decision more
+  urgent rather than less: the current configuration is not merely imprecise, it
+  is measurably expensive.
 
 - **Vision.** Clarvis has no image handling and NERVIS defers images to "Later".
   RAVIS filters on vision because it came free with the generic mechanism. An
@@ -870,6 +937,17 @@ reviewer who disagrees should say so rather than assume it was an accident.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **LM Studio accepts `chat_template_kwargs` and ignores it.** Probed while
+  looking for a way to switch a reasoning model's thinking off:
+  `{"enable_thinking": false}` produced a response byte-identical to the
+  baseline — zero characters of content, 284 of reasoning. Same shape as the
+  200-with-an-error-body trap, and the reason §7.1 insists an unsupported
+  setting is reported rather than dropped. It is also why the benchmark spec
+  parser refuses generation settings it cannot honour instead of passing them
+  through hopefully: a specification carrying that key would have produced a
+  thinking-on measurement labelled thinking-off. The switch that does work for
+  Qwen is `/no_think` in the prompt, which the spec already carries and §11.5
+  already versions.
 - **A three-valued answer stored in a two-valued type, twice.** Clarvis's §8.7
   tool probe asks whether a model can call tools and can receive three answers —
   yes, no, or *could not tell*. `supportsTools` returns a boolean and the result

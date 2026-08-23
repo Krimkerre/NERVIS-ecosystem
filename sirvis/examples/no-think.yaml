@@ -1,0 +1,45 @@
+# The same workload as `basic.yaml`, with a reasoning model's thinking suppressed.
+#
+# A **separate suite**, deliberately, rather than a flag on the first one. §11.5
+# freezes a suite's prompts once results exist for it, and results exist for
+# `performance-basic` — so changing its prompt would silently make new numbers
+# incomparable with the ten already recorded. A different question gets a
+# different suite id, and the evidence identities stay apart.
+#
+# The switch is in the *prompt*, and it has to be. LM Studio accepts
+# `chat_template_kwargs: {enable_thinking: false}` and **ignores it** — probed on
+# this machine, not read from documentation: the response was byte-identical to
+# the baseline, 0 characters of content and 284 of reasoning. That is §7.1's
+# accepted-then-ignored trap, which is why this engine refuses generation
+# settings it cannot honour rather than passing them through hopefully.
+#
+#     sirvis benchmark run examples/no-think.yaml --model qwen/qwen3-1.7b
+#
+# `/no_think` is a Qwen convention. It is inert text to any other family — and
+# `lfm2.5-2.6b-mlx`, the other model that produced no answer, ignores it: a
+# system instruction gets it answering but it still thinks, so there is no
+# suppression to measure there yet.
+
+id: no-think
+suite: performance-no-think
+suite_version: "1"
+role: general
+environment: shared
+
+target:
+  model: qwen/qwen3-1.7b
+  load:
+    context_length: 8192
+
+warmups: 2
+repetitions: 5
+
+tests:
+  - id: short-prompt-256-out-no-think
+    version: 1
+    prompt: |
+      Write a Python function that merges two sorted lists into one sorted
+      list. Return only the code. /no_think
+    generation:
+      temperature: 0
+      max_tokens: 256
