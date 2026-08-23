@@ -292,6 +292,17 @@ was verified against source, not assumed — see `CLARVIS.md` §3.
 
 Stages 4 and 2–3 may run concurrently. Everything else is sequential.
 
+**Every stage lands something visible.** `template/index.html` already renders every screen
+this ecosystem will have, against mock data shaped like the real responses, and each of its
+`API` methods cites the endpoint it will call. So a stage's UI increment is not "build a
+screen" — it is **replace one mock body with a `fetch` and watch the screen light up with real
+data** (`template/docs/WIRING.md`). That costs minutes rather than a milestone, which is what
+makes it reasonable to ask for at every stage rather than deferring the interface to the end.
+
+This matters beyond morale. A screen driven by real data is a test no unit test replaces: it
+is where a field that is missing, mistyped or silently empty becomes obvious. Each stage below
+names its increment.
+
 Each product document maps its own milestones onto these stages — `RAVIS.md` §20.1,
 `SIRVIS.md` §21.2, `NERVIS.md` §21.1, `CLARVIS.md` §8.1. **Every milestone appears in exactly
 one row of its product's table, including an explicit "unscheduled" row**, so that a milestone
@@ -321,6 +332,10 @@ versions, `EventEnvelope`, trace identifiers and `ErrorEnvelope`, plus the ident
 vocabulary: `trace_id`, `request_id`, `session_id`, `job_id`, `run_id`, `workspace_id`.
 Nothing else.
 
+**Visible increment:** point `SERVICES` at each service's real `/ecosystem/health`. The
+template's service tiles go live, and with them every absence path already built around them —
+cycling one service down should darken exactly the surfaces that depend on it and nothing else.
+
 **Exit:** SIRVIS, RAVIS and NERVIS pass live MEP conformance at one pinned protocol
 version. Clarvis passes schema/contract fixtures only; live Bridge conformance is gated at
 Stage 8. Mismatched-major tests fail cleanly.
@@ -347,6 +362,9 @@ cannot be static configuration at all. Do not weaken the suite to fit the stage,
 pull routing forward to satisfy it; the transparent path is only useful as a control while it
 stays unintelligent. `RAVIS.md` §8.8 carries the split.
 
+**Visible increment:** `API.ravis.models()` reads the real `GET /v1/models`. The first screen
+showing data nobody typed.
+
 **Exit:** the Stage 2 half of the conformance suite passes against the transparent route. The goal is stated
 precisely: *Clarvis cannot tell that an intermediary was inserted.*
 
@@ -354,6 +372,11 @@ precisely: *Clarvis cannot tell that an intermediary was inserted.*
 
 Point unmodified Clarvis at RAVIS through its existing Custom (OpenAI-compatible)
 provider. Configuration only.
+
+**Visible increment:** the Routes and Pools screens read RAVIS's read-only management API, so a
+real Clarvis request appears as a real route decision — pool, selected model, requirements, and
+every excluded candidate with its reason. This is where the UI stops being a nicety: watching
+*why* a route was chosen is how this stage's integration gets debugged.
 
 **Exit:** chat streams correctly; agent tool calls survive fragmentation; Stop cancels
 upstream work; chat and agent resolve to different models independently; the agent pool
@@ -384,6 +407,9 @@ The write-up of a real run, including the machine and runtime identity SIRVIS ne
 it — memory telemetry, thermal capture, validity classification, resource leases, a queue —
 which is the part SIRVIS actually builds.
 
+**Visible increment:** the Models, Benchmarks and Results screens read SIRVIS's real endpoints.
+Provenance is already rendered there — it needs real records behind it, not new screens.
+
 **Exit:** SIRVIS contract tests pass; `ESTIMATED` and `UNKNOWN` never silently become
 `MEASURED`; an offline fixture produces deterministic results.
 
@@ -397,6 +423,9 @@ stronger, use cloud, evict idle, retain for expected session).
 RAVIS makes lifecycle *policy* decisions. SIRVIS or the runtime manager performs the
 *operations*. Ownership is explicit so RAVIS and NERVIS never fight over a runtime.
 
+**Visible increment:** the Providers screen shows real per-provider health, breaker state and
+protocol mode, and route explanations begin citing evidence instead of admitting they have none.
+
 **Exit:** the transparent route still passes Clarvis conformance; translated adapters work
 independently; no one-number-per-model shortcut exists; a SIRVIS benchmark result changes
 a RAVIS preference; memory pressure produces a safe route change.
@@ -408,6 +437,21 @@ SIRVIS views and authorized control, diagnostics and narrowly scoped service sup
 NERVIS calls only published contracts — never a peer's database, never reverse-engineered
 private state.
 
+**Wrap the prototype before replacing it**, exactly as Stage 4 says of the benchmark tooling.
+`template/index.html` is not a sketch: it is the screen inventory, the degradation model
+(`usable()` / `cell()`, absence rendered as a state rather than an error), the `API` method
+signatures, and a data layer already exercised against a genuine LM Studio response — it is
+what caught a capability filter that matched nothing. Rebuilding those from scratch discards
+work that has already been validated, and rediscovers the pitfalls
+`template/docs/PITFALLS.md` records.
+
+**What must not be carried over is its render layer.** `NERVIS.md` §25 states which parts
+transfer verbatim and which must be rebuilt; do not port `innerHTML` interpolation into a
+surface that will hold provider names, model IDs and upstream error text.
+
+**Visible increment:** the prototype stops being one — NERVIS serves the real UI, built from it
+per `NERVIS.md` §25.
+
 **Exit:** every tile and control is capability-driven; unavailable operations are disabled
 with a stated reason; a NERVIS restart loses no owned product state; a product restart is
 reflected without manual refresh.
@@ -416,6 +460,9 @@ reflected without manual refresh.
 
 Roll out shared events and one `trace_id` per logical operation across RAVIS, SIRVIS and
 NERVIS first. Clarvis joins at Stage 8. NERVIS correlates.
+
+**Visible increment:** the Traces screen renders real spans, including the missing ones — a span
+nobody received is reported missing rather than interpolated from its neighbours.
 
 **Exit:** a real cross-service request produces linked spans; collector outage leaves every
 product healthy; redaction and retention tests pass.

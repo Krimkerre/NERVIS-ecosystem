@@ -1157,7 +1157,8 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 | Stage 4 — SIRVIS evidence plane *(parallel; may start after Stage 1)* | M1 + M2 (machine detection and runtime integration — nothing can be measured without them), M3 + M4 (inventory, state and the public API), M7 (evidence and provenance schema — **its acceptance is verbatim this stage's exit criterion**), M8 (Resource Manager, which owns every load and unload), M6 + M10 (benchmark lifecycle), M9 (Runtime Sets), M13 + M15 (recommendations and Clarvis role workloads), **M16 (the RAVIS evidence API)** |
 | Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
 | Stage 10 — whole-ecosystem hardening | M22 |
-| **Unscheduled — after Stage 10, or never** | M5 (SDK), M11 (model browser and download), M12, M14 (web UI — §16 keeps it standalone), M17, M18, M19, M20. Listed so no milestone is silently unassigned |
+| **Unscheduled — deferred by decision** | M5 (SDK), M11 (model browser and download), M12, M17, M18, M19, M20. Listed so no milestone is silently unassigned |
+| Stage 4 — visible increment | M14 (web UI). Not deferred: the prototype at `../template/` already renders the Models, Benchmarks and Results screens against SIRVIS-shaped data, so this stage's increment is wiring those to real endpoints rather than building screens. §16's standalone requirement is what that satisfies |
 
 > Stage 4 runs alongside Stages 2–3 and must be finished before Stage 5, when RAVIS begins
 > ingesting evidence. SIRVIS has no inbound dependency before that point.

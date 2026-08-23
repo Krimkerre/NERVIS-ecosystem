@@ -903,3 +903,67 @@ know the answers.**
 > NERVIS presents the ecosystem accurately rather than forcing the ecosystem to conform to its
 > UI. **The dashboard is the control plane, not the prison in which every other interface must
 > physically fit.**
+
+---
+
+# 25. The prototype, and what becomes of it
+
+`../template/index.html` renders every screen this ecosystem will have. It is not a sketch and
+it is not a mockup of a design nobody built — it is a working single-file application whose
+data layer is shaped like the real API responses, whose every method cites the endpoint it will
+call, and which has already been exercised against a genuine LM Studio catalogue. It found a
+capability filter that matched nothing, which is more than most test suites manage.
+
+So NERVIS's UI is **built from it, not instead of it** — the same instruction
+`ECOSYSTEM_RUNBOOK.md` §6.2 Stage 4 gives about benchmark tooling: wrap it before replacing it.
+
+## 25.1 What transfers verbatim
+
+- **The screen inventory and information architecture.** Which screens exist, what each one
+  answers, what belongs on it and what deliberately does not.
+- **The degradation model.** `SERVICES[key].state` driving `usable()` and `cell()`, with absence
+  rendered as an ordinary state rather than an error. This is the hard part of a control-plane
+  UI and it is already designed and walkable.
+- **Every `API` method signature and its endpoint citation.** These are the contract between the
+  interface and the services, and they were checked against the specifications rather than
+  invented — `tools/check.py` now fails a build if one is not.
+- **The CSS, layout and visual identity**, which are framework-independent.
+- **`docs/PITFALLS.md`**, which is every defect that prototype has produced and the rule that
+  prevents each one. Read it before writing the replacement, not after.
+
+## 25.2 What must be rebuilt, and why
+
+**Escaping, everywhere.** Every view assigns an interpolated template literal to
+`innerHTML` — 35 sites, of which 9 pass through `escapeHtml`. That is safe while the data is a
+trusted constant in the same file and stops being safe the moment it is live: model IDs,
+provider labels, route-explanation reasons and upstream error text all arrive from third
+parties. **Do not port `innerHTML` interpolation into a surface that will hold provider output.**
+
+**Targeted updates instead of full re-render.** Each view replaces the whole content region.
+Correct for a static prototype; wrong once an event stream drives it, because every event would
+rebuild the DOM and discard scroll position, focus, selection and any open control. The
+prototype's own SSE stub already calls `render()` from `onerror`.
+
+**Routing.** There is none — no `hash`, no `pushState`, no `popstate`. State is `{app, view}` in
+a global, so there are no deep links and no back button. A dashboard whose purpose includes
+sending someone a route decision needs to be able to address one.
+
+**Authentication.** The management API is separately authorized (`RAVIS.md` §15.1), and the
+prototype has no token handling and no 401 path.
+
+**Per-request loading and error states.** Views `await` and then paint, with nothing defined for
+slow or failed. Service-level absence is handled; request-level is not.
+
+**A real SSE client.** `Last-Event-ID` resumption, `retry: 3000` and the 409
+`EVENT_CURSOR_EXPIRED` case (runbook §4.1) have no implementation, though the stream-health
+tiles that would display them already render from mocks.
+
+## 25.3 Until then, it is the development instrument
+
+Before Stage 6 the prototype is not waiting to be replaced — it is how each stage's work becomes
+visible. Every stage in the runbook names an increment, and each is the same mechanical change
+`../template/docs/WIRING.md` describes: replace one mock method body with a `fetch`, keep the
+shape. A screen driven by real data is a test no unit test replaces, because it is where a field
+that is missing, mistyped or silently empty becomes obvious immediately.
+
+---
