@@ -14,10 +14,10 @@ from typing import Any, Awaitable, Callable
 from ecosystem_protocol import new_request_id
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from sirvis.api import router as api_router
-from sirvis.api.security import ensure_bootstrap_token
+from sirvis.api.security import cors_headers, ensure_bootstrap_token, is_preflight
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
 from sirvis.errors import SirvisError, to_response
@@ -46,6 +46,7 @@ def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> Fa
     _attach_shared_state(api, settings, runtime)
     _register_correlation(api)
     _register_error_handling(api)
+    _register_cors(api)
     api.include_router(ecosystem_router)
     api.include_router(api_router)
     return api
@@ -90,6 +91,28 @@ def _attach_shared_state(
         machine_id=api.state.machine_id,
         database=api.state.database,
     )
+
+
+def _register_cors(api: FastAPI) -> None:
+    """Let an allow-listed browser origin read this service (§16's dashboard).
+
+    Read endpoints without CORS are endpoints no browser can use, which made
+    the benchmark results servable and unreadable at the same time. Preflights
+    are answered here rather than reaching the router, where an OPTIONS to a
+    GET-only path would be a 405 and the browser would report a CORS failure
+    for what is really a routing answer.
+    """
+
+    @api.middleware("http")
+    async def cors(request: Request, call_next: NextCall) -> Any:
+        settings: Settings = request.app.state.settings
+        origin = request.headers.get("origin", "")
+        headers = {key.lower(): value for key, value in request.headers.items()}
+        if is_preflight(request.method, headers):
+            return Response(status_code=204, headers=cors_headers(origin, settings))
+        response = await call_next(request)
+        response.headers.update(cors_headers(origin, settings))
+        return response
 
 
 def _register_error_handling(api: FastAPI) -> None:

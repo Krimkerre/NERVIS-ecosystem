@@ -268,3 +268,66 @@ def test_an_unsupported_protocol_major_is_refused_cleanly() -> None:
 
     assert is_supported_protocol(PROTOCOL_VERSION) is True
     assert is_supported_protocol("2.0.0") is False
+
+
+# ── CORS on the read surface ─────────────────────────────────────────────────
+#
+# Read endpoints without CORS are endpoints no browser can use, which left the
+# benchmark results servable and unreadable at once. §4.5's origin check already
+# owned an allowlist; this is the other half of the same decision, reading the
+# same setting so the two cannot disagree about one origin.
+
+ALLOWED = "http://127.0.0.1:8080"
+
+
+def test_an_allow_listed_origin_may_read() -> None:
+    client, _ = _app(allowed_origins=[ALLOWED])
+
+    response = client.get("/api/v1/benchmark-runs", headers={"Origin": ALLOWED})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == ALLOWED
+    assert response.headers["vary"] == "Origin"
+
+
+def test_an_unknown_origin_gets_no_headers_and_the_browser_discards_it() -> None:
+    client, _ = _app(allowed_origins=[ALLOWED])
+
+    response = client.get("/api/v1/benchmark-runs", headers={"Origin": "http://evil.example"})
+
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_credentials_are_never_allowed() -> None:
+    """Echoed origin plus credentials is the classic hole: it lets a hostile
+    page make *authenticated* reads with the browser's ambient context."""
+    client, _ = _app(allowed_origins=[ALLOWED])
+
+    response = client.get("/api/v1/system", headers={"Origin": ALLOWED})
+
+    assert "access-control-allow-credentials" not in response.headers
+
+
+def test_a_preflight_is_answered_here_rather_than_by_the_router() -> None:
+    """An OPTIONS to a GET-only path is a 405 at the router, and a browser
+    reports that as a CORS failure — which sends whoever debugs it looking in
+    the wrong place entirely."""
+    client, _ = _app(allowed_origins=[ALLOWED])
+
+    response = client.options(
+        "/api/v1/benchmark-runs",
+        headers={"Origin": ALLOWED, "Access-Control-Request-Method": "GET"},
+    )
+
+    assert response.status_code == 204
+    assert response.headers["access-control-allow-methods"] == "GET, HEAD, OPTIONS"
+
+
+def test_mutations_are_not_advertised_to_a_browser() -> None:
+    """Every mutation here opens or releases a runtime session. Whoever adds one
+    that *should* be reachable cross-origin decides that explicitly."""
+    client, _ = _app(allowed_origins=[ALLOWED])
+
+    response = client.get("/api/v1/system", headers={"Origin": ALLOWED})
+
+    assert "POST" not in response.headers["access-control-allow-methods"]

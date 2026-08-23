@@ -632,6 +632,49 @@ function recentDecisions(payload){
 const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
 
+/* Live SIRVIS, or null when it is not there.
+
+   Null rather than a throw, because absence is a state on this page and not an
+   error: every caller below falls back to the transcription and says which one
+   it drew. The timeout is short on purpose — a dashboard that hangs for thirty
+   seconds because a service is down is worse than one that says it is down. */
+async function liveSirvis(path){
+ try{const r=await fetch(BASE.sirvis+path,{signal:AbortSignal.timeout(2000)});
+     return r.ok?await r.json():null}
+ catch(e){return null}}
+
+/* One stored benchmark result as this page's evidence record.
+
+   The same pattern as `lmstudioBuilds()`: a real payload mapped onto the record
+   shape the views already read, rather than the views rewritten around a second
+   vocabulary. The engine's envelope is the authority — `metrics` there is an
+   object per measure carrying median, spread, every repetition and its
+   provenance, and this takes the median because that is what a table cell can
+   hold. The rest stays one request away at /api/v1/benchmark-results/{id}.
+
+   **Four measures are deliberately absent.** `tool_calls`, `code`, `fib` and
+   `follow_up` come from capability suites SIRVIS cannot run yet (M13, M18), so
+   a live record carries no such fields and the views render them as absent.
+   Filling them from the transcription would put measured and transcribed
+   numbers in one row with nothing to tell them apart. */
+function sirvisEvidence(result){
+ const t=result.target||{}, med=n=>result.metrics&&result.metrics[n]
+   ? Math.round(result.metrics[n].median*100)/100 : null;
+ return{evidence_type:result.evidence_type,role:result.role,
+  target:{family:t.model_family,
+          variant:[t.format,t.quantization].filter(Boolean).join(' ')||t.variant||'—',
+          runtime:t.runtime,lmstudio_id:result.target_key,
+          runtime_config:t.runtime_config||{}},
+  samples:result.samples,
+  /* Effective rate is not derivable from this envelope — it needs the token
+     count against total latency, and the envelope publishes a rate rather than
+     a count. Absent beats invented. */
+  metrics:{generation_tok_s:med('generation_tokens_per_second'),
+           first_token_s:med('time_to_first_token_seconds')},
+  validity:result.validity,warnings:result.validity_notes||[],
+  evidence_id:result.evidence_id,measured_at:result.created_at,
+  caveat:null,note:null,live:true}}
+
 /* ── LM STUDIO SNAPSHOT ────────────────────────────────────────────────────
    Everything below is the verbatim body of
 
@@ -847,6 +890,26 @@ const API={
      second turn, so those are what the record carries. Ranking is RAVIS's job
      from these measures, not a number SIRVIS hands over pre-decided. */
   async evidence(){
+   /* Live SIRVIS first. Every stored run carries its results inline, so one
+      request answers the whole screen; when nothing answers, the transcription
+      below stands in and `source` says so on screen. */
+   const live=await liveSirvis('/api/v1/benchmark-runs?limit=50');
+   if(live&&live.items.length){
+    /* One row per *identity*, not per run. §12.2 keys evidence on the machine,
+       the build, the runtime configuration, the role and the suite — so two
+       runs of one suite against one build are two results and one evidence ID,
+       and this table wants the current answer rather than the history. Runs
+       arrive newest first, so the first sighting of an ID is the latest.
+
+       Deliberately not deduplicated by build name: the same weights measured at
+       a different context are a different identity and belong on their own row,
+       which is the whole reason the configuration is in the key. */
+    const seen=new Set(),items=[];
+    for(const run of live.items)for(const result of run.results||[]){
+     const rec=sirvisEvidence(result);
+     if(seen.has(rec.evidence_id))continue;
+     seen.add(rec.evidence_id);items.push(rec)}
+    return{source:'live',items}}
    const builds=lmstudioBuilds().filter(b=>b.measured);
    const rec=(b,role)=>({
     evidence_type:'MEASURED',role,
@@ -889,7 +952,17 @@ const API={
      comparable to the ones above them at all. On a fanless machine a table
      assembled across two days flatters or punishes for reasons that are not the
      model. */
-  async runs(){return{suite:'clarvis-agent',version:1,role:'clarvis-agent',
+  async runs(){
+   const live=await liveSirvis('/api/v1/benchmark-runs?limit=1');
+   if(live&&live.items.length){const r=live.items[0],e=(r.results||[])[0]||{};
+    return{source:'live',suite:(e.suite||{}).id,version:(e.suite||{}).version,
+     role:e.role,target:e.target_key,samples:e.samples,
+     /* Warmups are run and discarded by the engine and are not published in the
+        envelope, so this says that rather than printing a number it does not
+        have. */
+     warmups:'run and discarded — not carried in the envelope',parallel:1,
+     raw_runs:r.results_path||'written beside the run',validity:e.validity}}
+   return{suite:'clarvis-agent',version:1,role:'clarvis-agent',
    target:'qwen2.5-coder-7b-instruct · MLX 4bit',
    warmups:2,samples:3,parallel:1,
    generation_tok_s:{median:29.5},effective_tok_s:{median:27.0},ttft_s:{median:0.22},
@@ -2138,8 +2211,13 @@ async function sirvisRuntimeSets(){
    the result: eight identical scores presented as a ranking would be a table that
    looks like evidence and contains none. */
 async function sirvisResults(){
- heading('Results','Rate, first token and behaviour. Two of the four accuracy measures found no difference at all — that is a result.');
  const [ev,rn]=await Promise.all([API.sirvis.evidence(),API.sirvis.runs()]);
+ /* Which SIRVIS answered is part of the result, not a footnote. A screen that
+    looks identical whether it is showing this machine or a transcription of an
+    older run is the one way this page could lie without a wrong number in it. */
+ heading('Results',ev.source==='live'
+   ?'Live from SIRVIS on this machine. Rate and first token are measured; the accuracy suites are not built yet.'
+   :'Rate, first token and behaviour. Two of the four accuracy measures found no difference at all — that is a result.');
  const m=ev.items.filter(e=>e.evidence_type==='MEASURED');
  /* Sorted by rate, then the builds that have no rate — appended rather than
     filtered out. A build that produced no visible output is a result, and
@@ -2150,16 +2228,35 @@ async function sirvisResults(){
  const rated=[...withRate,...noRate];
  const top=withRate[0],caveats=m.filter(e=>e.caveat);
  const warned=m.filter(e=>e.warnings&&e.warnings.length);
- const fastLine=e=>e.metrics.first_token_s;
+ const fastLine=e=>e.metrics.first_token_s!=null?e.metrics.first_token_s+'s':'—';
+ /* A record either carries a capability measure or it does not, and the two
+    live side by side once a live run sits next to a transcribed one. */
+ const carrying=n=>m.filter(e=>e.metrics[n]);
+ /* The context is printed only where one build appears at more than one of
+    them. Two rows for a build are not a duplicate — the runtime loaded it
+    differently, which §12.2 makes a different identity and a different result —
+    but two rows that *look* identical and disagree read as a bug, and the field
+    that explains them is the one nobody thought to print. */
+ const contexts={};m.forEach(e=>{const k=e.target.family+e.target.variant;
+   (contexts[k]=contexts[k]||new Set()).add((e.target.runtime_config||{}).context_length)});
+ const ctx=e=>{const c=(e.target.runtime_config||{}).context_length;
+   return c&&contexts[e.target.family+e.target.variant].size>1
+     ? ' · '+Math.round(c/1024)+'K ctx' : ''};
+ const consistent=(e,n)=>e.metrics[n]&&e.metrics[n][0]===e.metrics[n][1];
  $('#content').innerHTML=kpis([
    ['Measured',String(m.length),'builds through the suite','sirvis'],
-   ['Rate spread',`${withRate[withRate.length-1].metrics.generation_tok_s}–${top.metrics.generation_tok_s}`,`tok/s · ${noRate.length} produced none`,'sirvis'],
-   ['Tool calls',`${m.filter(e=>e.metrics.tool_calls[0]===e.metrics.tool_calls[1]).length} / ${m.length}`,'clean in every attempt','sirvis'],
-   ['Code',`${m.filter(e=>e.metrics.code&&e.metrics.code[0]===e.metrics.code[1]).length} / ${m.filter(e=>e.metrics.code).length}`,'6 of 6 — no variance at all','sirvis']])
+   ['Rate spread',withRate.length?`${withRate[withRate.length-1].metrics.generation_tok_s}–${top.metrics.generation_tok_s}`:'—',`tok/s · ${noRate.length} produced none`,'sirvis'],
+   /* Absent, not zero. `0 / 0` reads as "measured and found nothing"; the
+      truth is that no suite here measures tool calls yet (M13) or code (M18),
+      and a dash with a reason is the only honest cell. */
+   ['Tool calls',carrying('tool_calls').length?`${carrying('tool_calls').filter(e=>consistent(e,'tool_calls')).length} / ${carrying('tool_calls').length}`:'—',
+    carrying('tool_calls').length?'clean in every attempt':'no suite here measures tool calls yet','sirvis'],
+   ['Code',carrying('code').length?`${carrying('code').filter(e=>consistent(e,'code')).length} / ${carrying('code').length}`:'—',
+    carrying('code').length?'6 of 6 — no variance at all':'accuracy suites are M18','sirvis']])
  +`<div class="card full"><h3>Generation rate</h3>${cell(`
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100)}%" title="${e.target.family} · ${e.metrics.generation_tok_s} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${e.target.family} · no visible output"></i>`).join('')}</div>
    <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
-   ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${e.metrics.effective_tok_s||'—'}</span><span class="mono">${fastLine(e)}s</span><span class="mono${e.metrics.tool_calls[0]===e.metrics.tool_calls[1]?'':' '}"${e.metrics.tool_calls[0]===e.metrics.tool_calls[1]?'':' style="color:#ffb648"'}>${e.metrics.tool_calls.join('/')}</span><span class="chip${e.metrics.follow_up==='used-result'?'':' warn'}">${e.metrics.follow_up}</span></div>`).join('')}
+   ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${e.metrics.effective_tok_s||'—'}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${e.metrics.follow_up||'—'}</span></div>`).join('')}
    <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. Here the two are within about 5% everywhere, which is itself the finding — none of these front-load. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Rate falls off with size, steeply</h3>${cell(`
    <div class="table-row head"><span>Build</span><span>Size</span><span>Rate</span><span>Accuracy</span></div>
@@ -2171,7 +2268,7 @@ async function sirvisResults(){
    <div class="trace-step"><b>warmups</b><span>${rn.warmups} · discarded</span></div>
    <div class="trace-step"><b>parallel</b><span>${rn.parallel}</span></div>
    <div class="trace-step"><b>raw takes</b><span>${rn.raw_runs}</span></div>
-   <small class="mono dim">the individual takes exist in the harness output and are not in this snapshot, so this card says that rather than drawing three bars it does not have. The control re-run — ${rn.control.generation_tok_s} tok/s against ${rn.generation_tok_s.median}, ${rn.control.drift_pct}% apart — is the retained evidence that the numbers reproduce.</small>`,'sirvis')}</div>
+   <small class="mono dim">${rn.source==='live'?`the takes are kept beside the run at <b>${rn.raw_runs}</b> — this card names them rather than drawing bars it would have to fetch. <b>No control re-measurement:</b> a control is a property of a sweep, not of one run, and this engine records runs. Today's sweep bracketed itself with one and the two ends came back 26% apart, which is the number this card would otherwise be quietly missing.`:`the individual takes exist in the harness output and are not in this snapshot, so this card says that rather than drawing three bars it does not have. The control re-run — ${rn.control.generation_tok_s} tok/s against ${rn.generation_tok_s.median}, ${rn.control.drift_pct}% apart — is the retained evidence that the later rows are comparable with the earlier ones.`}</small>`,'sirvis')}</div>
   <div class="card full"><h3>What the automated scoring missed</h3>${cell(`
    <div class="table-row head"><span>Build</span><span style="grid-column:2/-1">Not caught by the grounding check</span></div>
    ${caveats.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;opacity:.75">${e.caveat}</span></div>`).join('')}

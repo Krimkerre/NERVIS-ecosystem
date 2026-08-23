@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 500 tests, no network, no live service
+.venv/bin/pytest                      # part of 505 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 204 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 209 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 500 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 505 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -813,6 +813,13 @@ they are not disagreements with the specification — they are additions to it,
 and an addition nobody wrote down is how a plan quietly stops describing the
 build.
 
+- **CORS on SIRVIS's read surface**, mirroring the RAVIS decision above and for
+  the same reason, discovered the same way: the Results screen was wired to the
+  new endpoints and could not read one of them. §4.5's origin check already
+  owned an allowlist and nothing emitted `Access-Control-Allow-Origin`, so the
+  endpoints were servable and unreadable at once. Allow-listed origin echoed
+  rather than `*`, credentials deliberately absent, `GET`/`HEAD`/`OPTIONS` only,
+  and the same allowlist drives permission and refusal so they cannot drift.
 - **A list endpoint for benchmark runs.** §4.2 names the two *detail* paths for
   this group and separately defines a list envelope taking `limit` and `cursor`.
   A group carrying an envelope nobody can request would be a contract for a

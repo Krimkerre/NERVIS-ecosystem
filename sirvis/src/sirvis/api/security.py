@@ -208,6 +208,60 @@ def require(request: Request, scope: Scope) -> Caller:
     return caller
 
 
+# Reads only. Every mutation this service has — opening a runtime session,
+# releasing one — is something a page on another origin has no business doing
+# with the browser's ambient context. Whoever adds the first mutation that
+# *should* be reachable cross-origin decides then, explicitly, rather than
+# inheriting permission from this line.
+CORS_METHODS = "GET, HEAD, OPTIONS"
+
+CORS_REQUEST_HEADERS = "authorization, content-type, x-request-id, traceparent"
+
+
+def is_preflight(method: str, headers: dict[str, str]) -> bool:
+    """Whether this is a CORS preflight rather than an ordinary OPTIONS.
+
+    Distinguished by `Access-Control-Request-Method`, not by the verb: a plain
+    OPTIONS is a real request and deserves the real handler.
+    """
+    return method == "OPTIONS" and "access-control-request-method" in headers
+
+
+def cors_headers(origin: str, settings: Settings) -> dict[str, str]:
+    """CORS headers for an allow-listed origin, or none at all.
+
+    SIRVIS stored benchmark results from the first day of M6 and served them
+    from the day the read endpoints landed — and a browser still could not read
+    one, because nothing emitted `Access-Control-Allow-Origin`. The dashboard is
+    the reason those endpoints exist, so the gap made them decorative.
+
+    Three properties, each a decision rather than a mechanic, and each the same
+    one RAVIS made for the same reason:
+
+    - **The origin is echoed, never `*`.** A wildcard lets any page on the
+      internet read this service the moment the port is reachable.
+    - **`Access-Control-Allow-Credentials` is absent.** Echoed origin plus
+      credentials is the classic hole: it lets a hostile page make
+      *authenticated* reads with the browser's ambient context. The API token is
+      supplied deliberately by whoever wrote the page.
+    - **The allowlist is `check_origin`'s allowlist.** Permission and refusal
+      read the same setting, so they cannot drift into disagreeing about the
+      same origin.
+    """
+    if not origin or origin not in settings.allowed_origins:
+        return {}
+    return {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": CORS_METHODS,
+        "access-control-allow-headers": CORS_REQUEST_HEADERS,
+        "access-control-expose-headers": "x-request-id",
+        "access-control-max-age": "600",
+        # The response differs by origin, so a shared cache must never serve one
+        # origin's response to another.
+        "vary": "Origin",
+    }
+
+
 def check_origin(headers: dict[str, str], settings: Settings) -> None:
     """Refuse a browser request from an origin nobody allow-listed (§4.5).
 
