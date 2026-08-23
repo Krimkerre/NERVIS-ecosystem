@@ -123,12 +123,12 @@ def check_numbers(text: str, failures: list[str]) -> None:
             )
 
 
-# Paths belonging to a sibling repository. Clarvis is checked out separately —
-# CI clones only this repository — so these cannot be verified from here and are
-# out of scope rather than broken. Stated explicitly so the exemption reads as a
+# Paths belonging to a sibling repository. Clarvis and its first-run benchmark
+# apparatus are checked out separately — CI clones only this repository — so
+# these cannot be verified from here and are out of scope rather than broken. Stated explicitly so the exemption reads as a
 # decision: a typo inside one of these would go uncaught, which is the price of
 # not failing every CI run on a directory that is legitimately absent.
-SIBLING_REPOSITORIES = ("clarvis/",)
+SIBLING_REPOSITORIES = ("clarvis/", "clarvis-firstrun/")
 
 
 def check_referenced_paths(text: str, failures: list[str]) -> None:

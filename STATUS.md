@@ -364,6 +364,37 @@ mid-milestone. **Four block M6.**
 The two that are shipped-and-wrong rather than merely absent — the error model
 and doctor — are worth fixing before more surface is built on top of them.
 
+### Starting M6 — read this first
+
+M6 is the first milestone that **loads models to do its job**, and this session
+loaded four onto the developer's machine without asking. The cause is fixed
+(above) but the habit it exposed is not fixed by code:
+
+> **Say what you are about to load, and wait.** Not only for a deliberate load —
+> the four that happened were all indirect: a test suite reaching a live
+> service, a `generate` call JIT-loading, a CLI shelling out. None of them
+> registered as "loading a model" at the time.
+>
+> **Check residency after anything that could reach a runtime**, rather than
+> reasoning about whether it should have. `curl -s localhost:1234/api/v0/models`
+> shows the `:2`/`:3` suffixed instances LM Studio creates by itself, which are
+> the easy ones to miss.
+>
+> **Never attribute an unexplained load to the user.** It was mine three times
+> out of three.
+
+What M6 needs that does not exist, from the audit below: results storage,
+streaming generation for time-to-first-token, memory sampling light enough for
+§11.8's eight points around one generation, a raw-result directory (§11.9), and
+a YAML parser. `sirvis doctor` now reports the results directory, so the last
+one is visible from the command line.
+
+And the approach the runbook asks for, which is easy to skip: **wrap
+`clarvis-firstrun/tools/suite2.py` before replacing it.** That tooling produced
+the measurements in `ravis/measured-capabilities.json`; §21.1's first vertical
+slice is a *comparison* — one GGUF and one MLX build, benchmarked and compared —
+not one model measured well.
+
 ### Next — in this order
 
 | # | Milestone | Why here |
