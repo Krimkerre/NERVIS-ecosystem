@@ -153,7 +153,9 @@ def test_doctor_reports_a_serveable_configuration(capsys) -> None:  # type: igno
 
     printed = capsys.readouterr().out
     assert "configuration is serveable" in printed
-    assert "not contacted" in printed
+    # `doctor` contacts the runtime as of §18, and an absent one is a finding
+    # rather than a failure — so this asserts it reported, not that it abstained.
+    assert "runtime" in printed
 
 
 def test_doctor_refuses_a_credential_free_remote_bind(monkeypatch) -> None:  # type: ignore[no-untyped-def]

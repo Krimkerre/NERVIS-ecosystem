@@ -36,6 +36,11 @@ from typing import Any
 from fastapi import Request
 
 from sirvis.config import Settings
+from sirvis.errors import (
+    AuthenticationRequiredError,
+    ForbiddenError,
+    UnsupportedMediaTypeError,
+)
 from sirvis.storage import Database
 
 # The label the first token is minted under, so `sirvis token` can say whether
@@ -95,20 +100,6 @@ class Caller:
 
 
 ANONYMOUS = Caller(label="anonymous", scopes=frozenset())
-
-
-class AuthorizationError(Exception):
-    """A request was refused, with a reason that is safe to send back.
-
-    The message says what was *required*, never what was presented. Telling a
-    caller that its token was nearly right, or that one exists under some other
-    label, helps nobody who is allowed to be here.
-    """
-
-    def __init__(self, status: int, message: str) -> None:
-        super().__init__(message)
-        self.status = status
-        self.message = message
 
 
 def hash_token(token: str) -> str:
@@ -203,10 +194,17 @@ def require(request: Request, scope: Scope) -> Caller:
         check_content_type(headers)
 
     caller = resolve_caller(request.app.state.database, headers)
+    # The message says what was *required*, never what was presented. Telling a
+    # caller its token was nearly right, or that one exists under some other
+    # label, helps nobody who is allowed to be here.
     if caller.is_anonymous:
-        raise AuthorizationError(401, f"a token with {scope.value} scope is required")
+        raise AuthenticationRequiredError(
+            f"a token with {scope.value} scope is required", required_scope=scope.value
+        )
     if not caller.permits(scope):
-        raise AuthorizationError(403, f"{scope.value} scope is required")
+        raise ForbiddenError(
+            f"{scope.value} scope is required", required_scope=scope.value
+        )
     return caller
 
 
@@ -223,7 +221,7 @@ def check_origin(headers: dict[str, str], settings: Settings) -> None:
     if not origin:
         return
     if origin not in settings.allowed_origins:
-        raise AuthorizationError(403, "origin is not allow-listed")
+        raise ForbiddenError("origin is not allow-listed", origin=origin)
 
 
 def check_content_type(headers: dict[str, str]) -> None:
@@ -242,7 +240,9 @@ def check_content_type(headers: dict[str, str]) -> None:
     """
     content_type = headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type != "application/json":
-        raise AuthorizationError(415, "mutations must be sent as application/json")
+        raise UnsupportedMediaTypeError(
+            "mutations must be sent as application/json", received=content_type or None
+        )
 
 
 def redacted(value: str | None) -> str:

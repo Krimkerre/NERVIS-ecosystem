@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # migrate and answer `/ecosystem/*` with no runtime present. A runtime that
     # is absent is reported as absent, never as broken.
     lmstudio_base_url: str = "http://127.0.0.1:1234"
+    # Where the `lms` binary lives. Configuration rather than a constant because
+    # it is the *second* channel to a runtime and nothing pointed it anywhere
+    # safe: LM Studio exposes no HTTP load or unload, so lifecycle shells out —
+    # which means aiming `lmstudio_base_url` at a dead port protects reads and
+    # nothing else. A test suite that believed it was isolated loaded models on
+    # the developer's machine through exactly this gap.
+    lmstudio_cli_path: str = "~/.lmstudio/bin/lms"
 
     # ── §9 resource management ───────────────────────────────────────────────
     # Two co-resident models cost almost nothing on 24 GB and the third is where
@@ -63,6 +70,12 @@ class Settings(BaseSettings):
     # died without releasing does not strand a multi-gigabyte model until
     # somebody notices (§9's "conservative defaults").
     default_lease_seconds: float = 3600.0
+
+    # Where §11.9's raw results go: one directory per experiment, holding the
+    # responses that let a rescoring happen without rerunning inference. Kept
+    # out of the database because a generated response is a blob, and SQLite is
+    # the wrong place for many of them.
+    results_path: str = "results"
 
     database_path: str = "sirvis.db"
     log_level: str = "INFO"

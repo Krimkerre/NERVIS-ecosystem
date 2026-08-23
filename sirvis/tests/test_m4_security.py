@@ -44,12 +44,19 @@ def _app(**overrides: object) -> tuple[TestClient, str]:
     """The real app with a recorded runtime, plus an admin token to use."""
     settings = Settings(
         database_path=":memory:",
+        lmstudio_base_url="http://127.0.0.1:9",
         _env_file=None,  # type: ignore[call-arg]
         **overrides,  # type: ignore[arg-type]
     )
-    app = create_app(settings)
-    app.state.lmstudio = LMStudioAdapter(
-        "http://runtime.invalid", client=httpx.AsyncClient(transport=transport())
+    # The runtime is handed in rather than swapped afterwards: the Resource
+    # Manager captures the adapter it is built with, so replacing
+    # `app.state.lmstudio` later left a *live* one inside it — and this file's
+    # session test then loaded a real model on the developer's machine.
+    app = create_app(
+        settings,
+        runtime=LMStudioAdapter(
+            "http://runtime.invalid", client=httpx.AsyncClient(transport=transport())
+        ),
     )
     token = mint_token(app.state.database, "test", {Scope.ADMIN})
     return TestClient(app), token
@@ -85,21 +92,38 @@ def test_a_wrong_origin_mutation_is_refused_even_with_a_valid_token() -> None:
     )
 
     assert response.status_code == 403
-    assert "origin" in response.json()["detail"]
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert "origin" in response.json()["error"]["message"]
 
 
 def test_an_allow_listed_origin_with_a_token_is_permitted() -> None:
-    """The other half — the check must be capable of saying yes."""
+    """The other half — the check must be capable of saying yes.
+
+    Asserted against the *checks* rather than by driving a real acquisition:
+    reaching the Resource Manager here would drive a lifecycle operation, and a
+    security test has no business loading a model to prove an origin was
+    accepted. `require` is the thing under test, so `require` is what is called.
+    """
+    from fastapi import Request
+
+    from sirvis.api.security import Scope, require
+
     client, token = _app(allowed_origins=["http://127.0.0.1:8080"])
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"authorization", f"Bearer {token}".encode()),
+            (b"origin", b"http://127.0.0.1:8080"),
+        ],
+        "app": client.app,
+    }
 
-    response = client.post(
-        LOAD,
-        json={"models": [{"model_id": "qwen2.5-coder-7b-instruct"}]},
-        headers={**JSON, "authorization": f"Bearer {token}",
-                 "origin": "http://127.0.0.1:8080"},
-    )
+    caller = require(Request(scope), Scope.RUNTIME)
 
-    assert response.status_code != 403
+    assert caller.is_anonymous is False
+    assert caller.permits(Scope.RUNTIME)
 
 
 def test_a_form_content_type_is_refused() -> None:
@@ -134,7 +158,7 @@ def test_a_token_without_the_scope_is_refused() -> None:
     )
 
     assert response.status_code == 403
-    assert "runtime" in response.json()["detail"]
+    assert response.json()["error"]["details"]["required_scope"] == "runtime"
 
 
 def test_an_unknown_token_is_anonymous_rather_than_an_error() -> None:

@@ -189,10 +189,13 @@ def test_family_normalisation_is_conservative() -> None:
 
 def _client() -> TestClient:
     """The real app with a recorded runtime under it (§14.5)."""
-    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
-    app = create_app(settings)
-    app.state.lmstudio = LMStudioAdapter(
-        "http://runtime.invalid", client=httpx.AsyncClient(transport=transport())
+    settings = Settings(database_path=":memory:", lmstudio_base_url="http://127.0.0.1:9",
+                        _env_file=None)  # type: ignore[call-arg]
+    app = create_app(
+        settings,
+        runtime=LMStudioAdapter(
+            "http://runtime.invalid", client=httpx.AsyncClient(transport=transport())
+        ),
     )
     return TestClient(app)
 
