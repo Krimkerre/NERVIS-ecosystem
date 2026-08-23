@@ -752,6 +752,7 @@ gate is the authority — not this prose.
 | Naming conventions | `ruff` `N` | `@typescript-eslint/naming-convention` |
 | Types at every public boundary | `mypy --strict` on the protocol package and every adapter | `tsc --noEmit` |
 | Tests pass without a live model, network or Redis | `pytest` | `npm test` |
+| `STATUS.md` still matches the repository | `tools/check_status.py` | — |
 
 Eight is deliberate rather than conventional. The branchiest code in this ecosystem is
 eligibility filtering, capability negotiation and stream translation — precisely where a hidden
