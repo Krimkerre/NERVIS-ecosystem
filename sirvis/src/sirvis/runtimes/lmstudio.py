@@ -393,10 +393,12 @@ def _chunk_of(frame: dict[str, Any]) -> GenerationChunk:
         delta = choices[0].get("delta") or {}
         finish = choices[0].get("finish_reason")
     usage = frame.get("usage")
+    pieces = delta.get("tool_calls") or []
     return GenerationChunk(
         content=str(delta.get("content") or ""),
         finish_reason=finish,
         usage=usage if isinstance(usage, dict) else None,
+        tool_calls=[piece for piece in pieces if isinstance(piece, dict)],
     )
 
 

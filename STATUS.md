@@ -1071,18 +1071,23 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | SIRVIS **Dashboard** | live | the run-detail card; the rest of the screen is still mocks |
 | RAVIS Routes, Pools | ready | endpoints exist (M18a); not yet wired |
 | SIRVIS Models, Discover | ready | `/api/v1/models` exists; not yet wired |
-| SIRVIS **Runtime sets** | **do not wire** | see below |
+| SIRVIS **Runtime sets** | **ready** | `/api/v1/runtime-sets` exists (M9) and one measured pair exists (M10); not yet wired |
+| SIRVIS **Evidence** | **ready** | `/api/v1/evidence` exists (M16); no screen reads it yet |
 | Recommendations, Downloads | mocks | need M15 and M11 |
 
-**Runtime sets must stay on mocks, and the reason is not "M9 is unbuilt".** It
-reads measured *pairs* — peak co-resident memory, first token under
-co-residency, follow-up behaviour per pairing — and there are only two ways to
-produce those today. Inventing `/api/v1/runtime-sets` is forbidden outright. And
-synthesising pairs from single-model runs would assert precisely what §10.1
-exists to deny: *two models fitting separately does not prove they work well
-together.* The screen's own subtitle says memory behaved as arithmetic predicted
-and behaviour did not — fabricating those rows would make the page contradict
-the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. **The rows that screen needs now exist**, measured rather than synthesised: one pair, on this machine, on 2026-08-24. Wiring it is now a NERVIS task rather than a blocked one — and the screen's own subtitle turns out to be right, which is the first time it has been checkable.
+**The Runtime Sets screen was blocked and is not any more, and the history is
+worth keeping** because it is the clearest case of the rule this table exists
+for. It reads measured *pairs* — peak co-resident memory, first token under
+co-residency, follow-up behaviour per pairing — and until 2026-08-24 there were
+only two ways to produce those, both forbidden: inventing
+`/api/v1/runtime-sets`, or synthesising pairs from single-model runs, which
+would assert exactly what §10.1 exists to deny. The screen's own subtitle says
+*memory behaved as arithmetic predicted and behaviour did not*, so fabricated
+rows would have made the page contradict the finding it was built to show.
+
+M9 gave it an endpoint and M10 gave it a measured pair — and the subtitle turned
+out to be right, which is the first time it has been checkable. It is now
+unwired rather than unwirable, and that is a NERVIS task.
 
 Live wiring is why the reconciliation above exists, and that is the argument for
 doing it early rather than last: a queue view counts states, and a log does not.

@@ -110,6 +110,18 @@ class GenerationChunk:
     content: str = ""
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
+    # Tool-call deltas **exactly as the frame carried them** — a list of the
+    # `tool_calls` pieces, each with its own `index`, and every field optional
+    # because a frame routinely omits the ones it is not extending.
+    #
+    # Raw rather than assembled, and that distinction is the whole of M13's
+    # tool-call evidence. Clarvis reassembles these deltas by index in
+    # `absorbToolDeltas`, and `granite-4.0-h-tiny` returns a well-formed call
+    # unstreamed while streaming one whose arguments never arrive — so a chunk
+    # that handed back a finished call would measure a mode the product does
+    # not use, and would have scored that build 3/3 on a request it always
+    # fails.
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RuntimeUnavailableError(Exception):
