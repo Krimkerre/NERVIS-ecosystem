@@ -39,7 +39,13 @@ class JsonLineFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        for field in ("request_id", "trace_id", "application_id"):
+        # `detail` is here because it was being dropped. Three call sites pass
+        # one — a failing refresh, an interrupted stream, an exhausted fallback
+        # chain — and each computes the sentence that says *which* models were
+        # tried and why. The formatter emitted the headline and discarded the
+        # reason, so the log said "no upstream attempt succeeded" and left the
+        # reader to go and reproduce it.
+        for field in ("request_id", "trace_id", "application_id", "detail"):
             value = getattr(record, field, None)
             if value:
                 payload[field] = value
