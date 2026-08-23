@@ -31,6 +31,7 @@ from ravis.providers.base import ProviderAdapter
 from ravis.registry import ModelRegistry
 from ravis.routing.engine import RoutingEngine
 from ravis.routing.explain import RouteDecision
+from ravis.runtime.resources import read_memory
 from ravis.upstream import forwardable_headers
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,12 @@ async def _route(request: Request, payload: dict[str, Any]) -> RouteDecision:
     adapter: ProviderAdapter = request.app.state.adapter
     registry: ModelRegistry = request.app.state.model_registry
     candidates = {model: await adapter.capabilities(model) for model in registry.model_ids()}
-    decision = engine.select(payload.get("model") or "", candidates)
+    decision = engine.select(
+        payload.get("model") or "",
+        candidates,
+        residency=registry.residency,
+        memory=read_memory(),
+    )
     # Recorded on the request so logging and, later, /api/v1/route-decisions can
     # read it without re-running the decision — a re-run is not guaranteed to
     # reach the same answer once health and load are inputs.

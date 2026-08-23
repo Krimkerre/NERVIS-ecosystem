@@ -22,6 +22,8 @@ from __future__ import annotations
 from ravis.core.capabilities import Capability, ModelCapabilities
 from ravis.core.pools import POOLS_BY_ID, VirtualModelPool, direct_target, is_pool_id
 from ravis.routing.explain import ExcludedCandidate, RouteDecision
+from ravis.runtime.residency import Residency, ResidencySnapshot, residency_rank
+from ravis.runtime.resources import MemoryReading
 
 
 class RoutingEngine:
@@ -33,15 +35,31 @@ class RoutingEngine:
     the same explanation.
     """
 
-    def select(self, requested: str, candidates: dict[str, ModelCapabilities]) -> RouteDecision:
+    def select(
+        self,
+        requested: str,
+        candidates: dict[str, ModelCapabilities],
+        residency: ResidencySnapshot | None = None,
+        memory: MemoryReading | None = None,
+    ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
         Three shapes arrive here, and they are handled differently on purpose:
         a plain model name is passed through untouched, a direct address names
         its target explicitly, and a pool is resolved by invariant.
+
+        Residency and memory are optional and default to unknown, so a caller
+        with no runtime visibility gets exactly the behaviour it had before —
+        preference then alphabetical — rather than a router quietly acting on
+        assumptions about a runtime it cannot see.
         """
         if is_pool_id(requested):
-            return self._select_from_pool(POOLS_BY_ID[requested], candidates)
+            return self._select_from_pool(
+                POOLS_BY_ID[requested],
+                candidates,
+                residency or ResidencySnapshot(),
+                memory or MemoryReading(),
+            )
 
         target = direct_target(requested)
         if target is not None:
@@ -79,7 +97,11 @@ class RoutingEngine:
         )
 
     def _select_from_pool(
-        self, pool: VirtualModelPool, candidates: dict[str, ModelCapabilities]
+        self,
+        pool: VirtualModelPool,
+        candidates: dict[str, ModelCapabilities],
+        residency: ResidencySnapshot,
+        memory: MemoryReading,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved."""
         decision = RouteDecision(
@@ -89,7 +111,7 @@ class RoutingEngine:
             requirements=_describe_requirements(pool),
         )
         decision.excluded = _exclusions(pool, candidates)
-        eligible = pool.eligible(candidates)
+        eligible = _rank(pool, candidates, residency, memory)
 
         if not eligible:
             # §5.2: a pool with no satisfying candidate is *unavailable*. Never
@@ -103,7 +125,7 @@ class RoutingEngine:
             return decision
 
         decision.selected = eligible[0]
-        decision.reason = _selection_reason(pool, eligible)
+        decision.reason = _selection_reason(pool, eligible, residency, memory)
         return decision
 
 
@@ -135,7 +157,45 @@ def _exclusions(
     return excluded
 
 
-def _selection_reason(pool: VirtualModelPool, eligible: list[str]) -> str:
+def _rank(
+    pool: VirtualModelPool,
+    candidates: dict[str, ModelCapabilities],
+    residency: ResidencySnapshot,
+    memory: MemoryReading,
+) -> list[str]:
+    """Order the eligible candidates, cheapest-to-reach among equals.
+
+    Residency is a *preference*, never a constraint — §9.2 lists "prefer already
+    loaded" as soft, so a cold model is never excluded, only ranked below a warm
+    one that is otherwise equal.
+
+    Which preference leads depends on memory. Normally the pool's declared intent
+    wins and residency breaks its ties: a coding pool should reach for a coding
+    model even if that means a load. **Under memory pressure the order inverts**,
+    because loading anything new is the thing to avoid — this is M14's acceptance
+    criterion, that pressure produces a safe route change, and it changes the
+    route without ever changing what the pool is allowed to select.
+    """
+    members = [
+        model for model, known in candidates.items()
+        if not pool.requirements.unmet_by(known)
+    ]
+    pressured = memory.under_pressure
+
+    def key(model: str) -> tuple[int, int, str]:
+        preference = pool.preference_rank(model)
+        warmth = residency_rank(residency.state_of(model))
+        return (warmth, preference, model) if pressured else (preference, warmth, model)
+
+    return sorted(members, key=key)
+
+
+def _selection_reason(
+    pool: VirtualModelPool,
+    eligible: list[str],
+    residency: ResidencySnapshot,
+    memory: MemoryReading,
+) -> str:
     """Say honestly why the winner won.
 
     Which, at M5, is usually "it sorted first". Saying so is the point: §9.7
@@ -150,11 +210,25 @@ def _selection_reason(pool: VirtualModelPool, eligible: list[str]) -> str:
         if matched
         else "first eligible candidate in stable order"
     )
+    parts = [basis]
+
+    state = residency.state_of(selected)
+    if state in (Residency.HOT, Residency.WARM):
+        parts.append(f"already loaded ({state.value}), so no load is required")
+    elif residency.known:
+        parts.append(f"not currently loaded ({state.value}); using it will cost a load")
+
+    if memory.under_pressure and memory.free_fraction is not None:
+        parts.append(
+            f"memory is tight ({memory.free_fraction:.0%} free), so already-loaded "
+            "models were preferred over the pool's usual ordering"
+        )
+
     others = len(eligible) - 1
-    tail = f"; {others} other eligible candidate(s) not preferred" if others else ""
+    tail = f"; {others} other eligible candidate(s) ranked lower" if others else ""
     return (
-        f"{basis}. No benchmark evidence, cost data or health history is available yet, "
-        f"so nothing ranked it above the others on quality{tail}"
+        f"{'. '.join(parts)}. No benchmark evidence, cost data or health history is "
+        f"available yet, so nothing ranked it above the others on quality{tail}"
     )
 
 

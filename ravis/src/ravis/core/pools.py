@@ -72,24 +72,32 @@ class VirtualModelPool:
     prefer: tuple[str, ...] = ()
 
     def eligible(self, candidates: dict[str, ModelCapabilities]) -> list[str]:
-        """The models that satisfy every requirement, in preference order."""
+        """The models that satisfy every requirement, in declared-preference order.
+
+        Ordering here considers the pool's own intent only. Runtime facts —
+        which models are loaded, how much memory is free — belong to the routing
+        engine, because a pool definition is configuration and should not change
+        meaning with the weather.
+        """
         members = [
             model for model, known in candidates.items()
             if not self.requirements.unmet_by(known)
         ]
-        return sorted(members, key=self._preference_rank)
+        return sorted(members, key=lambda model: (self.preference_rank(model), model))
 
-    def _preference_rank(self, model: str) -> tuple[int, str]:
-        """Rank by declared preference, then alphabetically.
+    def preference_rank(self, model: str) -> int:
+        """How well a model matches this pool's declared preference, lowest best.
 
-        The alphabetical tiebreak is what makes selection *predictable*, which is
-        M5's acceptance criterion: the same catalogue must produce the same route
-        every time, or a route explanation is describing a coin toss.
+        An int rather than a full sort key, so the routing engine can combine it
+        with runtime facts. Callers pair it with the model name for the
+        alphabetical tiebreak that makes selection *predictable* — M5's
+        acceptance criterion, since a route explanation describing a coin toss
+        explains nothing.
         """
         for position, fragment in enumerate(self.prefer):
             if fragment in model:
-                return (position, model)
-        return (len(self.prefer), model)
+                return position
+        return len(self.prefer)
 
 
 _TOOLS_REQUIRED = PoolRequirements(required=frozenset({Capability.TOOLS}), minimum_context=32768)

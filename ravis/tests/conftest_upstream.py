@@ -42,12 +42,19 @@ class RecordingUpstream:
         self.frames_pulled = 0
         self.requests: list[httpx.Request] = []
         self.models_requests = 0
+        self.residency_requests = 0
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        # LM Studio's native endpoint also ends in "/models", so the two are
+        # distinguished by full path — counting them together once hid a second
+        # upstream call behind an assertion that looked like it was passing.
+        if request.url.path == "/api/v0/models":
+            self.residency_requests += 1
+            return httpx.Response(404, json={"error": "not lmstudio"})
         if request.url.path.endswith("/models"):
             self.models_requests += 1
             return httpx.Response(200, json={"object": "list", "data": self._catalogue()})
