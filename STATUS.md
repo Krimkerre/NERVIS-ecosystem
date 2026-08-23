@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 478 tests, no network, no live service
+.venv/bin/pytest                      # part of 484 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 182 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 188 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 478 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 484 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -564,6 +564,57 @@ M9 ran with three JIT-loaded instances of it resident, because RAVIS was told
 the advertised 32768 context and LM Studio would not reconfigure the running
 copy. See the open decision below, which this confirms rather than resolves.
 
+### Which model families can be told to stop thinking
+
+Asked because two builds on this machine could not be measured at all, and
+answered by **reading chat templates rather than downloading weights** — a
+template is 5 KB and settles the question for a whole family, where a model is
+gigabytes and settles it for one build. Downloads were needed only where a
+template *cannot* answer.
+
+The mechanism turns out to be mechanical. Two lines of any template say which of
+five cases a build is in:
+
+| Template shape | Can thinking be turned off? |
+|---|---|
+| Opens the assistant turn **inside** `<think>` | **No.** The model has no choice — LFM2.5 |
+| Opens it empty, injects a pre-closed `<think></think>` on request | A real switch, but LM Studio ignores `chat_template_kwargs`, so not that way |
+| **Parses a marker out of the prompt** and writes the switch itself | **Yes, through any API** — GLM, SmolLM3, Nemotron v2 |
+| No thinking logic at all | Nothing to turn off — Granite 4.0, Llama, Mistral, Phi-4-mini |
+| A dedicated reasoning model | **No.** It is the product — R1-distill, EXAONE-Deep, GLM-Z1, Kimi-Thinking |
+
+Probed here, every mechanism against every build — baseline, `/no_think`,
+`/nothink`, a plain "answer directly" system prompt, Nemotron's `detailed
+thinking off`, and the template kwarg:
+
+| Build | Thinks? | What works |
+|---|---|---|
+| `qwen3-1.7b` | yes | `/no_think`, `/nothink`, **and a plain instruction** |
+| `tencent/Hunyuan-1.8B` | yes | `/no_think` |
+| `lfm2.5-2.6b-mlx` | yes | nothing stops it; an instruction gets it answering *while still thinking* |
+| `deepseek-r1-distill-qwen-1.5b` | yes | **nothing** — all six failed, no content in any |
+| `qwen3.5-2b`, `qwen3-4b-2507` | no | — |
+| `granite-4.0-h-tiny`, `phi-4-mini`, `ministral-8b`, `llama-3.1-8b` | no | — |
+
+**One correction worth keeping.** Qwen3's template never parses `/no_think` — it
+knows only `enable_thinking`. The suffix works because the *model* was trained
+to honour it, which is also why a plain instruction works just as well and why
+GLM's `/nothink` spelling works on a Qwen model. A convention can live in the
+template, in the weights, or in both, and only trying it tells you which.
+
+Settled from templates without running anything: DeepSeek-V3.1 and SmolLM3 carry
+real conditionals; Granite 3.3 has thinking **off** by default with a variable to
+turn it on; MiniMax-M2, Kimi-K2-Thinking, GLM-Z1, EXAONE-Deep, Phi-4-reasoning
+and Qwen3-Thinking always think. Nemotron needed two templates rather than one:
+**4B v1.1** defaults its system message to `detailed thinking off`, and **9B v2**
+strips `/think` and `/no_think` out of the content itself. Gemma 3, Llama 3.2,
+Magistral and Cogito are gated or moved and could not be read.
+
+`nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1` in GGUF **will not load on this
+machine** — `llama-server` exits before becoming healthy, an architecture this
+LM Studio build does not have. Recorded because it is a real limit of this
+setup, not of the model.
+
 ### Audited before M6 — what the specification asks for and does not have
 
 Checked the built surface against `SIRVIS.md` rather than discovering these
@@ -981,6 +1032,18 @@ reviewer who disagrees should say so rather than assume it was an accident.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **A model can do its thinking *inside* the content stream, and be measured as
+  though it were answering.** Some runtimes route thinking into
+  `reasoning_content`, where this engine never sees it. `tencent/Hunyuan-1.8B`
+  does not: its `<think>` block arrives as ordinary content, and a benchmark of
+  it reported a **0.043 s time-to-first-token and 55 tokens/second over 256
+  tokens containing no answer at all** — while looking clean, because from the
+  stream's point of view the model was talking, so the empty-content check could
+  not fire. The engine now finds where the answer starts, times from there, and
+  keeps the thinking separately. The three-valued `answer_offset` is the load-
+  bearing part: a first chunk of `<th` is neither a think block nor an answer
+  until more of it arrives, and deciding early either way mis-times the token
+  that the whole metric rests on.
 - **A throughput of 767 tokens/second, at `MEASURED` provenance, from
   arithmetic that was correct.** Generation throughput divides output tokens by
   the window after the first token — everything before it is the runtime reading

@@ -62,7 +62,7 @@ ORDERINGS = ("fixed",)
 # on this machine, byte-identical to the baseline — which is §7.1's
 # accepted-then-silently-dropped trap and exactly why this engine will not
 # forward a setting it cannot verify.
-THINKING_SUPPRESSIONS = ("no_think_suffix", "direct_system")
+THINKING_SUPPRESSIONS = ("no_think_suffix", "nothink_suffix", "direct_system")
 
 # `version` is accepted as a synonym for `suite_version`, because §11.5's own
 # example writes a bare `version: 1` at the top of a definition file and a
@@ -279,7 +279,15 @@ def suppressed(test: BenchmarkTest, strategy: str) -> BenchmarkTest:
     can do.
     """
     if strategy == "no_think_suffix":
+        # Honoured by Qwen3 (the model, not its template — the template only
+        # knows `enable_thinking`), by Hunyuan, and parsed out of the content by
+        # SmolLM3's and Nemotron v2's templates.
         return replace(test, prompt=f"{test.prompt.rstrip()} /no_think")
+    if strategy == "nothink_suffix":
+        # GLM's spelling. Its template writes exactly this string into the user
+        # message when asked to disable thinking, so the suffix is the mechanism
+        # rather than a hint at it — and Qwen3 honours it too.
+        return replace(test, prompt=f"{test.prompt.rstrip()} /nothink")
     if strategy == "direct_system":
         instruction = "Answer directly. Do not think step by step."
         return replace(

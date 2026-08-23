@@ -84,3 +84,27 @@ def test_the_shipped_example_is_the_one_the_milestone_names() -> None:
 def test_a_missing_file_says_which_path_it_tried() -> None:
     with pytest.raises(InvalidConfigurationError, match="nowhere.yaml"):
         load_experiment("nowhere.yaml")
+
+
+def test_the_suppressions_are_the_ones_that_were_measured_to_work() -> None:
+    """Each is a convention some family documents, and each was probed here
+    before being listed: `/no_think` (Qwen3, Hunyuan, SmolLM3, Nemotron v2),
+    `/nothink` (GLM's spelling, and Qwen3 honours it too), and a plain
+    instruction (which is what got LFM2.5 answering).
+
+    Nemotron's `detailed thinking off` system phrase is deliberately **not**
+    here: its template already defaults to thinking off, so the strategy would
+    have nothing to fix.
+    """
+    spec = parse_experiment(MINIMAL)
+
+    assert spec.suppress_thinking == ("no_think_suffix", "nothink_suffix", "direct_system")
+
+
+def test_an_experiment_can_refuse_every_suppression() -> None:
+    assert parse_experiment(MINIMAL + "suppress_thinking: none\n").suppress_thinking == ()
+
+
+def test_an_unknown_suppression_is_refused_rather_than_ignored() -> None:
+    with pytest.raises(InvalidConfigurationError, match="unknown thinking suppression"):
+        parse_experiment(MINIMAL + "suppress_thinking: [wishful_thinking]\n")
