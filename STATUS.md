@@ -573,6 +573,25 @@ exactly what §12.2 says should happen and the first time it has been observed
 rather than asserted. The warm one is `SUSPECT`, because a warm acquire says
 nothing about load time and the engine refuses to publish one.
 
+**A 24B fits on 24 GB, and the reason it nearly did not is instructive.**
+`devstral-small-2507` loads at 13.28 GB and runs at **8.9 tok/s with a 0.716 s
+TTFT** — the slowest build measured here, below the 14B. It would not load until
+active and inactive pages were freed, and **no amount of swapping would have
+helped**: on Apple Silicon a model's weights are *wired*, so the machine went
+from 2.75 GB wired at idle to 15.69 GB with the model resident, and wired memory
+is the one kind macOS cannot page out. "It will swap the rest" is the intuition
+to unlearn — the thing needing room is the thing that cannot be moved.
+
+**That run was also the thermal flag's first live firing**, and the data agrees
+with it. The warning says pressure went from `nominal` to `fair` during the run;
+the throughput spread came out at **±11%** against the ±1–2% every other build
+produced. A 24B heats this machine inside a single benchmark, and without the
+flag the result would have read as a model with unusually erratic throughput
+rather than a machine that got hot halfway through. It also confirmed the
+Resource Manager's adoption rule against a real runtime: the model had been
+loaded outside the benchmark, so the run tracked it as `owned: false`, published
+no load time, and left it resident afterwards.
+
 **It also settled the M9 mystery.** `qwen2.5-coder-7b-instruct` reaches its
 first token in **0.296 s** here against the ~4 s measured during M9, and against
 the 0.26 s in `clarvis/docs/benchmarks.md`. The difference was never the model:
