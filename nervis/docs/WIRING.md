@@ -2,6 +2,12 @@
 
 This page is built so this is mechanical. Nothing about the render path changes.
 
+**Three screens have been through it**, which turned two of the claims below
+from theory into experience — see *What the first wirings actually cost* at the
+end. SIRVIS **Results**, SIRVIS **Benchmarks** and the SIRVIS **Dashboard**'s
+run-detail card now read `/api/v1/benchmark-runs`, each falling back to its
+transcription when nothing answers and saying on screen which it drew on.
+
 ## The swap
 
 Every screen reads from `API`, which has one method per real endpoint:
@@ -155,6 +161,41 @@ rule forbids:
 health and capability negotiation — and keep them observer-side. A successful TCP
 connect is not readiness.
 
+## What the first wirings actually cost
+
+Three things the mechanical description above does not prepare you for.
+
+**"Replace the body, keep the shape" holds only while the shape was a good
+guess.** The mock's `evidence()` predated the engine that now fills it, so the
+live envelope disagreed: `target.model_family` against `target.family`, a
+`metrics` object per measure against a bare number, `validity_notes` against
+`warnings`. Renaming to the contract names would have touched six functions and
+a hundred call sites across screens that have nothing to do with this one. What
+worked was a **mapper** — `sirvisEvidence()`, the same pattern `lmstudioBuilds()`
+already uses for LM Studio's payload. Keep the mapper; do not rewrite the views
+around a second vocabulary.
+
+**Live data has a different cardinality than a mock.** The mock had one record
+per build; the endpoint returns one per *run*, and today's database holds every
+sweep — so the table showed the same build eight times with different numbers.
+The fix was already in the contract: §12.2 keys evidence on machine, build,
+runtime configuration, role and suite, so two runs of one suite against one
+build share an evidence ID. One row per identity, newest first. Where a build
+legitimately appears twice, print the field that differs — otherwise two
+identical-looking rows disagreeing reads as a bug.
+
+**Fields the live data does not have must render as absent, not as zero.**
+`tool_calls`, `code`, `fib` and `follow_up` come from capability suites SIRVIS
+cannot run yet, so a live record carries no such fields. `0 / 0` would read as
+"measured and found nothing"; the cells show a dash and name the milestone.
+Filling them from the transcription instead would put measured and transcribed
+numbers in one row with nothing to tell them apart.
+
+And one prerequisite that is not optional: **a read endpoint without CORS is
+unreachable from this page.** The SIRVIS surface was built and served and the
+browser discarded every response until `Access-Control-Allow-Origin` existed.
+`curl` will not tell you — see `PITFALLS.md` §6.
+
 ## Order to do it in
 
 The dependency order from the runbook, which is also the useful order here:
@@ -165,6 +206,11 @@ The dependency order from the runbook, which is also the useful order here:
    The Dashboard, Chat and Routes screens light up together.
 3. **SIRVIS** `/api/v1/models`, `/benchmark-results`, `/runtime-sets`.
    Evidence provenance is already rendered; it just needs real records.
+   `/benchmark-runs` and `/benchmark-results` are **done**. `/models` exists and
+   is not yet wired. `/runtime-sets` does not exist and **must not be faked**:
+   Runtime sets reads measured *pairs*, and synthesising them from single-model
+   runs asserts exactly what `../../SIRVIS.md` §10.1 exists to deny. It waits
+   for M9 + M10.
 4. **`/ecosystem/events` (SSE)** — replace `API.nervis.events()` with an
    `EventSource`. The stream-health tiles (buffered, dropped, quarantined, gaps) are
    already wired to report it.

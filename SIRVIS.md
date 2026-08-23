@@ -146,14 +146,14 @@ commit. Endpoint groups:
 /api/v1/health                 /api/v1/benchmark-jobs
 /api/v1/system                 /api/v1/benchmark-jobs/{job_id}
 /api/v1/machines/{machine_id}  /api/v1/benchmark-jobs/{job_id}/cancel
-/api/v1/runtimes               /api/v1/benchmark-runs/{run_id}
-/api/v1/runtimes/{runtime_id}  /api/v1/benchmark-results/{result_id}
-/api/v1/runtime-instances      /api/v1/runtime-sets
-/api/v1/runtime/sessions       /api/v1/recommendations
-/api/v1/models                 /api/v1/profiles
-/api/v1/models/{artifact_id}   /api/v1/evidence
-/api/v1/catalog                /api/v1/events
-/api/v1/downloads
+/api/v1/runtimes               /api/v1/benchmark-runs
+/api/v1/runtimes/{runtime_id}  /api/v1/benchmark-runs/{run_id}
+/api/v1/runtime-instances      /api/v1/benchmark-results/{result_id}
+/api/v1/runtime/sessions       /api/v1/runtime-sets
+/api/v1/models                 /api/v1/recommendations
+/api/v1/models/{artifact_id}   /api/v1/profiles
+/api/v1/catalog                /api/v1/evidence
+/api/v1/downloads              /api/v1/events
 ```
 
 List responses return `{items, next_cursor, snapshot_revision}` and accept `limit` and

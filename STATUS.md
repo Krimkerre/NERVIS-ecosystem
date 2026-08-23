@@ -850,13 +850,14 @@ build.
   endpoints were servable and unreadable at once. Allow-listed origin echoed
   rather than `*`, credentials deliberately absent, `GET`/`HEAD`/`OPTIONS` only,
   and the same allowlist drives permission and refusal so they cannot drift.
-- **A list endpoint for benchmark runs.** §4.2 names the two *detail* paths for
-  this group and separately defines a list envelope taking `limit` and `cursor`.
-  A group carrying an envelope nobody can request would be a contract for a
-  response that never exists, so `/api/v1/benchmark-runs` was added. Paged on
-  `rowid` rather than `started_at`: two runs begun in the same second sort
-  arbitrarily by timestamp, and a paging key that can tie eventually drops a row
-  or serves it twice — rarely, silently, and unreproducibly.
+- **A list endpoint for benchmark runs, and §4.2 amended to name it.** §4.2 gave
+  this group two *detail* paths and separately defined a list envelope taking
+  `limit` and `cursor` — a contract for a response nobody could request. The
+  endpoint was built and **the specification was corrected rather than deviated
+  from**, which is §1's third step: amend the plan, do not fake the expected
+  value. Paged on `rowid` rather than `started_at`, because two runs begun in
+  the same second sort arbitrarily by timestamp and a paging key that can tie
+  eventually drops a row or serves it twice — rarely, silently, unreproducibly.
 - **CORS on the read surface.** Stage 3's *visible increment* is the prototype
   reading RAVIS's management API, and a browser cannot read a cross-origin
   response without `Access-Control-Allow-Origin`. The increment is in the

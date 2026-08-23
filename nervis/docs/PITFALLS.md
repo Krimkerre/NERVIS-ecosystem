@@ -207,7 +207,44 @@ so the safe state looked like the alarming one.
 
 ---
 
-## 6 · What actually catches these
+## 6 · Wiring a screen to a real service
+
+**A shared `API` method changed shape and a screen two files away threw.**
+`API.sirvis.runs()` has two consumers — the Results run-detail card and the
+SIRVIS Dashboard. Wiring Results to live SIRVIS changed what the method returns,
+the Dashboard read `rn.generation_tok_s.median` on a shape that no longer had
+it, and it threw on render for a whole commit. §1's rule says "re-test the
+screens either side of a region edit", which was followed and was not enough:
+the broken screen was not either side of anything, it was a caller.
+
+> When a shared `API` method changes shape, **grep its callers** before
+> declaring it done. Two screens away is still a caller — and §2's rule applies
+> with it, because a missing field draws nothing rather than failing.
+
+**A live endpoint a browser cannot read is not a live endpoint.** The SIRVIS
+read surface was built, served, and completely unreachable from this page: no
+`Access-Control-Allow-Origin`, so the browser discarded every response. The
+endpoints answered perfectly to `curl`, which is what makes it a trap — the
+service looks finished from the terminal and is useless to the thing it was
+built for.
+
+> Verify a wiring from the *page*, not from `curl`. When adding a read surface a
+> dashboard is meant to consume, CORS is part of the surface rather than an
+> afterthought.
+
+**A screen wired to real data shows you things the engine never noticed.** The
+Benchmarks screen counted two runs as `running` on its first render — runs
+killed mid-flight hours earlier, which nothing reconciled and no log had
+mentioned. A queue view counts states; a log does not.
+
+> That is the argument for wiring a screen early rather than last. It is equally
+> the argument against wiring one whose data does not exist: the same
+> attentiveness that surfaces a real defect renders a fabricated number just as
+> convincingly.
+
+---
+
+## 7 · What actually catches these
 
 In order of how much they have found here:
 
@@ -243,7 +280,7 @@ SIMULATE strip to confirm only dependent surfaces change.
 
 ---
 
-## 7 · Tooling that can delete your work
+## 8 · Tooling that can delete your work
 
 **`tools/embed-avatars.py` rebuilds the entire `AVATAR_SOURCE_B64` block** from a
 hardcoded list. Adding a fifth avatar to `index.html` without adding it to `APPS`

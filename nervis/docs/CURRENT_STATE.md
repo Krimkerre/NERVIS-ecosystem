@@ -1,6 +1,6 @@
 # Current state
 
-*Snapshot as of 22 Aug 2026. Written so an agent with no memory of how this got here
+*Snapshot as of 23 Aug 2026. Written so an agent with no memory of how this got here
 can be useful in five minutes. If this file and the code disagree, the code is right
 and this file is stale — fix it.*
 
@@ -10,10 +10,13 @@ One file, `index.html`, containing four applications' worth of UI: a top-level t
 bar (NERVIS / SIRVIS / RAVIS / CLARVIS), a per-app sidebar, and a data layer shaped
 like the API responses each service will eventually return.
 
-**Only Clarvis exists as real code** (`../../clarvis`, a VS Code extension). SIRVIS,
-RAVIS and NERVIS are specifications; their screens here are the first concrete thing
-about them. Those specs are in the root of this repository — one directory up — and
-there is no second copy to keep in step.
+**Clarvis, SIRVIS and RAVIS all exist as real code now**; NERVIS is still a
+specification, and this file is its first concrete form. Clarvis is a VS Code
+extension in its own repository (`../../clarvis`); SIRVIS and RAVIS are Python
+services one directory up, and three screens here read a running SIRVIS rather
+than a mock. The specs are in the root of this repository and there is no second
+copy to keep in step. `../STATUS.md` says what is actually finished — this file
+covers the prototype only.
 
 ## Architecture, in one pass
 
@@ -53,7 +56,17 @@ Every screen in the rail is built. Nothing falls back to a dashboard any more.
 | RAVIS | Dashboard · Routes · Pools · Providers · Policies · Evidence · Logs · Diagnostics · **Settings** |
 | CLARVIS | all seven — by design the rail drives the editor's side panel, it does not swap pages |
 
-Two of those moved or are new since the first pass:
+**Three of them now read a live service.** SIRVIS **Results** and **Benchmarks**
+draw from `/api/v1/benchmark-runs`, and the SIRVIS **Dashboard**'s run-detail
+card does too; each falls back to its transcription when nothing answers and
+says which it drew on. Everything else is still mocks, and two screens must
+stay that way until their milestones land — **Recommendations** needs M15,
+**Downloads** needs M11, and **Runtime sets** needs M9 + M10 for a reason
+stronger than "unbuilt": it reads measured *pairs*, and the only way to fill it
+early would be to synthesise them from single-model runs, which asserts exactly
+what SIRVIS.md §10.1 exists to deny.
+
+Two screens moved or are new since the first pass:
 
 - **System lives on NERVIS**, not SIRVIS. It renders SIRVIS's machine record, so
   every cell on it is `cell(…,'sirvis')`: NERVIS hosts the page and does not own
@@ -245,6 +258,11 @@ like that drifts within a day.
 
 Read it before your first script-driven edit to `index.html`. The short version:
 almost nothing here fails loudly.
+
+The newest entry is the one live wiring produced: **when a shared `API` method
+changes shape, grep its callers.** Two screens read `API.sirvis.runs()`, the
+Results wiring changed what it returns, and the SIRVIS Dashboard threw for a
+commit because only the neighbouring screens were re-tested.
 
 ## Conventions worth keeping
 

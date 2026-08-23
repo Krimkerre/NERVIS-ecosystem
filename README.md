@@ -23,7 +23,9 @@ API responses, and every endpoint it cites is cited from the spec beside it. Ope
 
 It is also the dashboard that will actually be served, so it tracks real endpoints as
 they land — while keeping the guarantee that makes it openable at all: a service being
-down degrades a panel rather than the page. See [`nervis/README.md`](./nervis/README.md).
+down degrades a panel rather than the page. Three SIRVIS screens read a running service
+today and the rest are still mocks; opening the file with nothing running shows the
+mocks and says so. See [`nervis/README.md`](./nervis/README.md).
 
 > It used to be `template/`. A **mock-only reference snapshot** now lives outside this
 > repository at `~/Documents/coding/nervis-template/`, so that the one-copy rule below
