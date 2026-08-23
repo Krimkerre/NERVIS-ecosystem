@@ -58,6 +58,32 @@ a page. It works, `ravis doctor` warns about it, and it is the wrong habit.
 Only `GET`, `HEAD` and `OPTIONS` are permitted cross-origin, because every
 `/api/v1` endpoint that exists today is a read.
 
+## What is wired, and what is deliberately not
+
+`API.ravis.requests()` reads `GET /api/v1/route-decisions` for real. Everything
+else is still a mock, and two of them are mocks *on purpose* rather than for
+lack of time:
+
+- **`models()` must not be wired until SIRVIS exists.** The screens are built on
+  three separate tool fields — `advertised`, `measured`, `effective` — because
+  on this machine the runtime's flag and the benchmark disagree about four
+  builds in both directions. RAVIS's real endpoint publishes one state and one
+  provenance, because that is all RAVIS holds. Wiring it would collapse exactly
+  the distinction `docs/PITFALLS.md` §5 says never to reconcile at the source:
+  the disagreement *is* the data.
+- **`pools()` therefore cannot be wired either**, because the Pools screen counts
+  membership against `models()`. Half-wiring it would put a live count beside a
+  mock one on the same card, which is the failure mode that section is about.
+- `providers()` and `usage()` have real endpoints whose shapes differ enough to
+  need adapters; neither is blocked, just unwritten.
+
+The route-decision rows render `—` for path and TTFT. That is not a gap in the
+wiring: RAVIS does not publish an execution path (only Path A is built, and
+asserting it here would be this page claiming something the API never said), and
+time-to-first-token is per *target* on `/api/v1/health`, not per decision.
+
+`SOURCE.ravis` records which of the two a screen is showing.
+
 ## What the live reads actually return
 
 `ravis/` is built through M18a and M12, so several `API.ravis` methods have a

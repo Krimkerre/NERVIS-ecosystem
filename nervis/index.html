@@ -564,6 +564,71 @@ function syncPanelAvatar(){
    configuration or the registry. NERVIS is same-origin because it serves this page;
    its own default is 127.0.0.1:8711. The Clarvis Bridge port is per extension host,
    so 7071 is only the first instance. */
+/* ── Reading a real service, without ever depending on one ──────────────────
+   Every method in `API` models one endpoint. `live()` lets a method *try* that
+   endpoint and fall back to its own mock when anything at all goes wrong — the
+   service is down, the port moved, the origin is not allow-listed, the body is
+   not what we expected.
+
+   That fallback is the property this page cannot lose: it opens from disk with
+   nothing running, and a `fetch` that threw and stopped the render would
+   destroy that silently for everyone not currently running the service under
+   test. So the failure path is the *default* path, not an afterthought.
+
+   Reading from a file:// page sends `Origin: null`, which RAVIS refuses — so
+   opening this from disk always shows mocks. Serve it over http and allow that
+   origin to see real data; `README.md` has the two commands.
+
+   `SOURCE` records which happened, per service, so a screen can say so rather
+   than leaving the reader to guess whether a number is real. */
+const SOURCE={};
+const LIVE_TIMEOUT_MS=1500;
+
+async function live(service,path,mock,adapt){
+ try{
+  /* A refused connection fails instantly; a filtered port hangs forever. The
+     timeout is what stops the second case turning into a blank screen. */
+  const stop=new AbortController();
+  const timer=setTimeout(()=>stop.abort(),LIVE_TIMEOUT_MS);
+  let payload;
+  try{
+   const response=await fetch(BASE[service]+path,{signal:stop.signal});
+   if(!response.ok)throw new Error('HTTP '+response.status);
+   payload=await response.json();
+  }finally{clearTimeout(timer)}
+  const adapted=adapt(payload);
+  SOURCE[service]='live';
+  return adapted;
+ }catch(failure){
+  SOURCE[service]='mock';
+  return mock();
+ }
+}
+
+/* GET /api/v1/route-decisions → the shape the Routes table already reads.
+   Contract names stay in `API`; this is the rename-in-the-view boundary.
+
+   Two fields are deliberately left empty rather than filled in. `execution_path`
+   is not published — RAVIS has only built Path A, and asserting TRANSPARENT_OPENAI
+   here would be this page claiming something the API never said, which is the one
+   thing it must not do. `ttft_s` is not per-decision either; it exists per target
+   on /api/v1/health. Both render as an em dash, which is the honest answer. */
+function recentDecisions(payload){
+ const outcome=d=>{
+  if(!d.selected)return 'NO_ROUTE';
+  const attempts=(d.execution&&d.execution.attempts)||[];
+  if(!attempts.length)return 'PENDING';
+  const last=attempts[attempts.length-1].outcome;
+  return last==='succeeded'?'OK':last.toUpperCase();
+ };
+ return{items:payload.items.map(d=>({
+  pool:d.pool||d.requested,
+  model:d.selected,
+  execution_path:null,
+  ttft_s:null,
+  result:outcome(d),
+  reason:d.reason}))};
+}
 const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
 
@@ -1062,14 +1127,21 @@ const API={
    timings_ms:{requirements:0.4,constraints:0.9,scoring:1.1,affinity:0.7,total:3.1},
    affinity:'sticky · same thread'}},
 
-  /* GET /api/v1/route-decisions — recent. NO_ROUTE is a first-class result. */
-  async requests(){return{items:[
+  /* GET /api/v1/route-decisions — recent. NO_ROUTE is a first-class result.
+
+     Reads the real endpoint when one answers, and falls back to the rows below
+     when it does not. The mock stays because it is the only thing that renders
+     when nothing is running, and because it carries a NO_ROUTE example that a
+     healthy service will never produce on demand. */
+  async requests(){return live('ravis','/api/v1/route-decisions?limit=25',
+   ()=>({items:[
    {pool:'ravis/clarvis-agent',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
    {pool:'ravis/clarvis-chat',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
    {pool:'ravis/auto',model:'claude-sonnet-5',execution_path:'TRANSLATED_NATIVE',ttft_s:0.79,result:'OK'},
    {pool:'ravis/private',model:null,execution_path:null,ttft_s:null,result:'NO_ROUTE',
     requirements:{vision:true,minimum_context:300000,privacy:'LOCAL_ONLY'},
-    reason:'vision at 300K context under privacy LOCAL_ONLY — the one installed vision build tops out at 262144, and the privacy constraint removed every cloud candidate before scoring'}]}},
+    reason:'vision at 300K context under privacy LOCAL_ONLY — the one installed vision build tops out at 262144, and the privacy constraint removed every cloud candidate before scoring'}]}),
+   recentDecisions)},
 
   /* GET /api/v1/providers — health, circuit-breaker state and, critically, the
      connection facts. `credential` is a presence flag and nothing else: a key
@@ -2239,8 +2311,8 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
   ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
   <small class="mono dim">every fallback satisfies the same hard constraints and pool invariant. Cancellation is not a failure and never triggers one.</small></div>
  <div class="card wide"><h3>Recent requests</h3><div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-  ${req.items.map(r=>`<div class="table-row five"><span>${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${r.result==='OK'?'':' warn'}">${r.result}</span></div>`).join('')}
-  <small class="mono dim">${req.items.find(r=>r.result==='NO_ROUTE').reason} — a no-route is a first-class outcome, not an error: it failed closed rather than reaching for a provider.</small></div>`}
+  ${req.items.map(r=>`<div class="table-row five"><span>${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
+  <small class="mono dim">${noRouteNote(req)}— a no-route is a first-class outcome, not an error: it failed closed rather than reaching for a provider.</small></div>`}
 
 /* ── RAVIS SCREENS ─────────────────────────────────────────────────────────
    RAVIS owns every figure on these pages except the benchmark evidence, which is
@@ -2253,6 +2325,18 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
 /* Routes — one decision, in full. The funnel is derived from the record itself
    (eligible + excluded → eligible) rather than captioned, so it cannot drift away
    from the data underneath it. */
+/* The Recent-decisions caption, which used to assume a NO_ROUTE row was present.
+
+   It always was in the mock — the fixture carries one deliberately — and it never
+   is against a service that is working, so wiring the real endpoint made the
+   Routes screen throw. Derived from the rows actually in hand rather than from
+   one the fixture happened to include. */
+function noRouteNote(req){
+ const refused=req.items.find(r=>r.result==='NO_ROUTE');
+ if(refused&&refused.reason)return refused.reason+'. ';
+ const refusals=req.items.filter(r=>r.result==='NO_ROUTE').length;
+ return refusals?`${refusals} of these were refused. `:'None of these were refused. ';
+}
 async function ravisRoutes(){
  heading('Routes','One decision record: requirements, the constraint funnel, the ranking, and what it cost to decide.',
   `<button class="btn primary" onclick="DEMO_API.reroute()">Simulate request</button>`);
@@ -2284,8 +2368,8 @@ async function ravisRoutes(){
    <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed rule. A user cancelling is not a failure and never advances this chain.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Recent decisions</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${r.result==='OK'?'':' warn'}">${r.result}</span></div>`).join('')}
-   <small class="mono dim">${req.items.find(r=>r.result==='NO_ROUTE').reason}. NO_ROUTE is a first-class result: it failed closed on a constraint rather than reaching for a provider that would have satisfied the request and broken the promise.</small>`,'ravis')}</div>`}
+   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
+   <small class="mono dim">${noRouteNote(req)}NO_ROUTE is a first-class result: it failed closed on a constraint rather than reaching for a provider that would have satisfied the request and broken the promise.</small>`,'ravis')}</div>`}
 
 /* Pools — a pool is its invariants, and on this machine every one of them has a
    member, so the interesting question is not which pool is empty but who is in
@@ -2441,7 +2525,7 @@ async function ravisLogs(){
    ['Payload capture','off','no prompt or completion is stored','ravis']])
  +`<div class="card full"><h3>Request log</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${r.result==='OK'?'':' warn'}">${r.result}</span></div>`).join('')}
+   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
    <small class="mono dim">every row is a decision id away from its full record — pool, requirements, candidates, exclusions and timings. What no row leads to is the text of the request, because it was never written down.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Events published by RAVIS</h3>${cell(`
    <div class="table-row head five"><span>Time</span><span>Type</span><span>Version</span><span>Trace</span><span>Severity</span></div>
