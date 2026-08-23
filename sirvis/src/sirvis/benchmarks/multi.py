@@ -552,12 +552,47 @@ def interaction_matrix(spec: MultiModelSpec, outcome: MultiModelOutcome) -> dict
         "load_order": outcome.load_order,
         "conditions": conditions,
         "rows": rows,
+        # §11.3's matrix carries Peak RAM and Swap beneath the per-model rows,
+        # and they belong to the *machine* rather than to any one role: under
+        # concurrent load both models are pressing on the same memory, so a
+        # per-role figure would double-count the thing that is actually shared.
+        "memory": _memory(conditions, rows, outcome),
         "complete": outcome.co_residency_failure is None,
         "co_residency_failure": outcome.co_residency_failure,
         # Named so nobody has to infer it: every number here was measured in
         # this run, under one thermal bracket, rather than joined across runs.
         "basis": "measured in this run",
     }
+
+
+def _memory(
+    conditions: list[str], rows: dict[str, Any], outcome: MultiModelOutcome
+) -> dict[str, Any]:
+    """§11.3's Peak RAM and Swap rows, per condition.
+
+    Peak is read from the repetitions, where a watcher sampled *during*
+    generation — the point sample taken after a mode finished would miss the
+    moment that matters, because by then the runtime has released whatever it
+    briefly needed.
+
+    Swap comes from the telemetry point for the mode. It is the figure §10.1
+    predicts will move and, on the first live run of this engine, the figure
+    that did not — which is exactly why it is reported rather than assumed.
+    """
+    by_point = {sample.point: sample for sample in outcome.telemetry}
+    peaks: dict[str, Any] = {}
+    for condition in conditions:
+        across_roles = [
+            row["figures"][condition].get("lowest_available_bytes")
+            for row in rows.values()
+            if condition in row["figures"]
+        ]
+        sample = by_point.get(PEAK_FOR_MODE.format(mode=condition))
+        peaks[condition] = {
+            "lowest_available_bytes": _lowest(across_roles),
+            "swap_used_bytes": sample.swap_used_bytes if sample else None,
+        }
+    return peaks
 
 
 def _row(role: str, conditions: list[str], outcome: MultiModelOutcome) -> dict[str, Any]:
@@ -584,14 +619,30 @@ def _summarise(measured: Sequence[Repetition]) -> dict[str, float | None]:
     mean would let dominate.
     """
     if not measured:
-        return {"tokens_per_second": None, "time_to_first_token": None, "samples": 0}
+        return {
+            "tokens_per_second": None, "time_to_first_token": None,
+            "lowest_available_bytes": None, "samples": 0,
+        }
     return {
         "tokens_per_second": _median(
             [r.generation_tokens_per_second for r in measured]
         ),
         "time_to_first_token": _median([r.ttft_seconds for r in measured]),
+        # The **minimum** rather than the median: §11.3's matrix asks for peak
+        # memory, and the peak is the moment the machine was closest to running
+        # out. A median would describe a comfortable average of a run that
+        # briefly was not comfortable at all.
+        "lowest_available_bytes": _lowest(
+            [r.lowest_available_bytes for r in measured]
+        ),
         "samples": len(measured),
     }
+
+
+def _lowest(values: Sequence[int | None]) -> int | None:
+    """The smallest reported reading, or None when nothing was readable."""
+    present = [value for value in values if value is not None]
+    return min(present) if present else None
 
 
 def _median(values: Sequence[float | None]) -> float | None:

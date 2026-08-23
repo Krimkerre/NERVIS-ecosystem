@@ -457,3 +457,53 @@ def test_the_cli_names_every_model_before_loading_any(capsys: Any, monkeypatch: 
 class _NotATty:
     def isatty(self) -> bool:
         return False
+
+
+# ── §11.3's memory rows ──────────────────────────────────────────────────────
+
+
+def test_the_matrix_carries_peak_memory_and_swap_per_condition(tmp_path: Any) -> None:
+    """§11.3's table has Peak RAM and Swap rows beneath the per-model ones.
+
+    They belong to the machine rather than to a role: under concurrent load both
+    models press on the same memory, so a per-role figure would double-count the
+    thing that is actually shared.
+    """
+    outcome, _ = run(a_spec(), FakeRuntime(), tmp_path)
+
+    memory = outcome.matrix["memory"]
+    assert set(memory) == {MODE_ALONE, MODE_SEQUENTIAL, MODE_ALTERNATING, MODE_CONCURRENT}
+    for condition in memory.values():
+        assert "lowest_available_bytes" in condition
+        assert "swap_used_bytes" in condition
+
+
+def test_peak_memory_is_the_minimum_not_the_median() -> None:
+    """The peak is the moment the machine was closest to running out.
+
+    A median would describe a comfortable average of a run that briefly was not
+    comfortable at all — and the brief part is the part that swaps.
+    """
+    from sirvis.benchmarks.multi import _summarise
+
+    figures = _summarise([
+        _rep_with_memory(8_000_000_000),
+        _rep_with_memory(1_000_000_000),
+        _rep_with_memory(7_000_000_000),
+    ])
+
+    assert figures["lowest_available_bytes"] == 1_000_000_000
+
+
+def test_an_unreadable_memory_reading_is_none_rather_than_zero() -> None:
+    """Zero available memory and "we could not tell" are different findings."""
+    from sirvis.benchmarks.multi import _summarise
+
+    assert _summarise([_rep_with_memory(None)])["lowest_available_bytes"] is None
+
+
+def _rep_with_memory(available: int | None) -> Repetition:
+    return Repetition(
+        test_id="t1", phase="measured", index=0, total_seconds=1.0, content="tok ",
+        ttft_seconds=0.1, completion_tokens=4, lowest_available_bytes=available,
+    )

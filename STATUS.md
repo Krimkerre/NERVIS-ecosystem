@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 630 tests, no network, no live service
+.venv/bin/pytest                      # part of 633 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 630 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 633 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -98,7 +98,7 @@ into the order work actually happens.
 | 21 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 | 22 | **RAVIS M4** | The Anthropic native adapter — the first real provider on Path B. Request and response translation, streamed tool calls, capabilities read from the model catalogue, and four mappings decided deliberately rather than by default. Settled below |
 | 23 | **SIRVIS M9** | Runtime Sets — §10's versioned multi-model target. Definitions, revisions that only move when the definition does, role-addressable members, sessions opened against a set under one lease, and a fit estimate that can refuse but never approve. Settled below |
-| 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. Settled below |
+| 24 | **SIRVIS M10** | Multi-model benchmarks — §11.3's sequential, alternating and concurrent modes over a stored set, each member measured alone first as the control, and the interaction matrix with degradation percentages. §10's gate — a simultaneous-load failure is a result, never separate-model success — is code and test, not policy. **Run live against a GGUF/MLX pair, 2026-08-24** — the first measured pair in the corpus, numbers below |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -779,11 +779,11 @@ a `RESOURCE_BUSY` rather than a load; and "old results retain their revision" is
 so far only half-demonstrated — the storage guarantees it, and no result cites a
 set until M10 produces one.
 
-**Not yet verified live.** M9's first clause — two models stay loaded and
-independently addressable — is asserted against a fake runtime, which proves the
-manager holds both under one lease and proves nothing about this machine. That
-check needs two real models resident at once, and per the rule above it does not
-happen without being asked for first.
+**Verified live on 2026-08-24**, by M10's first real run. Both members of
+`clarvis-balanced` were resident at once, each addressable by its role, each
+loaded at the 8192 context its member declared — which is the one thing the fake
+could never prove, because a fake accepts whatever configuration it is handed.
+The numbers are under M10 below.
 
 ### What M10 settled
 
@@ -835,12 +835,55 @@ The decisions that shaped the rest:
   warmups, thinking suppression, TTFT splitting and token accounting are the
   same code, not a second implementation free to drift.
 
-**Nothing has been measured.** M10 is an engine and a matrix shape; the corpus
-holds zero pairs. `sirvis benchmark run <suite> --runtime-set <name>` is the
-entry point, it names every model it is about to load before loading any of
-them, and it refuses outright without a terminal to ask. Until someone runs it,
-the Runtime Sets screen stays on mocks and §21.1's second vertical slice is
-unstarted — which is the honest state, not a formality.
+### The first measured pair, and what it found
+
+Run live on **2026-08-24**, `clarvis-balanced` revision 1 on the 24 GB machine:
+`qwen2.5-coder-7b-instruct` (MLX 4-bit) as **chat** and
+`lmstudio-community/granite-4.0-h-tiny` (GGUF Q4_K_M) as **agent**, both at 8192
+context, two warmups and five measured repetitions per condition. Run
+`run_76509c018d5d4bd6`, raw material in `sirvis/results/exp_f7b0dea6b9af4889`.
+This is §21.1's second vertical slice, and the corpus's first pair.
+
+```text
+                     Alone    Sequential   Alternating   Concurrent
+agent tok/s           67.0          67.0          57.4         45.6
+chat  tok/s           30.0          29.7          29.2         17.2
+agent TTFT            0.05s         0.05s         0.13s        0.06s
+chat  TTFT            0.29s         0.30s         0.37s        0.46s
+```
+
+**Co-residency itself is free.** Sequential — both models resident, one running
+at a time — costs agent **-0.0%** and chat **+0.9%** throughput. That is the
+result worth having, because it is the one a single-model benchmark cannot
+produce and the one an operator most needs: keeping a second model warm does not
+tax the first.
+
+**Concurrency is not.** Running both at once costs chat **42.7%** of its
+throughput and agent **31.9%**, with time-to-first-token up 57% and 37%. The
+asymmetry is consistent — the slower model gives up more — and it is the figure
+a router should care about, because it is the difference between "both fit" and
+"both work".
+
+**The switch has its own price, and it lands on latency rather than
+throughput.** Alternating cost agent only 14% of its throughput but tripled its
+time-to-first-token — **+196%**, 0.05s to 0.13s. A chat/agent handoff pattern
+pays that on every turn while barely showing up in tokens per second, which is
+exactly the kind of cost a throughput-only benchmark reports as nothing.
+
+**Memory behaved as arithmetic predicted, and behaviour did not.** Available
+memory fell from 11.3 GB to 3.6 GB with both resident — roughly the sum of the
+two — and **swap never moved**, holding at 1.9 GB from baseline to post-run.
+Nothing about the memory picture would have predicted a 43% throughput loss.
+That sentence was the Runtime Sets screen's subtitle before anything had been
+measured; it is now a finding rather than a claim, and it is the whole argument
+for §10.1 existing.
+
+**One gap in this run, and it is in the record rather than the measurement.**
+§11.3's matrix carries Peak RAM and Swap rows; the engine sampled both and the
+matrix did not carry them, so this run's `result.json` has no memory rows. They
+were added immediately afterwards and are tested, and nothing was lost — the
+figures above come from this run's own `telemetry/measurements.jsonl`. The next
+run's matrix carries them inline.
 
 ### The rule about loading — still read this first
 
@@ -979,7 +1022,7 @@ synthesising pairs from single-model runs would assert precisely what §10.1
 exists to deny: *two models fitting separately does not prove they work well
 together.* The screen's own subtitle says memory behaved as arithmetic predicted
 and behaviour did not — fabricating those rows would make the page contradict
-the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. The rows that screen needs now have a producer — M10's engine emits the interaction matrix — but not one measured pair exists yet, because a multi-model run loads models and has not been asked for. The screen stays on mocks until a real run fills it.
+the finding it was built to show. **M9 landed and the screen still waits**, which is the point: a set can now be defined, versioned and loaded, and not one pair has been measured. **The rows that screen needs now exist**, measured rather than synthesised: one pair, on this machine, on 2026-08-24. Wiring it is now a NERVIS task rather than a blocked one — and the screen's own subtitle turns out to be right, which is the first time it has been checkable.
 
 Live wiring is why the reconciliation above exists, and that is the argument for
 doing it early rather than last: a queue view counts states, and a log does not.
