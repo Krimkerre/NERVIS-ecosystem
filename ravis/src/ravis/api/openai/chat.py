@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
@@ -37,9 +38,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ravis.api.management.decisions import RecordedDecision
+from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
-from ravis.core.requests import normalize
-from ravis.providers.base import ProviderAdapter
+from ravis.core.pools import direct_provider
+from ravis.core.requests import NormalizedRequest, normalize
+from ravis.core.responses import NormalizedStreamEvent
+from ravis.providers.base import ProviderAdapter, TranslatingAdapter
 from ravis.registry import ModelRegistry
 from ravis.reliability import (
     AttemptChain,
@@ -56,6 +60,10 @@ from ravis.runtime.resources import read_memory
 from ravis.upstream import forwardable_headers
 
 logger = logging.getLogger(__name__)
+
+# §6's two names for the two paths, as the diagnostics must report them.
+TRANSPARENT = "TRANSPARENT_OPENAI"
+TRANSLATED = "TRANSLATED_NATIVE"
 
 # The SSE fields that can precede a payload. Anything starting with one of these
 # — or with `:`, a comment — is framing rather than content.
@@ -130,9 +138,135 @@ async def create_chat_completion(request: Request) -> Response:
         recorded=getattr(request.state, "recorded_decision", None),
     )
 
+    # §6's fork, and the only place it is decided. A provider whose upstream
+    # does not speak the external protocol needs Path B; everything else is
+    # forwarded untouched, because §6 forbids normalising an already-compatible
+    # stream for architectural purity.
+    translating = _translating_for(request, parsed.get("model", ""))
+    _record_path(call, TRANSLATED if translating else TRANSPARENT)
+    if translating is not None:
+        return await _translated(call, translating, decision)
+
     if parsed.get("stream") is True:
         return _stream_from_upstream(call)
     return await _forward_and_return(call)
+
+
+def _translating_for(request: Request, requested: str) -> TranslatingAdapter | None:
+    """The adapter that must translate this request, or None for Path A.
+
+    Keyed on the provider segment of a direct address — `ravis/anthropic/…` —
+    because that is the only part of a request that names an upstream. A pool
+    resolves to a model rather than to a provider until the M8 provider table
+    exists, so a pooled request cannot reach a translating adapter yet and is
+    forwarded transparently. That is a real limit and not a silent one: it is
+    why `execution_path` is recorded on every request rather than only on the
+    interesting ones.
+    """
+    provider = direct_provider(requested)
+    if provider is None:
+        return None
+    adapters: dict[str, TranslatingAdapter] = getattr(request.app.state, "translating", {})
+    return adapters.get(provider)
+
+
+def _record_path(call: _Call, path: str) -> None:
+    """Note which of §6's two paths ran, on the record a diagnostic reads."""
+    if call.recorded is not None:
+        call.recorded.execution_path = path
+
+
+async def _translated(
+    call: _Call, adapter: TranslatingAdapter, decision: RouteDecision
+) -> Response:
+    """Path B: normalize in, native out, OpenAI-compatible back (§6).
+
+    **No fallback from here yet, and that is deliberate rather than unfinished.**
+    §10's chain assumes every candidate is reachable the same way; falling back
+    from a translated provider to a transparent one means the next attempt runs
+    a different path with a different failure vocabulary, and deciding that
+    quietly inside an exception handler is how a fallback starts producing
+    answers nobody can account for. An adapter failure terminates the stream
+    with the error it raised, which is the same thing the transparent path does
+    once bytes have been committed.
+    """
+    model = decision.selected or call.payload.get("model", "")
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    request = normalize(call.body, call.payload)
+
+    if call.payload.get("stream") is not True:
+        return await _translated_completion(call, adapter, request, model, completion_id)
+
+    started = call.chain.begin(model)
+
+    async def relay() -> AsyncGenerator[bytes, None]:
+        committed = False
+        try:
+            async with aclosing(adapter.stream(request)) as events:
+                async for frame in _translated_frames(events, model, completion_id):
+                    if not committed:
+                        committed = True
+                        call.chain.succeeded(model, started, ttft=call.chain.now() - started)
+                    yield frame
+        except (GeneratorExit, asyncio.CancelledError):
+            # §8.6 again, and for the same reason: a disconnect must reach the
+            # adapter so the provider stops generating, and must never be
+            # recorded as a failure.
+            call.chain.cancelled(model)
+            call.finish()
+            raise
+        except Exception as failure:  # noqa: BLE001 - an adapter is third-party code
+            if committed:
+                call.chain.interrupted(model)
+            else:
+                call.chain.failed(model, started, FailureClass.UNKNOWN, str(failure))
+            yield _sse_error(json.dumps(_error_body(str(failure), "upstream_error")).encode())
+        call.finish()
+
+    return StreamingResponse(relay(), media_type="text/event-stream",
+                             headers={"cache-control": "no-cache"})
+
+
+async def _translated_completion(
+    call: _Call, adapter: TranslatingAdapter, request: NormalizedRequest,
+    model: str, completion_id: str,
+) -> Response:
+    """Path B without a stream: one call, one whole answer.
+
+    Its own function because the streaming relay below already carries the two
+    hard parts — cancellation and the commit boundary — and folding a second
+    shape into it makes the branch that matters harder to read than the one
+    that does not.
+    """
+    started = call.chain.begin(model)
+    try:
+        answer = await adapter.complete(request)
+    except Exception as failure:  # noqa: BLE001 - an adapter is third-party code
+        call.chain.failed(model, started, FailureClass.UNKNOWN, str(failure))
+        call.finish()
+        return _chain_exhausted(call.chain)
+    call.chain.succeeded(model, started)
+    call.finish()
+    return JSONResponse(completion(answer, model=model, completion_id=completion_id))
+
+
+async def _translated_frames(
+    events: AsyncGenerator[NormalizedStreamEvent, None], model: str, completion_id: str
+) -> AsyncGenerator[bytes, None]:
+    """The serializer's pieces, driven one event at a time.
+
+    Event by event rather than collect-then-render, because a slow provider's
+    first token has to reach the client when it arrives — buffering the stream
+    to serialize it whole would turn Path B into the thing §6 warns against and
+    would make every translated response feel broken.
+    """
+    yield opening_frame(model=model, completion_id=completion_id)
+    started: set[int] = set()
+    async for event in events:
+        frame = frame_for(event, started, model=model, completion_id=completion_id)
+        if frame is not None:
+            yield frame
+    yield DONE
 
 
 class _Call:
@@ -222,6 +356,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # or images demands a model that can handle them, whatever the pool's
         # static invariants say.
         request=normalize(body, payload),
+        # Providers whose catalogue this engine cannot see. Their own model
+        # list is the authority, so a direct address to one is not checked
+        # against the local upstream's — see `_direct`.
+        foreign_providers=frozenset(getattr(request.app.state, "translating", {})),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.

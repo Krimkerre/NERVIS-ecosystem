@@ -31,6 +31,7 @@ from ravis.core.pools import (
     POOL_PREFIX,
     POOLS_BY_ID,
     VirtualModelPool,
+    direct_provider,
     direct_target,
     is_pool_id,
     parameter_scale,
@@ -67,6 +68,7 @@ class RoutingEngine:
         memory: MemoryReading | None = None,
         request: NormalizedRequest | None = None,
         unavailable: Mapping[str, str] | None = None,
+        foreign_providers: frozenset[str] = frozenset(),
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -100,7 +102,8 @@ class RoutingEngine:
 
         target = direct_target(requested)
         if target is not None:
-            return self._direct(requested, target, candidates, requirements)
+            return self._direct(requested, target, candidates, requirements,
+                                direct_provider(requested) in foreign_providers)
 
         if requested.startswith(POOL_PREFIX):
             return _unknown_address(requested, candidates)
@@ -124,14 +127,22 @@ class RoutingEngine:
         target: str,
         candidates: dict[str, ModelCapabilities],
         requirements: RequestRequirements,
+        foreign: bool = False,
     ) -> RouteDecision:
         """Handle `ravis/<provider>/<model>`.
 
         Bypasses selection but not existence: addressing a model the upstream
         does not offer is a no-route rather than a request forwarded to fail
         confusingly at the provider.
+
+        **Unless the provider is not the one whose catalogue this is.** A
+        translated provider (§6, Path B) publishes its own model list, and an
+        Anthropic model will never appear in a local runtime's `/v1/models`.
+        Checking it against the wrong catalogue would refuse every Path B
+        request the moment the local upstream had any models at all — existence
+        is real, but only the owning provider can answer it.
         """
-        if candidates and target not in candidates:
+        if not foreign and candidates and target not in candidates:
             return RouteDecision(
                 requested=requested,
                 selected=None,
@@ -141,7 +152,9 @@ class RoutingEngine:
         return RouteDecision(
             requested=requested,
             selected=target,
-            reason="direct address; selection bypassed, policy and tracking still apply",
+            reason="direct address to another provider; its own catalogue is authoritative"
+            if foreign
+            else "direct address; selection bypassed, policy and tracking still apply",
             requirements=requirements.describe(),
         )
 

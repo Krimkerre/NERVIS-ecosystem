@@ -44,22 +44,48 @@ _WIRE_FINISH = {
 }
 
 
+DONE = b"data: [DONE]\n\n"
+
+
+def opening_frame(*, model: str, completion_id: str) -> bytes:
+    """The bare role delta every recorded fixture starts with.
+
+    It is what lets a client open its message before any content exists, and it
+    is emitted once whether the stream goes on to carry text, a tool call or
+    nothing at all.
+    """
+    return _frame(completion_id, model, {"role": "assistant"})
+
+
+def frame_for(event: NormalizedStreamEvent, started: set[int], *,
+              model: str, completion_id: str) -> bytes | None:
+    """One event as one frame, or None for events the wire does not carry.
+
+    `started` is the caller's — the set of tool-call indexes already opened —
+    because "is this the first fragment of this call" is a fact about the
+    stream, not about the event, and the event cannot know it.
+    """
+    rendered = _delta_for(event, started)
+    return None if rendered is None else rendered(completion_id, model)
+
+
 def stream_frames(
     events: Iterable[NormalizedStreamEvent], *, model: str, completion_id: str
 ) -> Iterator[bytes]:
-    """Render normalized events as SSE frames, terminated with `[DONE]`.
+    """Every frame for a finished sequence of events, `[DONE]` included.
 
-    The opening frame carries `{"role":"assistant"}` and nothing else, which is
-    what every recorded fixture starts with and what a client uses to open its
-    message before any content exists.
+    A thin wrapper over the two functions above rather than a second
+    implementation: the synchronous form is what the tests drive and the async
+    relay drives the same pieces, so the two cannot drift into disagreeing about
+    a tool-call boundary.
     """
-    yield _frame(completion_id, model, {"role": "assistant"})
+    yield opening_frame(model=model, completion_id=completion_id)
     started: set[int] = set()
     for event in events:
-        rendered = _delta_for(event, started)
-        if rendered is not None:
-            yield rendered(completion_id, model)
-    yield b"data: [DONE]\n\n"
+        frame = frame_for(event, started, model=model, completion_id=completion_id)
+        if frame is not None:
+            yield frame
+    yield DONE
 
 
 def _delta_for(event: NormalizedStreamEvent, started: set[int]) -> Any:

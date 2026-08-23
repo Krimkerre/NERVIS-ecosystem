@@ -130,6 +130,15 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # state, and §17's storage model does not list them. Losing them on restart
     # costs a debugging session; persisting every one costs disk forever.
     api.state.decision_log = DecisionLog()
+    # Providers whose upstream does not speak the external protocol, keyed by
+    # the name a direct address uses: `ravis/<provider>/<model>`. Empty until
+    # M4 registers the first one — and empty is the honest default, because a
+    # provider with no adapter is not a provider RAVIS can reach.
+    #
+    # Registered here rather than discovered, for the reason §3 gives about
+    # provider clients: which providers exist is configuration, and a table
+    # assembled by probing would make startup depend on the network.
+    api.state.translating = {}
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,

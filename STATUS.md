@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 518 tests, no network, no live service
+.venv/bin/pytest                      # part of 525 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 518 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 525 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -94,7 +94,8 @@ into the order work actually happens.
 | 17 | **SIRVIS M8** | The Resource Manager: reference counts, leases, conflict policy, and §9's rule that *all* load and unload flows through one owner |
 | 18 | **The four gaps that blocked M6** | Results storage (§17), streamed generation so time-to-first-token exists, memory sampling light enough for §11.8's eight points, §11.9's raw result directory — and the trivial fifth, a YAML parser |
 | 19 | **SIRVIS M6** | The single-model benchmark engine: §11.2's lifecycle end to end, warmups, repetitions, raw response capture, TTFT, throughput, memory. **Run live against all 19 installed builds**, done 2026-08-23, in a cooled and control-bracketed sweep — numbers below |
-| 20 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
+| 20 | **RAVIS M3b** | The translated execution path (§6, Path B): normalized events rendered as an OpenAI stream, the fork decided once by the addressed provider, and `execution_path` on every route decision. Transparent route still passes conformance — M3's exit criterion, verbatim |
+| 21 | **RAVIS fast-switch hardening** | A reproduced livelock against a dead upstream, the pre-commit refusal gate — three signals that arrive while a model can still be swapped and were being thrown away — and the §8.7 probe poisoning that fixing them exposed, which needed a change in Clarvis's repository as well as this one |
 
 **Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
 
@@ -764,7 +765,7 @@ not one model measured well.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 21 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
+| 21 | **M4 (RAVIS)** | The Anthropic native adapter — text, streaming, tools, errors, usage. M3b built the path and nothing yet drives it; this is where tool-call framing actually gets hard, and the first real test of whether the serializer's fragment rule survives a provider that fragments differently |
 | 22 | **SIRVIS M9 + M10** | Runtime Sets and multi-model benchmarks — §21.1's *second* vertical slice, and the only way to answer the question §10.1 asks: two models that each fit do not necessarily work together |
 | 23 | **SIRVIS M16** | The RAVIS evidence API. Inside Stage 4, not after it: Stage 5 exits on a SIRVIS result changing a RAVIS preference, and that needs a real producer rather than a test double |
 
@@ -906,6 +907,17 @@ reviewer who disagrees should say so rather than assume it was an accident.
   and whoever adds the first mutation should decide about it deliberately rather
   than inherit permission from this line. One allowlist, read by both halves of
   the decision, so refusal and permission cannot drift apart.
+- **A translated request never falls back, and a pooled request never reaches
+  Path B.** Two limits of M3b, both deliberate and both cheap to mistake for
+  bugs. §10's chain assumes every candidate is reachable the same way; falling
+  back from a translated provider to a transparent one runs the next attempt
+  down a different path with a different failure vocabulary, and deciding that
+  inside an exception handler is how a fallback starts producing answers nobody
+  can account for. And a pool resolves to a *model*, not to a provider, until
+  M8's provider table exists — so only a direct `ravis/<provider>/<model>`
+  address can select a translating adapter today. `execution_path` is recorded
+  on every request, including the transparent ones, precisely so this is
+  visible rather than inferred.
 - **A twelfth failure class, where §10 names eleven.**
   `INVALID_UPSTREAM_RESPONSE` covers a success status that carried no usable
   response — specifically a stream that closed without a single byte. Folding it

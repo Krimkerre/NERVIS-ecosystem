@@ -28,7 +28,7 @@ plain object rather than a subclass.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
 from ravis.core.capabilities import ModelCapabilities
 from ravis.core.requests import NormalizedRequest
@@ -117,12 +117,19 @@ class TranslatingAdapter(ProviderAdapter, Protocol):
         """Run a non-streaming generation and normalize the result."""
         ...
 
-    def stream(self, request: NormalizedRequest) -> AsyncIterator[NormalizedStreamEvent]:
+    def stream(self, request: NormalizedRequest) -> AsyncGenerator[NormalizedStreamEvent, None]:
         """Run a streaming generation, yielding normalized events.
 
-        Not `async def`: this returns an async iterator rather than awaiting one,
-        so that closing it propagates cancellation to the upstream the way the
-        transparent relay does (§8.6).
+        Not `async def`: this returns an async generator rather than awaiting
+        one, so that closing it propagates cancellation to the upstream the way
+        the transparent relay does (§8.6).
+
+        **A generator rather than an iterator, and the difference is the whole
+        of §8.6.** `aclose()` is part of the contract here, not an
+        implementation detail: it is what unwinds an adapter's own
+        `async with client.stream(...)` when the client disconnects, so the
+        provider stops generating and — on a paid provider — stops billing. An
+        iterator makes no such promise, and M3b's relay could not close one.
         """
         ...
 

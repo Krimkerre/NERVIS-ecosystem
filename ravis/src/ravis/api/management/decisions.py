@@ -56,6 +56,14 @@ class RecordedDecision:
     # byte of — the generator's body never runs, so nothing inside it can
     # record anything.
     attempts: dict[str, Any] | None = None
+    # §6: "Diagnostics must expose which path ran — `TRANSPARENT_OPENAI` or
+    # `TRANSLATED_NATIVE`." When a tool call arrives malformed the first
+    # question is whether it went through a translation at all, and that has to
+    # be answerable from a trace rather than by reading configuration.
+    #
+    # Empty until the request is executed, for the same reason `attempts` is
+    # `None` until then: a decision recorded mid-stream has not yet run.
+    execution_path: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """The published shape.
@@ -72,6 +80,7 @@ class RecordedDecision:
                 "application_id": self.application_id,
                 "request_id": self.request_id,
                 "execution": self.attempts,
+                "execution_path": self.execution_path or None,
             }
         )
         return body

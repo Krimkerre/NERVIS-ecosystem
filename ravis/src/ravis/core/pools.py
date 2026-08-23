@@ -254,6 +254,20 @@ def is_pool_id(model: str) -> bool:
     return model in POOLS_BY_ID
 
 
+def direct_provider(model: str) -> str | None:
+    """The provider named by a direct address like `ravis/anthropic/claude-x`.
+
+    The half `direct_target` discards. It is what decides which *path* runs: a
+    provider whose upstream does not speak the external protocol needs its
+    request translated (§6, Path B), and nothing else in a request says so.
+    """
+    if not model.startswith(POOL_PREFIX) or is_pool_id(model):
+        return None
+    remainder = model[len(POOL_PREFIX):]
+    provider, separator, target = remainder.partition("/")
+    return provider if separator and target and provider else None
+
+
 def direct_target(model: str) -> str | None:
     """The model named by a direct address like `ravis/lmstudio/qwen3-4b`.
 
