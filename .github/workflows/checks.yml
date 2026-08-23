@@ -60,8 +60,8 @@ jobs:
       - name: STATUS.md is current
         run: python3 tools/check_status.py
 
-  template:
-    name: template — parse, endpoints, citations
+  prototype:
+    name: nervis — parse, endpoints, citations
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -70,13 +70,13 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v7
         with:
-          # Only used so check.py can run `node --check` over the template's
+          # Only used so check.py can run `node --check` over the prototype's
           # inline script. Any maintained release parses it, so this tracks LTS
           # rather than pinning a number that silently ages into a warning.
           node-version: "lts/*"
       # Cross-checks every cited endpoint against the specification documents and
       # requires a citation on every mutation, so an invented endpoint fails here
       # rather than looking sanctioned in a list.
-      - name: template checks
+      - name: prototype checks
         run: python3 tools/check.py
-        working-directory: template
+        working-directory: nervis

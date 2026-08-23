@@ -18,15 +18,30 @@ instead of when someone remembers.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 import httpx
 
+from ravis.api.openai.chat import UPSTREAM_PROVIDER, _Call, _relay
 from ravis.app import create_app
 from ravis.compatibility.clarvis import fixtures
 from ravis.compatibility.clarvis.contract import ReadStream, read_stream
 from ravis.config import Settings
+from ravis.reliability import AttemptChain, HealthRegistry
+
+# Two models, both declaring tool support, for the Stage 3 scenarios. Tools are
+# declared rather than probed because a fixture upstream publishes model IDs and
+# nothing else — the same position a real generic OpenAI-compatible endpoint is
+# in, which is why §5.2 makes operator configuration the source of truth until
+# probing (§8.7) or SIRVIS evidence (M13) exists.
+TOOL_CAPABLE = {"tools": "SUPPORTED", "context_window": "32768"}
+FALLBACK_CATALOGUE = {"coder-a": TOOL_CAPABLE, "coder-b": TOOL_CAPABLE}
+# One model that can hold a conversation and one that can also call tools. The
+# separation is the point: the chat pool may use either, the agent pool may only
+# use the second, so a single request cannot satisfy both by accident.
+MIXED_CATALOGUE = {"chat-only-model": {"tools": "UNSUPPORTED"}, "coder-model": TOOL_CAPABLE}
 
 
 @dataclass
@@ -60,16 +75,34 @@ class _FixtureUpstream:
     reading" from "the upstream stopped producing".
     """
 
-    def __init__(self, chunks: list[bytes]) -> None:
+    def __init__(
+        self,
+        chunks: list[bytes],
+        catalogue: tuple[str, ...] = ("fixture-model",),
+        refuse: tuple[str, ...] = (),
+    ) -> None:
         self.chunks = chunks
         self.frames_pulled = 0
+        self.catalogue = catalogue
+        # Models this upstream answers with a 503 rather than a stream. That is
+        # how the fallback scenario is driven: a *routing* failure would prove
+        # nothing, because §8.8 requires the fallback to be dynamic rather than
+        # configured, so the primary has to be genuinely chosen and genuinely
+        # fail.
+        self.refuse = refuse
+        self.served: list[str] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/models"):
-            return httpx.Response(200, json={"object": "list", "data": [{"id": "fixture-model"}]})
+            data = [{"id": model} for model in self.catalogue]
+            return httpx.Response(200, json={"object": "list", "data": data})
+        model = json.loads(request.content or b"{}").get("model", "")
+        self.served.append(model)
+        if model in self.refuse:
+            return httpx.Response(503, json={"error": {"message": "model is overloaded"}})
         return httpx.Response(200, stream=_Replay(self._pull()))
 
     def _pull(self) -> Iterator[bytes]:
@@ -87,7 +120,35 @@ class _Replay(httpx.AsyncByteStream):
             yield chunk
 
 
-def _app_against(upstream: _FixtureUpstream) -> Any:
+def _single_attempt(client: httpx.AsyncClient, model: str) -> _Call:
+    """A one-candidate call, for driving the relay generator directly.
+
+    Used by the cancellation check, which cannot go through an HTTP client:
+    `TestClient` and `httpx` both buffer a whole response, so neither can
+    express a disconnect halfway through a stream. Driving the generator is
+    what Starlette itself does.
+
+    The chain has no fallbacks, which is what the check is measuring: how many
+    frames the upstream produced before it was abandoned. Whether cancellation
+    could *trigger* a fallback is a different question, answered structurally —
+    `GeneratorExit` is not an `Exception`, so nothing in the relay catches it
+    (§10) — and asserted directly in `tests/test_reliability.py`.
+    """
+    chain = AttemptChain(health=HealthRegistry(), provider=UPSTREAM_PROVIDER)
+    chain.load(model, [])
+    return _Call(
+        client=client,
+        target="http://fixture.invalid/v1/chat/completions",
+        headers={},
+        body=json.dumps({"model": model, "stream": True}).encode(),
+        payload={"model": model, "stream": True},
+        chain=chain,
+        recorded=None,
+    )
+
+
+def _app_against(upstream: _FixtureUpstream, capabilities: dict[str, dict[str, str]]
+                 | None = None) -> Any:
     """The real RAVIS application, with a recorded upstream underneath it.
 
     Nothing above the transport is stubbed: admission control, identity, the
@@ -97,6 +158,7 @@ def _app_against(upstream: _FixtureUpstream) -> Any:
     settings = Settings(
         database_path=":memory:",
         upstream_base_url="http://fixture.invalid",
+        model_capabilities=capabilities or {},
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)
@@ -138,11 +200,15 @@ def _compare(result: ConformanceResult, name: str, direct: ReadStream, proxied: 
 
 
 async def run_suite() -> ConformanceResult:
-    """Run every Stage 2 scenario and return what held.
+    """Run every scenario §8.8 lists, Stage 2 and Stage 3, and return what held.
 
-    Stage 3 scenarios — separate pools, capability probing and fallback — are
-    absent by design, not oversight: each needs routing, which the runbook
-    forbids at this stage (§8.8). They are added when M5, M6 and M12 land.
+    The two stages are still separable and still worth naming. Stage 2 is
+    wire-level and holds against a single upstream with no routing at all;
+    Stage 3 needs routing to exist — separate pools (M5), the agent pool's tool
+    invariant (M6) and dynamic fallback (M12) — and §8.8 is explicit that
+    fallback "cannot be static configuration by definition", which is why the
+    fallback checks below make a real primary genuinely fail rather than
+    configuring a second model as the answer.
     """
     result = ConformanceResult()
     await _check_models_endpoint(result)
@@ -153,8 +219,124 @@ async def run_suite() -> ConformanceResult:
     await _check_byte_preservation(result)
     await _check_not_buffered(result)
     await _check_cancellation(result)
+    await _check_pool_separation(result)
+    await _check_agent_tool_invariant(result)
+    await _check_fallback(result)
     await _check_suite_can_fail(result)
     return result
+
+
+async def _pool_request(
+    upstream: _FixtureUpstream,
+    capabilities: dict[str, dict[str, str]],
+    pool: str,
+    stream: bool = False,
+) -> httpx.Response:
+    """Address a pool through the whole application, catalogue warmed first.
+
+    The refresh is explicit because nothing runs the lifespan here: an ASGI
+    transport starts the app without starting it up, so a registry that would be
+    warm in production is empty in a harness, and every pool would resolve to
+    "no models available" for a reason that has nothing to do with conformance.
+    """
+    app = _app_against(upstream, capabilities)
+    await app.app.state.model_registry.refresh()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+    ) as client:
+        return await client.post(
+            "/v1/chat/completions", json={"model": pool, "stream": stream}
+        )
+
+
+async def _check_pool_separation(result: ConformanceResult) -> None:
+    """Chat and agent resolve independently, and may reach different models.
+
+    §8.8's Stage 3 scenario, and the reason Clarvis's two separate provider
+    settings matter: a client that points both at RAVIS must be able to get a
+    conversational model for chat and a tool-capable one for the agent without
+    configuring either by name.
+    """
+    catalogue = tuple(MIXED_CATALOGUE)
+    chat_upstream = _FixtureUpstream(fixtures.PLAIN_CHAT, catalogue)
+    chat = await _pool_request(chat_upstream, MIXED_CATALOGUE, "ravis/clarvis-chat")
+    agent_upstream = _FixtureUpstream(fixtures.FRAGMENTED_TOOL_CALL, catalogue)
+    agent = await _pool_request(agent_upstream, MIXED_CATALOGUE, "ravis/clarvis-agent")
+    # Read from the upstream's own record of what it was asked to run, rather
+    # than from anything RAVIS reports about itself. The question is which model
+    # actually received the request, and only the upstream can answer that.
+    answered = (chat_upstream.served, agent_upstream.served)
+    result.record(
+        "clarvis-chat and clarvis-agent route separately",
+        chat.status_code == 200
+        and agent.status_code == 200
+        and answered[0] == ["chat-only-model"]
+        and answered[1] == ["coder-model"],
+        f"chat→{answered[0]} agent→{answered[1]} "
+        f"status={chat.status_code}/{agent.status_code}",
+    )
+
+
+async def _check_agent_tool_invariant(result: ConformanceResult) -> None:
+    """The agent pool refuses a catalogue with no tool-capable model (§5.2).
+
+    A no-route, not a best-effort substitution. This is the check that stops the
+    single worst failure mode in the integration: an agent silently placed on a
+    model that cannot call tools, which looks like the model being bad at coding
+    rather than like a routing error.
+    """
+    catalogue = {"chat-only-model": {"tools": "UNSUPPORTED"}}
+    response = await _pool_request(
+        _FixtureUpstream(fixtures.PLAIN_CHAT, tuple(catalogue)),
+        catalogue,
+        "ravis/clarvis-agent",
+    )
+    body = response.json()
+    result.record(
+        "clarvis-agent refuses a non-tool model",
+        response.status_code == 422 and body.get("error", {}).get("code") == "no_route",
+        f"status={response.status_code} body={body.get('error', {}).get('code')!r}",
+    )
+
+
+async def _check_fallback(result: ConformanceResult) -> None:
+    """§8.8 Stage 3: primary failure → a valid compatible fallback (§10).
+
+    Both models satisfy the agent pool's tool invariant, so the fallback is
+    valid by the same rule that admitted the primary — which is §10's actual
+    requirement, and the reason the fallback list comes from the router rather
+    than from configuration.
+
+    Two things are asserted, and the second is M12's acceptance criterion:
+    the request succeeds against the second model, *and* the stream the client
+    receives is byte-identical to the fixture. A fallback that prepended a
+    failed attempt's error frame would satisfy the first and fail the second.
+    """
+    upstream = _FixtureUpstream(
+        fixtures.FRAGMENTED_TOOL_CALL, tuple(FALLBACK_CATALOGUE), refuse=("coder-a",)
+    )
+    app = _app_against(upstream, FALLBACK_CATALOGUE)
+    await app.app.state.model_registry.refresh()
+    received: list[bytes] = []
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+    ) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": "ravis/clarvis-agent", "stream": True}
+    ) as response:
+        async for chunk in response.aiter_raw():
+            received.append(chunk)
+
+    result.record(
+        "fallback reaches a compatible model",
+        upstream.served == ["coder-a", "coder-b"],
+        f"attempted {upstream.served}",
+    )
+    expected = b"".join(fixtures.FRAGMENTED_TOOL_CALL)
+    result.record(
+        "fallback leaves the stream uncorrupted",
+        b"".join(received) == expected,
+        f"{len(b''.join(received))} bytes out, {len(expected)} expected",
+    )
 
 
 async def _check_models_endpoint(result: ConformanceResult) -> None:
@@ -315,11 +497,9 @@ async def _count_body_messages(chunks: list[bytes]) -> int:
 
 async def _check_cancellation(result: ConformanceResult) -> None:
     """§8.6: abandoning the client must abandon the upstream generation."""
-    from ravis.api.openai.chat import _relay
-
     upstream = _FixtureUpstream(fixtures.PLAIN_CHAT)
     client = httpx.AsyncClient(transport=upstream.transport())
-    relay = _relay(client, "http://fixture.invalid/v1/chat/completions", {}, b'{"stream":true}')
+    relay = _relay(_single_attempt(client, "fixture-model"))
     await relay.__anext__()
     await relay.aclose()
     await client.aclose()

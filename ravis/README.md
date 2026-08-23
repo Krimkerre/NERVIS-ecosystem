@@ -41,6 +41,38 @@ Configuration is environment variables with a `RAVIS_` prefix — `RAVIS_PORT`,
 [`src/ravis/config.py`](src/ravis/config.py) are the list, each with the reason for its
 default.
 
+## Telling RAVIS what the models can do
+
+Nothing probes capabilities yet (§8.7) and SIRVIS evidence is M13, so a generic
+OpenAI-compatible endpoint publishes model IDs and **nothing about what they can do**.
+Every capability stays `UNKNOWN`, and a pool that requires one fails closed — which is
+§5.2 working as written, and which makes `ravis/clarvis-agent` unroutable until somebody
+says otherwise.
+
+[`measured-capabilities.json`](measured-capabilities.json) is that somebody, for this
+machine. It is derived from `clarvis/docs/benchmarks.md` — executed tool-call trials from
+`clarvis-firstrun/tools/suite2.py`, not a vendor flag.
+
+```bash
+RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 RAVIS_MODEL_CAPABILITIES_PATH=measured-capabilities.json .venv/bin/ravis preflight clarvis
+```
+
+**Read the flag and you get the wrong answer in both directions.** On this machine three
+models advertise no `tool_use` and make well-formed calls in every attempt, while
+`granite-4.0-h-tiny` advertises it in both packagings and scores **8/8 as GGUF against
+1/8 as MLX** — the runtime's parser discards seven calls' arguments. Build identity is
+load-bearing: compare by full `publisher/model`, never the bare name.
+
+**The claims go in at `CONFIGURED` provenance, not `MEASURED`.** That is deliberate and it
+is a downgrade: RAVIS did not do the measuring and must not say it did. §13.3 forbids
+upgrading provenance, never downgrading it. When SIRVIS evidence lands at M13 it should
+*replace* this file rather than sit beside it.
+
+`RAVIS_MODEL_CAPABILITIES` still works and overrides the file per capability, so one model
+can be corrected without editing anything. A path that is named and cannot be read is
+fatal at startup — the alternative is an agent pool that fails closed for a reason nobody
+can see.
+
 ## The gates
 
 These are `ECOSYSTEM_RUNBOOK.md` §14, and they are what actually fails a build:

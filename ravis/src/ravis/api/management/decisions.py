@@ -39,6 +39,16 @@ class RecordedDecision:
     application_id: str
     decision: RouteDecision
     request_id: str = ""
+    # What actually happened when the decision was executed: the targets tried,
+    # in order, and how each one ended (§10's fallback chain). Written after the
+    # response completes, which for a stream is long after the decision was
+    # recorded — hence a mutable field rather than a constructor argument.
+    #
+    # `None` means the request has not finished yet, and is distinct from an
+    # empty attempt list, which would mean it finished without trying anything
+    # (runbook §14.4). A dashboard showing a route decision mid-stream is the
+    # normal case, not an error.
+    attempts: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """The published shape.
@@ -54,6 +64,7 @@ class RecordedDecision:
                 "decided_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.decided_at)),
                 "application_id": self.application_id,
                 "request_id": self.request_id,
+                "execution": self.attempts,
             }
         )
         return body

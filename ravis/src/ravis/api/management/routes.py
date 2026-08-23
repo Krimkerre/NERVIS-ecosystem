@@ -33,6 +33,7 @@ from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS
 from ravis.errors import NotFoundError
 from ravis.providers.base import describe
+from ravis.reliability import HealthRegistry
 
 router = APIRouter(prefix="/api/v1", tags=["management"])
 
@@ -66,8 +67,17 @@ async def read_health(request: Request) -> dict[str, Any]:
     The MEP endpoint answers "can peers negotiate with this service". This one
     answers "is the thing it depends on working", which is a different question
     with a different answer during an upstream outage.
+
+    Two kinds of health are reported, and conflating them would hide the
+    interesting one. `upstream_reachable` is a **probe**: can it be reached
+    right now. `targets` is **observed** history — §10's counters and circuit
+    states, accumulated from real traffic. A provider that answers a probe
+    instantly while failing every completion is healthy by the first measure
+    and open-circuited by the second, and that combination is exactly the
+    situation somebody is trying to diagnose.
     """
     adapter = request.app.state.adapter
+    registry: HealthRegistry = request.app.state.health
     health = await adapter.health()
     return {
         "status": "healthy" if health.reachable else "degraded",
@@ -75,6 +85,10 @@ async def read_health(request: Request) -> dict[str, Any]:
         "upstream_detail": health.detail,
         "upstream_latency_ms": health.latency_ms,
         "models_known": len(request.app.state.model_registry.model_ids()),
+        # Empty until traffic has flowed. That is an honest empty rather than a
+        # missing key: nothing has been observed yet, which is different from
+        # nothing being wrong (runbook §14.4).
+        "targets": registry.snapshot(),
     }
 
 

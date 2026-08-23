@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from ravis.compatibility.clarvis.conformance import run_suite
 
-# Every requirement the Stage 2 suite is supposed to cover. Asserted by name so
-# that deleting a check fails the tests rather than quietly shrinking the gate —
-# a suite that passes because it stopped looking is worse than no suite.
+# Every requirement the suite is supposed to cover, Stage 2 and Stage 3.
+# Asserted by name so that deleting a check fails the tests rather than quietly
+# shrinking the gate — a suite that passes because it stopped looking is worse
+# than no suite. §8.8 forbids removing the Stage 3 scenarios to make the suite
+# green, and this set is what makes that more than a request.
 EXPECTED_CHECKS = {
     "/v1/models cached response",
     "chat stream",
@@ -25,6 +27,12 @@ EXPECTED_CHECKS = {
     "stream is not buffered",
     "cancellation propagated",
     "suite detects a missing [DONE]",
+    # Stage 3 (§8.8): each needs routing, and fallback cannot be static
+    # configuration by definition.
+    "clarvis-chat and clarvis-agent route separately",
+    "clarvis-agent refuses a non-tool model",
+    "fallback reaches a compatible model",
+    "fallback leaves the stream uncorrupted",
 }
 
 

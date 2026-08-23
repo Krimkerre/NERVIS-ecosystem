@@ -15,11 +15,19 @@ Two things live here, and they are two halves of the same work.
 and a cross-product runbook. They are the authority for what each service owes the
 others.
 
-**[`template/`](./template/)** — an interactive, single-file prototype of the NERVIS
+**[`nervis/`](./nervis/)** — an interactive, single-file prototype of the NERVIS
 dashboard and the three applications it observes. It is the visual scaffolding those
 build plans get poured into: every screen reads from a data layer shaped like the real
 API responses, and every endpoint it cites is cited from the spec beside it. Open
-`template/index.html` in a browser; no build step, no server.
+`nervis/index.html` in a browser; no build step, no server.
+
+It is also the dashboard that will actually be served, so it tracks real endpoints as
+they land — while keeping the guarantee that makes it openable at all: a service being
+down degrades a panel rather than the page. See [`nervis/README.md`](./nervis/README.md).
+
+> It used to be `template/`. A **mock-only reference snapshot** now lives outside this
+> repository at `~/Documents/coding/nervis-template/`, so that the one-copy rule below
+> stays true in here. Don't bring it back in.
 
 They were separate repositories until the obvious problem arrived: the template kept a
 *copy* of the specs, and a copy drifts. There is now exactly one of each document, and
@@ -74,7 +82,10 @@ file.
 
 ## Current state
 
-Only **Clarvis exists as code** (`../clarvis`). SIRVIS, RAVIS and NERVIS are specifications.
+**Clarvis** (`../clarvis`) and **RAVIS** (`ravis/`) exist as code; SIRVIS and NERVIS are still
+specifications. [`STATUS.md`](./STATUS.md) is the file that says how far RAVIS has got and how
+to check it in four commands — this section deliberately says no more than that, because two
+places tracking the same number is how one of them starts lying.
 
 The single most useful verified fact in this set, because it determines the build order:
 

@@ -18,12 +18,20 @@ than none, because it is believed.
 authority for what each service owes the others. `ECOSYSTEM_RUNBOOK.md` wins on any
 cross-product contract; an application's own document wins on its internals.
 
-**`template/` is the prototype** — the NERVIS dashboard and the three applications it
-observes, as one openable HTML file. It has its own working rules in
-[`template/AGENTS.md`](./template/AGENTS.md), and you should read those before editing
-anything in there. It also has [`template/docs/PITFALLS.md`](./template/docs/PITFALLS.md),
-which is every defect that repository has produced and the rule that prevents each one.
-Almost nothing in the template fails loudly, so read it before your first edit.
+**`nervis/` is the prototype** — the NERVIS dashboard and the three applications it
+observes, as one openable HTML file, and the one the build changes. It has its own
+working rules in [`nervis/AGENTS.md`](./nervis/AGENTS.md), and you should read those
+before editing anything in there. It also has
+[`nervis/docs/PITFALLS.md`](./nervis/docs/PITFALLS.md), which is every defect that page
+has produced and the rule that prevents each one. Almost nothing in it fails loudly, so
+read that before your first edit.
+
+It used to be `template/`. **A frozen reference copy now lives outside this repository**,
+at `~/Documents/coding/nervis-template/`, so that the one-copy rule below stays true
+inside it: there is exactly one prototype here. The copy out there stays on its mocks and
+always opens from disk with nothing running; this one tracks real endpoints and is
+expected to be ahead of it. Do not bring it back in, and do not reconcile the two by
+copying one over the other.
 
 Superseded copies are **not kept in the working tree** — git history is the archive. A second
 copy of a document is the one failure this layout exists to prevent, and a folder blessing the
@@ -63,11 +71,16 @@ Two parts of it are easy to get wrong from habit, so they are worth naming here:
 
 ## One copy of everything
 
-The specs used to exist twice — here, and snapshotted inside the template — and the
-snapshot drifted. There is now one copy. The template reads these documents from one
-directory up. **Do not reintroduce a copy of a spec inside `template/`**, however
+The specs used to exist twice — here, and snapshotted inside the prototype — and the
+snapshot drifted. There is now one copy. The prototype reads these documents from one
+directory up. **Do not reintroduce a copy of a spec inside `nervis/`**, however
 convenient it looks; that is the mistake this layout exists to prevent.
 
-The same applies to the avatars and the prototype itself. If you find yourself saving a second
-version of either, **don't** — commit the change and let git hold the previous one. A superseded
-copy that sits next to the live one gets read, edited and cited by mistake.
+The same applies to the avatars. If you find yourself saving a second version, **don't** —
+commit the change and let git hold the previous one. A superseded copy that sits next to the
+live one gets read, edited and cited by mistake.
+
+There is one prototype in this repository — `nervis/` — and it owns its documentation and
+its tooling outright. The mock-only reference snapshot was moved to
+`~/Documents/coding/nervis-template/` rather than kept beside it, because a second copy in
+the tree is exactly what this rule exists to prevent, however defensible the reason.

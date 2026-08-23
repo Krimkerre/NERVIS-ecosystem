@@ -165,6 +165,65 @@ def check_origin(headers: dict[str, str], method: str, settings: Settings) -> No
         )
 
 
+# Methods a browser may use cross-origin. Reads only, and deliberately so: every
+# `/api/v1` endpoint that exists today is a read (M18a exposes no mutation), so
+# allowing POST would widen the surface past anything that can currently use it.
+# When a mutation lands, whoever adds it decides then whether a browser on
+# another origin should be able to reach it — which is a decision worth making
+# explicitly rather than inheriting from this line.
+CORS_METHODS = "GET, HEAD, OPTIONS"
+
+# Request headers a browser may send cross-origin. `authorization` is here
+# because an allow-listed dashboard on a non-loopback bind needs the §4.4 client
+# credential to be read at all; `content-type` and the two correlation headers
+# because §4.3 fixes them as the vocabulary every request carries.
+CORS_REQUEST_HEADERS = "authorization, content-type, x-request-id, traceparent"
+
+
+def is_preflight(method: str, headers: dict[str, str]) -> bool:
+    """Whether this is a CORS preflight rather than a real request.
+
+    Distinguished by `Access-Control-Request-Method`, not by the verb alone: a
+    plain OPTIONS is an ordinary request and should be handled as one.
+    """
+    return method == "OPTIONS" and "access-control-request-method" in headers
+
+
+def cors_headers(origin: str, settings: Settings) -> dict[str, str]:
+    """The CORS headers for an allow-listed origin, or none at all.
+
+    Three properties matter more than the mechanics, and all three are choices:
+
+    - **The origin is echoed, never `*`.** A wildcard would let any page on the
+      internet read this service the moment the port is reachable.
+    - **`Access-Control-Allow-Credentials` is absent.** Its combination with an
+      echoed origin is the classic hole — it lets a hostile page make
+      *authenticated* reads using the browser's ambient credentials. RAVIS
+      authenticates with a bearer token the page must supply deliberately
+      (§9.6.0), so nothing here needs the browser to attach anything by itself.
+    - **An origin that is not allow-listed gets nothing**, and the browser
+      discards the response. `check_origin` has already refused the request
+      outright by this point; this is the second half of the same decision,
+      reading the same setting, so the two cannot drift apart.
+    """
+    if not origin or origin not in settings.allowed_origins:
+        return {}
+    return {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": CORS_METHODS,
+        "access-control-allow-headers": CORS_REQUEST_HEADERS,
+        # Correlation IDs are useless to a browser it cannot read them from.
+        "access-control-expose-headers": "x-request-id, x-ecosystem-actor",
+        # Ten minutes. Long enough that a dashboard polling every few seconds
+        # does not preflight every call, short enough that revoking an origin
+        # takes effect while somebody is still watching.
+        "access-control-max-age": "600",
+        # The response differs by origin, so a shared cache must not serve one
+        # origin's response to another.
+        "vary": "Origin",
+    }
+
+
 class RateLimiter:
     """Per-identity request counting over a sliding one-minute window.
 

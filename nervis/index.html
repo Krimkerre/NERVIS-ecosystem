@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NERVIS Ecosystem — Interactive Template</title>
+<title>NERVIS Dashboard — live build</title>
 <style>
 /* ==========================================================================
    NERVIS ECOSYSTEM TEMPLATE
@@ -1057,7 +1057,7 @@ const API={
     {target:'gpt-4o',constraint:'policy pl_04: provider disabled for application Clarvis'},
     {target:'gemini-2.5-flash',constraint:'provider unavailable: no credential configured'},
     {target:'openrouter/auto',constraint:'provider unavailable: no credential configured'}],
-   fallback:['granite-4.0-h-tiny · GGUF Q4_K_M','claude-sonnet-5'],
+   fallbacks:['granite-4.0-h-tiny · GGUF Q4_K_M','claude-sonnet-5'],
    execution_path:'TRANSPARENT_OPENAI',
    timings_ms:{requirements:0.4,constraints:0.9,scoring:1.1,affinity:0.7,total:3.1},
    affinity:'sticky · same thread'}},
@@ -2236,7 +2236,7 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
   <small class="mono dim">total ${rd.timings_ms.total} ms</small></div>
  <div class="card narrow"><h3>Fallback chain</h3>
   <div class="trace-step"><b>primary</b><span>${rd.eligible.find(c=>c.selected).target.split(' · ')[0]}</span></div>
-  ${rd.fallback.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
+  ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
   <small class="mono dim">every fallback satisfies the same hard constraints and pool invariant. Cancellation is not a failure and never triggers one.</small></div>
  <div class="card wide"><h3>Recent requests</h3><div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
   ${req.items.map(r=>`<div class="table-row five"><span>${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${r.result==='OK'?'':' warn'}">${r.result}</span></div>`).join('')}
@@ -2280,7 +2280,7 @@ async function ravisRoutes(){
    +`<small class="mono dim">routing is rules and cached evidence, not a model deciding about models. The whole decision costs ${rd.timings_ms.total} ms against a ${rd.eligible.find(c=>c.selected).ttft_s}s time to first token — three orders of magnitude below the thing it is choosing.</small>`,'ravis')}</div>
   <div class="card narrow"><h3>Fallback chain</h3>${cell(`
    <div class="trace-step"><b>primary</b><span>${rd.eligible.find(c=>c.selected).target.split(' · ')[0]}</span></div>
-   ${rd.fallback.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
+   ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
    <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed rule. A user cancelling is not a failure and never advances this chain.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Recent decisions</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>

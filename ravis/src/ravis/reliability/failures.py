@@ -1,0 +1,243 @@
+"""Classifying what went wrong, and what that permits (RAVIS.md §10).
+
+§10 lists eleven failure classes and three rules about them, and the rules are
+what this module exists to encode:
+
+- **Client cancellation is not a retry.** It is deliberately *absent* from the
+  enum below. A cancelled request never reaches a classifier, because catching
+  the cancellation in order to name it is the exact bug the rule warns about —
+  see `attempts.py`, which lets `GeneratorExit` and `CancelledError` through
+  untouched.
+- **Do not route around a safety refusal** merely to find a more permissive
+  provider. `CONTENT_REFUSAL` therefore permits no fallback at all.
+- **Every fallback candidate must still satisfy the original hard constraints.**
+  That is the router's job rather than this module's; here it only decides
+  whether a next candidate may be *tried*.
+
+The classification is not decoration. Each class carries a `FailurePolicy` that
+answers three questions — retry the same target? try the next candidate? whose
+health does this reflect? — and those three answers are the whole of the retry
+and fallback behaviour. Adding a class means deciding its policy, which is why
+the policy lives next to the class rather than in a table somewhere else.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+import httpx
+
+
+class HealthScope(Enum):
+    """Whose fault a failure implies, and therefore whose circuit it opens.
+
+    The distinction earns its place because the two have different blast
+    radii. A refused connection means *nothing* on that provider will work, so
+    every model behind it should be skipped. A model that has been unloaded, or
+    that OOMs on this machine, says nothing about the model beside it.
+
+    `NONE` is not "we could not tell" — it is "this was not the provider's
+    fault". A malformed request fails identically on every provider in the
+    world, and counting it against provider health would open a circuit because
+    a client sent bad JSON (runbook §14.4: absence is a value, and here the
+    value is *no health signal*).
+    """
+
+    PROVIDER = "provider"
+    MODEL = "model"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class FailurePolicy:
+    """What a failure class permits.
+
+    `retry_same_target` is reserved for failures that prove the request never
+    reached the upstream. Anything that *may* have been received is not retried
+    against the same target: a second completion is wasted compute at best, and
+    on a paid provider it is a second bill for an answer nobody reads.
+    """
+
+    retry_same_target: bool
+    may_fall_back: bool
+    scope: HealthScope
+
+
+class FailureClass(Enum):
+    """§10's failure taxonomy, plus one honest admission.
+
+    `UNKNOWN` is the admission: an upstream error this code cannot place. It
+    permits neither retry nor fallback, which is deliberate — re-issuing a
+    request whose failure mode is not understood is how one unexplained error
+    becomes three.
+    """
+
+    TIMEOUT = "timeout"
+    CONNECTION = "connection_failure"
+    RATE_LIMIT = "rate_limit"
+    OVERLOAD = "provider_overload"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    LOCAL_OOM = "local_oom"
+    INVALID_REQUEST = "invalid_request"
+    AUTHENTICATION = "authentication"
+    TOOL_INCOMPATIBILITY = "tool_incompatibility"
+    CONTEXT_OVERFLOW = "context_overflow"
+    CONTENT_REFUSAL = "content_refusal"
+    UNKNOWN = "unknown"
+
+    @property
+    def policy(self) -> FailurePolicy:
+        return _POLICIES[self]
+
+
+_POLICIES: dict[FailureClass, FailurePolicy] = {
+    # The provider is reachable but not answering usefully. Nothing about the
+    # request is wrong, so another candidate is worth trying; the same one is
+    # not, because the request may already be running there.
+    FailureClass.TIMEOUT: FailurePolicy(False, True, HealthScope.PROVIDER),
+    FailureClass.RATE_LIMIT: FailurePolicy(False, True, HealthScope.PROVIDER),
+    FailureClass.OVERLOAD: FailurePolicy(False, True, HealthScope.PROVIDER),
+    # The only class that retries the same target: a connection that was never
+    # established cannot have delivered the request, so a second attempt is
+    # provably not a duplicate. Everything else moves on instead.
+    FailureClass.CONNECTION: FailurePolicy(True, True, HealthScope.PROVIDER),
+    # The provider is fine; this model is not. Scoping the circuit to the model
+    # is what lets the pool's next candidate — on the same provider — be tried.
+    FailureClass.MODEL_UNAVAILABLE: FailurePolicy(False, True, HealthScope.MODEL),
+    FailureClass.LOCAL_OOM: FailurePolicy(False, True, HealthScope.MODEL),
+    # A bad credential fails identically on every model behind that provider,
+    # so retrying and falling back are both pointless. It is scoped NONE rather
+    # than PROVIDER on purpose: opening the circuit would convert a fixable 401
+    # — which names the problem — into a 422 no-route, which does not. The
+    # health counters still record it; only the breaker ignores it.
+    FailureClass.AUTHENTICATION: FailurePolicy(False, False, HealthScope.NONE),
+    # The request itself is the problem. It will fail the same way everywhere,
+    # and a fallback would only spend a second model's time to say so again.
+    FailureClass.INVALID_REQUEST: FailurePolicy(False, False, HealthScope.NONE),
+    FailureClass.TOOL_INCOMPATIBILITY: FailurePolicy(False, False, HealthScope.NONE),
+    # §10 says context is handled by *routing* to a larger-context model, or by
+    # rejecting — and explicitly not by silent truncation. Pre-flight filtering
+    # (M6) is where the routing happens; an overflow that survives it means the
+    # estimate was wrong, and the fallback chain is ordered by pool preference
+    # rather than by context size, so the next candidate is not known to be
+    # larger. Rejecting says something true. Falling back would be a guess.
+    FailureClass.CONTEXT_OVERFLOW: FailurePolicy(False, False, HealthScope.NONE),
+    # §10, verbatim: do not route around a safety refusal merely to find a more
+    # permissive provider. This line is that sentence.
+    FailureClass.CONTENT_REFUSAL: FailurePolicy(False, False, HealthScope.NONE),
+    FailureClass.UNKNOWN: FailurePolicy(False, False, HealthScope.NONE),
+}
+
+# Status codes whose meaning is unambiguous without reading the body.
+_STATUS_CLASSES: dict[int, FailureClass] = {
+    401: FailureClass.AUTHENTICATION,
+    403: FailureClass.AUTHENTICATION,
+    # An OpenAI-compatible server answers 404 for a model it does not serve,
+    # which is a routing-relevant fact rather than a missing web page.
+    404: FailureClass.MODEL_UNAVAILABLE,
+    408: FailureClass.TIMEOUT,
+    429: FailureClass.RATE_LIMIT,
+    502: FailureClass.OVERLOAD,
+    503: FailureClass.OVERLOAD,
+    504: FailureClass.TIMEOUT,
+}
+
+# Phrases that identify a failure the status code alone cannot distinguish.
+# Checked in order, because a body can match more than one: a refusal that
+# mentions tokens must be read as a refusal. Substring matching is crude, but
+# these strings come from real upstreams and no standard error code exists to
+# use instead — a fact worth remembering before trusting the classification too
+# far, which is why anything unmatched becomes INVALID_REQUEST rather than a
+# more specific guess.
+_BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
+    (FailureClass.CONTENT_REFUSAL, ("content_filter", "content policy", "content management")),
+    (
+        FailureClass.CONTEXT_OVERFLOW,
+        ("context length", "context window", "maximum context", "too many tokens",
+         "reduce the length"),
+    ),
+    (
+        FailureClass.TOOL_INCOMPATIBILITY,
+        ("does not support tools", "tools are not supported", "function calling is not",
+         "unsupported parameter: 'tools'"),
+    ),
+    (FailureClass.LOCAL_OOM, ("out of memory", "insufficient memory", "failed to allocate")),
+    (FailureClass.MODEL_UNAVAILABLE, ("model not found", "no model loaded", "model_not_found")),
+)
+
+
+def classify_exception(failure: Exception) -> FailureClass:
+    """Name a transport-level failure.
+
+    Order matters: `httpx.ConnectTimeout` is both a timeout and a connection
+    error, and it is the *timeout* reading that is useful — the connection was
+    attempted rather than refused, so the target may well be alive and merely
+    slow, and retrying the same one would wait all over again.
+    """
+    if isinstance(failure, httpx.TimeoutException):
+        return FailureClass.TIMEOUT
+    if isinstance(failure, httpx.TransportError):
+        return FailureClass.CONNECTION
+    return FailureClass.UNKNOWN
+
+
+def classify_response(status: int, body: bytes) -> FailureClass | None:
+    """Name an HTTP-level failure, or return None when there is none.
+
+    Returning None for a success is not a sentinel dressed as an error code
+    (runbook §14.4): "this response did not fail" is a real answer to the
+    question asked, and making it explicit is what keeps the caller's success
+    path visible instead of implied.
+    """
+    if status < 400:
+        return None
+    marked = _from_body(body)
+    if marked is not None:
+        return marked
+    known = _STATUS_CLASSES.get(status)
+    if known is not None:
+        return known
+    # A 4xx nobody recognised is the client's problem by definition; a 5xx
+    # nobody recognised is not something to reason further about.
+    return FailureClass.INVALID_REQUEST if status < 500 else FailureClass.UNKNOWN
+
+
+def _from_body(body: bytes) -> FailureClass | None:
+    """Read the upstream's own words, when they say more than the status does.
+
+    Only the first 4 KB is read. An error body is small; anything larger is
+    either not an error object or is carrying content that has no business
+    being scanned for keywords.
+    """
+    try:
+        text = body[:4096].decode("utf-8", errors="ignore").lower()
+    except (UnicodeDecodeError, AttributeError):  # pragma: no cover - defensive
+        return None
+    for failure_class, markers in _BODY_MARKERS:
+        if any(marker in text for marker in markers):
+            return failure_class
+    return None
+
+
+def error_body(message: str, failure_class: FailureClass, decision: dict[str, Any]) -> bytes:
+    """The OpenAI-shaped error a chain exhaustion returns, with its reasoning.
+
+    The failure class travels in `code` so a client — or a person reading a log
+    — can tell "every candidate was rate-limited" from "the request was
+    malformed" without parsing prose. `route` carries the attempt history,
+    which is the §9.7 explanation of a failure rather than of a success.
+    """
+    return json.dumps(
+        {
+            "error": {
+                "message": message,
+                "type": "upstream_error",
+                "param": None,
+                "code": failure_class.value,
+                "route": decision,
+            }
+        }
+    ).encode()
