@@ -10,6 +10,8 @@ The end-to-end behaviour those rules produce is in `test_fallback.py`.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -355,3 +357,32 @@ def test_a_success_credits_both_the_model_and_the_provider() -> None:
 
     assert health.of(HealthScope.PROVIDER, "upstream").state is BreakerState.CLOSED
     assert health.of(HealthScope.MODEL, "primary").state is BreakerState.CLOSED
+
+
+def test_a_logged_detail_survives_formatting() -> None:
+    """The reason must reach the log, not just the headline.
+
+    Every `extra={"detail": ...}` in this service carries the sentence that
+    names what actually happened — which models were tried, which failed, why
+    the chain stopped. The formatter used to promote three correlation fields
+    and drop this one, so an operator got "no upstream attempt succeeded" and
+    nothing to act on. Found while watching a real gateway log.
+    """
+    import logging
+
+    from ravis.observability import JsonLineFormatter
+
+    record = logging.LogRecord(
+        name="ravis.api.openai.chat",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="no upstream attempt succeeded",
+        args=(),
+        exc_info=None,
+    )
+    record.detail = "Tried: coder-a (rate_limit), coder-b (rate_limit)."
+
+    rendered = json.loads(JsonLineFormatter().format(record))
+
+    assert rendered["detail"] == "Tried: coder-a (rate_limit), coder-b (rate_limit)."
