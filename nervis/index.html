@@ -955,8 +955,22 @@ const API={
   async runs(){
    const live=await liveSirvis('/api/v1/benchmark-runs?limit=1');
    if(live&&live.items.length){const r=live.items[0],e=(r.results||[])[0]||{};
+    /* Both consumers of this method — the SIRVIS dashboard card and the
+       Results run-detail card — read `x.median`, so every measure is an object
+       whether or not it has a number in it. `effective_tok_s` never does: it
+       needs a token count against total latency and the envelope publishes a
+       rate rather than a count. Null median, guarded at both display sites,
+       beats a plausible number nobody measured. */
+    const med=n=>(e.metrics||{})[n]?Math.round(e.metrics[n].median*100)/100:null;
     return{source:'live',suite:(e.suite||{}).id,version:(e.suite||{}).version,
      role:e.role,target:e.target_key,samples:e.samples,
+     generation_tok_s:{median:med('generation_tokens_per_second')},
+     first_token_s:{median:med('time_to_first_token_seconds')},
+     effective_tok_s:{median:null},
+     /* A control is a property of a *sweep*, not of a run. Today's cooled sweep
+        bracketed itself with one; the engine records runs, so a live detail has
+        none and the cards say so rather than printing a drift nobody measured. */
+     control:null,
      /* Warmups are run and discarded by the engine and are not published in the
         envelope, so this says that rather than printing a number it does not
         have. */
@@ -974,7 +988,23 @@ const API={
 
   /* GET /api/v1/benchmark-jobs — states are the closed contract enum. The
      internal phase rides in `detail`; consumers switch on `state`. */
-  async jobs(){return{items:[
+  async jobs(){
+   /* There is no queue. §11.10's coarse state enum is real and stored on every
+      run, but the queue behind it — submit, pause, retry, reorder, survive a
+      restart — is unbuilt, and so is `/api/v1/benchmark-jobs`. What exists is
+      the run history, and a run carries the same contract state a job would.
+      So this maps runs onto the job record rather than inventing an endpoint,
+      and the screen says which it is looking at. */
+   const live=await liveSirvis('/api/v1/benchmark-runs?limit=25');
+   if(live&&live.items.length)return{source:'live',items:live.items.map(r=>{
+    const e=(r.results||[])[0]||{},s=e.suite||{};
+    return{job_id:r.run_id,state:r.state,detail:r.detail||null,
+     suite:s.id?s.id+'@'+s.version:'—',target:e.target_key||'—',
+     /* Null, not zero. A run is created already running and either finishes or
+        does not; nothing publishes a fraction, and a zero bar would claim a job
+        that had started and achieved nothing. */
+     progress:null,submitted:(r.started_at||'').slice(11)||r.started_at}})}
+   return{items:[
    {job_id:'bj_5521',state:'running',detail:'warming_up',suite:'clarvis-agent@1',
     target:'granite-4.0-h-tiny · GGUF Q4_K_M',progress:0.6,submitted:'10:24:02'},
    {job_id:'bj_5520',state:'succeeded',detail:null,suite:'clarvis-chat@1',
@@ -2011,11 +2041,11 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
   <div class="card narrow"><h3>${rn.suite}@${rn.version}</h3>${cell(`
    <div class="trace-step"><b>target</b><span>${rn.target.split(' · ')[0]}</span></div>
    <div class="trace-step"><b>generating</b><span>${rn.generation_tok_s.median} tok/s</span></div>
-   <div class="trace-step"><b>effective</b><span>${rn.effective_tok_s.median} tok/s</span></div>
+   <div class="trace-step"><b>effective</b><span>${rn.effective_tok_s.median==null?'— not derivable from the envelope':rn.effective_tok_s.median+' tok/s'}</span></div>
    <div class="trace-step"><b>first token</b><span>${rn.first_token_s.median} s</span></div>
    <div class="trace-step"><b>warmups</b><span>${rn.warmups} discarded</span></div>
-   <div class="trace-step"><b>control</b><span>${rn.control.generation_tok_s} tok/s · ${rn.control.drift_pct}% drift</span></div>
-   <small class="mono dim">median of ${rn.samples}, loaded alone with <b>--parallel ${rn.parallel}</b>. The control is the same build re-run the same evening: it came back within ${rn.control.drift_pct}%, which is what makes anything measured later that day comparable at all on a fanless machine.</small>`,'sirvis')}</div>
+   <div class="trace-step"><b>control</b><span>${rn.control?`${rn.control.generation_tok_s} tok/s · ${rn.control.drift_pct}% drift`:'none — a control brackets a sweep, not a run'}</span></div>
+   <small class="mono dim">median of ${rn.samples}, loaded alone with <b>--parallel ${rn.parallel}</b>. ${rn.control?`The control is the same build re-run the same evening: it came back within ${rn.control.drift_pct}%, which is what makes anything measured later that day comparable at all on a fanless machine.`:`No control: one brackets a sweep rather than a run, and this engine records runs. The sweep that produced these bracketed itself and its two ends came back <b>26% apart</b> — which is the figure this card would otherwise be silently missing on a fanless machine.`}</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Runtime set · ${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
    <div class="table-row head five"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Follow-up</span></div>
    ${rs.members.map(m=>`<div class="table-row five"><span>${m.role}</span><span>${m.family}</span><span class="mono">${m.first_token_alone_s}s · ${m.alone_tok_s} tok/s</span><span class="mono">${m.first_token_concurrent_s}s</span><span class="chip${m.follow_up_concurrent==='used-result'?'':' warn'}">${m.follow_up_concurrent}</span></div>`).join('')}
@@ -2143,9 +2173,17 @@ async function sirvisDiscover(){
    kept and labelled, because three good runs are evidence of something and
    throwing them away to keep the table tidy loses real measurement. */
 async function sirvisBenchmarks(){
- heading('Benchmark queue','Jobs, their contract state, and the internal phase that rides alongside it.',
-  `<button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
  const j=await API.sirvis.jobs();
+ /* The button is a demo everywhere, but only says so when the rest of the
+    screen is real. A live screen with a dead primary control is the exact thing
+    `AGENTS.md` forbids: it looks finished. */
+ heading(j.source==='live'?'Benchmark runs':'Benchmark queue',
+  j.source==='live'
+   ?'Real runs on this machine and the contract state each ended in. There is no queue yet — §11.10\'s job machinery is unbuilt, so nothing is ever pending.'
+   :'Jobs, their contract state, and the internal phase that rides alongside it.',
+  j.source==='live'
+   ?`<button class="btn" disabled title="no submit endpoint yet — §11.10's queue is unbuilt">New benchmark</button>`
+   :`<button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
  const by=s=>j.items.filter(x=>x.state===s).length;
  const partial=j.items.find(x=>x.state==='partial');
  $('#content').innerHTML=kpis([
@@ -2155,7 +2193,7 @@ async function sirvisBenchmarks(){
    ['Failed',String(by('failed')),'no result written','sirvis']])
  +`<div class="card full"><h3>Queue</h3>${cell(`
    <div class="table-row head six"><span>Job</span><span>Suite</span><span>Target</span><span>Submitted</span><span>State</span><span>Progress</span></div>
-   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${x.state==='succeeded'||x.state==='running'?'':' warn'}">${x.state}</span><span><div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div><small class="mono" style="opacity:.55">${x.detail||'—'}</small></span></div>`).join('')}
+   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${x.state==='succeeded'||x.state==='running'?'':' warn'}">${x.state}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div>`}<small class="mono" style="opacity:.55">${x.detail||(x.progress==null?'ran to completion':'—')}</small></span></div>`).join('')}
    <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>State versus detail</h3>${cell(`
    <div class="table-row head"><span>Contract state</span><span>Jobs</span><span style="grid-column:3/-1">What a consumer may rely on</span></div>
@@ -2163,13 +2201,15 @@ async function sirvisBenchmarks(){
    <div class="table-row"><span class="mono">succeeded</span><span>${by('succeeded')}</span><span style="grid-column:3/-1;opacity:.75">a complete result set was written and is scoreable</span></div>
    <div class="table-row"><span class="mono">partial</span><span>${by('partial')}</span><span style="grid-column:3/-1;opacity:.75">fewer runs than requested; the result exists and says so</span></div>
    <div class="table-row"><span class="mono">failed</span><span>${by('failed')}</span><span style="grid-column:3/-1;opacity:.75">no result — the reason is in detail, never inferred from silence</span></div>
-   <small class="mono dim">the internal phase (<b>${j.items.find(x=>x.detail)?.detail}</b>) rides in <b>detail</b> and may change without a contract change. Switching on it is how a consumer breaks on a SIRVIS release that promised nothing.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Partial result</h3>${cell(`
+   <small class="mono dim">the internal phase (<b>${(j.items.find(x=>x.detail)||{}).detail||'none carried by these runs'}</b>) rides in <b>detail</b> and may change without a contract change. Switching on it is how a consumer breaks on a SIRVIS release that promised nothing.</small>`,'sirvis')}</div>
+  <div class="card narrow"><h3>Partial result</h3>${cell(partial?`
    <div class="trace-step"><b>job</b><span>${partial.job_id}</span></div>
    <div class="trace-step"><b>suite</b><span>${partial.suite}</span></div>
-   <div class="trace-step"><b>reached</b><span>${Math.round(partial.progress*100)}%</span></div>
-   <div class="trace-step"><b>why</b><span>${partial.detail}</span></div>
-   <small class="mono dim">the runs it did complete are kept and the shortfall is stated. Thermal aborts are a property of this machine on this day — discarding them would hide exactly the condition a local benchmark exists to catch.</small>`,'sirvis')}</div>`}
+   <div class="trace-step"><b>reached</b><span>${partial.progress==null?'—':Math.round(partial.progress*100)+'%'}</span></div>
+   <div class="trace-step"><b>why</b><span>${partial.detail||'—'}</span></div>
+   <small class="mono dim">the runs it did complete are kept and the shortfall is stated. Thermal aborts are a property of this machine on this day — discarding them would hide exactly the condition a local benchmark exists to catch.</small>`:`
+   <div class="trace-step"><b>none</b><span>no run here ended partial</span></div>
+   <small class="mono dim">the card stays rather than disappearing. <b>partial</b> is a state §11.10 names and this engine can reach — fewer runs than requested, the ones that completed kept — and an empty card says the state exists and has not occurred. A card that vanished would say the opposite by saying nothing.</small>`,'sirvis')}</div>`}
 
 /* Runtime sets — combination evidence. The entire reason this screen exists is
    that per-member numbers do not predict the pair, and this run is the cleanest

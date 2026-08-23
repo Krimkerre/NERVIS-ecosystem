@@ -710,7 +710,7 @@ mid-milestone. **Four block M6.**
 | **CLI is still short of parity.** `benchmark run` and `results latest` exist now; §18's `models list`, `runtime list` and `runtime sessions` all have APIs and no command | §18 | no |
 | ~~**Benchmark runs and results are stored and unserved.**~~ **Fixed.** `/benchmark-runs`, `/benchmark-runs/{id}` and `/benchmark-results/{id}` — §17 says these are stored *because* they are served, and until now they were not | §4.2 | done |
 | **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
-| **No job state machine.** §11.10's coarse published enum and its atomic commit are built; the *queue* behind them — pause, resume, retry, reorder, and a job that survives a restart — is not | §11.10 | partly |
+| **No job state machine.** §11.10's coarse published enum and its atomic commit are built; the *queue* behind them — pause, resume, retry, reorder, and a job that survives a restart — is not. **Visible now:** two runs killed mid-flight today still read `running`, and nothing will ever reconcile them | §11.10 | partly |
 | **Parquet telemetry** is named for high-frequency data where SQLite becomes unsuitable | §17 | no — not at one-run scale |
 
 Everything shipped-and-wrong on that list has been fixed. What remains is
@@ -1177,6 +1177,15 @@ is prose; whoever compares two evidence IDs never reads it.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **A run killed mid-flight stays `running` for ever.** §11.10 asks that a job
+  either survive a restart or be truthfully marked unrecoverable; a run does
+  neither. `start_run` writes `RUNNING` before the work, which is right — a run
+  that was never recorded until it succeeded could not be recovered at all — and
+  nothing reconciles the row if the process dies. Two such rows exist from today
+  and will read `running` until somebody edits the database. The engine noticed
+  nothing; **the dashboard did**, the first time the Benchmarks screen was
+  pointed at real data, because a queue view counts states and a log does not.
+  That is the argument for wiring a screen early rather than last.
 - **The evidence identity recorded what was *asked for*, not what ran.** §12.2
   keys evidence on the configuration a number was produced under, and the engine
   put `spec.load` — the request — into that key. It went unnoticed while every
