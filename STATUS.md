@@ -1047,11 +1047,40 @@ measure the role RAVIS asks about, not to teach either side a mapping — which
 would be the equivalence-inference §15.1 forbids, performed by the other side.
 That seam is closed by construction.
 
-**Nothing has been measured yet.** `sirvis benchmark run <suite> --clarvis-role
-clarvis-agent` is the entry point, it warns that nine extra generations are
-coming, and no build has been through it. Until one has, the tool columns on
-Models, Runtime sets and Results stay absent — but they are wired to a real
-producer now rather than to a milestone number.
+### The first role run, and the claim it turned into a measurement
+
+`lmstudio-community/granite-4.0-h-tiny` through the `clarvis-agent` role on
+2026-08-24. Run `run_1b21d770a2594395`, evidence `ev_188a3fd324194eff`, VALID,
+raw material in `sirvis/results/exp_315e650ee11f4d7c`.
+
+```text
+tool_call_well_formed          8/8   (100%)   clarvis.tool_call.streamed.v1
+tool_followup_used_result      1/1   (100%)   outcome: used-result
+generation_tokens_per_second   60.282 ± 1.878  (n=6)
+time_to_first_token_seconds    0.048 ± 0.006   (n=6)
+```
+
+**Eight of eight, every phrasing, with a parsed path on every one** — and the
+follow-up turn came back `used-result`: told its path was wrong and to use
+`listFiles`, it used `listFiles`.
+
+This repository has carried the figure "its GGUF packaging delivered 8 in 8"
+since before SIRVIS existed, transcribed from `clarvis-firstrun`. It is now
+**measured through SIRVIS's own pipeline** — streamed, assembled by index, filed
+under the role RAVIS asks for, with `MEASURED` provenance and a versioned method
+— rather than quoted. The two agreeing is the useful outcome, because the whole
+point of M12 was that the old harness was worth wrapping.
+
+It is also the ecosystem's **first tool-capability claim that came from
+attempts** rather than a catalogue. `ravis/clarvis-agent` is 0 of 20 today
+because RAVIS holds no such claim for any build; this is the first one that
+exists to be carried, and carrying it is RAVIS M13.
+
+Running it found the reporting gap either printer would have hidden: `metrics`
+carries measurements and trial rates together, the listing discriminated on
+`"median" in body`, and every rate fell through it silently. An agent run
+printed its throughput and not the 8-in-8 that was the point of it. Both
+printers now render rates as `passed/total`.
 
 ### The rule about loading — still read this first
 

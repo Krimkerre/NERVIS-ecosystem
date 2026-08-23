@@ -522,6 +522,14 @@ def _print_outcome(outcome: ExperimentOutcome) -> None:
         spread = "" if measurement.spread is None else f" ± {measurement.spread:.3f}"
         print(f"  {name:<30} {measurement.median:.3f}{spread} {measurement.unit} "
               f"(n={measurement.samples})")
+    # §13.2's rates print beside the measurements rather than under them: a
+    # tool-call reliability is the headline finding of an agent-role run, and a
+    # run that measured 8 in 8 and said nothing about it sends the operator to
+    # the raw results to find out whether the trials happened at all.
+    for name, trial in sorted(record.rates.items()):
+        detail = f" · {trial.provenance.notes}" if trial.provenance.notes else ""
+        print(f"  {name:<30} {trial.passed}/{trial.total} "
+              f"({trial.rate:.0%}){detail}")
     print(f"  validity       {record.validity.value}")
     for note in record.validity_notes:
         print(f"    warning      {note}")
@@ -541,9 +549,16 @@ def _run_results(settings: Settings, limit: int) -> int:
               f"{run['experiment_id']}")
         for result in run["results"]:
             metrics = result.get("metrics", {})
+            # `metrics` carries measurements and trial rates together, and they
+            # render differently: a measurement has a median and a unit, a rate
+            # has passed and total. The `"median" in body` test was already the
+            # discriminator and silently dropped every rate — so an agent run
+            # listed its throughput and not the 8-in-8 that was the point of it.
             headline = ", ".join(
-                f"{name}={body['median']:.3f}{body['unit'][:1]}"
-                for name, body in sorted(metrics.items()) if "median" in body
+                f"{name}={body['median']:.3f}{body['unit'][:1]}" if "median" in body
+                else f"{name}={body['passed']}/{body['total']}"
+                for name, body in sorted(metrics.items())
+                if "median" in body or "total" in body
             )
             print(f"    {result['target_key']:<40} {result['validity']:<8} {headline}")
     return EXIT_OK
