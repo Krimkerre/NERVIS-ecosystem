@@ -330,7 +330,6 @@ async def read_runtime_sets(request: Request) -> dict[str, Any]:
     decorate every row would fail as a whole because one number was
     unavailable — §15.4 requires SIRVIS to work standalone.
     """
-    require(request, Scope.READ)
     return _listing(
         [item.as_dict() for item in list_runtime_sets(request.app.state.database)]
     )
@@ -347,7 +346,6 @@ async def read_one_runtime_set(
     result cited, and answering with revision 5 would silently substitute a
     different combination for the one under investigation.
     """
-    require(request, Scope.READ)
     stored = read_runtime_set(request.app.state.database, runtime_set_id, revision)
     if stored is None:
         raise ModelNotFoundError(
@@ -365,7 +363,6 @@ async def read_runtime_set_revisions(request: Request, runtime_set_id: str) -> d
     original revision* — is a claim somebody has to be able to check. This is
     where they check it.
     """
-    require(request, Scope.READ)
     revisions = list_revisions(request.app.state.database, runtime_set_id)
     if not revisions:
         raise ModelNotFoundError(f"no runtime set {runtime_set_id}")
@@ -443,6 +440,14 @@ async def _fit_for(request: Request, stored: RuntimeSet) -> Any:
 async def read_evidence_index(request: Request) -> dict[str, Any]:
     """§15.1's question, as an endpoint.
 
+    **Unauthenticated, like every other read on this service.** §4.5 requires a
+    scope on every *mutating* endpoint even on loopback, and permits reads to go
+    unauthenticated "where a peer needs them for negotiation" — which is exactly
+    what this surface is for: §15.1 names benchmark evidence as something RAVIS
+    consumes. It shipped gated behind `Scope.READ` and that was a mistake, found
+    by wiring the dashboard: the browser sends no token, `live()` swallows the
+    401 as a fallback to mocks, and the screen would have looked like it worked.
+
     > Give me the best measured evidence for role `clarvis-agent` on this
     > machine for these candidate builds, under these runtime configuration
     > constraints.
@@ -458,7 +463,6 @@ async def read_evidence_index(request: Request) -> dict[str, Any]:
     and validity — plus `candidate` (repeatable runtime keys), `config.<key>`
     constraints, `since` for incremental reads, and `limit`.
     """
-    require(request, Scope.READ)
     parameters = request.query_params
     candidates = parameters.getlist("candidate")
     resolved, unresolved = await _resolve_candidates(request, candidates)
@@ -512,7 +516,6 @@ async def read_evidence_identity(request: Request, evidence_id: str) -> dict[str
     — and picking one to return would be the ranking this surface refuses to do
     everywhere else.
     """
-    require(request, Scope.READ)
     records = read_evidence(request.app.state.database, evidence_id)
     if not records:
         raise BenchmarkNotFoundError(f"no evidence {evidence_id}")

@@ -10,6 +10,8 @@ well against a service with no checks at all.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -331,3 +333,42 @@ def test_mutations_are_not_advertised_to_a_browser() -> None:
     response = client.get("/api/v1/system", headers={"Origin": ALLOWED})
 
     assert "POST" not in response.headers["access-control-allow-methods"]
+
+
+# ── The read convention, pinned so a milestone cannot drift off it ───────────
+
+
+def test_every_read_is_unauthenticated_except_the_credential_listing() -> None:
+    """§4.5: scopes gate *mutations*; reads serve peers that carry no token.
+
+    Asserted over the route table rather than endpoint by endpoint, because the
+    failure this catches is a *new* endpoint added with a scope its neighbours
+    do not have — and a per-endpoint test only covers endpoints somebody
+    remembered to add one for.
+
+    It has already happened twice. M9's `/runtime-sets` and M16's `/evidence`
+    both shipped behind `Scope.READ`, and nothing failed: the browser sends no
+    token, `live()` in the dashboard treats a 401 as "service absent" and falls
+    back to mocks, so both screens would have rendered transcribed data while
+    looking wired. Found by wiring them, not by testing them.
+
+    `/tokens` is the one exception and stays one: it lists credentials, so
+    reading it is a privileged act rather than a peer's negotiation.
+    """
+    import re
+
+    from sirvis.api import routes
+
+    source = (Path(routes.__file__)).read_text()
+    gated: list[str] = []
+    for part in re.split(r"\n(?=@router\.)", source):
+        header = re.match(r'@router\.get\("([^"]+)"\)', part)
+        if not header:
+            continue
+        if re.search(r"require\(request, Scope\.\w+\)", part):
+            gated.append(header.group(1))
+
+    assert gated == ["/tokens"], (
+        f"these reads require a scope and should not: {sorted(set(gated) - {'/tokens'})}. "
+        "§4.5 gates mutations; a gated read renders as a silent mock in the dashboard."
+    )
