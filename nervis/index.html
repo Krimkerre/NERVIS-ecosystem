@@ -411,7 +411,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
 const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
- sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
+ sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
@@ -463,6 +463,7 @@ const ICON={
  'Dashboard':'<rect x="2.2" y="2.2" width="5" height="5" rx="1"/><rect x="8.8" y="2.2" width="5" height="5" rx="1"/><rect x="2.2" y="8.8" width="5" height="5" rx="1"/><rect x="8.8" y="8.8" width="5" height="5" rx="1"/>',
  'Models':'<rect x="4.3" y="4.3" width="7.4" height="7.4" rx="1.3"/><path d="M6.4 4.3V2.1M9.6 4.3V2.1M6.4 13.9v-2.2M9.6 13.9v-2.2M4.3 6.4H2.1M4.3 9.6H2.1M13.9 6.4h-2.2M13.9 9.6h-2.2"/>',
  'Benchmarks':'<path d="M2.4 13.6h11.2"/><rect x="3.3" y="9" width="2.6" height="3.6" rx=".7"/><rect x="6.7" y="5.9" width="2.6" height="6.7" rx=".7"/><rect x="10.1" y="3.1" width="2.6" height="9.5" rx=".7"/>',
+ 'Runtime':'<path d="M2.2 8a5.8 5.8 0 0 1 5.8-5.8 5.8 5.8 0 0 1 5.8 5.8 5.8 5.8 0 0 1-5.8 5.8"/><path d="M8 5v3l2 1.4"/>',
  'Runtime sets':'<rect x="2.2" y="5.7" width="8.1" height="8.1" rx="1.3"/><path d="M5.7 5.7V3.4a1.2 1.2 0 0 1 1.2-1.2h5.7a1.2 1.2 0 0 1 1.2 1.2v5.7a1.2 1.2 0 0 1-1.2 1.2h-2.3"/>',
  'Results':'<rect x="2.2" y="3" width="11.6" height="10" rx="1.3"/><path d="M2.2 6.5h11.6M6.7 6.5V13"/>',
  'Recommendations':'<path d="M8 2.3 9.8 6l4.1.6-3 2.9.7 4.1L8 11.7l-3.6 1.9.7-4.1-3-2.9L6.2 6z"/>',
@@ -1719,32 +1720,43 @@ const API={
 
 /* DEMO_API covers user *actions* (the POSTs). Same rule: one method per real
    endpoint, replace the body with fetch and keep the signature. */
+/* ── DEMO_API ───────────────────────────────────────────────────────────────
+   Every control on this page that would *change* something, and what actually
+   backs it. Eight of the nine had no endpoint at all and raised a toast, which
+   is the worst available answer: the operator learns the system does something
+   it does not, and finds out otherwise at the moment it matters.
+
+   So a control whose endpoint does not exist now renders **disabled**, with the
+   endpoint it is waiting for in its tooltip. `unbuilt()` is that answer, and
+   `control()` is how a caller asks for a button without having to know which
+   kind it gets. The one live operation — loading a model under a lease — is on
+   the Runtime screen, where the session it creates can also be seen and
+   released. A control that starts something invisible is only half a control. */
+const UNBUILT={
+ download:'POST /api/v1/downloads · SIRVIS M11',
+ activateProfile:'POST /api/v1/profiles/{id}/activate · no endpoint; RAVIS management is read-only at M18a',
+ setProvider:'POST /api/v1/providers/{id}/enable · no endpoint; RAVIS management is read-only at M18a',
+ refreshEvidence:'POST /api/v1/evidence/refresh · RAVIS M13',
+ runBenchmark:'POST /api/v1/benchmark-jobs · specified in SIRVIS §4.2, not built — benchmarks run on the CLI',
+ reroute:'POST /api/v1/route-tests · no endpoint',
+ diagnose:'POST /api/v1/diagnostics · no endpoint'};
+
+/* A button for an operation that exists, or a disabled one that names what it
+   is waiting for. Never a button that looks live and is not. */
+function control(label,action,extra){
+ const missing=UNBUILT[action];
+ return missing
+  ?`<button class="btn" disabled title="${escapeHtml(missing)}" style="opacity:.45;cursor:not-allowed">${label}</button>`
+  :`<button class="btn${extra||''}" onclick="DEMO_API.${action}()">${label}</button>`;
+}
+
 const DEMO_API={
- /* POST /api/v1/downloads — creates a persistent job and returns its id. The disk
-    check happens before the job is queued, not while bytes are arriving. */
- download(variant,gb,freeAfter){notify(`Queued ${variant} · ${gb} GB · ${freeAfter} GB free after`);setAvatarState('active')},
- /* POST /api/v1/profiles/{profile_id}/activate — changes the router's default
-    for every client, not just this page. Mutations carry Idempotency-Key and
-    If-Match on the profile revision, are separately authorized under
-    routing-control, are audited with actor, target, precondition and result, and
-    return the actual post-state plus the new revision. */
- activateProfile(id,revision){notify(`Activated ${id} · If-Match rev ${revision} · audited`);setAvatarState('active')},
- /* POST /api/v1/providers/{provider_id}/{enable|disable} */
- setProvider(id,on){notify(`${on?'Enabled':'Disabled'} provider ${id} · audited · takes effect on the next decision`);setAvatarState('active')},
- /* POST /api/v1/evidence/refresh */
- refreshEvidence(){notify('Re-reading SIRVIS evidence · cached with a staleness policy')},
- /* POST {sirvis}/api/v1/benchmark-jobs */
- runBenchmark(){notify('Benchmark started · warmups will not be scored');setAvatarState('active')},
- /* POST {sirvis}/api/v1/runtime/sessions — SIRVIS owns load/unload, and
-    sirvis.runtime.control@1 is advertised "only if implemented and authorized",
-    so the control renders disabled until that capability is negotiated. */
- loadModel(){if(!capable('sirvis','sirvis.runtime.control@1'))
-   return notify('Loading needs sirvis.runtime.control@1 — not negotiated');
-  notify('Loading meta-llama-3.1-8b-instruct into MLX…');setAvatarState('active')},
- /* POST {ravis}/api/v1/route-tests */
- reroute(){notify('Route committed · local MLX pool selected');setAvatarState('active')},
- /* POST {nervis}/api/v1/diagnostics */
- diagnose(){notify('Diagnostic sweep started across four services');setAvatarState('active')}};
+ /* POST {sirvis}/api/v1/runtime/sessions — the one mutation on this page that
+    reaches a real service. SIRVIS owns load and unload (§9), and the session it
+    returns is a lease: it is visible on the Runtime screen and released there,
+    rather than started here and forgotten. */
+ loadModel(){state.app='sirvis';state.view='Runtime';render()}};
+
 /* ── CLARVIS_BRIDGE ─────────────────────────────────────────────────────────
    The one channel by which a real Clarvis drives the header avatar. This is not
    a new invention: it is the optional Clarvis Bridge already specified — a
@@ -1842,7 +1854,7 @@ async function nervis(){
  if(state.view==='Settings')return settingsView();
  if(state.view==='Ecosystem map')return mapView();
  if(state.view==='System')return systemView();
- heading('Ecosystem overview','What each service reports, when it said so, and how sure it is.',`<button class="btn primary" onclick="DEMO_API.diagnose()">Run diagnostics</button>`);
+ heading('Ecosystem overview','What each service reports, when it said so, and how sure it is.',control('Run diagnostics','diagnose',' primary'));
  const [svc,inst,tr,ev,usage]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
    API.nervis.trace(),API.nervis.events(),API.ravis.usage()]);
  const live=Object.values(SERVICES).filter(v=>['healthy','degraded'].includes(v.state)).length;
@@ -1906,7 +1918,7 @@ async function eventsView(){
    lying with true inputs. */
 async function diagnosticsView(){
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
-  `<button class="btn primary" onclick="DEMO_API.diagnose()">Analyze trace…</button>`);
+  control('Analyze trace…','diagnose',' primary'));
  const d=await API.nervis.diagnostics();
  const tick=v=>v?'<span class="chip">yes</span>':'<span class="mono" style="opacity:.35">—</span>';
  $('#content').innerHTML=`<div class="card wide"><h3>Source priority</h3>
@@ -2000,7 +2012,7 @@ async function mapView(){
    list, counted in the KPI and drawn as a dashed gap in the waterfall. */
 async function tracesView(){
  heading('Traces','Correlated across services by trace id. A span NERVIS never received is reported missing.',
-  `<button class="btn primary" onclick="DEMO_API.diagnose()">Analyze trace…</button>`);
+  control('Analyze trace…','diagnose',' primary'));
  const [tl,tr]=await Promise.all([API.nervis.traces(),API.nervis.trace()]);
  const missing=tl.items.reduce((n,t)=>n+t.missing,0);
  const longest=tl.items.reduce((a,b)=>b.total_ms>a.total_ms?b:a);
@@ -2171,12 +2183,127 @@ async function mikuMode(btn){
   mikuMode.running=false;
   await render()}}
 
-const SIRVIS_VIEWS={'Models':sirvisModels,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
+/* ── Runtime — what is loaded, who holds it, and the controls that are real ──
+   The first screen on this page whose buttons reach a service. Everything else
+   that would change something is disabled and says which endpoint it is waiting
+   for; these four exist today:
+
+     POST   /api/v1/runtime/sessions              take a lease on one or more models
+     DELETE /api/v1/runtime/sessions/{id}         release it
+     POST   /api/v1/runtime/sessions/{id}/renew   extend it
+     GET    /api/v1/runtime/residency             what is held, by whom
+
+   §9's whole argument is that a loaded model has *owners*, and unloading one
+   because a single owner finished is how two clients fight. That is only true
+   if somebody can see the reference counts, which is what this screen is.
+
+   **Mutations need a runtime-scoped token and reads do not** (§4.5: every
+   mutating endpoint requires a scope even on loopback). So the token box below
+   gates the four controls and nothing else — the tables fill in without it. It
+   is held in memory for the tab and never written to storage: a dashboard that
+   persisted a runtime-scoped credential would be a worse place to keep it than
+   the store it came from. */
+let RUNTIME_TOKEN='';
+
+async function sirvisRuntime(){
+ heading('Runtime','What is resident, who holds it, and when their claim lapses.',
+   control('Refresh evidence','refreshEvidence'));
+ const [res,mdl]=await Promise.all([liveSirvis('/api/v1/runtime/residency'),API.sirvis.models()]);
+ if(!res){
+  $('#content').innerHTML=`<div class="card full"><h3>SIRVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/runtime/residency</span></div>
+   <small class="mono dim">this screen has no transcription to fall back to, on purpose. Residency is a fact about <b>right now</b> — which models are in memory this second — and a remembered answer to that question is worse than none, because it looks the same as a current one.</small>`,'sirvis')}</div>`;
+  return;}
+
+ const held=res.holdings||[],leases=res.leases||[],foreign=res.foreign||[];
+ const owned=held.filter(h=>h.owned).length;
+ const cfg=h=>{const c=h.effective_configuration||{};
+   const parts=Object.entries(c).map(([k,v])=>`${k} ${v}`);
+   return parts.length?parts.join(' · '):'—';};
+ const opts=mdl.items.map(m=>`<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.model_id)}</option>`).join('');
+ const armed=RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required" style="opacity:.45;cursor:not-allowed"';
+
+ $('#content').innerHTML=kpis([
+   ['Resident',`${held.length} / ${res.max_loaded}`,'against the manager ceiling','sirvis'],
+   ['Owned',String(owned),owned===held.length?'all held by SIRVIS':'the rest were adopted','sirvis'],
+   ['Sessions',String(leases.length),'live leases','sirvis'],
+   ['Foreign',String(foreign.length),foreign.length?'runtime loaded these itself':'none','sirvis']])
+ +`<div class="card full"><h3>Load a model <span class="chip">POST /runtime/sessions</span></h3>${cell(`
+   <div class="table-row head six"><span>Model</span><span>Context</span><span>Policy</span><span>Lease</span><span style="grid-column:5/-1">Action</span></div>
+   <div class="table-row six">
+    <span><select id="rtModel" class="mono" style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px">${opts}</select></span>
+    <span><input id="rtCtx" class="mono" placeholder="8192" style="width:88px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
+    <span><select id="rtPolicy" class="mono" style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"><option value="wait">wait</option><option value="reject">reject</option><option value="preempt">preempt</option></select></span>
+    <span><input id="rtLease" class="mono" placeholder="3600" style="width:78px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
+    <span style="grid-column:5/-1"><button class="btn primary"${armed} onclick="RUNTIME.load()">Load</button></span></div>
+   <small class="mono dim">a load is minutes of work and gigabytes of memory, so the four things that decide what it costs are all here rather than defaulted out of sight. <b>Policy</b> is §9's conflict rule and <b>preempt</b> is never implicit — it is offered because the API takes it, and it still cannot take a model another client holds. The lease is what recovers this model if this tab closes without releasing it.</small>`,'sirvis')}</div>
+  <div class="card full"><h3>Resident now</h3>${cell(
+   held.length?`
+   <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
+   ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}</span><span>${h.reference_count}</span><span class="mono" style="opacity:.7">${(h.sessions||[]).map(s=>s.slice(0,8)).join(' · ')||'—'}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(cfg(h))}</span><span style="grid-column:5/-1"><span class="chip${h.owned?'':' warn'}">${h.owned?'SIRVIS':'adopted'}</span></span></div>`).join('')}
+   <small class="mono dim">a model is unloaded when its reference count reaches zero and not before — releasing one lease on a model two clients hold takes it from neither. <b>Adopted</b> is the column that matters for memory: SIRVIS did not load those and will never unload them, so releasing every lease here does not give that memory back.</small>`
+   :`<div class="trace-step"><b>resident</b><span>nothing</span></div>
+   <small class="mono dim">no model is in memory and no lease is outstanding. This is the ordinary state of an idle machine, and it is the state that makes the ceiling above meaningful: ${res.max_loaded} is what the manager will hold at once, not what is loaded.</small>`,'sirvis')}</div>
+  <div class="card wide"><h3>Leases</h3>${cell(
+   leases.length?`
+   <div class="table-row head six"><span>Session</span><span>Owner</span><span style="grid-column:3/5">Models</span><span>Lease</span><span style="grid-column:6/-1">Action</span></div>
+   ${leases.map(l=>`<div class="table-row six"><span class="mono">${escapeHtml((l.session_id||'').slice(0,12))}</span><span>${escapeHtml(l.owner||'—')}</span><span class="mono" style="grid-column:3/5;opacity:.75">${(l.models||[]).map(escapeHtml).join(' · ')}</span><span class="mono">${l.lease_seconds}s</span><span style="grid-column:6/-1"><button class="btn"${armed} onclick="RUNTIME.renew('${escapeHtml(l.session_id)}')">Renew</button> <button class="btn"${armed} onclick="RUNTIME.release('${escapeHtml(l.session_id)}')">Release</button></span></div>`).join('')}
+   <small class="mono dim">a lease is how SIRVIS recovers from a client that died without saying it had finished, which is indistinguishable from one that is merely slow. Renewing is the heartbeat; releasing is the polite version of the same outcome.</small>`
+   :`<div class="trace-step"><b>leases</b><span>none outstanding</span></div>
+   <small class="mono dim">nothing holds a claim on this runtime right now.</small>`,'sirvis')}</div>
+  <div class="card narrow"><h3>Authorisation</h3>${cell(`
+   <div class="trace-step"><b>reads</b><span>open on loopback</span></div>
+   <div class="trace-step"><b>mutations</b><span>${RUNTIME_TOKEN?'<span class="chip">token set</span>':'<span class="chip warn">runtime scope required</span>'}</span></div>
+   <input id="rtToken" type="password" placeholder="paste a runtime-scoped token" style="width:100%;margin-top:8px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit">
+   <button class="btn" style="margin-top:8px" onclick="RUNTIME.setToken()">${RUNTIME_TOKEN?'Replace':'Use'} token</button>
+   <small class="mono dim">§4.5: every mutating endpoint requires a scope even on loopback, because loopback is not a boundary against another process on this machine. Reads are open where a peer needs them, which is why the tables above filled in without this. Mint one with <span class="mono">sirvis tokens --mint runtime</span>. It is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`,'sirvis')}</div>
+  ${foreign.length?`<div class="card wide"><h3>Foreign instances</h3>${cell(`
+   ${foreign.map(f=>`<div class="trace-step"><b class="mono">${escapeHtml(f)}</b><span>loaded by the runtime, not by SIRVIS</span></div>`).join('')}
+   <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`:''}`;
+ const box=$('#rtToken');if(box)box.value=RUNTIME_TOKEN;}
+
+/* The four real mutations. Each one re-renders from the service afterwards
+   rather than patching the table optimistically: the answer to "what is loaded"
+   is the service's to give, and a screen that predicted it would be wrong in
+   exactly the case that matters — when the load failed. */
+const RUNTIME={
+ setToken(){RUNTIME_TOKEN=($('#rtToken')||{}).value||'';
+   notify(RUNTIME_TOKEN?'Token set for this tab':'Token cleared');render()},
+ /* `body` defaults rather than being tested against the literal — nervis's own
+    check forbids that string anywhere in this file, because the way it usually
+    arrives is a view rendering a field the API stopped returning. */
+ async _send(path,method,body={}){
+  try{
+   const r=await fetch(BASE.sirvis+path,{method,
+     headers:{'content-type':'application/json','authorization':'Bearer '+RUNTIME_TOKEN},
+     body:JSON.stringify(body)});
+   const payload=await r.json().catch(()=>({}));
+   if(!r.ok){const e=(payload.error||{});
+     notify(`${e.code||r.status}: ${e.message||'refused'}`);return null}
+   return payload;
+  }catch(failure){notify('SIRVIS did not answer: '+failure.message);return null}},
+ async load(){
+  const model=($('#rtModel')||{}).value,ctx=($('#rtCtx')||{}).value,lease=($('#rtLease')||{}).value;
+  if(!model)return notify('no model selected');
+  const entry={model_id:model};
+  if(ctx)entry.configuration={context_length:Number(ctx)};
+  const out=await this._send('/api/v1/runtime/sessions','POST',{
+    owner:'nervis-dashboard',models:[entry],
+    policy:($('#rtPolicy')||{}).value||'wait',
+    ...(lease?{lease_seconds:Number(lease)}:{})});
+  if(out)notify(`Session ${String(out.session_id).slice(0,12)} · ${(out.models||[]).length} model(s)`);
+  render()},
+ async release(id){const out=await this._send('/api/v1/runtime/sessions/'+id,'DELETE');
+  if(out)notify(`Released · unloaded ${(out.unloaded||[]).length}`);render()},
+ async renew(id){const out=await this._send('/api/v1/runtime/sessions/'+id+'/renew','POST');
+  if(out)notify('Lease renewed');render()}};
+
+const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
 const RAVIS_VIEWS={'Routes':ravisRoutes,'Pools':ravisPools,'Providers':ravisProviders,'Policies':ravisPolicies,
  'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
- heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Load model</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
+ heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
  const [mdl,ev,rs,rn,mc]=await Promise.all([API.sirvis.models(),API.sirvis.evidence(),
    API.sirvis.runtimeSet(),API.sirvis.runs(),API.sirvis.machine()]);
  /* Loaded builds first, then the rest in catalogue order. What is resident now is
@@ -2250,7 +2377,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    with different context ceilings and different evidence. */
 async function sirvisModels(){
  heading('Installed builds','Identity is family, variant, runtime and runtime config — never the model name alone.',
-  `<button class="btn" onclick="DEMO_API.loadModel()">Load model</button>`);
+  `<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button>`);
  const [m,mc]=await Promise.all([API.sirvis.models(),API.sirvis.machine()]);
  const loaded=m.items.filter(x=>x.state!=='stopped');
  const resident=loaded.reduce((n,x)=>n+(x.resident_gb||0),0);
@@ -2324,7 +2451,7 @@ function discoverRows(items,free){
  return items.map(x=>{const after=+(free-x.size_gb).toFixed(1),tight=after<0||after<free*0.1;
   return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono" style="opacity:.75">${x.runtime} · ${x.quantization}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools_measured?` <span class="chip${x.tools?'':' warn'}" title="measured">${x.tools_measured.join('/')}</span>`:x.tools?' <span class="chip" title="published claim, not measured" style="opacity:.6">claims</span>':''}</span><span>${x.size_gb} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
    ?'<span class="chip">installed</span>'
-   :`<button class="btn" ${after<0?'disabled title="insufficient disk"':`onclick="DEMO_API.download('${x.family} · ${x.variant}',${x.size_gb},${after})"`}>Download</button>`}</span></div>`}).join('')}
+   :(after<0?`<button class="btn" disabled title="insufficient disk" style="opacity:.45;cursor:not-allowed">Download</button>`:control('Download','download'))}</span></div>`}).join('')}
 async function sirvisDiscover(){
  heading('Discover','Search the catalog, check it against this machine, and queue the download as a job.');
  const [cat,mc]=await Promise.all([API.sirvis.catalog(),API.sirvis.machine()]);
@@ -2376,7 +2503,7 @@ async function sirvisBenchmarks(){
    :'Jobs, their contract state, and the internal phase that rides alongside it.',
   j.source==='live'
    ?`<button class="btn" disabled title="no submit endpoint yet — §11.10's queue is unbuilt">New benchmark</button>`
-   :`<button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
+   :control('New benchmark','runBenchmark',' primary'));
  const by=s=>j.items.filter(x=>x.state===s).length;
  const partial=j.items.find(x=>x.state==='partial');
  $('#content').innerHTML=kpis([
@@ -2620,7 +2747,7 @@ async function systemView(){
 let ARMED=null;
 function armProfile(id){ARMED=ARMED===id?null:id;render()}
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
- heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',`<button class="btn primary" onclick="DEMO_API.reroute()">Simulate request</button>`);
+ heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
  const [rd,req,usage,prof]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),
    API.ravis.usage(),API.ravis.profiles()]);
  const active=prof.items.find(x=>x.default);
@@ -2634,7 +2761,7 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
    ${ARMED&&ARMED!==active.profile_id?(()=>{const t=prof.items.find(x=>x.profile_id===ARMED);
     return banner(`Activate ${t.profile_id}?`,
      `This is not a preference for this page — it changes the router's default for <b>every client</b>, including Clarvis's agent and chat pools and any application already holding a session. Sessions with affinity keep their current target until they end; every decision after that uses <b>${t.label}</b>. Sent with <b>If-Match rev ${active.revision}</b>, so it fails rather than racing another operator, and it is audited with actor, target, precondition and result.
-      <br><button class="btn primary" onclick="DEMO_API.activateProfile('${t.profile_id}',${active.revision});ARMED=null;render()">Activate ${t.label}</button>
+      <br>${control(`Activate ${t.label}`,'activateProfile',' primary')}
       <button class="btn" onclick="ARMED=null;render()">Cancel</button>`)})():''}
    <small class="mono dim">the chips on NERVIS's chat screen look like these and are not the same control: those set a profile <b>for one conversation</b>, as a parameter on that request, and change nothing for anyone else. This one is a stored state change under <b>routing-control</b>, which is why it asks first. Profiles are published by RAVIS and cannot be invented by a client — ${prof.items.map(x=>x.profile_id).join(', ')}.</small>`,'ravis')}</div>`
  +`<div class="card wide"><h3>${rd.pool} · candidates</h3>
@@ -2683,7 +2810,7 @@ function noRouteNote(req){
 }
 async function ravisRoutes(){
  heading('Routes','One decision record: requirements, the constraint funnel, the ranking, and what it cost to decide.',
-  `<button class="btn primary" onclick="DEMO_API.reroute()">Simulate request</button>`);
+  control('Simulate request','reroute',' primary'));
  const [rd,req,prof]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),API.ravis.profiles()]);
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  const considered=rd.eligible.length+rd.excluded.length;
@@ -2921,38 +3048,28 @@ async function ravisLogs(){
    to break — every row here looks like it wants to be editable. */
 async function ravisSettings(){
  heading('Settings','How the router serves its clients — and the five things that have an endpoint to change them.',
-  `<button class="btn" onclick="DEMO_API.refreshEvidence()">Refresh evidence</button>`);
+  control('Refresh evidence','refreshEvidence'));
  const [s,prof,pr]=await Promise.all([API.ravis.settings(),API.ravis.profiles(),API.ravis.providers()]);
  const active=prof.items.find(x=>x.default);
  const served=s.serving.endpoints.filter(e=>e[1]==='required').length;
- const band=s.budget.ladder.find(([lo,hi])=>s.budget.used_pct>=lo&&(hi===null||s.budget.used_pct<hi));
  $('#content').innerHTML=kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis'],
-   ['Budget',`${s.budget.used_pct}%`,`of €${s.budget.monthly_eur} · ${band[2]}`,'ravis'],
-   ['Privacy',s.privacy.level,'never overridden by score','ravis']])
- +`<div class="card full"><h3>What a client can change <span class="chip">has an endpoint</span></h3>${cell(`
-   <div class="table-row head six"><span>Action</span><span style="grid-column:2/4">Endpoint</span><span>Permission</span><span style="grid-column:5/-1">Control</span></div>
-   <div class="table-row six"><span>Active profile</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[0][1])}</span><span class="mono">${s.actions[0][2]}</span><span style="grid-column:5/-1">on the Dashboard — it asks first</span></div>
-   ${pr.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">POST /api/v1/providers/${x.provider_id}/${x.enabled?'disable':'enable'}</span><span class="mono">routing-control</span><span style="grid-column:5/-1"><button class="btn" onclick="DEMO_API.setProvider('${x.provider_id}',${!x.enabled})">${x.enabled?'Disable':'Enable'}</button> <small class="mono" style="opacity:.55">${x.enabled?'in eligibility':'not a candidate'}</small></span></div>`).join('')}
-   <div class="table-row six"><span>SIRVIS evidence</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[3][1])}</span><span class="mono">${s.actions[3][2]}</span><span style="grid-column:5/-1"><button class="btn" onclick="DEMO_API.refreshEvidence()">Refresh</button></span></div>
-   <div class="table-row six"><span>Conformance suite</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(s.actions[4][1])}</span><span class="mono">${s.actions[4][2]}</span><span style="grid-column:5/-1"><button class="btn" onclick="notify('ravis conformance clarvis — re-running the published suite')">Run</button></span></div>
-   <small class="mono dim">this is the whole list. Every mutation carries an <b>Idempotency-Key</b>, an <b>If-Match</b> where it changes state, a separate authorization under the permission named above, and an audit record with actor, target, precondition and result — and returns the actual post-state rather than the request echoed back.</small>`,'ravis')}</div>
+   ['Mutations','0','this API is read-only','ravis'],
+   ['Listen',`${s.listen.host}:${s.listen.port}`,s.listen.tls?'tls':'loopback, no tls','ravis']])
+ +`<div class="card full"><h3>What a client can change <span class="chip warn">nothing, yet</span></h3>${cell(`
+   <div class="trace-step"><b>mutating endpoints</b><span>none — RAVIS's management API is read-only at M18a</span></div>
+   <div class="trace-step"><b>active profile</b><span>configuration · no endpoint</span></div>
+   <div class="trace-step"><b>provider enable/disable</b><span>configuration · no endpoint</span></div>
+   <div class="trace-step"><b>evidence refresh</b><span>arrives with RAVIS M13</span></div>
+   <div class="trace-step"><b>conformance suite</b><span class="mono">ravis conformance clarvis</span></div>
+   <small class="mono dim">this card used to list five actions under a chip reading <b>has an endpoint</b>, with a working-looking button beside each. Not one of them existed: RAVIS publishes nine reads and no writes. The buttons raised a toast and changed nothing, which is worse than an absent control — an operator learns the system does something it does not, and only finds out when it matters. The suite is a real operation and runs on the CLI, which is where it is named.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Serving surface</h3>${cell(`
    <div class="table-row head"><span>Endpoint</span><span>Status</span><span style="grid-column:3/-1">Constraint</span></div>
    ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${escapeHtml(ep)}</span><span class="chip${st==='required'?'':' warn'}">${st}</span><span style="grid-column:3/-1;opacity:.75">${note}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${s.serving.supported.length} supported</span></div>
    <small class="mono dim" style="opacity:.8">${s.serving.supported.join(' · ')}</small>
    <small class="mono dim">${s.serving.note}. Errors are <b>${s.serving.error_shape}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Budget</h3>${cell(`
-   ${s.budget.ladder.map(([lo,hi,what])=>`<div class="trace-step"${band[0]===lo?' style="border-left-color:#ffb648"':''}><b>${lo}–${hi===null?'100+':hi}%</b><span>${what}</span></div>`).join('')}
-   <small class="mono dim">€${s.budget.monthly_eur} monthly, ${s.budget.used_pct}% used, so routing is in <b>${band[2]}</b>. An unknown price stays unknown and the constraint fails predictably — an estimated cost is never presented as an invoice.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Privacy and logging</h3>${cell(`
-   <div class="table-row head"><span>Level</span><span>Now</span><span style="grid-column:3/-1">Effect</span></div>
-   ${s.privacy.levels.map(l=>`<div class="table-row"><span class="mono">${l}</span><span>${l===s.privacy.level?'<span class="chip">active</span>':'<span class="mono" style="opacity:.3">—</span>'}</span><span style="grid-column:3/-1;opacity:.7">${l==='LOCAL_ONLY'?'every cloud candidate removed before scoring, not out-ranked':l==='TRUSTED_PROVIDERS'?'only providers on the trusted list are eligible':l==='LOCAL_PREFERRED'?'local candidates weighted up; cloud still eligible':'no privacy constraint applied'}</span></div>`).join('')}
-   <div class="trace-step" style="margin-top:10px"><b>request logging</b><span>${s.privacy.request_logging}</span></div>
-   <div class="trace-step"><b>persist content</b><span>${s.privacy.persist_content?'yes':'no'}</span></div>
-   <small class="mono dim">a privacy level is a hard constraint: it can never be overridden by score, which is what makes <b>LOCAL_ONLY</b> a promise rather than a preference. Prompt and response content is not persisted by default, so there is no content log to expose here.</small>`,'ravis')}</div>
   <div class="card full"><h3>Listen address <span class="chip${s.listen.tls?'':' warn'}">${s.listen.tls?'tls':'loopback, no tls'}</span></h3>${cell(`
    <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
    ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">http://${s.listen.host}:${s.listen.port}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
@@ -2967,8 +3084,7 @@ async function ravisSettings(){
   <div class="card narrow"><h3>Not changeable here</h3>${cell(`
    <div class="trace-step"><b>listen address</b><span>restart · no endpoint</span></div>
    <div class="trace-step"><b>serving surface</b><span>no endpoint</span></div>
-   <div class="trace-step"><b>budget thresholds</b><span>no endpoint</span></div>
-   <div class="trace-step"><b>privacy level</b><span>no endpoint</span></div>
+   <div class="trace-step"><b>privacy</b><span>a pool property (<span class="mono">ravis/private</span>), not a service setting</span></div>
    <div class="trace-step"><b>credentials</b><span>${s.credentials.store}</span></div>
    <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. Credentials are never editable from a dashboard at all: without secure storage a provider that needs one is unavailable, ${s.credentials.plaintext_fallback?'':'never downgraded to plaintext'}.</small>`,'ravis')}</div>`}
 
@@ -2977,7 +3093,7 @@ async function ravisSettings(){
    the build does not claim compatibility. */
 async function ravisDiagnostics(){
  heading('Diagnostics','The Clarvis conformance suite, breaker state and pool availability — the three things that break a client.',
-  `<button class="btn" onclick="notify('ravis conformance clarvis — re-running the published suite')">Re-run suite</button>`);
+  `<span class="mono" style="opacity:.6;font-size:12px">ravis conformance clarvis</span>`);
  const [cf,pr,pl]=await Promise.all([API.ravis.conformance(),API.ravis.providers(),API.ravis.pools()]);
  const passed=cf.checks.filter(([,ok])=>ok).length;
  const breakers=pr.items.filter(x=>x.breaker!=='CLOSED');

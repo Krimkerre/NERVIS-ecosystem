@@ -945,6 +945,32 @@ preserved, `MEASURED` provenance carrying the method version
 `stream.generation_tokens_per_second.v1`, and no single number anywhere that
 could be mistaken for a score.
 
+
+**A second pass deleted what the screens were inventing, and added the controls
+they were missing.** The audit that prompted it counted 98 explanatory footnotes
+against 0 selects and 0 toggles, and found the action surface exactly inverted:
+nine buttons for operations that do not exist, none for the four that do.
+
+Deleted: RAVIS Settings carried a €200/month budget with a spend ladder, and a
+four-level privacy setting with one marked active. RAVIS has no cost concept in
+its source at all, and privacy is a *pool* property (`ravis/private`) rather
+than a service setting. The same screen headed a card **"What a client can
+change · has an endpoint"** listing five actions, while a card three below it
+correctly said those things have no endpoint — the screen contradicted itself,
+and the version with the working-looking buttons was the false one.
+
+Every remaining control now goes through `control()`, which renders a button
+only when its endpoint exists and otherwise a disabled one naming what it waits
+for. **A button that raises a toast and changes nothing is worse than an absent
+control**: the operator learns the system does something it does not, and finds
+out otherwise at the moment it matters.
+
+One correction to that audit, recorded because the audit was wrong about it:
+"no toggles" is not a defect on RAVIS Settings. RAVIS publishes nine reads and
+no writes, so a toggle there would assert an endpoint that does not exist — and
+the screen already said so, in a card arguing that a settings page is exactly
+where that temptation is strongest.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -1073,6 +1099,7 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | SIRVIS **Runtime sets** | live | `/api/v1/runtime-sets` joined to the M10 matrix on **name and revision**; peak memory and follow-up render absent |
 | RAVIS **Routes** | live | `/api/v1/route-decisions` |
 | RAVIS **Pools** | live | `/api/v1/pools` + `/api/v1/models`; every build reads *out · tool support unknown — fails closed*, which is true |
+| SIRVIS **Runtime** | live | `/api/v1/runtime/residency`, and the four session mutations — the first controls on this page that reach a service |
 | SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
 | Recommendations, Downloads | mocks | need M15 and M11 |
 
