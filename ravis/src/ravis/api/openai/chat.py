@@ -43,7 +43,7 @@ from ravis.content import check_image_count
 from ravis.core.pools import direct_provider
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent
-from ravis.providers.base import ProviderAdapter, TranslatingAdapter
+from ravis.providers.base import ProviderAdapter, TranslatingAdapter, TranslationError
 from ravis.registry import ModelRegistry
 from ravis.reliability import (
     AttemptChain,
@@ -193,6 +193,11 @@ async def _translated(
     model = decision.selected or call.payload.get("model", "")
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     request = normalize(call.body, call.payload)
+    # The address the client used — `ravis/anthropic/claude-x` — is not a model
+    # any provider will accept. The router already resolved it to the bare name,
+    # so it is substituted here, once, rather than in every adapter: an adapter
+    # re-deriving it would be four copies of a rule the router owns.
+    request.requested_model = model
 
     if call.payload.get("stream") is not True:
         return await _translated_completion(call, adapter, request, model, completion_id)
@@ -219,8 +224,17 @@ async def _translated(
             if committed:
                 call.chain.interrupted(model)
             else:
-                call.chain.failed(model, started, FailureClass.UNKNOWN, str(failure))
-            yield _sse_error(json.dumps(_error_body(str(failure), "upstream_error")).encode())
+                call.chain.failed(model, started, _adapter_failure(failure), str(failure))
+            # A refused translation is the client's request being wrong, and
+            # says so even here — the status line was committed the moment the
+            # stream opened, so the error type in the frame is all that is left
+            # to carry it.
+            kind = (
+                "invalid_request_error"
+                if isinstance(failure, TranslationError)
+                else "upstream_error"
+            )
+            yield _sse_error(json.dumps(_error_body(str(failure), kind)).encode())
         call.finish()
 
     return StreamingResponse(relay(), media_type="text/event-stream",
@@ -241,13 +255,41 @@ async def _translated_completion(
     started = call.chain.begin(model)
     try:
         answer = await adapter.complete(request)
+    except TranslationError as refusal:
+        # Not a chain exhaustion, and reporting it as one would bury the only
+        # thing worth saying. Nothing was attempted upstream, the request itself
+        # is what cannot be sent, and the client can fix it — so it gets a 400
+        # carrying the reason rather than a 502 saying every candidate failed.
+        call.chain.failed(model, started, FailureClass.INVALID_REQUEST, str(refusal))
+        call.finish()
+        return _openai_error(str(refusal), "invalid_request_error", 400)
     except Exception as failure:  # noqa: BLE001 - an adapter is third-party code
-        call.chain.failed(model, started, FailureClass.UNKNOWN, str(failure))
+        call.chain.failed(model, started, _adapter_failure(failure), str(failure))
         call.finish()
         return _chain_exhausted(call.chain)
     call.chain.succeeded(model, started)
     call.finish()
     return JSONResponse(completion(answer, model=model, completion_id=completion_id))
+
+
+def _adapter_failure(failure: Exception) -> FailureClass:
+    """Whose fault an adapter error was, which decides what happens next.
+
+    A `TranslationError` is RAVIS refusing a request it could not render — the
+    client's problem, and `INVALID_REQUEST` says so: no retry, no fallback, and
+    no mark against the provider's health. Everything else stays UNKNOWN, which
+    permits neither retry nor fallback either, but does not claim to know that
+    the request was the thing at fault.
+
+    Without this distinction one client sending an untranslatable body would
+    walk the provider's circuit breaker toward open, and take the provider
+    offline for every other caller on the machine.
+    """
+    return (
+        FailureClass.INVALID_REQUEST
+        if isinstance(failure, TranslationError)
+        else FailureClass.UNKNOWN
+    )
 
 
 async def _translated_frames(

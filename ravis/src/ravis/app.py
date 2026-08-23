@@ -22,6 +22,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
+import httpx
 from ecosystem_protocol import new_request_id
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
@@ -42,13 +43,15 @@ from ravis.config import Settings, resolved_capabilities
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.identity import resolve_identity
+from ravis.providers.anthropic import AnthropicAdapter
+from ravis.providers.base import TranslatingAdapter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
 from ravis.storage import prepare_database
-from ravis.upstream import create_client, upstream_from
+from ravis.upstream import Upstream, create_client, upstream_from
 
 NextCall = Callable[[Request], Awaitable[Any]]
 
@@ -138,7 +141,7 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Registered here rather than discovered, for the reason §3 gives about
     # provider clients: which providers exist is configuration, and a table
     # assembled by probing would make startup depend on the network.
-    api.state.translating = {}
+    api.state.translating = _translating_adapters(settings, api.state.upstream_client)
     api.state.adapter = GenericOpenAiAdapter(
         upstream=api.state.upstream,
         client=api.state.upstream_client,
@@ -233,3 +236,29 @@ def _register_error_handling(api: FastAPI) -> None:
     @api.exception_handler(RavisError)
     async def handle_ravis_error(request: Request, exc: RavisError) -> JSONResponse:
         return to_response(request, exc)
+
+
+def _translating_adapters(
+    settings: Settings, client: httpx.AsyncClient
+) -> dict[str, TranslatingAdapter]:
+    """The providers whose upstream does not speak the external protocol (§6).
+
+    Keyed by the name a direct address uses — `ravis/<provider>/<model>` — which
+    is what `chat.py` looks up to decide which of §6's two paths runs.
+
+    Registered from configuration rather than discovered by probing, for the
+    reason §3 gives about provider clients: which providers exist is a
+    deployment fact, and assembling this table over the network would make
+    startup depend on reaching every provider in it.
+    """
+    adapters: dict[str, TranslatingAdapter] = {}
+    if settings.anthropic_api_key:
+        adapters["anthropic"] = AnthropicAdapter(
+            upstream=Upstream(
+                base_url=settings.anthropic_base_url, api_key=settings.anthropic_api_key
+            ),
+            client=client,
+            max_output_tokens=settings.anthropic_max_output_tokens,
+            configured_capabilities=resolved_capabilities(settings),
+        )
+    return adapters
