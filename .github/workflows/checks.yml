@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: ravis
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
@@ -46,13 +46,16 @@ jobs:
     name: template — parse, endpoints, citations
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          # Only used so check.py can run `node --check` over the template's
+          # inline script. Any maintained release parses it, so this tracks LTS
+          # rather than pinning a number that silently ages into a warning.
+          node-version: "lts/*"
       # Cross-checks every cited endpoint against the specification documents and
       # requires a citation on every mutation, so an invented endpoint fails here
       # rather than looking sanctioned in a list.
