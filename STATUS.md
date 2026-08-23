@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 471 tests, no network, no live service
+.venv/bin/pytest                      # part of 478 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 175 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 182 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 471 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 478 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -501,18 +501,54 @@ all, which is a *different experiment* rather than a repair to this one:
 §11.4's own performance workload says 256 output, so raising it silently would
 make the numbers incomparable with every other row above.
 
-**Turning the thinking off makes one of them measurable, and the other not.**
-Probed rather than assumed. `qwen3-1.7b` honours the `/no_think` soft switch in
-the prompt — 227 characters of answer against the baseline's zero — and
-`examples/no-think.yaml` measures it there: **65.2 tok/s at a 0.209 s TTFT**,
-which takes it from unmeasurable to the third-fastest build on this machine.
-`lfm2.5-2.6b-mlx` ignores `/no_think` (a Qwen convention), and a system
-instruction only gets it answering *while still thinking*, so there is no
-suppression to measure yet.
+**Both are measurable now, by asking differently — and the engine does it.**
+A build that answers nothing is a diagnosis rather than a verdict, so when every
+warmup comes back empty the engine tries each declared suppression once and
+measures with whichever produces an answer. The warmups are the probe: they
+already run, §11.7 already excludes them from the statistics, and a build that
+said nothing in all of them is about to say nothing five more times.
 
-It is a **separate suite** rather than a flag on `basic.yaml`. §11.5 freezes a
-suite's prompts once results exist for it, and results now exist — changing that
-prompt would quietly make new numbers incomparable with the ten above.
+| Build | As asked | Adapted | Suppression | Thinking tokens |
+|---|---|---|---|---|
+| `qwen3-1.7b` | no answer | 61.9 tok/s · 0.218 s | `no_think_suffix` | none — it stops |
+| `lfm2.5-2.6b-mlx` | no answer | 78.6 tok/s · 3.351 s | `direct_system` | 228 per repetition |
+
+The two rows are not the same result. `/no_think` genuinely stops `qwen3-1.7b`
+thinking, so its content chunks account for its whole token count. The system
+instruction only gets `lfm2.5-2.6b-mlx` *answering while it still thinks*: a
+median of **228 tokens per repetition never arrive as content**, its 3.35 s
+time-to-first-token is mostly thinking, and its throughput covers the answer
+alone. Both facts are in the record; neither is inferred from a model's name.
+
+Nothing is hidden by any of this. An adapted run is `SUSPECT`, carries a note
+naming the suppression, and puts it **in the evidence identity** — §12.2 keys
+evidence on the configuration a number came from, and a prompt that had to be
+changed to get an answer is a different configuration. `suppress_thinking: none`
+turns it off for anyone measuring a build strictly as asked.
+
+`examples/no-think.yaml` remains the *declared* version of the same question —
+a separate suite rather than a flag on `basic.yaml`, because §11.5 freezes a
+suite's prompts once results exist and results now exist.
+
+**And `lfm2.5-2.6b-mlx` cannot be told to stop, which is settled rather than
+suspected.** Its chat template opens every assistant turn inside the thinking
+block, unconditionally:
+
+```jinja
+{%- if add_generation_prompt -%}
+    {{- "<|im_start|>assistant\n<think>" -}}
+{%- endif -%}
+```
+
+Its one template variable, `preserve_thinking`, governs whether *earlier*
+messages keep their thinking in the history — not whether the model thinks now.
+There is no switch, and LM Studio ignores `chat_template_kwargs` regardless. Two
+things do work and one only appears to: a larger budget lets it finish thinking
+and answer (289 tokens, `finish=stop`), the system instruction gets it answering
+inside 256, and **prefilling a closing `</think>` is a trap** — reasoning drops
+to zero and content jumps to 979 characters, because the thinking is now landing
+in the content field. Any metric counting content length would score that a
+success.
 
 Worth recording as a check on the schema: the two `performance-no-think` runs —
 one warm, one cold — produced **the same evidence ID** and agreed to within
@@ -945,6 +981,21 @@ reviewer who disagrees should say so rather than assume it was an accident.
   provider's own `: ping` keep-alive, or an `event:` field, carried a refusal
   straight past the first version. It skips SSE framing now — which is not the
   same as parsing the stream: the original bytes are still forwarded untouched.
+- **A throughput of 767 tokens/second, at `MEASURED` provenance, from
+  arithmetic that was correct.** Generation throughput divides output tokens by
+  the window after the first token — everything before it is the runtime reading
+  the prompt, everything after is it writing. A reasoning model breaks that
+  split: `lfm2.5-2.6b-mlx` spent 3.36 s generating 228 tokens of *thinking* and
+  then 0.33 s producing 27 tokens of answer, and dividing all 255 by the answer
+  window published an impossible number for a 2.6B model on a laptop. Nothing
+  was wrong with the formula; it was being handed tokens the content window
+  never saw. The rate is now computed from tokens that actually arrived as
+  content, published at `ESTIMATED` when the runtime's count disagrees with the
+  stream, and the gap is reported. The threshold for "disagrees" was measured
+  rather than chosen — ordinary models show content for 93–100% of their
+  reported tokens, this one for 11%. **It surfaced only because a live run
+  produced a number a person could see was impossible**, which no test asserted
+  and no gate would have caught.
 - **LM Studio accepts `chat_template_kwargs` and ignores it.** Probed while
   looking for a way to switch a reasoning model's thinking off:
   `{"enable_thinking": false}` produced a response byte-identical to the

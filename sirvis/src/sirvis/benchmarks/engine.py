@@ -37,11 +37,12 @@ facts, so the run completes and the record carries a validity warning.
 
 from __future__ import annotations
 
+import statistics
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Mapping, Protocol, Sequence
 
-from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec
+from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, suppressed
 from sirvis.core.evidence import (
     EvidenceIdentity,
     EvidenceKind,
@@ -87,6 +88,18 @@ METHOD_TTFT = "stream.time_to_first_token.v1"
 METHOD_THROUGHPUT = "stream.generation_tokens_per_second.v1"
 METHOD_LATENCY = "stream.total_latency.v1"
 METHOD_LOAD = "resource_manager.load_time.v1"
+
+# How much of a runtime's reported output must have shown up as content before
+# that count is believed to describe the content stream.
+#
+# Measured on this machine rather than chosen: an ordinary model's content
+# chunks account for **93–100%** of its reported completion tokens (130/137,
+# 250/255, 117/123, 256/256), while a reasoning model measured with its thinking
+# suppressed managed **27 of 255** — the other 228 were thinking, generated
+# before the first content token ever arrived. The separation is an order of
+# magnitude wide, so the exact threshold does not matter; what matters is that
+# below it, the reported count is describing work the content window never saw.
+CONTENT_TOKEN_AGREEMENT = 0.8
 
 # Finish reasons that mean the model stopped for a reason the experiment chose.
 # Anything else is §11.8's "unexpected generation stop" and becomes a warning.
@@ -137,22 +150,61 @@ class Repetition:
     lowest_available_bytes: int | None = None
 
     @property
+    def hidden_tokens(self) -> int:
+        """Tokens the runtime counted that never arrived as content.
+
+        A reasoning model generates its thinking *before* the first content
+        token, so those tokens are spent inside the time-to-first-token window
+        rather than in the generation window. Reported as a number rather than a
+        flag because it is the size of the gap that makes it unmistakable: a
+        handful of tokens is ordinary stream bookkeeping, and two hundred is a
+        model that thought first.
+        """
+        if self.completion_tokens is None or not self.chunk_count:
+            return 0
+        if self.chunk_count >= self.completion_tokens * CONTENT_TOKEN_AGREEMENT:
+            return 0
+        return self.completion_tokens - self.chunk_count
+
+    @property
+    def content_tokens(self) -> int | None:
+        """The tokens this repetition actually spent producing its answer.
+
+        The runtime's own count when it agrees with what the stream showed, and
+        the content-chunk count when it does not — because a total that includes
+        two hundred tokens of thinking cannot be divided by the window in which
+        the answer appeared.
+        """
+        if self.completion_tokens is None:
+            return self.chunk_count or None
+        return self.chunk_count if self.hidden_tokens else self.completion_tokens
+
+    @property
     def generation_tokens_per_second(self) -> float | None:
-        """Output tokens per second of *generation*, excluding prompt processing.
+        """Answer tokens per second, excluding prompt processing *and thinking*.
 
         §11.4 keeps prompt throughput and generation throughput apart, and the
         divide is the first token: everything before it is the runtime reading
         the prompt, everything after is it writing. Dividing by the total would
         blend the two and make a long prompt look like a slow model.
+
+        **A reasoning model breaks that split**, and did so live before this
+        guard existed: `lfm2.5-2.6b-mlx`, measured with its thinking suppressed,
+        spent 3.36 s generating 228 tokens of reasoning and then 0.33 s
+        producing 27 tokens of answer. Dividing all 255 by the 0.33 s window
+        published **767 tokens/second** for a 2.6B model on a laptop — an
+        impossible number, at `MEASURED` provenance, from arithmetic that was
+        correct for every model that does not think.
         """
-        if self.ttft_seconds is None or self.completion_tokens is None:
+        tokens = self.content_tokens
+        if self.ttft_seconds is None or tokens is None:
             return None
         generating = self.total_seconds - self.ttft_seconds
-        if generating <= 0 or self.completion_tokens <= 1:
+        if generating <= 0 or tokens <= 1:
             # One token, or a stream that finished within the resolution of the
             # clock. A rate computed from that describes the timer.
             return None
-        return (self.completion_tokens - 1) / generating
+        return (tokens - 1) / generating
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -165,6 +217,7 @@ class Repetition:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "chunk_count": self.chunk_count,
+            "hidden_tokens": self.hidden_tokens,
             "token_source": self.token_source,
             "generation_tokens_per_second": self.generation_tokens_per_second,
             "content": self.content,
@@ -186,6 +239,12 @@ class ExperimentOutcome:
     repetitions: list[Repetition] = field(default_factory=list)
     telemetry: list[MemorySample] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # The suppression that got this build answering, when it answered nothing as
+    # written. Part of the evidence identity rather than a footnote, because a
+    # measurement taken under a changed prompt is evidence about a different
+    # question and must not collide with the one the suite asked.
+    thinking_suppression: str | None = None
+    suppressions_tried: list[str] = field(default_factory=list)
 
 
 async def run_experiment(
@@ -329,15 +388,70 @@ async def _run_test(
     absorb the runtime's first-call costs *for this prompt* — LM Studio loads on
     demand, and a prompt length it has not seen pays for its own KV cache.
     """
+    warmed = []
     for index in range(spec.warmups):
         result = await _measure(test, spec, runtime, sampler, "warmup", index, outcome, clock)
         directory.write_response(test.id, "warmup", index, result.as_dict())
+        warmed.append(result)
+
+    # **The warmups are the probe.** They already run, §11.7 already excludes
+    # them from the statistics, and a build that said nothing in all of them is
+    # about to say nothing five more times. Spending the measured repetitions to
+    # discover that produces a result nobody can use.
+    effective = test
+    if warmed and not any(warm.content for warm in warmed) and spec.suppress_thinking:
+        effective = await _suppress(spec, test, runtime, sampler, directory, outcome, clock)
+
     for index in range(spec.repetitions):
         result = await _measure(
-            test, spec, runtime, sampler, "measured", index, outcome, clock
+            effective, spec, runtime, sampler, "measured", index, outcome, clock
         )
         directory.write_response(test.id, "measured", index, result.as_dict())
         outcome.repetitions.append(result)
+
+
+async def _suppress(
+    spec: ExperimentSpec,
+    test: BenchmarkTest,
+    runtime: GenerationRuntime,
+    sampler: MemoryProbe,
+    directory: ResultDirectory,
+    outcome: ExperimentOutcome,
+    clock: Callable[[], float],
+) -> BenchmarkTest:
+    """Ask the same question differently, and keep the first phrasing answered.
+
+    Reached only when the build produced no content in *every* warmup. That is
+    not a failure to record and move on from: a reasoning model that spends its
+    whole budget thinking has done real work — `qwen3-1.7b` and `lfm2.5-2.6b-mlx`
+    each generated 255 tokens and emitted none of them — and "it said nothing"
+    measures the token cap rather than the model.
+
+    Each attempt costs one generation and stops at the first that answers.
+    Nothing is inferred from the model's name: `/no_think` works for Qwen and is
+    inert text elsewhere, so the strategies are *tried* rather than selected, and
+    the one that worked is recorded. When none works, the run measures exactly
+    what was asked and says which phrasings were attempted — which is strictly
+    more than the bare "returned no content" it used to report.
+    """
+    outcome.suppressions_tried = list(spec.suppress_thinking)
+    for strategy in spec.suppress_thinking:
+        candidate = suppressed(test, strategy)
+        probe = await _measure(
+            candidate, spec, runtime, sampler, f"probe-{strategy}", 0, outcome, clock
+        )
+        directory.write_response(test.id, f"probe-{strategy}", 0, probe.as_dict())
+        if probe.content:
+            outcome.thinking_suppression = strategy
+            directory.append_log(
+                f"{test.id}: no content as written; measuring with {strategy}"
+            )
+            return candidate
+    directory.append_log(
+        f"{test.id}: no content as written, and none of "
+        f"{', '.join(spec.suppress_thinking)} changed that"
+    )
+    return test
 
 
 async def _measure(
@@ -478,7 +592,12 @@ def _evidence(
     """
     measured = [r for r in outcome.repetitions if r.phase == "measured"]
     warnings = list(outcome.warnings) + _generation_warnings(measured)
-    estimated = any(r.token_source != "reported" for r in measured)
+    warnings += _suppression_warnings(outcome, measured)
+    # Either the runtime reported nothing, or it reported a count the content
+    # stream contradicts. Both mean the numerator is inferred rather than
+    # counted, and §12.1's lattice then weakens the whole record — which is the
+    # correct outcome for a rate derived from a chunk count.
+    estimated = any(r.token_source != "reported" or r.hidden_tokens for r in measured)
 
     measurements: dict[str, Measurement] = {}
     _add(measurements, "time_to_first_token_seconds", [r.ttft_seconds for r in measured],
@@ -495,6 +614,15 @@ def _evidence(
     _add(measurements, "load_time_seconds", list(load), unit="seconds",
          direction="lower", method=METHOD_LOAD)
 
+    # The suppression belongs *in the identity*, not beside it. §12.2 keys
+    # evidence on the configuration a number was produced under, and a prompt
+    # that had to be changed to get an answer is a different configuration — so
+    # the adapted result gets its own evidence ID and can never be averaged with
+    # or mistaken for the one the suite asked for.
+    configuration = dict(spec.load)
+    if outcome.thinking_suppression:
+        configuration["thinking_suppression"] = outcome.thinking_suppression
+
     variant = build["variant"]
     identity = EvidenceIdentity(
         machine_id=str(machine["machine_id"]),
@@ -507,7 +635,7 @@ def _evidence(
         source_repository=variant.source_repository,
         model_format=variant.runtime_format,
         quantization=variant.quantization,
-        runtime_configuration=dict(spec.load),
+        runtime_configuration=configuration,
     )
     return EvidenceRecord(
         identity=identity,
@@ -539,6 +667,40 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
     if unexpected:
         warnings.append(f"unexpected generation stop: {', '.join(str(r) for r in unexpected)}")
     return warnings
+
+
+def _suppression_warnings(
+    outcome: ExperimentOutcome, measured: Sequence[Repetition]
+) -> list[str]:
+    """What the run had to do to get an answer, and what it could not measure.
+
+    An adapted run is `SUSPECT` rather than `VALID`, and deliberately: the
+    numbers are sound, but they are not about the prompt the suite declares, and
+    a consumer filtering for clean measurements should not silently receive one
+    taken under a different question.
+    """
+    notes = []
+    thought = [r.hidden_tokens for r in measured if r.hidden_tokens]
+    if thought:
+        notes.append(
+            f"{len(thought)} repetition(s) generated tokens that never arrived as "
+            f"content — a median of {int(statistics.median(thought))} of them. Those are "
+            "reasoning, spent before the first answer token: the throughput here covers "
+            "the answer only, and the time-to-first-token includes the thinking"
+        )
+    if outcome.thinking_suppression:
+        notes.append(
+            "the prompt as written produced no content, so this was measured with "
+            f"thinking suppressed via {outcome.thinking_suppression} — a different "
+            "prompt from the one this suite declares, and recorded in the evidence "
+            "identity as such"
+        )
+    elif outcome.suppressions_tried:
+        notes.append(
+            "the build answered nothing as written, and none of "
+            f"{', '.join(outcome.suppressions_tried)} changed that"
+        )
+    return notes
 
 
 def _add(target: dict[str, Measurement], name: str, values: Sequence[float | None], *,

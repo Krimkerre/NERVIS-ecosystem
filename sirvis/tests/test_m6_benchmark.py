@@ -52,7 +52,12 @@ class FakeRuntime:
         effective_context: int = 8192,
         ignored: tuple[str, ...] = (),
         fail_after: int | None = None,
+        speaks_only_when: str | None = None,
     ) -> None:
+        # A reasoning model, as far as this engine can see one: it emits nothing
+        # unless the prompt carries a marker. Real ones emit reasoning deltas and
+        # no content, which reaches the adapter as exactly this.
+        self.speaks_only_when = speaks_only_when
         self.content = content
         self.usage = usage
         self.finish = finish
@@ -96,6 +101,14 @@ class FakeRuntime:
     ) -> AsyncIterator[GenerationChunk]:
         self.generations += 1
         self.requests.append((model_key, messages, dict(options)))
+        if self.speaks_only_when is not None and not any(
+            self.speaks_only_when in str(message.get("content", "")) for message in messages
+        ):
+            # 255 tokens of thinking and not one of them content — the shape
+            # `qwen3-1.7b` and `lfm2.5-2.6b-mlx` both produce at a 256 cap.
+            yield GenerationChunk(finish_reason="length",
+                                  usage={"prompt_tokens": 9, "completion_tokens": 255})
+            return
         if self.fail_after is not None and self.generations > self.fail_after:
             raise RuntimeUnavailableError("the runtime stopped answering")
         for piece in self.content:
@@ -159,7 +172,7 @@ async def _run(runtime: FakeRuntime, spec: ExperimentSpec | None = None,
 
 async def test_a_run_persists_a_valid_result(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """M6's exit criterion, in the smallest form that means it."""
-    runtime = FakeRuntime(usage={"prompt_tokens": 9, "completion_tokens": 4})
+    runtime = FakeRuntime(usage={"prompt_tokens": 9, "completion_tokens": 2})
 
     outcome, database = await _run(runtime, results_root=tmp_path)
 
@@ -230,8 +243,50 @@ async def test_a_token_count_nobody_reported_is_never_called_measured(tmp_path) 
     assert outcome.record.evidence_type is EvidenceKind.PARTIALLY_MEASURED
 
 
+async def test_tokens_that_never_arrived_as_content_do_not_inflate_throughput(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """Caught live, at `MEASURED` provenance, by a number that was impossible.
+
+    `lfm2.5-2.6b-mlx` measured with its thinking suppressed spent 3.36 s
+    generating 228 tokens of reasoning and 0.33 s producing 27 tokens of answer.
+    Dividing all 255 by the answer window published **767 tokens/second** for a
+    2.6B model on a laptop — from arithmetic that is correct for every model
+    that does not think first.
+    """
+    runtime = FakeRuntime(
+        content=("an", "swer"),
+        usage={"prompt_tokens": 9, "completion_tokens": 200},
+    )
+
+    outcome, _ = await _run(runtime, _spec(repetitions=3), results_root=tmp_path)
+
+    throughput = outcome.record.measurements["generation_tokens_per_second"]
+    # Two content chunks over a half-second window, not two hundred tokens.
+    assert throughput.median == pytest.approx(2.0)
+    assert throughput.provenance.kind is EvidenceKind.ESTIMATED
+    assert any("reasoning" in note for note in outcome.record.validity_notes)
+
+
+async def test_an_ordinary_stream_is_not_mistaken_for_a_thinking_one(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Real streams show content chunks for 93–100% of their reported tokens —
+    a handful of tokens never appear, and that is ordinary bookkeeping rather
+    than a model that thought first."""
+    runtime = FakeRuntime(
+        content=tuple("word" for _ in range(19)),
+        usage={"prompt_tokens": 9, "completion_tokens": 20},
+    )
+
+    outcome, _ = await _run(runtime, results_root=tmp_path)
+
+    assert outcome.record.measurements["generation_tokens_per_second"].provenance.kind is (
+        EvidenceKind.MEASURED
+    )
+    assert outcome.record.validity is Validity.VALID
+
+
 async def test_reported_usage_keeps_the_record_measured(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    runtime = FakeRuntime(usage={"prompt_tokens": 9, "completion_tokens": 4})
+    runtime = FakeRuntime(usage={"prompt_tokens": 9, "completion_tokens": 2})
 
     outcome, _ = await _run(runtime, results_root=tmp_path)
 
@@ -250,6 +305,81 @@ async def test_a_model_that_says_nothing_is_a_result_with_a_warning(tmp_path) ->
     assert any("no content" in note for note in outcome.record.validity_notes)
     # Nothing arrived, so there is no first token to have timed.
     assert "time_to_first_token_seconds" not in outcome.record.measurements
+
+
+async def test_a_build_that_answers_nothing_is_asked_differently(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The measured repetitions are not spent discovering what the warmups
+    already showed. A reasoning model that says nothing has done real work —
+    255 tokens of it — and recording "it said nothing" measures the token cap
+    rather than the model."""
+    runtime = FakeRuntime(speaks_only_when="/no_think")
+
+    outcome, _ = await _run(runtime, _spec(warmups=1, repetitions=3), results_root=tmp_path)
+
+    assert outcome.thinking_suppression == "no_think_suffix"
+    assert outcome.record.measurements["time_to_first_token_seconds"].samples == 3
+    # One warmup, one probe that worked, three measured. The second strategy is
+    # never tried, because the first one answered.
+    assert runtime.generations == 5
+
+
+async def test_an_adapted_run_is_different_evidence_from_the_one_asked_for(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """§12.2 keys evidence on the configuration a number came from. A prompt
+    that had to be changed to get an answer is a different configuration, so the
+    adapted result gets its own identity and can never be averaged with — or
+    mistaken for — the measurement the suite declared."""
+    adapted, _ = await _run(
+        FakeRuntime(speaks_only_when="/no_think"), _spec(warmups=1), results_root=tmp_path
+    )
+    plain, _ = await _run(FakeRuntime(), _spec(warmups=1), results_root=tmp_path)
+
+    assert adapted.record.identity.evidence_id != plain.record.identity.evidence_id
+    assert adapted.record.identity.runtime_configuration["thinking_suppression"] == (
+        "no_think_suffix"
+    )
+    # Sound numbers, but not about the question the suite asked.
+    assert adapted.record.validity is Validity.SUSPECT
+    assert any("no_think_suffix" in note for note in adapted.record.validity_notes)
+
+
+async def test_a_build_that_answers_nothing_however_it_is_asked_says_what_was_tried(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """`lfm2.5-2.6b-mlx` ignores every suppression this engine knows. The result
+    is the same empty measurement as before — with the phrasings that were
+    attempted, which is strictly more than "returned no content"."""
+    runtime = FakeRuntime(speaks_only_when="never appears")
+
+    outcome, _ = await _run(runtime, _spec(warmups=1, repetitions=2), results_root=tmp_path)
+
+    assert outcome.thinking_suppression is None
+    assert "time_to_first_token_seconds" not in outcome.record.measurements
+    assert any("no_think_suffix" in note and "direct_system" in note
+               for note in outcome.record.validity_notes)
+
+
+async def test_suppression_is_never_attempted_on_a_build_that_answers(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """It costs a generation, so it fires only where it is needed."""
+    runtime = FakeRuntime()
+
+    outcome, _ = await _run(runtime, _spec(warmups=2, repetitions=3), results_root=tmp_path)
+
+    assert outcome.suppressions_tried == []
+    assert runtime.generations == 5
+
+
+async def test_an_experiment_may_refuse_to_be_adapted(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """`suppress_thinking: none`. Someone measuring how a build behaves *as
+    asked* must be able to say so and get exactly that."""
+    runtime = FakeRuntime(speaks_only_when="/no_think")
+
+    outcome, _ = await _run(
+        runtime, _spec(warmups=1, repetitions=2, suppress_thinking=()), results_root=tmp_path
+    )
+
+    assert outcome.thinking_suppression is None
+    assert outcome.suppressions_tried == []
+    assert runtime.generations == 3
 
 
 async def test_a_configuration_the_runtime_did_not_honour_is_a_warning(tmp_path) -> None:  # type: ignore[no-untyped-def]
