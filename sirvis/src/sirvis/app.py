@@ -17,9 +17,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from sirvis.api import router as api_router
-from sirvis.api.security import AuthorizationError, ensure_bootstrap_token
+from sirvis.api.security import ensure_bootstrap_token
 from sirvis.config import Settings
 from sirvis.ecosystem import sirvis_surface
+from sirvis.errors import SirvisError, to_response
 from sirvis.resources import ResourceManager
 from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database
@@ -27,15 +28,22 @@ from sirvis.storage import prepare_database
 NextCall = Callable[[Request], Awaitable[Any]]
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> FastAPI:
     """Assemble the application from settings and return it.
 
     Construction is separated from use (runbook §14.2): everything the request
-    path needs is built here, so no handler opens a database of its own. That is
-    also what makes the whole thing testable without a running service.
+    path needs is built here, so no handler opens a database of its own.
+
+    `runtime` is injectable, and the reason is a defect rather than symmetry.
+    Tests used to build the app and then replace `app.state.lmstudio` with a
+    recorded one — but the Resource Manager is constructed *here*, capturing the
+    adapter it was given, so the swap left a live adapter behind inside it. A
+    single test posting to `/runtime/sessions` then loaded a real model onto the
+    developer's machine. Passing the runtime in closes the window: there is no
+    moment at which a live adapter exists to be left behind.
     """
     api = FastAPI(title="SIRVIS", version="0.0.1", docs_url=None, redoc_url=None)
-    _attach_shared_state(api, settings)
+    _attach_shared_state(api, settings, runtime)
     _register_correlation(api)
     _register_error_handling(api)
     api.include_router(ecosystem_router)
@@ -43,7 +51,9 @@ def create_app(settings: Settings) -> FastAPI:
     return api
 
 
-def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
+def _attach_shared_state(
+    api: FastAPI, settings: Settings, runtime: LMStudioAdapter | None = None
+) -> None:
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
@@ -61,7 +71,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Built once, holds no state about what is loaded: the runtime is the
     # authority on that (§7), and a cache would be wrong the first time anything
     # else on this machine loaded something.
-    api.state.lmstudio = LMStudioAdapter(base_url=settings.lmstudio_base_url)
+    api.state.lmstudio = runtime or LMStudioAdapter(
+        base_url=settings.lmstudio_base_url,
+        lms_path=settings.lmstudio_cli_path,
+    )
     # §9: *all* load and unload operations flow through this. The adapter is
     # still reachable for reads — discovery, generation — but nothing else in
     # the service is allowed to drive lifecycle directly, because the moment two
@@ -87,10 +100,9 @@ def _register_error_handling(api: FastAPI) -> None:
     credential in the body while explaining why it was rejected.
     """
 
-    @api.exception_handler(AuthorizationError)
-    async def handle_refusal(request: Request, exc: AuthorizationError) -> JSONResponse:
-        del request
-        return JSONResponse(status_code=exc.status, content={"detail": exc.message})
+    @api.exception_handler(SirvisError)
+    async def handle_sirvis_error(request: Request, exc: SirvisError) -> JSONResponse:
+        return to_response(request, exc)
 
 
 def _register_correlation(api: FastAPI) -> None:

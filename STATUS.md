@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 385 tests, no network, no live service
+.venv/bin/pytest                      # part of 397 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 110 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 122 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 385 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 397 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -307,6 +307,41 @@ ecosystem's governing rule forbids inventing another component's API, and
 inventing one's own where the specification already names a shape is the same
 mistake with a shorter blast radius.
 
+### The test suite was loading models on the developer's machine
+
+Runbook §14.5 says no test reaches a live model, a network or a real service.
+That was true of the HTTP client and quietly false everywhere else, and it cost
+the user four unwanted model loads before anyone connected the two.
+
+Three separate holes, and the shape of the mistake is the same each time — a
+guarantee that held for the channel somebody was thinking about:
+
+- **`Settings()` defaults `lmstudio_base_url` to the real LM Studio.** Any test
+  building an app from defaults had a live adapter wired into it.
+- **Lifecycle does not go over HTTP at all.** LM Studio exposes no load or
+  unload, so the adapter shells out to the `lms` CLI — which means pointing the
+  base URL at a dead port protects reads and nothing else. This was the hole
+  that actually loaded the models.
+- **The Resource Manager captures the adapter it is constructed with.** Tests
+  built the app and *then* replaced `app.state.lmstudio`, leaving a live adapter
+  inside the manager. One test posting to `/runtime/sessions` loaded a real
+  model.
+
+Closed three ways, on the principle that the guard should not depend on anyone
+remembering it. An autouse fixture pins both channels for every test; `Settings`
+gained `lmstudio_cli_path` so the second one is configurable at all; and
+`create_app` now takes its runtime, so no moment exists at which a live adapter
+could be left behind. The last of those is the belt: `_run_lms` is patched to
+fail the test loudly — but only when a real binary would actually have been
+invoked, because two tests exist to assert the adapter's own refusal when no CLI
+is installed, and a guard that pre-empts the code under test replaces a real
+assertion with its own.
+
+**The first attempt at that guard patched `subprocess.run` on the module**,
+which is global, and broke M1's machine detection — which shells out to `sysctl`
+and has nothing to do with runtimes. A guard that disables unrelated code is a
+guard that gets deleted.
+
 ### Audited before M6 — what the specification asks for and does not have
 
 Checked the built surface against `SIRVIS.md` rather than discovering these
@@ -319,8 +354,8 @@ mid-milestone. **Four block M6.**
 | **No lightweight memory sampling.** M1's `detect_system` shells out and is far too heavy to run at §11.8's eight points around a single generation | §11.8 | **yes** |
 | **No raw result directory.** §11.9's `results/<experiment-id>/` with responses preserved, so a rescoring does not need a rerun | §11.9 | **yes** |
 | **No YAML.** `sirvis benchmark run basic.yaml` needs a parser this package does not depend on | §18 | yes, trivially |
-| **The error model is wrong.** §4.3 specifies `{"error": {code, message, details, request_id, trace_id}}` with a named code list; the API currently returns FastAPI's default `{"detail": …}` | §4.3 | no — but it is shipped and wrong |
-| **`sirvis doctor` never learned about M1.** §18 says it checks Apple Silicon, RAM, disk, LM Studio, installed models and the results directory. It reports configuration and migrations only — M1 landed and doctor was not revisited | §18 | no |
+| ~~**The error model is wrong.**~~ **Fixed.** §4.3's shape and its closed code list, with correlation IDs attached at the single translation point so no raiser can forget them | §4.3 | done |
+| ~~**`sirvis doctor` never learned about M1.**~~ **Fixed.** Machine, memory, disk, thermal, database, results directory, and the runtime — which it now contacts, reporting an absent one as a finding rather than a failure (§15.4) | §18 | done |
 | **CLI is far from parity.** §18's `models list`, `runtime list`, `runtime sessions`, `results latest` all have APIs and no command | §18 | no |
 | **`/api/v1/runtimes/{runtime_id}` and `/runtime-instances` are unbuilt**, and `/runtimes/{key}/models` is a path §4.2 does not list | §4.2 | no |
 | **No job state machine.** §11.10's internal phases and coarse published enum, and "no result is visible before its snapshot and provenance commit atomically" | §11.10 | partly |

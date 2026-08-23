@@ -14,11 +14,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from sirvis.api.security import Scope, redacted, require, token_summary
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
+from sirvis.errors import (
+    BenchmarkNotFoundError,
+    InvalidConfigurationError,
+    ModelNotFoundError,
+    ResourceBusyError,
+    RuntimeUnreachableError,
+)
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
 from sirvis.telemetry import detect_system
@@ -172,9 +179,9 @@ async def read_models(request: Request, runtime_key: str | None = None) -> dict[
 
     found = inventory.by_runtime_key(runtime_key)
     if found is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"no installed build carries the runtime key {runtime_key!r}",
+        raise ModelNotFoundError(
+            f"no installed build carries the runtime key {runtime_key!r}",
+            runtime_key=runtime_key,
         )
     return _describe(inventory, found.runtime_key) | {"snapshot_revision": SNAPSHOT_REVISION}
 
@@ -188,7 +195,9 @@ async def read_model(request: Request, local_model_id: str) -> dict[str, Any]:
             return _describe(inventory, model.runtime_key) | {
                 "snapshot_revision": SNAPSHOT_REVISION
             }
-    raise HTTPException(status_code=404, detail=f"no installed build {local_model_id!r}")
+    raise ModelNotFoundError(
+        f"no installed build {local_model_id!r}", local_model_id=local_model_id
+    )
 
 
 def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
@@ -230,7 +239,7 @@ async def open_session(request: Request) -> dict[str, Any]:
     body = await _json_body(request)
     wanted = body.get("models") or []
     if not isinstance(wanted, list) or not wanted:
-        raise HTTPException(status_code=422, detail="models must be a non-empty list")
+        raise InvalidConfigurationError("models must be a non-empty list")
 
     manager: ResourceManager = request.app.state.resources
     owner = str(body.get("owner") or "anonymous")
@@ -241,7 +250,7 @@ async def open_session(request: Request) -> dict[str, Any]:
         for entry in wanted:
             model_key = str((entry or {}).get("model_id") or "").strip()
             if not model_key:
-                raise HTTPException(status_code=422, detail="each model needs a model_id")
+                raise InvalidConfigurationError("each model needs a model_id")
             lease = await manager.acquire(
                 owner=owner,
                 model_key=model_key,
@@ -257,11 +266,11 @@ async def open_session(request: Request) -> dict[str, Any]:
         # and leaving the two held would strand them behind a lease nobody owns.
         if session_id:
             await manager.release(session_id)
-        raise HTTPException(status_code=409, detail=str(failure)) from failure
+        raise ResourceBusyError(str(failure)) from failure
     except RuntimeUnavailableError as failure:
         if session_id:
             await manager.release(session_id)
-        raise HTTPException(status_code=502, detail=str(failure)) from failure
+        raise RuntimeUnreachableError(str(failure)) from failure
 
     assert lease is not None  # the loop ran at least once, or 422 was raised
     return lease.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
@@ -288,9 +297,9 @@ async def renew_session(request: Request, session_id: str) -> dict[str, Any]:
     manager: ResourceManager = request.app.state.resources
     renewed = manager.renew(session_id)
     if renewed is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"session {session_id!r} has lapsed; its models were already released",
+        raise BenchmarkNotFoundError(
+            f"session {session_id!r} has lapsed; its models were already released",
+            session_id=session_id,
         )
     return renewed.as_dict()
 
@@ -321,9 +330,9 @@ async def _json_body(request: Request) -> dict[str, Any]:
     try:
         parsed = await request.json()
     except ValueError as failure:
-        raise HTTPException(status_code=422, detail="body is not valid JSON") from failure
+        raise InvalidConfigurationError("body is not valid JSON") from failure
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=422, detail="body must be a JSON object")
+        raise InvalidConfigurationError("body must be a JSON object")
     return parsed
 
 
