@@ -25,11 +25,11 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # 243 tests, no network, no live service
+.venv/bin/pytest                      # 250 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-Expected: all clean, 243 passing, conformance `PASS`. CI runs the same four on
+Expected: all clean, 250 passing, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -232,19 +232,31 @@ reviewer who disagrees should say so rather than assume it was an accident.
   *downgrade* from MEASURED and therefore safe — it never claims to have
   measured what it was told (§13.3 forbids the upgrade, not the downgrade). M13
   should replace this file rather than sit beside it.
-- **The pools now resolve, and they resolve to the wrong models.** With the
-  measured file loaded, `clarvis-agent` selects `qwen2.5-coder-14b-instruct-mlx`
-  and `clarvis-chat` selects `lfm2.5-2.6b-mlx`. Both are alphabetical accidents
-  and both are measurably poor choices: the 14B scores *identically* to the 7B
-  at a third of its generation rate, and lfm2.5 takes 5.5s to first token and
-  produced no visible output in the rate test. **This is not a bug to patch.**
-  M5 ranks on declared preference then alphabetical order and says so in the
-  route explanation, because there is no evidence to rank on until M13 — and
-  `clarvis-agent`'s `prefer=("coder", "code")` matches both coder builds equally,
-  so the tie falls to sorting. The two honest fixes are M13, or a considered
-  change to §5's `prefer` tuples. Declaring a good model's rival as
-  tool-incapable to force an ordering would be lying about capability to get a
-  ranking, and is the one thing not to do.
+- **Ranking now breaks ties on size rather than on the alphabet.** Both pools
+  used to resolve to measurably poor choices — `clarvis-agent` took the 14B over
+  a 7B that scores identically at three times the rate, and `clarvis-chat` took
+  the model that needs 5.5s to reach a first token — and both were alphabetical
+  accidents rather than judgements. Fixed in two places, neither of which
+  invents a quality signal:
+  **`clarvis-chat` declares a preference at all.** It had none, so selection was
+  pure alphabetical order. §5.1 asks the pool for instruction following, so
+  `prefer=("instruct", "chat")` is what the description already said. It narrows
+  the field to a defensible class and deliberately does not rank inside it.
+  **The last-resort tiebreak is now parameter count, smallest first.** §9.2
+  lists "prefer fast" and "prefer cheap" among the soft preferences, and among
+  candidates a pool already considers identical the smaller one is both —
+  whereas alphabetical order carries no meaning at all. It is consulted after
+  declared preference and after residency, never instead of them, the route
+  explanation names it and calls it a tiebreak on cost rather than quality, and
+  a name carrying no size sorts *last* rather than counting as zero. Mixture-of-
+  experts names are read by their active parameters, since that is what decides
+  how fast the thing answers.
+  Both pools now select `qwen2.5-coder-7b-instruct`, which is what
+  `clarvis/docs/benchmarks.md` recommends for both roles — reached from the
+  pools' own stated intent rather than by copying the result, which is the only
+  reason it is worth anything. Declaring a good model's rival tool-incapable to
+  force the same ordering would have been lying about capability to buy a
+  ranking, and remains the one thing not to do.
 - **Where the orchestration layer lives.** Alexander Keisse's router does
   prompt-shaping, multi-pass and RAG that this ecosystem currently has nowhere.
   The proposal on the table is that it becomes a client *of* RAVIS rather than

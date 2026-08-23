@@ -15,6 +15,7 @@ a broken tool call far from its cause.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ravis.core.capabilities import Capability, ModelCapabilities
@@ -83,16 +84,15 @@ class VirtualModelPool:
             model for model, known in candidates.items()
             if not self.requirements.unmet_by(known)
         ]
-        return sorted(members, key=lambda model: (self.preference_rank(model), model))
+        return sorted(members, key=lambda model: (self.preference_rank(model), *size_rank(model)))
 
     def preference_rank(self, model: str) -> int:
         """How well a model matches this pool's declared preference, lowest best.
 
         An int rather than a full sort key, so the routing engine can combine it
-        with runtime facts. Callers pair it with the model name for the
-        alphabetical tiebreak that makes selection *predictable* — M5's
-        acceptance criterion, since a route explanation describing a coin toss
-        explains nothing.
+        with runtime facts. Callers pair it with `size_rank` for the tiebreak
+        that makes selection *predictable* — M5's acceptance criterion, since a
+        route explanation describing a coin toss explains nothing.
         """
         for position, fragment in enumerate(self.prefer):
             if fragment in model:
@@ -101,6 +101,53 @@ class VirtualModelPool:
 
 
 _TOOLS_REQUIRED = PoolRequirements(required=frozenset({Capability.TOOLS}), minimum_context=32768)
+
+# A parameter count embedded in a model identifier: `7b`, `2.6b`, `8x7b`, `30b-a3b`.
+# Case-insensitive, and anchored on a word boundary so a `b` inside a word never
+# counts.
+_PARAMETERS = re.compile(r"(\d+(?:\.\d+)?)\s*b\b", re.IGNORECASE)
+
+
+def parameter_scale(model: str) -> float | None:
+    """Billions of parameters read from a model identifier, or None.
+
+    A heuristic over a *name*, which is the only size signal available before
+    SIRVIS measures anything (M13) — a generic OpenAI-compatible endpoint
+    publishes an ID and nothing else. It is used only as a last-resort tiebreak,
+    never as a constraint, so being wrong costs an ordering rather than a route.
+
+    **The last match wins**, which matters for mixture-of-experts names: in
+    `qwen3-30b-a3b` the 3B is the *active* parameter count and the 30B is the
+    total, and it is the active count that decides how fast the thing answers.
+
+    None means the name carries no size — `phi-4-mini-instruct` and
+    `granite-4.0-h-tiny` both describe their size in words. That is an absence
+    rather than a zero (runbook §14.4), and `size_rank` sorts it last rather
+    than pretending it is small.
+    """
+    matches = _PARAMETERS.findall(model)
+    return float(matches[-1]) if matches else None
+
+
+def size_rank(model: str) -> tuple[int, float, str]:
+    """The tiebreak between candidates a pool considers equal: smaller first.
+
+    This replaces a purely alphabetical tiebreak, and the reason is that
+    alphabetical order carries *no meaning at all* — it once put a 14B ahead of
+    a 7B that scored identically at three times the rate, purely because "1"
+    sorts before "7". §9.2 lists "prefer fast" and "prefer cheap" among the soft
+    preferences, and among otherwise-equal candidates the smaller one is both.
+
+    It stays a tiebreak rather than becoming a score. A pool's declared
+    preference and residency both outrank it, and nothing here claims the
+    smaller model is *better* — only that when RAVIS has no evidence either way,
+    the cheaper one to run is the better default. Real ranking is M13.
+
+    The model name is retained as the final component so the order stays total
+    and reproducible, which §9.7's determinism gate requires.
+    """
+    scale = parameter_scale(model)
+    return (1, 0.0, model) if scale is None else (0, scale, model)
 
 # The required defaults from §5. `ravis/clarvis-chat` and `ravis/clarvis-agent`
 # are the two whose IDs must stay stable — Clarvis names them in configuration.
@@ -172,6 +219,15 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
             "Conversation, planning and instruction following. Tool support is optional "
             "unless the request itself supplies tools (§5.1)."
         ),
+        # §5.1 asks this pool for instruction following and reasonable latency,
+        # and until now it declared no preference at all — which meant pure
+        # alphabetical order, and against a real catalogue that selected the
+        # slowest installed model by accident. An instruction-tuned build is
+        # what the description literally names, so that is what is preferred.
+        # It narrows the field to a defensible class without pretending to rank
+        # inside it: which instruct model is *best* is evidence RAVIS does not
+        # have until M13.
+        prefer=("instruct", "chat"),
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-agent",
