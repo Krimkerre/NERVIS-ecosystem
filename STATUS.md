@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 655 tests, no network, no live service
+.venv/bin/pytest                      # part of 656 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 655 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 656 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -970,6 +970,35 @@ One correction to that audit, recorded because the audit was wrong about it:
 no writes, so a toggle there would assert an endpoint that does not exist — and
 the screen already said so, in a card arguing that a settings page is exactly
 where that temptation is strongest.
+
+
+**The Runtime screen's first real load, and the two defects it surfaced.**
+`qwen/qwen3-1.7b` was loaded through the screen's own form on 2026-08-24 — model
+selected, context 4096, lease 600s — and every field reached the runtime: LM
+Studio reported it resident at 4096, and residency showed one holding, one
+reference, `owner: nervis-dashboard`, `owned: true`. Renew and release both
+worked, and the release unloaded it.
+
+Neither defect was findable without doing it. The dashboard's *own copy* of the
+runtime-set members table rendered a literal `null` in the follow-up chip — the
+Runtime sets screen had been guarded and this second copy had not, and the load
+is what put a rendered page in front of someone.
+
+The second is the interesting one. `CORS_METHODS` read `GET, HEAD, OPTIONS`
+under a comment saying reads only, and inviting whoever needed a cross-origin
+mutation to decide explicitly. **It never held.** POST is a CORS-safelisted
+method, so a browser preflight accepts it whether or not it is listed: the
+dashboard could open a runtime session and renew a lease — the two expensive
+mutations — and could only not *release* one. Memory could be spent and not
+reclaimed, which is the worst available asymmetry, and the log showed it exactly:
+a 204 preflight for the DELETE with no DELETE after it.
+
+The list now names every mutation this service serves. That does not widen the
+boundary, because the header was never the boundary: an origin must be in the
+operator's allowlist (empty by default), present a token with the right scope,
+and use a non-simple content type. The test that guarded the old line asserted
+POST was not advertised — it is replaced by one asserting what actually protects
+anything, that an unlisted origin gets no CORS headers at all.
 
 ### The rule about loading — still read this first
 

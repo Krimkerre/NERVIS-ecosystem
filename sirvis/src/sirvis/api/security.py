@@ -208,12 +208,25 @@ def require(request: Request, scope: Scope) -> Caller:
     return caller
 
 
-# Reads only. Every mutation this service has — opening a runtime session,
-# releasing one — is something a page on another origin has no business doing
-# with the browser's ambient context. Whoever adds the first mutation that
-# *should* be reachable cross-origin decides then, explicitly, rather than
-# inheriting permission from this line.
-CORS_METHODS = "GET, HEAD, OPTIONS"
+# The methods an **allow-listed** origin may use. This line used to read
+# "GET, HEAD, OPTIONS" with a note saying reads only, and invited whoever added
+# the first mutation that should be reachable cross-origin to decide explicitly.
+# This is that decision, and it was forced by finding that the old line did not
+# do what it said.
+#
+# **POST is a CORS-safelisted method, so it was never actually blocked.** A
+# browser preflight succeeds when the method is listed here *or* is safelisted
+# (GET, HEAD, POST). So the dashboard could open a runtime session and renew a
+# lease — the two expensive mutations — and could not release one, which is the
+# worst available asymmetry: memory can be spent and not reclaimed.
+#
+# Listing the mutations does not widen the trust boundary, because this header
+# is not the boundary. Three things gate a mutation and all three still apply:
+# the origin must be in the operator's allowlist (empty by default, so no
+# browser origin at all), the caller must present a token with the right scope
+# (§4.5), and a mutation must carry a non-simple content type. An origin that
+# clears those may release what it loaded.
+CORS_METHODS = "GET, HEAD, OPTIONS, POST, DELETE"
 
 CORS_REQUEST_HEADERS = "authorization, content-type, x-request-id, traceparent"
 

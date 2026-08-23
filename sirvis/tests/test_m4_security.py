@@ -19,6 +19,7 @@ from tests.conftest_lmstudio import transport
 
 from sirvis.api.security import (
     ANONYMOUS,
+    CORS_METHODS,
     Caller,
     Scope,
     hash_token,
@@ -322,17 +323,29 @@ def test_a_preflight_is_answered_here_rather_than_by_the_router() -> None:
     )
 
     assert response.status_code == 204
-    assert response.headers["access-control-allow-methods"] == "GET, HEAD, OPTIONS"
+    assert response.headers["access-control-allow-methods"] == CORS_METHODS
 
 
-def test_mutations_are_not_advertised_to_a_browser() -> None:
-    """Every mutation here opens or releases a runtime session. Whoever adds one
-    that *should* be reachable cross-origin decides that explicitly."""
+def test_a_browser_gets_no_cors_headers_at_all_from_an_unlisted_origin() -> None:
+    """The boundary is the allowlist, and this is it.
+
+    Replaces an assertion that POST was not advertised. That test guarded a line
+    reading `GET, HEAD, OPTIONS` and a note inviting whoever needed a
+    cross-origin mutation to decide explicitly — and it did not hold what it
+    claimed: **POST is a CORS-safelisted method**, so a browser preflight
+    accepted it whether or not it was listed. The dashboard could open a runtime
+    session and renew a lease, and could only not *release* one.
+
+    So the method list now names every mutation this service serves, and the
+    invariant that actually protects anything is asserted here instead: an
+    origin the operator did not allow-list gets nothing, whatever the method.
+    """
     client, _ = _app(allowed_origins=[ALLOWED])
 
-    response = client.get("/api/v1/system", headers={"Origin": ALLOWED})
+    response = client.get("/api/v1/system", headers={"Origin": "http://evil.example"})
 
-    assert "POST" not in response.headers["access-control-allow-methods"]
+    assert "access-control-allow-origin" not in response.headers
+    assert "access-control-allow-methods" not in response.headers
 
 
 # ── The read convention, pinned so a milestone cannot drift off it ───────────
@@ -371,4 +384,27 @@ def test_every_read_is_unauthenticated_except_the_credential_listing() -> None:
     assert gated == ["/tokens"], (
         f"these reads require a scope and should not: {sorted(set(gated) - {'/tokens'})}. "
         "§4.5 gates mutations; a gated read renders as a silent mock in the dashboard."
+    )
+
+
+def test_an_allow_listed_origin_may_release_what_it_loaded() -> None:
+    """The CORS method list must cover every mutation this service serves.
+
+    Not a widening: the boundary is the origin allowlist plus the token plus the
+    content-type check, and all three still apply. What this prevents is an
+    asymmetry that is worse than either extreme — POST is a CORS-safelisted
+    method and was never blocked by the old `GET, HEAD, OPTIONS` line, so a
+    dashboard could open a runtime session and renew a lease but could not
+    release one. Memory could be spent and not reclaimed.
+
+    Found by wiring the Runtime screen: the load worked, the preflight for the
+    release returned 204, and no DELETE followed it.
+    """
+    from sirvis.api.security import CORS_METHODS
+
+    advertised = {method.strip() for method in CORS_METHODS.split(",")}
+
+    assert {"POST", "DELETE"} <= advertised, (
+        "every mutation SIRVIS serves must be reachable by an allow-listed "
+        f"origin; advertised: {sorted(advertised)}"
     )
