@@ -22,14 +22,24 @@ Four commands. If any disagrees with what follows, this file is wrong and the
 commands are right.
 
 ```bash
-cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # 257 tests, no network, no live service
+.venv/bin/pytest                      # part of 286 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-Expected: all clean, 257 passing, conformance `PASS`. CI runs the same four on
+The other two packages are checked the same way, from their own directories:
+
+```bash
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 13 tests
+```
+
+**`ecosystem-protocol` must be installed first.** It is a local path dependency
+and pip will not find it on PyPI, because it does not live there.
+
+Expected: all clean, 286 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -76,8 +86,46 @@ into the order work actually happens.
 | 9 | **M12** | Failure classification, provider and model health, circuit breakers, retry budget, and the fallback chain — plus the §8.8 Stage 3 conformance scenarios the earlier milestones had left unwritten |
 | 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it |
 | 11 | **M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
+| 12 | **`ecosystem-protocol`, and SIRVIS M0** | The MEP surface extracted to the shared package the runbook has always named, and the second service standing on it |
 
-**Stages 0, 1, 2 and 3 are complete.**
+**Stages 0, 1, 2 and 3 are complete. Stage 4 has started.**
+
+### The protocol package, extracted when the second consumer arrived
+
+`ECOSYSTEM_RUNBOOK.md` §12 puts `ecosystem-protocol` first in the release
+sequence and §3 permits services to share *only* its transport types — "shared
+database tables, provider clients, routing engines and benchmark logic are not".
+It was never extracted, because RAVIS was the only consumer and a package with
+one consumer is just a directory.
+
+SIRVIS M0 needs the same five `/ecosystem/*` endpoints. One copy is a package;
+two copies is a protocol nobody can rely on, so it was extracted before the
+second copy existed rather than after. `protocol/` now holds the endpoints, the
+capability envelope, the version rule and — because runbook §4.3 fixes the
+correlation vocabulary and §9's redaction list is a security control — the
+structured logging. Each service still supplies its own identity, its own health
+checks and its own capability declarations, which is everything that ought to
+differ and nothing that ought not.
+
+The package's tests mount the router on a bare FastAPI app with an invented
+service type, deliberately: if they needed RAVIS to run, it would be RAVIS's
+router with extra steps and the first SIRVIS-shaped assumption would go
+unnoticed until SIRVIS tripped over it.
+
+SIRVIS storage is *not* shared, and that is the same rule read the other way.
+
+### SIRVIS M0
+
+`sirvis doctor` and `sirvis serve` work, the database migrates, and the service
+starts and answers with **no runtime present** — which is M0's load-bearing exit
+criterion, because Stage 1 exits here and Stage 4 cannot begin until it does. A
+SIRVIS that needed LM Studio open in order to start would block the ecosystem
+schedule on an application being open.
+
+Every capability is `unavailable` and each names the milestone that will change
+it, including `sirvis.evidence.query@1` — the one RAVIS is waiting on, declared
+absent from the start because a peer can act on "not yet, because M16" and
+cannot act on silence.
 
 ### M9, and what it actually proved
 
@@ -120,8 +168,10 @@ below.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 12 | **Stage 4 — SIRVIS** | Unblocked since Stage 1 and now the critical path: it is the real answer to ranking, which is currently a size tiebreak standing in for evidence. Must finish before Stage 5 |
-| 13 | **M3b + M4** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard |
+| 13 | **SIRVIS M1 + M2** | Machine detection and the LM Studio adapter. Nothing can be measured without them, and §21.1's first vertical slice starts here |
+| 14 | **SIRVIS M3 + M4** | Model domain, inventory and the public API |
+| 15 | **SIRVIS M7** | The evidence schema — **its acceptance is verbatim Stage 4's exit criterion** |
+| 16 | **M3b + M4 (RAVIS)** | The translated execution path and the Anthropic adapter. Permitted now that the transparent path is proven by something other than fixtures — and this is where tool-call framing actually gets hard. Runs in parallel; Stage 5 needs Stage 4 finished |
 
 ### After that
 
@@ -319,6 +369,17 @@ reviewer who disagrees should say so rather than assume it was an accident.
   filled up with rows for models nobody had ever called. `allows()` and
   `refusal()` are the non-creating pair, and the query/command split (§14.2) is
   the rule that was being broken.
+- **A capability list went stale for four milestones.** Everything RAVIS
+  advertised was written `unavailable` at M0 with the milestone that would
+  change it, and then M1, M2, M5 and M18a shipped without anyone coming back.
+  RAVIS spent Stage 3 telling every peer it could not do things it demonstrably
+  could. Nothing broke, because understating is the safe direction — but a
+  capability list that lags the build is one nobody can act on, and §4.1 exists
+  so peers can. The test that should have caught it asserted `states ==
+  {"unavailable"}`, which encoded M0's *situation* rather than the *rule*; it
+  now asserts that `available` requires conformance. Two entries are `degraded`,
+  which is a state worth keeping: `management` has its reads and none of its
+  mutations, and `usage_cost` counts real traffic and knows no prices.
 - **A typo in RAVIS's own namespace used to succeed.** `ravis/chat` is not a
   pool and has no second slash, so it was neither a pool ID nor a direct
   address — and fell through to the plain-model-name path, which forwards
@@ -377,7 +438,9 @@ RAVIS.md SIRVIS.md     per-product build plans; the runbook wins on anything cro
 NERVIS.md CLARVIS.md
 ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 nervis/                the prototype — every screen, wired to mocks shaped like the real responses
-ravis/                 the only service with code (M0–M18a, and M12)
+protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
+ravis/                 the routing gateway (M0–M18a, M12, M9)
+sirvis/                the evidence plane (M0)
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

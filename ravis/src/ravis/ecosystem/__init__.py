@@ -1,11 +1,11 @@
-"""The MEP surface every ecosystem service exposes (ECOSYSTEM_RUNBOOK.md §4.1).
+"""What RAVIS advertises to the ecosystem.
 
-Stage 1 of the build order requires this to work before the gateway does: RAVIS
-answers identity, health, capabilities and version before it proxies its first
-completion, so peers can negotiate with it rather than assume things about it.
+The MEP surface itself — the five endpoints, the envelope, the version rule —
+lives in the shared `ecosystem_protocol` package, because a health endpoint that
+means something slightly different per service is worse than none. What stays
+here is the only part that is genuinely RAVIS's: what RAVIS can do.
 """
 
-from ravis.ecosystem.capabilities import PROTOCOL_VERSION, capability_snapshot
-from ravis.ecosystem.routes import router
+from ravis.ecosystem.capabilities import DECLARED, ravis_surface
 
-__all__ = ["PROTOCOL_VERSION", "capability_snapshot", "router"]
+__all__ = ["DECLARED", "ravis_surface"]

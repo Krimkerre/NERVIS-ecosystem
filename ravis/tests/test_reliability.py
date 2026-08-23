@@ -370,7 +370,7 @@ def test_a_logged_detail_survives_formatting() -> None:
     """
     import logging
 
-    from ravis.observability import JsonLineFormatter
+    from ecosystem_protocol import JsonLineFormatter
 
     record = logging.LogRecord(
         name="ravis.api.openai.chat",

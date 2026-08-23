@@ -1,5 +1,12 @@
 """Structured logging and the correlation IDs every request carries.
 
+Shared rather than per-service for two reasons the runbook states outright. §4.3
+fixes the correlation *vocabulary* across the ecosystem, so a collector can join
+a Clarvis request to a RAVIS route to a SIRVIS benchmark — which only works if
+all three spell it the same way. And §9's redaction list is a security control:
+two copies of it means one of them is eventually missing a key, and the failure
+is silent by construction.
+
 ECOSYSTEM_RUNBOOK.md §4.3 fixes the vocabulary: `X-Request-ID` on every request,
 created if absent, and `traceparent` for W3C trace context. Those IDs are
 correlation data and **never authorization** — a trace ID does not approve a

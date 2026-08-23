@@ -22,6 +22,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      # The shared protocol package first: both services depend on it, and pip
+      # will not find `ecosystem-protocol` on PyPI because it does not live there.
+      - run: pip install -e ../protocol
       - run: pip install -e ".[dev]"
 
       # Complexity <= 8, import order, naming, unused names and arguments.
@@ -42,6 +45,49 @@ jobs:
       - name: clarvis conformance
         run: ravis conformance clarvis
 
+  protocol:
+    name: ecosystem-protocol — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: protocol
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - name: lint and complexity
+        run: ruff check src tests
+      - name: types
+        run: mypy
+      # Mounted on a bare FastAPI app with an invented service type, so a
+      # RAVIS-shaped assumption fails here rather than surfacing in SIRVIS.
+      - name: tests
+        run: pytest
+
+  sirvis:
+    name: sirvis — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sirvis
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e ../protocol
+      - run: pip install -e ".[dev]"
+      - name: lint and complexity
+        run: ruff check src tests
+      - name: types
+        run: mypy
+      # M0's exit includes starting with no runtime present, so this stage
+      # deliberately has no LM Studio and must still be green.
+      - name: tests
+        run: pytest
+
   status:
     name: status — STATUS.md matches the repository
     runs-on: ubuntu-latest
@@ -50,6 +96,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      # The shared protocol package first: both services depend on it, and pip
+      # will not find `ecosystem-protocol` on PyPI because it does not live there.
+      - run: pip install -e ./protocol
       - run: pip install -e ".[dev]"
         working-directory: ravis
       # STATUS.md is what a cold session reads to learn where the build is,

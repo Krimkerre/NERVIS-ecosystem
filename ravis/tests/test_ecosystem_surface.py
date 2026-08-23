@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol
 from fastapi.testclient import TestClient
 
 from ravis.app import create_app
 from ravis.config import Settings
-from ravis.ecosystem.capabilities import PROTOCOL_VERSION, is_supported_protocol
 
 
 def _client(settings: Settings) -> TestClient:
@@ -47,19 +47,48 @@ def test_version_declares_the_compatible_protocol_range(settings: Settings) -> N
     assert body["compatible_protocol"]["min"] <= PROTOCOL_VERSION
 
 
-def test_capabilities_are_advertised_as_unavailable_before_they_exist(settings: Settings) -> None:
-    """RAVIS.md §4.1: never advertise an operation that has not passed conformance."""
+def test_only_conformance_passing_operations_are_advertised(settings: Settings) -> None:
+    """RAVIS.md §4.1: never advertise an operation that has not passed conformance.
+
+    This asserted `states == {"unavailable"}` until M9, which was true at M0 and
+    quietly stopped being true four milestones later — RAVIS spent Stage 3
+    telling peers it could not do things it demonstrably could. The rule was
+    never "everything is unavailable"; it is that `available` requires
+    conformance. So the assertion is now about the two that have it.
+    """
+    body = _client(settings).get("/ecosystem/capabilities").json()
+    states = {c["id"]: c["state"] for c in body["capabilities"]}
+
+    assert states["ravis.openai_compatible.chat_completions@1"] == "available"
+    assert states["ravis.providers.native@1"] == "unavailable"
+
+
+def test_anything_not_fully_available_says_why(settings: Settings) -> None:
+    """A peer disabling a control deserves the reason, not just the refusal.
+
+    Available capabilities need no excuse; everything else must carry one, which
+    is the half of §4.1 that keeps `unavailable` from becoming a shrug.
+    """
     body = _client(settings).get("/ecosystem/capabilities").json()
 
-    states = {capability["state"] for capability in body["capabilities"]}
-    assert states == {"unavailable"}
+    assert all(c["reason"] for c in body["capabilities"] if c["state"] != "available")
 
 
-def test_every_unavailable_capability_says_why(settings: Settings) -> None:
-    """A peer disabling a control deserves the reason, not just the refusal."""
+def test_a_degraded_capability_is_distinguishable_from_a_missing_one(
+    settings: Settings,
+) -> None:
+    """Partly-shipped is its own state, and collapsing it loses real information.
+
+    `management` has its reads and none of its mutations; `usage_cost` counts
+    real traffic and knows no prices. Reporting either as `unavailable` would
+    make a peer hide a working screen, and as `available` would make it offer a
+    control that does nothing.
+    """
     body = _client(settings).get("/ecosystem/capabilities").json()
+    states = {c["id"]: c["state"] for c in body["capabilities"]}
 
-    assert all(capability["reason"] for capability in body["capabilities"])
+    assert states["ravis.management@1"] == "degraded"
+    assert states["ravis.usage_cost@1"] == "degraded"
 
 
 def test_a_matching_protocol_major_is_supported() -> None:
