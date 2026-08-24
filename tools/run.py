@@ -78,10 +78,17 @@ def ensure_venv() -> None:
     subprocess.run([python, "-m", "pip", "install", "-q", "--upgrade", "pip"], check=True)
     # `ecosystem-protocol` is a local path dependency; pip will not find it on
     # PyPI because it does not live there. First, because the others need it.
+    #
+    # Installed **with the dev extra**, which costs about 140 MB and is worth it:
+    # there is one virtualenv at one path, and the verification commands the
+    # repository documents — `.venv/bin/pytest`, `ruff`, `mypy` — live in it. A
+    # runtime-only install produced a working application in which every command
+    # in STATUS.md's own "verify this yourself" block was missing, which is the
+    # kind of gap that only shows up to somebody who just cloned the thing.
     for target in ("protocol", "ravis", "sirvis"):
         print(f"  installing {target}…")
         subprocess.run(
-            [python, "-m", "pip", "install", "-q", "-e", str(ROOT / target)], check=True
+            [python, "-m", "pip", "install", "-q", "-e", f"{ROOT / target}[dev]"], check=True
         )
 
 

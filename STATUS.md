@@ -2841,9 +2841,40 @@ address bar afterwards. The token had been picked up — so the code *had* run �
 which is exactly what made it look like it had worked. It now scrubs on
 `DOMContentLoaded` and `load` as well, and re-checks before acting.
 
-**Not exercised:** the first-run virtualenv creation path, which would mean
-deleting a working `ravis/.venv` to test. Recorded as untested rather than
-implied.
+**First-run virtualenv creation, tested by removing the virtualenv.** Moved
+aside rather than deleted, so a pip failure was recoverable. The launcher
+rebuilt it and brought everything up in **9.4 seconds** — "a minute or so" is
+pessimistic with a warm pip cache.
+
+**It shipped an environment in which none of the documented checks existed.**
+The rebuild installed runtime dependencies only: 51 MB, with `pytest`, `ruff`
+and `mypy` all absent — every command in this file's own *"verify this
+yourself"* block. The application worked perfectly; a person who had just cloned
+the repository and double-clicked the launcher could not have run a single check
+against it. Fixed by installing the `dev` extra: one virtualenv, one path, and
+the documented commands present in it. 162 MB, which is nothing beside the
+models this thing loads.
+
+Verified on a virtualenv built **entirely by the launcher**: ruff, mypy strict,
+Clarvis conformance, the nervis check, the STATUS gate, and 862 tests
+(509 + 338 + 15).
+
+**One flaky test, found because the machine was busy.** The rebuild's pip run
+saturated the CPU, and `test_the_matrix_reports_degradation_against_alone`
+failed once and then passed alone and in two clean full runs. The cause is real
+rather than cosmic: the fake runtime halves the *tokens* generated per extra
+resident model, but tokens-per-second is computed from elapsed **wall-clock**
+time, so on a busy machine a co-resident measurement can come out no slower than
+its control. The test's own docstring already conceded the split — "the exact
+percentage arithmetic is proven in the handcrafted test below, where the timings
+are chosen rather than measured".
+
+`run_multi_experiment` already accepted an injectable `clock` and the test
+helper had never passed one. It does now, so elapsed time per repetition is
+identical and the halved token count is the only thing that moves — which is
+what the test was always trying to assert. Confirmed by re-running the M10 suite
+under three CPU-saturating processes: 25 passed. Same reasoning the helper
+already applied to thermal and memory one argument along.
 
 ## Superseded: the token card said how, and said it wrong
 

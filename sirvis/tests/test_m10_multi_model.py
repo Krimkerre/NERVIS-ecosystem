@@ -152,6 +152,31 @@ class FakeProbe(MemoryProbe):
         )
 
 
+class _Ticks:
+    """A clock that advances a fixed amount per reading.
+
+    The fake runtime halves the *tokens* generated per extra resident model, but
+    tokens-per-second is computed from elapsed wall-clock time — so under CPU
+    contention a co-resident measurement could come out no slower than the
+    control, and `co_resident < alone` would fail on a machine that was merely
+    busy. Seen once, immediately after a pip install saturated the machine.
+
+    With a driven clock the elapsed time per repetition is identical and the
+    halved token count is the only thing that moves, which is what the test was
+    always trying to assert. The same reasoning `run` already applies to
+    thermal, one argument along: a real reader on a test machine gives whatever
+    it gives.
+    """
+
+    def __init__(self, step: float = 0.01) -> None:
+        self._now = 0.0
+        self._step = step
+
+    def __call__(self) -> float:
+        self._now += self._step
+        return self._now
+
+
 def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any,
         thermal: Any = None) -> Any:
     database = prepare_database(":memory:")
@@ -162,6 +187,7 @@ def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any,
         database=database,
         results_root=str(tmp_path),
         probe=FakeProbe(),
+        clock=_Ticks(),
         snapshot=a_snapshot(),
         # Driven rather than read: §11.8's flag is about the state *changing*
         # between conditions, and a real reader on a test machine gives whatever
