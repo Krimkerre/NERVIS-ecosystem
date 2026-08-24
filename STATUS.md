@@ -1662,7 +1662,7 @@ embedding endpoint would sit in a text pool waiting to be handed a chat request.
 throughout, so none of this cost a model load.
 
 **A defect the first half introduced, and the comment that predicted it.**
-`chat.py` assembles capabilities per request, and said so with a warning: it was
+`ravis/src/ravis/api/openai/chat.py` assembles capabilities per request, and said so with a warning: it was
 cheap because the generic adapter answers without I/O, and *"the moment an
 adapter needs a network call to answer, this is the line that has to change"*.
 Both vendor adapters need one. `candidates_with_evidence` asks per model, so a
