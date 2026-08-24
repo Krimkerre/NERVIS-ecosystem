@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 837 tests, no network, no live service
+.venv/bin/pytest                      # part of 847 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 837 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 847 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -105,14 +105,13 @@ into the order work actually happens.
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
 | 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 
-**Stages 0, 1, 3 and 4 are complete. Stage 2 is not**, and this file said
-otherwise until 2026-08-24. The stage mapping puts **RAVIS M10** — credentials
-and the provider UI — in Stage 2, *"since an upstream needing a credential
-cannot be reached without it"*, and M10 has never appeared in the Done table.
-The claim was wrong rather than merely stale, and it was found by a question
-about where an operator would type an API key, not by any gate. Stage 4's last
-piece was SIRVIS M15; the evidence plane measures, stores, serves and
-recommends.
+**Stages 0, 1, 2, 3 and 4 are complete** — Stage 2 as of 2026-08-24, when M10
+landed. This file claimed Stage 2 was complete for some time before that, and
+was wrong: the stage mapping puts **RAVIS M10** in Stage 2, *"since an upstream
+needing a credential cannot be reached without it"*, and M10 had never been
+built. No gate caught it; a question about where an operator would type an API
+key did. Stage 4's last piece was SIRVIS M15; the evidence plane measures,
+stores, serves and recommends.
 
 **Stage 5 has started out of order, and by now substantially.** M3b, M4 and RAVIS M13 all belong to it and are all done — the last of them met Stage 5's own exit criterion, a SIRVIS result changing a RAVIS preference, before Stage 4 finished. That is not drift: each was unblocked early and the reason is recorded under *Reorderings made during the build*.
 
@@ -1607,8 +1606,40 @@ written to a `-rw-------` file, and then found in none of the served page, the
 API responses, or the service log. The test value and its file were deleted
 afterwards, and no real configuration directory was created.
 
-**Still open in M10:** provider enable/disable and the health tests the
-milestone also names.
+**Enable/disable, and what a toggle has to mean.** A switch that changes a badge
+and nothing else is worse than no switch, so a disabled provider is not probed,
+not advertised in `/v1/models`, not a routing candidate, and returns 503 when
+addressed directly. Verified live: disabling the upstream took `/v1/models` from
+20 models to 0 — the 13 pools stayed, correctly, because those are RAVIS's own —
+and re-enabling brought them back.
+
+State lives in `providers.json` beside the credential file but **not** at mode
+`0600`: nothing in it is secret, and a private file would be a small lie about
+what it holds. A provider absent from the file is **on**, so the file records
+decisions rather than state and nothing needs migrating when a provider is
+added. Both directions are written rather than deleting the entry on enable, so
+an operator can tell "someone turned this back on" from "nobody has ever touched
+this". A corrupt file leaves everything **enabled** — the permissive direction,
+which is wrong for a security control and right for this: a mangled file should
+not silently turn a gateway into one that serves nothing.
+
+**Disabling is not deleting the key**, and the UI says so. Disabled means "not
+right now" and is one click back; removing the credential says this deployment
+no longer holds one. A UI offering only the second would make an operator
+destroy configuration to achieve a pause.
+
+**One ordering bug, caught by its own test.** The refusal for a disabled
+provider sat below the "no upstream is configured" guard, so addressing a
+disabled *translated* provider on a deployment with no transparent upstream
+answered "set RAVIS_UPSTREAM_BASE_URL" — pointing at a setting that had nothing
+to do with it. The specific refusal now precedes the general one.
+
+**`/api/v1/providers` listed one provider until now.** It reported the single
+primary adapter, which predates M8: a deployment reaching three upstreams showed
+one row. It now lists every transparent upstream and every translated provider,
+probes their health concurrently, and skips the probe for anything disabled.
+
+**M10 is complete.** Stage 2 is complete with it.
 
 ### The outlier: closed, unexplained, and deliberately so
 

@@ -29,6 +29,9 @@ async def list_models(request: Request) -> dict[str, Any]:
         request.app.state, "transparents", {}
     )
     if transparents:
-        return merged_catalogue(transparents)
+        state = getattr(request.app.state, "provider_state", None)
+        return merged_catalogue(
+            transparents, frozenset(state.disabled()) if state else frozenset()
+        )
     registry: ModelRegistry = request.app.state.model_registry
     return registry.as_openai_list()

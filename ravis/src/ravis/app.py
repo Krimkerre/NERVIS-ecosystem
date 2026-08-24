@@ -46,6 +46,7 @@ from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
+from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
@@ -137,6 +138,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.credentials = CredentialStore(
         allow_environment=settings.credentials_allow_environment,
     )
+    # Which providers an operator has switched off (M10). Read on every routing
+    # pass rather than cached, so a toggle takes effect on the next request
+    # instead of the next restart — the file is small and local.
+    api.state.provider_state = ProviderState()
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.

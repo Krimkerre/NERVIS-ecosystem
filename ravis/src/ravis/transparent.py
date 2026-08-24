@@ -143,7 +143,10 @@ def model_owners(transparents: dict[str, TransparentUpstream]) -> dict[str, list
     return owners
 
 
-def merged_catalogue(transparents: dict[str, TransparentUpstream]) -> dict[str, Any]:
+def merged_catalogue(
+    transparents: dict[str, TransparentUpstream],
+    disabled: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """`GET /v1/models` across every upstream — pools once, models deduped.
 
     Deduped by id in declaration order, which matches how `resolve` breaks the
@@ -160,6 +163,11 @@ def merged_catalogue(transparents: dict[str, TransparentUpstream]) -> dict[str, 
     ]
     models: dict[str, dict[str, Any]] = {}
     for candidate in transparents.values():
+        # A disabled upstream is not advertised. Listing a model a request would
+        # then be refused for is worse than not listing it: the client picks it
+        # from this very response (§5.0.1).
+        if candidate.name in disabled:
+            continue
         for entry in candidate.registry.snapshot.models:
             identifier = entry.get("id", "")
             if identifier and identifier not in models:
@@ -202,7 +210,9 @@ def merged_residency(transparents: dict[str, TransparentUpstream]) -> ResidencyS
 
 
 async def merged_candidates(
-    transparents: dict[str, TransparentUpstream], evidence: Any
+    transparents: dict[str, TransparentUpstream],
+    evidence: Any,
+    disabled: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Every upstream's models and capabilities, in one table.
 
@@ -219,6 +229,8 @@ async def merged_candidates(
     """
     merged: dict[str, Any] = {}
     for candidate in transparents.values():
+        if candidate.name in disabled:
+            continue
         known = await candidates_with_evidence(
             candidate.adapter, candidate.registry.model_ids(), evidence
         )

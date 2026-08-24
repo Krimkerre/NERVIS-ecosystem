@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ravis.credentials import CredentialStore
+from ravis.provider_state import ProviderState
 
 router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 
@@ -39,6 +40,12 @@ router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 # screen can show a row for a provider that has *no* credential yet — which is
 # the only row that matters when someone is trying to add one.
 KNOWN_PROVIDERS = ("anthropic", "google", "openrouter")
+
+
+class EnabledInput(BaseModel):
+    """Whether a provider may be routed to."""
+
+    enabled: bool
 
 
 class CredentialInput(BaseModel):
@@ -133,3 +140,20 @@ async def forget_credential(name: str, request: Request) -> Any:
     if refusal:
         return _refused(refusal)
     return _store(request).forget(name).as_dict()
+
+
+@router.put("/{name}/enabled")
+async def set_enabled(name: str, body: EnabledInput, request: Request) -> Any:
+    """Turn a provider on or off without touching its credential.
+
+    Kept distinct from removing the key, because they answer different
+    questions. Disabling is reversible in one click and says "not right now";
+    deleting the credential says "this deployment no longer holds one". A UI
+    that offered only the second would make an operator destroy configuration
+    to achieve a pause.
+    """
+    refusal = _may_write(request)
+    if refusal:
+        return _refused(refusal)
+    state: ProviderState = request.app.state.provider_state
+    return {"name": name, "enabled": state.set_enabled(name, body.enabled)}

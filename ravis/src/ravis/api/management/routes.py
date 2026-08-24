@@ -24,6 +24,7 @@ one showing nothing.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -31,9 +32,11 @@ from fastapi import APIRouter, Query, Request
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS
+from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
 from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
 
@@ -174,27 +177,85 @@ async def read_models(request: Request) -> dict[str, Any]:
 
 @router.get("/providers")
 async def read_providers(request: Request) -> dict[str, Any]:
-    """Configured providers, their health, and how they are reached.
+    """Every configured provider, its credential status, health and whether it
+    is switched on.
+
+    Lists them *all* — each transparent upstream and each translated provider.
+    Until M8 there was one upstream and this returned one row; a screen built on
+    that would have shown a single provider on a deployment reaching three.
 
     Carries `credential_configured` as a boolean and never the value — §15.1's
     "never expose credential values", enforced by not reading one here at all.
+
+    Health is probed concurrently and **skipped for a disabled provider**: an
+    operator who switched something off should not have RAVIS keep calling it,
+    and a timeout against a provider nobody wants would slow the one screen that
+    explains why nothing is routing.
     """
-    adapter = request.app.state.adapter
-    upstream = request.app.state.upstream
-    health = await adapter.health()
-    return _listing(
-        [
-            {
-                **describe(adapter),
-                "base_url": upstream.base_url,
-                "credential_configured": bool(upstream.api_key),
-                "reachable": health.reachable,
-                "detail": health.detail,
-                "latency_ms": health.latency_ms,
-                "models": len(request.app.state.model_registry.model_ids()),
-            }
-        ]
+    state: ProviderState = request.app.state.provider_state
+    credentials: CredentialStore = request.app.state.credentials
+    disabled = state.disabled()
+
+    entries = _provider_entries(request)
+    probes = await asyncio.gather(
+        *(
+            _probe(adapter) if name not in disabled else _skipped()
+            for name, adapter, _ in entries
+        )
     )
+    rows = []
+    for (name, adapter, base_url), probe in zip(entries, probes, strict=True):
+        status = credentials.status(name)
+        rows.append({
+            **describe(adapter),
+            "name": name,
+            "base_url": base_url,
+            "enabled": name not in disabled,
+            "credential_configured": status.configured,
+            "credential_source": status.source.value,
+            **probe,
+        })
+    return _listing(rows)
+
+
+def _provider_entries(request: Request) -> list[tuple[str, Any, str]]:
+    """(name, adapter, base_url) for every provider, transparent then translated.
+
+    Transparent first because that is declaration order and the order a
+    collision is resolved in — a screen listing them the other way round would
+    invite the wrong conclusion about which one serves a shared model id.
+    """
+    entries: list[tuple[str, Any, str]] = []
+    transparents: dict[str, Any] = getattr(request.app.state, "transparents", {})
+    for name, built in transparents.items():
+        entries.append((name, built.adapter, built.upstream.base_url))
+    if not transparents:
+        entries.append(("default", request.app.state.adapter, request.app.state.upstream.base_url))
+    for name, adapter in getattr(request.app.state, "translating", {}).items():
+        entries.append((name, adapter, getattr(adapter, "base_url", "")))
+    return entries
+
+
+async def _probe(adapter: Any) -> dict[str, Any]:
+    """One provider's health, as the listing reports it.
+
+    A failing probe is a *result*, not an error: "this provider is not
+    answering" is exactly what the screen exists to show, so an exception here
+    becomes a row saying so rather than a 500 that hides every other provider.
+    """
+    try:
+        health = await adapter.health()
+    except Exception as failure:  # noqa: BLE001 - any adapter fault is a health result
+        return {"reachable": False, "detail": str(failure), "latency_ms": None}
+    return {
+        "reachable": health.reachable,
+        "detail": health.detail,
+        "latency_ms": health.latency_ms,
+    }
+
+
+async def _skipped() -> dict[str, Any]:
+    return {"reachable": None, "detail": "disabled — not probed", "latency_ms": None}
 
 
 @router.get("/profiles")

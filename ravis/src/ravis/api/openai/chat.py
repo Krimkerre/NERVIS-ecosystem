@@ -118,6 +118,22 @@ async def create_chat_completion(request: Request) -> Response:
     and its ranked fallbacks, and §10's chain walks them until one answers or
     the retry budget is spent.
     """
+    body = await request.body()
+    parsed = _inspect(body, request)
+    if isinstance(parsed, JSONResponse):
+        return parsed
+
+    # `ravis/<provider>/<model>` naming a provider that is switched off (M10).
+    # Refused before the upstream guard below, and before the router: a disabled
+    # *translated* provider needs no transparent upstream, so checking the
+    # general condition first would answer "no upstream configured" to a request
+    # whose real problem is a toggle. And without this check at all, the
+    # translated fork finds no adapter, falls through to Path A, and forwards an
+    # Anthropic model to whatever the transparent upstream happens to be.
+    addressed = direct_provider(parsed.get("model") or "")
+    if addressed is not None and addressed in _disabled(request):
+        return _openai_error(f"Provider {addressed!r} is disabled.", "provider_disabled", 503)
+
     upstream = request.app.state.upstream
     if not upstream.is_configured:
         return _openai_error(
@@ -125,11 +141,6 @@ async def create_chat_completion(request: Request) -> Response:
             "upstream_not_configured",
             503,
         )
-
-    body = await request.body()
-    parsed = _inspect(body, request)
-    if isinstance(parsed, JSONResponse):
-        return parsed
 
     decision = await _route(request, parsed, body)
     if not decision.routed:
@@ -420,6 +431,17 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     return parsed
 
 
+def _disabled(request: Request) -> frozenset[str]:
+    """Providers an operator has switched off (M10).
+
+    Read per request rather than cached: the file is small and local, and a
+    toggle that only took effect after a restart would be a toggle nobody
+    trusts during an incident.
+    """
+    state = getattr(request.app.state, "provider_state", None)
+    return frozenset(state.disabled()) if state else frozenset()
+
+
 async def _route(request: Request, payload: dict[str, Any], body: bytes) -> RouteDecision:
     """Resolve what the client addressed into a model to call (§9).
 
@@ -440,7 +462,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # model on LM Studio gets LM Studio's catalogue read for it instead of
     # whichever adapter happened to be primary.
     if transparents:
-        candidates = await merged_candidates(transparents, evidence)
+        candidates = await merged_candidates(transparents, evidence, _disabled(request))
         residency = merged_residency(transparents)
     else:
         adapter: ProviderAdapter = request.app.state.adapter
