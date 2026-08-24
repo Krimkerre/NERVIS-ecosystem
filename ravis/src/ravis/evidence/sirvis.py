@@ -254,9 +254,21 @@ def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
     return EvidenceVerdict(
         CapabilityState.SUPPORTED,
         f"{passed}/{total} well-formed tool calls over {phrasings} phrasings, "
-        f"measured by SIRVIS for {record.role}",
+        f"measured by SIRVIS for {record.role}" + _measured_at(record),
         record,
     )
+
+
+def _measured_at(record: EvidenceRecord) -> str:
+    """The runtime configuration the trial ran under, when it is known.
+
+    §12.2 keys evidence on the configuration a number was produced under, so a
+    tool-call rate measured at 8K is evidence about 8K. A pool may require more
+    context than the trial used, and admitting on that evidence is a small
+    inference — visible in the explanation rather than hidden inside it.
+    """
+    context = (record.runtime_configuration or {}).get("context_length")
+    return f" at context_length {context}" if context else ""
 
 
 def _phrasings(record: EvidenceRecord) -> int:
@@ -287,6 +299,12 @@ class EvidenceStore:
         self._max_age = max_age_seconds
         self._clock = clock
         self._records: dict[str, EvidenceRecord] = {}
+        # Declared context ceilings from SIRVIS's inventory, keyed by runtime
+        # key. §13 lists "model fit" among what RAVIS asks SIRVIS for, and a
+        # context ceiling is the most basic fit fact there is — without it a
+        # pool declaring a minimum fails closed on every candidate, which is
+        # correct and useless.
+        self._context: dict[str, int] = {}
         self._state = SourceState.ABSENT
         self._detail = "no SIRVIS configured"
         self._read_at: float | None = None
@@ -302,6 +320,17 @@ class EvidenceStore:
     @property
     def detail(self) -> str:
         return self._detail
+
+    def context_window(self, runtime_key: str) -> int | None:
+        """The build's declared context ceiling, as SIRVIS's inventory reports it.
+
+        **Declared, not measured**, and the distinction is kept: this is the
+        build's advertised maximum, which is a different claim from a context
+        length something was benchmarked at. It is good enough to decide whether
+        a pool's minimum is *possible*, which is the question `meets_context`
+        asks, and it is not evidence that the build performs well there.
+        """
+        return self._context.get(runtime_key)
 
     def record_for(self, runtime_key: str) -> EvidenceRecord | None:
         """The freshest record for one build, or None.
@@ -397,6 +426,35 @@ class EvidenceStore:
             self._detail = f"SIRVIS did not answer: {type(failure).__name__}"
             return
         self._absorb(payload)
+        await self._absorb_context(client)
+
+    async def _absorb_context(self, client: httpx.AsyncClient) -> None:
+        """Read declared context ceilings, tolerating their absence.
+
+        A separate request because they are a different question: evidence is
+        per role, an inventory is not. A failure here leaves the ceilings empty
+        rather than degrading the evidence — a router that knows a build calls
+        tools and does not know its context window is in a worse position than
+        one that knows both, and a better one than one that knows neither.
+        """
+        try:
+            response = await client.get(f"{self._base_url}/api/v1/models")
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            self._context = {}
+            return
+        items = payload.get("items") if isinstance(payload, Mapping) else None
+        ceilings: dict[str, int] = {}
+        for item in items or []:
+            if not isinstance(item, Mapping):
+                continue
+            declared = item.get("declared_context")
+            value = declared.get("value") if isinstance(declared, Mapping) else None
+            key = item.get("runtime_key")
+            if isinstance(value, int) and isinstance(key, str):
+                ceilings[key] = value
+        self._context = ceilings
 
     def _absorb(self, payload: Any) -> None:
         """Turn one response into records, refusing a shape this cannot read."""
@@ -515,4 +573,11 @@ async def candidates_with_evidence(
     for model, capabilities in known.items():
         for claim in store.claims_for(model):
             capabilities.record(claim)
+        # Only when RAVIS has none of its own. An operator's configured window
+        # is a fact about their deployment and outranks a catalogue's
+        # advertisement, the same way `CONFIGURED` outranks `MEASURED` above.
+        if capabilities.context_window is None:
+            ceiling = store.context_window(model)
+            if ceiling is not None:
+                capabilities.context_window = ceiling
     return known

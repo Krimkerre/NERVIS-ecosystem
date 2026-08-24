@@ -394,3 +394,70 @@ def test_no_response_field_anywhere_is_a_score() -> None:
 def test_the_source_state_is_always_reportable(state: SourceState) -> None:
     """A diagnostic must be able to say which of the three it is."""
     assert state.value in {"fresh", "degraded", "absent"}
+
+
+# ── Context ceilings: the second invariant a pool declares ───────────────────
+
+
+def inventory(**ceilings: int) -> dict[str, Any]:
+    return {"items": [
+        {"runtime_key": key,
+         "declared_context": {"value": value, "provenance": "DECLARED",
+                              "detail": "the build's advertised maximum"}}
+        for key, value in ceilings.items()
+    ]}
+
+
+def store_with_both(evidence: dict[str, Any], models: dict[str, Any]) -> EvidenceStore:
+    """A store that has read both SIRVIS surfaces."""
+    import asyncio
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=models)
+        return httpx.Response(200, json=evidence)
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    asyncio.run(store.refresh(
+        httpx.AsyncClient(transport=httpx.MockTransport(handle)), [GGUF, MLX]
+    ))
+    return store
+
+
+def test_a_declared_ceiling_reaches_the_candidate() -> None:
+    """§13 lists model fit among what RAVIS asks SIRVIS for.
+
+    Without it a pool declaring a minimum context fails closed on every
+    candidate — correct, and useless.
+    """
+    import asyncio
+
+    store = store_with_both(
+        payload(record(), variants={GGUF: "var_gguf"}),
+        inventory(**{GGUF: 1048576}),
+    )
+
+    known = asyncio.run(candidates_with_evidence(FakeAdapter(), [GGUF], store))
+
+    assert known[GGUF].meets_context(32768)
+
+
+def test_the_claim_says_what_context_the_trial_ran_at() -> None:
+    """§12.2 keys evidence on the configuration it was produced under.
+
+    A pool may require more context than the trial used, and admitting on that
+    evidence is a small inference — kept visible rather than hidden.
+    """
+    store = store_with_both(
+        payload(record(), variants={GGUF: "var_gguf"}), inventory(**{GGUF: 1048576})
+    )
+
+    assert "at context_length 8192" in store.claims_for(GGUF)[0].detail
+
+
+def test_an_absent_inventory_leaves_the_ceiling_unknown_rather_than_zero() -> None:
+    """Knowing the tools answer and not the context one beats knowing neither."""
+    store = store_with(payload(record(), variants={GGUF: "var_gguf"}))
+
+    assert store.context_window(GGUF) is None
+    assert store.claims_for(GGUF)[0].state is CapabilityState.SUPPORTED

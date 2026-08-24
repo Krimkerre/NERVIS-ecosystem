@@ -467,7 +467,14 @@ async def _run_tool_trials(
     """
     from sirvis.benchmarks.clarvis_roles import run_tool_trials
 
-    reliability = await run_tool_trials(runtime, spec.model_key)
+    # The spec's repetition count reaches the trials, which it did not at first:
+    # §13.2's threshold is eight phrasings **times three repetitions**, and a
+    # trial runner fixed at one repetition can never satisfy the axis the
+    # threshold turns on. `--repetitions 3` therefore means 24 attempts here,
+    # the same number it means everywhere else in this engine.
+    reliability = await run_tool_trials(
+        runtime, spec.model_key, repetitions=spec.repetitions
+    )
     outcome.tool_reliability = reliability
     directory.write_response("__tools__", "trial", 0, reliability.as_dict())
     directory.append_log(

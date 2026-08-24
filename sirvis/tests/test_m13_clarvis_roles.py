@@ -350,3 +350,19 @@ def test_a_run_with_trials_carries_both_rates() -> None:
 
     assert set(rates) == {"tool_call_well_formed", "tool_followup_used_result"}
     assert rates["tool_call_well_formed"].passed == 8
+
+
+def test_the_specs_repetition_count_reaches_the_trials() -> None:
+    """§13.2's threshold is eight phrasings *times three repetitions*.
+
+    A trial runner fixed at one repetition can never satisfy the axis the
+    threshold turns on, which is what shipped: `--repetitions 3` produced three
+    prose repetitions and eight tool attempts, so no run from the CLI could ever
+    establish the capability. Caught before spending model time on a run that
+    could not have counted.
+    """
+    runtime = FakeToolRuntime(script=[well_formed() for _ in range(40)])
+
+    reliability = asyncio.run(run_tool_trials(runtime, "m", repetitions=3))
+
+    assert reliability.total == len(TOOL_PROMPTS) * 3 == 24

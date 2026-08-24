@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 697 tests, no network, no live service
+.venv/bin/pytest                      # part of 701 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 697 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 701 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1137,17 +1137,43 @@ That is not hypothetical: the first role run on this machine scored 8/8 over 8
 attempts, which is a perfect rate over a third of the required sample, and RAVIS
 correctly declines to admit it.
 
-Live, against the two granite packagings measured earlier the same day:
+**The pool opened, and only for the build that earned it.** Both packagings were
+re-measured at three repetitions — 24 attempts each, the sample §13.2 asks for —
+on 2026-08-24:
 
 ```text
-lmstudio-community/granite-4.0-h-tiny  UNKNOWN      8/8 over 8 phrasings — clears the rate
-                                                    but not the sample (24 attempts needed)
-mlx-community/granite-4.0-h-tiny       UNSUPPORTED  1/8 — below the 95% threshold
+lmstudio-community/granite-4.0-h-tiny  SUPPORTED    24/24 over 8 phrasings
+mlx-community/granite-4.0-h-tiny       UNSUPPORTED   3/24 — below the 95% threshold
+
+ravis/clarvis-agent                    available: true, members: 1
+                                       · lmstudio-community/granite-4.0-h-tiny
 ```
 
+The MLX packaging reproduced its failure at three times the sample — 3/24 is the
+same 12.5% as 1/8 — and is excluded while being **83% faster** than the build
+that was admitted. `ravis/clarvis-agent` had been unavailable since it was
+declared, because RAVIS held no tool-capability claim for anything. It is now
+available with one member, and both the admission and the exclusion trace to
+measurements with references back to the runs that produced them.
+
 **Stage 5's exit criterion is met**: a SIRVIS result changed a RAVIS preference.
-The MLX build moved from `UNKNOWN` to `UNSUPPORTED` on measured evidence, which
-is a route effect — it is now excluded on a measurement rather than on ignorance.
+
+**Getting there needed the other invariant too, which the first attempt missed.**
+`clarvis-agent` requires tools *and* 32K context, and RAVIS knew no context
+window for any build — so the pool stayed closed even with the tools claim
+established. §13 lists "model fit" among what RAVIS asks SIRVIS for, and the
+store now reads declared ceilings from SIRVIS's inventory alongside the
+evidence. Declared, not measured, and labelled as such: it answers whether a
+minimum is *possible*, not whether the build performs well there. The claim
+detail also records the context the trial actually ran at — §12.2 keys evidence
+on the configuration it was produced under, so a rate measured at 8K admitted to
+a pool needing 32K is a small inference, and it is visible rather than hidden.
+
+**And a bug caught before it cost model time.** The CLI's `--repetitions` set
+the prose repetitions and never reached the tool trials, which were fixed at
+one — so no run from the command line could ever satisfy the threshold's second
+axis, and the first two role runs produced 8 attempts where 24 were needed. The
+count now reaches the trials, which is why these runs have 24.
 
 The decisions worth the veto:
 
