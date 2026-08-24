@@ -2902,6 +2902,48 @@ at all**, which is what was actually being asked:
 * Reads stay open deliberately: Clarvis probes `/v1/models` with a two-second
   timeout and reads any 401 as *provider offline*.
 
+## Cheap wins: what could be wired without building anything
+
+A second pass over the sweep, asking a narrower question — not *what is
+invented*, but *what is invented while a working endpoint sits next to it*.
+
+**Wired.**
+
+`services()` — the **Service Registry on the Overview**, the first card on the
+first screen anyone sees. It was inventing build numbers (`0.4.1`, `0.3.0`)
+while §1's `/ecosystem/identity` and `/ecosystem/capabilities` published the
+real ones. RAVIS and SIRVIS now read live: build `0.0.1`, protocol `1.0.0`, and
+the capability shown is the first each reports as **available** rather than the
+first it declares — a service publishing five and offering one should read as
+offering one, and the count travels beside it. Clarvis and LM Studio publish no
+MEP surface, so their rows stay declared, and the card says which half is which
+instead of implying all four are read.
+
+`profiles()` — 13 profiles from `/api/v1/profiles`, with RAVIS's own
+descriptions and revisions. The mock asserted revisions of 4, 3 and 2; every
+real one is 1. `default` is derived here rather than invented upstream, because
+§9.3 makes `ravis/auto` the profile an unspecified request resolves to and RAVIS
+publishes no such flag.
+
+**Not cheap, and why — recorded so the next pass does not re-derive it.**
+
+`machine()` looked like a rename and is not. SIRVIS's `/api/v1/system` reports
+the chip, cores, memory, disk and thermal state, but not `available_gb`,
+`model_budget_gb` or `system_baseline_gb` — and the System screen does
+arithmetic on the first (`memory_gb - available_gb`), so a live wire yields
+`NaN` rather than a gap. There is no live "memory available now" endpoint; the
+memory probe exists only inside a benchmark run. Wiring it means either exposing
+that or changing four render sites to degrade honestly.
+
+`policies()` and `usage()` have endpoints that answer 200 and are **deliberately
+empty**: policies land at M16, cost at M15, and `/api/v1/usage` says so in a
+`cost_detail` field. Wiring them would replace invented numbers with honest
+blanks — worth doing, but it is a screen redesign rather than an adapter, since
+the cards are built around numbers that will not exist until those milestones.
+
+`route-decisions` is live and empty until something routes. It fills by itself
+the first time a request goes through, so it needs no work — only traffic.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

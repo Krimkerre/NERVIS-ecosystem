@@ -1350,7 +1350,18 @@ const API={
      NERVIS.md §7 is explicit: do not invent a profile. If a chip is not in this
      list the dashboard must not offer it, and `nervis-chat` does not exist until
      RAVIS ships it. */
-  async profiles(){return{items:[
+  async profiles(){return live('ravis','/api/v1/profiles',this._profilesMock,payload=>({
+   items:payload.items.map(p=>({
+    profile_id:p.profile_id,
+    label:p.label,
+    description:p.description,
+    revision:p.revision,
+    /* RAVIS publishes no "default" flag — §9.3 makes a profile the human-facing
+       view of a pool, and `ravis/auto` is the one a request with no profile
+       resolves to. Derived here rather than invented upstream. */
+    default:p.profile_id==='ravis/auto'}))}))},
+
+  async _profilesMock(){return{items:[
    {profile_id:'ravis/auto',label:'Auto',revision:4,default:true},
    {profile_id:'ravis/balanced',label:'Balanced',revision:4},
    {profile_id:'ravis/fast',label:'Fast',revision:3},
@@ -1698,7 +1709,41 @@ const API={
   /* The registry is NERVIS's own state, assembled from each peer's
      GET /ecosystem/{identity,version,capabilities} plus its own reachability.
      `state` is observer-side and must never be inferred from a TCP connect. */
-  async services(){return{items:[
+  async services(){
+   /* The registry, read from the two services that publish a MEP surface.
+      §1's `/ecosystem/identity` and `/ecosystem/capabilities` are exactly this
+      card's columns — build, protocol, and what the service says it can do —
+      so the mock below is a fallback for when nothing is running rather than
+      the source. Clarvis and LM Studio have no MEP surface to read, and are
+      declared as external rather than invented as live. */
+   const ask=async key=>{
+    try{
+     const stop=AbortSignal.timeout(LIVE_TIMEOUT_MS);
+     const [id,caps]=await Promise.all([
+      fetch(BASE[key]+'/ecosystem/identity',{signal:stop}).then(r=>r.ok?r.json():null),
+      fetch(BASE[key]+'/ecosystem/capabilities',{signal:stop}).then(r=>r.ok?r.json():null)]);
+     if(!id)return null;
+     const all=(caps&&caps.capabilities)||[];
+     const up=all.filter(c=>c.state==='available');
+     return{service_type:id.service_type,label:key.toUpperCase(),
+      build_version:id.build_version,protocol_version:id.protocol_version,
+      /* The first *available* capability, not the first declared one: a
+         service that publishes five and offers one should read as offering
+         one. The count travels beside it so the card cannot imply otherwise. */
+      capability:up.length?up[0].id:'none available',
+      capabilities_available:up.length,capabilities_total:all.length,key};
+    }catch(e){return null}};
+   const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
+   if(!rv&&!sv)return this._servicesMock();
+   if(rv)SOURCE.ravis='live';
+   if(sv)SOURCE.sirvis='live';
+   const fallback=(await this._servicesMock()).items;
+   const pick=(live,key)=>live||fallback.find(x=>x.key===key);
+   return{items:[pick(rv,'ravis'),pick(sv,'sirvis'),
+                 ...fallback.filter(x=>x.key!=='ravis'&&x.key!=='sirvis')]};
+  },
+
+  async _servicesMock(){return{items:[
    {service_type:'ravis',label:'RAVIS',build_version:'0.4.1',protocol_version:'1',
     capability:'ravis.openai_compatible.chat_completions@1',key:'ravis'},
    {service_type:'sirvis',label:'SIRVIS',build_version:'0.3.0',protocol_version:'1',
@@ -1958,10 +2003,10 @@ async function nervis(){
  const bar=sp=>spanBar(sp,tr.window_ms);
  $('#content').innerHTML=kpis([['Requests / min','128','↗ 12%','ravis'],['Latency p50','0.42s','healthy','ravis'],
    ['Local',usage.local_pct+'%','of today','ravis'],['Services',`${live} / 4`,'registered','nervis']])
- +`<div class="card wide"><h3>Service registry</h3>
+ +`<div class="card wide live"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(SERVICES[r.key].state)?'':' warn'}">${SERVICES[r.key].state}</span></div>`).join('')}
-   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful.</small></div>
+   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>RAVIS and SIRVIS are read live</b> from <b>/ecosystem/identity</b> and <b>/ecosystem/capabilities</b>, and the capability shown is the first one each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge and LM Studio publish no MEP surface</b>, so their rows are declared here rather than read — which is why this card is only partly trustworthy and says so.</small></div>
   <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
   <div class="card wide"><h3>Clarvis instances</h3>
    ${usable('clarvis')?`<div class="table-row head"><span>Workspace</span><span>Mode</span><span>State</span><span>Route</span></div>
