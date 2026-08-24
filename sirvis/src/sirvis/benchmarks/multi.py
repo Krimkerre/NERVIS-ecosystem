@@ -267,11 +267,44 @@ async def run_multi_experiment(
         outcome.state, outcome.detail = RunState.FAILED, str(failure)
         return outcome
 
+    outcome.warnings.extend(_thermal_warnings(outcome))
     outcome.matrix = interaction_matrix(spec, outcome)
     directory.write_result({"interaction_matrix": outcome.matrix})
     directory.write_telemetry([sample.as_dict() for sample in outcome.telemetry])
     _finish(spec, outcome, inventory, machine, database, directory)
     return outcome
+
+
+def _thermal_warnings(outcome: MultiModelOutcome) -> list[str]:
+    """§11.8: flag a thermally compromised run; never silently discard it.
+
+    **A degradation percentage compares two conditions, and this run measures
+    them at different times.** The control is taken first, on a machine that has
+    just been idle; concurrent generation is taken last, after every other mode
+    has been run. The first reading of a real pair showed exactly that — the
+    machine sat at `nominal` through the alone and sequential phases and read
+    `fair` for alternating and concurrent — so the contention figure carries
+    whatever thermal drift accumulated in between, and no arithmetic here can
+    separate the two.
+
+    That is a bias rather than noise: it has a direction. Every degradation
+    number is against a control measured under better conditions than the thing
+    it is compared with, so contention is overstated by whatever the machine
+    lost along the way. Flagged rather than corrected — the correction would be
+    a guess, and §11.8 asks for the flag.
+    """
+    readings = {
+        point: state for point, state in outcome.thermal.items() if state
+    }
+    distinct = set(readings.values())
+    if len(distinct) < 2:
+        return []
+    described = ", ".join(f"{point} {state}" for point, state in sorted(readings.items()))
+    return [
+        "the machine's thermal state changed during this run "
+        f"({described}), so the conditions being compared were not measured "
+        "under equal conditions and the degradation figures include that drift"
+    ]
 
 
 async def _execute(

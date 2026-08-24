@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 728 tests, no network, no live service
+.venv/bin/pytest                      # part of 730 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 728 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 730 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1433,15 +1433,44 @@ this reason. Taking the worst would anchor a recommendation on the one
 measurement its other two runs contradict: the combination score is `1.785` on a
 21.5% median rather than `1.656` on a 34.4% outlier.
 
-**What could not be checked is why**, and that is a gap this run exposed rather
-than a mystery. §11.8 asks for thermal capture and M6 records two readings per
-run; M10 discarded the reader under a comment saying it happened "per mode
-below", where it never did. So a multi-model run recorded no thermal state at
-all, and the obvious explanation for a cool first run and two warmer ones had
-nothing in the record to be tested against. M10 now takes a reading per
-condition — baseline, alone, and each mode — because a degradation percentage
-compares two conditions and a single reading for the whole run cannot say which
-of them was measured warm.
+**A fourth run carried the first thermal readings, and they answered a
+different question than the one asked.**
+
+```text
+                            run 1    run 2    run 3    run 4   median
+agent alone                  68.1     58.0     57.6     58.9     58.4
+agent sequential             68.2     58.1     58.7     58.6     58.7
+agent alternating            59.8     59.1     59.2     57.6     59.1
+agent concurrent             44.6     45.7     45.3     45.2     45.2
+chat  (every condition)                        within 2.5% throughout
+
+run 4 thermal   baseline nominal · alone nominal · sequential nominal
+                alternating fair · concurrent fair
+```
+
+Run 4's **alone** was measured at `nominal` and came back **58.9** — so thermal
+does not explain run 1's 68.1, and that outlier remains unaccounted for. What
+the readings did show is worse than an outlier, because it is systematic:
+
+**the machine crossed from `nominal` to `fair` in the middle of every run.** The
+control is measured first, on a machine that has just been idle; concurrent
+generation is measured last, after every other mode has run. So every
+degradation figure compares a nominal measurement against a fair one, and the
+contention number carries whatever drift accumulated in between.
+
+That is a bias with a direction rather than noise: the control is always taken
+under the better conditions, so contention is **overstated** by whatever the
+machine lost along the way. §11.8 asks for exactly this to be flagged and never
+silently discarded, so a run whose thermal state moves now says so in its
+validity notes. Flagged rather than corrected — the correction would be a guess.
+
+**The gap that let this hide for four runs.** §11.8 asks for thermal capture and M6 records two readings per run; M10
+discarded the reader under a comment saying it happened "per mode below", where
+it never did. So the first three runs of a real pair recorded no thermal state
+at all. M10 now takes a reading per condition — baseline, alone, and each mode —
+because a degradation percentage compares two conditions and one reading for the
+whole run cannot say which of them was measured warm. The very first run that
+carried them found the drift described above.
 
 **Two bugs found in the process, both in the counting rather than the
 measuring.** The matrix collector deduplicated the *raw* matrix against an

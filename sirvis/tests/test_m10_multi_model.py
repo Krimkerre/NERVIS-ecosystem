@@ -125,7 +125,8 @@ def a_snapshot() -> SystemSnapshot:
     )
 
 
-def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any) -> Any:
+def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any,
+        thermal: Any = None) -> Any:
     database = prepare_database(":memory:")
     outcome = asyncio.run(run_multi_experiment(
         spec,
@@ -135,6 +136,10 @@ def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any) -> Any:
         results_root=str(tmp_path),
         probe=MemoryProbe(),
         snapshot=a_snapshot(),
+        # Driven rather than read: §11.8's flag is about the state *changing*
+        # between conditions, and a real reader on a test machine gives whatever
+        # it gives.
+        **({"thermal": thermal} if thermal else {}),
     ))
     return outcome, database
 
@@ -523,3 +528,29 @@ def test_the_alone_condition_has_a_peak_sample_of_its_own(tmp_path: Any) -> None
     outcome, _ = run(a_spec(), FakeRuntime(), tmp_path)
 
     assert outcome.matrix["memory"][MODE_ALONE]["swap_used_bytes"] is not None
+
+
+def test_a_run_whose_thermal_state_moved_says_so(tmp_path: Any) -> None:
+    """§11.8: flag a thermally compromised run, never silently discard it.
+
+    A degradation percentage compares two conditions measured at different
+    times — the control first on an idle machine, concurrent last after every
+    other mode. The first real reading showed the machine at `nominal` through
+    alone and sequential and `fair` for alternating and concurrent, so the
+    contention figure carries that drift and no arithmetic here can separate it.
+
+    A bias with a direction, not noise: the control is always measured under the
+    better conditions, so contention is overstated by whatever was lost.
+    """
+    states = iter(["nominal", "nominal", "nominal", "fair", "fair", "fair"])
+    outcome, _ = run(a_spec(), FakeRuntime(), tmp_path,
+                     thermal=lambda: next(states, "fair"))
+
+    assert any("thermal state changed" in note for note in outcome.warnings)
+
+
+def test_a_run_at_one_thermal_state_is_not_flagged(tmp_path: Any) -> None:
+    """The flag has to be capable of staying quiet, or it says nothing."""
+    outcome, _ = run(a_spec(), FakeRuntime(), tmp_path, thermal=lambda: "nominal")
+
+    assert not any("thermal state changed" in note for note in outcome.warnings)
