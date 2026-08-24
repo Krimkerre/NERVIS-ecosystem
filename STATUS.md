@@ -2646,6 +2646,61 @@ is prose; whoever compares two evidence IDs never reads it.
 
 ---
 
+## The sweep: what the dashboard actually reads
+
+Every screen was classified mechanically rather than by eye — each view function
+matched against the data sources it touches, then every endpoint it asks for
+probed against a running service.
+
+**What it found.**
+
+| | Screens |
+|---|---|
+| Read from a running service | SIRVIS Models, Runtime, Runtime sets, Results, Recommendations · RAVIS Pools, Credentials |
+| Partly real | SIRVIS Dashboard · RAVIS Dashboard, Routes, Providers, Evidence |
+| Entirely invented | SIRVIS Discover, Benchmarks, Downloads · RAVIS Policies, Logs, Diagnostics, Settings · every NERVIS screen · every CLARVIS screen |
+
+Twenty-four of the twenty-eight `API.*` methods return invented data. Four try a
+real endpoint. The **service dashboards were the worst of it and the last to be
+caught**: SIRVIS's renders from nine sources of which two are live, RAVIS's from
+four of which one is — and a landing screen full of confident invented numbers
+is the most misleading page in the build, because it is the first one anyone
+sees.
+
+**Faded, not hidden.** Prototype cards drop to 40% opacity, desaturate, take a
+dashed border and a `PROTOTYPE` label beside their heading, and come back to
+readable on hover. Hiding them would lose the thing that *is* real about those
+screens — the layout is the design for something not yet built. The point is
+"do not trust this number", not "you may not look".
+
+`.card.live` is the opt-out, so a mixed screen fades only its invented half. One
+flag per screen would have meant either fading a working table or leaving a
+fabricated one bright.
+
+This is the ecosystem rule — *a control that implies an endpoint exists is the
+one thing the dashboard must not do* — applied to **numbers** rather than to
+buttons. It was already enforced for controls; the sweep found it had never been
+enforced for data.
+
+### Two real bugs the sweep turned up
+
+**The launcher was orphaning every database.** Both services default to a
+*relative* database path and the launcher runs them from the repository root, so
+a first run created empty databases beside the launcher and came up healthy,
+empty, and disconnected from **81 benchmark runs and 2 runtime sets**. It looks
+exactly like a working install with no data. Both paths — and SIRVIS's §11.9
+results directory — are now absolute.
+
+**RAVIS was never told where SIRVIS is.** It started with an evidence store
+reporting "configured: false", so every routing decision fell back to advertised
+capabilities and the Evidence screen read zero records — which looks like SIRVIS
+having no evidence rather than nobody having introduced them. The launcher now
+sets `RAVIS_SIRVIS_BASE_URL`, and defaults RAVIS's upstream to LM Studio when
+the operator has named none, because RAVIS with no upstream has no models,
+therefore no candidates, therefore nothing to ask SIRVIS about — an emptiness
+three steps removed from what it displays. After both fixes a single launch
+brings up 20 models, 13 pools and 20 evidence records.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -49,8 +49,10 @@ DASHBOARD = f"http://127.0.0.1:{NERVIS_PORT}/index.html"
 WINDOWS = platform.system() == "Windows"
 
 # Runtimes this ecosystem talks to but does not own.
+LM_STUDIO = "http://127.0.0.1:1234"
+
 EXTERNAL = [
-    ("LM Studio", "http://127.0.0.1:1234/v1/models"),
+    ("LM Studio", f"{LM_STUDIO}/v1/models"),
     ("Ollama", "http://127.0.0.1:11434/api/tags"),
     ("Clarvis", "http://127.0.0.1:7071/"),
 ]
@@ -111,6 +113,36 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         env = dict(os.environ)
         env[f"{prefix}_HOST"] = "127.0.0.1"
         env[f"{prefix}_PORT"] = str(port)
+        # Absolute, because both services default to a *relative* database path
+        # and this launcher runs them from the repository root. Left alone, a
+        # first run creates empty databases beside this file and the services
+        # come up healthy, empty, and disconnected from every benchmark ever
+        # recorded — which looks exactly like a working install with no data.
+        # Found by the UI sweep on 2026-08-24: 81 runs and 2 runtime sets had
+        # been orphaned this way.
+        package = prefix.lower()
+        env[f"{prefix}_DATABASE_PATH"] = str(ROOT / package / f"{package}.db")
+        if prefix == "RAVIS":
+            # Point RAVIS at SIRVIS. Without this RAVIS starts healthy with an
+            # empty evidence store, its Evidence screen reads zero records, and
+            # every routing decision falls back to advertised capabilities — all
+            # of which looks like "SIRVIS has no evidence" rather than "nobody
+            # told RAVIS where SIRVIS is". §13.4 makes the source optional, so
+            # nothing errors; it just quietly does less.
+            env["RAVIS_SIRVIS_BASE_URL"] = f"http://127.0.0.1:{SIRVIS_PORT}"
+            # And at a runtime, when the operator has not named one. RAVIS with
+            # no upstream has no models, therefore no candidates, therefore
+            # nothing to ask SIRVIS about — so the evidence store reads "fresh,
+            # 0 records" and every screen downstream looks empty for a reason
+            # that is three steps away from what it shows.
+            #
+            # Only as a default: anything the operator set in the environment
+            # wins, because guessing over a stated choice would be worse than
+            # not guessing at all.
+            if not env.get("RAVIS_UPSTREAM_BASE_URL") and not env.get("RAVIS_UPSTREAMS"):
+                env["RAVIS_UPSTREAM_BASE_URL"] = LM_STUDIO
+                env["RAVIS_UPSTREAM_KIND"] = "lmstudio"
+                env["RAVIS_DEFAULTED_UPSTREAM"] = "1"
         # The dashboard is served from another port, so it is cross-origin to
         # both services. Each default is an empty allow-list, which is why the
         # screens would otherwise silently show nothing.
@@ -123,13 +155,25 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # bind without TLS, and skipping it would make this the one path that
         # bypasses the gate.
         ("SIRVIS", [str(venv_bin("sirvis")), "serve"], "sirvis",
-         env_for("SIRVIS", SIRVIS_PORT), f"http://127.0.0.1:{SIRVIS_PORT}/v1/status"),
+         _with_results(env_for("SIRVIS", SIRVIS_PORT)),
+         f"http://127.0.0.1:{SIRVIS_PORT}/v1/status"),
         ("RAVIS", [str(venv_bin("ravis")), "serve"], "ravis",
          env_for("RAVIS", RAVIS_PORT), f"http://127.0.0.1:{RAVIS_PORT}/v1/models"),
         ("NERVIS", [str(venv_bin("python")), "-m", "http.server", str(NERVIS_PORT),
                     "--bind", "127.0.0.1", "--directory", str(ROOT / "nervis")],
          "http.server", dict(os.environ), DASHBOARD),
     ]
+
+
+def _with_results(env: dict[str, str]) -> dict[str, str]:
+    """SIRVIS's raw-result directory, absolute for the same reason as its database.
+
+    §11.9's per-run directory is written relative to the working directory, so a
+    launcher running from the repository root would scatter results somewhere
+    the CLI never looks.
+    """
+    env["SIRVIS_RESULTS_PATH"] = str(ROOT / "sirvis" / "results")
+    return env
 
 
 def _spawn_detached(command: list[str], env: dict[str, str], log: Path) -> int:
@@ -221,6 +265,9 @@ def start() -> int:
     for name, url in EXTERNAL:
         print(f"  {name:<10} {'answering' if responds(url, 1.0) else 'not running'}")
 
+    if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
+        print(f"\nRAVIS upstream defaulted to LM Studio at {LM_STUDIO}.")
+        print("  Set RAVIS_UPSTREAM_BASE_URL (or RAVIS_UPSTREAMS) to override.")
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
     if ready:

@@ -85,6 +85,20 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .absent[data-state="stale"] b,.absent[data-state="discovering"] b{color:#8b9bb0}
 .absent[data-state="incompatible"] b,.absent[data-state="unauthorized"] b{color:#ff9d3d}
 .card.is-absent{opacity:.82;border-style:dashed}
+/* Prototype content. Faded and desaturated rather than hidden, because the
+   layout is the part that is real — these screens are the design for a thing
+   that is not built, and deleting them would lose that. Hovering restores them
+   to readable: the point is "do not trust this number", not "you may not look".
+   `.card.live` is the opt-out for a screen where only some cards are real. */
+#content[data-wip] .card:not(.live){opacity:.4;filter:saturate(.25);border-style:dashed}
+#content[data-wip] .card:not(.live):hover{opacity:.82;filter:saturate(.6)}
+#content[data-wip] .card:not(.live) h3:after{content:"PROTOTYPE";margin-left:8px;
+  font-size:8px;letter-spacing:.14em;color:#8a6a3a;border:1px solid #4a3a20;
+  border-radius:2px;padding:1px 5px;vertical-align:middle}
+.wip-note{grid-column:1/-1;border:1px dashed #4a3a20;background:rgba(74,58,32,.12);
+  border-radius:3px;padding:9px 12px;font:10px/1.5 "SFMono-Regular",monospace;
+  color:#b08d55;letter-spacing:.04em}
+.wip-note b{color:#d8b478}
 .banner{grid-column:1/-1;display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:9px;
         border:1px solid rgba(255,92,106,.32);background:rgba(255,92,106,.07);margin-bottom:12px}
 .banner[data-tone="info"]{border-color:rgba(125,108,255,.3);background:rgba(125,108,255,.07)}
@@ -2414,7 +2428,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
      fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
- +`<div class="card wide"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
+ +`<div class="card wide live"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
    ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="selectOne(this,'.model')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime||'—'} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
    </div>
@@ -3032,7 +3046,7 @@ async function ravisProviders(){
  const health=x=>x.reachable===null?'<span class="chip">not probed</span>'
    :x.reachable?'<span class="chip">answering'+(x.latency_ms?' · '+Math.round(x.latency_ms)+' ms':'')+'</span>'
    :'<span class="chip warn" title="'+escapeHtml(x.detail||'')+'">not answering</span>';
- const liveCard=liveRows?`<div class="card full"><h3>Configured now <span class="chip">live</span></h3>${cell(`
+ const liveCard=liveRows?`<div class="card full live"><h3>Configured now <span class="chip">live</span></h3>${cell(`
    <div class="table-row head" style="grid-template-columns:1fr .8fr .9fr .9fr .9fr auto"><span>Provider</span><span>Path</span><span>Credential</span><span>Health</span><span>Models</span><span>Enabled</span></div>
    ${liveRows.map(x=>`<div class="table-row" style="grid-template-columns:1fr .8fr .9fr .9fr .9fr auto;align-items:center">
      <span class="mono"><b>${escapeHtml(x.name)}</b></span>
@@ -3055,7 +3069,7 @@ async function ravisProviders(){
      <button class="btn" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}',true)">Clear</button>
     </div>`).join('')}
    <small class="mono dim">the <b>Models</b> count is a link — it opens the filter for that provider. OpenRouter publishes over 400 models, and without a filter every one of them lands in <b>/v1/models</b>, which a client renders as a picker, and becomes a routing candidate on every request. Patterns are globs; <b>exclude wins over include</b>, and an empty include means all rather than none. The filter applies identically to the catalogue a client reads and the candidates the router picks from, so the two can never disagree about whether a model exists.<br><br>turning a provider off is not the same as removing its key. Disabled means <b>not right now</b> and is one click back; deleting the credential on <b>RAVIS → Credentials</b> means this deployment no longer holds one. A disabled provider is not probed, not advertised in <b>/v1/models</b>, and not a routing candidate — and addressing it directly returns 503 rather than quietly going somewhere else.</small>`,'ravis')}</div>`
-  :`<div class="card full"><h3>Configured now</h3>${cell(`
+  :`<div class="card full live"><h3>Configured now</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/providers</span></div>
    <small class="mono dim">RAVIS is not answering, so this card shows nothing rather than a remembered list. Everything below is prototype content and always was.</small>`,'ravis')}</div>`;
 
@@ -3129,7 +3143,7 @@ async function ravisEvidence(){
    ['Measured',String(measured),'runs on this machine · n=3','sirvis'],
    ['Observed by RAVIS',String(observed),'live TTFT from real traffic','ravis'],
    ['Routing p50',usage.routing_p50_ms+' ms','decision cost, cached evidence','ravis']])
- +(verdicts?`<div class="card full"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
+ +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
    ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${v.state==='SUPPORTED'?'':' warn'}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
    <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${(verdicts.source.threshold.tool_call_pass_rate*100)}%</b> over <b>${verdicts.source.threshold.phrasings}</b> phrasings × <b>${verdicts.source.threshold.repetitions_each}</b> repetitions.</small>`,'ravis')}</div>`:'')
@@ -3427,9 +3441,53 @@ ${se.terminal.output}</div>
 /* async because the views await real endpoints. With mocks these resolve on the
    same tick, so nothing changes today — and nothing changes when they stop being
    mocks either, which is the point. */
+/* Which screens show invented data (M18a and the sweep of 2026-08-24).
+   
+   A screen is listed here when some or all of what it renders has no endpoint
+   behind it. `live:` names the cards on that screen that *are* real, so a mixed
+   screen fades only the invented half — the alternative, one flag per screen,
+   would either fade a working table or leave a fabricated one bright.
+
+   The rule this enforces is the ecosystem rule stated on the Settings screen: a
+   control that implies an endpoint exists is the one thing the dashboard must
+   not do. This is the same rule applied to *numbers*. */
+const PROTOTYPE={
+ nervis:{'Overview':1,'Chat':1,'Ecosystem map':1,'Events':1,'Traces':1,
+         'Diagnostics':1,'System':1,'Settings':1},
+ /* The service dashboards are the worst of it and were the last to be caught:
+    SIRVIS's renders from nine sources of which two are live, RAVIS's from four
+    of which one is. A landing screen full of confident invented numbers is the
+    most misleading page in the build, because it is the first one anyone sees. */
+ sirvis:{'Dashboard':1,'Discover':1,'Benchmarks':1,'Downloads':1},
+ ravis:{'Dashboard':1,'Routes':1,'Providers':1,'Policies':1,'Evidence':1,
+        'Logs':1,'Diagnostics':1,'Settings':1},
+ clarvis:{'*':1}};
+
+function prototypeNote(){
+ const map=PROTOTYPE[state.app]||{};
+ if(!(map[state.view]||map['*']))return '';
+ return `<div class="wip-note"><b>Prototype.</b> Faded cards on this screen render
+  invented data — there is no endpoint behind them yet. Anything at full contrast is
+  read from a running service. Hover a faded card to read it.</div>`;
+}
+
+function markPrototype(){
+ const map=PROTOTYPE[state.app]||{};
+ const box=$('#content');
+ if(!box)return;
+ if(map[state.view]||map['*']){
+  box.setAttribute('data-wip','');
+  /* Prepended here rather than by each view, so a screen added later inherits
+     the label instead of being forgotten. */
+  if(!box.querySelector('.wip-note'))box.insertAdjacentHTML('afterbegin',prototypeNote());
+ }else{
+  box.removeAttribute('data-wip');
+ }
+}
+
 async function render(){applyTheme();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
- if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();syncPanelAvatar()}
+ if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();syncPanelAvatar()}
 function selectOne(el,selector){$$(selector).forEach(x=>x.classList.remove('selected'));el.classList.add('selected');notify('Selection updated')}
 function seedEvents(){const box=$('#events');if(!box)return;['RAVIS routed clarvis/agent','Clarvis connected to workspace','SIRVIS benchmark completed','LM Studio model loaded'].forEach((x,i)=>box.insertAdjacentHTML('beforeend',`<div class="event"><time>10:26:0${8-i}</time><span>${x}</span></div>`))}
 function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>t.classList.remove('show'),2300)}function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
