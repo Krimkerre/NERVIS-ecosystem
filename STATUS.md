@@ -2701,6 +2701,53 @@ therefore no candidates, therefore nothing to ask SIRVIS about — an emptiness
 three steps removed from what it displays. After both fixes a single launch
 brings up 20 models, 13 pools and 20 evidence records.
 
+## Clicking an installed build
+
+The rows on SIRVIS's dashboard were already clickable and did nothing —
+`selectOne` highlighted the row and raised a toast reading *"Selection
+updated"*. Nothing had been updated. That is the same defect the fade sweep
+addressed one screen over: **a control must not imply an effect it does not
+have**, and a toast is how a control claims it worked. The toast is gone.
+
+Three things a click now does, all against endpoints that already existed:
+
+```text
+GET  /api/v1/models/{local_model_id}        what this build is
+GET  /api/v1/evidence?variant={variant_id}  what has been measured of it
+POST /api/v1/runtime/sessions               load it, under a lease
+```
+
+**The evidence query is a variant query, not a model lookup**, and that is
+§12.2 showing through rather than an inconvenience. Evidence is never keyed by
+model, so "this build's measurements" is asked by `variant` — the id that
+encodes family, format and quantization together. Verified against the corpus,
+and the two granite builds are why it matters:
+
+```text
+GGUF   context 1048576   lmstudio-community   agent 6 · clarvis-agent 2 · general 9
+MLX    context  131072   mlx-community                 clarvis-agent 2 · general 3
+                                              + family and variant disagree
+```
+
+One model name, two builds, different measurements — the same distinction that
+admitted the GGUF build to `ravis/clarvis-agent` on 24 of 24 tool trials and
+excluded the MLX build on 3. The panel says so in a line under the numbers,
+because a reader otherwise wonders why it did not simply ask for the model.
+
+**Load is gated on the runtime-scoped token** and says so in the button's title
+rather than failing when pressed. It reuses `RUNTIME._send`, the call the
+Runtime screen already drives, rather than a second implementation of the same
+lease mutation. Releasing a lease that holds **more than one model** asks first
+— §9's reference counting means releasing on one owner's behalf can unload
+another's.
+
+**Not verified live:** the load and release path. The wiring is the Runtime
+screen's proven call and the button gating is verified, but no model has been
+loaded *through this panel*.
+
+**Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()`
+remains one of the invented twenty-four; running a benchmark is CLI-only.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -942,6 +942,12 @@ const API={
     const instances=m.instances||[];
     return{
      model_id:m.runtime_key,
+     /* Both carried because they answer different questions: `local_model_id`
+        addresses one installed build, and `variant_id` is what evidence is
+        keyed by — §12.2 forbids evidence keyed by model, so "this build's
+        measurements" is a variant query, not a model lookup. */
+     local_model_id:m.local_model_id,
+     variant_id:v.variant_id,
      family:(m.family&&m.family.display_name)||m.display_name,
      variant:[v.runtime_format&&v.runtime_format.toUpperCase(),v.quantization].filter(Boolean).join(' ')||null,
      runtime:v.runtime_format==='mlx'?'mlx':v.runtime_format==='gguf'?'llama.cpp':null,
@@ -2357,6 +2363,92 @@ async function sirvisRuntime(){
    rather than patching the table optimistically: the answer to "what is loaded"
    is the service's to give, and a screen that predicted it would be wrong in
    exactly the case that matters — when the load failed. */
+/* Clicking an installed build (2026-08-24).
+
+   Three things a click can do, all backed by endpoints that already existed —
+   the click had simply never been wired to them:
+
+     GET    /api/v1/models/{local_model_id}        what this build is
+     GET    /api/v1/evidence?variant={variant_id}  what has been measured of it
+     POST   /api/v1/runtime/sessions               load it, under a lease
+
+   The evidence query is a *variant* query rather than a model lookup, and that
+   is §12.2 showing through rather than an inconvenience: evidence is never
+   keyed by model, because two packagings of one model are two different things
+   — which this machine proved when granite's GGUF build passed 24 of 24 tool
+   trials and its MLX build passed 3. The panel says so, because a reader
+   otherwise wonders why it did not just ask for the model. */
+const BUILD={
+ async select(row,localId,variantId){
+  if(row)selectOne(row,'.model');
+  if(!localId){
+   return this.paint(`<small class="mono dim">this row came from the prototype catalogue and carries no identifier to look up. Start SIRVIS and reload to get real builds.</small>`);
+  }
+  this.current={localId,variantId};
+  this.paint('<small class="mono dim">reading…</small>');
+  const [detail,evidence,residency]=await Promise.all([
+   fetch(BASE.sirvis+'/api/v1/models/'+encodeURIComponent(localId)).then(r=>r.ok?r.json():null).catch(()=>null),
+   variantId?fetch(BASE.sirvis+'/api/v1/evidence?limit=200&variant='+encodeURIComponent(variantId))
+     .then(r=>r.ok?r.json():null).catch(()=>null):Promise.resolve(null),
+   fetch(BASE.sirvis+'/api/v1/runtime/residency').then(r=>r.ok?r.json():null).catch(()=>null)]);
+  if(!detail)return this.paint('<small class="mono dim">SIRVIS did not answer for this build.</small>');
+  this.paint(this.render(detail,evidence,residency));
+ },
+
+ paint(inner){const el=document.getElementById('buildPanel');
+  if(el)el.innerHTML=`<h3>Selected build</h3>`+cell(inner,'sirvis');},
+
+ render(m,ev,res){
+  const v=m.variant||{},f=m.family||{},inst=m.instances||[];
+  const val=x=>x&&typeof x==='object'&&'value' in x?x.value:x;
+  const prov=x=>x&&typeof x==='object'&&x.provenance?` <span class="mono" style="opacity:.5">${escapeHtml(x.provenance)}</span>`:'';
+  const rows=[];
+  rows.push(`<div class="trace-step"><b>family</b><span>${escapeHtml(f.display_name||m.display_name||'—')}</span></div>`);
+  rows.push(`<div class="trace-step"><b>packaging</b><span class="mono">${escapeHtml([v.runtime_format,v.quantization].filter(Boolean).join(' · ')||'—')}</span></div>`);
+  rows.push(`<div class="trace-step"><b>architecture</b><span class="mono">${escapeHtml(String(val(f.architecture)||v.architecture||'—'))}${prov(f.architecture)}</span></div>`);
+  if(val(f.parameter_billions)!=null)rows.push(`<div class="trace-step"><b>parameters</b><span class="mono">${escapeHtml(String(val(f.parameter_billions)))} B${prov(f.parameter_billions)}</span></div>`);
+  rows.push(`<div class="trace-step"><b>declared context</b><span class="mono">${escapeHtml(String(val(m.declared_context)??'—'))}${prov(m.declared_context)}</span></div>`);
+  rows.push(`<div class="trace-step"><b>publisher</b><span class="mono">${escapeHtml(v.publisher||'—')}</span></div>`);
+  if(v.family_architecture_disagrees)rows.push(`<div class="trace-step"><b>architecture</b><span class="chip warn">family and variant disagree</span></div>`);
+  rows.push(`<div class="trace-step"><b>loaded</b><span>${m.is_loaded?`<span class="chip">${inst.length} instance(s)</span>`:'<span class="chip warn">not resident</span>'}</span></div>`);
+  inst.forEach(x=>rows.push(`<div class="trace-step"><b>effective context</b><span class="mono">${escapeHtml(String(x.effective_context??'—'))}</span></div>`));
+
+  /* Evidence, grouped by role. A count per role rather than one number,
+     because a build measured for chat says nothing about whether it can drive
+     an agent — the distinction the whole role vocabulary exists for. */
+  let evidence='';
+  if(ev){
+   const byRole={};(ev.items||[]).forEach(e=>{byRole[e.role]=(byRole[e.role]||0)+1});
+   const roles=Object.keys(byRole).sort();
+   evidence=roles.length
+    ?`<div class="trace-step"><b>evidence</b><span>${roles.map(r=>`${escapeHtml(r)} <span class="mono" style="opacity:.6">${byRole[r]}</span>`).join(' · ')}</span></div>`
+    :`<div class="trace-step"><b>evidence</b><span class="chip warn">none for this packaging</span></div>`;
+  }
+
+  const held=(res&&res.leases||[]).find(l=>(l.models||[]).includes(m.runtime_key));
+  const armed=RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required — set one on the Runtime screen" style="opacity:.45;cursor:not-allowed"';
+  const actions=held
+   ? `<button class="btn"${armed} onclick="BUILD.release(${JSON.stringify(held.session_id)},${(held.models||[]).length})">Release lease</button>`
+   : `<button class="btn primary"${armed} onclick="BUILD.load(${JSON.stringify(m.runtime_key)})">Load</button>`;
+
+  return rows.join('')+evidence
+   +`<div style="margin-top:10px">${actions}</div>`
+   +`<small class="mono dim">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.${held&&(held.models||[]).length>1?` <b>This lease holds ${(held.models||[]).length} models</b> — releasing it unloads all of them.`:''}</small>`;
+ },
+
+ async load(runtimeKey){
+  const out=await RUNTIME._send('/api/v1/runtime/sessions','POST',
+    {owner:'nervis-dashboard',models:[{model_id:runtimeKey}],policy:'wait'});
+  if(out)notify(`Loaded under session ${String(out.session_id).slice(0,12)}`);
+  if(this.current)this.select(null,this.current.localId,this.current.variantId);
+ },
+ async release(sessionId,count){
+  if(count>1&&!confirm(`That lease holds ${count} models. Releasing it unloads all of them. Continue?`))return;
+  const out=await RUNTIME._send('/api/v1/runtime/sessions/'+sessionId,'DELETE');
+  if(out)notify(`Released · unloaded ${(out.unloaded||[]).length}`);
+  if(this.current)this.select(null,this.current.localId,this.current.variantId);
+ }};
+
 const RUNTIME={
  setToken(){RUNTIME_TOKEN=($('#rtToken')||{}).value||'';
    notify(RUNTIME_TOKEN?'Token set for this tab':'Token cleared');render()},
@@ -2430,11 +2522,13 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
  +`<div class="card wide live"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
-   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="selectOne(this,'.model')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime||'—'} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
+   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${escapeHtml(m.local_model_id||'')}','${escapeHtml(m.variant_id||'')}')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime||'—'} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
    </div>
    <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. ${fastest
      ?`The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${fastest.family}</b> tops it at ${fastest.measured.gen_tok_s} tok/s${fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:''}.`
      :`The bars are flat because this endpoint carries no throughput: SIRVIS files measurements against evidence records rather than against a build, so a rate belongs to a run under a named configuration and not to a name in a catalogue. The <b>Results</b> screen has them.`}</small>`,'sirvis')}</div>
+  <div class="card narrow live" id="buildPanel"><h3>Selected build</h3>${cell(`
+   <small class="mono dim">click a build on the left. This panel reads <b>GET /api/v1/models/{id}</b> and its measurements from <b>GET /api/v1/evidence?variant=…</b> — both live.</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>${rn.suite}@${rn.version}</h3>${cell(`
    <div class="trace-step"><b>target</b><span>${rn.target.split(' · ')[0]}</span></div>
    <div class="trace-step"><b>generating</b><span>${rn.generation_tok_s.median} tok/s</span></div>
@@ -3488,7 +3582,11 @@ function markPrototype(){
 async function render(){applyTheme();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
  if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();syncPanelAvatar()}
-function selectOne(el,selector){$$(selector).forEach(x=>x.classList.remove('selected'));el.classList.add('selected');notify('Selection updated')}
+/* Highlight only. It used to end with notify('Selection updated'), which was a
+   claim that something had been updated — nothing had. Under the same rule the
+   rest of this file follows, a control must not imply an effect it does not
+   have, and a toast is a control's way of saying it worked. */
+function selectOne(el,selector){$$(selector).forEach(x=>x.classList.remove('selected'));el.classList.add('selected')}
 function seedEvents(){const box=$('#events');if(!box)return;['RAVIS routed clarvis/agent','Clarvis connected to workspace','SIRVIS benchmark completed','LM Studio model loaded'].forEach((x,i)=>box.insertAdjacentHTML('beforeend',`<div class="event"><time>10:26:0${8-i}</time><span>${x}</span></div>`))}
 function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>t.classList.remove('show'),2300)}function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 /* Cycling a service through healthy → degraded → unreachable is the whole point:
