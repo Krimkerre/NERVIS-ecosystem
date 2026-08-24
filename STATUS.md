@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 725 tests, no network, no live service
+.venv/bin/pytest                      # part of 727 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 725 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 727 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1364,6 +1364,61 @@ And **the alone condition had no peak memory sample of its own.** Only the
 co-residency modes emitted one, so swap could be read while two models were
 resident and not while one was — leaving §10.1's central comparison, what the
 second model costs, unanswerable for the figure most likely to answer it.
+
+### The swap answer, and the reproducibility problem it turned up
+
+The pair re-run to get the baseline the previous run could not sample. Run
+`run_f8eedea030ba457d`, `sirvis/results/exp_ba3c125d1bd24f9a`.
+
+```text
+condition        available     swap used
+alone              7.79 GB        184 MB
+sequential         5.89 GB        184 MB
+alternating        5.78 GB        184 MB
+concurrent         5.80 GB        184 MB
+```
+
+**Swap does not move.** 184 MB alone and 184 MB in every co-resident condition,
+against a machine that already had 183.5 MB in swap with nothing loaded — so
+that figure is pre-existing and not caused. Co-residency costs about **2 GB of
+available memory and no swap at all**, which completes the sentence this
+repository has been carrying since before it could check it: memory behaved as
+arithmetic predicted, and behaviour did not.
+
+**The more useful finding is that the pair does not reproduce.** The same set,
+same suite, same evening:
+
+```text
+                       run 1    run 2    drift
+agent alone             68.1     58.0   -14.8%
+agent sequential        68.2     58.1   -14.8%
+chat  alone             49.8     49.7    -0.2%
+agent concurrent        44.6     45.7    +2.3%
+
+agent concurrent degradation   +34.4%   +21.2%
+chat  concurrent degradation   +22.1%   +21.4%
+```
+
+The agent's **alone** figure dropped 14.8% between runs while everything else
+held within about 2%, and degradation is computed *against* alone — so its
+contention penalty swung thirteen points without contention changing at all. On
+a fanless machine that is thermal drift, and §11.7 already records ~32%
+run-to-run variation with an earlier sweep bracketing itself 26% apart. The
+lesson was in this file; the arithmetic had not been told.
+
+So M15 no longer takes the newest matrix. It uses **every** run of the pair,
+penalises on the worst — the conservative direction for a suggestion — and
+reports the spread: *"up to 34.4% of throughput across 2 runs ranging
+21.4–34.4%"*. A single number to four decimal places from one run of this
+machine is precision the corpus has not earned.
+
+**Two bugs found in the process, both in the counting rather than the
+measuring.** The matrix collector deduplicated the *raw* matrix against an
+already-enriched list, so a run whose matrix needed enriching was counted twice
+— and the recommendation reported "3 runs" where there were two, in the one
+field that exists to say how much measurement is behind a number. And a test
+fixture pinned the chat row at a constant, which floored every spread assertion
+at that value until one came back 22.1 where 21.2 was expected.
 
 ### The rule about loading — still read this first
 

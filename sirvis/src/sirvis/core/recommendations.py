@@ -369,7 +369,7 @@ class Recommendation:
     # The interaction matrix for the recommended pair, when one has been
     # measured. What makes the combination score a measurement of a pair rather
     # than the sum of two solo numbers.
-    pair_matrix: Mapping[str, Any] | None = None
+    pair_matrices: list[Mapping[str, Any]] = field(default_factory=list)
     excluded: dict[str, list[Exclusion]] = field(default_factory=dict)
     combination_score: float | None = None
     fit: str = FIT_UNKNOWN
@@ -448,15 +448,15 @@ def recommend(
         recommendation.roles[role] = ranked[0] if ranked else None
         recommendation.ranked[role] = ranked
         recommendation.excluded[role] = excluded
-    recommendation.pair_matrix = _matrix_for(recommendation, matrices)
+    recommendation.pair_matrices = _matrices_for(recommendation, matrices)
     _finish(recommendation, roles, mode)
     return recommendation
 
 
-def _matrix_for(
+def _matrices_for(
     recommendation: Recommendation, matrices: Sequence[Mapping[str, Any]]
-) -> Mapping[str, Any] | None:
-    """The interaction matrix measured for *this* pair, if there is one.
+) -> list[Mapping[str, Any]]:
+    """Every interaction matrix measured for *this* pair.
 
     Matched on the exact set of recommended builds. A matrix for a different
     pairing describes a different pair — §10.1 is precisely that co-residency
@@ -467,15 +467,8 @@ def _matrix_for(
         found.runtime_key for found in recommendation.roles.values() if found
     }
     if len(wanted) < 2:
-        return None
-    for matrix in matrices:
-        rows = matrix.get("rows") or {}
-        measured = {
-            str((matrix.get("members") or {}).get(role, role)) for role in rows
-        }
-        if measured == wanted or set(rows) and _members_of(matrix) == wanted:
-            return matrix
-    return None
+        return []
+    return [matrix for matrix in matrices if _members_of(matrix) == wanted]
 
 
 def _members_of(matrix: Mapping[str, Any]) -> set[str]:
@@ -546,31 +539,54 @@ def _evidence_ids(
     return {key: tuple(sorted(set(refs))) for key, refs in found.items()}
 
 
-def contention_penalty(matrix: Mapping[str, Any] | None) -> tuple[float, str]:
+def contention_penalty(matrices: Sequence[Mapping[str, Any]]) -> tuple[float, str]:
     """The measured cost of running a pair at once, as §14.3's penalty.
 
     Derived from what M10 measured rather than predicted: the worst concurrent
-    throughput degradation across the members, as a fraction. A pair that loses
-    a third of its throughput when both generate is a third worse at the thing
-    the pair exists to do, and §14.3 subtracts exactly that.
+    throughput degradation across the members, as a fraction.
 
-    `(0.0, "")` when no matrix exists, which is not the same as a frictionless
-    pair — the caller reports the absence rather than the zero, because §10.1's
-    whole argument is that an unmeasured pair is unknown and not fine.
+    **Every run of the pair, not the newest one**, and the reason is a
+    measurement this machine produced. The same pair benchmarked twice gave the
+    agent role a concurrent degradation of 34.4% and then 21.2% — a thirteen
+    point swing caused by its *alone* baseline drifting 14.8% between runs,
+    while the chat role held steady at 22.1% and 21.4%. Degradation is computed
+    against alone, so an unstable control moves the answer without contention
+    changing at all.
+
+    So the penalty is the **worst** figure observed, which is the conservative
+    direction for a recommendation, and the spread is reported whenever more
+    than one run exists. A single number to four decimals from one run of a
+    fanless machine is precision this corpus has not earned — §11.7 already
+    records ~32% run-to-run variation, and the earlier sweep bracketed itself
+    26% apart.
+
+    `(0.0, "")` when nothing has been measured, which is not the same as a
+    frictionless pair: the caller reports the absence rather than the zero.
     """
-    if not matrix or not matrix.get("complete"):
+    observed: list[float] = []
+    label = ""
+    for matrix in matrices:
+        if not matrix.get("complete"):
+            continue
+        worst = 0.0
+        for row in (matrix.get("rows") or {}).values():
+            drop = ((row.get("degradation_percent") or {}).get("concurrent") or {})
+            value = drop.get("tokens_per_second")
+            if isinstance(value, (int, float)):
+                worst = max(worst, float(value))
+        if worst:
+            observed.append(worst)
+            label = f"{matrix.get('runtime_set')}@{matrix.get('revision')}"
+    if not observed:
         return 0.0, ""
-    worst = 0.0
-    for row in (matrix.get("rows") or {}).values():
-        drop = ((row.get("degradation_percent") or {}).get("concurrent") or {})
-        value = drop.get("tokens_per_second")
-        if isinstance(value, (int, float)):
-            worst = max(worst, float(value))
-    if not worst:
-        return 0.0, ""
+    worst = max(observed)
+    spread = (
+        f" across {len(observed)} runs ranging {min(observed):.1f}–{max(observed):.1f}%"
+        if len(observed) > 1 else " from a single run"
+    )
     return worst / 100.0, (
         f"measured together: concurrent generation costs up to {worst:.1f}% of "
-        f"throughput ({matrix.get('runtime_set')}@{matrix.get('revision')})"
+        f"throughput{spread} ({label})"
     )
 
 
@@ -599,7 +615,7 @@ def _finish(recommendation: Recommendation, roles: Sequence[str], mode: str) -> 
             )
 
     if len(filled) == len(roles) and filled:
-        contention, measured = contention_penalty(recommendation.pair_matrix)
+        contention, measured = contention_penalty(recommendation.pair_matrices)
         recommendation.combination_score = combination_score(
             recommendation.roles.get("clarvis-chat"),
             recommendation.roles.get("clarvis-agent"),

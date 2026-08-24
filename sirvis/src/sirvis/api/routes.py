@@ -514,8 +514,17 @@ def _interaction_matrices(database: Any) -> list[dict[str, Any]]:
         results: Any = run.get("results")
         for result in results if isinstance(results, list) else []:
             matrix = result.get("interaction_matrix") if isinstance(result, dict) else None
-            if isinstance(matrix, dict) and matrix not in found:
-                found.append(_with_members(database, matrix))
+            if not isinstance(matrix, dict):
+                continue
+            # Deduplicate **after** enriching, not before. A run writes the same
+            # matrix onto every role's result, and comparing a raw matrix against
+            # an already-enriched list never matches — so one run counted twice
+            # and the recommendation reported "3 runs" where there were two, in
+            # the field that exists to say how much measurement is behind a
+            # number.
+            enriched = _with_members(database, matrix)
+            if enriched not in found:
+                found.append(enriched)
     return found
 
 

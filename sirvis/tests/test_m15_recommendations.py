@@ -306,13 +306,20 @@ def test_every_admitted_candidate_is_ranked_not_only_the_winner() -> None:
 # ── The joint term, once a pair has actually been run ────────────────────────
 
 
-def a_matrix(*, worst: float = 34.4, complete: bool = True) -> dict[str, Any]:
-    """An interaction matrix in the shape M10 writes it."""
+def a_matrix(*, worst: float = 34.4, chat: float | None = None,
+             complete: bool = True) -> dict[str, Any]:
+    """An interaction matrix in the shape M10 writes it.
+
+    Both rows are settable because the penalty is the worst across members, and
+    a fixture that pinned one row would quietly floor every case at that value —
+    which it did, until a spread assertion came back 22.1 instead of 21.2.
+    """
     return {
         "runtime_set": "clarvis-recommended", "revision": 1, "complete": complete,
         "members": {"clarvis-chat": "chat-build", "clarvis-agent": "agent-build"},
         "rows": {
-            "clarvis-chat": {"degradation_percent": {"concurrent": {"tokens_per_second": 22.1}}},
+            "clarvis-chat": {"degradation_percent": {
+                "concurrent": {"tokens_per_second": 22.1 if chat is None else chat}}},
             "clarvis-agent": {"degradation_percent": {"concurrent": {"tokens_per_second": worst}}},
         },
     }
@@ -327,6 +334,32 @@ def a_pair() -> list[dict[str, Any]]:
 
 PAIR_CONTEXTS = {"chat-build": 65536, "agent-build": 65536}
 PAIR_CAPABLE = {"chat-build:tool_use": "SUPPORTED", "agent-build:tool_use": "SUPPORTED"}
+
+
+def test_two_runs_of_one_pair_report_their_spread() -> None:
+    """A single number to four decimals from one run is precision this corpus
+    has not earned.
+
+    The same pair measured twice gave the agent role 34.4% and then 21.2% —
+    thirteen points, from its *alone* baseline drifting 14.8% while the chat
+    role held steady. Degradation is computed against alone, so an unstable
+    control moves the answer without contention changing at all.
+    """
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE,
+                       matrices=[a_matrix(worst=34.4, chat=22.1),
+                                 a_matrix(worst=21.2, chat=21.4)])
+
+    note = " ".join(result.uncertainty)
+    assert "across 2 runs" in note
+    assert "21.4–34.4%" in note
+    # The worst is used, which is the conservative direction for a suggestion.
+    assert result.combination_score == pytest.approx(2.0 - 0.344)
+
+
+def test_a_single_run_says_it_is_a_single_run() -> None:
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE, matrices=[a_matrix()])
+
+    assert "from a single run" in " ".join(result.uncertainty)
 
 
 def test_a_measured_pair_penalises_the_combination() -> None:
