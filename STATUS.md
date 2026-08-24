@@ -1543,6 +1543,37 @@ from inside the process. The scheduled task written to do this unattended was
 deleted after this run; a replacement should say so in its pre-flight and stop
 rather than measure through it.
 
+### The outlier: closed, unexplained, and deliberately so
+
+**Decision, 2026-08-24: stop chasing run 1.** Four valid runs put `agent/alone`
+between 57.6 and 58.9 — a spread of 1.3 tok/s. Run 1 sits at 68.1 and nothing
+accounts for it. Thermal was ruled out by run 4, cold was never successfully
+tested, and two attempts to test it produced a contaminated run and an aborted
+one.
+
+**What made this safe to close rather than merely convenient.** Every figure
+downstream of these runs is a **median**, not a mean — `_summarise` in
+`sirvis/src/sirvis/benchmarks/multi.py` and `_median` in
+`sirvis/src/sirvis/core/recommendations.py`. A single high outlier among four or
+five points cannot move a median, so §14.3's recommendation, the interaction
+matrix and every degradation percentage read the same with run 1 present or
+absent. The outlier is a curiosity in the record rather than a term in any
+answer.
+
+**What it cost to find that out**, worth keeping because the cost was the
+lesson: three separate contaminants, none visible to the pre-run capture. A
+Time Machine backup and macOS Game Mode during the fifth run — both reported by
+the operator, neither detectable from inside the process. Then Spotlight
+reindexing, apparently triggered by cancelling that backup, which drove load
+from 2.0 to 6.85 and made the sixth attempt not worth taking; the cleanup was a
+larger contaminant than the thing cleaned up.
+
+**If someone reopens this**, the bar is a machine with no backup, no Game Mode
+and a settled Spotlight index — checked by a person, since the first two have no
+probe and the third only shows up as unexplained load. And one clean run would
+still not settle it: run 1 is a single observation, and no single re-run can
+separate "cold matters" from "run 1 was a fluke".
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
