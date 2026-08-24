@@ -1481,6 +1481,48 @@ field that exists to say how much measurement is behind a number. And a test
 fixture pinned the chat row at a constant, which floored every spread assertion
 at that value until one came back 22.1 where 21.2 was expected.
 
+### The fifth run, cold — and the outlier survives it
+
+The one condition the first four never had: a machine that had been left alone
+for nine hours. Run on 2026-08-24 at 21:49 CEST, with the evidence captured
+before anything loaded — uptime 5 days with no reboot, no thermal warning level
+recorded, nothing resident, 175 MB of swap in use.
+
+```text
+                       run1   run2   run3   run4    cold
+  agent/alone          68.1   58.0   57.6   58.9    57.6
+  agent/sequential     68.2   58.1   58.7   58.6    57.4
+  agent/alternating    59.8   59.1   59.2   57.6    59.5
+  agent/concurrent     44.6   45.7   45.3   45.2    45.3
+  chat/alone                                        49.3
+  chat/concurrent                                   38.9
+```
+
+**Cold is ruled out.** `agent/alone` came back at 57.6 — the *lowest* of the
+five, not the highest. Run 1's 68.1 is not a cold-machine effect, and there is
+now no hypothesis left for it. Four runs sit between 57.6 and 58.9; one sits 17%
+above them, and this file records that as unexplained rather than reaching for a
+fifth guess.
+
+**The first run that never left `nominal`.** Baseline, alone, sequential,
+alternating and concurrent all read `nominal` — where run 4 crossed to `fair`
+between sequential and alternating. Its degradation figures are therefore the
+only ones in the corpus measured under one thermal state throughout: agent 21.4%,
+chat 21.2%.
+
+That is **weak support** for the bias described above, and worth stating as
+weak. Run 4 crossed and reported 23.3% agent degradation; this run did not cross
+and reported 21.4%. Two runs carrying thermal readings, pointing the way the
+argument predicts. Runs 1 to 3 recorded no thermal state at all, so they cannot
+join the comparison — which is the same gap that let the drift hide in the first
+place, showing up again as a limit on what can be concluded.
+
+**What the nine hours did change**: the machine no longer heats *into* the run.
+What it did not change is the baseline load, which sits near 2.0 on every run
+including this one — the desktop client rendering the session that drives the
+benchmark. No run in this corpus was ever taken on a genuinely idle machine, and
+that is a constant across all five rather than a difference between them.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
