@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 701 tests, no network, no live service
+.venv/bin/pytest                      # part of 719 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 701 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 719 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -102,8 +102,9 @@ into the order work actually happens.
 | 25 | **SIRVIS M16** | The RAVIS evidence API — §15.1's question as an endpoint, with every filter it names, cursor paging, staleness, stable references, and candidate runtime keys resolved by SIRVIS so RAVIS never infers equivalence. Nothing ranks. Found the role-vocabulary seam, below |
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
+| 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
 
-**Stages 0, 1, 2 and 3 are complete. Stage 4 needs one milestone — SIRVIS M15**, the recommendation engine. Everything else in it has landed: the benchmark engine, Runtime Sets, the RAVIS-facing evidence API, and the Clarvis role suites.
+**Stages 0, 1, 2, 3 and 4 are complete.** Stage 4's last piece was SIRVIS M15; the evidence plane now measures, stores, serves, and recommends.
 
 **Stage 5 has started out of order, and by now substantially.** M3b, M4 and RAVIS M13 all belong to it and are all done — the last of them met Stage 5's own exit criterion, a SIRVIS result changing a RAVIS preference, before Stage 4 finished. That is not drift: each was unblocked early and the reason is recorded under *Reorderings made during the build*.
 
@@ -1245,6 +1246,66 @@ exactly the `foreign` column on the Runtime screen — memory SIRVIS accounts fo
 and does not own — arriving here for the first time from an ordinary request
 rather than a benchmark.
 
+### What M15 settled
+
+§14.3 asks for a weighted score. §12.2 forbids evidence keyed as `model →
+score`. The line between them is the whole milestone:
+
+    A score is a **function output**, carried with the weights, the inputs and
+    the algorithm version that produced it. It is never a property of a model.
+
+Nothing writes a number back onto evidence. A recommendation is an opinion with
+its derivation attached, it expires, and §14.3 closes by saying what it is not —
+*evidence-backed suggestions, not routing commands*.
+
+**Coverage is the field that makes the score readable.** The `clarvis-agent`
+profile puts 35% of its weight on coding and 15% on reasoning; no suite measures
+either (M18). Another 5% is memory, and nothing records an installed size. So a
+score on this machine rests on **45%** of its own profile, and every
+recommendation says so:
+
+```text
+clarvis-agent   lmstudio-community/granite-4.0-h-tiny
+                score 1.0 · coverage 0.45
+                axes    tool_use 1.0 · throughput 1.0 · context 1.0
+                missing coding, reasoning, memory
+excluded        mlx-community/granite-4.0-h-tiny — tool_use is UNSUPPORTED
+clarvis-chat    no candidate — nothing has measured that role
+```
+
+The decisions worth the veto:
+
+- **The score divides by covered weight, not the profile total.** Dividing by
+  the total would mark every candidate down for suites that do not exist, which
+  is a fact about SIRVIS rather than about any model — and would move every
+  candidate identically, which is no information at all.
+- **An excluded candidate does not set the normalisation scale.** Found by
+  running it: while the MLX packaging was in the denominator, the admitted build
+  scored **0.55** on throughput for being beaten by something that fails every
+  realistic tool call. A recommendation ranks the builds that qualify, so
+  "fastest" means fastest among those.
+- **Eligibility is separate from ranking.** A build that cannot call tools is
+  not a low-scoring agent; it is not an agent. Weighing it would let a fast
+  enough model out-score its own disqualification.
+- **The joint term is zero, not optimistic.** A pair nobody has run together has
+  no joint evidence, and inventing one asserts exactly what §10.1 denies.
+- **`fast` proposes nothing.** §14.3 lets `verified` propose further benchmarks
+  and neither mode starts one: expensive here means gigabytes of somebody's
+  memory and a model resident for the duration.
+
+**Two things it exposed.** The threshold §13.2 sets was nowhere in SIRVIS's own
+code — it lived in this specification's prose and in RAVIS's consumer, and the
+service that owns it had no copy. It is defined here now, and still duplicated
+across two services that share no code; whoever tires of that should publish it
+beside the rates so the consumer reads it rather than restating it.
+
+And `POST /api/v1/recommendations` shipped behind `Scope.READ`, which is the
+same mistake M9 and M16 made — except the test pinning that convention only
+walks **GET** routes, so it did not catch a POST. §14.3 specifies a POST because
+its inputs are a body, and it stores nothing: it is a read that happens to need
+a request body. The token check is gone and the CSRF checks are not, which is
+the distinction dropping `require` wholesale would have lost.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier
@@ -1375,6 +1436,7 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | RAVIS **Pools** | live | `/api/v1/pools` + `/api/v1/models`; every build reads *out · tool support unknown — fails closed*, which is true |
 | SIRVIS **Runtime** | live | `/api/v1/runtime/residency`, and the four session mutations — the first controls on this page that reach a service |
 | RAVIS **Evidence** | live | `/api/v1/evidence` — what SIRVIS said and what RAVIS concluded, with the reason a build was refused |
+| SIRVIS **Recommendations** | live | `POST /api/v1/recommendations` — ranked, excluded with reasons, and the coverage each score rests on |
 | SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
 | Recommendations, Downloads | mocks | need M15 and M11 |
 
@@ -1416,7 +1478,6 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece: role profiles, fit, single-model *and Runtime Set* recommendation, evidence levels. M9 and M10 gave it pair evidence to recommend from, and §10.1 is why it could not have been built before them |
 
 ### After that
 

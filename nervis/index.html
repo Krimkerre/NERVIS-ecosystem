@@ -661,6 +661,21 @@ async function liveSirvis(path){
 function sirvisEvidence(result){
  const t=result.target||{}, med=n=>result.metrics&&result.metrics[n]
    ? Math.round(result.metrics[n].median*100)/100 : null;
+ /* A trial rate as the [passed,total] pair the tables render, or null when the
+    trials did not run. Never a zero pair: "nobody asked" and "asked eight times
+    and failed" are different findings, and only one is about the model.
+
+    Defined here beside `med` because this is the closure that reads `result`.
+    An earlier edit put both helpers next to a *different* `med` one function
+    over, which reads `e` — so the names the call site needed did not exist and
+    the screen threw `rate is not defined`. Two helpers with the same job in
+    neighbouring scopes is how that happens. */
+ const rate=n=>{const b=(result.metrics||{})[n];
+   return b&&typeof b.total==='number'&&b.total?[b.passed,b.total]:null};
+ const followup=()=>{const f=(result.metrics||{})['tool_followup_used_result'];
+   if(!f||!f.total)return null;
+   const m=(((f.provenance||{}).notes)||'').match(/outcome: (.+)$/);
+   return m?m[1]:(f.passed?'used-result':null)};
  return{evidence_type:result.evidence_type,role:result.role,
   target:{family:t.model_family,
           variant:[t.format,t.quantization].filter(Boolean).join(' ')||t.variant||'—',
@@ -681,7 +696,7 @@ function sirvisEvidence(result){
               Absent on every record until a `clarvis-agent` role run has been
               made, because nothing else asks a build to call a tool. */
            tool_calls:rate('tool_call_well_formed'),
-           follow_up:followupOf(result)},
+           follow_up:followup()},
   validity:result.validity,warnings:result.validity_notes||[],
   evidence_id:result.evidence_id,measured_at:result.created_at,
   caveat:null,note:null,live:true}}
@@ -1011,16 +1026,7 @@ const API={
        rate rather than a count. Null median, guarded at both display sites,
        beats a plausible number nobody measured. */
     const med=n=>(e.metrics||{})[n]?Math.round(e.metrics[n].median*100)/100:null;
- /* A trial rate as the [passed,total] pair the tables render, or null when the
-    trials did not run. Never a zero pair: "nobody asked" and "asked eight times
-    and failed" are different findings, and only one of them is about the model. */
- const rate=name=>{const r=(result.metrics||{})[name];
-   return r&&typeof r.total==='number'&&r.total?[r.passed,r.total]:null};
- const followupOf=r=>{const f=(r.metrics||{})['tool_followup_used_result'];
-   if(!f||!f.total)return null;
-   const notes=(f.provenance||{}).notes||'';
-   const m=notes.match(/outcome: (.+)$/);
-   return m?m[1]:(f.passed?'used-result':null)};
+
     return{source:'live',suite:(e.suite||{}).id,version:(e.suite||{}).version,
      role:e.role,target:e.target_key,samples:e.samples,
      generation_tok_s:{median:med('generation_tokens_per_second')},
@@ -1107,7 +1113,47 @@ const API={
      open: a build that may beat the recommendation has not been through the full
      suite, and the ranking does not move until it has. An engine that hid that
      would be more decisive and less useful. */
-  async recommendations(){return{profile:'clarvis',generated_at:'20 Aug 2026',algorithm_version:2,
+  /* POST /api/v1/recommendations -> the ranked/excluded shape this screen reads.
+
+     Live, the two things this page most wants are usually absent, and both are
+     rendered as absences rather than filled:
+
+       fit / headroom  §14.2's tiers exist and their input does not — nothing
+                       records an installed size — so every tier is UNKNOWN.
+       a second role   a pair needs chat evidence, and nothing has measured the
+                       clarvis-chat role on this machine.
+
+     `coverage` is the field to read first. The agent profile puts 35% of its
+     weight on coding and 15% on reasoning, and no suite measures either, so a
+     live score rests on 45% of its own profile. The mock has none of that
+     because it was written when the numbers were transcribed rather than
+     computed. */
+  async recommendations(){
+   try{
+    const r=await fetch(BASE.sirvis+'/api/v1/recommendations',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({profile:'clarvis',roles:['clarvis-chat','clarvis-agent'],mode:'verified'}),
+      signal:AbortSignal.timeout(4000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    SOURCE.sirvis='live';
+    const ranked=Object.entries(d.roles).filter(([,u])=>u).map(([role,u],i)=>({
+      rank:i+1,target:u.runtime_key,role,
+      fit:d.fit.tier,headroom_gb:null,
+      evidence_type:'MEASURED',samples:null,coverage:u.coverage,
+      why:`score ${u.score} on ${Math.round(u.coverage*100)}% of the profile — `
+         +Object.entries(u.axes).map(([k,v])=>`${k} ${v}`).join(', ')
+         +`. No evidence for: ${Object.keys(u.missing).sort().join(', ')||'nothing'}`}));
+    const excluded=Object.entries(d.excluded).flatMap(([role,items])=>items.map(e=>({
+      target:e.runtime_key,why:`${role} · ${e.reasons.join('; ')}`})));
+    return{profile:d.profile,generated_at:d.generated_at.slice(0,16).replace('T',' '),
+      algorithm_version:d.algorithm_version,mode:d.mode,
+      expires_in_min:Math.round(d.expires_after_seconds/60),
+      ranked,excluded,uncertainty:d.uncertainty,
+      proposed:d.proposed_benchmarks||[],live:true};
+   }catch(e){return this._recommendationsMock()}},
+
+  async _recommendationsMock(){return{profile:'clarvis',generated_at:'20 Aug 2026',algorithm_version:2,
    mode:'verified',expires_in_min:45,
    ranked:[
     {rank:1,target:'qwen2.5-coder-7b-instruct · MLX 4bit',role:'clarvis-agent + clarvis-chat',
@@ -2692,11 +2738,13 @@ async function sirvisRecommendations(){
  $('#content').innerHTML=kpis([
    ['Profile',r.profile,`mode ${r.mode} · algorithm v${r.algorithm_version}`,'sirvis'],
    ['Ranked',String(r.ranked.length),`of ${r.ranked.length+r.excluded.length} considered`,'sirvis'],
+   ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis']]:[]),
    ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis'],
    ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis']])
  +`<div class="card full"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
-   <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,'n='+x.samples)}</span>
-    <small>${x.role} · fit ${x.fit} · ${x.headroom_gb} GB headroom<br>${x.why}</small></div>`).join('')}</div>
+   <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,x.samples?'n='+x.samples:'')}</span>
+    <small>${x.role} · fit ${x.fit} ${x.headroom_gb==null?'':` · ${x.headroom_gb} GB headroom`}<br>${x.why}</small></div>`).join('')}</div>
+   ${r.uncertainty&&r.uncertainty.length?`<div style="margin-top:10px">${r.uncertainty.map(u=>`<div class="trace-step"><b>uncertainty</b><span>${escapeHtml(u)}</span></div>`).join('')}</div>`:''}${r.proposed&&r.proposed.length?`<div>${r.proposed.map(u=>`<div class="trace-step"><b>would raise coverage</b><span class="mono">${escapeHtml(u)}</span></div>`).join('')}</div>`:''}
    <small class="mono dim">no score column here either. The ranking is an argument made from measurements — rate, first token, tool reliability, recovery behaviour — and the argument is written out per row so it can be disagreed with. A single number would be easier to sort and impossible to check.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
    <div class="lane excluded"><b>${x.target}</b><span>—</span><small>${x.why}</small></div>`).join('')}</div>

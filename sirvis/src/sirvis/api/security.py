@@ -231,6 +231,27 @@ CORS_METHODS = "GET, HEAD, OPTIONS, POST, DELETE"
 CORS_REQUEST_HEADERS = "authorization, content-type, x-request-id, traceparent"
 
 
+def require_unauthenticated_post(request: Request) -> None:
+    """The CSRF half of `require`, for a POST that computes and stores nothing.
+
+    §14.3 specifies `POST /api/v1/recommendations`, and a POST it must be — its
+    inputs are a body. But it changes nothing: it reads stored evidence, does
+    arithmetic, and returns an opinion that is not persisted. §4.5 gates
+    *mutating* endpoints and lets reads go unauthenticated where a peer needs
+    them, and §15.1 lists recommendations among what RAVIS consumes.
+
+    So the token check is dropped and **the CSRF checks are not**. A POST is
+    still reachable from any page the user visits, and requiring a non-simple
+    content type is what makes the browser ask this service first — a question
+    the origin allowlist gets to answer. Dropping `require` wholesale would have
+    taken both of those with it, which is the mistake this function exists to
+    avoid making quietly.
+    """
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    check_origin(headers, request.app.state.settings)
+    check_content_type(headers)
+
+
 def is_preflight(method: str, headers: dict[str, str]) -> bool:
     """Whether this is a CORS preflight rather than an ordinary OPTIONS.
 

@@ -12,13 +12,26 @@ to need one.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
 
-from sirvis.api.security import Scope, redacted, require, token_summary
+from sirvis.api.security import (
+    Scope,
+    redacted,
+    require,
+    require_unauthenticated_post,
+    token_summary,
+)
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
+from sirvis.core.recommendations import (
+    MODE_FAST,
+    MODE_VERIFIED,
+    TOOL_CALL_PASS_RATE,
+    recommend,
+)
 from sirvis.core.runtime_sets import (
     RuntimeSet,
     RuntimeSetError,
@@ -434,6 +447,94 @@ async def _fit_for(request: Request, stored: RuntimeSet) -> Any:
 
 
 # ── Evidence, the surface RAVIS reads (§15.1) ────────────────────────────────
+
+
+@router.post("/recommendations")
+async def make_recommendation(request: Request) -> dict[str, Any]:
+    """§14.3's recommendation, computed from evidence that already exists.
+
+    **A recommendation is an opinion, not a route.** §14.3 closes by saying so:
+    *evidence-backed suggestions, not routing commands* — RAVIS decides what to
+    route to, and SIRVIS must not invent RAVIS policies or Clarvis requirements.
+    So this returns a suggestion with its whole derivation attached, and it
+    expires.
+
+    `mode: fast` reads what exists and starts nothing. `mode: verified` reads
+    the same thing and *proposes* the benchmarks that would raise coverage,
+    without running any: §14.3 forbids expensive work starting unasked, and
+    "expensive" here means gigabytes of somebody's memory.
+
+    A POST rather than a GET because §14.3's inputs are a body — profile, roles,
+    constraints, mode — and because the result is generated rather than stored:
+    two calls a day apart against changed evidence are two different opinions,
+    and neither is a resource that was sitting there.
+    """
+    require_unauthenticated_post(request)
+    body = await _json_body(request)
+    roles = body.get("roles") or ["clarvis-chat", "clarvis-agent"]
+    if not isinstance(roles, list) or not roles:
+        raise InvalidConfigurationError("roles must be a non-empty list")
+    mode = str(body.get("mode") or MODE_FAST)
+    if mode not in (MODE_FAST, MODE_VERIFIED):
+        raise InvalidConfigurationError(f"unknown mode {mode!r}; expected fast or verified")
+
+    database = request.app.state.database
+    by_variant, contexts = await _build_lookups(request)
+    records = []
+    for role in roles:
+        for item in query_evidence(database, EvidenceQuery(
+            filters={"role": str(role)}, limit=200
+        )).items:
+            variant = str((item.get("target") or {}).get("variant") or "")
+            records.append(item | {"runtime_key": by_variant.get(variant, variant)})
+
+    result = recommend(
+        records, contexts, _capability_states(records),
+        roles=[str(role) for role in roles], mode=mode,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return result.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+async def _build_lookups(request: Request) -> tuple[dict[str, str], dict[str, int | None]]:
+    """Variant → runtime key, and runtime key → declared context.
+
+    Both come from §6's inventory, and both are absent when the runtime is not
+    running — which leaves a recommendation able to score nothing and say so,
+    rather than unable to answer at all (§15.4).
+    """
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError:
+        return {}, {}
+    by_variant = {
+        build.variant_id: build.runtime_key for build in inventory.installed.values()
+    }
+    contexts = {
+        build.runtime_key: build.declared_context.value
+        for build in inventory.installed.values()
+    }
+    return by_variant, contexts
+
+
+def _capability_states(records: list[dict[str, Any]]) -> dict[str, str]:
+    """Which capabilities the evidence establishes, keyed `runtime_key:capability`.
+
+    Derived from the trials rather than from a catalogue, which is M13's whole
+    point: a build is tool-capable here because attempts were made and counted,
+    and a flag saying `tool_use` is not evidence of anything.
+    """
+    states: dict[str, str] = {}
+    for record in records:
+        rate = (record.get("metrics") or {}).get("tool_call_well_formed")
+        key = record.get("runtime_key")
+        if not isinstance(rate, dict) or not key or not rate.get("total"):
+            continue
+        passed, total = rate["passed"], rate["total"]
+        states[f"{key}:tool_use"] = (
+            "SUPPORTED" if passed / total >= TOOL_CALL_PASS_RATE else "UNSUPPORTED"
+        )
+    return states
 
 
 @router.get("/evidence")
