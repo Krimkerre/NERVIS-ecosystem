@@ -553,12 +553,16 @@ def contention_penalty(matrices: Sequence[Mapping[str, Any]]) -> tuple[float, st
     against alone, so an unstable control moves the answer without contention
     changing at all.
 
-    So the penalty is the **worst** figure observed, which is the conservative
-    direction for a recommendation, and the spread is reported whenever more
-    than one run exists. A single number to four decimals from one run of a
-    fanless machine is precision this corpus has not earned — §11.7 already
-    records ~32% run-to-run variation, and the earlier sweep bracketed itself
-    26% apart.
+    The penalty is the **median**, which is §11.7's own convention for exactly
+    this reason, and the spread is reported whenever more than one run exists.
+
+    Median rather than worst, and a third run is what settled it. Three runs of
+    one pair gave the agent role 34.4%, 21.2% and 21.3%: two agree to a tenth of
+    a point and the first is eighteen percent adrift — and only on its *alone*
+    baseline, because its concurrent figure held at 44.6, 45.7, 45.3 throughout.
+    Taking the worst would anchor the recommendation on the one measurement the
+    other two contradict. A single number to four decimals from one run of a
+    fanless machine is precision this corpus has not earned.
 
     `(0.0, "")` when nothing has been measured, which is not the same as a
     frictionless pair: the caller reports the absence rather than the zero.
@@ -579,13 +583,18 @@ def contention_penalty(matrices: Sequence[Mapping[str, Any]]) -> tuple[float, st
             label = f"{matrix.get('runtime_set')}@{matrix.get('revision')}"
     if not observed:
         return 0.0, ""
-    worst = max(observed)
-    spread = (
-        f" across {len(observed)} runs ranging {min(observed):.1f}–{max(observed):.1f}%"
-        if len(observed) > 1 else " from a single run"
+    ordered = sorted(observed)
+    middle = len(ordered) // 2
+    penalty = (
+        ordered[middle] if len(ordered) % 2
+        else (ordered[middle - 1] + ordered[middle]) / 2
     )
-    return worst / 100.0, (
-        f"measured together: concurrent generation costs up to {worst:.1f}% of "
+    spread = (
+        f", median of {len(ordered)} runs ranging {ordered[0]:.1f}–{ordered[-1]:.1f}%"
+        if len(ordered) > 1 else " from a single run"
+    )
+    return penalty / 100.0, (
+        f"measured together: concurrent generation costs {penalty:.1f}% of "
         f"throughput{spread} ({label})"
     )
 

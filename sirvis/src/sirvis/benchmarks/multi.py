@@ -199,6 +199,10 @@ class MultiModelOutcome:
     # stops the alone measurements being read as a working combination.
     co_residency_failure: str | None = None
     load_seconds: dict[str, float] = field(default_factory=dict)
+    # §11.8's thermal reading, per condition. A degradation percentage is a
+    # comparison between two conditions, so a reading taken once for the whole
+    # run cannot say which of the two was measured warm.
+    thermal: dict[str, str | None] = field(default_factory=dict)
 
     def repetitions_for(self, role: str, mode: str) -> list[Repetition]:
         return self.measurements.get(role, {}).get(mode, [])
@@ -285,9 +289,16 @@ async def _execute(
     Alone first, because it is the control and a control taken *after* the
     machine has held two models is a control taken on a different machine.
     """
-    del thermal  # Thermal bracketing is per mode below, not once per run.
+    # §11.8 asks for thermal capture, and this said it happened "per mode below"
+    # while discarding the reader — so a multi-model run recorded none at all,
+    # where M6 records two per single-model run. It cost a real question: the
+    # agent's alone throughput came back 68, 58, 58 across three runs of one
+    # pair while its concurrent figure held at 44.6, 45.7, 45.3, and nothing in
+    # the record could say whether the machine was warmer for the last two.
+    outcome.thermal["baseline"] = thermal()
     for member in spec.per_role:
         await _measure_alone(member, spec, runtime, resources, sampler, directory, outcome, clock)
+    outcome.thermal[MODE_ALONE] = thermal()
 
     lease = await _load_together(spec, resources, sampler, directory, outcome)
     if lease is None:
@@ -296,6 +307,7 @@ async def _execute(
     try:
         for mode in spec.modes:
             await _run_mode(mode, spec, runtime, sampler, directory, outcome, clock)
+            outcome.thermal[mode] = thermal()
     finally:
         outcome.telemetry.append(sampler.sample(POST_RUN))
         await resources.release(lease.session_id)
@@ -569,6 +581,7 @@ def interaction_matrix(spec: MultiModelSpec, outcome: MultiModelOutcome) -> dict
         # concurrent load both models are pressing on the same memory, so a
         # per-role figure would double-count the thing that is actually shared.
         "memory": _memory(conditions, rows, outcome),
+        "thermal": dict(outcome.thermal),
         "complete": outcome.co_residency_failure is None,
         "co_residency_failure": outcome.co_residency_failure,
         # Named so nobody has to infer it: every number here was measured in

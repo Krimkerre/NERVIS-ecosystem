@@ -350,10 +350,12 @@ def test_two_runs_of_one_pair_report_their_spread() -> None:
                                  a_matrix(worst=21.2, chat=21.4)])
 
     note = " ".join(result.uncertainty)
-    assert "across 2 runs" in note
+    assert "median of 2 runs" in note
     assert "21.4–34.4%" in note
-    # The worst is used, which is the conservative direction for a suggestion.
-    assert result.combination_score == pytest.approx(2.0 - 0.344)
+    # The median, not the worst: a third run showed the high figure was the
+    # outlier, and anchoring on it would penalise a pair for the one measurement
+    # its other runs contradict.
+    assert result.combination_score == pytest.approx(2.0 - 0.279)
 
 
 def test_a_single_run_says_it_is_a_single_run() -> None:
@@ -373,6 +375,22 @@ def test_a_measured_pair_penalises_the_combination() -> None:
 
     assert result.combination_score == pytest.approx(2.0 - 0.344)
     assert "measured together" in " ".join(result.uncertainty)
+
+
+def test_the_median_ignores_a_single_outlying_run() -> None:
+    """Three runs of one pair gave 34.4%, 21.2% and 21.3%.
+
+    Two agree to a tenth of a point; the first is eighteen percent adrift on its
+    alone baseline while its concurrent figure held steady. A worst-case penalty
+    would anchor on the measurement the other two contradict.
+    """
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE, matrices=[
+        a_matrix(worst=34.4, chat=22.1),
+        a_matrix(worst=21.2, chat=21.4),
+        a_matrix(worst=21.3, chat=21.5),
+    ])
+
+    assert result.combination_score == pytest.approx(2.0 - 0.215)
 
 
 def test_an_unmeasured_pair_says_so_rather_than_scoring_zero_penalty() -> None:

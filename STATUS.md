@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 727 tests, no network, no live service
+.venv/bin/pytest                      # part of 728 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 727 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 728 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1406,11 +1406,42 @@ a fanless machine that is thermal drift, and §11.7 already records ~32%
 run-to-run variation with an earlier sweep bracketing itself 26% apart. The
 lesson was in this file; the arithmetic had not been told.
 
-So M15 no longer takes the newest matrix. It uses **every** run of the pair,
-penalises on the worst — the conservative direction for a suggestion — and
-reports the spread: *"up to 34.4% of throughput across 2 runs ranging
-21.4–34.4%"*. A single number to four decimal places from one run of this
-machine is precision the corpus has not earned.
+So M15 no longer takes the newest matrix. It uses **every** run of the pair and
+reports the spread.
+
+**A third run settled which figure to use, and it is not the worst one:**
+
+```text
+                       run 1    run 2    run 3   spread
+agent alone             68.1     58.0     57.6   18.2%
+agent sequential        68.2     58.1     58.7   17.4%
+agent alternating       59.8     59.1     59.2    1.2%
+agent concurrent        44.6     45.7     45.3    2.3%
+chat  (every condition)                          <1.1%
+
+agent concurrent degradation   34.4%    21.2%    21.3%
+chat  concurrent degradation   22.1%    21.4%    21.5%
+```
+
+Runs 2 and 3 agree to a tenth of a point. Run 1 is eighteen percent adrift and
+**only on the unconstrained conditions** — its concurrent and alternating
+figures sit with the others. So the outlier is in the *baseline*, not in the
+contention, and a degradation computed against it inherits the error whole.
+
+The penalty is therefore the **median**, which is §11.7's convention for exactly
+this reason. Taking the worst would anchor a recommendation on the one
+measurement its other two runs contradict: the combination score is `1.785` on a
+21.5% median rather than `1.656` on a 34.4% outlier.
+
+**What could not be checked is why**, and that is a gap this run exposed rather
+than a mystery. §11.8 asks for thermal capture and M6 records two readings per
+run; M10 discarded the reader under a comment saying it happened "per mode
+below", where it never did. So a multi-model run recorded no thermal state at
+all, and the obvious explanation for a cool first run and two warmer ones had
+nothing in the record to be tested against. M10 now takes a reading per
+condition — baseline, alone, and each mode — because a degradation percentage
+compares two conditions and a single reading for the whole run cannot say which
+of them was measured warm.
 
 **Two bugs found in the process, both in the counting rather than the
 measuring.** The matrix collector deduplicated the *raw* matrix against an
