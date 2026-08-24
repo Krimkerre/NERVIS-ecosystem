@@ -138,8 +138,7 @@ def _single_attempt(client: httpx.AsyncClient, model: str) -> _Call:
     chain.load(model, [])
     return _Call(
         client=client,
-        target="http://fixture.invalid/v1/chat/completions",
-        headers={},
+        destination=lambda _: ("http://fixture.invalid/v1/chat/completions", {}),
         body=json.dumps({"model": model, "stream": True}).encode(),
         payload={"model": model, "stream": True},
         chain=chain,

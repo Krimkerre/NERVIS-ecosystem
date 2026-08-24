@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ravis.upstreams import UpstreamConfigurationError, upstream_specs
+
 # Loopback is the default listen address for every service in this ecosystem
 # (ECOSYSTEM_RUNBOOK.md §9). 8731 is RAVIS's assigned port from the runbook's §5
 # table — one port carries /v1, /api/v1 and /ecosystem together.
@@ -79,6 +81,20 @@ class Settings(BaseSettings):
     # back to "generic" rather than refusing to start: the cost of a typo here
     # should be capabilities RAVIS does not know about, not an outage.
     upstream_kind: str = "generic"
+    # More than one transparent upstream, as a JSON list (M8):
+    #
+    #   [{"name": "lmstudio", "base_url": "http://127.0.0.1:1234", "kind": "lmstudio"},
+    #    {"name": "ollama",   "base_url": "http://127.0.0.1:11434", "kind": "ollama"}]
+    #
+    # When set it replaces the three singular settings above rather than adding
+    # to them, so there is one place to read to know what is configured. When
+    # empty the singular settings still mean exactly what they always meant —
+    # every deployment written before this describes one upstream named
+    # `default`, and continues to.
+    #
+    # A name is how a request addresses an upstream directly, in the same slot a
+    # translating provider occupies: `ravis/<name>/<model>`.
+    upstreams: str = ""
     # Generous, because a large local model's first token can be slow and a
     # timeout here reads to the client as the model failing.
     upstream_timeout_seconds: float = 300.0
@@ -239,6 +255,31 @@ class ConfigurationReport:
         return not self.fatal_findings
 
 
+def _check_upstreams(settings: Settings, report: ConfigurationReport) -> None:
+    """Whether the declared upstreams can be read at all.
+
+    Fatal on a malformed list, unlike an unrecognised `upstream_kind` which
+    degrades to the generic adapter on purpose. The difference is what the
+    mistake costs: a bad kind loses the vendor metadata that kind would have
+    read, while a list RAVIS cannot parse leaves it not knowing where to send
+    anything.
+    """
+    try:
+        specs = upstream_specs(settings)
+    except UpstreamConfigurationError as failure:
+        report.findings.append(ConfigurationFinding(True, "upstreams", str(failure)))
+        return
+    if len(specs) > 1:
+        report.findings.append(
+            ConfigurationFinding(
+                False,
+                "upstreams",
+                f"{len(specs)} transparent upstreams: "
+                + ", ".join(f"{spec.name} ({spec.kind})" for spec in specs),
+            )
+        )
+
+
 def inspect_configuration(settings: Settings) -> ConfigurationReport:
     """Check settings for contradictions, without contacting anything.
 
@@ -249,6 +290,7 @@ def inspect_configuration(settings: Settings) -> ConfigurationReport:
     report = ConfigurationReport()
     if not settings.is_loopback_bind():
         _check_remote_exposure(settings, report)
+    _check_upstreams(settings, report)
     if settings.max_request_bytes <= 0:
         report.findings.append(
             ConfigurationFinding(True, "max_request_bytes", "must be greater than zero")

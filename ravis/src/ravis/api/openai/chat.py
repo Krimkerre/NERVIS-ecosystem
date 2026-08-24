@@ -31,7 +31,7 @@ import json
 import logging
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable
 
 import httpx
 from fastapi import APIRouter, Request
@@ -59,7 +59,13 @@ from ravis.reliability import (
 from ravis.routing.engine import RoutingEngine
 from ravis.routing.explain import RouteDecision
 from ravis.runtime.resources import read_memory
-from ravis.upstream import forwardable_headers
+from ravis.transparent import (
+    TransparentUpstream,
+    merged_candidates,
+    merged_residency,
+    resolve,
+)
+from ravis.upstream import Upstream, forwardable_headers
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +138,7 @@ async def create_chat_completion(request: Request) -> Response:
     chain = _chain_for(request, decision)
     call = _Call(
         client=request.app.state.upstream_client,
-        target=upstream.url_for("/v1/chat/completions"),
-        headers=forwardable_headers(dict(request.headers), upstream),
+        destination=_destination_for(request, upstream),
         body=body,
         payload=parsed,
         chain=chain,
@@ -152,6 +157,30 @@ async def create_chat_completion(request: Request) -> Response:
     if parsed.get("stream") is True:
         return _stream_from_upstream(call)
     return await _forward_and_return(call)
+
+
+def _destination_for(
+    request: Request, fallback: Upstream
+) -> Callable[[str], tuple[str, dict[str, str]]]:
+    """A resolver from model to (url, headers), closed over this request.
+
+    A closure rather than a precomputed pair because the model is not known
+    until the chain picks one, and the chain may pick more than one.
+    """
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
+    )
+    incoming = dict(request.headers)
+
+    def destination(model: str) -> tuple[str, dict[str, str]]:
+        built = resolve(transparents, model) if transparents else None
+        upstream = built.upstream if built else fallback
+        return (
+            upstream.url_for("/v1/chat/completions"),
+            forwardable_headers(incoming, upstream),
+        )
+
+    return destination
 
 
 def _translating_for(request: Request, requested: str) -> TranslatingAdapter | None:
@@ -326,20 +355,33 @@ class _Call:
     def __init__(
         self,
         client: httpx.AsyncClient,
-        target: str,
-        headers: dict[str, str],
+        destination: Callable[[str], tuple[str, dict[str, str]]],
         body: bytes,
         payload: dict[str, Any],
         chain: AttemptChain,
         recorded: RecordedDecision | None,
     ) -> None:
         self.client = client
-        self.target = target
-        self.headers = headers
+        self._destination = destination
         self.body = body
         self.payload = payload
         self.chain = chain
         self.recorded = recorded
+
+    def target_for(self, model: str) -> str:
+        """The URL this attempt goes to.
+
+        Resolved per attempt rather than fixed per request, because §10's chain
+        walks candidates and a fallback may live on a different upstream than
+        the primary did. A single URL for the whole chain would send that
+        fallback to the wrong host — with the wrong credential attached — and
+        the failure would look like the fallback model being broken.
+        """
+        return self._destination(model)[0]
+
+    def headers_for(self, model: str) -> dict[str, str]:
+        """The headers for this attempt, carrying that upstream's credential."""
+        return self._destination(model)[1]
 
     def body_for(self, model: str) -> bytes:
         """The request body addressed to one particular model."""
@@ -387,16 +429,27 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     needs a network call to answer, this is the line that has to change.
     """
     engine: RoutingEngine = request.app.state.routing_engine
-    adapter: ProviderAdapter = request.app.state.adapter
     registry: ModelRegistry = request.app.state.model_registry
     health: HealthRegistry = request.app.state.health
-    candidates = await candidates_with_evidence(
-        adapter, registry.model_ids(), getattr(request.app.state, "evidence", None)
+    evidence = getattr(request.app.state, "evidence", None)
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
     )
+    # Every upstream's models, each asked through its own adapter. With one
+    # upstream this is what it always was; with several it is the only way a
+    # model on LM Studio gets LM Studio's catalogue read for it instead of
+    # whichever adapter happened to be primary.
+    if transparents:
+        candidates = await merged_candidates(transparents, evidence)
+        residency = merged_residency(transparents)
+    else:
+        adapter: ProviderAdapter = request.app.state.adapter
+        candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
+        residency = registry.residency
     decision = engine.select(
         payload.get("model") or "",
         candidates,
-        residency=registry.residency,
+        residency=residency,
         memory=read_memory(),
         # The request's own hard requirements (§9.5): a request carrying tools
         # or images demands a model that can handle them, whatever the pool's
@@ -516,7 +569,9 @@ async def _forward_and_return(call: _Call) -> Response:
         started = call.chain.begin(model)
         try:
             upstream_response = await call.client.post(
-                call.target, headers=call.headers, content=call.body_for(model)
+                call.target_for(model),
+                headers=call.headers_for(model),
+                content=call.body_for(model),
             )
         except httpx.HTTPError as failure:
             call.chain.failed(model, started, classify_exception(failure), str(failure))
@@ -676,7 +731,10 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
     committed = False
     try:
         async with call.client.stream(
-            "POST", call.target, headers=call.headers, content=call.body_for(model)
+            "POST",
+            call.target_for(model),
+            headers=call.headers_for(model),
+            content=call.body_for(model),
         ) as upstream:
             if upstream.status_code >= 400:
                 # An error before the stream begins is a normal response, not a

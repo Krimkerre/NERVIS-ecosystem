@@ -46,15 +46,14 @@ from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
-from ravis.providers.generic_openai import GenericOpenAiAdapter
-from ravis.providers.lmstudio import LmStudioAdapter
-from ravis.providers.ollama import OllamaAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
 from ravis.storage import prepare_database
+from ravis.transparent import adapter_for, build_transparents
 from ravis.upstream import Upstream, create_client, upstream_from
+from ravis.upstreams import DEFAULT_NAME, UpstreamSpec
 
 NextCall = Callable[[Request], Awaitable[Any]]
 
@@ -98,7 +97,7 @@ def _lifespan(settings: Settings) -> Any:
     async def lifespan(api: FastAPI) -> Any:
         # Warm the catalogue before serving. A first request must not be the
         # thing that discovers the upstream is unreachable (§5.0.1).
-        await api.state.model_registry.refresh()
+        await _refresh_catalogues(api)
         # Evidence is read after the catalogue, because it is asked *about* the
         # catalogue: SIRVIS resolves the runtime keys RAVIS holds, so there is
         # nothing to ask until RAVIS knows what it has. Out of band for the same
@@ -106,7 +105,7 @@ def _lifespan(settings: Settings) -> Any:
         # service's latency, and §13.4 requires routing to continue without it.
         await _refresh_evidence(api)
         refresher = asyncio.create_task(
-            refresh_periodically(api.state.model_registry, settings.models_cache_ttl_seconds)
+            _refresh_catalogues_periodically(api, settings.models_cache_ttl_seconds)
         )
         evidence_refresher = asyncio.create_task(
             _refresh_evidence_periodically(api, settings.models_cache_ttl_seconds)
@@ -125,16 +124,29 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
-    api.state.upstream = upstream_from(settings)
     # Built here rather than in the lifespan so nothing downstream has to cope
     # with a half-constructed application. The lifespan owns *closing* the
     # client and running the refresher; it does not own creating them, which
     # keeps every attribute on `state` real from the moment the app exists.
     api.state.upstream_client = create_client(settings)
-    api.state.model_registry = ModelRegistry(
-        upstream=api.state.upstream,
-        client=api.state.upstream_client,
-        ttl_seconds=settings.models_cache_ttl_seconds,
+    # Every declared transparent upstream, in declaration order (M8). One
+    # entry for a deployment using the singular settings, which is what every
+    # deployment written before this is.
+    api.state.transparents = build_transparents(settings, api.state.upstream_client)
+    # The first declared upstream, still reachable under the names everything
+    # written before plurality uses. Not a shim to be removed later: a single
+    # upstream is the common deployment, and "the one to use when nothing more
+    # specific applies" stays meaningful however many there are.
+    primary = next(iter(api.state.transparents.values()), None)
+    api.state.upstream = primary.upstream if primary else upstream_from(settings)
+    api.state.model_registry = (
+        primary.registry
+        if primary
+        else ModelRegistry(
+            upstream=api.state.upstream,
+            client=api.state.upstream_client,
+            ttl_seconds=settings.models_cache_ttl_seconds,
+        )
     )
     # The discovery surface M6's capability filtering will read. It answers
     # questions about the upstream; it does not carry traffic — the transparent
@@ -163,8 +175,15 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         role=settings.sirvis_evidence_role,
         max_age_seconds=settings.sirvis_evidence_max_age_seconds,
     )
-    api.state.adapter = _transparent_adapter(
-        settings, api.state.upstream, api.state.upstream_client
+    api.state.adapter = (
+        primary.adapter
+        if primary
+        else adapter_for(
+            UpstreamSpec(name=DEFAULT_NAME, base_url="", kind=settings.upstream_kind),
+            api.state.upstream,
+            api.state.upstream_client,
+            settings,
+        )
     )
     # Health and circuit breakers (§10). Process-wide and in memory, for the same
     # reason the decision log is: this is operational state about *now*, and a
@@ -283,31 +302,39 @@ def _translating_adapters(
     return adapters
 
 
-def _transparent_adapter(
-    settings: Settings, upstream: Upstream, client: httpx.AsyncClient
-) -> GenericOpenAiAdapter:
-    """The adapter that discovers the single transparent upstream (M8).
+async def _refresh_catalogues(api: FastAPI) -> None:
+    """Warm every upstream's catalogue before serving.
 
-    All three speak the OpenAI protocol, so this changes what RAVIS can *learn*
-    about the upstream, never how it reaches it — the forwarding path in §6 is
-    identical whichever comes back.
-
-    An unrecognised `upstream_kind` yields the generic adapter rather than an
-    error. A typo should cost the vendor metadata it would have read, which
-    shows up as capabilities staying UNKNOWN and pools failing closed, rather
-    than costing the ability to serve anything at all.
+    Concurrently, because they are independent and a deployment with a slow
+    remote upstream should not have its local one wait behind it. Failures are
+    the registry's business — it keeps its previous snapshot and stays
+    serveable, which is §5.0.1's requirement that a first request must not be
+    the thing that discovers an upstream is unreachable.
     """
-    kinds: dict[str, type[GenericOpenAiAdapter]] = {
-        "lmstudio": LmStudioAdapter,
-        "ollama": OllamaAdapter,
-        "generic": GenericOpenAiAdapter,
-    }
-    adapter = kinds.get(settings.upstream_kind.strip().lower(), GenericOpenAiAdapter)
-    return adapter(
-        upstream=upstream,
-        client=client,
-        configured_capabilities=resolved_capabilities(settings),
+    registries = _registries(api)
+    if not registries:
+        return
+    await asyncio.gather(*(registry.refresh() for registry in registries))
+
+
+async def _refresh_catalogues_periodically(api: FastAPI, interval: float) -> None:
+    """The background half of the same thing."""
+    await asyncio.gather(
+        *(refresh_periodically(registry, interval) for registry in _registries(api))
     )
+
+
+def _registries(api: FastAPI) -> list[ModelRegistry]:
+    """Every catalogue that needs refreshing.
+
+    Falls back to the lone registry when nothing is declared, so an
+    unconfigured RAVIS still refreshes the empty catalogue it serves rather
+    than skipping the path entirely and leaving it untested.
+    """
+    transparents: dict[str, Any] = getattr(api.state, "transparents", {})
+    if transparents:
+        return [built.registry for built in transparents.values()]
+    return [api.state.model_registry]
 
 
 async def _refresh_evidence(api: FastAPI) -> None:

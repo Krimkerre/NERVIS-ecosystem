@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from ravis.registry import ModelRegistry
+from ravis.transparent import TransparentUpstream, merged_catalogue
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 
@@ -24,5 +25,10 @@ async def list_models(request: Request) -> dict[str, Any]:
     stops being true, Clarvis reports RAVIS offline and the cause is invisible
     from the client side.
     """
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
+    )
+    if transparents:
+        return merged_catalogue(transparents)
     registry: ModelRegistry = request.app.state.model_registry
     return registry.as_openai_list()

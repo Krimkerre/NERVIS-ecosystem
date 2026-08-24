@@ -1,0 +1,227 @@
+"""The transparent upstreams RAVIS has actually built, and how a model reaches one.
+
+`upstreams.py` reads what was *declared* and deliberately imports nothing — it is
+read by `config.py` during startup checks, and a configuration module that pulled
+in adapters and registries would make a syntax error in a provider a
+configuration failure.
+
+This is the other half: for each declared upstream, the adapter that discovers it
+and the registry that caches its catalogue, plus the rule that decides which one
+serves a given model.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+from ravis.config import Settings, resolved_capabilities
+from ravis.core.pools import DEFAULT_POOLS, direct_provider
+from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.providers.generic_openai import GenericOpenAiAdapter
+from ravis.providers.lmstudio import LmStudioAdapter
+from ravis.providers.ollama import OllamaAdapter
+from ravis.registry import ModelRegistry
+from ravis.runtime.residency import Residency, ResidencySnapshot
+from ravis.upstream import Upstream
+from ravis.upstreams import UpstreamSpec, upstream_specs
+
+# Which adapter discovers which kind of upstream. All three speak the OpenAI
+# protocol, so this changes what RAVIS can *learn*, never how it reaches the
+# upstream — §6's forwarding path is identical whichever comes back.
+KINDS: dict[str, type[GenericOpenAiAdapter]] = {
+    "lmstudio": LmStudioAdapter,
+    "ollama": OllamaAdapter,
+    "generic": GenericOpenAiAdapter,
+}
+
+
+@dataclass(frozen=True)
+class TransparentUpstream:
+    """One upstream, with everything built for it."""
+
+    spec: UpstreamSpec
+    upstream: Upstream
+    adapter: GenericOpenAiAdapter
+    registry: ModelRegistry
+
+    @property
+    def name(self) -> str:
+        return self.spec.name
+
+
+def build_transparents(
+    settings: Settings, client: httpx.AsyncClient
+) -> dict[str, TransparentUpstream]:
+    """Everything declared, built, keyed by name and in declaration order.
+
+    Ordinary dicts preserve insertion order, and that order is load-bearing —
+    it decides which upstream wins when two serve the same model id.
+    """
+    built: dict[str, TransparentUpstream] = {}
+    for spec in upstream_specs(settings):
+        upstream = Upstream(base_url=spec.base_url, api_key=spec.api_key)
+        built[spec.name] = TransparentUpstream(
+            spec=spec,
+            upstream=upstream,
+            adapter=adapter_for(spec, upstream, client, settings),
+            registry=ModelRegistry(
+                upstream=upstream,
+                client=client,
+                ttl_seconds=settings.models_cache_ttl_seconds,
+            ),
+        )
+    return built
+
+
+def adapter_for(
+    spec: UpstreamSpec,
+    upstream: Upstream,
+    client: httpx.AsyncClient,
+    settings: Settings,
+) -> GenericOpenAiAdapter:
+    """The adapter that discovers one upstream (M8).
+
+    An unrecognised `kind` yields the generic adapter rather than an error. A
+    typo should cost the vendor metadata it would have read — which shows up as
+    capabilities staying UNKNOWN and pools failing closed — rather than costing
+    the ability to serve anything at all. A malformed *list* is fatal, because
+    that one leaves RAVIS not knowing where to send anything.
+    """
+    adapter = KINDS.get(spec.kind.strip().lower(), GenericOpenAiAdapter)
+    return adapter(
+        upstream=upstream,
+        client=client,
+        name=spec.name,
+        configured_capabilities=resolved_capabilities(settings),
+    )
+
+
+def resolve(
+    transparents: dict[str, TransparentUpstream], requested: str
+) -> TransparentUpstream | None:
+    """Which upstream serves `requested`, or None when none is configured.
+
+    Three rules, in order:
+
+    1. **An address wins.** `ravis/<name>/<model>` names an upstream outright,
+       and is the only way to reach a model that two upstreams both serve.
+    2. **Otherwise, whoever has it.** The first upstream in declaration order
+       whose catalogue contains the id. Order is configuration, so a tie is
+       broken by something the operator wrote rather than by dict iteration.
+    3. **Otherwise, the first.** A model nobody lists is still forwarded rather
+       than refused — a catalogue that has not refreshed yet, or an upstream
+       serving a model it does not advertise, should not become a 404 here.
+       §5.2 already refuses at the *pool* when no candidate satisfies it; this
+       is the direct-address path, where the client named something specific.
+    """
+    if not transparents:
+        return None
+    addressed = direct_provider(requested)
+    if addressed is not None and addressed in transparents:
+        return transparents[addressed]
+    for candidate in transparents.values():
+        if requested in candidate.registry.model_ids():
+            return candidate
+    return next(iter(transparents.values()))
+
+
+def model_owners(transparents: dict[str, TransparentUpstream]) -> dict[str, list[str]]:
+    """Every model id, and the upstreams that list it, in declaration order.
+
+    Exists for the diagnostic rather than the routing path: a model served by
+    two upstreams is the case an operator most needs to see, because it is the
+    one where the answer depends on declaration order and nothing on the wire
+    says so.
+    """
+    owners: dict[str, list[str]] = {}
+    for candidate in transparents.values():
+        for model in candidate.registry.model_ids():
+            owners.setdefault(model, []).append(candidate.name)
+    return owners
+
+
+def merged_catalogue(transparents: dict[str, TransparentUpstream]) -> dict[str, Any]:
+    """`GET /v1/models` across every upstream — pools once, models deduped.
+
+    Deduped by id in declaration order, which matches how `resolve` breaks the
+    same tie: the list a client reads and the upstream a request reaches must
+    not disagree about which of two identically-named models is *the* one.
+
+    The entry is not annotated with which upstream owns it. This body is read by
+    Clarvis, whose parser is described in §5.0.1 as strict about the shape, and
+    an extra key is a change to a contract for the sake of a diagnostic that
+    `model_owners` already serves better.
+    """
+    pools: list[dict[str, Any]] = [
+        {"id": pool.pool_id, "object": "model", "owned_by": "ravis"} for pool in DEFAULT_POOLS
+    ]
+    models: dict[str, dict[str, Any]] = {}
+    for candidate in transparents.values():
+        for entry in candidate.registry.snapshot.models:
+            identifier = entry.get("id", "")
+            if identifier and identifier not in models:
+                models[identifier] = {
+                    "id": identifier,
+                    "object": "model",
+                    "owned_by": entry.get("owned_by", "organization_owner"),
+                }
+    return {"object": "list", "data": pools + list(models.values())}
+
+
+def merged_residency(transparents: dict[str, TransparentUpstream]) -> ResidencySnapshot:
+    """One residency view across every upstream.
+
+    The trap here is `ResidencySnapshot.state_of`: once *any* upstream reports
+    residency the snapshot is `known`, and a model with no entry then reads as
+    COLD rather than UNKNOWN. Merging naively would therefore invent a fact —
+    every model behind a generic OpenAI-compatible endpoint would look cold, and
+    §14's residency preference would rank it below a genuinely hot one on the
+    strength of a default.
+
+    So models belonging to an upstream that does not report residency are
+    recorded UNKNOWN explicitly rather than left absent. Absence and ignorance
+    are the same answer only while nothing is known; after that they diverge.
+    """
+    states: dict[str, Residency] = {}
+    known = False
+    details: list[str] = []
+    for candidate in transparents.values():
+        snapshot = candidate.registry.residency
+        if snapshot.known:
+            known = True
+        for model in candidate.registry.model_ids():
+            states.setdefault(
+                model, snapshot.state_of(model) if snapshot.known else Residency.UNKNOWN
+            )
+        if not snapshot.known and snapshot.detail:
+            details.append(f"{candidate.name}: {snapshot.detail}")
+    return ResidencySnapshot(states=states, known=known, detail="; ".join(details))
+
+
+async def merged_candidates(
+    transparents: dict[str, TransparentUpstream], evidence: Any
+) -> dict[str, Any]:
+    """Every upstream's models and capabilities, in one table.
+
+    Each upstream is asked through *its own* adapter, which is the whole point:
+    a model on LM Studio gets LM Studio's catalogue read for it and a model on a
+    generic endpoint gets honest ignorance, rather than one adapter answering
+    for models it has never heard of.
+
+    First declared wins a collision, the same rule `resolve` and
+    `merged_catalogue` use. Three places agreeing matters more than any one of
+    them being clever: a client reading the model list, a router choosing a
+    candidate and a forwarder picking a URL must not disagree about which of two
+    identically-named models is the one.
+    """
+    merged: dict[str, Any] = {}
+    for candidate in transparents.values():
+        known = await candidates_with_evidence(
+            candidate.adapter, candidate.registry.model_ids(), evidence
+        )
+        for model, capabilities in known.items():
+            merged.setdefault(model, capabilities)
+    return merged

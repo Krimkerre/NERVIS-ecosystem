@@ -489,8 +489,7 @@ async def test_cancellation_does_not_trigger_a_fallback() -> None:
     chain.load("coder-a", ["coder-b"])
     call = _Call(
         client=client,
-        target="http://upstream.invalid/v1/chat/completions",
-        headers={},
+        destination=lambda _: ("http://upstream.invalid/v1/chat/completions", {}),
         body=json.dumps({"model": "coder-a", "stream": True}).encode(),
         payload={"model": "coder-a", "stream": True},
         chain=chain,
@@ -532,8 +531,7 @@ async def test_a_cancelled_stream_records_that_it_was_cancelled() -> None:
     chain.load("coder-a", ["coder-b"])
     call = _Call(
         client=client,
-        target="http://upstream.invalid/v1/chat/completions",
-        headers={},
+        destination=lambda _: ("http://upstream.invalid/v1/chat/completions", {}),
         body=json.dumps({"model": "coder-a", "stream": True}).encode(),
         payload={"model": "coder-a", "stream": True},
         chain=chain,

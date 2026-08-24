@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 770 tests, no network, no live service
+.venv/bin/pytest                      # part of 797 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 770 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 797 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -103,7 +103,7 @@ into the order work actually happens.
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
-| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. The *plural-upstream* half is not done |
+| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 4's last piece was SIRVIS M15; the evidence plane now measures, stores, serves, and recommends.
 
@@ -1681,18 +1681,53 @@ looks capability-less while the catalogue is unreadable, and capability-less
 fails closed under §9.1 — so holding a transient outage for the whole window
 would empty every pool for a minute instead of for a request.
 
-**What is not done.** `upstream_kind` selects *which* adapter discovers *the*
-transparent upstream — singular. `upstream_base_url` is still one URL, so RAVIS
-cannot reach LM Studio and Ollama at the same time, and M8's acceptance criterion
-of local/cloud routing is not met by this half. Translated providers are already
-plural (`_translating_adapters` returns a dict); the transparent side is not.
-That is the remaining work, and it touches the registry's residency probe, which
-is also written against a single `base_url`.
+### What the plural half settled
 
-So the caveat recorded at M13 still stands, slightly narrowed:
-`ravis/clarvis-agent` now admits its member because a build **passed a
-measurement**, not merely because a runtime was looked at — but there is still
-only one runtime to look at.
+`RAVIS_UPSTREAMS` declares a JSON list; the singular settings still work and
+still mean one upstream named `default`, which is what every deployment written
+before this is. Each declared upstream gets its own adapter and its own
+registry, and every catalogue is refreshed concurrently at startup.
+
+**Names are addresses.** An upstream's name occupies the same
+`ravis/<name>/<model>` slot a translating provider's does, so a client asking
+for a specific place does not have to know whether that place needs
+translation — and it is the only way to reach a model two upstreams both serve.
+
+**One collision rule, in three places.** Declaration order breaks a tie, and
+`resolve`, `merged_catalogue` and `merged_candidates` all use it. Three
+agreeing matters more than any one being clever: the list a client reads, the
+candidate the router picks and the URL the forwarder sends to must not disagree
+about which of two identically-named models is *the* one.
+
+**A fixed target would have sent fallbacks to the wrong host.** `_Call` carried
+one URL and one header set for the whole request, while §10's chain walks
+candidates — so a fallback on a different upstream would have gone to the
+primary's address with the primary's credential, and failed in a way that
+looked like the fallback model being broken. Target and headers are now
+resolved per attempt.
+
+**The residency merge nearly invented a fact.** `ResidencySnapshot.state_of`
+returns COLD for an absent entry once *any* upstream reports residency. LM
+Studio reports it and Ollama does not, so a naive merge would have made every
+Ollama model read COLD and ranked it below a genuinely hot one on the strength
+of a default. Models behind a non-reporting upstream are now recorded UNKNOWN
+explicitly. Verified live: with both runtimes configured, `known=True` while
+`llama3.2:3b` reads UNKNOWN.
+
+**Verified live with both runtimes up, 2026-08-24.** `/v1/models` returned 35
+entries — 13 pools listed once, 20 LM Studio models and 2 Ollama models — each
+model resolved to the runtime that actually holds it, and
+`ravis/ollama/<an LM Studio model>` overrode the catalogue as designed.
+
+**What is still not proven.** No completion has been routed through a second
+upstream. The plumbing is verified and the decision is verified; M8's acceptance
+criterion also asks that transparent local streams preserve tool semantics, and
+that needs a real generation through Ollama rather than a resolution check.
+
+So the caveat recorded at M13 is now narrowed twice over:
+`ravis/clarvis-agent` admits its member because a build **passed a
+measurement**, and RAVIS can look at more than one runtime — though every
+measurement in the corpus still came through LM Studio.
 
 ### Which prototype screens read real services
 
@@ -1753,8 +1788,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **RAVIS M8** *(plural upstreams)* | The adapters exist and only one can be reached. Until `upstream_base_url` becomes a table, M8's own acceptance criterion — local/cloud routing — is unmet, and the evidence corpus stays single-runtime |
-| 2 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters. Wants the plural-upstream work first, for the same reason |
+| 1 | **A completion through Ollama** | The plumbing routes and the decision is right; no generation has crossed the second upstream. M8's acceptance also asks that transparent local streams preserve tool semantics |
+| 2 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters |
 | 3 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
 | 4 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
 
@@ -1771,12 +1806,12 @@ M9 ended that. So the translated path was built, given a real provider to drive
 it, and then — once SIRVIS could measure a Clarvis role — handed real evidence
 to route on.
 
-**M8 is the one to watch in what remains, and half of it has landed.** The
-adapters are done and verified against a live LM Studio; what is outstanding is
-plural upstreams. Every measurement in the corpus still came through LM Studio,
-and RAVIS still reaches exactly one upstream. `ravis/clarvis-agent` now has one
-eligible member because a build passed a measurement — but with one runtime
-configurable at a time, that is still a corpus of one runtime.
+**M8 has landed, bar one proof.** Both adapters and plural upstreams are done
+and verified live against LM Studio and Ollama running side by side. What is
+outstanding is a *generation* across the second upstream: the acceptance
+criterion asks that transparent local streams preserve tool semantics, and only
+resolution has been demonstrated. Every measurement in the corpus still came
+through LM Studio.
 
 ---
 
