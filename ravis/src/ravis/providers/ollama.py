@@ -12,14 +12,19 @@ returns every model in a single GET. So this asks per model rather than
 filtering a list, which is one request per capability lookup and is why the
 result is not consulted anywhere hotter than pool admission.
 
-Second, and more importantly: this adapter makes **only positive claims**, where
-the LM Studio one also claims UNSUPPORTED from its `type` field. Ollama's
-capability array is documented as enumerating what a model can do, which would
-make an absent entry a denial — but unlike the LM Studio adapter, nothing here
-has been run against a live instance. Under-claiming costs a pool that reports
-itself unavailable; over-claiming routes a request to a model that cannot serve
-it. Until this has been checked against a real Ollama, it fails closed on
-purpose, and the docstring on `_absorb` says what to tighten afterwards.
+Second, the capability array is read as **closed** over the vocabulary Ollama
+actually tracks: a model whose array omits `tools` is recorded UNSUPPORTED, not
+left UNKNOWN. That is a stronger claim than the LM Studio adapter makes about
+its own capability list, and it is made on evidence — checked against a live
+Ollama 0.32.3, where `llama3.2:3b` reports `["completion", "tools"]` and
+`all-minilm` reports `["embedding"]` alone. An embedding model that declines to
+claim `completion` is an array that enumerates rather than annotates.
+
+The world is closed over those five tokens **only**. Capabilities Ollama has no
+vocabulary for — structured output, parallel tools, prompt caching, audio — are
+never denied on the strength of an array that was never going to mention them.
+Silence about a subject is not a denial, and conflating the two is how a pool
+loses a candidate that would have served it.
 """
 
 from __future__ import annotations
@@ -43,7 +48,10 @@ from ravis.providers.generic_openai import PROTOCOL_DEFAULTS, GenericOpenAiAdapt
 SHOW_PATH = "/api/show"
 
 # Ollama's capability vocabulary, mapped onto §9.5's lattice. Tokens it reports
-# that are not listed here are ignored rather than guessed at.
+# that are not listed here are ignored rather than guessed at — and, just as
+# importantly, this is exactly the set the closed-world reading in `_absorb`
+# applies to. Adding a row here widens what an absent entry is taken to deny,
+# so a row is only correct once Ollama is known to report that token.
 _CAPABILITY_MAP = {
     "completion": Capability.TEXT,
     "tools": Capability.TOOLS,
@@ -105,24 +113,31 @@ class OllamaAdapter(GenericOpenAiAdapter):
 def _absorb(known: ModelCapabilities, detail: dict[str, Any]) -> None:
     """Record what Ollama says about one model, at ADVERTISED provenance.
 
-    Positive claims only, for the reason in the module docstring. Once this has
-    been verified against a live Ollama, the tightening is to treat a *present*
-    capability array as closed — absence of `tools` in it then becomes an
-    UNSUPPORTED claim rather than silence, which is what makes a route
-    explanation able to say "Ollama says no" instead of "nobody said".
+    The array is read as closed over `_CAPABILITY_MAP`'s tokens: present means
+    SUPPORTED, absent means UNSUPPORTED. Verified against a live Ollama — see the
+    module docstring for the two models that establish it.
+
+    A *missing* array is different from an empty one and is handled as such. No
+    array at all means this endpoint answered `/api/show` without the field —
+    an older Ollama, or something that is not Ollama — and nothing may be
+    concluded from it. An array that is present and empty is Ollama saying the
+    model does nothing it tracks, which the closed reading denies capability by
+    capability.
     """
     advertised = detail.get("capabilities")
     if isinstance(advertised, list):
-        for token in advertised:
-            capability = _CAPABILITY_MAP.get(str(token))
-            if capability is None:
-                continue
+        tokens = {str(token) for token in advertised}
+        for token, capability in _CAPABILITY_MAP.items():
+            supported = token in tokens
             known.record(
                 CapabilityClaim(
                     capability=capability,
-                    state=CapabilityState.SUPPORTED,
+                    state=(
+                        CapabilityState.SUPPORTED if supported else CapabilityState.UNSUPPORTED
+                    ),
                     provenance=Provenance.ADVERTISED,
-                    detail=f"{_ADVERTISED}: {token}",
+                    detail=f"{_ADVERTISED}: {token}"
+                    + ("" if supported else " absent from a list that enumerates"),
                 )
             )
     context = _context_length(detail.get("model_info"))

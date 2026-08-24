@@ -1,9 +1,13 @@
-"""The Ollama adapter, and the claims it deliberately declines to make.
+"""The Ollama adapter, and the exact reach of its capability array.
 
-Written against Ollama's documented `/api/show` shape and **not yet run against
-a live instance**, which is why the adapter under test only ever claims support
-and never denies it. These tests pin that restraint so it is a decision rather
-than an omission — and so tightening it later has to be deliberate.
+Verified against a live Ollama 0.32.3. The fixtures below are the real
+`/api/show` responses for `llama3.2:3b` and `all-minilm`, and the pair is what
+establishes that the array *enumerates* rather than annotates: an embedding
+model reports `["embedding"]` alone, declining even `completion`.
+
+So absence within the array is a denial — and the tests that matter most here
+are the two that bound that reading, keeping it to the tokens Ollama actually
+tracks and off the ones it has no vocabulary for.
 """
 
 from __future__ import annotations
@@ -17,11 +21,18 @@ from ravis.providers.base import ProviderAdapter
 from ravis.providers.ollama import OllamaAdapter
 from ravis.upstream import Upstream
 
-# Ollama's documented `/api/show` response, trimmed to what the adapter reads.
+# Real `/api/show` responses, trimmed to what the adapter reads. Kept faithful to
+# the live payloads so a change in Ollama's shape breaks a test, not a routing
+# decision.
 LLAMA_DETAIL = {
     "capabilities": ["completion", "tools"],
     "model_info": {"general.architecture": "llama", "llama.context_length": 131072},
     "details": {"family": "llama", "parameter_size": "3.2B"},
+}
+MINILM_DETAIL = {
+    "capabilities": ["embedding"],
+    "model_info": {"general.architecture": "bert", "bert.context_length": 512},
+    "details": {"family": "bert"},
 }
 
 
@@ -96,15 +107,48 @@ async def test_an_unrecognised_capability_token_is_ignored_not_guessed() -> None
 # ── The restraint, pinned ────────────────────────────────────────────────────
 
 
-async def test_a_capability_absent_from_the_array_stays_unknown() -> None:
-    """Deliberate under-claiming while this adapter is unverified against a live
-    Ollama. Tightening this to UNSUPPORTED is a decision to take with a real
-    instance in front of you, not a default to drift into."""
+async def test_a_capability_absent_from_a_present_array_is_denied() -> None:
+    """The array enumerates, so omission is Ollama saying no."""
     detail = {"capabilities": ["completion"], "model_info": {}}
     known = await _adapter(detail).capabilities("no-tools:latest")
 
-    assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
+    assert known.state_of(Capability.TOOLS) is CapabilityState.UNSUPPORTED
     assert not known.satisfies(Capability.TOOLS)
+
+
+async def test_a_missing_array_denies_nothing() -> None:
+    """No array at all is an older Ollama, or not Ollama. Nothing follows from it."""
+    known = await _adapter({"model_info": {}}).capabilities("silent:latest")
+
+    assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
+    assert known.state_of(Capability.VISION) is CapabilityState.UNKNOWN
+
+
+async def test_a_capability_ollama_has_no_word_for_is_never_denied() -> None:
+    """The closed reading covers Ollama's vocabulary, not §9.5's whole lattice.
+
+    An array that was never going to mention structured output must not be read
+    as ruling it out — that would cost a pool a candidate on the strength of a
+    silence about a subject Ollama does not discuss.
+    """
+    known = await _adapter(LLAMA_DETAIL).capabilities("llama3.2:3b")
+
+    assert known.state_of(Capability.STRUCTURED_OUTPUT) is CapabilityState.UNKNOWN
+    assert known.state_of(Capability.PARALLEL_TOOLS) is CapabilityState.UNKNOWN
+
+
+async def test_an_embedding_model_is_not_a_text_model() -> None:
+    """`all-minilm` reports `["embedding"]` and nothing else, verified live.
+
+    The consequence is the point: without the closed reading TEXT would still be
+    SUPPORTED from the protocol default, and an embedding endpoint would sit in
+    a text pool waiting to be routed a chat request.
+    """
+    known = await _adapter(MINILM_DETAIL).capabilities("all-minilm:latest")
+
+    assert known.state_of(Capability.EMBEDDINGS) is CapabilityState.SUPPORTED
+    assert known.state_of(Capability.TEXT) is CapabilityState.UNSUPPORTED
+    assert known.context_window == 512
 
 
 async def test_an_upstream_that_is_not_ollama_degrades_to_generic_answers() -> None:

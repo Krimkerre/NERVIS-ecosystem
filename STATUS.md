@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 760 tests, no network, no live service
+.venv/bin/pytest                      # part of 763 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 760 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 763 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -103,7 +103,7 @@ into the order work actually happens.
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
-| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one of them a context window. **Verified live against the running runtime, 2026-08-24.** It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. The *plural-upstream* half is not done |
+| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. The *plural-upstream* half is not done |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 4's last piece was SIRVIS M15; the evidence plane now measures, stores, serves, and recommends.
 
@@ -1636,14 +1636,30 @@ not a chat model. That last one is claimed explicitly rather than left alone:
 the protocol default had already recorded `TEXT` as supported, and leaving it
 standing would have put an embedding endpoint in a text pool.
 
-**The Ollama adapter has never been run against a live Ollama.** It is written
-to the documented `/api/show` shape, its tests are mocks, and it therefore makes
-*only positive claims* — where the LM Studio adapter will say UNSUPPORTED, this
-one stays silent. Ollama's capability array is documented as enumerating what a
-model can do, which would justify treating absence as denial; that tightening is
-noted in `_absorb`'s docstring and deliberately left undone until someone has a
-real instance in front of them. Under-claiming costs an unavailable pool.
-Over-claiming routes a request to a model that cannot serve it.
+**The Ollama adapter shipped under-claiming, and a live run earned the stronger
+reading.** It was written to the documented `/api/show` shape with mock tests
+only, so it made *positive claims only* — where the LM Studio adapter says
+UNSUPPORTED, it stayed silent. Ollama 0.32.3 was then started and asked, and two
+models settled it: `llama3.2:3b` reports `["completion", "tools"]`, and
+`all-minilm` reports `["embedding"]` **alone**, declining even `completion`. An
+embedding model that will not claim to complete is an array that enumerates
+rather than annotates, so absence within it is a denial and is now recorded as
+UNSUPPORTED.
+
+**The reading is closed over Ollama's vocabulary and no further.** The five
+tokens it uses — completion, tools, vision, embedding, thinking — are denied
+when absent. Structured output, parallel tools, prompt caching and audio are
+not: an array that was never going to mention them says nothing about them, and
+reading that silence as a denial would cost a pool a candidate on the strength
+of a subject Ollama does not discuss. `test_a_capability_ollama_has_no_word_
+for_is_never_denied` pins the boundary.
+
+The embedding case is the one with teeth. Without the closed reading, `TEXT`
+would still be SUPPORTED on `all-minilm` from the protocol default, and an
+embedding endpoint would sit in a text pool waiting to be handed a chat request.
+
+`/api/show` reads the manifest and loads nothing — `ollama ps` stayed empty
+throughout, so none of this cost a model load.
 
 **What is not done.** `upstream_kind` selects *which* adapter discovers *the*
 transparent upstream — singular. `upstream_base_url` is still one URL, so RAVIS
