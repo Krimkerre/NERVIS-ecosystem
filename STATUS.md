@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 719 tests, no network, no live service
+.venv/bin/pytest                      # part of 720 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 719 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 720 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1264,14 +1264,22 @@ either (M18). Another 5% is memory, and nothing records an installed size. So a
 score on this machine rests on **45%** of its own profile, and every
 recommendation says so:
 
+**M15's acceptance, met.** Two builds were measured under the `clarvis-chat`
+role on 2026-08-24, and the engine recommends a pair:
+
 ```text
-clarvis-agent   lmstudio-community/granite-4.0-h-tiny
-                score 1.0 · coverage 0.45
-                axes    tool_use 1.0 · throughput 1.0 · context 1.0
-                missing coding, reasoning, memory
-excluded        mlx-community/granite-4.0-h-tiny — tool_use is UNSUPPORTED
-clarvis-chat    no candidate — nothing has measured that role
+clarvis-chat    1. qwen/qwen3-4b-2507            score 1.00 · coverage 0.50
+                2. meta-llama-3.1-8b-instruct    score 0.53 · coverage 0.50
+clarvis-agent   1. granite-4.0-h-tiny · GGUF     score 1.00 · coverage 0.45
+excluded        granite-4.0-h-tiny · MLX — tool_use is UNSUPPORTED
+combination     2.0, with no joint term: this pair has never been run together
 ```
+
+`qwen3-4b-2507` wins chat on throughput — 52.4 tok/s against llama's 28.7, at
+0.18s to first token against 0.28s — and both score on **half** their profile,
+because reasoning and memory have no evidence. The agent side is unchanged and
+its exclusion is still the useful one: the faster packaging of the same weights
+is out on a measurement, not on ignorance.
 
 The decisions worth the veto:
 
@@ -1289,6 +1297,10 @@ The decisions worth the veto:
   enough model out-score its own disqualification.
 - **The joint term is zero, not optimistic.** A pair nobody has run together has
   no joint evidence, and inventing one asserts exactly what §10.1 denies.
+- **Every admitted candidate is ranked, not only the winner.** Found by running
+  the chat role against two builds: reporting the top of each role made the
+  second-placed build vanish — absent from the ranking and from the exclusions,
+  as though nobody had looked at it. §14.3 asks for ranked candidates, plural.
 - **`fast` proposes nothing.** §14.3 lets `verified` propose further benchmarks
   and neither mode starts one: expensive here means gigabytes of somebody's
   memory and a model resident for the duration.

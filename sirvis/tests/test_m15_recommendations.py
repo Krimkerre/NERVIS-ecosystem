@@ -280,3 +280,24 @@ def test_the_fit_tier_is_unknown_and_says_it_is_an_estimate() -> None:
     payload = recommend([evidence()], CONTEXTS, CAPABLE, roles=["clarvis-agent"]).as_dict()
 
     assert payload["fit"] == {"tier": "UNKNOWN", "detail": "", "basis": "estimate"}
+
+
+def test_every_admitted_candidate_is_ranked_not_only_the_winner() -> None:
+    """§14.3 asks for ranked candidates, plural.
+
+    Reporting only the top of each role made a build that was considered and
+    placed second vanish entirely — absent from the ranking and absent from the
+    exclusions, as though nobody had looked at it. Found by running the chat
+    role against two builds and noticing one of them was nowhere in the answer.
+    """
+    fast = evidence(runtime_key="fast-build", role="clarvis-agent", throughput=90.0)
+    slow = evidence(runtime_key="slow-build", role="clarvis-agent", throughput=30.0)
+    contexts = {"fast-build": 65536, "slow-build": 65536}
+    capable = {"fast-build:tool_use": "SUPPORTED", "slow-build:tool_use": "SUPPORTED"}
+
+    result = recommend([fast, slow], contexts, capable, roles=["clarvis-agent"])
+
+    ranked = result.ranked["clarvis-agent"]
+    assert [found.runtime_key for found in ranked] == ["fast-build", "slow-build"]
+    assert ranked[0].score > ranked[1].score
+    assert result.as_dict()["ranked"]["clarvis-agent"][1]["runtime_key"] == "slow-build"

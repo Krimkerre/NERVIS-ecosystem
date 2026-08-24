@@ -361,6 +361,11 @@ class Recommendation:
     profile: str
     mode: str
     roles: dict[str, Utility | None] = field(default_factory=dict)
+    # Every admitted candidate in order, not only the winner. §14.3 asks for
+    # *ranked candidates* and excluded ones, and reporting only the top of each
+    # role made a build that was considered and placed second vanish entirely —
+    # present in neither list, as though nobody had looked at it.
+    ranked: dict[str, list[Utility]] = field(default_factory=dict)
     excluded: dict[str, list[Exclusion]] = field(default_factory=dict)
     combination_score: float | None = None
     fit: str = FIT_UNKNOWN
@@ -382,6 +387,10 @@ class Recommendation:
             "roles": {
                 role: (found.as_dict() if found else None)
                 for role, found in self.roles.items()
+            },
+            "ranked": {
+                role: [item.as_dict() for item in items]
+                for role, items in self.ranked.items()
             },
             "excluded": {
                 role: [item.as_dict() for item in items]
@@ -430,8 +439,9 @@ def recommend(
             continue
         mine = by_role.get(role, [])
         values = axis_values(mine, contexts)
-        best, excluded = _best_for(profile, mine, values, capabilities)
-        recommendation.roles[role] = best
+        ranked, excluded = _rank_for(profile, mine, values, capabilities)
+        recommendation.roles[role] = ranked[0] if ranked else None
+        recommendation.ranked[role] = ranked
         recommendation.excluded[role] = excluded
     _finish(recommendation, roles, mode)
     return recommendation
@@ -452,13 +462,13 @@ def _records_by_role(
     return grouped
 
 
-def _best_for(
+def _rank_for(
     profile: RoleProfile,
     records: Sequence[Mapping[str, Any]],
     values: Mapping[str, dict[str, float]],
     capabilities: Mapping[str, str],
-) -> tuple[Utility | None, list[Exclusion]]:
-    """The highest-scoring eligible candidate, and everything that was not.
+) -> tuple[list[Utility], list[Exclusion]]:
+    """Every eligible candidate in order, and everything that was not.
 
     Ties break on the runtime key, so a rerun cannot reorder two candidates the
     arithmetic considers identical.
@@ -483,7 +493,7 @@ def _best_for(
     # ineligible.
     ranked = [utility(profile, key, admitted, ids.get(key, ())) for key in admitted]
     ranked.sort(key=lambda found: (-found.score, found.runtime_key))
-    return (ranked[0] if ranked else None), excluded
+    return ranked, excluded
 
 
 def _evidence_ids(
