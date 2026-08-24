@@ -1209,6 +1209,42 @@ test that pinned this asserted "everything is unavailable" and went on passing
 for six milestones after that stopped being true; it now pins the split, so a
 milestone that makes a capability real has to say so.
 
+### A request actually routed through the pool
+
+`POST /v1/chat/completions` with `model: ravis/clarvis-agent`, 2026-08-24. It
+answered in 2.1 seconds, and the recorded decision is the point:
+
+```text
+requested      ravis/clarvis-agent
+selected       lmstudio-community/granite-4.0-h-tiny
+requirements   tools REQUIRED · minimum context 32768
+excluded       19 candidates
+                 · 18 × "tools is UNKNOWN"        — never measured
+                 · 1  × "tools is UNSUPPORTED"    — mlx-community/granite-4.0-h-tiny
+```
+
+**The two exclusion reasons are the whole of M13 in one line.** Eighteen builds
+are out because nobody has asked them; the MLX packaging is out because somebody
+did. A router that collapsed those would report the same word for a build
+awaiting measurement and a build that failed one — and only one of those is
+fixed by running a benchmark.
+
+**The explanation contradicted itself, and running this is what showed it.** The
+ranking sentence said *"No benchmark evidence or cost data is available yet"* —
+unconditionally, written before M13 — so it appeared inside a decision that was
+only possible **because** evidence existed. It now says the narrower thing that
+is actually true: evidence decides eligibility rather than order, nothing ranks
+one admitted build above another on quality, and cost is genuinely absent until
+M15. The test that pinned the old wording asserted `"No benchmark evidence"` and
+would have gone on passing indefinitely.
+
+**And the request left a model resident that nothing owned.** RAVIS forwards on
+the transparent path; LM Studio JIT-loaded the build to serve it; §9 gives
+lifecycle to SIRVIS, which did not load it and will not unload it. That is
+exactly the `foreign` column on the Runtime screen — memory SIRVIS accounts for
+and does not own — arriving here for the first time from an ordinary request
+rather than a benchmark.
+
 ### The rule about loading — still read this first
 
 M6 is the first milestone that **loads models to do its job**, and an earlier

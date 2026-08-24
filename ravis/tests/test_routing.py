@@ -117,13 +117,25 @@ def test_a_declared_preference_beats_alphabetical_order() -> None:
     assert decision.selected == "qwen-coder"
 
 
-def test_the_explanation_admits_it_has_no_quality_evidence() -> None:
-    """§9.7 separates facts from unknowns; §9.4 forbids an invented weighting."""
+def test_the_explanation_separates_eligibility_from_ranking() -> None:
+    """§9.7 separates facts from unknowns; §9.4 forbids an invented weighting.
+
+    This asserted "No benchmark evidence" until M13 gave RAVIS some. The
+    sentence was unconditional, so it went on appearing inside decisions that
+    were only possible *because* evidence existed — a route explanation
+    contradicting the route it explained.
+
+    What survives is the narrower claim, which is the one §9.4 actually needs:
+    evidence admits and excludes, and nothing ranks one admitted build above
+    another on quality. Cost is genuinely absent until M15.
+    """
     candidates = {"a": _model("a")}
 
     decision = RoutingEngine().select("ravis/clarvis-chat", candidates)
 
-    assert "No benchmark evidence" in decision.reason
+    assert "Evidence decides eligibility rather than order" in decision.reason
+    assert "nothing ranks one admitted build above another" in decision.reason
+    assert "No cost data is available yet" in decision.reason
 
 
 def test_an_empty_catalogue_is_a_no_route_with_a_distinct_reason() -> None:

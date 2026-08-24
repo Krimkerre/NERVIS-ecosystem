@@ -411,11 +411,19 @@ def _selection_reason(
     parts.append(_size_note(pool, eligible, residency, memory))
     others = len(eligible) - 1
     tail = f"; {others} other eligible candidate(s) ranked lower" if others else ""
+    # **Eligibility and order are different questions**, and this sentence used
+    # to answer only one of them — it said "no benchmark evidence is available
+    # yet" unconditionally, which stopped being true at M13 and then appeared
+    # inside decisions that were only possible *because* evidence existed. What
+    # is still true is narrower: evidence admits and excludes, and nothing here
+    # ranks one admitted build above another on quality. Cost genuinely is
+    # absent until M15.
     return (
         f"{'. '.join(part for part in parts if part)}. "
-        f"No benchmark evidence or cost data is available yet, and "
-        f"health is used to exclude rather than to rank, so nothing ranked it above the "
-        f"others on quality{tail}"
+        f"Evidence decides eligibility rather than order — a build is admitted or "
+        f"excluded on it, and nothing ranks one admitted build above another on "
+        f"quality. No cost data is available yet, and health is used to exclude "
+        f"rather than to rank{tail}"
     )
 
 
