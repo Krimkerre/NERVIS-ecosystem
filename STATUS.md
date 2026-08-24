@@ -1812,10 +1812,24 @@ entries — 13 pools listed once, 20 LM Studio models and 2 Ollama models — ea
 model resolved to the runtime that actually holds it, and
 `ravis/ollama/<an LM Studio model>` overrode the catalogue as designed.
 
-**What is still not proven.** No completion has been routed through a second
-upstream. The plumbing is verified and the decision is verified; M8's acceptance
-criterion also asks that transparent local streams preserve tool semantics, and
-that needs a real generation through Ollama rather than a resolution check.
+**M8's acceptance criterion, met live on 2026-08-24.** A completion was routed
+through the second upstream, twice:
+
+```text
+resolve("llama3.2:3b")  ->  ollama @ 127.0.0.1:11434, OllamaAdapter
+non-streamed    200   content "ROUTED"   usage 31 + 3 = 34
+streamed+tool   200   finish_reason=tool_calls
+                      name "get_weather"  args {"city":"Amsterdam"}
+recorded        execution_path TRANSPARENT_OPENAI
+```
+
+The second call is the half the criterion actually names — *transparent local
+streams preserve tool semantics*. The tool call arrived as stream deltas and
+reassembled into an intact name and complete JSON arguments, with
+`finish_reason` set to `tool_calls` rather than `stop`. Nothing in RAVIS
+normalised it: `execution_path` records `TRANSPARENT_OPENAI`, so those bytes were
+forwarded under §6's Path A, which is what makes preservation a property of the
+forwarder rather than of a translation layer that happened to round-trip.
 
 So the caveat recorded at M13 is now narrowed twice over:
 `ravis/clarvis-agent` admits its member because a build **passed a
@@ -1881,10 +1895,10 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **A completion through Ollama** | The plumbing routes and the decision is right; no generation has crossed the second upstream. M8's acceptance also asks that transparent local streams preserve tool semantics |
-| 2 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters |
-| 3 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
-| 4 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
+| 1 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters. The last of Stage 5's provider work |
+| 2 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
+| 3 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
+| 4 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
 
 ### After that
 
@@ -1899,12 +1913,11 @@ M9 ended that. So the translated path was built, given a real provider to drive
 it, and then — once SIRVIS could measure a Clarvis role — handed real evidence
 to route on.
 
-**M8 has landed, bar one proof.** Both adapters and plural upstreams are done
-and verified live against LM Studio and Ollama running side by side. What is
-outstanding is a *generation* across the second upstream: the acceptance
-criterion asks that transparent local streams preserve tool semantics, and only
-resolution has been demonstrated. Every measurement in the corpus still came
-through LM Studio.
+**M8 is done.** Both adapters, plural upstreams, and a real completion —
+streamed, with a tool — routed through the second one. Verified live against LM
+Studio and Ollama running side by side. Every *measurement* in the corpus still
+came through LM Studio, which is a fact about the evidence rather than about
+RAVIS's reach.
 
 ---
 
