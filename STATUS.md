@@ -2773,6 +2773,32 @@ holders instead of acting on them.
 **Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()`
 remains one of the invented twenty-four; running a benchmark is CLI-only.
 
+## The token card said how, and said it wrong
+
+Asked how to get a runtime token, and the answer turned out to be that the
+screen already told you — incorrectly. It read *"Mint one with `sirvis tokens
+--mint runtime`"*. There is no `tokens` subcommand and the scopes do not go
+there; the command is `sirvis token --mint <label> --scopes "read runtime"`.
+Anyone following the instruction got an error, which is worse than no
+instruction, and it had been sitting there since M4.
+
+The card now carries the working command, the directory it has to run from —
+the CLI's database path is relative, so minting from the wrong one writes into a
+different database and produces a token that authenticates against nothing, the
+same trap that orphaned the benchmark corpus — and, newly, **why a token exists
+at all**, which is what was actually being asked:
+
+* Loading a model spends gigabytes and can **evict a model another client is
+  holding**. That is not hypothetical here: the panel test ran with two owners
+  on one build and a reference count of 2.
+* §4.5 requires a scope on every mutation *even on loopback*, because loopback
+  keeps the LAN out and does nothing about another process on the same machine.
+* The origin check does not replace it. A browser attaches your credentials
+  automatically, so origin alone cannot distinguish your click from a page you
+  happened to visit — which is why §4.5 requires both.
+* Reads stay open deliberately: Clarvis probes `/v1/models` with a two-second
+  timeout and reads any 401 as *provider offline*.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
