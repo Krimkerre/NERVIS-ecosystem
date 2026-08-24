@@ -301,3 +301,80 @@ def test_every_admitted_candidate_is_ranked_not_only_the_winner() -> None:
     assert [found.runtime_key for found in ranked] == ["fast-build", "slow-build"]
     assert ranked[0].score > ranked[1].score
     assert result.as_dict()["ranked"]["clarvis-agent"][1]["runtime_key"] == "slow-build"
+
+
+# ── The joint term, once a pair has actually been run ────────────────────────
+
+
+def a_matrix(*, worst: float = 34.4, complete: bool = True) -> dict[str, Any]:
+    """An interaction matrix in the shape M10 writes it."""
+    return {
+        "runtime_set": "clarvis-recommended", "revision": 1, "complete": complete,
+        "members": {"clarvis-chat": "chat-build", "clarvis-agent": "agent-build"},
+        "rows": {
+            "clarvis-chat": {"degradation_percent": {"concurrent": {"tokens_per_second": 22.1}}},
+            "clarvis-agent": {"degradation_percent": {"concurrent": {"tokens_per_second": worst}}},
+        },
+    }
+
+
+def a_pair() -> list[dict[str, Any]]:
+    return [
+        evidence(runtime_key="chat-build", role="clarvis-chat"),
+        evidence(runtime_key="agent-build", role="clarvis-agent"),
+    ]
+
+
+PAIR_CONTEXTS = {"chat-build": 65536, "agent-build": 65536}
+PAIR_CAPABLE = {"chat-build:tool_use": "SUPPORTED", "agent-build:tool_use": "SUPPORTED"}
+
+
+def test_a_measured_pair_penalises_the_combination() -> None:
+    """§14.3 subtracts a contention penalty, and M10 is where it comes from.
+
+    Derived from what was measured rather than predicted: the worst concurrent
+    throughput loss across the members. A pair that gives up a third of its
+    throughput when both generate is a third worse at the thing a pair is for.
+    """
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE, matrices=[a_matrix()])
+
+    assert result.combination_score == pytest.approx(2.0 - 0.344)
+    assert "measured together" in " ".join(result.uncertainty)
+
+
+def test_an_unmeasured_pair_says_so_rather_than_scoring_zero_penalty() -> None:
+    """§10.1: an unmeasured pair is unknown, not frictionless.
+
+    The arithmetic is the same either way — no penalty — so the difference has
+    to be said out loud or the two are indistinguishable in the output.
+    """
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE, matrices=[])
+
+    assert result.combination_score == pytest.approx(2.0)
+    assert "has not been measured together" in " ".join(result.uncertainty)
+
+
+def test_a_matrix_for_a_different_pair_does_not_count() -> None:
+    """§10.1 again: co-residency behaviour does not transfer between pairings.
+
+    A near-miss is no match — the same build behaved differently in different
+    pairings on this machine, which is the finding that makes a pair a subject.
+    """
+    other = a_matrix()
+    other["members"] = {"clarvis-chat": "someone-else", "clarvis-agent": "agent-build"}
+
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE, matrices=[other])
+
+    assert "has not been measured together" in " ".join(result.uncertainty)
+
+
+def test_an_incomplete_matrix_carries_no_penalty() -> None:
+    """A run whose members never went co-resident measured no contention.
+
+    §10's gate makes that a result rather than a failure, and the result is
+    "we do not know", not "there is none".
+    """
+    result = recommend(a_pair(), PAIR_CONTEXTS, PAIR_CAPABLE,
+                       matrices=[a_matrix(complete=False)])
+
+    assert result.combination_score == pytest.approx(2.0)

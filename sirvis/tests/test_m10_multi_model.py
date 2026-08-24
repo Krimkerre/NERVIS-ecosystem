@@ -507,3 +507,19 @@ def _rep_with_memory(available: int | None) -> Repetition:
         test_id="t1", phase="measured", index=0, total_seconds=1.0, content="tok ",
         ttft_seconds=0.1, completion_tokens=4, lowest_available_bytes=available,
     )
+
+
+def test_the_alone_condition_has_a_peak_sample_of_its_own(tmp_path: Any) -> None:
+    """§11.8 wants swap baseline, peak and final — and alone *is* the baseline.
+
+    Only the co-residency modes emitted a peak sample, so swap could be read
+    while two models were resident and not while one was. That made the alone
+    column's swap null, and §10.1's whole question — what does adding the second
+    model cost — unanswerable for the figure most likely to answer it.
+
+    Found on the first pair run that carried memory rows: every co-resident
+    condition reported swap and the control reported none.
+    """
+    outcome, _ = run(a_spec(), FakeRuntime(), tmp_path)
+
+    assert outcome.matrix["memory"][MODE_ALONE]["swap_used_bytes"] is not None

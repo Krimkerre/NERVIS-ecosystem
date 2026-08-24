@@ -328,6 +328,12 @@ async def _measure_alone(
     try:
         await _measure_role(member, spec, MODE_ALONE, runtime, sampler, directory, outcome, clock)
     finally:
+        # §11.8 asks for swap baseline, peak and final. The alone condition is
+        # the *baseline* every co-resident figure is compared against, and it
+        # had no peak sample of its own — only the modes did — so swap could be
+        # read while two models were resident and not while one was. The one
+        # comparison §10.1 turns on was the one that could not be made.
+        outcome.telemetry.append(sampler.sample(PEAK_FOR_MODE.format(mode=MODE_ALONE)))
         await resources.release(lease.session_id)
         outcome.telemetry.append(sampler.sample(f"post_unload:{member.role}"))
 
@@ -549,6 +555,12 @@ def interaction_matrix(spec: MultiModelSpec, outcome: MultiModelOutcome) -> dict
     return {
         "runtime_set": spec.runtime_set.name,
         "revision": spec.runtime_set.revision,
+        # Which build played each role. The matrix keyed its rows by role and
+        # named no builds, so a consumer holding one could not tell *which*
+        # pair it described — and §10.1 is exactly that co-residency behaviour
+        # does not transfer between combinations, so a matrix that cannot
+        # identify its own pair is a measurement of nothing in particular.
+        "members": {member.role: member.model_key for member in spec.per_role},
         "load_order": outcome.load_order,
         "conditions": conditions,
         "rows": rows,

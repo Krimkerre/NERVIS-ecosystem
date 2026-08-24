@@ -492,8 +492,53 @@ async def make_recommendation(request: Request) -> dict[str, Any]:
         records, contexts, _capability_states(records),
         roles=[str(role) for role in roles], mode=mode,
         generated_at=datetime.now(timezone.utc).isoformat(),
+        matrices=_interaction_matrices(database),
     )
     return result.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+def _interaction_matrices(database: Any) -> list[dict[str, Any]]:
+    """Every measured pair, newest first.
+
+    A recommendation about a pair should stand on the pair having been run
+    together where one has, and §10.1 is why it cannot be inferred otherwise:
+    on this machine co-residency was nearly free and concurrency cost a third of
+    throughput, and neither is predictable from either model alone.
+    """
+    found: list[dict[str, Any]] = []
+    # `list_runs` returns (runs, cursor) — iterating the call itself walks the
+    # tuple, not the runs. mypy caught it; the loop had been silently reading a
+    # list and a cursor string as though both were runs.
+    runs, _ = list_runs(database, limit=50)
+    for run in runs:
+        results: Any = run.get("results")
+        for result in results if isinstance(results, list) else []:
+            matrix = result.get("interaction_matrix") if isinstance(result, dict) else None
+            if isinstance(matrix, dict) and matrix not in found:
+                found.append(_with_members(database, matrix))
+    return found
+
+
+def _with_members(database: Any, matrix: dict[str, Any]) -> dict[str, Any]:
+    """Name the builds a matrix measured, resolving it when it did not.
+
+    Matrices written before the `members` field existed carry a runtime set name
+    and a revision and no builds. That revision is immutable by construction
+    (§10), so reading the definition back gives exactly the members that ran —
+    which is the whole reason a revision is pinned at use rather than resolved
+    at read.
+    """
+    if matrix.get("members"):
+        return matrix
+    stored = find_by_name(database, str(matrix.get("runtime_set") or ""))
+    if stored is None:
+        return matrix
+    pinned = read_runtime_set(database, stored.runtime_set_id, matrix.get("revision"))
+    if pinned is None:
+        return matrix
+    return matrix | {
+        "members": {member.role: member.model_id for member in pinned.members}
+    }
 
 
 async def _build_lookups(request: Request) -> tuple[dict[str, str], dict[str, int | None]]:

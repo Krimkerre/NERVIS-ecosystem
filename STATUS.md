@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 720 tests, no network, no live service
+.venv/bin/pytest                      # part of 725 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 720 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 725 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1317,6 +1317,53 @@ walks **GET** routes, so it did not catch a POST. §14.3 specifies a POST becaus
 its inputs are a body, and it stores nothing: it is a read that happens to need
 a request body. The token check is gone and the CSRF checks are not, which is
 the distinction dropping `require` wholesale would have lost.
+
+### The recommended pair, measured together
+
+The pair M15 recommended, run through M10 on 2026-08-24. Run
+`run_d024b6f271674585`, set `clarvis-recommended@1`, raw material in
+`sirvis/results/exp_4b6797ae30eb4caf`.
+
+```text
+                     alone   sequential  alternating  concurrent
+agent tok/s           68.1        68.2         59.8        44.6
+chat  tok/s           49.8        49.8         49.3        38.8
+agent TTFT           0.051       0.052        0.110       0.063
+chat  TTFT           0.218       0.219        0.254       0.260
+
+available memory      8.5 GB                   6.3 GB co-resident
+```
+
+**Co-residency is free again**, on a second and different pair: −0.2% and +0.1%.
+That is now a finding rather than an observation — two pairs, four builds, the
+same answer. **Concurrency costs 34.4% and 22.1%**, which is *less* than the
+first pair's 42.7% and 31.9%: the pair a recommendation picked degrades less
+under load than the one picked by hand, which is the first time this corpus has
+been able to compare two combinations at all.
+
+**And the recommendation now stands on it.** M15's combination score moved from
+`2.0` to **`1.6557`** — the measured 34.4% subtracted as §14.3's contention
+penalty — and its uncertainty line changed from *"this pair has not been
+measured together"* to *"measured together: concurrent generation costs up to
+34.4% of throughput (clarvis-recommended@1)"*. The joint term was the one number
+in that output standing in for a measurement nobody had made.
+
+**Three gaps the run exposed, all in surfaces built for it.**
+
+`_interaction_matrices` iterated `list_runs(...)` directly, and `list_runs`
+returns `(runs, cursor)` — so the loop read a list and a cursor string as
+though both were runs. mypy caught it before it ran.
+
+The matrix keyed its rows by role and named no builds, so a consumer holding one
+could not tell which pair it described — and §10.1 is precisely that
+co-residency behaviour does not transfer between combinations. It carries
+`members` now, and matrices written before that field are resolved from the set
+definition at their pinned revision, which is immutable by construction.
+
+And **the alone condition had no peak memory sample of its own.** Only the
+co-residency modes emitted one, so swap could be read while two models were
+resident and not while one was — leaving §10.1's central comparison, what the
+second model costs, unanswerable for the figure most likely to answer it.
 
 ### The rule about loading — still read this first
 

@@ -366,6 +366,10 @@ class Recommendation:
     # role made a build that was considered and placed second vanish entirely —
     # present in neither list, as though nobody had looked at it.
     ranked: dict[str, list[Utility]] = field(default_factory=dict)
+    # The interaction matrix for the recommended pair, when one has been
+    # measured. What makes the combination score a measurement of a pair rather
+    # than the sum of two solo numbers.
+    pair_matrix: Mapping[str, Any] | None = None
     excluded: dict[str, list[Exclusion]] = field(default_factory=dict)
     combination_score: float | None = None
     fit: str = FIT_UNKNOWN
@@ -417,6 +421,7 @@ def recommend(
     roles: Sequence[str] = ("clarvis-chat", "clarvis-agent"),
     mode: str = MODE_FAST,
     generated_at: str = "",
+    matrices: Sequence[Mapping[str, Any]] = (),
 ) -> Recommendation:
     """§14.3's engine: rank, exclude, combine, and say what is unknown.
 
@@ -443,8 +448,40 @@ def recommend(
         recommendation.roles[role] = ranked[0] if ranked else None
         recommendation.ranked[role] = ranked
         recommendation.excluded[role] = excluded
+    recommendation.pair_matrix = _matrix_for(recommendation, matrices)
     _finish(recommendation, roles, mode)
     return recommendation
+
+
+def _matrix_for(
+    recommendation: Recommendation, matrices: Sequence[Mapping[str, Any]]
+) -> Mapping[str, Any] | None:
+    """The interaction matrix measured for *this* pair, if there is one.
+
+    Matched on the exact set of recommended builds. A matrix for a different
+    pairing describes a different pair — §10.1 is precisely that co-residency
+    behaviour does not transfer between combinations — so a near-miss is no
+    match at all.
+    """
+    wanted = {
+        found.runtime_key for found in recommendation.roles.values() if found
+    }
+    if len(wanted) < 2:
+        return None
+    for matrix in matrices:
+        rows = matrix.get("rows") or {}
+        measured = {
+            str((matrix.get("members") or {}).get(role, role)) for role in rows
+        }
+        if measured == wanted or set(rows) and _members_of(matrix) == wanted:
+            return matrix
+    return None
+
+
+def _members_of(matrix: Mapping[str, Any]) -> set[str]:
+    """Which builds a matrix was measured over, by runtime key."""
+    members = matrix.get("members")
+    return set(members.values()) if isinstance(members, Mapping) else set()
 
 
 def _records_by_role(
@@ -509,6 +546,34 @@ def _evidence_ids(
     return {key: tuple(sorted(set(refs))) for key, refs in found.items()}
 
 
+def contention_penalty(matrix: Mapping[str, Any] | None) -> tuple[float, str]:
+    """The measured cost of running a pair at once, as §14.3's penalty.
+
+    Derived from what M10 measured rather than predicted: the worst concurrent
+    throughput degradation across the members, as a fraction. A pair that loses
+    a third of its throughput when both generate is a third worse at the thing
+    the pair exists to do, and §14.3 subtracts exactly that.
+
+    `(0.0, "")` when no matrix exists, which is not the same as a frictionless
+    pair — the caller reports the absence rather than the zero, because §10.1's
+    whole argument is that an unmeasured pair is unknown and not fine.
+    """
+    if not matrix or not matrix.get("complete"):
+        return 0.0, ""
+    worst = 0.0
+    for row in (matrix.get("rows") or {}).values():
+        drop = ((row.get("degradation_percent") or {}).get("concurrent") or {})
+        value = drop.get("tokens_per_second")
+        if isinstance(value, (int, float)):
+            worst = max(worst, float(value))
+    if not worst:
+        return 0.0, ""
+    return worst / 100.0, (
+        f"measured together: concurrent generation costs up to {worst:.1f}% of "
+        f"throughput ({matrix.get('runtime_set')}@{matrix.get('revision')})"
+    )
+
+
 def _finish(recommendation: Recommendation, roles: Sequence[str], mode: str) -> None:
     """Score the combination and record what the answer rests on.
 
@@ -534,16 +599,16 @@ def _finish(recommendation: Recommendation, roles: Sequence[str], mode: str) -> 
             )
 
     if len(filled) == len(roles) and filled:
+        contention, measured = contention_penalty(recommendation.pair_matrix)
         recommendation.combination_score = combination_score(
             recommendation.roles.get("clarvis-chat"),
             recommendation.roles.get("clarvis-agent"),
-            # No pair has been measured for this combination, so the joint term
-            # and every penalty are zero — and that is *why* the note below
-            # exists rather than a quiet default. §10.1: two models that each fit
-            # do not prove they work together.
-            penalties={},
+            penalties={"contention": contention},
         )
         notes.append(
+            measured if measured else
+            # Zero rather than a quiet default, and said out loud: §10.1's whole
+            # argument is that an unmeasured pair is *unknown*, not fine.
             "the combination score has no joint term: this pair has not been "
             "measured together, so contention, swap and reliability penalties "
             "are all zero rather than estimated"
