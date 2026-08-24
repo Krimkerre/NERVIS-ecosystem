@@ -2820,6 +2820,31 @@ authenticates against nothing.
 cached `index.html` had been served after an edit while this very handoff was
 being written — new code served, old code running — and cost a debugging detour.
 
+**Cold start, verified end to end.** `.run/` deleted, the token row deleted, no
+services running, then `./start-macos.command`:
+
+```text
+services      SIRVIS · RAVIS · NERVIS   all ready, ppid 1, no controlling tty
+token         minted fresh, cached 0600, scopes "read runtime"
+data          20 models · 81 benchmark runs · 2 runtime sets · 20 evidence records
+dashboard     token picked up, fragment cleared from the address bar
+load          OPTIONS 204 → POST 200, resident, lease owned by nervis-dashboard
+release       OPTIONS 204 → DELETE 200, unloaded, 0 leases
+```
+
+Nothing typed at any point.
+
+**The cold start found a real bug that the earlier test had missed.** Clearing
+the fragment during parsing is not final: the browser still has it to process
+for anchor scrolling once the document finishes, and it reappeared in the
+address bar afterwards. The token had been picked up — so the code *had* run —
+which is exactly what made it look like it had worked. It now scrubs on
+`DOMContentLoaded` and `load` as well, and re-checks before acting.
+
+**Not exercised:** the first-run virtualenv creation path, which would mean
+deleting a working `ravis/.venv` to test. Recorded as untested rather than
+implied.
+
 ## Superseded: the token card said how, and said it wrong
 
 Asked how to get a runtime token, and the answer turned out to be that the

@@ -2314,7 +2314,15 @@ let RUNTIME_TOKEN='';
  const m=/[#&]token=([^&]+)/.exec(location.hash||'');
  if(!m)return;
  RUNTIME_TOKEN=decodeURIComponent(m[1]);
- history.replaceState(null,'',location.pathname+location.search);
+ /* Cleared twice, and the second time is not belt-and-braces. Clearing during
+    parsing is not reliably final: the browser still has the fragment to process
+    for anchor scrolling once the document finishes, and it can reappear in the
+    address bar afterwards. Observed on a cold-start test — the token was picked
+    up, so this ran, and the fragment was back by the time the page settled. */
+ const scrub=()=>{ if(location.hash)history.replaceState(null,'',location.pathname+location.search); };
+ scrub();
+ addEventListener('DOMContentLoaded',scrub);
+ addEventListener('load',scrub);
 })();
 
 async function sirvisRuntime(){
