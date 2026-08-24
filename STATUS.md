@@ -2741,9 +2741,34 @@ lease mutation. Releasing a lease that holds **more than one model** asks first
 — §9's reference counting means releasing on one owner's behalf can unload
 another's.
 
-**Not verified live:** the load and release path. The wiring is the Runtime
-screen's proven call and the button gating is verified, but no model has been
-loaded *through this panel*.
+**Verified live, 2026-08-25.** `smollm3-3b` loaded through the panel under a
+lease, then released through it. The run happened to produce §9's argument in
+miniature, because a probe held a second lease on the same model at the time:
+
+```text
+after load      leases 2 (probe, nervis-dashboard)   refs 2   resident
+release ours    leases 1 (probe)                     refs 1   still resident
+release probe   leases 0                             refs 0   unloaded
+```
+
+Releasing one owner's lease did not unload a model another owner still held —
+which is the whole reason the reference count exists.
+
+**Two bugs the live run found, both invisible until pressed.**
+
+The Load and Release buttons were built with `JSON.stringify`, whose double
+quotes terminated the `onclick` attribute early and left the browser parsing a
+truncated expression. The click did nothing, silently — no error, no toast. The
+row handler had the same bug and had already been fixed; the buttons had not.
+Calling `BUILD.load()` from the console worked, which is what isolated it.
+
+**The panel offered to release a lease belonging to somebody else.** It took the
+first lease matching the model, and a model can be held by several owners at
+once. With the probe holding one lease and the dashboard the other, the button
+was wired to the probe's. That is the dashboard unloading another client's model
+on their behalf — precisely the fight §9's reference counting exists to prevent.
+It now releases only a lease owned by `nervis-dashboard`, and names the other
+holders instead of acting on them.
 
 **Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()`
 remains one of the invented twenty-four; running a benchmark is CLI-only.

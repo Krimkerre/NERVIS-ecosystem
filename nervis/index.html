@@ -2425,15 +2425,27 @@ const BUILD={
     :`<div class="trace-step"><b>evidence</b><span class="chip warn">none for this packaging</span></div>`;
   }
 
-  const held=(res&&res.leases||[]).find(l=>(l.models||[]).includes(m.runtime_key));
+  /* Only *this* dashboard's lease may be released from here. A model can be
+     held by several owners at once — that is the entire point of §9's
+     reference counting — and the first lease a search happens to return may
+     belong to somebody else. Offering to release it would be the dashboard
+     unloading another client's model on their behalf, which is precisely the
+     fight the reference count exists to prevent. Caught in testing, with a
+     probe holding one lease and the dashboard the other. */
+  const onModel=(res&&res.leases||[]).filter(l=>(l.models||[]).includes(m.runtime_key));
+  const held=onModel.find(l=>l.owner==='nervis-dashboard');
+  const others=onModel.filter(l=>l!==held);
   const armed=RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required — set one on the Runtime screen" style="opacity:.45;cursor:not-allowed"';
   const actions=held
-   ? `<button class="btn"${armed} onclick="BUILD.release(${JSON.stringify(held.session_id)},${(held.models||[]).length})">Release lease</button>`
-   : `<button class="btn primary"${armed} onclick="BUILD.load(${JSON.stringify(m.runtime_key)})">Load</button>`;
+   ? `<button class="btn"${armed} onclick="BUILD.release('${escapeHtml(held.session_id)}',${(held.models||[]).length})">Release lease</button>`
+   : `<button class="btn primary"${armed} onclick="BUILD.load('${escapeHtml(m.runtime_key)}')">Load</button>`;
+  const heldElsewhere=others.length
+   ? `<div class="trace-step"><b>also held by</b><span>${others.map(l=>escapeHtml(l.owner||'unknown')).join(' · ')}</span></div>`
+   : '';
 
-  return rows.join('')+evidence
+  return rows.join('')+evidence+heldElsewhere
    +`<div style="margin-top:10px">${actions}</div>`
-   +`<small class="mono dim">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.${held&&(held.models||[]).length>1?` <b>This lease holds ${(held.models||[]).length} models</b> — releasing it unloads all of them.`:''}</small>`;
+   +`<small class="mono dim">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.${held&&(held.models||[]).length>1?` <b>This lease holds ${(held.models||[]).length} models</b> — releasing it unloads all of them.`:''}${others.length?` It is also held by ${others.length} other owner(s), so releasing this lease will not unload it.`:''}</small>`;
  },
 
  async load(runtimeKey){
