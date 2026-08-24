@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 730 tests, no network, no live service
+.venv/bin/pytest                      # part of 760 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 730 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 760 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -103,6 +103,7 @@ into the order work actually happens.
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
+| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one of them a context window. **Verified live against the running runtime, 2026-08-24.** It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. The *plural-upstream* half is not done |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 4's last piece was SIRVIS M15; the evidence plane now measures, stores, serves, and recommends.
 
@@ -1593,6 +1594,70 @@ other caller on the machine. `TranslationError` now lives on the adapter
 contract in `providers/base.py`, is classified `INVALID_REQUEST`, and returns a
 400 naming the cause instead of a 502 saying every candidate failed.
 
+### What M8's first half settled, and the disagreement it found
+
+The adapters are thin on purpose. LM Studio and Ollama both speak the OpenAI
+protocol, so both subclass `GenericOpenAiAdapter` and override exactly one
+method: `capabilities`. Reaching an upstream was already solved and a second
+implementation of it would be a third place to drift.
+
+What changes is what RAVIS can *learn*. Against this machine's running LM Studio,
+`/api/v0/models` turns **12 of 20 builds** from `UNKNOWN` tool support into
+`ADVERTISED`, and gives all 20 a real context window where `/v1/models` gave
+none. Before this, an agent pool against a local runtime was unavailable unless
+an operator declared capabilities by hand.
+
+**Then the catalogue was caught being wrong.** LM Studio advertises `tool_use`
+for *both* packagings of `granite-4.0-h-tiny`. SIRVIS measured the GGUF build
+passing 24 of 24 tool trials and the MLX build passing 3 of 24. The
+advertisement is false for one of them, and the two builds are indistinguishable
+from the catalogue alone.
+
+This is the first time the provenance ordering has had a real disagreement to
+resolve rather than a fixture. `MEASURED` outranks `ADVERTISED`, so the MLX build
+is excluded from `ravis/clarvis-agent` on evidence while the GGUF build is
+admitted — and `test_measured_evidence_overturns_the_catalogue_for_the_mlx_build`
+pins that with the real identifiers and the real counts. §9.5 was written on the
+argument that catalogues have been observed to be wrong in both directions.
+It now has a local instance of that.
+
+**Three restraints, each of which could have been over-claimed.**
+
+A *missing* `capabilities` array is left as `UNKNOWN`, not recorded as
+unsupported. It is absent for 8 of the 20 builds here, and silence is not a
+denial — `UNKNOWN` already fails closed under §9.1, so nothing is lost by
+declining to invent the stronger claim. An *empty* array is treated identically,
+because a field defaulted to empty and a field populated with nothing are the
+same bytes.
+
+LM Studio's `type` is claimed in both directions, unlike the capability array,
+because it is always present and closed — `vlm` means vision, `embeddings` means
+not a chat model. That last one is claimed explicitly rather than left alone:
+the protocol default had already recorded `TEXT` as supported, and leaving it
+standing would have put an embedding endpoint in a text pool.
+
+**The Ollama adapter has never been run against a live Ollama.** It is written
+to the documented `/api/show` shape, its tests are mocks, and it therefore makes
+*only positive claims* — where the LM Studio adapter will say UNSUPPORTED, this
+one stays silent. Ollama's capability array is documented as enumerating what a
+model can do, which would justify treating absence as denial; that tightening is
+noted in `_absorb`'s docstring and deliberately left undone until someone has a
+real instance in front of them. Under-claiming costs an unavailable pool.
+Over-claiming routes a request to a model that cannot serve it.
+
+**What is not done.** `upstream_kind` selects *which* adapter discovers *the*
+transparent upstream — singular. `upstream_base_url` is still one URL, so RAVIS
+cannot reach LM Studio and Ollama at the same time, and M8's acceptance criterion
+of local/cloud routing is not met by this half. Translated providers are already
+plural (`_translating_adapters` returns a dict); the transparent side is not.
+That is the remaining work, and it touches the registry's residency probe, which
+is also written against a single `base_url`.
+
+So the caveat recorded at M13 still stands, slightly narrowed:
+`ravis/clarvis-agent` now admits its member because a build **passed a
+measurement**, not merely because a runtime was looked at — but there is still
+only one runtime to look at.
+
 ### Which prototype screens read real services
 
 `nervis/index.html` renders every screen against mocks. Three now read live
@@ -1652,6 +1717,10 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
+| 1 | **RAVIS M8** *(plural upstreams)* | The adapters exist and only one can be reached. Until `upstream_base_url` becomes a table, M8's own acceptance criterion — local/cloud routing — is unmet, and the evidence corpus stays single-runtime |
+| 2 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters. Wants the plural-upstream work first, for the same reason |
+| 3 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
+| 4 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
 
 ### After that
 
@@ -1666,10 +1735,12 @@ M9 ended that. So the translated path was built, given a real provider to drive
 it, and then — once SIRVIS could measure a Clarvis role — handed real evidence
 to route on.
 
-**M8 is the one to watch in what remains.** Every measurement in the corpus came
-through LM Studio, and RAVIS reaches exactly one upstream today. Until M8 lands,
-`ravis/clarvis-agent` has one eligible member because one runtime has been
-looked at — not because one build passed.
+**M8 is the one to watch in what remains, and half of it has landed.** The
+adapters are done and verified against a live LM Studio; what is outstanding is
+plural upstreams. Every measurement in the corpus still came through LM Studio,
+and RAVIS still reaches exactly one upstream. `ravis/clarvis-agent` now has one
+eligible member because a build passed a measurement — but with one runtime
+configurable at a time, that is still a corpus of one runtime.
 
 ---
 

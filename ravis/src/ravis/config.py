@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     # failing, because a client's availability probe must still get a 200.
     upstream_base_url: str = ""
     upstream_api_key: str = ""
+    # Which vendor sits at that URL, and therefore which adapter discovers it
+    # (M8). "generic" is the honest default: every OpenAI-compatible endpoint
+    # answers to it, and it claims nothing it cannot see.
+    #
+    # Declared rather than detected, for the reason §3 gives about provider
+    # clients — auto-detection means probing, and probing at startup makes
+    # coming up depend on the upstream being awake. An unrecognised value falls
+    # back to "generic" rather than refusing to start: the cost of a typo here
+    # should be capabilities RAVIS does not know about, not an outage.
+    upstream_kind: str = "generic"
     # Generous, because a large local model's first token can be slow and a
     # timeout here reads to the client as the model failing.
     upstream_timeout_seconds: float = 300.0

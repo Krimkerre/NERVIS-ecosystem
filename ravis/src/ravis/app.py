@@ -47,6 +47,8 @@ from ravis.identity import resolve_identity
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
+from ravis.providers.lmstudio import LmStudioAdapter
+from ravis.providers.ollama import OllamaAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
@@ -161,10 +163,8 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         role=settings.sirvis_evidence_role,
         max_age_seconds=settings.sirvis_evidence_max_age_seconds,
     )
-    api.state.adapter = GenericOpenAiAdapter(
-        upstream=api.state.upstream,
-        client=api.state.upstream_client,
-        configured_capabilities=resolved_capabilities(settings),
+    api.state.adapter = _transparent_adapter(
+        settings, api.state.upstream, api.state.upstream_client
     )
     # Health and circuit breakers (§10). Process-wide and in memory, for the same
     # reason the decision log is: this is operational state about *now*, and a
@@ -281,6 +281,33 @@ def _translating_adapters(
             configured_capabilities=resolved_capabilities(settings),
         )
     return adapters
+
+
+def _transparent_adapter(
+    settings: Settings, upstream: Upstream, client: httpx.AsyncClient
+) -> GenericOpenAiAdapter:
+    """The adapter that discovers the single transparent upstream (M8).
+
+    All three speak the OpenAI protocol, so this changes what RAVIS can *learn*
+    about the upstream, never how it reaches it — the forwarding path in §6 is
+    identical whichever comes back.
+
+    An unrecognised `upstream_kind` yields the generic adapter rather than an
+    error. A typo should cost the vendor metadata it would have read, which
+    shows up as capabilities staying UNKNOWN and pools failing closed, rather
+    than costing the ability to serve anything at all.
+    """
+    kinds: dict[str, type[GenericOpenAiAdapter]] = {
+        "lmstudio": LmStudioAdapter,
+        "ollama": OllamaAdapter,
+        "generic": GenericOpenAiAdapter,
+    }
+    adapter = kinds.get(settings.upstream_kind.strip().lower(), GenericOpenAiAdapter)
+    return adapter(
+        upstream=upstream,
+        client=client,
+        configured_capabilities=resolved_capabilities(settings),
+    )
 
 
 async def _refresh_evidence(api: FastAPI) -> None:

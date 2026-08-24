@@ -1,0 +1,195 @@
+"""The adapter for an LM Studio upstream.
+
+LM Studio speaks the OpenAI chat-completions protocol, so everything about
+*reaching* it is the generic adapter's job and this subclasses it rather than
+restating it. What is new is that LM Studio will answer questions about its
+models: `/api/v0/models` reports a capability list, a context length and a type,
+where `/v1/models` reports an identifier and nothing else.
+
+That turns most of `GenericOpenAiAdapter`'s honest `UNKNOWN`s into ADVERTISED
+claims, which is the whole point of a vendor adapter — and it is also why the
+provenance ordering matters more here than anywhere else so far. Measured
+against this machine's own corpus, LM Studio advertises `tool_use` for **both**
+packagings of granite-4.0-h-tiny, while SIRVIS measured the GGUF build passing
+24 of 24 tool trials and the MLX build passing 3. The catalogue is wrong about
+one of them.
+
+So nothing here is recorded above `ADVERTISED`, and SIRVIS's `MEASURED` evidence
+outranks all of it (§9.5). An advertisement is a starting point, not a verdict.
+
+The residency probe for the same endpoint lives in `runtime/lmstudio.py` and
+stays there: it answers "what is loaded right now", which is a fact about the
+runtime rather than about a model, and M14 consumes it on a different path.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+from ravis.core.capabilities import (
+    Capability,
+    CapabilityClaim,
+    CapabilityState,
+    ModelCapabilities,
+    Provenance,
+    apply_configured,
+)
+from ravis.providers.generic_openai import PROTOCOL_DEFAULTS, GenericOpenAiAdapter
+from ravis.runtime.lmstudio import RESIDENCY_PATH
+
+# LM Studio's token for tool support inside its `capabilities` array.
+TOOL_USE = "tool_use"
+
+# LM Studio's `type` field. It distinguishes a vision model from a text-only one
+# and an embedding model from either, which is authoritative enough to claim on:
+# the runtime that loads the weights is the thing that knows what they are.
+TYPE_VISION = "vlm"
+TYPE_EMBEDDINGS = "embeddings"
+
+_ADVERTISED = "advertised by LM Studio at /api/v0/models"
+
+
+class LmStudioAdapter(GenericOpenAiAdapter):
+    """Discovery for an LM Studio upstream.
+
+    Inherits `health`, `models`, `estimate_cost` and header handling unchanged —
+    LM Studio answers `/v1/models` like any OpenAI-compatible endpoint, and a
+    second implementation of those would be three more places to drift.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("name", "lmstudio")
+        super().__init__(*args, **kwargs)
+
+    async def capabilities(self, model: str) -> ModelCapabilities:
+        """Protocol defaults, then LM Studio's own metadata, then configuration.
+
+        Strictly in that order, and each layer only wins where it outranks what
+        is already held. An upstream that turns out not to be LM Studio after all
+        degrades to exactly the generic adapter's answers rather than failing.
+        """
+        known = ModelCapabilities(model_id=model)
+        for capability, state in PROTOCOL_DEFAULTS.items():
+            known.record(
+                CapabilityClaim(
+                    capability=capability,
+                    state=state,
+                    provenance=Provenance.DEFAULT,
+                    detail="implied by the OpenAI chat-completions protocol",
+                )
+            )
+        entry = await self._describe(model)
+        if entry is not None:
+            _absorb(known, entry)
+        apply_configured(known, self._configured.get(model, {}))
+        return known
+
+    async def _describe(self, model: str) -> dict[str, Any] | None:
+        """LM Studio's entry for one model, or `None` if it cannot be had.
+
+        Every failure returns `None` rather than raising. An upstream that is not
+        LM Studio 404s here, and that is an ordinary configuration rather than a
+        fault — the caller then gets the generic adapter's honest ignorance,
+        which is the correct answer for an endpoint that never claimed to be
+        anything more.
+
+        Deliberately not cached. Residency is in this payload and changes as
+        models load, and a stale capability answer is a harder bug to find than
+        a repeated local GET is to pay for. Cache it when a profile says to.
+        """
+        if not self._upstream.is_configured:
+            return None
+        try:
+            response = await self._client.get(
+                self._upstream.url_for(RESIDENCY_PATH), headers=self._headers()
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        entries = payload.get("data", []) if isinstance(payload, dict) else []
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("id") == model:
+                return entry
+        return None
+
+
+def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
+    """Record what LM Studio says about one model, at ADVERTISED provenance."""
+    _absorb_tools(known, entry)
+    _absorb_modality(known, entry)
+    context = entry.get("max_context_length")
+    if isinstance(context, int) and context > 0:
+        known.context_window = context
+
+
+def _absorb_tools(known: ModelCapabilities, entry: dict[str, Any]) -> None:
+    """Tool support — but only ever as a *positive* claim.
+
+    A missing `capabilities` array means LM Studio did not say, not that the
+    answer is no: on this machine it is absent for 8 of 20 installed models and
+    present for the rest. Recording UNSUPPORTED from silence would assert a fact
+    nobody stated, so silence is left to read as UNKNOWN, which §9.1 already
+    fails closed against a pool that requires tools.
+
+    An empty array is treated the same way rather than as a denial. The two are
+    indistinguishable from here — a field defaulted to empty and a field that was
+    populated with nothing look identical — and inventing a denial from an
+    ambiguity is the mistake this whole module is careful about.
+    """
+    advertised = entry.get("capabilities")
+    if not isinstance(advertised, list) or TOOL_USE not in advertised:
+        return
+    known.record(
+        CapabilityClaim(
+            capability=Capability.TOOLS,
+            state=CapabilityState.SUPPORTED,
+            provenance=Provenance.ADVERTISED,
+            detail=_ADVERTISED,
+        )
+    )
+
+
+def _absorb_modality(known: ModelCapabilities, entry: dict[str, Any]) -> None:
+    """What kind of model this is, from LM Studio's `type`.
+
+    Unlike the capability array, `type` is always present and is a closed choice
+    rather than an optional annotation, so both directions can be claimed from
+    it. Claiming UNSUPPORTED here fails *closed* — the worst case is a pool that
+    reports itself unavailable, not a request routed to a model that cannot serve
+    it — and any of it is overridden by measurement or by an operator.
+    """
+    kind = str(entry.get("type", ""))
+    if not kind:
+        return
+    vision = CapabilityState.SUPPORTED if kind == TYPE_VISION else CapabilityState.UNSUPPORTED
+    known.record(
+        CapabilityClaim(
+            capability=Capability.VISION,
+            state=vision,
+            provenance=Provenance.ADVERTISED,
+            detail=f"{_ADVERTISED}: type={kind}",
+        )
+    )
+    embeddings = kind == TYPE_EMBEDDINGS
+    known.record(
+        CapabilityClaim(
+            capability=Capability.EMBEDDINGS,
+            state=CapabilityState.SUPPORTED if embeddings else CapabilityState.UNSUPPORTED,
+            provenance=Provenance.ADVERTISED,
+            detail=f"{_ADVERTISED}: type={kind}",
+        )
+    )
+    # An embedding model is not a chat model. Said explicitly because the
+    # protocol default above already recorded TEXT as supported, and leaving that
+    # standing would put an embedding endpoint in a text pool.
+    known.record(
+        CapabilityClaim(
+            capability=Capability.TEXT,
+            state=CapabilityState.UNSUPPORTED if embeddings else CapabilityState.SUPPORTED,
+            provenance=Provenance.ADVERTISED,
+            detail=f"{_ADVERTISED}: type={kind}",
+        )
+    )
