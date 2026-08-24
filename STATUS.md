@@ -2773,7 +2773,54 @@ holders instead of acting on them.
 **Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()`
 remains one of the invented twenty-four; running a benchmark is CLI-only.
 
-## The token card said how, and said it wrong
+## Getting a runtime token, without a terminal
+
+The screen used to say *"Mint one with `sirvis tokens --mint runtime`"*. There
+is no `tokens` subcommand and the scopes do not go there — anyone following it
+got an error, and it had been there since M4. That is what an instruction nobody
+exercises becomes.
+
+Fixing the sentence was not the fix. **Getting a token meant opening a terminal,
+changing directory, running a CLI, copying 43 characters and pasting them into a
+field** — in an application whose entire premise is double-clicking one file.
+
+**The launcher now does it.** A `read runtime` token is minted on first start,
+cached at mode `0600` beside the logs, reused on later starts, and handed to the
+page in the URL **fragment**. Nothing is typed and no token is ever shown.
+
+**Why the fragment rather than a query string.** Everything after `#` is never
+sent to a server — not to the file server that serves the dashboard, not in a
+`Referer`, not into an access log. The page reads it before the first render,
+keeps it in memory for that tab only, and erases it with `replaceState`, so a
+reload, a bookmark or a shared URL does not carry it. Verified: after the
+handoff the address bar reads `…/index.html?v=…` with nothing after it, and the
+Load button is armed with no manual step.
+
+This changes who mints the credential, not what it protects against. It is a
+loopback-only, runtime-scoped token for a service the person double-clicking the
+launcher already controls, and §4.5's reason for requiring it is untouched:
+
+* Loading a model spends gigabytes and can **evict a model another client is
+  holding** — demonstrated, with two owners on one build and a reference count
+  of 2.
+* Loopback keeps the LAN out and does nothing about another process on the same
+  machine, which is why a scope is required *even on loopback*.
+* The origin check does not replace it. A browser attaches credentials
+  automatically, so origin alone cannot tell a click from a page the user
+  happened to visit — §4.5 requires both.
+* Reads stay open deliberately: Clarvis probes `/v1/models` with a two-second
+  timeout and reads any 401 as *provider offline*.
+
+The manual command survives as the documented fallback, now correct and with the
+directory it must run from — the CLI's database path is relative, so minting
+from the wrong one writes to a different database and yields a token that
+authenticates against nothing.
+
+**One incidental fix.** The launcher opens the dashboard with `?v=<mtime>`. A
+cached `index.html` had been served after an edit while this very handoff was
+being written — new code served, old code running — and cost a debugging detour.
+
+## Superseded: the token card said how, and said it wrong
 
 Asked how to get a runtime token, and the answer turned out to be that the
 screen already told you — incorrectly. It read *"Mint one with `sirvis tokens

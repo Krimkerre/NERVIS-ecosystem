@@ -2301,6 +2301,21 @@ async function mikuMode(btn){
    persisted a runtime-scoped credential would be a worse place to keep it than
    the store it came from. */
 let RUNTIME_TOKEN='';
+/* The launcher hands the dashboard its runtime token in the URL fragment, so
+   nobody has to open a terminal, run a CLI and paste 43 characters into a field
+   — a manual step that had wrong instructions printed next to it for months.
+
+   The fragment is used rather than a query string because everything after `#`
+   is never sent to a server: not to the file server that served this page, not
+   in a Referer, not into any access log. It is read here, kept in memory for
+   this tab only, and erased from the address bar with replaceState before the
+   first render — so a reload, a bookmark or a shared URL does not carry it. */
+(function(){
+ const m=/[#&]token=([^&]+)/.exec(location.hash||'');
+ if(!m)return;
+ RUNTIME_TOKEN=decodeURIComponent(m[1]);
+ history.replaceState(null,'',location.pathname+location.search);
+})();
 
 async function sirvisRuntime(){
  heading('Runtime','What is resident, who holds it, and when their claim lapses.',
@@ -2354,10 +2369,11 @@ async function sirvisRuntime(){
    <input id="rtToken" type="password" placeholder="paste a runtime-scoped token" style="width:100%;margin-top:8px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit">
    <button class="btn" style="margin-top:8px" onclick="RUNTIME.setToken()">${RUNTIME_TOKEN?'Replace':'Use'} token</button>
    <div style="margin-top:10px;padding:8px 10px;border:1px dashed #1e3a44;border-radius:3px">
-    <div class="mono dim" style="font-size:9px;letter-spacing:.1em;margin-bottom:5px">WHY, AND HOW TO MINT ONE</div>
+    <div class="mono dim" style="font-size:9px;letter-spacing:.1em;margin-bottom:5px">WHERE THIS COMES FROM</div>
+    <small class="mono dim" style="display:block;margin-bottom:7px">${RUNTIME_TOKEN?'<b>The start launcher already handed this tab a token.</b> Nothing to do — it was minted on first start, kept at mode 0600 beside the logs, and passed in the URL fragment, which is never sent to any server and is erased from the address bar before the first render.':'<b>No token in this tab.</b> Opening the dashboard through the start launcher supplies one automatically. The command below is the fallback if you opened this page some other way.'}</small>
     <small class="mono dim" style="display:block;margin-bottom:7px">loading a model spends gigabytes and can <b>evict a model another client is holding</b> — §4.5 requires a scope on every mutation even on loopback, because loopback is not a boundary against another local process. Reads need no token, deliberately: Clarvis probes <b>/v1/models</b> with a 2 s timeout and reads any 401 as <b>provider offline</b>. The origin check is separate and does not replace this — a browser sends your credentials automatically, so it cannot tell your click from a page you happened to visit.</small>
     <code class="mono" style="display:block;font-size:10px;color:#9fd8e8;word-break:break-all">cd sirvis &amp;&amp; ../ravis/.venv/bin/sirvis token --mint dashboard --scopes "read runtime"</code>
-    <small class="mono dim" style="display:block;margin-top:6px">printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
+    <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
    </div>
    <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`,'sirvis')}</div>
   ${foreign.length?`<div class="card wide"><h3>Foreign instances</h3>${cell(`

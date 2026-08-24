@@ -176,6 +176,78 @@ def _with_results(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def dashboard_token() -> str:
+    """A runtime-scoped token for the dashboard, minted once and kept.
+
+    **Why this exists.** §4.5 requires a scope on every mutating endpoint, so
+    without a token the dashboard can look but not load a model. Getting one was
+    a terminal exercise: change directory, run a CLI, copy 43 characters, paste
+    them into a field. That is not a one-click application, and the screen's own
+    instructions for doing it were wrong for months — which is what a manual
+    step nobody exercises tends to become.
+
+    So the launcher does it. The token is minted on first start and cached at
+    mode `0600` beside the logs, then handed to the page in the URL *fragment*.
+
+    **Why the fragment.** Everything after `#` is never sent to a server — not
+    to the static file server, not in a `Referer`, not into an access log. The
+    page reads it, keeps it in memory, and erases it from the address bar before
+    anything else runs. A query string would have been in the server log the
+    moment the page loaded.
+
+    This is a local, loopback-only, runtime-scoped credential for a service the
+    person running this launcher already controls. It is not a password, and the
+    threat it answers — another process on the machine calling a mutating
+    endpoint — is unchanged by the launcher being the one to mint it.
+    """
+    cached = RUN / "dashboard.token"
+    try:
+        existing = cached.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    env = dict(os.environ)
+    env["SIRVIS_DATABASE_PATH"] = str(ROOT / "sirvis" / "sirvis.db")
+    try:
+        minted = subprocess.run(
+            [str(venv_bin("sirvis")), "token", "--mint", "nervis-dashboard",
+             "--scopes", "read runtime"],
+            cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if minted.returncode != 0:
+        return ""
+    # The token is the last non-empty line; everything above it is the label,
+    # the scopes and the warning that it is printed once.
+    lines = [line.strip() for line in minted.stdout.splitlines() if line.strip()]
+    token = lines[-1] if lines else ""
+    if not token or " " in token:
+        return ""
+    RUN.mkdir(parents=True, exist_ok=True)
+    handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(token + "\n")
+    return token
+
+
+def dashboard_url() -> str:
+    """The dashboard address, with the token and a cache key.
+
+    The `v=` is the dashboard file's own modification time. A browser that has
+    the page cached will otherwise happily keep serving it after an edit, which
+    is not a theoretical concern — it cost a debugging detour while this handoff
+    was being written, with the new code served and the old code running.
+    """
+    token = dashboard_token()
+    try:
+        version = int((ROOT / "nervis" / "index.html").stat().st_mtime)
+    except OSError:
+        version = 0
+    return f"{DASHBOARD}?v={version}" + (f"#token={token}" if token else "")
+
+
 def _spawn_detached(command: list[str], env: dict[str, str], log: Path) -> int:
     """Start one service so that it outlives this process and its terminal."""
     RUN.mkdir(parents=True, exist_ok=True)
@@ -235,7 +307,7 @@ def start() -> int:
     if all(running.values()):
         print("Already running.")
         print(f"Dashboard: {DASHBOARD}")
-        webbrowser.open(DASHBOARD)
+        webbrowser.open(dashboard_url())
         return 0
 
     print("Starting (detached — closing this window will not stop them)…")
@@ -271,7 +343,9 @@ def start() -> int:
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
     if ready:
-        webbrowser.open(DASHBOARD)
+        # The fragment is never sent to a server. The page consumes it and
+        # clears the address bar immediately.
+        webbrowser.open(dashboard_url())
     return 0 if ready else 1
 
 
