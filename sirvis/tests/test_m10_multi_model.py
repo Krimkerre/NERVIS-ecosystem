@@ -33,7 +33,7 @@ from sirvis.core.runtime_sets import RuntimeSet, RuntimeSetMember
 from sirvis.resources import ResourceExhaustedError, ResourceManager
 from sirvis.runtimes.base import GenerationChunk, LoadedModel
 from sirvis.storage import RunState, prepare_database, read_run
-from sirvis.telemetry import MemoryProbe, SystemSnapshot
+from sirvis.telemetry import MemoryProbe, MemorySample, SystemSnapshot
 
 CHAT = "chat-model"
 AGENT = "agent-model"
@@ -125,6 +125,33 @@ def a_snapshot() -> SystemSnapshot:
     )
 
 
+class FakeProbe(MemoryProbe):
+    """A probe with numbers of its own, so the memory rows do not depend on the
+    host running the suite.
+
+    Exactly the reasoning `run` already applies to thermal one line below, and
+    not applying it here cost six red CI runs: §11.8's rows are about *whether a
+    reading was taken at each labelled point*, and a real reader gives whatever
+    the machine happens to have. GitHub's runners have no swap, so the real
+    probe reported `swap_used_bytes` as null there — correct behaviour, since
+    absence means "could not tell" — and the assertion that the alone condition
+    carries a swap figure failed on CI while passing on a developer's Mac.
+
+    `include_swap` is still honoured rather than always answering. The in-flight
+    poll passes False to skip a subprocess, and a fake that answered anyway
+    would hide a caller that had stopped asking at the labelled points.
+    """
+
+    def sample(self, point: str, include_swap: bool = True) -> MemorySample:
+        return MemorySample(
+            point=point,
+            captured_at=0.0,
+            available_bytes=8_000_000_000,
+            total_bytes=64_000_000_000,
+            swap_used_bytes=1_000_000 if include_swap else None,
+        )
+
+
 def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any,
         thermal: Any = None) -> Any:
     database = prepare_database(":memory:")
@@ -134,7 +161,7 @@ def run(spec: MultiModelSpec, runtime: FakeRuntime, tmp_path: Any,
         resources=ResourceManager(runtime),  # type: ignore[arg-type]
         database=database,
         results_root=str(tmp_path),
-        probe=MemoryProbe(),
+        probe=FakeProbe(),
         snapshot=a_snapshot(),
         # Driven rather than read: §11.8's flag is about the state *changing*
         # between conditions, and a real reader on a test machine gives whatever
