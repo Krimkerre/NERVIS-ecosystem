@@ -44,6 +44,38 @@ the template reads them from one directory up.
 | **[RAVIS.md](./RAVIS.md)** | Full RAVIS build plan and contracts — the two execution paths, the Clarvis Compatibility Contract, routing pipeline, sessions, cost, management API, 25 milestones. | You are building RAVIS, or debugging why a stream broke. |
 | **[NERVIS.md](./NERVIS.md)** | Full NERVIS build plan and contracts — registry and capability negotiation, dashboard, general chat, event hub, tracing, diagnostics, supervision, the Code tab, 20 milestones. | You are building NERVIS, or deciding what a control plane is allowed to do. |
 
+## Running it
+
+One file per platform, next to this README. Double-click on macOS or Windows, or
+run it from a shell:
+
+| | Start | Stop |
+|---|---|---|
+| macOS | `start-macos.command` | `stop-macos.command` |
+| Linux | `./start-linux.sh` | `./stop-linux.sh` |
+| Windows | `start-windows.bat` | `stop-windows.bat` |
+
+It brings up SIRVIS on 8721, RAVIS on 8731 and the NERVIS dashboard on 8790,
+then opens the dashboard. First run creates the virtual environment and installs
+the three packages, which takes a minute; later runs skip straight past that.
+
+**The services are detached.** They keep running when the window closes — which
+is the point, and is also why there is a stop launcher rather than a Ctrl-C. All
+six launchers are three lines calling `tools/run.py`, which also takes
+`status`:
+
+```bash
+python3 tools/run.py status
+```
+
+**It does not start LM Studio, Ollama or Clarvis.** Those are separate
+applications with their own lifecycles, and §9 puts model loading behind
+SIRVIS's Resource Manager rather than a launcher. Their state is reported
+instead, because "nothing is routing" and "no runtime is running" look identical
+from the dashboard and have very different fixes.
+
+Logs are in `.run/`, one file per service.
+
 ## How these relate to the products
 
 Two repositories, not four — see `ECOSYSTEM_RUNBOOK.md` §3 for why. **Clarvis is separate**

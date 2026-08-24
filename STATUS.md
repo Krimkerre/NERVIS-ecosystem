@@ -2646,6 +2646,49 @@ is prose; whoever compares two evidence IDs never reads it.
 
 ---
 
+## Starting the thing
+
+Six launchers — start and stop, for macOS, Linux and Windows — each three lines
+calling `tools/run.py`. One file behind six doors, so the sequence cannot drift
+between platforms.
+
+**Detached, which was the requirement.** The services are spawned into their own
+session with `start_new_session` (POSIX) or `DETACHED_PROCESS` (Windows) and
+their stdio redirected to `.run/*.log`, so closing the terminal does not take
+them with it. Verified: after the launcher exits the three processes show
+**ppid 1** and **no controlling terminal**, so a window close sends them no
+SIGHUP.
+
+That has a consequence the design has to answer for rather than ignore: nothing
+stops them when the window closes, so there is a `stop` launcher and a PID file.
+
+**The PID file is not trusted on its own.** Each record stores a marker — a
+distinctive fragment of the command line — and `stop` confirms the recorded PID
+still belongs to that command before signalling it. PIDs are reused, and a file
+on disk claiming a number was ours is not a reason to kill whatever holds it
+now. Tested directly: a recycled PID pointing at an unrelated process is
+reported "was not running" and left alone.
+
+**`start` consults health, not the PID file**, when deciding what to launch.
+A PID file says what was started; a health check says what is serving, and when
+they disagree the health check is right.
+
+**Ports are not a choice made in the launcher.** 8721 and 8731 are the services'
+own defaults *and* the addresses hard-coded in `nervis/index.html`; picking
+others would produce a dashboard reporting everything offline. Each service is
+started with the dashboard's origin allow-listed and nothing else, because both
+default to an empty list and the screens would otherwise silently show nothing.
+
+**It starts nothing it does not own.** LM Studio, Ollama and Clarvis are
+reported, never launched — §9 puts model loading behind SIRVIS's Resource
+Manager, and "nothing is routing" and "no runtime is running" are the same
+symptom with different fixes.
+
+**No automated tests.** The launcher spawns detached processes and signals them;
+the verification was done live and is described above — start, status,
+idempotent re-start, stop, no strays, and the PID-reuse guard. Recorded as a gap
+rather than implied to be covered.
+
 ## Map of the repository
 
 ```text

@@ -24,3 +24,4 @@ sirvis.db
 sirvis.db-wal
 sirvis.db-shm
 sirvis/results/
+.run/
