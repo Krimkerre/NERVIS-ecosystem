@@ -103,7 +103,9 @@ into the order work actually happens.
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 
-**Stages 0, 1, 2 and 3 are complete. Stage 4 is nearly done** — its benchmark, Runtime Set and RAVIS-facing halves have all landed, and what remains is the *Clarvis-specific* half: M12, M13 and M15.
+**Stages 0, 1, 2 and 3 are complete. Stage 4 needs one milestone — SIRVIS M15**, the recommendation engine. Everything else in it has landed: the benchmark engine, Runtime Sets, the RAVIS-facing evidence API, and the Clarvis role suites.
+
+**Stage 5 has started out of order, and by now substantially.** M3b, M4 and RAVIS M13 all belong to it and are all done — the last of them met Stage 5's own exit criterion, a SIRVIS result changing a RAVIS preference, before Stage 4 finished. That is not drift: each was unblocked early and the reason is recorded under *Reorderings made during the build*.
 
 ### The protocol package, extracted when the second consumer arrived
 
@@ -1378,20 +1380,25 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 27 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece: role profiles, fit, single-model *and Runtime Set* recommendation, evidence levels. M9 and M10 gave it pair evidence to recommend from, and §10.1 is why it could not have been built before them |
+| 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece: role profiles, fit, single-model *and Runtime Set* recommendation, evidence levels. M9 and M10 gave it pair evidence to recommend from, and §10.1 is why it could not have been built before them |
 
 ### After that
 
-Stage 5 is the rest of RAVIS intelligence: **M7** (Google, OpenRouter), **M8**
-(LM Studio, Ollama, generic adapters), **M13** (SIRVIS evidence), the rest of
-**M14**, **M16** (policy). Stage 6 is NERVIS core — **M11** + **M15**.
+What is left of Stage 5 is RAVIS's remaining intelligence: **M7** (Google,
+OpenRouter), **M8** (LM Studio, Ollama, generic adapters), the rest of **M14**,
+and **M16** (policy). Stage 6 is NERVIS core — **M11** + **M15**.
 
-**M3b and M4 are done, out of stage order.** Both belong to Stage 5 and both
-were held back because §20.2 says translation comes only after the transparent
-Clarvis slice works — the transparent path was the control, and its correctness
-was proven by nothing but fixtures. M9 ended that, so the translated path was
-built and then given a real provider to drive it. The rest of Stage 5 is still
-where the table above puts it.
+**M3b, M4 and M13 are done, out of stage order**, and all three for the same
+reason: §20.2 holds translation back until the transparent Clarvis slice works,
+and that slice was the control whose correctness rested on nothing but fixtures.
+M9 ended that. So the translated path was built, given a real provider to drive
+it, and then — once SIRVIS could measure a Clarvis role — handed real evidence
+to route on.
+
+**M8 is the one to watch in what remains.** Every measurement in the corpus came
+through LM Studio, and RAVIS reaches exactly one upstream today. Until M8 lands,
+`ravis/clarvis-agent` has one eligible member because one runtime has been
+looked at — not because one build passed.
 
 ---
 
@@ -1416,6 +1423,17 @@ because a fresh reader will otherwise find only the result and wonder.
 - **A slice of M8 pulled forward** — the LM Studio residency probe only, kept in
   `runtime/` rather than `providers/` so it is not mistaken for the adapter. M14
   is inert without a runtime that reports residency.
+- **RAVIS M13 pulled ahead of the rest of Stage 5**, and it is the reordering
+  with the strongest case: SIRVIS M13 had just produced the first
+  tool-capability claim in this ecosystem that came from attempts rather than a
+  catalogue, and nothing carried it across. Leaving it would have meant two
+  services passing their own suites and no evidence that the contract between
+  them worked — while `ravis/clarvis-agent` stayed unroutable for want of a
+  claim that already existed. Building it immediately also meant the integration
+  was exercised against evidence measured hours earlier rather than against a
+  fixture written to match the consumer, which is how the two gaps it found —
+  M16's missing runtime-key mapping and SIRVIS's stale capability declarations —
+  were found at all.
 
 ---
 
