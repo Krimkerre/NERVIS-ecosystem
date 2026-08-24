@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 763 tests, no network, no live service
+.venv/bin/pytest                      # part of 770 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 763 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 770 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1660,6 +1660,26 @@ embedding endpoint would sit in a text pool waiting to be handed a chat request.
 
 `/api/show` reads the manifest and loads nothing — `ollama ps` stayed empty
 throughout, so none of this cost a model load.
+
+**A defect the first half introduced, and the comment that predicted it.**
+`chat.py` assembles capabilities per request, and said so with a warning: it was
+cheap because the generic adapter answers without I/O, and *"the moment an
+adapter needs a network call to answer, this is the line that has to change"*.
+Both vendor adapters need one. `candidates_with_evidence` asks per model, so a
+single chat completion against LM Studio cost one GET per installed build — 20
+of them here, sequentially — and configuring a second upstream would have
+doubled it.
+
+Both adapters now cache: LM Studio the whole catalogue, Ollama per model,
+because `/api/show` is a POST taking one model and cannot be batched. Sixty
+seconds, on the grounds that what is read describes a *build* and does not
+change while it sits on disk. Residency does change and is deliberately not
+served from this cache — `runtime/lmstudio.py` still reads the endpoint itself.
+
+**A failed read is not cached**, and that is the part worth keeping. Every model
+looks capability-less while the catalogue is unreadable, and capability-less
+fails closed under §9.1 — so holding a transient outage for the whole window
+would empty every pool for a minute instead of for a request.
 
 **What is not done.** `upstream_kind` selects *which* adapter discovers *the*
 transparent upstream — singular. `upstream_base_url` is still one URL, so RAVIS

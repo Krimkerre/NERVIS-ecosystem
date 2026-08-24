@@ -165,3 +165,74 @@ async def test_an_operator_override_outranks_the_catalogue() -> None:
 
     assert known.state_of(Capability.TOOLS) is CapabilityState.UNSUPPORTED
     assert known.claims[Capability.TOOLS].provenance is Provenance.CONFIGURED
+
+
+# ── The per-model detail cache ───────────────────────────────────────────────
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _counting_adapter(clock: _Clock, *, fail: bool = False) -> tuple[OllamaAdapter, list[int]]:
+    calls = [0]
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/show":
+            calls[0] += 1
+            if fail:
+                raise httpx.ConnectError("upstream is down")
+            return httpx.Response(200, json=LLAMA_DETAIL)
+        return httpx.Response(200, json={"object": "list", "data": []})
+
+    adapter = OllamaAdapter(
+        upstream=Upstream(base_url="http://ollama.invalid", api_key=""),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        clock=clock,
+    )
+    return adapter, calls
+
+
+async def test_a_models_detail_is_asked_for_once() -> None:
+    """`/api/show` takes one model, so the cache is per model rather than a list."""
+    adapter, calls = _counting_adapter(_Clock())
+
+    for _ in range(3):
+        await adapter.capabilities("llama3.2:3b")
+
+    assert calls[0] == 1
+
+
+async def test_each_model_is_cached_separately() -> None:
+    adapter, calls = _counting_adapter(_Clock())
+
+    await adapter.capabilities("llama3.2:3b")
+    await adapter.capabilities("all-minilm:latest")
+
+    assert calls[0] == 2
+
+
+async def test_the_detail_is_re_read_once_the_window_passes() -> None:
+    clock = _Clock()
+    adapter, calls = _counting_adapter(clock)
+
+    await adapter.capabilities("llama3.2:3b")
+    clock.now += 61.0
+    await adapter.capabilities("llama3.2:3b")
+
+    assert calls[0] == 2
+
+
+async def test_a_failed_read_is_not_cached() -> None:
+    """Same reasoning as the LM Studio catalogue: a held failure empties pools."""
+    adapter, calls = _counting_adapter(_Clock(), fail=True)
+
+    known = await adapter.capabilities("llama3.2:3b")
+    await adapter.capabilities("llama3.2:3b")
+
+    assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
+    assert calls[0] == 2

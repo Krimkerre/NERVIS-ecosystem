@@ -29,6 +29,7 @@ loses a candidate that would have served it.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -62,13 +63,29 @@ _CAPABILITY_MAP = {
 
 _ADVERTISED = "advertised by Ollama at /api/show"
 
+# How long one model's detail answers for. The routing path asks every candidate
+# for its capabilities on every request, and `/api/show` is a POST taking one
+# model — so without this a chat completion costs one round trip per installed
+# model. What is read here describes a *tag*, which does not change while it
+# sits in the store.
+DETAIL_TTL_SECONDS = 60.0
+
 
 class OllamaAdapter(GenericOpenAiAdapter):
     """Discovery for an Ollama upstream."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        detail_ttl_seconds: float = DETAIL_TTL_SECONDS,
+        clock: Any = time.monotonic,
+        **kwargs: Any,
+    ) -> None:
         kwargs.setdefault("name", "ollama")
         super().__init__(*args, **kwargs)
+        self._ttl = detail_ttl_seconds
+        self._clock = clock
+        self._details: dict[str, tuple[float, dict[str, Any]]] = {}
 
     async def capabilities(self, model: str) -> ModelCapabilities:
         """Protocol defaults, then Ollama's own metadata, then configuration."""
@@ -94,7 +111,16 @@ class OllamaAdapter(GenericOpenAiAdapter):
         As with LM Studio, every failure is `None` rather than an exception: an
         upstream that is not Ollama 404s here, and the caller then gets the
         generic adapter's honest ignorance.
+
+        Failures are not cached, for the same reason they are not there. A
+        cached failure would hold a transient outage against the upstream for
+        the whole window, and capability-less fails closed — so a blip would
+        empty the pools for a minute rather than for a request.
         """
+        now = self._clock()
+        cached = self._details.get(model)
+        if cached is not None and now - cached[0] < self._ttl:
+            return cached[1]
         if not self._upstream.is_configured:
             return None
         try:
@@ -107,7 +133,10 @@ class OllamaAdapter(GenericOpenAiAdapter):
             payload = response.json()
         except (httpx.HTTPError, ValueError):
             return None
-        return payload if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            return None
+        self._details[model] = (now, payload)
+        return payload
 
 
 def _absorb(known: ModelCapabilities, detail: dict[str, Any]) -> None:

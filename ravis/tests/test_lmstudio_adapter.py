@@ -193,3 +193,79 @@ def test_measured_evidence_overturns_the_catalogue_for_the_mlx_build() -> None:
     assert admitted[GGUF].satisfies(Capability.TOOLS)
     assert not admitted[MLX].satisfies(Capability.TOOLS)
     assert admitted[MLX].claims[Capability.TOOLS].provenance is Provenance.MEASURED
+
+
+# ── 5. The catalogue is read once, not once per model ────────────────────────
+
+
+class _Clock:
+    """A hand-wound clock, so a TTL can be crossed without waiting for it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _counting_adapter(clock: _Clock, *, fail: bool = False) -> tuple[LmStudioAdapter, list[int]]:
+    calls = [0]
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v0/models":
+            calls[0] += 1
+            if fail:
+                raise httpx.ConnectError("upstream is down")
+            return httpx.Response(200, json={"object": "list", "data": [GGUF_ENTRY, MLX_ENTRY]})
+        return httpx.Response(200, json={"object": "list", "data": []})
+
+    adapter = LmStudioAdapter(
+        upstream=Upstream(base_url="http://lmstudio.invalid", api_key=""),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        clock=clock,
+    )
+    return adapter, calls
+
+
+async def test_one_catalogue_read_answers_for_every_model() -> None:
+    """The routing path asks per candidate; without this that is a GET each.
+
+    On this machine that is 20 round trips per chat completion, which is the
+    cost `chat.py` warned about when it said capabilities are assembled per
+    request and that the line would have to change once an adapter needed I/O.
+    """
+    adapter, calls = _counting_adapter(_Clock())
+
+    for _ in range(3):
+        await adapter.capabilities(GGUF)
+        await adapter.capabilities(MLX)
+
+    assert calls[0] == 1
+
+
+async def test_the_catalogue_is_re_read_once_the_window_passes() -> None:
+    """Installing a model should become visible without a restart."""
+    clock = _Clock()
+    adapter, calls = _counting_adapter(clock)
+
+    await adapter.capabilities(GGUF)
+    clock.now += 61.0
+    await adapter.capabilities(GGUF)
+
+    assert calls[0] == 2
+
+
+async def test_a_failed_read_is_not_cached() -> None:
+    """A cached failure would turn a blip into a minute of empty pools.
+
+    Every model looks capability-less while the catalogue is unreadable, and
+    capability-less fails closed under §9.1 — so holding a transient outage for
+    the whole window would take the pools down for far longer than the outage.
+    """
+    adapter, calls = _counting_adapter(_Clock(), fail=True)
+
+    known = await adapter.capabilities(GGUF)
+    await adapter.capabilities(GGUF)
+
+    assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
+    assert calls[0] == 2

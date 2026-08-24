@@ -24,6 +24,7 @@ runtime rather than about a model, and M14 consumes it on a different path.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -50,6 +51,17 @@ TYPE_EMBEDDINGS = "embeddings"
 
 _ADVERTISED = "advertised by LM Studio at /api/v0/models"
 
+# How long one read of the catalogue answers for. The routing path asks for
+# every candidate's capabilities on every request, so without this a single
+# chat completion costs one GET per installed model — 20 of them on the
+# developer's machine. The fields read here are properties of a *build* and do
+# not change while it sits on disk, so a short window costs nothing real.
+#
+# Residency also lives in this payload and does change, which is why the
+# residency probe in `runtime/lmstudio.py` reads the endpoint itself rather than
+# sharing this cache.
+CATALOGUE_TTL_SECONDS = 60.0
+
 
 class LmStudioAdapter(GenericOpenAiAdapter):
     """Discovery for an LM Studio upstream.
@@ -59,9 +71,19 @@ class LmStudioAdapter(GenericOpenAiAdapter):
     second implementation of those would be three more places to drift.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        catalogue_ttl_seconds: float = CATALOGUE_TTL_SECONDS,
+        clock: Any = time.monotonic,
+        **kwargs: Any,
+    ) -> None:
         kwargs.setdefault("name", "lmstudio")
         super().__init__(*args, **kwargs)
+        self._ttl = catalogue_ttl_seconds
+        self._clock = clock
+        self._catalogue: dict[str, dict[str, Any]] = {}
+        self._fetched_at: float | None = None
 
     async def capabilities(self, model: str) -> ModelCapabilities:
         """Protocol defaults, then LM Studio's own metadata, then configuration.
@@ -87,20 +109,29 @@ class LmStudioAdapter(GenericOpenAiAdapter):
         return known
 
     async def _describe(self, model: str) -> dict[str, Any] | None:
-        """LM Studio's entry for one model, or `None` if it cannot be had.
+        """LM Studio's entry for one model, or `None` if it cannot be had."""
+        catalogue = await self._read_catalogue()
+        return catalogue.get(model)
 
-        Every failure returns `None` rather than raising. An upstream that is not
-        LM Studio 404s here, and that is an ordinary configuration rather than a
-        fault — the caller then gets the generic adapter's honest ignorance,
-        which is the correct answer for an endpoint that never claimed to be
-        anything more.
+    async def _read_catalogue(self) -> dict[str, dict[str, Any]]:
+        """Every model LM Studio knows about, keyed by id, cached for `_ttl`.
 
-        Deliberately not cached. Residency is in this payload and changes as
-        models load, and a stale capability answer is a harder bug to find than
-        a repeated local GET is to pay for. Cache it when a profile says to.
+        Every failure yields an empty catalogue rather than raising. An upstream
+        that is not LM Studio 404s here, and that is an ordinary configuration
+        rather than a fault — the caller then gets the generic adapter's honest
+        ignorance, which is the correct answer for an endpoint that never
+        claimed to be anything more.
+
+        A failed read is *not* cached. Caching it would hold a transient outage
+        against the upstream for the whole window, turning a blip into a minute
+        of every model looking capability-less — and capability-less fails
+        closed, so the blip would empty the pools.
         """
+        now = self._clock()
+        if self._fetched_at is not None and now - self._fetched_at < self._ttl:
+            return self._catalogue
         if not self._upstream.is_configured:
-            return None
+            return {}
         try:
             response = await self._client.get(
                 self._upstream.url_for(RESIDENCY_PATH), headers=self._headers()
@@ -108,12 +139,15 @@ class LmStudioAdapter(GenericOpenAiAdapter):
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError):
-            return None
+            return {}
         entries = payload.get("data", []) if isinstance(payload, dict) else []
-        for entry in entries:
-            if isinstance(entry, dict) and entry.get("id") == model:
-                return entry
-        return None
+        self._catalogue = {
+            entry["id"]: entry
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("id")
+        }
+        self._fetched_at = now
+        return self._catalogue
 
 
 def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
