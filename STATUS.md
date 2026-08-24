@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 797 tests, no network, no live service
+.venv/bin/pytest                      # part of 817 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 797 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 817 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -105,7 +105,14 @@ into the order work actually happens.
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
 | 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 
-**Stages 0, 1, 2, 3 and 4 are complete.** Stage 4's last piece was SIRVIS M15; the evidence plane now measures, stores, serves, and recommends.
+**Stages 0, 1, 3 and 4 are complete. Stage 2 is not**, and this file said
+otherwise until 2026-08-24. The stage mapping puts **RAVIS M10** — credentials
+and the provider UI — in Stage 2, *"since an upstream needing a credential
+cannot be reached without it"*, and M10 has never appeared in the Done table.
+The claim was wrong rather than merely stale, and it was found by a question
+about where an operator would type an API key, not by any gate. Stage 4's last
+piece was SIRVIS M15; the evidence plane measures, stores, serves and
+recommends.
 
 **Stage 5 has started out of order, and by now substantially.** M3b, M4 and RAVIS M13 all belong to it and are all done — the last of them met Stage 5's own exit criterion, a SIRVIS result changing a RAVIS preference, before Stage 4 finished. That is not drift: each was unblocked early and the reason is recorded under *Reorderings made during the build*.
 
