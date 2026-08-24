@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 847 tests, no network, no live service
+.venv/bin/pytest                      # part of 862 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 847 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 862 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1638,6 +1638,56 @@ to do with it. The specific refusal now precedes the general one.
 primary adapter, which predates M8: a deployment reaching three upstreams showed
 one row. It now lists every transparent upstream and every translated provider,
 probes their health concurrently, and skips the probe for anything disabled.
+
+### Model filters — 417 models, and the elegant way out
+
+**The number that forced this.** OpenRouter's public catalogue was fetched and
+counted: **417 models**. Without a filter every one lands in `/v1/models`, which
+Clarvis renders as a picker, and every one becomes a routing candidate evaluated
+on each request. A provider that floods the catalogue makes the whole gateway
+worse to use.
+
+**Globs, and deliberately nothing more.** Filtering on capability belongs with
+M16's policy engine and filtering on price needs a cost model, which is M15 —
+inventing one here would be §14's "presenting an estimate as an invoice" in a
+different costume. Patterns solve the actual problem. Measured against the real
+catalogue:
+
+```text
+  no filter                         417 / 417
+  include anthropic/*                28 / 417
+  include anthropic/* + openai/*    121 / 417
+  …minus previews, betas and :free  120 / 417
+  one pinned model id                 1 / 417
+```
+
+**Exclude wins over include**, so `include: openai/*` with `exclude: *-preview*`
+means "all of OpenAI except the previews" — the other precedence would make the
+exclusion unreachable. **An empty include means everything, not nothing**, so an
+exclude-only filter is useful on its own. Matching is case-sensitive: model ids
+are opaque strings in a URL path, where `GPT-4` and `gpt-4` are not
+interchangeable however a human reads them.
+
+**No filter means no filtering.** Not a cap, not a sample, not a truncation with
+a warning — a provider with no filter behaves exactly as it did before this
+existed. Silent truncation would read as "covered everything" while hiding
+models, which is the failure this is meant to prevent rather than commit. The
+preview endpoint reports `matched_total` separately from a capped `sample` for
+the same reason.
+
+**The same rule in three places.** `merged_catalogue`, `merged_candidates` and
+`resolve` apply it identically, so the list a client reads, the candidates the
+router picks from, and the upstream the forwarder targets can never disagree
+about whether a model exists — the same discipline declaration order gets as the
+one collision rule.
+
+**Filtered before capabilities are assembled**, not after: against OpenRouter
+that is the difference between building 417 capability records per routing pass
+and building the handful an operator asked for.
+
+Verified live against LM Studio: a filter took the advertised catalogue from 20
+models to 3, and `/v1/models` agreed. The count in the UI is a link that opens
+the pattern editor for that provider.
 
 **M10 is complete.** Stage 2 is complete with it.
 

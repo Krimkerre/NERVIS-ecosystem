@@ -46,6 +46,7 @@ from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
+from ravis.model_filter import ModelFilters
 from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
@@ -142,6 +143,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # pass rather than cached, so a toggle takes effect on the next request
     # instead of the next restart — the file is small and local.
     api.state.provider_state = ProviderState()
+    # Which of each provider's models are offered (M10). Read per request for
+    # the same reason as the enable toggle: a narrowing that only took effect
+    # after a restart is a narrowing nobody trusts.
+    api.state.model_filters = ModelFilters.default()
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.

@@ -181,10 +181,11 @@ def _destination_for(
     transparents: dict[str, TransparentUpstream] = getattr(
         request.app.state, "transparents", {}
     )
+    filters = _filters(request)
     incoming = dict(request.headers)
 
     def destination(model: str) -> tuple[str, dict[str, str]]:
-        built = resolve(transparents, model) if transparents else None
+        built = resolve(transparents, model, filters) if transparents else None
         upstream = built.upstream if built else fallback
         return (
             upstream.url_for("/v1/chat/completions"),
@@ -442,6 +443,12 @@ def _disabled(request: Request) -> frozenset[str]:
     return frozenset(state.disabled()) if state else frozenset()
 
 
+def _filters(request: Request) -> dict[str, Any] | None:
+    """Each provider's model filter, or None when nothing is configured."""
+    filters = getattr(request.app.state, "model_filters", None)
+    return filters.all() if filters else None
+
+
 async def _route(request: Request, payload: dict[str, Any], body: bytes) -> RouteDecision:
     """Resolve what the client addressed into a model to call (§9).
 
@@ -462,7 +469,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # model on LM Studio gets LM Studio's catalogue read for it instead of
     # whichever adapter happened to be primary.
     if transparents:
-        candidates = await merged_candidates(transparents, evidence, _disabled(request))
+        candidates = await merged_candidates(
+            transparents, evidence, _disabled(request), _filters(request)
+        )
         residency = merged_residency(transparents)
     else:
         adapter: ProviderAdapter = request.app.state.adapter

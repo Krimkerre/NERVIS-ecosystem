@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ravis.credentials import CredentialStore
+from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
 
 router = APIRouter(prefix="/api/v1/providers", tags=["management"])
@@ -40,6 +41,19 @@ router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 # screen can show a row for a provider that has *no* credential yet — which is
 # the only row that matters when someone is trying to add one.
 KNOWN_PROVIDERS = ("anthropic", "google", "openrouter")
+
+# How many matched ids a filter preview returns. The screen needs enough to see
+# that a pattern did what was meant, not the whole of a 417-model catalogue —
+# and `matched_total` is reported separately so this cap is never mistaken for
+# the answer.
+SAMPLE_LIMIT = 50
+
+
+class FilterInput(BaseModel):
+    """Include and exclude patterns for one provider's catalogue."""
+
+    include: list[str] = []
+    exclude: list[str] = []
 
 
 class EnabledInput(BaseModel):
@@ -157,3 +171,67 @@ async def set_enabled(name: str, body: EnabledInput, request: Request) -> Any:
         return _refused(refusal)
     state: ProviderState = request.app.state.provider_state
     return {"name": name, "enabled": state.set_enabled(name, body.enabled)}
+
+
+async def _catalogue(request: Request, name: str) -> list[str]:
+    """Every model id the provider publishes, before filtering.
+
+    Read from the cached registry for a transparent upstream and from the
+    adapter for a translated one. A provider that cannot be reached yields an
+    empty list rather than raising: the filter screen must still render for a
+    provider whose key has not been entered, because entering the key is the
+    next thing the operator is going to do.
+    """
+    transparents = getattr(request.app.state, "transparents", {})
+    built = transparents.get(name)
+    if built is not None:
+        return list(built.registry.model_ids())
+    adapter = getattr(request.app.state, "translating", {}).get(name)
+    if adapter is None:
+        return []
+    try:
+        return list(await adapter.models())
+    except Exception:  # noqa: BLE001 - an unreachable provider is an empty catalogue
+        return []
+
+
+@router.get("/{name}/models")
+async def read_model_filter(name: str, request: Request) -> dict[str, Any]:
+    """The provider's filter, and what it currently selects.
+
+    Returns the *counts* alongside the matched ids because the count is the
+    number an operator is actually reading: "23 of 417" is the feedback that
+    makes a pattern editable, and it is the difference between guessing at a
+    glob and seeing what it did.
+
+    `sample` is capped, and `matched_total` is reported separately so the cap
+    can never be mistaken for the result. A truncated list presented as the
+    whole answer is the exact failure this whole filter exists to prevent.
+    """
+    catalogue = await _catalogue(request, name)
+    filters: ModelFilters = request.app.state.model_filters
+    model_filter = filters.for_provider(name)
+    matched = model_filter.apply(catalogue)
+    return {
+        "name": name,
+        "filter": model_filter.as_dict(),
+        "filtered": not model_filter.is_empty,
+        "catalogue_total": len(catalogue),
+        "matched_total": len(matched),
+        "sample": matched[:SAMPLE_LIMIT],
+        "sample_limit": SAMPLE_LIMIT,
+        "catalogue_sample": catalogue[:SAMPLE_LIMIT],
+    }
+
+
+@router.put("/{name}/models")
+async def set_model_filter(name: str, body: FilterInput, request: Request) -> Any:
+    """Replace one provider's filter, and report what it now selects."""
+    refusal = _may_write(request)
+    if refusal:
+        return _refused(refusal)
+    filters: ModelFilters = request.app.state.model_filters
+    filters.set_for(
+        name, ModelFilter(include=tuple(body.include), exclude=tuple(body.exclude))
+    )
+    return await read_model_filter(name, request)

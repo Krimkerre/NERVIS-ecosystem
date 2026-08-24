@@ -47,6 +47,11 @@ class _Registry:
     def model_ids(self) -> list[str]:
         return list(self._models)
 
+    async def refresh(self) -> None:
+        """A canned catalogue needs no refreshing, but the lifespan calls this
+        on every registry it finds, so the stub has to answer it."""
+        return None
+
 
 class _Adapter:
     """An adapter that marks what it answered for, so a mix-up is visible."""

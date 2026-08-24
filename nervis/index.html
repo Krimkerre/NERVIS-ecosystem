@@ -3011,25 +3011,50 @@ async function ravisProviders(){
  try{
   const r=await fetch(BASE.ravis+'/api/v1/providers');
   if(r.ok)liveRows=(await r.json()).items||[];
+  /* One filter preview per provider, fetched alongside. The count is the whole
+     point of the column — "28 / 417" is what tells an operator their pattern
+     did something, and a column showing only the pattern would not. */
+  if(liveRows)await Promise.all(liveRows.map(async x=>{
+   try{
+    const f=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(x.name)+'/models');
+    if(f.ok)x.models=await f.json();
+   }catch(e){}
+  }));
  }catch(e){liveRows=null}
  const p=await API.ravis.providers();
  const on=p.items.filter(x=>x.enabled);
  const breakers=p.items.filter(x=>x.breaker!=='CLOSED');
  const local=p.items.filter(x=>x.kind==='local');
  const pct=v=>v===null?'—':Math.round(v*100)+'%';
+ const models=x=>{const m=x.models;if(!m)return '—';
+   return `<a href="#" onclick="PROVIDERS.editFilter('${escapeHtml(x.name)}');return false" style="color:inherit">`
+     +(m.filtered?`<b>${m.matched_total}</b> / ${m.catalogue_total}`:`${m.catalogue_total} · all`)+'</a>';};
  const health=x=>x.reachable===null?'<span class="chip">not probed</span>'
    :x.reachable?'<span class="chip">answering'+(x.latency_ms?' · '+Math.round(x.latency_ms)+' ms':'')+'</span>'
    :'<span class="chip warn" title="'+escapeHtml(x.detail||'')+'">not answering</span>';
  const liveCard=liveRows?`<div class="card full"><h3>Configured now <span class="chip">live</span></h3>${cell(`
-   <div class="table-row head" style="grid-template-columns:1.1fr .9fr 1fr 1fr auto"><span>Provider</span><span>Path</span><span>Credential</span><span>Health</span><span>Enabled</span></div>
-   ${liveRows.map(x=>`<div class="table-row" style="grid-template-columns:1.1fr .9fr 1fr 1fr auto;align-items:center">
+   <div class="table-row head" style="grid-template-columns:1fr .8fr .9fr .9fr .9fr auto"><span>Provider</span><span>Path</span><span>Credential</span><span>Health</span><span>Models</span><span>Enabled</span></div>
+   ${liveRows.map(x=>`<div class="table-row" style="grid-template-columns:1fr .8fr .9fr .9fr .9fr auto;align-items:center">
      <span class="mono"><b>${escapeHtml(x.name)}</b></span>
      <span class="mono" style="opacity:.75">${x.protocol_mode==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span>
      <span class="mono" style="opacity:.75">${x.credential_configured?escapeHtml(x.credential_source):'not set'}</span>
      <span>${health(x)}</span>
+     <span class="mono" style="opacity:.8">${models(x)}</span>
      <button class="btn${x.enabled?' primary':''}" onclick="PROVIDERS.toggle('${escapeHtml(x.name)}',${x.enabled?'false':'true'})">${x.enabled?'On':'Off'}</button>
+    </div>
+    <div class="table-row" id="mf-${escapeHtml(x.name)}" style="display:none;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;opacity:.9">
+     <span class="mono dim">include</span>
+     <span><input id="mfi-${escapeHtml(x.name)}" class="mono" placeholder="anthropic/*, openai/gpt-4*   —   empty means all"
+       value="${escapeHtml(((x.models||{}).filter||{}).include?.join(', ')||'')}"
+       style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
+     <button class="btn primary" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}')">Apply</button>
+     <span class="mono dim">exclude</span>
+     <span><input id="mfe-${escapeHtml(x.name)}" class="mono" placeholder="*-preview*, *:free   —   exclude wins over include"
+       value="${escapeHtml(((x.models||{}).filter||{}).exclude?.join(', ')||'')}"
+       style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
+     <button class="btn" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}',true)">Clear</button>
     </div>`).join('')}
-   <small class="mono dim">turning a provider off is not the same as removing its key. Disabled means <b>not right now</b> and is one click back; deleting the credential on <b>RAVIS → Credentials</b> means this deployment no longer holds one. A disabled provider is not probed, not advertised in <b>/v1/models</b>, and not a routing candidate — and addressing it directly returns 503 rather than quietly going somewhere else.</small>`,'ravis')}</div>`
+   <small class="mono dim">the <b>Models</b> count is a link — it opens the filter for that provider. OpenRouter publishes over 400 models, and without a filter every one of them lands in <b>/v1/models</b>, which a client renders as a picker, and becomes a routing candidate on every request. Patterns are globs; <b>exclude wins over include</b>, and an empty include means all rather than none. The filter applies identically to the catalogue a client reads and the candidates the router picks from, so the two can never disagree about whether a model exists.<br><br>turning a provider off is not the same as removing its key. Disabled means <b>not right now</b> and is one click back; deleting the credential on <b>RAVIS → Credentials</b> means this deployment no longer holds one. A disabled provider is not probed, not advertised in <b>/v1/models</b>, and not a routing candidate — and addressing it directly returns 503 rather than quietly going somewhere else.</small>`,'ravis')}</div>`
   :`<div class="card full"><h3>Configured now</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/providers</span></div>
    <small class="mono dim">RAVIS is not answering, so this card shows nothing rather than a remembered list. Everything below is prototype content and always was.</small>`,'ravis')}</div>`;
@@ -3257,6 +3282,22 @@ async function ravisCredentials(){
 }
 
 const PROVIDERS={
+ editFilter(name){
+  const row=document.getElementById('mf-'+name);
+  if(row)row.style.display=row.style.display==='none'?'grid':'none';
+ },
+ async applyFilter(name,clear){
+  const split=v=>(v||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const body=clear?{include:[],exclude:[]}:{
+   include:split((document.getElementById('mfi-'+name)||{}).value),
+   exclude:split((document.getElementById('mfe-'+name)||{}).value)};
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/models',
+    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+   if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
+  }catch(e){alert('RAVIS is not reachable.');return}
+  ravisProviders();
+ },
  async toggle(name,enabled){
   try{
    const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/enabled',

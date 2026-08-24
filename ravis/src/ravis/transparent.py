@@ -20,6 +20,7 @@ import httpx
 from ravis.config import Settings, resolved_capabilities
 from ravis.core.pools import DEFAULT_POOLS, direct_provider
 from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.model_filter import ModelFilter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.providers.lmstudio import LmStudioAdapter
 from ravis.providers.ollama import OllamaAdapter
@@ -100,7 +101,9 @@ def adapter_for(
 
 
 def resolve(
-    transparents: dict[str, TransparentUpstream], requested: str
+    transparents: dict[str, TransparentUpstream],
+    requested: str,
+    filters: dict[str, ModelFilter] | None = None,
 ) -> TransparentUpstream | None:
     """Which upstream serves `requested`, or None when none is configured.
 
@@ -123,7 +126,8 @@ def resolve(
     if addressed is not None and addressed in transparents:
         return transparents[addressed]
     for candidate in transparents.values():
-        if requested in candidate.registry.model_ids():
+        offered = (filters or {}).get(candidate.name, ModelFilter())
+        if requested in candidate.registry.model_ids() and offered.matches(requested):
             return candidate
     return next(iter(transparents.values()))
 
@@ -146,6 +150,7 @@ def model_owners(transparents: dict[str, TransparentUpstream]) -> dict[str, list
 def merged_catalogue(
     transparents: dict[str, TransparentUpstream],
     disabled: frozenset[str] = frozenset(),
+    filters: dict[str, ModelFilter] | None = None,
 ) -> dict[str, Any]:
     """`GET /v1/models` across every upstream — pools once, models deduped.
 
@@ -168,9 +173,10 @@ def merged_catalogue(
         # from this very response (§5.0.1).
         if candidate.name in disabled:
             continue
+        offered = (filters or {}).get(candidate.name, ModelFilter())
         for entry in candidate.registry.snapshot.models:
             identifier = entry.get("id", "")
-            if identifier and identifier not in models:
+            if identifier and offered.matches(identifier) and identifier not in models:
                 models[identifier] = {
                     "id": identifier,
                     "object": "model",
@@ -213,6 +219,7 @@ async def merged_candidates(
     transparents: dict[str, TransparentUpstream],
     evidence: Any,
     disabled: frozenset[str] = frozenset(),
+    filters: dict[str, ModelFilter] | None = None,
 ) -> dict[str, Any]:
     """Every upstream's models and capabilities, in one table.
 
@@ -231,8 +238,13 @@ async def merged_candidates(
     for candidate in transparents.values():
         if candidate.name in disabled:
             continue
+        # Filtered *before* capabilities are assembled, not after. Against
+        # OpenRouter that is the difference between building 417 capability
+        # records per routing pass and building the handful an operator asked
+        # for.
+        offered = (filters or {}).get(candidate.name, ModelFilter())
         known = await candidates_with_evidence(
-            candidate.adapter, candidate.registry.model_ids(), evidence
+            candidate.adapter, offered.apply(candidate.registry.model_ids()), evidence
         )
         for model, capabilities in known.items():
             merged.setdefault(model, capabilities)
