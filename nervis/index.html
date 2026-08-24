@@ -412,7 +412,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
- ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Policies','Evidence','Logs','Diagnostics','Settings']},
+ ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
@@ -473,6 +473,7 @@ const ICON={
  'Routes':'<path d="M2.2 8h2.6a2 2 0 0 0 1.7-1l1-1.7a2 2 0 0 1 1.7-1h3.4M2.2 8h2.6a2 2 0 0 1 1.7 1l1 1.7a2 2 0 0 0 1.7 1h3.4"/><path d="M11.6 2.9 13.8 4.3l-2.2 1.4M11.6 10.3l2.2 1.4-2.2 1.4"/>',
  'Pools':'<circle cx="5.7" cy="6.1" r="2.7"/><circle cx="10.3" cy="6.1" r="2.7"/><circle cx="8" cy="10.6" r="2.7"/>',
  'Providers':'<path d="M4.7 12.4a2.9 2.9 0 0 1-.3-5.8 3.6 3.6 0 0 1 6.9-1.1 2.9 2.9 0 0 1 .5 5.8z"/>',
+ 'Credentials':'<path d="M10.5 3a3.5 3.5 0 0 0-3.4 4.3L3 11.4V14h2.6l.9-.9v-1.3h1.3l.9-.9h1.1l1-1A3.5 3.5 0 1 0 10.5 3zm1.2 2.6a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/>',
  'Policies':'<path d="M8 2.2 12.7 4v4.2c0 2.6-1.9 4.6-4.7 5.5-2.8-.9-4.7-2.9-4.7-5.5V4z"/><path d="m5.9 8 1.5 1.5 2.8-3"/>',
  'Evidence':'<circle cx="7" cy="7" r="4.3"/><path d="m10.2 10.2 3.5 3.5"/><path d="M5.4 7.7v1.3M7 5.9v3.1M8.6 7.1v1.9"/>',
  'Logs':'<path d="M4 2.5h5.3l3.2 3.1v7.9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M9.2 2.6v3.1h3.2M5.4 8.7h5.1M5.4 11.1h5.1"/>',
@@ -1656,8 +1657,9 @@ const API={
     levels:['NORMAL','LOCAL_PREFERRED','TRUSTED_PROVIDERS','LOCAL_ONLY'],
     never_overridden_by_score:true,
     request_logging:'metadata only',persist_content:false},
-   credentials:{mutable:false,store:'macOS Keychain',plaintext_fallback:false,
-    note:'without secure storage a provider that needs a credential is unavailable — never downgraded to plaintext'},
+   credentials:{mutable:true,store:'RAVIS credential file (0600), then Keychain, then environment',
+    surface:'RAVIS → Credentials',
+    note:'entered in the dashboard, written by RAVIS, never readable back through any endpoint'},
    /* The four that do have an endpoint, each named so a control can cite it. */
    actions:[
     ['Activate profile','POST /api/v1/profiles/{profile_id}/activate','routing-control'],
@@ -2375,8 +2377,8 @@ const RUNTIME={
 
 const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
-const RAVIS_VIEWS={'Routes':ravisRoutes,'Pools':ravisPools,'Providers':ravisProviders,'Policies':ravisPolicies,
- 'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
+const RAVIS_VIEWS={'Routes':ravisRoutes,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
+ 'Policies':ravisPolicies,'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
  const [mdl,ev,rs,rn,mc]=await Promise.all([API.sirvis.models(),API.sirvis.evidence(),
@@ -3171,8 +3173,85 @@ async function ravisSettings(){
    <div class="trace-step"><b>listen address</b><span>restart · no endpoint</span></div>
    <div class="trace-step"><b>serving surface</b><span>no endpoint</span></div>
    <div class="trace-step"><b>privacy</b><span>a pool property (<span class="mono">ravis/private</span>), not a service setting</span></div>
-   <div class="trace-step"><b>credentials</b><span>${s.credentials.store}</span></div>
-   <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. Credentials are never editable from a dashboard at all: without secure storage a provider that needs one is unavailable, ${s.credentials.plaintext_fallback?'':'never downgraded to plaintext'}.</small>`,'ravis')}</div>`}
+   <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. <b>Credentials used to be listed here too, and that was wrong</b>: a provider nobody can configure is a provider nobody can use, so M10 gave them a real endpoint and they moved to <b>${s.credentials.surface}</b>.</small>`,'ravis')}</div>`}
+
+
+/* Credentials — the one screen that exists so a provider can be reached at all.
+   Every other RAVIS screen answers a question about a running system; this one
+   is what makes the system able to run. Without it Google, Anthropic and
+   OpenRouter are configuration RAVIS can describe and never use.
+
+   The value goes one way. RAVIS returns a status — configured or not, and from
+   which source — and has no endpoint that reads a credential back, so this
+   screen cannot show one even by mistake. That is why the field is always empty
+   on load rather than pre-filled with dots pretending to be a stored value. */
+async function ravisCredentials(){
+ heading('Credentials','Provider keys. Entered here, stored by RAVIS, never read back.');
+ let payload=null;
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/providers/credentials');
+  if(r.ok)payload=await r.json();
+ }catch(e){payload=null}
+
+ if(!payload){
+  $('#content').innerHTML=`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/providers/credentials</span></div>
+   <small class="mono dim">no transcription to fall back to, deliberately. A remembered "configured" for a service that is not running would be the most misleading thing this screen could say.</small>`,'ravis')}</div>`;
+  return;}
+
+ const items=payload.items||[];
+ const loose=items.filter(i=>i.configured&&!i.file_is_private);
+ const label={file:'stored by RAVIS',keychain:'macOS Keychain',environment:'environment variable',absent:'not set'};
+
+ const row=i=>`<div class="table-row" style="grid-template-columns:1.1fr auto 1.6fr auto auto;align-items:center;gap:8px">
+   <span class="mono"><b>${escapeHtml(i.name)}</b></span>
+   <span class="mono" style="opacity:.75">${i.configured?'&#9679; '+label[i.source]:'&#9675; not set'}</span>
+   <span><input id="cred-${escapeHtml(i.name)}" type="password" autocomplete="off"
+     placeholder="${i.configured?'replace the stored key\u2026':'paste the API key\u2026'}"
+     style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"></span>
+   <button class="btn primary" onclick="CREDS.save('${escapeHtml(i.name)}')">Save</button>
+   <button class="btn" onclick="CREDS.forget('${escapeHtml(i.name)}')"${i.source==='file'?'':' disabled title="RAVIS only removes what it stored itself" style="opacity:.45;cursor:not-allowed"'}>Remove</button>
+  </div>`;
+
+ $('#content').innerHTML=`
+  <div class="card full"><h3>Provider keys</h3>${cell(`
+   ${items.map(row).join('')}
+   <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>`,'ravis')}</div>
+
+  ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`
+   <div class="trace-step"><b>${loose.map(i=>escapeHtml(i.name)).join(', ')}</b><span>readable by other accounts on this machine</span></div>
+   <small class="mono dim">RAVIS writes the credential file at mode <b>0600</b>. Something has widened it since. Repair with <span class="mono">chmod 600 ~/.config/ravis/credentials.json</span> — the file is still being read, because refusing would lock you out of your own service over a permission bit.</small>`,'ravis')}</div>`:''}
+
+  <div class="card narrow"><h3>Where these live</h3>${cell(`
+   <div class="trace-step"><b>written to</b><span class="mono">~/.config/ravis/credentials.json</span></div>
+   <div class="trace-step"><b>permissions</b><span>0600 — owner only</span></div>
+   <div class="trace-step"><b>also read from</b><span>macOS Keychain, then environment</span></div>
+   <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
+   <small class="mono dim">the same protection as the SSH private key sitting next to it. Encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too — moving the problem rather than solving it, for a native dependency on three platforms.</small>`,'ravis')}</div>`;
+}
+
+const CREDS={
+ async save(name){
+  const field=document.getElementById('cred-'+name);
+  const secret=(field&&field.value||'').trim();
+  if(!secret){alert('Paste a key first.');return}
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/providers/credentials/'+encodeURIComponent(name),
+    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({secret})});
+   /* Cleared whether or not the write succeeded: a failed save should not leave
+      the key sitting in a DOM node for the next person at the screen. */
+   field.value='';
+   if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
+  }catch(e){field.value='';alert('RAVIS is not reachable.');return}
+  ravisCredentials();
+ },
+ async forget(name){
+  if(!confirm('Remove the stored '+name+' key from RAVIS?'))return;
+  try{
+   await fetch(BASE.ravis+'/api/v1/providers/credentials/'+encodeURIComponent(name),{method:'DELETE'});
+  }catch(e){alert('RAVIS is not reachable.');return}
+  ravisCredentials();
+ }};
 
 /* Diagnostics — is this build actually Clarvis-compatible, and is anything in the
    way right now. The conformance suite is the release gate: every check passes or

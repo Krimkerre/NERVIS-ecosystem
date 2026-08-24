@@ -146,3 +146,109 @@ def test_a_status_cannot_be_made_to_hold_a_secret() -> None:
         .as_dict()
         .values()
     )
+
+
+# ── 4. The file backend, which is the part that works on every OS ────────────
+
+
+import os  # noqa: E402
+import stat  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from ravis.credentials import CredentialFile, config_directory  # noqa: E402
+
+
+def _file_store(tmp_path: Path, **kwargs: object) -> CredentialStore:
+    kwargs.setdefault("keychain", False)
+    kwargs.setdefault("environment", {})
+    return CredentialStore(file=CredentialFile(tmp_path / "credentials.json"), **kwargs)  # type: ignore[arg-type]
+
+
+def test_a_stored_credential_comes_back(tmp_path: Path) -> None:
+    store = _file_store(tmp_path)
+
+    store.store("anthropic", VALUE)
+
+    secret = store.resolve("anthropic")
+    assert secret.source is CredentialSource.FILE
+    assert secret.reveal() == VALUE
+
+
+def test_the_file_is_private_and_so_is_its_directory(tmp_path: Path) -> None:
+    """The whole security model. `os.open` with an explicit mode rather than
+    write-then-chmod, so there is no window where the umask decides."""
+    store = _file_store(tmp_path / "nested")
+    store.store("anthropic", VALUE)
+
+    path = tmp_path / "nested" / "credentials.json"
+    assert stat.S_IMODE(path.stat().st_mode) & 0o077 == 0
+    assert stat.S_IMODE(path.parent.stat().st_mode) & 0o077 == 0
+
+
+def test_the_file_wins_over_the_environment(tmp_path: Path) -> None:
+    """It is what the UI writes, and the most recent explicit action should win."""
+    store = _file_store(tmp_path, environment={"RAVIS_ANTHROPIC_API_KEY": "from-env"})
+    store.store("anthropic", VALUE)
+
+    assert store.resolve("anthropic").source is CredentialSource.FILE
+
+
+def test_forgetting_does_not_reach_into_the_environment(tmp_path: Path) -> None:
+    """Deleting from a store RAVIS does not own would be a surprise, so the
+    credential is still configured afterwards — from the lower source."""
+    store = _file_store(tmp_path, environment={"RAVIS_ANTHROPIC_API_KEY": "from-env"})
+    store.store("anthropic", VALUE)
+
+    status = store.forget("anthropic")
+
+    assert status.configured
+    assert status.source is CredentialSource.ENVIRONMENT
+
+
+def test_an_empty_credential_is_refused(tmp_path: Path) -> None:
+    """An empty value reads identically to an absent one, so storing it makes
+    "I set it and it says absent" a supportable bug report."""
+    with pytest.raises(ValueError, match="empty"):
+        _file_store(tmp_path).store("anthropic", "   ")
+
+
+def test_a_malformed_file_reads_as_absent_rather_than_raising(tmp_path: Path) -> None:
+    """Fails closed and stays repairable, instead of taking startup down."""
+    path = tmp_path / "credentials.json"
+    path.write_text("{ not json", encoding="utf-8")
+
+    assert _file_store(tmp_path).resolve("anthropic").source is CredentialSource.ABSENT
+
+
+def test_loose_permissions_are_reported_not_enforced(tmp_path: Path) -> None:
+    """Refusing would be stronger and is what ssh does, but it locks an operator
+    out of their own service over a bit they can fix."""
+    store = _file_store(tmp_path)
+    store.store("anthropic", VALUE)
+    path = tmp_path / "credentials.json"
+    os.chmod(path, 0o644)
+
+    status = store.status("anthropic")
+
+    assert status.configured, "still readable"
+    assert not status.file_is_private
+
+
+def test_the_write_leaves_no_temporary_behind(tmp_path: Path) -> None:
+    store = _file_store(tmp_path)
+    store.store("anthropic", VALUE)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["credentials.json"]
+
+
+def test_known_lists_names_and_never_values(tmp_path: Path) -> None:
+    store = _file_store(tmp_path)
+    store.store("anthropic", VALUE)
+    store.store("google", "AIza-other")
+
+    assert store.known() == ["anthropic", "google"]
+
+
+def test_the_config_directory_follows_the_platform() -> None:
+    """Resolved from the environment so a test never touches a real home."""
+    assert config_directory({"XDG_CONFIG_HOME": "/xdg"}) == Path("/xdg/ravis")

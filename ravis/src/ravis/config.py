@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # A name is how a request addresses an upstream directly, in the same slot a
     # translating provider occupies: `ravis/<name>/<model>`.
     upstreams: str = ""
+    # Whether a credential may still come from an environment variable (M10).
+    # True by default because that is how every deployment written before M10
+    # supplies its keys, and flipping it silently would make every configured
+    # provider unavailable at once. An operator who has moved everything into
+    # the credential file can turn it off and have the weaker source refused.
+    credentials_allow_environment: bool = True
     # Generous, because a large local model's first token can be slow and a
     # timeout here reads to the client as the model failing.
     upstream_timeout_seconds: float = 300.0

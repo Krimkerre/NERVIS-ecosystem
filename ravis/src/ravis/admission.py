@@ -165,13 +165,25 @@ def check_origin(headers: dict[str, str], method: str, settings: Settings) -> No
         )
 
 
-# Methods a browser may use cross-origin. Reads only, and deliberately so: every
-# `/api/v1` endpoint that exists today is a read (M18a exposes no mutation), so
-# allowing POST would widen the surface past anything that can currently use it.
-# When a mutation lands, whoever adds it decides then whether a browser on
-# another origin should be able to reach it — which is a decision worth making
-# explicitly rather than inheriting from this line.
-CORS_METHODS = "GET, HEAD, OPTIONS"
+# Methods a browser may use cross-origin. This line used to be reads only, and
+# left the decision to whoever landed the first mutation. M10 is that mutation,
+# and the decision is yes — with a reason and a limit.
+#
+# **Why yes.** The credential screen *is* a browser on another origin: NERVIS is
+# served from somewhere other than RAVIS's port. Without PUT and DELETE here, the
+# one screen that lets an operator configure a provider cannot work at all, and a
+# provider nobody can configure is a provider nobody can use.
+#
+# **Why this is not a widening.** `allowed_origins` is empty by default, so no
+# browser origin is permitted anything until an operator names one. This changes
+# what an already-trusted origin may do, not who is trusted.
+#
+# **Why PUT rather than POST**, beyond idempotency: POST with a simple
+# content-type is CORS-safelisted and is sent *without* a preflight, so the
+# allow-list never gets consulted. PUT always preflights. Choosing it means a
+# page that was never allow-listed cannot slip a credential write through as a
+# simple request — the browser asks first, and RAVIS says no.
+CORS_METHODS = "GET, HEAD, OPTIONS, PUT, DELETE"
 
 # Request headers a browser may send cross-origin. `authorization` is here
 # because an allow-listed dashboard on a non-loopback bind needs the §4.4 client

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 817 tests, no network, no live service
+.venv/bin/pytest                      # part of 837 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 817 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 837 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -1549,6 +1549,66 @@ competing — checked by the person at the keyboard, because neither is visible
 from inside the process. The scheduled task written to do this unattended was
 deleted after this run; a replacement should say so in its pre-flight and stop
 rather than measure through it.
+
+### M10 — somewhere to put the key
+
+**The question that found it:** *"does the UI have a menu where we can enter our
+API details?"* It did not, and nothing built so far could have reached Google or
+OpenRouter, because there was nowhere to put a credential. M7 would have shipped
+two providers that could be described and never used.
+
+**Secrets absent from all outputs and logs, carried by a type.** `Secret`
+refuses to render itself — `repr`, `str`, f-strings, `format()` and `%` each
+yield a redaction naming the source and length but never the value, and each
+path is tested separately because a guarantee that holds for `repr` but not for
+`%` is not a guarantee. `json.dumps` raises rather than serialising. The value
+leaves only through `reveal()`, named so that `grep` is the audit.
+`CredentialStatus` is the stronger promise for anything a screen touches: not a
+value it declines to show, but no field able to hold one.
+
+**A file, because the store had to work on every OS.** Mode `0600` in the user's
+config directory — `%APPDATA%` on Windows, XDG elsewhere — which is what the AWS
+CLI, Docker, `gh` and npm all do. Stdlib only. A credential-vault dependency
+buys encryption at rest and costs a native build requirement on three
+platforms, and the key that would decrypt it has to be readable by RAVIS
+unattended, so anyone with the same file access reads it too: the problem moves
+rather than resolves.
+
+**macOS Keychain is a read source and deliberately not a write target.**
+`security` takes the password as a command-line argument, which publishes it in
+the process list to everything running as that user. There is no stdin form —
+tested, and `-w` swallows the following argument instead. Writing to a file has
+no such window.
+
+**Order: file, Keychain, environment.** The file is first because it is what the
+UI writes and the most recent explicit action should win. Environment variables
+keep working, so every deployment written before M10 is unaffected — but the
+source travels with the value, which is what lets a screen say *where* a
+credential came from without saying what it is.
+
+**`PUT`, not `POST`, and the CORS line that had to move.** Setting a named
+credential is idempotent, which is what M18b's `Idempotency-Key` exists to
+reconstruct for operations that lack it. `CORS_METHODS` was reads-only with a
+comment deferring the decision to whoever landed the first mutation; this is
+that mutation. PUT and DELETE are now allowed, and the reasoning is recorded
+where the old comment was: `allowed_origins` is empty by default so no origin
+gains anything until an operator names one, and PUT *always* preflights where a
+simple POST does not — so a page that was never allow-listed cannot slip a
+credential write through.
+
+**Two claims in the dashboard were false and are corrected.** It advertised
+`store:'macOS Keychain', plaintext_fallback:false` — a security property the
+system did not have — and stated credentials were never editable from a screen.
+Both were written before there was an endpoint. `RAVIS → Credentials` is now a
+real screen.
+
+**Verified live end to end**, 2026-08-24: a value entered in the dashboard,
+written to a `-rw-------` file, and then found in none of the served page, the
+API responses, or the service log. The test value and its file were deleted
+afterwards, and no real configuration directory was created.
+
+**Still open in M10:** provider enable/disable and the health tests the
+milestone also names.
 
 ### The outlier: closed, unexplained, and deliberately so
 

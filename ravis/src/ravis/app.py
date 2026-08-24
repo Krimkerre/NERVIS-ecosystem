@@ -37,9 +37,11 @@ from ravis.admission import (
     is_preflight,
 )
 from ravis.api.management import management_router
+from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
+from ravis.credentials import CredentialStore
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
@@ -80,6 +82,7 @@ def create_app(settings: Settings) -> Any:
     api.include_router(models_router)
     api.include_router(chat_router)
     api.include_router(management_router)
+    api.include_router(credentials_router)
     # Wrapping last means this ends up outermost, which is the entire point.
     return BodySizeLimiter(api, settings.max_request_bytes)
 
@@ -129,6 +132,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # client and running the refresher; it does not own creating them, which
     # keeps every attribute on `state` real from the moment the app exists.
     api.state.upstream_client = create_client(settings)
+    # Provider credentials (M10). Built here so every request sees the same
+    # store, and so the file is resolved once rather than per lookup.
+    api.state.credentials = CredentialStore(
+        allow_environment=settings.credentials_allow_environment,
+    )
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.
