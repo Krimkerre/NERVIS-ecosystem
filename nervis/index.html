@@ -2447,7 +2447,7 @@ async function settingsView(){
    <small class="mono dim"><b>NERVIS has no service to configure.</b> M0 — the package, FastAPI, SQLite and migrations — has never been built, so there is no <span class="mono">nervis serve</span>, no database and no settings to read; this dashboard is a single HTML file served statically. The addresses above are its whole configuration, and each is shown with whether it actually answered. Everything below describes settings a NERVIS service would own and is prototype content.</small>`,'nervis')}</div>`;
  $('#content').innerHTML=liveCard+`<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
-   ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="notify('Health test: ${name} — identity, version and capabilities')">Test</button></span></div>`).join('')}
+   ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="healthTest('${escapeHtml(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>
   <div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
@@ -3909,6 +3909,21 @@ const CHAT_SESSIONS={
    which is fortunate, because there is not one: `/api/v1/diagnostics` is a 404
    on both, and the Clarvis conformance suite is a CLI command with no HTTP
    surface at all. */
+/* The Test button, which used to raise a toast describing a test it did not
+   run. §14's health test is exactly the three metadata reads this already does,
+   so the control now performs them and reports what came back — including
+   "nothing", which is the answer it exists to surface. */
+async function healthTest(key){
+ if(!BASE[key]&&key!=='nervis')return notify(`${key}: no address configured`);
+ if(key==='nervis')return notify('NERVIS has no service to test — M0 is unbuilt');
+ notify(`${key.toUpperCase()}: testing…`);
+ const d=await serviceDiagnostics(key);
+ if(!d||!d.health)return notify(`${key.toUpperCase()}: not answering`);
+ const checks=(d.health.checks||[]).map(c=>`${c.name} ${c.status}`).join(', ')||'no checks';
+ notify(`${key.toUpperCase()}: ${d.health.status} · ${checks} · `
+   +`${d.available.length}/${d.capabilities.length} capabilities`);
+}
+
 async function serviceDiagnostics(key){
  const get=async path=>{
   try{
@@ -4145,7 +4160,7 @@ const EDITOR_PREVIEW={
   ['Leave it','No change. It keeps sharing.']]
 };
 
-async function clarvis(){heading('Clarvis workspace','Reverse-proxied code-server. The frame renders itself; NERVIS reads status only.','<button class="btn" onclick="notify(\'Workspace state saved\')">Save session</button>');
+async function clarvis(){heading('Clarvis workspace','Reverse-proxied code-server. The frame renders itself; NERVIS reads status only.','<button class="btn" disabled title="the Clarvis Bridge is read-only \u2014 it reports workspace state and does not persist it, so nothing here could save one" style="opacity:.45;cursor:not-allowed">Save session</button>');
  const [st,se]=await Promise.all([API.clarvis.status(),API.clarvis.session()]);
  /* The Bridge is optional by design: Clarvis activates and dies with its editor
     window and never depends on NERVIS. Its absence is a disconnected state, not

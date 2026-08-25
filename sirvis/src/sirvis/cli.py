@@ -1,9 +1,13 @@
 """The command line (§18).
 
-`doctor` and `serve` are M0's exit criterion; `benchmark run` is M6's. The
-constraint that shaped `doctor` — it contacts nothing that must be running — is
-a feature: it has to be usable on a laptop with no runtime installed, and during
-an incident, when the thing being diagnosed is that something will not answer.
+`doctor` and `serve` are M0's exit criterion; `benchmark run` is M6's.
+
+The constraint that shaped `doctor` is that **nothing has to be running** for it
+to be useful — not that it contacts nothing, which is what this said until an
+audit checked. It does contact the runtime and reports what it finds; an absent
+runtime is a finding rather than a failure. That is the property that matters on
+a laptop with no runtime installed, and during an incident, when the thing being
+diagnosed is that something will not answer.
 
 **`benchmark run` asks before it loads anything, and that is not politeness.**
 Four models were loaded onto the developer's machine during this build without
@@ -75,7 +79,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sirvis", description="Local model evidence plane")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser(
-        "doctor", help="check configuration and the database, contacting nothing"
+        "doctor", help="check configuration and the database, and report what the runtime says"
     )
     subcommands.add_parser("serve", help="run the service")
     token = subcommands.add_parser(

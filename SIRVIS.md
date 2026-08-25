@@ -938,12 +938,12 @@ disk and runtime failures expose truthful readiness and actionable structured er
 
 # 16. Web dashboard
 
-**`../template/index.html` already renders the Models, Benchmarks, Runtime Sets and Results
+**`nervis/index.html` already renders the Models, Benchmarks, Runtime Sets and Results
 screens**, against a transcription of a real benchmark run on a real machine — including the
 provenance rendering this section insists on. It is the reference implementation, not a sketch,
 and this stage's visible increment is wiring those screens to real endpoints rather than
-building them (`ECOSYSTEM_RUNBOOK.md` §6.2 Stage 4). Read `../template/docs/WIRING.md` before
-starting; read `../template/docs/PITFALLS.md` before writing the replacement.
+building them (`ECOSYSTEM_RUNBOOK.md` §6.2 Stage 4). Read `nervis/docs/WIRING.md` before
+starting; read `nervis/docs/PITFALLS.md` before writing the replacement.
 
 Pages: Dashboard, Models, Downloads, Benchmarks, Queue, Results, Recommendations, Runtime,
 System, Settings.
@@ -1165,7 +1165,7 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 | Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
 | Stage 10 — whole-ecosystem hardening | M22 |
 | **Unscheduled — deferred by decision** | M5 (SDK), M11 (model browser and download), M12, M17, M18, M19, M20. Listed so no milestone is silently unassigned |
-| Stage 4 — visible increment | M14 (web UI). Not deferred: the prototype at `../template/` already renders the Models, Benchmarks and Results screens against SIRVIS-shaped data, so this stage's increment is wiring those to real endpoints rather than building screens. §16's standalone requirement is what that satisfies |
+| Stage 4 — visible increment | M14 (web UI). Not deferred: the prototype at `nervis/` already renders the Models, Benchmarks and Results screens against SIRVIS-shaped data, so this stage's increment is wiring those to real endpoints rather than building screens. §16's standalone requirement is what that satisfies |
 
 > Stage 4 runs alongside Stages 2–3 and must be finished before Stage 5, when RAVIS begins
 > ingesting evidence. SIRVIS has no inbound dependency before that point.

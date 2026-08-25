@@ -2,11 +2,11 @@
 
 This page is built so this is mechanical. Nothing about the render path changes.
 
-**Three screens have been through it**, which turned two of the claims below
-from theory into experience — see *What the first wirings actually cost* at the
-end. SIRVIS **Results**, SIRVIS **Benchmarks** and the SIRVIS **Dashboard**'s
-run-detail card now read `/api/v1/benchmark-runs`, each falling back to its
-transcription when nothing answers and saying on screen which it drew on.
+**Most screens have been through it**, which turned the claims below from theory
+into experience — see *What the first wirings actually cost* at the end. The
+current live/invented split lives in `STATUS.md` and is checked against the
+repository; it is not duplicated here, because the copy that used to say "three
+screens" stayed at three while the real number passed twenty.
 
 ## The swap
 

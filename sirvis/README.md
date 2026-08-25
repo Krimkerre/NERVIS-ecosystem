@@ -23,21 +23,30 @@ it on PyPI.
 
 ## What exists
 
-**M0 only.** The `/ecosystem/*` MEP surface, a migrated SQLite database, the CLI
-and the configuration checks. No runtime adapter, no benchmarks, no evidence.
+**STATUS.md tracks this**, and CI checks it against the repository. In short: SIRVIS
+measures models, stores the evidence, serves it, and recommends from it.
 
-The exit criterion worth naming is that **it starts with no runtime present**.
-Stage 1 exits at M0 and Stage 4 cannot begin until it does, so a SIRVIS that
-needed LM Studio running in order to start would block the whole ecosystem
-schedule on an application being open. §15.4 requires standalone behaviour, and
-a laptop with nothing loaded is the ordinary case rather than a fault — which is
-why the LM Studio address is configuration that `doctor` prints and deliberately
-does not probe.
+- **Inventory (§6)** — machines, runtimes, model artifacts and configurations, with
+  identity kept as family + variant + runtime + config rather than a model name.
+- **Benchmarks (§11)** — the single-model engine with warmups, repetitions, streamed
+  timing and memory sampling, plus §11.3's multi-model modes over a Runtime Set:
+  each member measured alone as a control, then co-resident.
+- **Evidence (§12)** — the schema, the query API RAVIS reads, and §12.2's prohibition
+  enforced by construction: nothing is ever keyed as model → score.
+- **Recommendations (§14.3)** — a weighted score that carries the **coverage** it rests
+  on, so a confident number and a thinly-evidenced one are distinguishable.
+- **Resource Manager (§9)** — reference counts and leases, with every load and unload
+  flowing through one owner. Two clients holding one model is the ordinary case.
+- **Clarvis role suites (M12/M13)** — Clarvis's own benchmark assets wrapped rather than
+  rewritten, so evidence is filed under `clarvis-chat` and `clarvis-agent`.
 
-Every capability is advertised `unavailable` with the milestone that will change
-it, including `sirvis.evidence.query@1`, the surface RAVIS is waiting on. That
-one is declared absent from the start on purpose: a peer can act on "not yet,
-because M16" and cannot act on silence.
+The exit criterion worth naming is still that **it starts with no runtime present**.
+§15.4 requires standalone behaviour, and a laptop with nothing loaded is the ordinary
+case rather than a fault. `doctor` does contact the runtime and reports what it finds —
+an absent runtime is a finding, not a failure, which is the guarantee that matters.
+
+Capabilities are advertised with the milestone behind each one. `sirvis.events@1` is the
+remaining `unavailable` entry, and it names M21.
 
 ## Two things it deliberately does not share
 

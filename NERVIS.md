@@ -179,7 +179,7 @@ may follow. **Do not require Bonjour or mDNS for MVP.**
 
 # 6. Dashboard and telemetry
 
-**Built from `../template/index.html`, not instead of it** — §25 states what transfers verbatim
+**Built from `nervis/index.html`, not instead of it** — §25 states what transfers verbatim
 and what must be rebuilt, and the render layer is the part that must not be carried over. The
 layout below is already implemented there, including the degradation behaviour that is the hard
 part of it: `SERVICES[key].state` drives every tile through `usable()` and `cell()`, and absence
@@ -950,7 +950,7 @@ know the answers.**
 
 # 25. The prototype, and what becomes of it
 
-`../template/index.html` renders every screen this ecosystem will have. It is not a sketch and
+`nervis/index.html` renders every screen this ecosystem will have. It is not a sketch and
 it is not a mockup of a design nobody built — it is a working single-file application whose
 data layer is shaped like the real API responses, whose every method cites the endpoint it will
 call, and which has already been exercised against a genuine LM Studio catalogue. It found a
@@ -1004,7 +1004,7 @@ tiles that would display them already render from mocks.
 
 Before Stage 6 the prototype is not waiting to be replaced — it is how each stage's work becomes
 visible. Every stage in the runbook names an increment, and each is the same mechanical change
-`../template/docs/WIRING.md` describes: replace one mock method body with a `fetch`, keep the
+`nervis/docs/WIRING.md` describes: replace one mock method body with a `fetch`, keep the
 shape. A screen driven by real data is a test no unit test replaces, because it is where a field
 that is missing, mistyped or silently empty becomes obvious immediately.
 

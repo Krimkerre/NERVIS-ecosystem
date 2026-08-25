@@ -999,7 +999,7 @@ Export failure never blocks routing.**
 
 ## 15.3 Dashboard
 
-**These screens already exist, rendered by `../template/index.html`.** It is not a mockup of
+**These screens already exist, rendered by `nervis/index.html`.** It is not a mockup of
 this section — it is a working implementation whose data layer is shaped like §15.1's responses
 and whose every method cites the endpoint it will call. From Stage 3 it reads RAVIS's real
 read-only management API (M18a), so the screens below are how RAVIS is observed *during* the
@@ -1179,7 +1179,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 6 — NERVIS core | M11 + M15 |
 | Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
-| **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `../template/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
+| **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
 
 > **M18a moved to Stage 3, 2026-08-23.** The read-only half of the management API is what makes
 > the work visible while it is being done: the prototype's Routes and Pools screens read exactly

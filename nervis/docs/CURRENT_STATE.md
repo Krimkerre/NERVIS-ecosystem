@@ -56,15 +56,18 @@ Every screen in the rail is built. Nothing falls back to a dashboard any more.
 | RAVIS | Dashboard · Routes · Pools · Providers · Policies · Evidence · Logs · Diagnostics · **Settings** |
 | CLARVIS | all seven — by design the rail drives the editor's side panel, it does not swap pages |
 
-**Three of them now read a live service.** SIRVIS **Results** and **Benchmarks**
-draw from `/api/v1/benchmark-runs`, and the SIRVIS **Dashboard**'s run-detail
-card does too; each falls back to its transcription when nothing answers and
-says which it drew on. Everything else is still mocks, and two screens must
-stay that way until their milestones land — **Recommendations** needs M15,
-**Downloads** needs M11, and **Runtime sets** needs M9 + M10 for a reason
-stronger than "unbuilt": it reads measured *pairs*, and the only way to fill it
-early would be to synthesise them from single-model runs, which asserts exactly
-what SIRVIS.md §10.1 exists to deny.
+**Most of them now read a live service**, and the count is deliberately not
+repeated here. `STATUS.md` carries the live/partly-live/invented table and is
+checked against the repository; a second copy in this file went stale at
+"three of them" and stayed there while the real number passed twenty. **One
+table, in STATUS.md.**
+
+What this page can say without going stale: a screen that reads a service says
+so on screen, an invented card is faded and labelled `PROTOTYPE`, and a screen
+that mixes the two fades only the invented half. Where a value cannot be read at
+all — cost before M15, policies before M16, events before M18b — the screen
+reports the effect it *can* observe and names the milestone that would publish
+the value.
 
 Two screens moved or are new since the first pass:
 
@@ -83,8 +86,10 @@ reachable, and it leaves focus mode on the way.
 
 ## The only mutating controls on the page
 
-RAVIS.md §15.1 defines exactly five mutations, and those are the only controls in
-this repository that change anything:
+RAVIS.md §15.1 defines five mutations. **None of them is built**, and all five
+render as disabled buttons naming the endpoint they are waiting for — this
+section used to call them "the only controls in this repository that change
+anything", which had it exactly backwards:
 
 ```text
 POST /api/v1/profiles/{profile_id}/activate
@@ -94,8 +99,22 @@ POST /api/v1/evidence/refresh
 POST /api/v1/route-tests
 ```
 
-They live on the RAVIS **Dashboard** (the active profile) and **Settings** (the
-rest). Everything else on the Settings page — the serving surface, the budget
+The controls that *do* mutate are elsewhere, and arrived with milestones §15.1
+does not cover:
+
+```text
+POST   {sirvis}/api/v1/runtime/sessions              take a lease on a model
+DELETE {sirvis}/api/v1/runtime/sessions/{id}         release it
+POST   {sirvis}/api/v1/runtime/sessions/{id}/renew   extend it
+PUT    {ravis}/api/v1/providers/credentials/{name}   store a provider credential
+DELETE {ravis}/api/v1/providers/credentials/{name}   remove one
+PUT    {ravis}/api/v1/providers/{name}/enabled       enable or disable a provider
+PUT    {ravis}/api/v1/providers/{name}/models        narrow which models it offers
+POST   {ravis}/v1/chat/completions                   the chat screen, as a client
+```
+
+The SIRVIS trio needs a runtime-scoped token (§4.5) and the RAVIS writes need an
+allow-listed origin. Everything else on the Settings page — the serving surface, the budget
 ladder, the privacy level, credentials — is real configuration with no agreed
 endpoint, so it renders as state and says so. A settings screen is exactly where
 "a UI need does not create an API" is most tempting to break, because every row

@@ -8,46 +8,65 @@ about anything crossing a product boundary.
 
 ## What exists
 
-**M0 only.** RAVIS does not route anything yet — there is no `/v1` surface, no provider
-adapter and no routing engine. What is here is the foundation those need, built first
-because the runbook puts the MEP surface at Stage 1, before the gateway:
+**STATUS.md is the file that tracks this**, and it is checked by CI against the repository.
+This section says only what a newcomer needs before reading it: RAVIS routes, and both of
+§6's execution paths work.
 
-- **`/ecosystem/*`** — health, identity, capabilities, version and the SSE event stream, so
-  peers can negotiate with RAVIS rather than assume things about it. Every capability is
-  currently advertised as `unavailable` with the milestone that will change it, because
-  RAVIS.md §4.1 forbids advertising an operation that has not passed conformance.
-- **Admission control (§4.4)** — body-size cap enforced before authentication, image count,
-  per-identity rate limiting, refusal to dereference client-supplied URLs, trusted-proxy
-  client address, Origin and Host validation, and a startup refusal for an unsafe bind.
-- **Identity resolution (§9.6.0)** — a credential resolves to one application; anything else
-  resolves to the least-privileged `anonymous`, which is a real identity rather than a null.
-- **`ravis doctor`** — configuration findings and the resolved model-to-provider table,
-  contacting nothing, so it works during the incident you are diagnosing.
-- **Capability discovery (§7, §9.5)** — the adapter surface M6 will filter against. Its
-  defining behaviour is refusing to guess: a generic OpenAI-compatible endpoint publishes
-  model IDs and nothing about what they can do, so tool support reads `UNKNOWN` and any
-  pool requiring it is unavailable until configuration, probing or SIRVIS says otherwise.
+- **`/v1/models` and `/v1/chat/completions`** — the OpenAI-compatible surface, streaming and
+  cancellation included. `ravis conformance clarvis` runs sixteen wire-level checks and is
+  the §8.9 release gate.
+- **Routing (§5, §9)** — 13 virtual pools, hard-constraint filtering before scoring, and a
+  route explanation on every decision naming what was considered and why each candidate was
+  excluded.
+- **Providers** — a translated adapter for Anthropic (§6 Path B), transparent adapters for
+  LM Studio, Ollama and any generic OpenAI-compatible endpoint, and more than one upstream
+  at a time addressed as `ravis/<name>/<model>`.
+- **Evidence (§13)** — SIRVIS measurements consumed and applied at `MEASURED` provenance,
+  which outranks a catalogue's advertisement and has already excluded a build the catalogue
+  claimed was tool-capable.
+- **Credentials (§4.5, M10)** — a `Secret` type that will not render itself, an OS-agnostic
+  `0600` credential file, and provider enable/disable that actually stops routing.
+- **Admission control (§4.4)**, **identity resolution (§9.6.0)** and the **`/ecosystem/*`**
+  MEP surface, all from M0 and unchanged.
+
+Capabilities are advertised per §4.1's table, which sets a condition **per capability**
+rather than one bar for all of them. What is still `unavailable` says which milestone
+changes it.
 
 ## Running it
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/ravis doctor      # check configuration, print the resolved table
-.venv/bin/ravis serve       # http://127.0.0.1:8731
+python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
+.venv/bin/ravis doctor            # configuration findings, contacting nothing
+.venv/bin/ravis serve             # http://127.0.0.1:8731
+.venv/bin/ravis conformance clarvis
 ```
 
+`ecosystem-protocol` is a **local path dependency and must be installed first** — it is not
+on PyPI, and `ravis/pyproject.toml` does not declare it, so `pip install -e ".[dev]"` alone
+produces a working install that fails at import. The whole ecosystem starts together with
+the launcher in the repository root, which does this for you.
+
 Configuration is environment variables with a `RAVIS_` prefix — `RAVIS_PORT`,
-`RAVIS_MAX_REQUEST_BYTES`, `RAVIS_CLIENT_CREDENTIAL` and so on; the fields in
+`RAVIS_UPSTREAM_BASE_URL`, `RAVIS_UPSTREAMS`, `RAVIS_SIRVIS_BASE_URL`,
+`RAVIS_CLIENT_CREDENTIAL` and so on; the fields in
 [`src/ravis/config.py`](src/ravis/config.py) are the list, each with the reason for its
 default.
 
 ## Telling RAVIS what the models can do
 
-Nothing probes capabilities yet (§8.7) and SIRVIS evidence is M13, so a generic
-OpenAI-compatible endpoint publishes model IDs and **nothing about what they can do**.
-Every capability stays `UNKNOWN`, and a pool that requires one fails closed — which is
-§5.2 working as written, and which makes `ravis/clarvis-agent` unroutable until somebody
-says otherwise.
+Nothing probes capabilities yet (§8.7), but two other sources now answer. A **vendor
+adapter** reads what the runtime publishes — LM Studio's catalogue turns most of a local
+install from `UNKNOWN` into `ADVERTISED` tool support — and **SIRVIS evidence** (M13)
+arrives at `MEASURED`, which outranks it.
+
+That ordering is not decorative. LM Studio advertises `tool_use` for both packagings of
+`granite-4.0-h-tiny`; SIRVIS measured the GGUF build passing 24 of 24 tool trials and the
+MLX build passing 3. The catalogue is wrong about one of them, and `MEASURED` beating
+`ADVERTISED` is what keeps it out of `ravis/clarvis-agent`.
+
+A generic endpoint that publishes nothing still reads `UNKNOWN`, and a pool requiring that
+capability still fails closed — §5.2 working as written.
 
 [`measured-capabilities.json`](measured-capabilities.json) is that somebody, for this
 machine. It is derived from `clarvis/docs/benchmarks.md` — executed tool-call trials from
