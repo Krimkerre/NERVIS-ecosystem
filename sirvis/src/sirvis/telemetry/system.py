@@ -33,6 +33,12 @@ from sirvis.telemetry.thermal import read_thermal_pressure
 PROBE_TIMEOUT_SECONDS = 5.0
 
 
+# Fields a consumer should treat as personal. A hostname is very often somebody's
+# first name — this machine answers "Govert" — and while §5.1 permits it on the
+# snapshot it is not the sort of thing to forward without noticing.
+SENSITIVE_FIELDS: tuple[str, ...] = ("hostname",)
+
+
 @dataclass(frozen=True)
 class SystemSnapshot:
     """What this machine is, at one moment, with gaps left visible.
@@ -50,6 +56,19 @@ class SystemSnapshot:
     # still the truth about where a number came from.
     is_apple_silicon: bool
 
+    # §5.1 names "Mac model" as snapshot metadata explicitly. `hw.model` is the
+    # board identifier (`Mac17,3`), not the marketing name — the marketing name
+    # needs a lookup table that would be wrong the week a new machine ships, and
+    # a stale name is worse than an exact identifier.
+    model_identifier: str | None = None
+    # The machine's own name. §5.1 permits it on the snapshot and forbids it as
+    # the *identity* — "never a hostname alone" is about the ID, which stays a
+    # locally generated UUID. It is labelled sensitive because §5.1 also
+    # requires that transport and display "label sensitivity and support
+    # redaction", and a hostname is very often a person's first name. It is here
+    # because a benchmark corpus spanning two machines needs something a human
+    # recognises, and an opaque UUID is exactly what nobody recognises.
+    hostname: str | None = None
     chip: str | None = None
     cpu_cores: int | None = None
     performance_cores: int | None = None
@@ -85,6 +104,13 @@ class SystemSnapshot:
     def as_dict(self) -> dict[str, Any]:
         body = asdict(self)
         body["unknown_fields"] = self.unknown_fields
+        # §5.1: "transport and display must label sensitivity and support
+        # redaction". The label travels with the payload rather than living in a
+        # consumer's head, so anything forwarding a snapshot knows which field
+        # to drop without having to recognise it by name. Declarative on
+        # purpose: a reader that does not understand `hostname` still
+        # understands "this key is sensitive".
+        body["sensitive_fields"] = list(SENSITIVE_FIELDS)
         return body
 
 
@@ -103,6 +129,21 @@ def detect_system() -> SystemSnapshot:
     return _detect_macos(machine, apple_silicon)
 
 
+def _hostname() -> str | None:
+    """The machine's name, or None when it will not answer.
+
+    `platform.node()` rather than a subprocess: it is already available, it
+    needs no shell, and it returns the same thing `scutil --get LocalHostName`
+    does with the `.local` suffix that `socket` adds. The suffix is trimmed
+    because it is a Bonjour artefact rather than part of the name a person gave
+    the machine.
+    """
+    name = platform.node().strip()
+    if not name:
+        return None
+    return name[: -len(".local")] if name.endswith(".local") else name
+
+
 def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
     """Every macOS metric, each read independently so one gap is only one gap."""
     disk_total, disk_free = _disk()
@@ -115,6 +156,8 @@ def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
         platform_name="Darwin",
         architecture=machine,
         is_apple_silicon=apple_silicon,
+        model_identifier=_sysctl_text("hw.model"),
+        hostname=_hostname(),
         chip=_sysctl_text("machdep.cpu.brand_string"),
         cpu_cores=_sysctl_int("hw.ncpu"),
         # perflevel0 is the performance cluster and perflevel1 the efficiency

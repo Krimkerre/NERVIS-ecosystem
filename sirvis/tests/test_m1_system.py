@@ -149,3 +149,34 @@ def test_available_memory_is_absent_rather_than_zero_when_unreadable() -> None:
 
     assert snapshot.memory_available_bytes is None
     assert "memory_available_bytes" in snapshot.as_dict()
+
+
+def test_the_hostname_is_recorded_but_labelled_sensitive() -> None:
+    """§5.1 permits a hostname on the snapshot and forbids it as the identity.
+
+    "Never a hostname alone" governs the machine *ID*, which stays a locally
+    generated UUID. The same section requires that transport and display "label
+    sensitivity and support redaction", so the label travels in the payload
+    rather than living in a consumer's head — anything forwarding a snapshot
+    knows which key to drop without having to recognise it by name.
+
+    It is worth recording at all because a corpus spanning two machines needs
+    something a person recognises, and an opaque UUID is precisely what nobody
+    does.
+    """
+    payload = detect_system().as_dict()
+
+    assert payload["sensitive_fields"] == ["hostname"]
+    assert "hostname" in payload
+
+
+def test_the_machine_id_is_not_derived_from_the_hostname() -> None:
+    """The two coexist and must not be confused: one is opaque and resettable,
+    the other is a name somebody chose."""
+    database = prepare_database(":memory:")
+    snapshot = detect_system()
+
+    identity = machine_identity(database)
+
+    assert identity != snapshot.hostname
+    assert len(identity) == 32 and identity.isalnum()

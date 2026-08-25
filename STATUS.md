@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 864 tests, no network, no live service
+.venv/bin/pytest                      # part of 866 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 864 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 866 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2941,14 +2941,29 @@ memory whatever is running, and how much is free is a statement about a moment.
 `None` is preserved over `0` — ignorance and a machine with nothing left to
 reclaim are different, and only one is a crisis.
 
-**Three fields SIRVIS genuinely cannot detect stay absent, and say so.** `model`
-— it reads the *chip* (`Apple M5`), and nothing on the machine tells a sysctl it
-is in a MacBook Air. `system_baseline_gb` — the memory this machine uses at rest
-with LM Studio open before any model loads, which was **measured by hand** and is
-not computed anywhere. `model_budget_gb` — derived from that baseline, so it
-inherits the absence. Each renders as *"not detected"* through one shared
-helper, because a fit decision made against an invented budget is worse than one
-nobody made.
+**"Model: not detected" turned out to be a gap rather than a limit.** §5.1 names
+"Mac model" among the metadata that belongs on a snapshot — SIRVIS had simply
+never read it. `hw.model` gives `Mac17,3`, the board identifier. The *marketing*
+name stays absent deliberately: it needs a lookup table that is wrong the week a
+new machine ships, and an exact identifier beats a stale name.
+
+**The hostname is recorded too, and labelled.** §5.1's "never a hostname alone"
+governs the machine **ID**, which stays a locally generated UUID — it does not
+forbid a hostname as snapshot metadata, and the same section requires that
+transport and display *"label sensitivity and support redaction"*. So the
+snapshot carries `sensitive_fields: ["hostname"]`, and the label travels in the
+payload rather than living in a consumer's head: anything forwarding a snapshot
+knows which key to drop without having to recognise it by name. The screen shows
+the name with a **personal** marker beside it. It is worth recording at all
+because a corpus spanning two machines needs something a person recognises, and
+an opaque UUID is exactly what nobody does — this machine answers `Govert`.
+
+**Two fields remain genuinely undetectable and say so.**
+`system_baseline_gb` — the memory this machine uses at rest with LM Studio open
+before any model loads, which was **measured by hand** and is computed nowhere.
+`model_budget_gb` — derived from that baseline, so it inherits the absence. Both
+render as *"not detected"* through one shared helper, because a fit decision made
+against an invented budget is worse than one nobody made.
 
 The runtime list came from a second endpoint rather than being nulled:
 `/api/v1/runtimes` publishes it, and nulling it crashed the screen — which is

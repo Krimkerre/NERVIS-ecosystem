@@ -1149,7 +1149,15 @@ const API={
        `model_budget_gb` — derived from the baseline, so it inherits its absence.
        Each renders as unknown, because a fit decision made against a made-up
        budget is worse than one nobody made. */
-    model:null,system_baseline_gb:null,model_budget_gb:null,cooling:null,
+    /* The machine's own name, and the board identifier §5.1 names as snapshot
+       metadata. `model` was rendering "not detected" because SIRVIS never read
+       either — it does now. The marketing name ("MacBook Air") is still absent
+       and stays absent: it needs a lookup table that is wrong the week a new
+       machine ships, and `Mac17,3` is exact. */
+    hostname:p.hostname,
+    model:p.model_identifier,
+    sensitive_fields:p.sensitive_fields||[],
+    system_baseline_gb:null,model_budget_gb:null,cooling:null,
     runtimes};
    })},
 
@@ -3043,8 +3051,8 @@ async function systemView(){
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
  +`<div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
-   <div class="table-row head"><span>Model</span><span>Chip</span><span>Cores</span><span>macOS</span></div>
-   <div class="table-row"><span>${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
+   <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>macOS</span></div>
+   <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
    <div class="bar"><i style="--w:${usedPct}%"></i></div>
    <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>
