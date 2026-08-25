@@ -3767,6 +3767,74 @@ anything, so it reported the state from one render ago. And the Overview's
 "Services 3 / 4" was counting a hardcoded four against §5.1's six declared
 entries. Both now read the registry NERVIS published.
 
+## The status bar was one paint behind, and nothing polled at all
+
+Reported from use: **LM Studio was opened, the ecosystem map showed it online,
+and the top bar still said it was down** — in the same paint.
+
+Two defects, and the second is the one that mattered.
+
+**`globalStatus()` runs first in `render()`**, before the screen below it has
+fetched anything. So the bar rendered whatever the *previous* render had
+learned. M2 had already half-fixed this by giving the bar `REGISTRY_ROWS`
+instead of the hard-coded `SERVICES` map, which turned permanently-stale into
+one-render-stale — the same bug with a shorter fuse, and exactly what was
+observed.
+
+**Nothing polled.** The dashboard only re-read anything when somebody
+navigated. Open a service and the page would not notice until you clicked
+something. That also means **M1's "dashboard updates live" was never actually
+met**, and this is the half that was missing — recorded rather than quietly
+backfilled, because M1 was reported complete.
+
+### The fix is that the bar does not wait for a screen
+
+`pollRegistry()` reads `/api/v1/services` every 8 seconds — NERVIS itself probes
+every 20, so anything faster only re-reads the same answer — and repaints the
+bar when it lands. `absorbRegistry()` is the one place that writes what a
+registry body means, because two callers now need it: the Overview's own read
+and the poll.
+
+`render()` also calls `globalStatus()` a second time, after the screen has
+fetched. The first call keeps the bar from ever being blank; the second corrects
+it with whatever the screen just learned.
+
+Verified by watching the bar with **no navigation and no manual render** while
+RAVIS finished starting:
+
+```text
+0s   RAVIS, Clarvis Bridge, Ollama unreachable · other surfaces operational
+2s   Clarvis Bridge, Ollama unreachable · other surfaces operational
+```
+
+### Three things kept it from becoming a worse bug
+
+**Repainting is an allowlist, not an exclusion.** Only `Overview`, `Ecosystem
+map` and `System` repaint on the timer. Chat has a half-typed message, Settings
+has toggles somebody is mid-way through, and the service dashboards have
+popovers a rebuild would close under the cursor. A screen added later is not
+live until somebody says so. Asserted directly: sitting on Chat, a poll leaves
+`#content` byte-identical.
+
+**Polling stops while the tab is hidden.** A background tab polling a local
+service forever is how a laptop ends up running warm with no visible cause, and
+this page is meant to be left open. `visibilitychange` also fires on the way
+back — which is when a reading is most likely to be wrong — so returning
+refreshes immediately rather than waiting out the interval.
+
+**A reading older than two intervals says so.** `· as of 47s ago` appears only
+once it is genuinely old, because a number that is always on screen stops being
+read. The case it exists for is NERVIS itself going away, where the bar would
+otherwise keep asserting the last thing it knew with nothing to indicate nobody
+had checked since.
+
+### And one the screenshot caught
+
+The ecosystem map drew **two boxes labelled NERVIS** — one at the hub and one on
+the ring — because §5.1 puts NERVIS in its own registry and the map drew every
+entry. A control plane that skipped its own row would be the one entry nobody
+could check, so the entry stays and the ring excludes it.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
