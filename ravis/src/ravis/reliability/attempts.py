@@ -21,7 +21,7 @@ and there is no code path by which the chain could insist otherwise.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ravis.reliability.failures import FailureClass, HealthScope
 from ravis.reliability.health import HealthRegistry
@@ -89,7 +89,15 @@ class AttemptChain:
     """
 
     health: HealthRegistry
-    provider: str
+    # A provider *name*, or a resolver from model to provider name.
+    #
+    # It was a bare string until M8 made upstreams plural, and that quietly
+    # became a routing bug rather than a naming one: a provider-scoped circuit
+    # takes every model behind it out at once, so one shared label meant a
+    # single failing upstream opened the breaker for **all** of them. The
+    # comment on the old constant even said "M8 makes this plural, at which
+    # point the adapter supplies the name" — and then M8 shipped without it.
+    provider: str | Callable[[str], str]
     budget: RetryBudget = field(default_factory=RetryBudget)
 
     _queue: list[str] = field(default_factory=list, init=False)
@@ -147,9 +155,17 @@ class AttemptChain:
             return None
         return self._next_permitted()
 
+    def provider_for(self, target: str) -> str:
+        """Which provider's health this model's attempt belongs to.
+
+        Every lifecycle method already receives the target, so the scope can
+        always be resolved from the model rather than assumed for the request.
+        """
+        return self.provider(target) if callable(self.provider) else self.provider
+
     def begin(self, target: str) -> float:
         """Claim an attempt against both the model's and the provider's health."""
-        self.health.of(HealthScope.PROVIDER, self.provider).begin()
+        self.health.of(HealthScope.PROVIDER, self.provider_for(target)).begin()
         return self.health.of(HealthScope.MODEL, target).begin()
 
     def succeeded(self, target: str, started_at: float, ttft: float | None = None) -> None:
@@ -160,7 +176,7 @@ class AttemptChain:
         other's circuit stuck open after a recovery.
         """
         self.health.of(HealthScope.MODEL, target).succeeded(started_at, ttft)
-        self.health.of(HealthScope.PROVIDER, self.provider).succeeded(started_at, ttft)
+        self.health.of(HealthScope.PROVIDER, self.provider_for(target)).succeeded(started_at, ttft)
         self._attempts.append(Attempt(model=target, outcome="succeeded"))
         self._last_class = None
 
@@ -172,7 +188,7 @@ class AttemptChain:
         failure class cannot change behaviour by being handled inconsistently in
         two places.
         """
-        self.health.record(failure_class, target, self.provider, started_at)
+        self.health.record(failure_class, target, self.provider_for(target), started_at)
         self._attempts.append(Attempt(target, failure_class.value, detail))
         self._last_class = failure_class
         # At most one same-target retry, ever. The policy says this class of
@@ -208,7 +224,7 @@ class AttemptChain:
         answer, and a second attempt would append a second answer to it.
         """
         self.health.of(HealthScope.MODEL, target).interrupted()
-        self.health.of(HealthScope.PROVIDER, self.provider).interrupted()
+        self.health.of(HealthScope.PROVIDER, self.provider_for(target)).interrupted()
         self._attempts.append(Attempt(target, "stream_interrupted"))
         self._stopped = "the stream had already begun; a fallback would corrupt it"
 
@@ -224,11 +240,24 @@ class AttemptChain:
     def summary(self) -> dict[str, Any]:
         """The attempt history, in the shape §9.7 explanations are published in."""
         return {
-            "provider": self.provider,
+            # The providers this chain actually touched, rather than one label
+            # for the request: with plural upstreams a chain can cross them.
+            "provider": self._providers_touched(),
             "attempts": [attempt.as_dict() for attempt in self._attempts],
             "stopped_because": self._stopped,
             "budget_unenforced": self.budget.unenforced,
         }
+
+    def _providers_touched(self) -> str:
+        """Every provider this chain reached, in order, joined for the record."""
+        if not callable(self.provider):
+            return self.provider
+        seen: list[str] = []
+        for attempt in self._attempts:
+            name = self.provider_for(attempt.model)
+            if name not in seen:
+                seen.append(name)
+        return " · ".join(seen) or "none attempted"
 
     def exhausted_message(self) -> str:
         """One sentence saying why nothing answered.
@@ -278,8 +307,9 @@ class AttemptChain:
             # Asked about, not claimed: these are `allows`/`refusal` on the
             # registry rather than `of(...).allows()`, so a candidate that is
             # only *considered* does not acquire a health record.
-            if not self.health.allows(HealthScope.PROVIDER, self.provider):
-                refusal = self.health.refusal(HealthScope.PROVIDER, self.provider)
+            provider = self.provider_for(candidate)
+            if not self.health.allows(HealthScope.PROVIDER, provider):
+                refusal = self.health.refusal(HealthScope.PROVIDER, provider)
                 self._stopped = refusal
                 self._queue.clear()
                 self._attempts.append(Attempt(candidate, "skipped", refusal))

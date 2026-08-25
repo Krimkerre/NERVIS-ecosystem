@@ -521,3 +521,48 @@ def test_a_logged_detail_survives_formatting() -> None:
     rendered = json.loads(JsonLineFormatter().format(record))
 
     assert rendered["detail"] == "Tried: coder-a (rate_limit), coder-b (rate_limit)."
+
+
+def test_one_upstreams_open_circuit_does_not_block_another_upstreams_models() -> None:
+    """A provider circuit is scoped to that provider, not to the request.
+
+    `AttemptChain.provider` was a single string, chosen when RAVIS talked to one
+    upstream. M8 made upstreams plural and the string stayed, which turned a
+    naming shortcut into a routing bug: a provider-scoped circuit takes out
+    every model behind it, so one failing local runtime excluded the entire
+    catalogue — including models on a completely different, healthy upstream.
+
+    Measured before the fix: one label blocked 4 of 4 candidates. After: 2.
+    """
+    clock = FakeClock()
+    health = HealthRegistry(failure_threshold=1, cooldown_seconds=60.0, clock=clock)
+    health.record(FailureClass.CONNECTION, "granite", "lmstudio", clock())
+
+    owner = {"granite": "lmstudio", "qwen": "lmstudio",
+             "llama3.2:3b": "ollama", "all-minilm": "ollama"}
+    blocked = health.unavailable(list(owner), lambda model: owner[model])
+
+    assert set(blocked) == {"granite", "qwen"}, "only the failed upstream's models"
+    assert "llama3.2:3b" not in blocked, "a healthy upstream keeps serving"
+
+
+def test_the_chain_attributes_each_attempt_to_its_own_upstream() -> None:
+    """Failures land on the provider that produced them.
+
+    Otherwise a fallback crossing to a second upstream credits or blames the
+    first, and the health record that decides future routing describes a
+    provider that was never called.
+    """
+    clock = FakeClock()
+    health = HealthRegistry(failure_threshold=1, cooldown_seconds=60.0, clock=clock)
+    owner = {"granite": "lmstudio", "llama3.2:3b": "ollama"}
+    chain = AttemptChain(health=health, provider=lambda model: owner[model])
+    chain.load("granite", ["llama3.2:3b"])
+
+    assert chain.provider_for("granite") == "lmstudio"
+    assert chain.provider_for("llama3.2:3b") == "ollama"
+
+    chain.failed("granite", clock(), FailureClass.CONNECTION)
+
+    assert not health.allows(HealthScope.PROVIDER, "lmstudio")
+    assert health.allows(HealthScope.PROVIDER, "ollama"), "untouched by another's failure"

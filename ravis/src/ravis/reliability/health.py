@@ -302,7 +302,8 @@ class HealthRegistry:
         known = self._targets.get((scope, target))
         return known.refusal() if known is not None else ""
 
-    def unavailable(self, models: list[str], provider: str) -> dict[str, str]:
+    def unavailable(self, models: list[str],
+                    provider: str | Callable[[str], str]) -> dict[str, str]:
         """The models routing must currently avoid, each with its reason.
 
         Returned as a mapping rather than a set because the reason has to reach
@@ -310,18 +311,24 @@ class HealthRegistry:
         it was excluded, and "the circuit is open" is only a useful answer when
         it arrives with the count and the cooldown attached.
 
-        A provider-level circuit takes every model behind it out at once, which
-        is the point of scoping: one refused connection should not have to be
-        rediscovered thirteen times.
+        A provider-level circuit takes every model **behind that provider** out
+        at once, which is the point of scoping: one refused connection should
+        not have to be rediscovered thirteen times.
+
+        `provider` may be a resolver rather than a name, and with more than one
+        upstream it must be. Passing a single label made a provider circuit
+        exclude every candidate on every upstream — the blast radius of one
+        failing local runtime became the whole catalogue.
         """
-        if not self.allows(HealthScope.PROVIDER, provider):
-            refusal = self.refusal(HealthScope.PROVIDER, provider)
-            return {model: refusal for model in models}
-        return {
-            model: self.refusal(HealthScope.MODEL, model)
-            for model in models
-            if not self.allows(HealthScope.MODEL, model)
-        }
+        resolve = provider if callable(provider) else (lambda _model: provider)
+        blocked: dict[str, str] = {}
+        for model in models:
+            owner = resolve(model)
+            if not self.allows(HealthScope.PROVIDER, owner):
+                blocked[model] = self.refusal(HealthScope.PROVIDER, owner)
+            elif not self.allows(HealthScope.MODEL, model):
+                blocked[model] = self.refusal(HealthScope.MODEL, model)
+        return blocked
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Every target's current state, for diagnostics and the CLI."""

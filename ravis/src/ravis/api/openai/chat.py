@@ -84,11 +84,40 @@ router = APIRouter(prefix="/v1", tags=["openai"])
 # content-encoding would tell the client to decode it a second time.
 SKIPPED_RESPONSE_HEADERS = frozenset({"content-encoding", "content-length", "transfer-encoding"})
 
-# The health-tracking name of the one upstream this build talks to. A stable
-# label rather than the URL, deliberately: health snapshots reach diagnostics
-# and route explanations, and §9.7 keeps internal URLs out of both. M8 makes
-# this plural, at which point the adapter supplies the name.
+# The health-tracking name of a deployment with exactly one transparent
+# upstream. A stable label rather than the URL, deliberately: health snapshots
+# reach diagnostics and route explanations, and §9.7 keeps internal URLs out of
+# both.
+#
+# **With plural upstreams this is resolved per model instead** — see
+# `_provider_of`. Leaving it as one shared label after M8 was a routing bug, not
+# a naming one: a provider circuit takes out every model behind that provider,
+# so one failing runtime excluded the entire catalogue.
 UPSTREAM_PROVIDER = "upstream"
+
+
+def _provider_of(request: Request) -> Callable[[str], str]:
+    """Resolve a model to the health scope its failures belong to.
+
+    Falls back to the single label when nothing is declared, so a deployment
+    using the singular settings keeps exactly the health record it had.
+    """
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
+    )
+    filters = _filters(request)
+
+    def provider(model: str) -> str:
+        translating: dict[str, Any] = getattr(request.app.state, "translating", {})
+        addressed = direct_provider(model)
+        if addressed is not None and addressed in translating:
+            return addressed
+        if not transparents:
+            return UPSTREAM_PROVIDER
+        built = resolve(transparents, model, filters)
+        return built.name if built else UPSTREAM_PROVIDER
+
+    return provider
 
 
 class _TryNext(Exception):  # noqa: N818 - a control signal, not an error condition
@@ -493,7 +522,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.
-        unavailable=health.unavailable(list(candidates), UPSTREAM_PROVIDER),
+        unavailable=health.unavailable(list(candidates), _provider_of(request)),
     )
     # Recorded rather than recomputed. Re-running the router later would use a
     # different catalogue, residency and memory reading, and could reach a
@@ -521,7 +550,7 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
     """
     chain = AttemptChain(
         health=request.app.state.health,
-        provider=UPSTREAM_PROVIDER,
+        provider=_provider_of(request),
         budget=request.app.state.retry_budget,
     )
     chain.load(decision.selected or "", decision.fallbacks)

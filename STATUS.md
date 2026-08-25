@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 869 tests, no network, no live service
+.venv/bin/pytest                      # part of 871 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 869 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 871 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3289,6 +3289,42 @@ The pattern across all four is the same one the fade sweep established. Where a
 value cannot be read, the screen does not invent it — it reports the effect that
 can be seen, names the milestone that would publish the value, and leaves the
 cards describing unbuilt settings marked as prototype.
+
+## The breaker was keyed on one label for every upstream
+
+`AttemptChain.provider` was a single string, chosen when RAVIS talked to one
+upstream, and the constant beside it said so: *"M8 makes this plural, at which
+point the adapter supplies the name."* M8 shipped and it did not.
+
+That is a routing bug rather than a naming one. A **provider-scoped circuit
+takes out every model behind that provider at once** — which is the point of
+scoping — so one shared label meant a single failing local runtime opened the
+breaker for the entire catalogue, including models on a healthy upstream that
+had never been called.
+
+Measured, with LM Studio failing and Ollama fine:
+
+```text
+one shared label     4 of 4 candidates blocked
+resolved per model   2 of 4 blocked — granite, qwen. Ollama's models keep serving.
+```
+
+Every lifecycle method on the chain already received the target, so the scope
+could always have been resolved from the model rather than assumed for the
+request. `provider` now accepts a resolver, `HealthRegistry.unavailable` takes
+one too, and `chat.py` supplies one that asks `resolve()` which upstream owns a
+model — the same collision rule the catalogue, the candidate set and the
+forwarder already share.
+
+**The health target for a singular deployment is now `default`, not
+`upstream`.** That is a visible rename on `/api/v1/health`, taken deliberately:
+`default` is the name `upstreams.py` already assigns when the singular settings
+are used, and keeping "upstream" for that case while named upstreams reported
+their real names would leave two vocabularies for one thing.
+
+Two regression tests pin it: one upstream's open circuit leaves another's models
+routable, and a chain crossing upstreams attributes each failure to the provider
+that produced it rather than to whichever one the request started on.
 
 ## Starting the thing
 

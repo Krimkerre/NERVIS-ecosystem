@@ -171,6 +171,14 @@ def test_health_reports_observed_target_state_alongside_the_live_probe() -> None
     The probe and the observed history are separate keys on purpose: a provider
     can be reachable and open-circuited at the same time, and a single "healthy"
     boolean would have to pick one of those to report.
+
+    **The target is named `default`, not `upstream`.** Health is scoped per
+    provider, and a provider-scoped circuit takes out every model behind it — so
+    once M8 made upstreams plural, one shared label meant a single failing
+    runtime opened the breaker for the entire catalogue. The scope is now the
+    upstream's own name, and `default` is the name `upstreams.py` assigns when a
+    deployment uses the singular settings. Keeping "upstream" for that case and
+    real names for the plural one would leave two vocabularies for one thing.
     """
     client = _client()
     with client:
@@ -178,12 +186,12 @@ def test_health_reports_observed_target_state_alongside_the_live_probe() -> None
         body = client.get("/api/v1/health").json()
 
     observed = {target["target"]: target for target in body["targets"]}
-    assert observed["upstream"]["state"] == "CLOSED"
-    assert observed["upstream"]["successes"] == 1
+    assert observed["default"]["state"] == "CLOSED"
+    assert observed["default"]["successes"] == 1
     assert observed["any"]["scope"] == "model"
     # Only what was actually called. A model that was considered and not chosen
     # has no health record, because nothing has happened to it.
-    assert set(observed) == {"upstream", "any"}
+    assert set(observed) == {"default", "any"}
 
 
 def test_health_reports_nothing_observed_before_any_traffic() -> None:
