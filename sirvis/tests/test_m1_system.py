@@ -180,3 +180,48 @@ def test_the_machine_id_is_not_derived_from_the_hostname() -> None:
 
     assert identity != snapshot.hostname
     assert len(identity) == 32 and identity.isalnum()
+
+
+def test_a_non_macos_machine_is_read_rather_than_left_blank() -> None:
+    """Linux and Windows report plenty; refusing to read it is not caution.
+
+    This path used to return the platform name and nothing else, on the
+    reasoning that SIRVIS targets Apple Silicon and inventing a Linux box's GPU
+    core count would be fabrication. The first half is right; the second
+    overshot. Cores, memory, disk, hostname and the OS name are all available
+    through the standard library on every platform, and a dashboard showing a
+    Linux machine as entirely unknown describes SIRVIS's reticence rather than
+    the machine.
+    """
+    from sirvis.telemetry.system import _detect_portable
+
+    snapshot = _detect_portable("Linux", "x86_64")
+
+    assert snapshot.platform_name == "Linux"
+    assert not snapshot.is_apple_silicon
+    assert snapshot.cpu_cores and snapshot.cpu_cores > 0
+    assert snapshot.disk_total_bytes and snapshot.disk_free_bytes
+    assert snapshot.os_description
+
+
+def test_apple_silicon_facts_stay_absent_off_apple_silicon() -> None:
+    """What has no portable equivalent stays unknown rather than being guessed.
+
+    Chip name, GPU core count, the performance/efficiency split and thermal
+    state are all read from `sysctl`. There is nothing to read them from
+    elsewhere, so they are absent and say so in `unknown_fields`.
+    """
+    from sirvis.telemetry.system import _detect_portable
+
+    unknown = set(_detect_portable("Windows", "AMD64").unknown_fields)
+
+    assert {"chip", "gpu_cores", "performance_cores", "thermal_state"} <= unknown
+
+
+def test_the_os_description_is_what_a_person_would_call_it() -> None:
+    """`27.0` alone is meaningless in a corpus spanning machines."""
+    snapshot = detect_system()
+
+    assert snapshot.os_description
+    if snapshot.platform_name == "Darwin":
+        assert snapshot.os_description.startswith("macOS ")

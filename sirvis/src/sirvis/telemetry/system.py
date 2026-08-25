@@ -18,6 +18,7 @@ hangs makes the service unstartable and M0's exit says it must start anywhere.
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import shutil
@@ -69,6 +70,11 @@ class SystemSnapshot:
     # because a benchmark corpus spanning two machines needs something a human
     # recognises, and an opaque UUID is exactly what nobody recognises.
     hostname: str | None = None
+    # The operating system as a person names it — "macOS 27.0", "Linux 6.8.0",
+    # "Windows 11". Composed rather than left as a bare version, because `27.0`
+    # alone is meaningless on a corpus that spans machines, and §5.1 asks for
+    # metadata a reader can compare.
+    os_description: str | None = None
     chip: str | None = None
     cpu_cores: int | None = None
     performance_cores: int | None = None
@@ -120,13 +126,121 @@ def detect_system() -> SystemSnapshot:
     machine = platform.machine()
     apple_silicon = system == "Darwin" and machine == "arm64"
     if system != "Darwin":
-        # Non-macOS is recorded rather than guessed at. SIRVIS targets Apple
-        # Silicon (§3); pretending to know a Linux box's GPU core count from
-        # nothing would be exactly the fabrication M1's exit forbids.
-        return SystemSnapshot(
-            platform_name=system, architecture=machine, is_apple_silicon=False
-        )
+        return _detect_portable(system, machine)
     return _detect_macos(machine, apple_silicon)
+
+
+def _os_description(system: str) -> str | None:
+    """The operating system as a person would name it.
+
+    `platform.mac_ver()` gives the product version on macOS and
+    `platform.release()` the kernel, which are different numbers — 27.0 against
+    25.0.0 — and the product version is the one anybody recognises. Elsewhere
+    the release *is* the recognisable string.
+    """
+    if system == "Darwin":
+        product = platform.mac_ver()[0]
+        return f"macOS {product}" if product else "macOS"
+    if system == "Windows":
+        release = platform.release()
+        return f"Windows {release}" if release else "Windows"
+    if system == "Linux":
+        # `/etc/os-release` is the distribution's own name for itself and is far
+        # more useful than a kernel version. Falling back to the kernel rather
+        # than to nothing, because "Linux 6.8.0" still tells a reader more than
+        # an empty column.
+        pretty = _os_release_name()
+        release = platform.release()
+        return pretty or (f"Linux {release}" if release else "Linux")
+    release = platform.release()
+    return f"{system} {release}".strip() or None
+
+
+def _os_release_name() -> str | None:
+    """`PRETTY_NAME` from /etc/os-release, or None when it cannot be read."""
+    try:
+        with open("/etc/os-release", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"') or None
+    except OSError:
+        return None
+    return None
+
+
+def _portable_memory_bytes() -> int | None:
+    """Physical memory on Linux or Windows, or None where neither answers.
+
+    `sysconf` covers Linux and any other POSIX host. Windows has no sysconf, so
+    it takes a `GlobalMemoryStatusEx` call through `ctypes` — still the standard
+    library, and a good deal less than adding a dependency for one number.
+    """
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        size = os.sysconf("SC_PAGE_SIZE")
+        if pages > 0 and size > 0:
+            return int(pages) * int(size)
+    except (OSError, ValueError, AttributeError):
+        pass
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+
+        class _Status(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = _Status()
+        status.dwLength = ctypes.sizeof(_Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+            return int(status.ullTotalPhys)
+    except Exception:  # noqa: BLE001 - any ctypes failure is simply "unknown"
+        return None
+    return None
+
+
+def _detect_portable(system: str, machine: str) -> SystemSnapshot:
+    """Linux, Windows and anything else, read with the standard library only.
+
+    This used to return the platform name and nothing else, on the reasoning
+    that SIRVIS targets Apple Silicon (§3) and inventing a Linux box's GPU core
+    count would be fabrication. The first half is right and the second half
+    overshot: refusing to *read* what a machine plainly reports is not the same
+    as refusing to guess at what it does not. Cores, memory, disk, hostname and
+    the OS name are all available everywhere, and a dashboard that showed a
+    Linux machine as entirely unknown would be describing SIRVIS's reticence
+    rather than the machine.
+
+    What stays absent stays absent: no chip marketing name, no GPU core count,
+    no performance/efficiency split, no thermal state. Those are Apple Silicon
+    facts read from `sysctl`, and there is no portable equivalent to read.
+    """
+    disk_total, disk_free = _disk()
+    return SystemSnapshot(
+        platform_name=system,
+        architecture=machine,
+        is_apple_silicon=False,
+        hostname=_hostname(),
+        os_description=_os_description(system),
+        os_version=platform.release() or None,
+        cpu_cores=os.cpu_count(),
+        unified_memory_bytes=_portable_memory_bytes(),
+        memory_available_bytes=MemoryProbe().sample(
+            "system", include_swap=False
+        ).available_bytes,
+        disk_total_bytes=disk_total,
+        disk_free_bytes=disk_free,
+    )
 
 
 def _hostname() -> str | None:
@@ -158,6 +272,7 @@ def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
         is_apple_silicon=apple_silicon,
         model_identifier=_sysctl_text("hw.model"),
         hostname=_hostname(),
+        os_description=_os_description("Darwin"),
         chip=_sysctl_text("machdep.cpu.brand_string"),
         cpu_cores=_sysctl_int("hw.ncpu"),
         # perflevel0 is the performance cluster and perflevel1 the efficiency

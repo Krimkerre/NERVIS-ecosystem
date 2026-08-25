@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 866 tests, no network, no live service
+.venv/bin/pytest                      # part of 869 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 866 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 869 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2984,6 +2984,72 @@ the cards are built around numbers that will not exist until those milestones.
 
 `route-decisions` is live and empty until something routes. It fills by itself
 the first time a request goes through, so it needs no work — only traffic.
+
+## Traces and Events, and what each honestly is
+
+**Traces now reads RAVIS's route decisions.** `/api/v1/traces` does not exist,
+but `/api/v1/route-decisions` does, and a route decision *is* the record of what
+happened to one request: what was asked for, the pool it resolved to, what was
+selected, the fallbacks behind it, every candidate considered, every exclusion
+with its reason, and an execution block naming each attempt and its outcome.
+
+The screen shows it and refuses to overstate it. **It is not a distributed
+trace** — no timeline correlates Clarvis, RAVIS, SIRVIS and the runtime, because
+that needs event publication. The span card says so, naming the milestone each
+service declares. Drawing a timeline from one service's record would invent the
+other three rows.
+
+Empty and unreachable are answered separately: nothing routed yet says so and
+explains that decisions live in memory only — §17 does not list them as stored
+state, so a restart loses them and that is the intended trade. RAVIS not
+answering gets no remembered traces at all, because a transcribed trace would
+describe a request nobody made.
+
+**Events is marked unavailable, from the services' own mouths.** There is no
+feed: `/api/v1/events` 404s on both. So the screen reads
+`/ecosystem/capabilities` and reports what each service declares about itself —
+RAVIS `ravis.events@1 unavailable, "event publication lands at M18b (runbook
+Stage 7)"`, SIRVIS `sirvis.events@1 unavailable, "…at M21"`. That is a live fact
+about events, and it is the honest one.
+
+The envelope, ordering, duplicate and redaction rules stay on the screen,
+labelled **specified, not built** — they are the contract rather than a
+description of running code. A third card points at what does answer the
+question someone opened this screen to ask: routing decisions on Traces,
+benchmark history on Results, both live.
+
+One vocabulary bug, caught by looking: a successful attempt reports
+`succeeded`, and the outcome chip was testing for `ok`/`success`/`routed` — so
+the one decision that worked rendered as a warning.
+
+## NERVIS off macOS
+
+`detect_system()` returned the platform name and nothing else on anything but
+Darwin, reasoning that SIRVIS targets Apple Silicon (§3) and inventing a Linux
+box's GPU core count would be fabrication. The first half is right and the
+second overshot: **refusing to read what a machine plainly reports is not the
+same as refusing to guess at what it does not.** A Linux machine appeared
+entirely unknown, which described SIRVIS's reticence rather than the machine.
+
+Cores, memory, disk, hostname and the OS name are available everywhere through
+the standard library — `os.cpu_count`, `shutil.disk_usage`, `platform.node`,
+`sysconf` on POSIX and a `GlobalMemoryStatusEx` call through `ctypes` on
+Windows, which is a good deal less than a dependency for one number. Linux gets
+its distribution's own `PRETTY_NAME` from `/etc/os-release`, falling back to the
+kernel version rather than to nothing.
+
+What has no portable equivalent stays absent and says so in `unknown_fields`:
+chip name, GPU core count, the performance/efficiency split, thermal state. All
+four are `sysctl` reads with nothing to read them from elsewhere.
+
+The column reads **OS** rather than **macOS**, and carries the full description
+— `macOS 27.0`, `Ubuntu 24.04`, `Windows 11` — because `27.0` alone means
+nothing in a corpus spanning machines. `platform.mac_ver()` is used rather than
+`platform.release()`: the product version is 27.0 where the kernel is 25.0.0,
+and only one of those is a number anybody recognises.
+
+**Verified on macOS only.** The Linux and Windows paths are exercised by tests
+that call them directly, not on real hardware of either kind.
 
 ## Starting the thing
 

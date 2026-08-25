@@ -1138,7 +1138,7 @@ const API={
     available_gb:gb(p.memory_available_bytes),
     swap_gb:gb(p.swap_used_bytes),
     disk_free_gb:gb(p.disk_free_bytes),
-    macos:p.os_version,
+    macos:p.os_description||p.os_version,
     thermal_state:p.thermal_state,
     /* Three fields SIRVIS does not report, left null rather than defaulted.
        `model` — it reads the *chip* (`Apple M5`), not the enclosure; nothing on
@@ -2077,35 +2077,52 @@ async function nervis(){
    condition — buffer, drops, quarantine, gaps — alongside the frames, because a
    feed that silently lost events looks identical to a quiet one. */
 async function eventsView(){
- heading('Event hub','MEP envelopes from every service. Bounded, deduplicated, redacted at the producer.',
-  '<button class="btn" onclick="notify(\'Export previews the exact frames before writing\')">Export…</button>');
- const ev=await API.nervis.events();
- const st=ev.stream, fill=Math.round(st.buffered/st.capacity*100);
- const sev=s=>`<span class="chip${s==='warning'?' warn':''}">${s}</span>`;
- $('#content').innerHTML=kpis([
-   ['Buffered',`${st.buffered}`,`of ${st.capacity} · ${fill}%`,'nervis'],
-   ['Dropped',String(st.dropped),st.dropped?'events lost':'none since connect','nervis'],
-   ['Quarantined',String(st.quarantined),'malformed · not discarded','nervis'],
-   ['Retention',st.retention_days+'d','then pruned','nervis']])
- +`<div class="card full"><h3>Live stream <span class="chip">cursor ${st.cursor}</span></h3>
-   <div class="table-row head five"><span>Time</span><span>Type</span><span>Source</span><span>Trace</span><span>Severity</span></div>
-   ${ev.items.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.source.service_type}${e.source.instance_id?' · '+e.source.instance_id:''}</span><span class="mono">${e.trace_id||'—'}</span><span>${sev(e.severity)}</span></div>`).join('')}
-   <small class="mono dim">a <b>ecosystem.stream.gap</b> frame is itself an event: the hub says it lost something rather than closing the hole. Ordering is guaranteed only within one source stream, and duplicates are tolerated by <b>event_id</b>.</small></div>
-  <div class="card wide"><h3>Producer redaction</h3>
-   <div class="table-row head"><span>Event</span><span>Classification</span><span>Removed by producer</span><span>Version</span></div>
-   ${ev.items.filter(e=>e.privacy.redactions.length||e.event_type.startsWith('clarvis')).map(e=>`<div class="table-row"><span class="mono">${e.event_type}</span><span>${e.privacy.classification}</span><span class="mono">${e.privacy.redactions.join(', ')||'—'}</span><span class="mono">${e.event_version}</span></div>`).join('')}
-   <small class="mono dim">redaction happens at the producer, and the envelope records what was taken out. NERVIS can therefore say what it is not showing, instead of showing less and calling it complete.</small></div>
-  <div class="card narrow"><h3>Quarantine</h3>
-   <div class="trace-step"><b>malformed</b><span>${st.quarantined} held</span></div>
-   <div class="trace-step"><b>unsupported major</b><span>0</span></div>
-   <div class="trace-step"><b>unauthenticated source</b><span>0</span></div>
-   <small class="mono dim">a malformed frame is quarantined with a safe diagnostic. It never crashes the hub, and it never blocks the producer that sent it.</small></div>`}
+ heading('Event hub','MEP envelopes from every service — when there are any.');
+ /* Not wired to an event feed, because there is not one. Both services publish
+    a capability surface that declares `events@1` and its state, so this screen
+    reads *that* — the honest live fact about events is that they are
+    unavailable, and each service says so itself with a reason and a milestone.
 
-/* ── DIAGNOSTICS ───────────────────────────────────────────────────────────
-   Two rules do the work here. Prefer structured data over parsed text, always.
-   And keep service-reported fact, NERVIS observation and operator inference in
-   separate columns — stacking them into one number is how a dashboard starts
-   lying with true inputs. */
+    An invented stream here would be the worst instance of the thing the rest of
+    this build is careful about: an operations screen showing traffic nobody
+    produced. */
+ const ask=async key=>{
+  try{
+   const r=await fetch(BASE[key]+'/ecosystem/capabilities',
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(!r.ok)return null;
+   const all=((await r.json()).capabilities)||[];
+   return all.find(c=>/\bevents?@/.test(c.id))||null;
+  }catch(e){return null}};
+ const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
+
+ const row=(label,cap)=>`<div class="table-row" style="grid-template-columns:.8fr .9fr 1fr 2.2fr">
+   <span><b>${label}</b></span>
+   <span class="mono" style="opacity:.75">${cap?escapeHtml(cap.id):'—'}</span>
+   <span><span class="chip${cap&&cap.state==='available'?'':' warn'}">${cap?escapeHtml(cap.state):'not reachable'}</span></span>
+   <span style="opacity:.75">${cap?escapeHtml(cap.reason||''):'the service did not answer, so nothing is claimed about it either way'}</span></div>`;
+
+ $('#content').innerHTML=`
+  <div class="card full live"><h3>Event publication <span class="chip warn">unavailable</span></h3>${cell(`
+   <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Declared reason</span></div>
+   ${row('RAVIS',rv)}
+   ${row('SIRVIS',sv)}
+   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. This screen shows no events because there are none to show — not because none happened. Every control on this dashboard is bound to a declared capability, and an unavailable one means the control is <b>absent</b> rather than disabled-and-hopeful; the same rule applies to a feed.</small>`,'nervis')}</div>
+
+  <div class="card wide"><h3>What lands with it <span class="chip">specified, not built</span></h3>${cell(`
+   <div class="trace-step"><b>envelope</b><span class="mono">event_id · event_type · event_version · occurred_at · source · trace_id</span></div>
+   <div class="trace-step"><b>ordering</b><span>guaranteed within one source stream only</span></div>
+   <div class="trace-step"><b>duplicates</b><span>tolerated, resolved by <span class="mono">event_id</span></span></div>
+   <div class="trace-step"><b>gaps</b><span>a <span class="mono">ecosystem.stream.gap</span> frame is itself an event</span></div>
+   <div class="trace-step"><b>redaction</b><span>at the producer, never at the hub</span></div>
+   <small class="mono dim">this is the specified contract rather than a description of running code. The hub says it lost something rather than closing the hole, and no prompt, completion, source or path travels in an envelope — a trace says what happened and how long it took, not what was said.</small>`,'nervis')}</div>
+
+  <div class="card narrow"><h3>Meanwhile</h3>${cell(`
+   <div class="trace-step"><b>routing decisions</b><span><a href="#" onclick="state.view='Traces';render();return false" style="color:inherit">Traces</a> · live</span></div>
+   <div class="trace-step"><b>benchmark history</b><span>SIRVIS → Results · live</span></div>
+   <small class="mono dim">RAVIS records a decision per request and SIRVIS records every benchmark run. Neither is an event stream, and both answer most of what someone opens this screen to ask.</small>`,'nervis')}</div>`;
+}
+
 async function diagnosticsView(){
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
   control('Analyze trace…','diagnose',' primary'));
@@ -2201,31 +2218,65 @@ async function mapView(){
    none of them, so the honest failure mode is a hole: `missing` is carried in the
    list, counted in the KPI and drawn as a dashed gap in the waterfall. */
 async function tracesView(){
- heading('Traces','Correlated across services by trace id. A span NERVIS never received is reported missing.',
-  control('Analyze trace…','diagnose',' primary'));
- const [tl,tr]=await Promise.all([API.nervis.traces(),API.nervis.trace()]);
- const missing=tl.items.reduce((n,t)=>n+t.missing,0);
- const longest=tl.items.reduce((a,b)=>b.total_ms>a.total_ms?b:a);
- const ok=tl.items.filter(t=>t.outcome==='ok').length;
- const ms=v=>v<1000?v+' ms':(v/1000).toFixed(1)+' s';
+ heading('Traces','What RAVIS decided for each request, and what it tried.');
+ let payload=null;
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=25',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok)payload=await r.json();
+ }catch(e){payload=null}
+
+ if(!payload){
+  $('#content').innerHTML=`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/route-decisions</span></div>
+   <small class="mono dim">no remembered traces to fall back on, deliberately. A trace describes one request that actually happened; a transcribed one would describe a request nobody made.</small>`,'ravis')}</div>`;
+  return;}
+
+ const items=payload.items||[];
+ if(!items.length){
+  $('#content').innerHTML=`<div class="card full"><h3>Nothing has routed yet</h3>${cell(`
+   <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
+   <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
+  return;}
+
+ const clock=t=>String(t||'').slice(11,19)||'—';
+ const routed=items.filter(d=>d.selected).length;
+ const attemptsOf=d=>((d.execution||{}).attempts)||[];
+ const outcomeOf=d=>{const a=attemptsOf(d);return a.length?a[a.length-1].outcome:(d.selected?'routed':'no_route');};
+ const latest=items[0];
+
  $('#content').innerHTML=kpis([
-   ['Traces',String(tl.items.length),'in the retention window','nervis'],
-   ['Missing spans',String(missing),missing?'reported, never filled in':'none','nervis'],
-   ['Longest',ms(longest.total_ms),longest.origin+' origin','nervis'],
-   ['Outcomes',`${ok} / ${tl.items.length}`,'ok · no-route and cancelled are not errors','nervis']])
- +`<div class="card full"><h3>Recent traces</h3>
-   <div class="table-row head six"><span>Trace</span><span>Started</span><span>Origin</span><span>Spans</span><span>Missing</span><span>Outcome</span></div>
-   ${tl.items.map(t=>`<div class="table-row six${t.trace_id===tr.trace_id?' selected':''}"><span class="mono">${t.trace_id}</span><span class="mono">${t.started}</span><span>${t.origin}</span><span>${t.span_count} <small style="opacity:.55">${ms(t.total_ms)}</small></span><span class="mono"${t.missing?' style="color:#ffb648"':''}>${t.missing||'—'}</span><span class="chip${t.outcome==='ok'?'':' warn'}">${t.outcome}</span></div>`).join('')}
-   <small class="mono dim">a trace whose spans do not add up says so in the <b>missing</b> column rather than shortening its own total. <b>no_route</b> and <b>cancelled</b> are outcomes, not failures — one failed closed on a constraint, the other is a user pressing stop.</small></div>
-  <div class="card wide"><h3>Trace ${tr.trace_id} <span class="chip">cross-service</span></h3>
-   ${tr.spans.map(sp=>`<div class="wf"><span>${sp.service}</span><div class="track">${spanBar(sp,tr.window_ms)}</div></div>`).join('')}
-   <small class="mono dim">${tr.window_ms} ms window. SIRVIS answered the lookup, but its collector dropped the span — so the row is drawn as a dashed hole with no duration. Interpolating that gap from its neighbours would produce a number that looks measured and is not.</small></div>
-  <div class="card narrow"><h3>Span integrity</h3>
-   <div class="trace-step"><b>received</b><span>${tr.spans.filter(s=>!s.missing).length} of ${tr.spans.length}</span></div>
-   <div class="trace-step"><b>missing</b><span>${tr.spans.filter(s=>s.missing).length} · drawn as gaps</span></div>
-   <div class="trace-step"><b>clock skew</b><span>marked, never corrected</span></div>
-   <div class="trace-step"><b>payload capture</b><span>off</span></div>
-   <small class="mono dim">timings, decisions, states and redacted errors by default. No prompt, completion, source or path travels with a span — a trace tells you what happened and how long it took, not what was said.</small></div>`}
+   ['Decisions',String(items.length),'kept in memory, not persisted','ravis'],
+   ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis'],
+   ['Pools',String(new Set(items.map(d=>d.pool||'—')).size),'distinct pools addressed','ravis'],
+   ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis']])
+ +`<div class="card full live"><h3>Recent routing decisions</h3>${cell(`
+   <div class="table-row head six"><span>Decision</span><span>At</span><span>Application</span><span>Pool</span><span>Selected</span><span>Outcome</span></div>
+   ${items.map(d=>`<div class="table-row six${d.decision_id===latest.decision_id?' selected':''}">
+     <span class="mono">${escapeHtml(d.decision_id||'—')}</span>
+     <span class="mono">${clock(d.decided_at)}</span>
+     <span>${escapeHtml(d.application_id||'—')}</span>
+     <span class="mono" style="opacity:.8">${escapeHtml(d.pool||d.requested||'—')}</span>
+     <span class="mono">${escapeHtml(d.selected||'—')}</span>
+     <span class="chip${['ok','success','succeeded','routed'].includes(outcomeOf(d))?'':' warn'}">${escapeHtml(outcomeOf(d))}</span></div>`).join('')}
+   <small class="mono dim"><b>no_route</b> is an outcome rather than a failure — it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it (§9.2). These are held in memory only: §17 does not list route decisions as stored state, so a restart loses them and that is the intended trade.</small>`,'ravis')}</div>
+
+  <div class="card wide live"><h3>Decision ${escapeHtml(latest.decision_id||'')} <span class="chip">${escapeHtml(latest.execution_path||'')}</span></h3>${cell(`
+   <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(latest.requested||'—')}</span></div>
+   <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(latest.selected||'no route')}</span></div>
+   ${(latest.fallbacks||[]).length?`<div class="trace-step"><b>fallbacks</b><span class="mono" style="opacity:.75">${(latest.fallbacks||[]).map(escapeHtml).join(' · ')}</span></div>`:''}
+   ${(latest.requirements||[]).map(r=>`<div class="trace-step"><b>required</b><span class="mono">${escapeHtml(r)}</span></div>`).join('')}
+   <div class="trace-step"><b>considered</b><span>${(latest.considered||[]).length} candidate(s), ${(latest.excluded||[]).length} excluded</span></div>
+   ${attemptsOf(latest).map((a,n)=>`<div class="trace-step"><b>attempt ${n+1}</b><span class="mono">${escapeHtml(a.model)} → ${escapeHtml(a.outcome)}${a.detail?' · '+escapeHtml(a.detail):''}</span></div>`).join('')}
+   ${(latest.execution||{}).stopped_because?`<div class="trace-step"><b>stopped</b><span style="opacity:.75">${escapeHtml(latest.execution.stopped_because)}</span></div>`:''}
+   <small class="mono dim">${escapeHtml(latest.reason||'')}</small>`,'ravis')}</div>
+
+  <div class="card narrow"><h3>Cross-service spans <span class="chip warn">unavailable</span></h3>${cell(`
+   <div class="trace-step"><b>RAVIS events</b><span class="mono">M18b · Stage 7</span></div>
+   <div class="trace-step"><b>SIRVIS events</b><span class="mono">M21 · Stage 7</span></div>
+   <div class="trace-step"><b>span timeline</b><span>not drawn</span></div>
+   <small class="mono dim">what is above is <b>RAVIS's own decision record</b>, not a distributed trace. A timeline correlating Clarvis, RAVIS, SIRVIS and the runtime needs event publication, which both services currently declare <b>unavailable</b> on their own capability surface. Drawing a timeline from one service's record would invent the other three rows.</small>`,'ravis')}</div>`;
+}
 
 /* ── SETTINGS ──────────────────────────────────────────────────────────────
    Several of these are safety boundaries rather than preferences, so they are
@@ -3051,7 +3102,7 @@ async function systemView(){
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
  +`<div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
-   <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>macOS</span></div>
+   <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
    <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
    <div class="bar"><i style="--w:${usedPct}%"></i></div>
@@ -3681,7 +3732,10 @@ ${se.terminal.output}</div>
    control that implies an endpoint exists is the one thing the dashboard must
    not do. This is the same rule applied to *numbers*. */
 const PROTOTYPE={
- nervis:{'Overview':1,'Chat':1,'Ecosystem map':1,'Events':1,'Traces':1,
+ nervis:{'Overview':1,'Chat':1,'Ecosystem map':1,
+         /* Events and Traces are no longer listed. Traces reads RAVIS's route
+            decisions; Events reads each service's declared capability state,
+            which is the honest live fact about a feed that does not exist. */
          'Diagnostics':1,'Settings':1,
          /* System is no longer listed: its KPI strip, machine card and runtime
             list all read SIRVIS's /api/v1/system and /api/v1/runtimes. The one
