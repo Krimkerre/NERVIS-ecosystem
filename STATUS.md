@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 871 tests, no network, no live service
+.venv/bin/pytest                      # part of 879 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,13 +33,13 @@ The other two packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 345 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 871 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 879 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3325,6 +3325,49 @@ their real names would leave two vocabularies for one thing.
 Two regression tests pin it: one upstream's open circuit leaves another's models
 routable, and a chain crossing upstreams attributes each failure to the provider
 that produced it rather than to whichever one the request started on.
+
+## `ravis doctor` was printing an empty table and blaming M8
+
+`resolve_provider_map()` was `del settings; return []`, with a docstring saying
+the emptiness was honest because no provider configuration existed before M8.
+M8 shipped in the meantime — upstreams, filters, an enable/disable file — and
+the function kept returning nothing, so the one command M0 requires to answer
+*"why did it pick that one"* answered "none configured" on a fully configured
+gateway.
+
+The constraint that makes it useful is that it may not contact an upstream, and
+that rules out listing concrete models: which models exist is a network call.
+So the rows describe **the rules rather than their outcome** — which addresses
+reach which provider, which patterns a filter admits, which it removes — printed
+in the order the router applies them:
+
+```text
+model                    provider               decided by
+ravis/anthropic/*        anthropic (translated) RAVIS_ANTHROPIC_API_KEY
+ravis/lmstudio/*         lmstudio               upstream 'lmstudio' → http://127.0.0.1:1234/v1
+*                        lmstudio               upstream 'lmstudio' → http://127.0.0.1:1234/v1
+ravis/openrouter/*       openrouter             upstream 'openrouter' → https://openrouter.ai/api/v1
+*-preview                — no route —           models.json exclude for 'openrouter'
+anthropic/*              openrouter             models.json include for 'openrouter'
+openai/gpt-4*            openrouter             models.json include for 'openrouter'
+```
+
+Three orderings in that table are load-bearing rather than cosmetic. Upstreams
+appear in **declaration order**, because that is the tie-break
+`ravis/src/ravis/transparent.py` uses when two of them serve the same model id —
+listing them alphabetically would name the wrong winner in exactly the situation
+someone runs this to understand. A provider's **exclusions print above its
+inclusions**, because exclude wins in `ModelFilter.matches`. And a translating
+provider appears **only as a direct address**, because §6's Path B is
+unreachable from a pool, so a bare pattern would claim a route that does not
+exist.
+
+A malformed `RAVIS_UPSTREAMS` becomes a row rather than an exception. `doctor`
+is what an operator runs *because* the configuration is broken, so the one
+command that can explain a bad declaration must not be the one that dies on it.
+
+Eight tests, several pointing the configuration at `127.0.0.1:9`, where nothing
+listens: if this ever starts probing for real models they fail rather than hang.
 
 ## Starting the thing
 

@@ -110,11 +110,15 @@ def _print_provider_map(settings: Settings) -> None:
     entries = resolve_provider_map(settings)
     print("\nresolved model → provider (no upstream was contacted)")
     if not entries:
-        print("  none configured — no provider adapters exist until M8")
+        print("  none configured — set RAVIS_UPSTREAM_BASE_URL or RAVIS_UPSTREAMS")
         return
-    print(f"  {'model':<28} {'provider':<18} decided by")
+    # Rules print top to bottom in the order the router applies them, so the
+    # first row matching a model is the one that decided it. Saying so beats a
+    # legend nobody reads, and it is the whole reason the order is preserved.
+    print("  first matching rule wins; upstreams appear in declaration order")
+    print(f"  {'model':<24} {'provider':<22} decided by")
     for entry in entries:
-        print(f"  {entry.model:<28} {entry.provider:<18} {entry.decided_by}")
+        print(f"  {entry.model:<24} {entry.provider:<22} {entry.decided_by}")
 
 
 def _run_conformance() -> int:
