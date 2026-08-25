@@ -35,10 +35,20 @@ DECLARED: dict[str, Capability] = {
     "ravis.openai_compatible.chat_completions@1": Capability(
         version="1.0.0", state=AVAILABLE
     ),
+    # §4.1's table sets a condition **per capability**, not one blanket
+    # conformance bar: `chat_completions@1` says "conformance passes", and this
+    # one says *"a translated adapter ships"*. Anthropic's shipped at M4 and the
+    # local adapters at M8, with a tool-calling completion routed through Ollama
+    # and back — so the condition is met.
+    #
+    # The old reason said "translated execution path is M3b (runbook Stage 5)",
+    # which became false the moment M3b landed and read as though the work were
+    # pending. That is under-advertising, and it fails silently: a peer simply
+    # never negotiates a surface that works.
     "ravis.providers.native@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="translated execution path is M3b (runbook Stage 5)",
+        state=AVAILABLE,
+        reason="translated adapters ship: Anthropic (M4), LM Studio and Ollama (M8)",
     ),
     # §9.7 explanations are recorded per decision and served at
     # /api/v1/route-decisions, including the excluded candidates and why.

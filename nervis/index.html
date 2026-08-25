@@ -2199,7 +2199,24 @@ async function diagnosticsView(){
   control('Analyze trace…','diagnose',' primary'));
  const d=await API.nervis.diagnostics();
  const tick=v=>v?'<span class="chip">yes</span>':'<span class="mono" style="opacity:.35">—</span>';
- $('#content').innerHTML=`<div class="card wide"><h3>Source priority</h3>
+ /* The live half: each service's own health and capability surface. Prepended
+    rather than replacing what follows, because the cards below describe AI
+    diagnostics — the trace packet builder and its redaction — which is NERVIS
+    M12 and does not exist. Those stay marked as prototype. */
+ const [dr,ds]=await Promise.all([serviceDiagnostics('ravis'),serviceDiagnostics('sirvis')]);
+ const checksOf=d=>((d&&d.health&&d.health.checks)||[]);
+ const liveCard=`<div class="card full live"><h3>Service health <span class="chip">live</span></h3>${cell(`
+   <div class="table-row head" style="grid-template-columns:.7fr 1.1fr 1fr 1.6fr"><span>Service</span><span>State</span><span>Checks</span><span>Capabilities</span></div>
+   ${[['RAVIS',dr],['SIRVIS',ds]].map(([label,d])=>`<div class="table-row" style="grid-template-columns:.7fr 1.1fr 1fr 1.6fr">
+     <span><b>${label}</b></span>
+     <span>${healthChip(d)}</span>
+     <span class="mono" style="opacity:.8">${checksOf(d).length?checksOf(d).map(c=>escapeHtml(c.name)+' '+escapeHtml(c.status)).join(' · '):'—'}</span>
+     <span class="mono" style="opacity:.8">${d?`${d.available.length} available · ${d.unavailable.length} not yet`:'—'}</span></div>`).join('')}
+   ${[['RAVIS',dr],['SIRVIS',ds]].filter(([,d])=>d&&d.unavailable.length).map(([label,d])=>
+     d.unavailable.map(c=>`<div class="trace-step"><b>${label} · ${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')).join('')}
+   <small class="mono dim">read from each service's <b>/ecosystem/health</b> and <b>/ecosystem/capabilities</b>. There is no diagnostics endpoint to call — <span class="mono">/api/v1/diagnostics</span> is a 404 on both — so this is assembled from the surfaces every service already publishes. A capability listed as <b>not yet</b> names its own milestone, which is more useful than a red light.</small>`,'nervis')}</div>`;
+
+ $('#content').innerHTML=liveCard+`<div class="card wide"><h3>Source priority</h3>
    <div class="table-row head five"><span>Service</span><span>1 · structured event</span><span>2 · management API</span><span>3 · service log</span><span>4 · raw log</span></div>
    ${d.sources.map(x=>`<div class="table-row five"><span>${x.service}</span><span>${tick(x.structured)}</span><span>${tick(x.management_api)}</span><span>${tick(x.service_log)}</span><span>${tick(x.raw_log)}</span></div>`).join('')}
    <small class="mono dim">never parse a text log when structured data already exists. Clarvis has no management API by design — the Bridge is read-only status, and its log is a gated last resort.</small></div>
@@ -3843,6 +3860,37 @@ const CHAT_SESSIONS={
     created_at:new Date().toISOString(),title:'New conversation',messages:[]});
   render();
  }};
+
+/* Health and capabilities, read from whichever services answer.
+
+   Every service publishes `/ecosystem/health` (§1) and `/ecosystem/capabilities`,
+   so a diagnostics screen has real material without any diagnostics endpoint —
+   which is fortunate, because there is not one: `/api/v1/diagnostics` is a 404
+   on both, and the Clarvis conformance suite is a CLI command with no HTTP
+   surface at all. */
+async function serviceDiagnostics(key){
+ const get=async path=>{
+  try{
+   const r=await fetch(BASE[key]+path,{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   return r.ok?await r.json():null;
+  }catch(e){return null}
+ };
+ const [health,caps,id]=await Promise.all([
+   get('/ecosystem/health'),get('/ecosystem/capabilities'),get('/ecosystem/identity')]);
+ if(!health&&!caps&&!id)return null;
+ const list=(caps&&caps.capabilities)||[];
+ return{key,health,identity:id,
+   capabilities:list,
+   available:list.filter(c=>c.state==='available'),
+   unavailable:list.filter(c=>c.state!=='available')};
+}
+
+function healthChip(d){
+ if(!d||!d.health)return '<span class="chip warn">not answering</span>';
+ const h=d.health;
+ return `<span class="chip${h.status==='healthy'?'':' warn'}">${escapeHtml(h.status||'unknown')}</span>`
+   +` <span class="mono dim">live ${h.live?'yes':'no'} · ready ${h.ready?'yes':'no'}</span>`;
+}
 
 function paramSummary(){
  /* What is actually in force, shown on the closed summary. A parameters panel

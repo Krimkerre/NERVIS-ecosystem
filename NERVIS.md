@@ -861,6 +861,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M16** | Service supervision — ownership modes, start, stop, restart, PID verification | Only managed services are controlled; **external services are never killed**; crash recovery works; a restart does not create a duplicate process |
 | **M17** | Unified diagnostics — cross-service trace, health overlay, log correlation, benchmark/runtime context | A Clarvis → RAVIS → provider trace is visible; SIRVIS runtime evidence links where available; a broken link still produces a partial trace |
 | **M18** | Polish — responsive UI, navigation, error states, onboarding, settings, backup/export | A fresh install is understandable; no service is required for dashboard startup; every unavailable state has a sensible explanation; settings import/export works **without secrets** |
+| **M20** | Conversation memory — recall across conversations, not merely history within one | A new conversation can draw on an earlier one; what was recalled is **shown, with its source conversation**, never silently injected; recall is local by default and follows §7.2's storage rule; **turning it off leaves ordinary chat unchanged**; a recalled passage is fenced before it re-enters a prompt (§11.5), because a stored assistant reply is model output and re-admitting it unfenced is the same trust mistake in a longer loop |
 | **M19** | macOS packaging — `NERVIS.app` | Launches the service, opens the UI, exits cleanly, respects independently running services, leaves no orphan process |
 
 ## 21.1 Ecosystem gate mapping
@@ -874,7 +875,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | Stage 7 — events and tracing | M6 + M7 + M10 + M12 (AI diagnostics — §11.5's fencing rule is part of its exit) |
 | Stage 8 — Clarvis Bridge | M8 + M9 + M17 — M17's exit requires a Clarvis → RAVIS → provider trace, and the runbook is explicit that Clarvis joins at Stage 8. Its Stage 7 half (RAVIS → provider correlation) may land earlier; the Clarvis leg cannot |
 | Stage 9 — code-server compatibility and the Code tab | M13 + M14 + M15 |
-| Stage 10 — whole-ecosystem hardening | M19 |
+| Stage 10 — whole-ecosystem hardening | M19 + M20 |
 | **Unscheduled — deferred by decision** | M18 (polish — responsive layout, onboarding, backup/export). Deferred rather than dropped: the prototype already carries the layout and the error states, so what remains here is genuine polish on top of a working interface rather than the interface itself. Listed so no milestone is silently unassigned |
 
 > NERVIS core is Stage 6 — after RAVIS is live with Clarvis and after the SIRVIS evidence

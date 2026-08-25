@@ -3204,6 +3204,51 @@ recall across conversations — no summarisation, no retrieval, nothing carried
 between sessions. What exists is history: the messages of one conversation,
 re-sent as context when that conversation continues.
 
+## A diagnostics screen, and the two stale capabilities it found
+
+`/api/v1/diagnostics` is a 404 on both services and the Clarvis conformance
+suite is a CLI command with no HTTP surface — so there is no diagnostics
+endpoint to wire. But every service publishes `/ecosystem/health` and
+`/ecosystem/capabilities`, which is enough to build the screen out of surfaces
+that already exist: status, live, ready, each named check, and every capability
+a service declares **with its own reason**. A capability reported as *not yet*
+naming its milestone is more useful than a red light.
+
+It earned its place immediately by surfacing two declarations that had gone
+stale — the failure mode this file already records happening twice before.
+
+**`sirvis.recommendations@1` said "the recommendation engine lands at M15"**
+while the endpoint returned real recommendations. M15 shipped. SIRVIS's bar is
+whether a thing is *built*, which its own test name states, so this is now
+available.
+
+**`ravis.providers.native@1` said "translated execution path is M3b"**, which
+became false the moment M3b landed and read as though the work were pending.
+Getting this one right took two attempts, and the mistake is worth recording:
+the first fix assumed §4.1 imposed a single conformance bar, and `ravis
+conformance` has one suite covering the *transparent* route only — so it was
+reverted as over-advertising.
+
+That was wrong. **§4.1 sets a condition per capability, not one bar for all of
+them**: `chat_completions@1` says *"conformance passes"*, and this one says
+*"a translated adapter ships"*. Anthropic's shipped at M4 and the local adapters
+at M8, with a tool-calling completion routed through Ollama and back. The
+condition is met, and the test pinning it `unavailable` was the stale artefact.
+
+Both errors point the same way. Under-advertising fails **silently**: no error,
+no wrong route, just a peer that never negotiates a surface that works. Only an
+assertion or somebody reading the list catches it — which is now a screen.
+
+## Planned: NERVIS M20, conversation memory
+
+Recorded in `NERVIS.md` rather than left as a conversation. Recall across
+conversations, distinct from history within one, with the exit conditions that
+matter: what was recalled is **shown with its source conversation** rather than
+silently injected, turning it off leaves ordinary chat unchanged, and a recalled
+passage is **fenced before it re-enters a prompt** (§11.5) — a stored assistant
+reply is model output, and re-admitting it unfenced is the same trust mistake in
+a longer loop. Stage 10.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -60,7 +60,12 @@ def test_only_conformance_passing_operations_are_advertised(settings: Settings) 
     states = {c["id"]: c["state"] for c in body["capabilities"]}
 
     assert states["ravis.openai_compatible.chat_completions@1"] == "available"
-    assert states["ravis.providers.native@1"] == "unavailable"
+    # §4.1's condition for this one is *"a translated adapter ships"*, not
+    # "conformance passes" — the table sets a bar per capability. Anthropic's
+    # adapter shipped at M4 and the local ones at M8. This assertion said
+    # `unavailable` for the whole of Stage 5, which is the same drift the
+    # docstring above describes, one capability along.
+    assert states["ravis.providers.native@1"] == "available"
 
 
 def test_anything_not_fully_available_says_why(settings: Settings) -> None:
