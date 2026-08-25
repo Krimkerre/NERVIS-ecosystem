@@ -118,3 +118,34 @@ def test_a_machine_with_no_snapshot_yet_is_absent_not_missing(settings: Settings
 
     assert body["snapshot"] is None
     assert body["is_local_machine"] is False
+
+
+def test_available_memory_is_read_and_kept_apart_from_capacity() -> None:
+    """Reclaimable memory, in the same class as free disk and used swap.
+
+    Added for the System screen, which needed a live "available now" figure and
+    had been inventing one. It belongs on the snapshot rather than on a separate
+    endpoint because `/api/v1/system` already detects on read and already
+    carries volatile fields — free disk, used swap, thermal state — and §11.8
+    judges a result's validity on exactly those.
+
+    Capacity and availability are asserted separately on purpose: the machine
+    has its unified memory whatever is running, and how much of it is free is a
+    different claim about a different moment.
+    """
+    snapshot = detect_system()
+
+    if not snapshot.is_apple_silicon:  # pragma: no cover - CI is Linux
+        return
+    assert snapshot.unified_memory_bytes, "capacity is a property of the machine"
+    assert snapshot.memory_available_bytes is not None, "availability is read live"
+    assert 0 < snapshot.memory_available_bytes <= snapshot.unified_memory_bytes
+
+
+def test_available_memory_is_absent_rather_than_zero_when_unreadable() -> None:
+    """`None` and `0` are different claims — one is ignorance, the other is a
+    machine with no reclaimable memory left, which is a crisis worth seeing."""
+    snapshot = SystemSnapshot(platform_name="Linux", architecture="x86_64", is_apple_silicon=False)
+
+    assert snapshot.memory_available_bytes is None
+    assert "memory_available_bytes" in snapshot.as_dict()

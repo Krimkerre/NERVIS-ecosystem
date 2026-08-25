@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 862 tests, no network, no live service
+.venv/bin/pytest                      # part of 864 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -39,7 +39,7 @@ cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 213 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 862 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 864 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2927,13 +2927,39 @@ publishes no such flag.
 
 **Not cheap, and why — recorded so the next pass does not re-derive it.**
 
-`machine()` looked like a rename and is not. SIRVIS's `/api/v1/system` reports
-the chip, cores, memory, disk and thermal state, but not `available_gb`,
-`model_budget_gb` or `system_baseline_gb` — and the System screen does
-arithmetic on the first (`memory_gb - available_gb`), so a live wire yields
-`NaN` rather than a gap. There is no live "memory available now" endpoint; the
-memory probe exists only inside a benchmark run. Wiring it means either exposing
-that or changing four render sites to degrade honestly.
+`machine()` was recorded as not cheap and then done, because the blocker turned
+out to be one missing field rather than a missing capability. The System screen
+computes `memory_gb - available_gb`, and SIRVIS reported no available memory —
+so a live wire produced `NaN`. But `/api/v1/system` **already detects on read**
+and already carries volatile fields: free disk, used swap, thermal state. A
+reclaimable-memory reading is the same class of fact, taken with the same
+`MemoryProbe` the benchmark engine samples with, so the two cannot disagree
+about what "available" means. Added to the snapshot, not to a new endpoint.
+
+Capacity and availability stay separate claims: the machine has its unified
+memory whatever is running, and how much is free is a statement about a moment.
+`None` is preserved over `0` — ignorance and a machine with nothing left to
+reclaim are different, and only one is a crisis.
+
+**Three fields SIRVIS genuinely cannot detect stay absent, and say so.** `model`
+— it reads the *chip* (`Apple M5`), and nothing on the machine tells a sysctl it
+is in a MacBook Air. `system_baseline_gb` — the memory this machine uses at rest
+with LM Studio open before any model loads, which was **measured by hand** and is
+not computed anywhere. `model_budget_gb` — derived from that baseline, so it
+inherits the absence. Each renders as *"not detected"* through one shared
+helper, because a fit decision made against an invented budget is worse than one
+nobody made.
+
+The runtime list came from a second endpoint rather than being nulled:
+`/api/v1/runtimes` publishes it, and nulling it crashed the screen — which is
+how the omission was found.
+
+**The screen is now live end to end**, and was un-marked from the prototype list
+card by card. One over-correction was caught in the process: `Conditions` was
+faded as invented, and it reads only `thermal_state`, `swap_gb` and
+`available_gb` — all three real. The prose around them is *documentation*, not
+fabricated data, and fading it would have been as misleading as leaving a mock
+bright.
 
 `policies()` and `usage()` have endpoints that answer 200 and are **deliberately
 empty**: policies land at M16, cost at M15, and `/api/v1/usage` says so in a

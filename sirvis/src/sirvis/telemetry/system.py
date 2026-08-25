@@ -25,6 +25,7 @@ import subprocess
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from sirvis.telemetry.memory import MemoryProbe
 from sirvis.telemetry.thermal import read_thermal_pressure
 
 # Long enough for a cold `system_profiler`-class call, short enough that a wedged
@@ -60,6 +61,12 @@ class SystemSnapshot:
     disk_free_bytes: int | None = None
     swap_total_bytes: int | None = None
     swap_used_bytes: int | None = None
+    # Reclaimable memory at the moment of the read. In the same class as
+    # `disk_free_bytes` and `swap_used_bytes` above — volatile, and recorded
+    # because §11.8 uses exactly these to judge whether a result is comparable.
+    # Kept out of the *hardware* fields deliberately: the machine has 24 GB
+    # whatever is running, and how much of it is free is a different claim.
+    memory_available_bytes: int | None = None
     # `nominal`, or whatever the OS reports. None when the OS declines to say —
     # which is different from "cool", and §11.8 makes thermal state part of
     # result validity, so the difference has to survive.
@@ -100,6 +107,10 @@ def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
     """Every macOS metric, each read independently so one gap is only one gap."""
     disk_total, disk_free = _disk()
     swap_total, swap_used = _swap()
+    # The same probe the benchmark engine samples with, rather than a second
+    # reader of `vm_stat` that could disagree with it about what "available"
+    # means (§11.8 counts reclaimable pages, not free ones).
+    available = MemoryProbe().sample("system", include_swap=False).available_bytes
     return SystemSnapshot(
         platform_name="Darwin",
         architecture=machine,
@@ -118,6 +129,7 @@ def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
         disk_free_bytes=disk_free,
         swap_total_bytes=swap_total,
         swap_used_bytes=swap_used,
+        memory_available_bytes=available,
         thermal_state=_thermal_state(),
     )
 

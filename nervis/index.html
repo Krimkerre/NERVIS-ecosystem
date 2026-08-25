@@ -90,6 +90,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    that is not built, and deleting them would lose that. Hovering restores them
    to readable: the point is "do not trust this number", not "you may not look".
    `.card.live` is the opt-out for a screen where only some cards are real. */
+.card.prototype-card{opacity:.4;filter:saturate(.25);border-style:dashed}
+.card.prototype-card:hover{opacity:.82;filter:saturate(.6)}
 #content[data-wip] .card:not(.live){opacity:.4;filter:saturate(.25);border-style:dashed}
 #content[data-wip] .card:not(.live):hover{opacity:.82;filter:saturate(.6)}
 #content[data-wip] .card:not(.live) h3:after{content:"PROTOTYPE";margin-left:8px;
@@ -1113,7 +1115,45 @@ const API={
   /* GET /api/v1/machines/{id} — the snapshot every result is pinned to. Read from
      this machine: sysctl for the chip and memory, sw_vers for the OS, df for the
      disk, and `lms runtime ls` for the engine versions. */
-  async machine(){return{machine_id:'mc_7a1f',model:'MacBook Air M5',chip:'M5',
+  async machine(){
+   /* The runtime list is a second endpoint, fetched alongside rather than
+      nulled: SIRVIS publishes it at /api/v1/runtimes, and the System screen
+      renders it. An empty list is a real answer (no runtime configured); a
+      null one crashed the screen, which is how this was found. */
+   let runtimes=[];
+   try{
+    const r=await fetch(BASE.sirvis+'/api/v1/runtimes',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)runtimes=((await r.json()).items||[]).map(x=>({
+      name:x.runtime_key,
+      version:x.version||`${x.model_count} builds · ${x.state}`}));
+   }catch(e){runtimes=[]}
+   return live('sirvis','/api/v1/system',this._machineMock,p=>{
+   const gb=b=>b==null?null:+(b/1e9).toFixed(1);
+   return{
+    machine_id:p.machine_id,
+    chip:p.chip,
+    cpu_cores:p.cpu_cores,cpu_performance_cores:p.performance_cores,
+    cpu_efficiency_cores:p.efficiency_cores,gpu_cores:p.gpu_cores,
+    memory_gb:gb(p.unified_memory_bytes),
+    available_gb:gb(p.memory_available_bytes),
+    swap_gb:gb(p.swap_used_bytes),
+    disk_free_gb:gb(p.disk_free_bytes),
+    macos:p.os_version,
+    thermal_state:p.thermal_state,
+    /* Three fields SIRVIS does not report, left null rather than defaulted.
+       `model` — it reads the *chip* (`Apple M5`), not the enclosure; nothing on
+       the machine says "MacBook Air" to a sysctl.
+       `system_baseline_gb` — the memory this machine uses at rest with LM Studio
+       open before any model loads. That was *measured by hand*, not computed,
+       and nothing detects it.
+       `model_budget_gb` — derived from the baseline, so it inherits its absence.
+       Each renders as unknown, because a fit decision made against a made-up
+       budget is worse than one nobody made. */
+    model:null,system_baseline_gb:null,model_budget_gb:null,cooling:null,
+    runtimes};
+   })},
+
+  async _machineMock(){return{machine_id:'mc_7a1f',model:'MacBook Air M5',chip:'M5',
    cpu_cores:10,cpu_performance_cores:4,cpu_efficiency_cores:6,gpu_cores:10,
    memory_gb:24,available_gb:12.1,swap_gb:0,macos:'27.0',disk_free_gb:501,
    /* Fanless, and that outranks the core count: sustained inference throttles, so
@@ -2603,7 +2643,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
   return `<span class="chip${works?'':' warn'}">${ok}/${n} tools</span>${clash?` <span class="prov" data-kind="ESTIMATED">claim says ${m.tools_advertised?'yes':'no'}</span>`:''}`};
  $('#content').innerHTML=kpis([
    ['Loaded',`${loaded.length} / ${builds.length}`,'builds resident now'],
-   ['Memory',resident.toFixed(1)+' GB',`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
+   ['Memory',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'resident now · budget not detected':`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
    ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
      fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
@@ -2674,7 +2714,7 @@ async function sirvisModels(){
  $('#content').innerHTML=kpis([
    ['Installed',String(m.items.length),'builds, not families','sirvis'],
    ['Loaded',String(loaded.length),'holding memory now','sirvis'],
-   ['Resident',resident.toFixed(1)+' GB',`of a ${mc.model_budget_gb} GB budget`,'sirvis'],
+   ['Resident',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'holding memory now':`of a ${mc.model_budget_gb} GB budget`,'sirvis'],
    ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis']])
  +`<div class="card full"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
@@ -2700,7 +2740,7 @@ async function sirvisModels(){
    <div class="bar"><i style="--w:${Math.round(resident/mc.memory_gb*100)}%"></i></div>
    <div class="trace-step"><b>available</b><span>${mc.available_gb} GB</span></div>
    <div class="trace-step"><b>swap</b><span>${mc.swap_gb} GB</span></div>
-   <small class="mono dim">the ${mc.system_baseline_gb} GB baseline is this machine with an ordinary working set open — editor, browser, LM Studio — before any model loaded, so the usable budget is about ${mc.model_budget_gb} GB rather than ${mc.memory_gb}. Whether two builds fit together is still a measurement and not this subtraction — see Runtime sets.</small>`,'sirvis')}</div>`}
+   <small class="mono dim">${mc.system_baseline_gb==null?'<b>the at-rest baseline is not detected.</b> It is this machine with an or':`the ${mc.system_baseline_gb} GB baseline is this machine with an or`}dinary working set open — editor, browser, LM Studio — before any model loaded, so the usable budget is ${mc.model_budget_gb==null?'<b>not detected</b> — the at-rest figure was measured by hand and nothing computes it, so this page will not guess at it':`about ${mc.model_budget_gb} GB rather than ${mc.memory_gb}`}. Whether two builds fit together is still a measurement and not this subtraction — see Runtime sets.</small>`,'sirvis')}</div>`}
 
 /* Discover — the model browser. SIRVIS.md §8 splits Models into Installed /
    Discover / Downloads, and this is the middle one: search a remote catalog,
@@ -2755,7 +2795,7 @@ async function sirvisDiscover(){
   <div class="card wide"><h3>What the catalog does not tell you</h3>${cell(`
    <div class="table-row head"><span>Question</span><span style="grid-column:2/-1">Answered by</span></div>
    <div class="table-row"><span>Will it download?</span><span style="grid-column:2/-1;opacity:.75">this page — size against ${free} GB of free disk</span></div>
-   <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${mc.memory_gb} GB of memory on ${mc.model}</span></div>
+   <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${mc.memory_gb} GB of memory on ${mc.model||mc.chip||'this machine'}</span></div>
    <div class="table-row"><span>Will it be any good at your work?</span><span style="grid-column:2/-1;opacity:.75">a benchmark run, per role — nothing on this page predicts it</span></div>
    <div class="table-row"><span>Will it run alongside your other model?</span><span style="grid-column:2/-1;opacity:.75">a Runtime set measurement, which is a separate subject again</span></div>
    <small class="mono dim">file size is a fact about the disk, not about the machine. Parameter count and quantization are the two numbers most often used to guess the other three answers, and guessing them is exactly what SIRVIS exists to stop.</small>`,'sirvis')}</div>
@@ -3002,17 +3042,17 @@ async function systemView(){
    ['Thermal',m.thermal_state,`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
- +`<div class="card wide"><h3>Machine ${m.machine_id}</h3>${cell(`
+ +`<div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
    <div class="table-row head"><span>Model</span><span>Chip</span><span>Cores</span><span>macOS</span></div>
-   <div class="table-row"><span>${m.model}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
+   <div class="table-row"><span>${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
    <div class="bar"><i style="--w:${usedPct}%"></i></div>
    <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Runtimes</h3>${cell(`
+  <div class="card narrow live"><h3>Runtimes</h3>${cell(`
    <div class="table-row head"><span>Runtime</span><span style="grid-column:2/-1">Version</span></div>
    ${m.runtimes.map(r=>`<div class="table-row"><span>${r.name}</span><span class="mono" style="grid-column:2/-1">${r.version}</span></div>`).join('')}
    <small class="mono dim">runtime versions are pinned too. An LM Studio or MLX upgrade is exactly the event that moves throughput without anything else changing, and comparing across one without saying so produces a regression nobody can locate.</small>`,'sirvis')}</div>
-  <div class="card full"><h3>Conditions</h3>${cell(`
+  <div class="card full live"><h3>Conditions</h3>${cell(`
    <div class="table-row head five"><span>Condition</span><span>Now</span><span style="grid-column:3/-1">Effect on a measurement taken in it</span></div>
    <div class="table-row five"><span>Thermal state</span><span class="chip${m.thermal_state==='nominal'?'':' warn'}">${m.thermal_state}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
    <div class="table-row five"><span>Swap</span><span class="chip${m.swap_gb?' warn':''}">${m.swap_gb} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
@@ -3634,7 +3674,10 @@ ${se.terminal.output}</div>
    not do. This is the same rule applied to *numbers*. */
 const PROTOTYPE={
  nervis:{'Overview':1,'Chat':1,'Ecosystem map':1,'Events':1,'Traces':1,
-         'Diagnostics':1,'System':1,'Settings':1},
+         'Diagnostics':1,'Settings':1,
+         /* System is no longer listed: its KPI strip, machine card and runtime
+            list all read SIRVIS's /api/v1/system and /api/v1/runtimes. The one
+            card still inventing anything is `Conditions`, marked below. */},
  /* The service dashboards are the worst of it and were the last to be caught:
     SIRVIS's renders from nine sources of which two are live, RAVIS's from four
     of which one is. A landing screen full of confident invented numbers is the
@@ -3675,7 +3718,12 @@ async function render(){applyTheme();globalStatus();nav();$('#avatarSlot').inner
    have, and a toast is a control's way of saying it worked. */
 function selectOne(el,selector){$$(selector).forEach(x=>x.classList.remove('selected'));el.classList.add('selected')}
 function seedEvents(){const box=$('#events');if(!box)return;['RAVIS routed clarvis/agent','Clarvis connected to workspace','SIRVIS benchmark completed','LM Studio model loaded'].forEach((x,i)=>box.insertAdjacentHTML('beforeend',`<div class="event"><time>10:26:0${8-i}</time><span>${x}</span></div>`))}
-function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>t.classList.remove('show'),2300)}function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>t.classList.remove('show'),2300)}/* An absent figure, rendered as absent. Used wherever SIRVIS reports a machine
+   fact it cannot detect — the enclosure name, the at-rest memory baseline, and
+   the model budget derived from that baseline. Printing `null` or defaulting to
+   a number would both be worse: one looks broken, the other looks measured. */
+function orUnknown(v,suffix){return v==null?'<span class="mono" style="opacity:.5">not detected</span>':v+(suffix||'')}
+function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 /* Cycling a service through healthy → degraded → unreachable is the whole point:
    the rule is that removing a dependency changes only the UI that depends on it,
    and that is only checkable if it can be removed. */
