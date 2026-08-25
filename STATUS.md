@@ -3160,6 +3160,50 @@ Seen immediately, with a 40-token budget: *"No answer. 38 of 40 tokens went to
 reasoning and generation stopped at the token limit — raise Max tokens, or pick
 a profile that avoids reasoning models."*
 
+## Conversations: saved, listed, deletable — and where they actually live
+
+There was no memory of any kind. The transcript lived in a tab and died with it,
+**"New chat" was a button that raised a toast and did nothing**, and the screen
+told the reader *"Conversation cv_… is stored locally and can be deleted"*,
+which was false on both halves.
+
+The spec is not silent about this. NERVIS **M4** requires "history persists
+locally", and **§7.2** names exactly what to keep: *"conversation ID, title,
+timestamps, messages, RAVIS route IDs. Allow deletion."* The domain lists
+`ChatConversation · ChatMessage` and says to use database migrations.
+
+**The reason it was never built is bigger than the feature.** §7.2's store
+belongs to NERVIS **M0** — package, FastAPI, config, SQLite, migrations,
+`nervis serve` — and `nervis/` contains one HTML file, docs and avatars. There
+is no NERVIS service. The launcher serves the dashboard with
+`python -m http.server`. M4's "persists locally" had nowhere to persist to.
+
+So conversations now live in `localStorage`, which satisfies what §7.2 actually
+requires — local by default, deletable, surviving a reload — and the screen says
+plainly what that means: **this browser only**, not the machine, not any
+service; another browser or a private window sees none of it. The real store
+arrives with M0.
+
+* **Saved after every exchange**, not on an explicit action. The failure being
+  prevented is closing a tab and losing the conversation, and nobody presses
+  save before closing a tab.
+* **New chat saves first.** A button that discarded what was on screen would be
+  a data-loss control wearing a friendly label.
+* **Parameters travel with the conversation.** Reopening a chat that used a
+  system prompt and finding it silently gone would make the next reply
+  inexplicable.
+* **Route decision ids are kept**, because §7.2 names them — a stored reply can
+  still explain why that model answered, as long as the decision is still in
+  RAVIS's in-memory window.
+* A corrupt or unavailable store yields no history rather than throwing. Private
+  browsing refuses `localStorage` outright, and a chat screen that cannot open
+  is worse than one that cannot remember.
+
+**Still absent, and worth stating plainly:** there is no *memory* in the sense of
+recall across conversations — no summarisation, no retrieval, nothing carried
+between sessions. What exists is history: the messages of one conversation,
+re-sent as context when that conversation continues.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

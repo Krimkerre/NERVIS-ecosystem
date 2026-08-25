@@ -2217,7 +2217,7 @@ async function diagnosticsView(){
    <div class="table-row"><span>${d.packet.includes.map(x=>'· '+x).join('<br>')}</span><span style="opacity:.7">${d.packet.excludes.map(x=>'· '+x).join('<br>')}</span></div>
    <small class="mono dim">${d.packet.size_kb} KB for trace ${d.packet.trace_id}. You see the exact contents before anything is sent, and <b>${d.packet.route}</b> keeps the analysis on this machine — sending a diagnostic packet is still sending your data somewhere.</small></div>`}
 
-async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.','<button class="btn" onclick="notify(\'New conversation created\')">New chat</button>');
+async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.','<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>');
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
     not inherit a Clarvis workspace, tools, gates, session or agent role — and every
     profile offered here comes from RAVIS's own list, because inventing one is exactly
@@ -2242,6 +2242,14 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');CHAT_SESSION.profile=this.dataset.profile;notify('Routing on '+this.dataset.profile)">${pr.label}</button>`).join('')}
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
    <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
+  ${(()=>{const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
+    return saved.length?`<details class="chat-params"${CHAT_SESSION.historyOpen?' open':''}
+      ontoggle="CHAT_SESSION.historyOpen=this.open"><summary>History <span class="chip">${saved.length}</span></summary>
+      ${saved.map(c=>`<div class="table-row" style="grid-template-columns:1fr auto auto;align-items:center">
+        <span><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></span>
+        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg</span>
+        <button class="btn" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></div>`).join('')}
+      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 asks for a local store NERVIS owns; that arrives with NERVIS M0, which is the package, database and migrations this dashboard does not yet have.</small></details>`:''})()}
   <details class="chat-params"${CHAT_SESSION.paramsOpen?' open':''}
     ontoggle="CHAT_SESSION.paramsOpen=this.open"><summary>Parameters${paramSummary()}</summary>
    <div class="param-grid">
@@ -2271,7 +2279,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
         : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}</div>`).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">➤</button></div>
-  <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is stored locally and can be deleted; prompts are not sent to the trace collector.</small>
+  <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is kept in this browser's local storage, listed under <b>History</b>, and can be deleted there; prompts are not sent to the trace collector.</small>
  </div>`;
  $('#sendChat').onclick=sendChat;$('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
  sizeChat();}
@@ -3720,8 +3728,63 @@ const PROVIDERS={
 
    Messages live for the tab and no longer. Nothing is written to disk, which is
    what the screen already claimed and now does. */
+/* Conversation storage.
+
+   §7.2 asks for exactly this and no more: "Local only by default: conversation
+   ID, title, timestamps, messages, RAVIS route IDs. Allow deletion." NERVIS M4
+   adds "history persists locally".
+
+   **This is `localStorage`, not the database §7.2 eventually wants.** NERVIS M0
+   — the FastAPI package with SQLite and migrations — has never been built, and
+   `nervis/` holds a single HTML file served by a static server. So there is no
+   backend to persist to. `localStorage` satisfies the requirement that matters
+   (local, deletable, survives a reload) and is honest about being per-browser
+   rather than per-machine: another browser, or a private window, sees nothing.
+
+   Nothing here is sent anywhere. Prompts do not travel to the trace collector,
+   which is what the screen has always claimed and can now claim truthfully. */
+const CHAT_STORE={
+ KEY:'nervis.conversations.v1',
+ read(){
+  try{
+   const raw=localStorage.getItem(this.KEY);
+   const list=raw?JSON.parse(raw):[];
+   return Array.isArray(list)?list:[];
+  }catch(e){
+   /* A corrupt or unavailable store yields no history rather than throwing.
+      Private browsing refuses localStorage entirely, and a chat screen that
+      cannot open is a worse outcome than one that cannot remember. */
+   return [];
+  }
+ },
+ write(list){
+  try{localStorage.setItem(this.KEY,JSON.stringify(list));return true}
+  catch(e){return false}
+ },
+ save(session){
+  if(!session.messages.length)return;
+  const list=this.read().filter(c=>c.conversation_id!==session.id);
+  list.unshift({
+   conversation_id:session.id,
+   title:session.title,
+   created_at:session.created_at,
+   updated_at:new Date().toISOString(),
+   /* Route ids are kept — §7.2 names them explicitly. They are what lets a
+      stored reply still explain why that model answered, provided the decision
+      is still in RAVIS's in-memory window. */
+   messages:session.messages.map(m=>({role:m.role,text:m.text,
+     served:m.served||null,route_decision_id:m.route_decision_id||null})),
+   params:{system:session.system,temperature:session.temperature,
+     max_tokens:session.max_tokens,top_p:session.top_p,profile:session.profile}});
+  this.write(list.slice(0,50));
+ },
+ remove(id){this.write(this.read().filter(c=>c.conversation_id!==id))},
+ clear(){this.write([])}
+};
+
 const CHAT_SESSION={
  id:'cv_'+Math.random().toString(36).slice(2,6),
+ created_at:new Date().toISOString(),
  title:'New conversation',
  messages:[],
  profile:'ravis/auto',
@@ -3739,6 +3802,47 @@ const CHAT_SESSION={
  max_tokens:'',
  top_p:'',
  busy:false};
+
+const CHAT_SESSIONS={
+ start(){
+  /* The current conversation is saved before it is replaced. A "New chat"
+     button that discarded what was on screen would be a data-loss control
+     wearing a friendly label. */
+  CHAT_STORE.save(CHAT_SESSION);
+  Object.assign(CHAT_SESSION,{
+   id:'cv_'+Math.random().toString(36).slice(2,6),
+   created_at:new Date().toISOString(),
+   title:'New conversation',
+   messages:[]});
+  render();
+  notify('New conversation');
+ },
+ open(id){
+  const found=CHAT_STORE.read().find(c=>c.conversation_id===id);
+  if(!found)return notify('That conversation is no longer stored');
+  CHAT_STORE.save(CHAT_SESSION);
+  const p=found.params||{};
+  Object.assign(CHAT_SESSION,{
+   id:found.conversation_id,
+   created_at:found.created_at,
+   title:found.title,
+   messages:(found.messages||[]).map(m=>({...m})),
+   /* Parameters travel with the conversation. Reopening a chat that used a
+      system prompt and finding it silently gone would make the next reply
+      inexplicable. */
+   system:p.system||'',temperature:p.temperature||'',
+   max_tokens:p.max_tokens||'',top_p:p.top_p||'',
+   profile:p.profile||'ravis/auto'});
+  render();
+ },
+ remove(id){
+  if(!confirm('Delete this conversation? It is not stored anywhere else.'))return;
+  CHAT_STORE.remove(id);
+  if(CHAT_SESSION.id===id)Object.assign(CHAT_SESSION,{
+    id:'cv_'+Math.random().toString(36).slice(2,6),
+    created_at:new Date().toISOString(),title:'New conversation',messages:[]});
+  render();
+ }};
 
 function paramSummary(){
  /* What is actually in force, shown on the closed summary. A parameters panel
@@ -3849,6 +3953,10 @@ async function sendChat(){
   }catch(e){}
  }
  CHAT_SESSION.busy=false;
+ /* Saved after each exchange rather than on some explicit action: the failure
+    this prevents is closing a tab and finding the conversation gone, and
+    nobody presses save before closing a tab. */
+ CHAT_STORE.save(CHAT_SESSION);
  render();
 }
 
