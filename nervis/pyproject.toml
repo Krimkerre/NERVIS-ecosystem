@@ -1,0 +1,72 @@
+[project]
+name = "nervis"
+version = "0.0.1"
+description = "Ecosystem control plane — dashboard, event hub, diagnostics"
+requires-python = ">=3.11"
+dependencies = [
+  # One protocol, one implementation. The MEP surface is not reimplemented here
+  # for the same reason SIRVIS and RAVIS do not reimplement it: a health
+  # endpoint that means something slightly different per service is worse than
+  # none, because the whole value is asking all three the same thing.
+  "ecosystem-protocol",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  # NERVIS is a client of every other service (§5). Present from M0 because
+  # `doctor` needs to say whether a peer is reachable, not because M0 probes.
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "mypy>=1.13"]
+
+[project.scripts]
+nervis = "nervis.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ── Engineering standards, ECOSYSTEM_RUNBOOK.md §14.1 ─────────────────────────
+# Identical to the two sibling packages, deliberately. These are gates rather
+# than preferences, and a monorepo where one service lints looser than another
+# is a monorepo where work migrates to the looser one.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle: whitespace and line length
+  "F",        # pyflakes: unused imports, undefined names
+  "I",        # isort: deterministic import order
+  "C90",      # mccabe: cyclomatic complexity, capped below
+  "N",        # pep8-naming: classes are nouns in CapWords, functions lower_snake
+  "ARG",      # unused arguments — dead parameters are dead code (§14 code smells)
+  "SIM",      # flake8-simplify: the obvious simplifications
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/nervis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+# Same reason as the sibling packages: without this the suite only passes when
+# invoked as `python -m pytest`, which injects the working directory as a side
+# effect. CI runs it bare.
+pythonpath = ["."]

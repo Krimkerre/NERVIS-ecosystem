@@ -492,18 +492,31 @@ const state={app:'nervis',view:'Overview'};
    negotiated capability list, not a guess. A control reads it rather than assuming the
    operation exists, which is what "every tile and control is capability-driven" means.
 
-   SIRVIS deliberately does NOT advertise sirvis.runtime.control@1 here: SIRVIS.md marks
-   load/unload "only if implemented and authorized", so the un-negotiated case is the
-   normal one and the Load control has to show it rather than pretend. Add the string to
-   watch the control come alive — that is the whole mechanism. */
+   These are the *fallback* values, used when a service does not answer. The live ones
+   come from each service's own `/ecosystem/capabilities`, which the registry card reads.
+
+   SIRVIS now genuinely advertises `sirvis.runtime.control@1` — its §4.1 table was
+   adopted verbatim at the same time NERVIS M0 landed, and lease/renew/release are
+   built. This list said otherwise for as long as SIRVIS published names it had
+   invented, which is a good illustration of why a dashboard should not keep its own
+   copy of what a service can do. */
 const SERVICES={
- nervis :{label:'NERVIS',         state:'healthy', age:2,
-          caps:['nervis.registry@1','nervis.dashboard@1','nervis.event_hub@1','nervis.traces@1']},
+ /* Empty since NERVIS M0 made this a real service that can be asked. It
+    publishes ten capabilities and reports none of them as `available` — the
+    registry, the event hub, traces and chat all land at later milestones — so
+    listing four here would have this dashboard advertising, on NERVIS's behalf,
+    exactly what NERVIS itself refuses to claim. */
+ nervis :{label:'NERVIS',         state:'healthy', age:2, caps:[]},
  ravis  :{label:'RAVIS',          state:'healthy', age:3,
           caps:['ravis.openai_compatible.chat_completions@1','ravis.routing.explanations@1',
                 'ravis.virtual_profiles@1','ravis.management@1']},
+ /* §4.1's names, which is what SIRVIS actually publishes since the capability
+    rename. `sirvis.models.inventory@1` was never one of them — it was invented,
+    and this list copied the invention. */
  sirvis :{label:'SIRVIS',         state:'healthy', age:9,
-          caps:['sirvis.benchmarks.results@1','sirvis.models.inventory@1']},
+          caps:['sirvis.benchmarks.results@1','sirvis.inventory.read@1',
+                'sirvis.runtime.state.read@1','sirvis.runtime.control@1',
+                'sirvis.runtime_sets@1','sirvis.recommendations@1']},
  clarvis:{label:'Clarvis Bridge', state:'healthy', age:5,
           caps:['clarvis.status.read@1']}
 };
@@ -551,16 +564,29 @@ const ICON={
  'Extensions':'<rect x="2.4" y="2.4" width="4.7" height="4.7" rx="1"/><rect x="8.9" y="2.4" width="4.7" height="4.7" rx="1"/><rect x="2.4" y="8.9" width="4.7" height="4.7" rx="1"/><path d="M11.3 8.9v4.7M8.9 11.3h4.7"/>',
  'Terminal':'<rect x="2.2" y="3" width="11.6" height="10" rx="1.3"/><path d="m4.9 6.6 2.1 2-2.1 2M8.6 11.2h3.3"/>'
 };
-const usable=k=>['healthy','degraded'].includes(SERVICES[k].state);
+/* An unknown key is *not usable*, rather than an exception. This threw for
+   every caller the moment a registry row carried a key with no entry in
+   `SERVICES` — LM Studio, which publishes no MEP surface and therefore owns no
+   row here — and took the whole Overview and Ecosystem map screens down with
+   it. A dashboard whose job is to render partial information should not have a
+   lookup that treats "I have never heard of this" as fatal. */
+const usable=k=>['healthy','degraded'].includes((SERVICES[k]||{}).state);
 /* A capability is usable only if the service is reachable AND advertised it. Absence is
    an ordinary state here too — an un-negotiated capability disables its control with a
-   reason, it does not throw and it does not silently do nothing. */
+   reason, it does not throw and it does not silently do nothing.
+
+   **Nothing calls this yet, and the comment above `SERVICES` used to say it did.**
+   Binding each control to a capability is what M2's registry is for; until then
+   screens are gated on whether their service answered, which is `usable`. Kept
+   rather than deleted because it is the shape M2 needs and one line is a cheaper
+   marker than a paragraph in a plan — but it is a promise, not a mechanism. */
 const capable=(k,id)=>usable(k)&&(SERVICES[k].caps||[]).includes(id);
 /* A tile renders its value only if the service that owns it can answer.
    Otherwise it names the service and the reason — so an empty panel can
    never be mistaken for a measured zero. */
-function cell(body,src){if(!src||usable(src))return body;const st=SERVICES[src].state;
- return `<div class="absent" data-state="${st}"><b>${SERVICES[src].label} ${st}</b><span>${REASON[st]}</span></div>`}
+function cell(body,src){if(!src||usable(src))return body;const known=SERVICES[src]||{state:'unknown',label:src};
+ const st=known.state;
+ return `<div class="absent" data-state="${st}"><b>${known.label} ${st}</b><span>${REASON[st]||'no MEP surface to read'}</span></div>`}
 /* MEASURED / ESTIMATED / UNKNOWN must survive to the pixel: a bare number is
    a claim the underlying evidence may not support. */
 const prov=(kind,detail='')=>`<span class="prov" data-kind="${kind}">${kind}${detail?' · '+detail:''}</span>`;
@@ -1829,16 +1855,31 @@ const API={
          service that publishes five and offers one should read as offering
          one. The count travels beside it so the card cannot imply otherwise. */
       capability:up.length?up[0].id:'none available',
+      /* The row carries its own state. It used to be looked up in `SERVICES`
+         by key, which mixed a live read with a hard-coded map and crashed the
+         whole Overview the moment a row's key was not in that map. A service
+         that answered both MEP reads is reachable — that is what the column
+         means, and the live answer is the one that knows it. */
+      state:'healthy',
+      /* Just read, so the "as of" stamp is now rather than a number from a
+         fallback map that has no idea when this row was last refreshed. */
+      age:0,
       capabilities_available:up.length,capabilities_total:all.length,key};
     }catch(e){return null}};
-   const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
-   if(!rv&&!sv)return this._servicesMock();
+   /* NERVIS reads itself, and same-origin: BASE.nervis is '' because the page
+      is served by the service it is asking. Since M0 that is a real MEP
+      surface rather than a static file server, so the registry no longer has
+      to declare its own host from a literal. */
+   const [rv,sv,nv]=await Promise.all([ask('ravis'),ask('sirvis'),ask('nervis')]);
+   if(!rv&&!sv&&!nv)return this._servicesMock();
    if(rv)SOURCE.ravis='live';
    if(sv)SOURCE.sirvis='live';
+   if(nv)SOURCE.nervis='live';
    const fallback=(await this._servicesMock()).items;
    const pick=(live,key)=>live||fallback.find(x=>x.key===key);
-   return{items:[pick(rv,'ravis'),pick(sv,'sirvis'),
-                 ...fallback.filter(x=>x.key!=='ravis'&&x.key!=='sirvis')]};
+   const read=new Set(['ravis','sirvis','nervis']);
+   return{items:[pick(nv,'nervis'),pick(rv,'ravis'),pick(sv,'sirvis'),
+                 ...fallback.filter(x=>!read.has(x.key))]};
   },
 
   async _servicesMock(){return{items:[
@@ -1846,10 +1887,17 @@ const API={
     capability:'ravis.openai_compatible.chat_completions@1',key:'ravis'},
    {service_type:'sirvis',label:'SIRVIS',build_version:'0.3.0',protocol_version:'1',
     capability:'sirvis.benchmarks.results@1',key:'sirvis'},
+   {service_type:'nervis',label:'NERVIS',build_version:'0.0.1',protocol_version:'1',
+    capability:'none available',key:'nervis',state:SERVICES.nervis.state,age:SERVICES.nervis.age},
    {service_type:'clarvis',label:'Clarvis Bridge',build_version:'0.9.2',protocol_version:'1',
-    capability:'clarvis.status.read@1',key:'clarvis'},
+    capability:'clarvis.status.read',key:'clarvis',state:SERVICES.clarvis.state,age:SERVICES.clarvis.age},
+   /* `key:'external'` rather than `'nervis'`, which is what it said until NERVIS
+      became a service with a row of its own — LM Studio was borrowing NERVIS's
+      key and would have been fetched over as the live NERVIS entry. It owns no
+      row in `SERVICES` because it publishes no MEP surface, which is why the
+      state travels on the row instead of being looked up from one. */
    {service_type:'external',label:'LM Studio',build_version:'0.4.21',protocol_version:null,
-    capability:'runtime host · external',key:'nervis'}]}},
+    capability:'runtime host · external',key:'external',state:'external',age:0}]}},
 
   /* GET {bridge}/v1/status per instance — one entry per extension host.
      Never merge two windows, and never resolve a gate from here. */
@@ -2124,8 +2172,8 @@ async function nervis(){
    ['Local',usage.local_pct+'%','of today','ravis'],['Services',`${live} / 4`,'registered','nervis']])
  +`<div class="card wide live"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(SERVICES[r.key].state)?'':' warn'}">${SERVICES[r.key].state}</span></div>`).join('')}
-   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>RAVIS and SIRVIS are read live</b> from <b>/ecosystem/identity</b> and <b>/ecosystem/capabilities</b>, and the capability shown is the first one each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge and LM Studio publish no MEP surface</b>, so their rows are declared here rather than read — which is why this card is only partly trustworthy and says so.</small></div>
+   ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':' warn'}">${r.state}</span></div>`).join('')}
+   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>NERVIS, RAVIS and SIRVIS are read live</b> from <b>/ecosystem/identity</b> and <b>/ecosystem/capabilities</b> — NERVIS since M0, same-origin, because the service serving this page is the one being asked. The capability shown is the first each reports as <i>available</i> rather than the first it declares, which is why NERVIS reads <i>none available</i>: it publishes ten and offers none of them yet. <b>Clarvis Bridge and LM Studio publish no MEP surface</b>, so their rows are declared here rather than read.</small></div>
   <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
   <div class="card wide"><h3>Clarvis instances</h3>
    ${usable('clarvis')?`<div class="table-row head"><span>Workspace</span><span>Mode</span><span>State</span><span>Route</span></div>
@@ -2323,11 +2371,17 @@ addEventListener('resize',()=>{if(document.querySelector('.card.chat'))sizeChat(
 async function mapView(){
  heading('Ecosystem map','Every node is a registry entry. Every edge is a connection NERVIS itself holds.');
  const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
- const live=svc.items.filter(s=>usable(s.key)).length;
+ /* From the rows, which carry their own state since three of them are read
+    live, rather than from `SERVICES` — the fallback map has no row for a
+    service that publishes no MEP surface. */
+ const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
  /* Nodes sit on a circle so the count can change without a layout rewrite. The
     inline position beats the .node:nth-of-type rules the Overview map relies on. */
  const pos=(i,n)=>{const a=(-90+i*360/n)*Math.PI/180;return{x:50+Math.cos(a)*33,y:50+Math.sin(a)*32}};
- const pts=svc.items.map((s,i)=>({...s,...pos(i,svc.items.length),ok:usable(s.key)}));
+ /* `ok` from the row's own state, like every other reader of this list — the
+    node spread already carries it, so nothing here needs `SERVICES` at all. */
+ const pts=svc.items.map((s,i)=>({...s,...pos(i,svc.items.length),
+   ok:['healthy','degraded'].includes(s.state)}));
  $('#content').innerHTML=kpis([
    ['Registered',String(svc.items.length),'one row per identity','nervis'],
    ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis'],
@@ -2337,15 +2391,15 @@ async function mapView(){
    <div class="map" style="height:320px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
     <div class="hub">NERVIS</div>
-    ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${n.label}</b><br><small style="opacity:.6">${SERVICES[n.key].state}</small></div>`).join('')}
+    ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${n.label}</b><br><small style="opacity:.6">${n.state}</small></div>`).join('')}
    </div>
    <small class="mono dim">the hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
   <div class="card wide"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(s=>`<div class="table-row five caps"><span>${s.label}</span><span class="mono">${s.build_version}</span><span class="mono">${s.protocol_version?'proto '+s.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${s.capability}</span><span class="chip${usable(s.key)?'':' warn'}">${SERVICES[s.key].state}</span></div>`).join('')}
+   ${svc.items.map(s=>`<div class="table-row five caps"><span>${s.label}</span><span class="mono">${s.build_version}</span><span class="mono">${s.protocol_version?'proto '+s.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${s.capability}</span><span class="chip${usable(s.key)?'':' warn'}">${s.state}</span></div>`).join('')}
    <small class="mono dim">an unknown capability is unavailable, not disabled-and-hopeful. An unsupported required major marks that one <b>feature</b> incompatible — never the whole dashboard, while other surfaces still negotiate.</small></div>
   <div class="card narrow"><h3>Observer-side state</h3>
-   ${svc.items.map(s=>`<div class="trace-step"><b>${s.label}</b><span>${SERVICES[s.key].state}${REASON[SERVICES[s.key].state]?' · '+REASON[SERVICES[s.key].state]:''} ${stamp(SERVICES[s.key].age)}</span></div>`).join('')}
+   ${svc.items.map(s=>`<div class="trace-step"><b>${s.label}</b><span>${s.state}${REASON[s.state]?' · '+REASON[s.state]:''} ${stamp(s.age ?? 0)}</span></div>`).join('')}
    <small class="mono dim">these are NERVIS's own states, not the <b>healthy | degraded | unhealthy</b> a peer reports about itself. Healthy means a truthful response <i>plus</i> reachability: a successful TCP connect is not readiness.</small></div>`}
 
 /* ── TRACES ────────────────────────────────────────────────────────────────

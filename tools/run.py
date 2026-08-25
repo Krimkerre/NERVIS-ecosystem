@@ -85,7 +85,7 @@ def ensure_venv() -> None:
     # runtime-only install produced a working application in which every command
     # in STATUS.md's own "verify this yourself" block was missing, which is the
     # kind of gap that only shows up to somebody who just cloned the thing.
-    for target in ("protocol", "ravis", "sirvis"):
+    for target in ("protocol", "ravis", "sirvis", "nervis"):
         print(f"  installing {target}…")
         subprocess.run(
             [python, "-m", "pip", "install", "-q", "-e", f"{ROOT / target}[dev]"], check=True
@@ -150,6 +150,15 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
                 env["RAVIS_UPSTREAM_BASE_URL"] = LM_STUDIO
                 env["RAVIS_UPSTREAM_KIND"] = "lmstudio"
                 env["RAVIS_DEFAULTED_UPSTREAM"] = "1"
+        if prefix == "NERVIS":
+            # Where its peers are. Nothing is probed until M2, but `doctor`
+            # prints these and getting them wrong here would make the first
+            # thing anyone runs point at the wrong ports.
+            env["NERVIS_RAVIS_BASE_URL"] = f"http://127.0.0.1:{RAVIS_PORT}"
+            env["NERVIS_SIRVIS_BASE_URL"] = f"http://127.0.0.1:{SIRVIS_PORT}"
+            # No allow-list: NERVIS serves the dashboard and the dashboard's own
+            # API from one origin, so nothing it answers is ever cross-origin.
+            return env
         # The dashboard is served from another port, so it is cross-origin to
         # both services. Each default is an empty allow-list, which is why the
         # screens would otherwise silently show nothing.
@@ -166,9 +175,14 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
          f"http://127.0.0.1:{SIRVIS_PORT}/v1/status"),
         ("RAVIS", [str(venv_bin("ravis")), "serve"], "ravis",
          env_for("RAVIS", RAVIS_PORT), f"http://127.0.0.1:{RAVIS_PORT}/v1/models"),
-        ("NERVIS", [str(venv_bin("python")), "-m", "http.server", str(NERVIS_PORT),
-                    "--bind", "127.0.0.1", "--directory", str(ROOT / "nervis")],
-         "http.server", dict(os.environ), DASHBOARD),
+        # NERVIS's own service since M0, replacing the `http.server` that stood
+        # in for it. Same port, same URL, same dashboard file — what changes is
+        # that the thing serving it now has a database, an identity and an
+        # `/ecosystem/*` surface, which is what makes settings and conversations
+        # able to outlive a browser profile.
+        ("NERVIS", [str(venv_bin("nervis")), "serve"], "nervis",
+         env_for("NERVIS", NERVIS_PORT),
+         f"http://127.0.0.1:{NERVIS_PORT}/api/v1/health"),
     ]
 
 

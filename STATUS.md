@@ -25,21 +25,22 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 889 tests, no network, no live service
+.venv/bin/pytest                      # part of 918 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
-The other two packages are checked the same way, from their own directories:
+The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 29 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 889 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 918 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3473,6 +3474,101 @@ expected memory, performance and quality as named outputs, and evidence level.
 The docstring now says which is which, and the four are scheduled as SIRVIS
 **M15b**. That is the whole lesson of this section in one example: the docstring
 read as a completeness guarantee, so nobody checked it for eleven milestones.
+
+## NERVIS M0 — the third service exists
+
+Until today NERVIS was a 4,351-line HTML file served by `python -m http.server`.
+That is why chat history lived in `localStorage`, why the Settings screen had
+nothing to write to, and why **Stage 1 could not close**: its exit requires every
+service — NERVIS included — to answer identity, health, capabilities and version
+before anything probes anyone.
+
+`nervis serve` now does. Same port, same URL, same dashboard file. What changed
+is that the thing serving it has a database, a stable identity and an
+`/ecosystem/*` surface:
+
+```text
+$ curl -s localhost:8790/ecosystem/identity
+{"service_id": "9c0d6924…", "service_type": "nervis",
+ "instance_id": "7e04c33b…", "machine_id": "b2a10526…",
+ "protocol_version": "1.0.0", "build_version": "0.0.1"}
+```
+
+### What it declares, and why almost all of it is `unavailable`
+
+§3.1 prints ten capability names. All ten are published and **nine are
+`unavailable`**, each naming the milestone that will change it. The tenth,
+`nervis.dashboard@1`, is `degraded` — the shell is genuinely served, and every
+figure on it is still fetched by the browser from RAVIS and SIRVIS directly, so
+NERVIS is the page's host and not yet its source.
+
+The registry card reads that live and says so:
+
+```text
+NERVIS  0.0.1  proto 1.0.0  none available   0/10
+RAVIS   0.0.1  proto 1.0.0  ravis.openai_…   3/8
+SIRVIS  0.0.1  proto 1.0.0  sirvis.benchm…   6/8
+```
+
+**NERVIS reads itself same-origin** — `BASE.nervis` is the empty string, because
+the service serving the page is the one being asked.
+
+### Three decisions worth stating rather than discovering later
+
+**The dashboard is served, not rewritten.** NERVIS.md §3 names HTMX and
+server-rendered HTML, and that remains the direction for screens NERVIS supplies
+data for from M1 onward. `index.html` was built screen by screen against two
+live services; replacing it with a server-rendered skeleton to satisfy a
+milestone's wording would have thrown away working software to produce a worse
+version of it.
+
+**Not SQLAlchemy and not Alembic**, which §3 also names. Both sibling services
+migrate with the standard library, the schema is a handful of tables, and adding
+an ORM plus a migration framework to a third service to describe them would buy
+nothing the other two found they needed.
+
+**No CORS middleware.** NERVIS serves the dashboard and the dashboard's own API
+from one origin, so nothing it answers is ever cross-origin. A third copy of the
+allowlist would be a header no browser ever sends a request past.
+
+### `machine_id` comes out of the database, not a constructor
+
+§4.1 requires it to be locally generated, opaque, non-hardware-derived and
+resettable — never a hostname, serial number or MAC address. A `uuid4()` in
+`create_app` would satisfy every clause and still be wrong, because it would
+give a peer a different answer after every restart. It is generated once into an
+`installation` table and read back thereafter. `instance_id` is the one that
+changes per process, which is what distinguishes a restart from a second
+instance.
+
+### A crash the wiring exposed, and its actual cause
+
+Adding a NERVIS row to the registry broke the Overview and Ecosystem map
+screens: LM Studio's row had been carrying `key: 'nervis'` as a placeholder, and
+giving NERVIS a row of its own meant LM Studio needed a key that has no entry in
+the dashboard's fallback `SERVICES` map.
+
+Four call sites looked up `SERVICES[row.key].state` and every one of them threw.
+The fix is not four guards. **Rows read live now carry their own state**, which
+is where it belongs — three of the five are read from `/ecosystem/*`, and mixing
+a live read with a hard-coded map was the defect. `usable()` also stopped
+treating an unknown key as fatal: a dashboard whose entire job is rendering
+partial information should not have a lookup that raises on "I have never heard
+of this".
+
+Verified afterwards by rendering **all 27 screens across the three apps** and
+asserting none throws.
+
+### What this does not do
+
+No peer is probed — that is M2, and NERVIS is deliberately ready with RAVIS,
+SIRVIS and Clarvis all absent. A control plane that reported itself broken when
+the things it watches are broken could not be used to find out why.
+
+`capable(service, capability)` exists in the dashboard and **nothing calls it**;
+the comment above `SERVICES` claimed controls were bound to capabilities, and
+they are bound to whether their service answered. Corrected in place rather than
+quietly, and binding each control is what M2's registry is for.
 
 ## Starting the thing
 

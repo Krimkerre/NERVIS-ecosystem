@@ -1,35 +1,85 @@
-# NERVIS — the dashboard being built
+# NERVIS
 
-The single-file NERVIS dashboard, and the one the build changes. It began as this
-repository's `template/` directory and now owns the working apparatus:
-[`AGENTS.md`](AGENTS.md) for the rules, [`docs/`](docs/), [`tools/`](tools/) and
-[`avatars/`](avatars/).
+The ecosystem's control plane: the dashboard, and — since M0 — the service that
+serves it.
+
+```bash
+cd nervis && ../ravis/.venv/bin/nervis doctor
+```
+
+`doctor` needs nothing else running. That is the point of it: the command you
+reach for when something is broken must work when everything is broken. It
+migrates the database for real rather than checking a path, prints every
+capability with the milestone attached to it, and names where its peers would be
+without contacting them.
+
+## The service (M0)
+
+Package, FastAPI, settings, SQLite with forward-only migrations, structured
+logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
+`/ecosystem/{health,identity,capabilities,version,events}` surface.
+
+Nine of the ten capabilities §3.1 names are `unavailable`, each naming its
+milestone. `nervis.dashboard@1` is `degraded`: the shell is served, and its data
+still comes from RAVIS and SIRVIS directly. **Nothing advertises an operation it
+cannot perform** — §4.1 forbids it, and both sibling services spent milestones
+learning why.
+
+**No peer is probed.** That is M2. NERVIS is ready with RAVIS, SIRVIS and Clarvis
+all absent, deliberately: a control plane that reported itself broken when the
+things it watches are broken could not be used to find out why.
+
+`/api/v1` has `health` and `settings`. §14's other six paths arrive with the
+milestones that own them, because a stub returning plausible data is §4.1's
+prohibition one layer up.
+
+Two deviations from §3, stated rather than left to be discovered. **Not
+SQLAlchemy and not Alembic**: both sibling services migrate with the standard
+library and the schema here is a handful of tables, so an ORM plus a migration
+framework would buy nothing the other two found they needed. **No CORS**: NERVIS
+serves the dashboard and the dashboard's own API from one origin, and the
+cross-origin reads go to RAVIS and SIRVIS, which each carry the allowlist that
+governs them.
+
+```bash
+cd nervis
+../ravis/.venv/bin/ruff check src tests
+../ravis/.venv/bin/mypy
+../ravis/.venv/bin/python -m pytest -q
+```
+
+## The dashboard
+
+[`index.html`](index.html), a single file, served by the service above rather
+than replaced by it. It was built screen by screen against two live services; a
+server-rendered skeleton would be a worse version of something that works. §3's
+HTMX direction applies to the screens NERVIS itself supplies data for, from M1
+onward.
+
+Its apparatus: [`AGENTS.md`](AGENTS.md) for the rules, [`docs/`](docs/),
+[`tools/`](tools/) and [`avatars/`](avatars/).
 
 **A frozen reference copy lives outside the repository**, at
-`~/Documents/coding/nervis-template/`. It stays on its mocks, so it always opens from
-disk with nothing running — that is what makes it a template. This one tracks the
-services as they come up, and is expected to be ahead of it. Neither supersedes the
-other and neither should be copied over the other; the repository keeps exactly one
-prototype, which is this file.
+`~/Documents/coding/nervis-template/`. It stays on its mocks, so it always opens
+from disk with nothing running — that is what makes it a template. This one
+tracks the services as they come up and is expected to be ahead of it. Neither
+supersedes the other and neither should be copied over the other; the repository
+keeps exactly one prototype, which is this file.
 
-Diverged from the snapshot in two places so far: `fallback` → `fallbacks` in the
-route-decision shape, because that is what `GET /api/v1/route-decisions` publishes, and
-a distinct `<title>` so the two are not confused in a tab strip.
-
-Read [`docs/PITFALLS.md`](docs/PITFALLS.md) before your first script-driven edit —
-every defect this page has produced and the rule that prevents each one. Almost nothing
-here fails loudly. [`docs/WIRING.md`](docs/WIRING.md) is the method for swapping a mock
-for a real endpoint; [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) is what the data
-actually is.
+Read [`docs/PITFALLS.md`](docs/PITFALLS.md) before your first script-driven edit
+— every defect this page has produced and the rule that prevents each one. Almost
+nothing here fails loudly. [`docs/WIRING.md`](docs/WIRING.md) is the method for
+swapping a mock for a real endpoint;
+[`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) is what the data actually is.
 
 ```bash
 python3 nervis/tools/check.py
 ```
 
-**One rule outranks every screen on this page: it must render with nothing running.** A
-live read that throws and stops the render destroys that, silently, for everyone not
-currently running the service it was tested against. Every live read falls back to its
-mock.
+**One rule outranks every screen on this page: it must render with nothing
+running.** A live read that throws and stops the render destroys that, silently.
+Verified by rendering all 27 screens across the three apps and asserting none
+throws — which is how the `SERVICES[row.key]` crash was caught at M0.
 
 ## Running it against a live RAVIS
 

@@ -36,8 +36,8 @@ RAVIS = ROOT / "ravis"
 # Every package with a suite. Counted together because STATUS.md states one
 # number for the repository, and a gate that counted only the first package
 # would go quiet the moment work moved to another one — which is exactly what
-# happened when the protocol package and SIRVIS arrived.
-PACKAGES = ("protocol", "ravis", "sirvis")
+# happened when the protocol package and SIRVIS arrived, and again at NERVIS M0.
+PACKAGES = ("protocol", "ravis", "sirvis", "nervis")
 
 
 def _python() -> str:

@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
 
 from sirvis.api.security import (
@@ -101,8 +102,12 @@ async def read_health(request: Request) -> dict[str, Any]:
         "checks": checks,
         "service_id": surface.service_id,
         "service_type": surface.service_type,
+        # Wire ids, like the canonical surface. §4.1 keeps the `@<major>`
+        # shorthand out of anything a consumer reads, and an alias that
+        # published a different form of the same name than `/ecosystem/*` does
+        # would be exactly the drift this endpoint exists not to have.
         "capabilities": {
-            capability_id: capability.state
+            wire_identifier(capability_id): capability.state
             for capability_id, capability in sorted(surface.declared.items())
         },
         # Presence, never the value (§4.5). A few characters of a secret narrows

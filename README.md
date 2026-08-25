@@ -21,11 +21,12 @@ build plans get poured into: every screen reads from a data layer shaped like th
 API responses, and every endpoint it cites is cited from the spec beside it. Open
 `nervis/index.html` in a browser; no build step, no server.
 
-It is also the dashboard that will actually be served, so it tracks real endpoints as
-they land — while keeping the guarantee that makes it openable at all: a service being
-down degrades a panel rather than the page. Three SIRVIS screens read a running service
-today and the rest are still mocks; opening the file with nothing running shows the
-mocks and says so. See [`nervis/README.md`](./nervis/README.md).
+It is also the dashboard that **is** served: since NERVIS M0 it comes from `nervis serve`
+rather than a static file server, so the thing serving it has a database, a stable
+identity and its own `/ecosystem/*` surface. It keeps the guarantee that makes it
+openable at all — a service being down degrades a panel rather than the page — and
+opening the file directly with nothing running still shows mocks and says so. See
+[`nervis/README.md`](./nervis/README.md).
 
 > It used to be `template/`. A **mock-only reference snapshot** now lives outside this
 > repository at `~/Documents/coding/nervis-template/`, so that the one-copy rule below
@@ -55,9 +56,9 @@ run it from a shell:
 | Linux | `./start-linux.sh` | `./stop-linux.sh` |
 | Windows | `start-windows.bat` | `stop-windows.bat` |
 
-It brings up SIRVIS on 8721, RAVIS on 8731 and the NERVIS dashboard on 8790,
-then opens the dashboard. First run creates the virtual environment and installs
-the three packages, which takes a minute; later runs skip straight past that.
+It brings up SIRVIS on 8721, RAVIS on 8731 and NERVIS on 8790, then opens the
+dashboard. First run creates the virtual environment and installs the four
+packages, which takes a minute; later runs skip straight past that.
 
 **The services are detached.** They keep running when the window closes — which
 is the point, and is also why there is a stop launcher rather than a Ctrl-C. All
