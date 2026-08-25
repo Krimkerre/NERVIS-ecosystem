@@ -2430,7 +2430,22 @@ async function settingsView(){
  /* A chip is warned only when the switch sits in the *less private* position.
    Redaction on is the safe state and reads green; payload capture on does not. */
  const flag=(on,safe=false)=>`<span class="chip${on===safe?'':' warn'}">${on?'on':'off'}</span>`;
- $('#content').innerHTML=`<div class="card full"><h3>Services</h3>
+ 
+ /* NERVIS's own configuration, which is a shorter list than the cards below
+    suggest. There is no NERVIS service to ask — `nervis/` is one HTML file and
+    NERVIS M0 (the package, database and migrations) has never been built — so
+    the endpoints this dashboard talks to *are* its configuration, and their
+    reachability is the only setting whose effect can be observed. */
+ const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
+ const liveCard=`<div class="card full live"><h3>What NERVIS is configured with <span class="chip">observed</span></h3>${cell(`
+   ${['ravis','sirvis','clarvis'].map((k,n)=>{
+     const d=n<2?peers[n]:null;
+     return `<div class="trace-step"><b>${k.toUpperCase()}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
+       n<2?(d?'answering':'not answering'):'no MEP surface — the optional bridge'}</span></div>`;}).join('')}
+   <div class="trace-step"><b>conversations</b><span>${CHAT_STORE.read().length} stored in this browser</span></div>
+   <div class="trace-step"><b>runtime token</b><span>${RUNTIME_TOKEN?'<span class="chip">held for this tab</span>':'<span class="chip warn">none</span>'}</span></div>
+   <small class="mono dim"><b>NERVIS has no service to configure.</b> M0 — the package, FastAPI, SQLite and migrations — has never been built, so there is no <span class="mono">nervis serve</span>, no database and no settings to read; this dashboard is a single HTML file served statically. The addresses above are its whole configuration, and each is shown with whether it actually answered. Everything below describes settings a NERVIS service would own and is prototype content.</small>`,'nervis')}</div>`;
+ $('#content').innerHTML=liveCard+`<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
    ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="notify('Health test: ${name} — identity, version and capabilities')">Test</button></span></div>`).join('')}
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>
@@ -3620,7 +3635,32 @@ async function ravisSettings(){
  const [s,prof,pr]=await Promise.all([API.ravis.settings(),API.ravis.profiles(),API.ravis.providers()]);
  const active=prof.items.find(x=>x.default);
  const served=s.serving.endpoints.filter(e=>e[1]==='required').length;
- $('#content').innerHTML=kpis([
+ 
+ /* What can be observed about how RAVIS is actually running, as opposed to what
+    it is configured with. RAVIS publishes no settings endpoint — /api/v1/settings
+    and /api/v1/config are both 404 — and §15.1 keeps mutation out of the
+    read-only surface entirely, so this reports the configuration's *effects*
+    rather than its values.
+
+    The address is the one thing this dashboard knows for certain: it is talking
+    to RAVIS, so it knows where RAVIS is. That is worth more than a transcribed
+    listen address, which would be a guess about a setting nobody published. */
+ const [sHealth,sProv,sDiag]=await Promise.all([
+   (async()=>{try{const r=await fetch(BASE.ravis+'/api/v1/health',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?await r.json():null}
+    catch(e){return null}})(),
+   (async()=>{try{const r=await fetch(BASE.ravis+'/api/v1/providers',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?(await r.json()).items||[]:null}
+    catch(e){return null}})(),
+   serviceDiagnostics('ravis')]);
+ const liveCard=`<div class="card full live"><h3>How RAVIS is running <span class="chip">observed</span></h3>${cell(`
+   <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(BASE.ravis)}</span></div>
+   ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(sDiag.identity.build_version||'—')}</span></div>`:''}
+   <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${sHealth.models_known} model(s) visible</span>`:''}</span></div>
+   ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${p.enabled?'enabled':'disabled'} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${p.reachable===null?'not probed':(p.reachable?'answering':'not answering')}</span></div>`).join('')}
+   <div class="trace-step"><b>credentials</b><span><a href="#" onclick="state.view='Credentials';render();return false" style="color:inherit">RAVIS → Credentials</a></span></div>
+   <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404, and §15.1 keeps mutation off the read-only surface. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
+ $('#content').innerHTML=liveCard+kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis'],
    ['Mutations','0','this API is read-only','ravis'],
@@ -4041,12 +4081,32 @@ async function ravisDiagnostics(){
  const passed=cf.checks.filter(([,ok])=>ok).length;
  const breakers=pr.items.filter(x=>x.breaker!=='CLOSED');
  const down=pl.items.filter(x=>!x.available);
- $('#content').innerHTML=kpis([
+ 
+ /* The live half. `ravis conformance clarvis` is a CLI command with no HTTP
+    surface, so the conformance table below cannot be read from anywhere — it
+    stays prototype and is labelled as such. What *is* readable is RAVIS's own
+    health: whether its upstream answers, how quickly, and how many models it
+    can see. */
+ const [rhealth,rdiag]=await Promise.all([
+   (async()=>{try{const r=await fetch(BASE.ravis+'/api/v1/health',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?await r.json():null}
+    catch(e){return null}})(),
+   serviceDiagnostics('ravis')]);
+ const liveCard=rhealth?`<div class="card full live"><h3>RAVIS health <span class="chip">live</span></h3>${cell(`
+   <div class="trace-step"><b>status</b><span>${healthChip(rdiag)}</span></div>
+   <div class="trace-step"><b>upstream</b><span>${rhealth.upstream_reachable
+     ?`<span class="chip">answering</span> <span class="mono dim">${rhealth.upstream_latency_ms!=null?Math.round(rhealth.upstream_latency_ms)+' ms':''}</span>`
+     :`<span class="chip warn">not answering</span> <span class="mono dim">${escapeHtml(rhealth.upstream_detail||'')}</span>`}</span></div>
+   <div class="trace-step"><b>models visible</b><span class="mono">${rhealth.models_known}</span></div>
+   ${(rdiag&&rdiag.identity)?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(rdiag.identity.build_version||'—')} · protocol ${escapeHtml(rdiag.identity.protocol_version||'—')}</span></div>`:''}
+   ${(rdiag&&rdiag.unavailable||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
+   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the sixteen checks below are the suite's shape rather than a run of it. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`:'';
+ $('#content').innerHTML=liveCard+kpis([
    ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis'],
    ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis'],
    ['Breakers',String(breakers.length),breakers.length?'not closed':'all closed','ravis'],
    ['Pools down',String(down.length),down.length?down[0].pool_id:'none','ravis']])
- +`<div class="card full"><h3>Clarvis conformance <span class="chip${cf.pass?'':' warn'}">${cf.pass?'pass':'fail'}</span></h3>${cell(`
+ +`<div class="card full"><h3>Clarvis conformance <span class="chip warn">shape, not a run</span> <span class="chip${cf.pass?'':' warn'}">${cf.pass?'pass':'fail'}</span></h3>${cell(`
    <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name,ok])=>`
     <div class="lane${ok?'':' excluded'}" style="cursor:default"><b>${name}</b><span class="chip${ok?'':' warn'}">${ok?'pass':'fail'}</span></div>`).join('')}</div>
    <small class="mono dim">these are not unit tests of RAVIS — they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>

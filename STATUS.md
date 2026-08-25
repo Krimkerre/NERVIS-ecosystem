@@ -3249,6 +3249,40 @@ passage is **fenced before it re-enters a prompt** (§11.5) — a stored assista
 reply is model output, and re-admitting it unfenced is the same trust mistake in
 a longer loop. Stage 10.
 
+## Diagnostics and Settings: reporting effects, not values
+
+None of these four screens has an endpoint to wire. `/api/v1/diagnostics`,
+`/api/v1/settings` and `/api/v1/config` are all 404, `ravis conformance clarvis`
+is a CLI command with no HTTP surface, and NERVIS has no service at all. So each
+screen reports what can be **observed** rather than what is configured.
+
+**RAVIS Diagnostics** reads `/api/v1/health` and the capability surface: status,
+whether the upstream answers and how fast, how many models are visible, the
+build and protocol version, and each unavailable capability with its own reason.
+The conformance table below it is labelled **"shape, not a run"** — the suite's
+sixteen checks are real and pass, but nothing renders a *result* because nothing
+serves one.
+
+**RAVIS Settings** reports the configuration's effects. The address is the one
+thing the dashboard knows for certain — it is talking to RAVIS, so it knows
+where RAVIS is, which beats a transcribed listen address that would be a guess
+about a setting nobody publishes. Beside it: the upstream's actual answer, each
+provider's enabled state, credential source and reachability, and a link to the
+Credentials screen that does allow a change.
+
+**NERVIS Settings** is the shortest, because the honest answer is that **NERVIS
+has no service to configure.** M0 — package, FastAPI, SQLite, migrations,
+`nervis serve` — has never been built; `nervis/` is one HTML file served
+statically. The endpoints this dashboard talks to *are* its configuration, so
+each is listed with whether it actually answered, alongside the two pieces of
+state it does hold: conversations in this browser, and a runtime token for this
+tab.
+
+The pattern across all four is the same one the fade sweep established. Where a
+value cannot be read, the screen does not invent it — it reports the effect that
+can be seen, names the milestone that would publish the value, and leaves the
+cards describing unbuilt settings marked as prototype.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
