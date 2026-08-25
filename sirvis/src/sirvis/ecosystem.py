@@ -60,8 +60,8 @@ DECLARED: dict[str, Capability] = {
     ),
     "sirvis.recommendations@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the recommendation engine lands at M15",
+        state=AVAILABLE,
+        reason="§14.3's weighted recommendation (M15), with coverage on every score",
     ),
     "sirvis.events@1": Capability(
         version="1.0.0",

@@ -118,6 +118,15 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
     capability real has to edit this list, which is the point: the previous
     version asserted "everything is unavailable" and went on passing for six
     milestones after that stopped being true.
+
+    **It happened again, and this test caught it.** M15 shipped — the
+    recommendation engine, §14.3's weighted score with coverage on every number
+    — and `sirvis.recommendations@1` went on saying "the recommendation engine
+    lands at M15" while the endpoint returned real recommendations. Found while
+    wiring a diagnostics screen that renders this very list, which is a
+    reasonable argument for having such a screen. Under-advertising fails
+    silently by construction, so the only things that catch it are this
+    assertion and somebody looking.
     """
     body = _client(settings).get("/ecosystem/capabilities").json()
     states = {c["id"]: c["state"] for c in body["capabilities"]}
@@ -128,7 +137,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "sirvis.models.inventory@1": "available",         # M3
         "sirvis.benchmarks.single_model@1": "available",  # M6
         "sirvis.evidence.query@1": "available",           # M7 + M16
-        "sirvis.recommendations@1": "unavailable",        # M15
+        "sirvis.recommendations@1": "available",           # M15
         "sirvis.events@1": "unavailable",                 # M21
     }
     # Every entry still says why, available or not: "not yet, because M15" tells

@@ -1429,20 +1429,6 @@ const API={
      capability probes over model names: they are the strongest coding builds
      installed here and they still cannot serve a role that needs tools. */
   async routeDecision(id){
-   /* A lookup in the live list, because there is no single-decision endpoint —
-      `/api/v1/route-decisions/{id}` is a 404. Searching the recent window is
-      exact rather than approximate: the id came from the reply that produced
-      it. An id that has aged out of the in-memory window returns null, and the
-      caller renders nothing rather than a placeholder. */
-   try{
-    const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=50',
-      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(!r.ok)return null;
-    return ((await r.json()).items||[]).find(x=>x.decision_id===id)||null;
-   }catch(e){return null}
-  },
-
-  async _routeDecisionMock(id){
    /* Every reply records the decision that produced it, so the inspector is a lookup
       rather than a re-derivation. An unknown id is an error in the real build. */
    const CHAT={
@@ -2190,7 +2176,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   `RAVIS is ${SERVICES.ravis.state} — ${REASON[SERVICES.ravis.state]}. Routing is unavailable, so NERVIS has no model to talk to. SIRVIS, Clarvis and the rest of this dashboard are unaffected.`)+`</div>`;return}
  const [prof,conv]=await Promise.all([API.ravis.profiles(),API.nervis.conversation()]);
  const ids=[...new Set(conv.messages.map(m=>m.route_decision_id).filter(Boolean))];
- const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await API.ravis.routeDecision(id)])));
+ const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await chatDecision(id)])));
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default);
  /* The route card is a lookup by decision id — the same record RAVIS's own Routes
@@ -3654,6 +3640,22 @@ const CHAT_SESSION={
  messages:[],
  profile:'ravis/auto',
  busy:false};
+
+async function chatDecision(id){
+ /* The chat screen's own lookup, deliberately not `API.ravis.routeDecision`.
+
+    That one is a *mock* the RAVIS dashboard is written against — it expects
+    `eligible`, `affinity`, `timings_ms` and a `requirements` object, none of
+    which a real decision record carries. Repurposing it for live data broke
+    that dashboard, which is the argument for a screen owning its own adapter
+    rather than reaching into a shared one shaped for somebody else. */
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=50',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok)return null;
+  return ((await r.json()).items||[]).find(x=>x.decision_id===id)||null;
+ }catch(e){return null}
+}
 
 async function sendChat(){
  const box=document.getElementById('chatInput');
