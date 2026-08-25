@@ -1166,6 +1166,8 @@ and §20.1 maps these milestones onto its stages.
 | **M22** | Advanced routing — escalation, shadow routing, outcome scoring | — |
 | **M23** | Responses API — `/v1/responses` | No regression in Chat Completions compatibility |
 | **M24** | Packaging — `RAVIS.app` | — |
+| **M25a** | **Serverless GPU as a transparent upstream — RunPod.** A `kind: "runpod"` adapter over `https://api.runpod.ai/v2/{endpoint_id}/openai/v1`, which vLLM workers already expose OpenAI-compatibly. **Direct addressing only** — `ravis/runpod/<model>` — and deliberately *not* a pool candidate, the same position Anthropic holds. No new capability: it is Path A, so `ravis.openai_compatible.chat_completions@1` already covers it | A completion runs through a declared RunPod endpoint; no pool can select it; the key never leaves the credential store |
+| **M25b** | **Serverless GPU as a routing candidate.** Everything that must be true before a pool may pick one — see the four dependencies below | A cold endpoint warms without opening its circuit; a scaled-to-zero endpoint is distinguishable from a COLD local model in a route decision; spend on it is visible; a background call under the default profile never selects it |
 
 ## 20.1 Ecosystem gate mapping
 
@@ -1179,7 +1181,50 @@ and §20.1 maps these milestones onto its stages.
 | Stage 6 — NERVIS core | M11 + M15 |
 | Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
+| **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
 | **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
+
+### M25 — why serverless splits in two
+
+The wire is nearly free and the routing is not, so they are separate milestones.
+RunPod's vLLM workers speak OpenAI-compatible HTTP with a bearer key, which
+`Upstream` already sends and `upstream_timeout_seconds` (300 s) already
+tolerates; `KINDS` falls back to the generic adapter for an unrecognised kind,
+so **M25a is one class and a configuration entry**.
+
+**M25b needs four things that do not exist yet**, and shipping it before them
+would produce a router that spends money badly:
+
+- **A cold start is not a hung upstream, and §10 cannot currently tell.**
+  Scale-to-zero means a first request of thirty seconds to several minutes.
+  `breaker_failure_threshold` is 3 and `breaker_cooldown_seconds` is 30, so a
+  cold endpoint trips its own breaker before it ever warms and the cooldown
+  keeps it cold. Needs per-upstream breaker and timeout settings, and a
+  *warming* state read from the provider rather than inferred from silence.
+- **Residency has no third value (M14).** HOT/WARM/COLD describe a model on this
+  machine, where COLD means seconds from disk. Scaled-to-zero means minutes and
+  costs money to wake. A router that treats the two alike picks badly for
+  reasons it cannot explain.
+- **Cost (M15).** Billing is per GPU-second. `ravis.usage_cost@1` is `degraded`
+  precisely because RAVIS counts requests and knows no prices, so this would be
+  real spend with no visibility — §14's rule about estimates and invoices,
+  running in the other direction.
+- **Policy (M16).** §9.6.1's background-call class and the privacy ladder are
+  what stop a declared background call reaching a paid remote provider. Until
+  they exist there is no mechanism, only an intention.
+
+**Evidence is the open design question, not a dependency.** SIRVIS keys evidence
+by variant and pins it to a machine snapshot — chip, memory, thermal — and a
+serverless GPU is a different machine every invocation with no honest
+`machine_id`: §5.1 forbids a hardware-derived one, and there is no stable local
+installation to generate one for. Either serverless becomes its own machine
+class with its own provenance, or it is never benchmarked and routes on
+advertised capability alone. **Decide this before M25b, not during it.**
+
+**Nothing here is RunPod-specific except the base URL.** Any serverless
+OpenAI-compatible endpoint — Modal, Together, Fireworks, a self-hosted vLLM
+behind a scaler — has the same four problems, so M25b is the serverless
+*shape*, not one vendor's integration.
 
 > **M18a moved to Stage 3, 2026-08-23.** The read-only half of the management API is what makes
 > the work visible while it is being done: the prototype's Routes and Pools screens read exactly
