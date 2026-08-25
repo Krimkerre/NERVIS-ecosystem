@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 925 tests, no network, no live service
+.venv/bin/pytest                      # part of 965 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 36 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 76 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 925 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 965 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3656,6 +3656,116 @@ FastAPI, SQLite and migrations — has never been built"*, which was true for as
 long as the dashboard was served statically. It now reports the count of
 settings stored in the NERVIS database, `null` rather than `0` when NERVIS does
 not answer — nought settings and no service are different facts.
+
+## NERVIS M2 — the registry, and the end of the browser doing the negotiating
+
+Until now the dashboard's service table was assembled **in the browser**: it
+asked each service for its own `/ecosystem/identity` and `/ecosystem/capabilities`
+and built the rows. That made the page the thing doing the negotiating, with
+three consequences that only look small until the registry exists.
+
+- Every open of the page re-probed the whole ecosystem.
+- A stopped service cost a timeout **inside the render path**.
+- `stale` was unobservable, because nothing remembered a previous answer.
+
+NERVIS now probes on a timer and publishes `/api/v1/services`. The browser reads
+one endpoint.
+
+### The states are NERVIS's, not the services'
+
+A service reports MEP `healthy | degraded | unhealthy` *about itself*. NERVIS
+adds reachability on top, and the result is §5.1's eight-member vocabulary. The
+sentence that decides every case:
+
+> "Healthy" means the service's truthful response plus NERVIS reachability —
+> never a successful TCP connect alone.
+
+So a peer that accepts a connection and returns a proxy login page is
+`degraded`, not `healthy`. A peer that answers and reports itself `unhealthy` is
+`degraded`, not `unreachable` — NERVIS reached it perfectly well and it said no,
+which is information rather than absence.
+
+**`stopped` is never inferred.** §5.1 lists it, and it means a service NERVIS
+supervises and knows it stopped — which needs M16's ownership. Guessing it from
+a refused connection would report a service somebody else killed as though
+NERVIS had done it deliberately.
+
+**Staleness is computed on read, not written by a timer.** A value that only
+goes stale when something runs stays fresh forever if that something dies, and
+the timer dying is exactly what the state exists to make visible.
+
+### The SSRF guard, and why it refuses hostnames
+
+§5.1 requires allowing "only configured local transports and hosts by default".
+A control plane is the worst place to get this wrong: it holds a list of URLs
+and fetches every one on a timer, which is a request-forgery primitive with a
+scheduler attached.
+
+A hostname is **refused rather than resolved**. Resolving makes the check depend
+on DNS at the moment of the check, and a name that resolves to loopback now can
+resolve elsewhere on the next probe — the DNS-rebinding half of SSRF, and the
+half an allowlist that resolves first will always miss.
+
+```text
+$ NERVIS_RAVIS_BASE_URL=http://metadata.internal nervis doctor
+
+  REFUSED — these will not be probed at all
+    ravis: host 'metadata.internal' is a name, not a literal address;
+           resolving one would make this check depend on DNS at probe time
+```
+
+Refusals are returned, not raised: one bad endpoint must not stop NERVIS
+starting. They are also **published** on `/api/v1/services`, because a service
+missing because it was refused looks exactly like one nobody configured.
+
+### §5.2's hardest sentence
+
+> An unsupported required major marks that **feature** incompatible — not the
+> whole dashboard, if other surfaces remain compatible.
+
+The natural implementation checks the protocol once per service and disables
+everything. `negotiate()` takes an operation and an entry, so an incompatible
+RAVIS marks RAVIS's five operations `incompatible` and leaves SIRVIS's six
+alone — asserted directly rather than assumed.
+
+The other two rules: an unadvertised capability is `unknown`, never
+assumed-fine — which is what enforces the gate's *"never calls a guessed
+endpoint"*, since nothing unusable can be called on. And a capability this build
+has never heard of is ignored rather than treated as a fault, or every upgrade
+of a peer would look like a regression in NERVIS.
+
+### `capable()` finally does something
+
+It has existed in the dashboard for two milestones with **nothing calling it**,
+under a comment claiming controls were capability-driven. The registry now
+writes each peer's live capability list into the map it reads:
+
+```text
+capable('sirvis', 'sirvis.runtime.control')  -> true
+capable('sirvis', 'sirvis.benchmarks.jobs')  -> false
+```
+
+Fourteen operations are declared in `nervis/src/nervis/operations.py`, each with
+what §5.2 requires a control to declare: owning service, capability,
+read-versus-mutate, timeout, idempotency and confirmation policy. Keeping them
+there rather than beside the buttons means **a control cannot exist without
+having answered those questions**. Ten are usable against a live RAVIS and
+SIRVIS; none mutates, because §15.1 keeps RAVIS read-only until M18b.
+
+### Two things the wiring found
+
+**The first probe pass cannot be awaited in the lifespan.** It runs before
+uvicorn binds the socket, so NERVIS's probe *of itself* fails by construction,
+and any peer still starting reads `unreachable` — which on a one-command
+launcher is most of them, on a dashboard opened seconds later. Scheduled
+instead; entries read `discovering` until it lands, which is what §5.1 lists
+that state for.
+
+**The status banner disagreed with the table directly beneath it.** It is
+painted at the top of every `render()`, before the screen below has fetched
+anything, so it reported the state from one render ago. And the Overview's
+"Services 3 / 4" was counting a hardcoded four against §5.1's six declared
+entries. Both now read the registry NERVIS published.
 
 ## Starting the thing
 

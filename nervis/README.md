@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0, M1)
+## The service (M0, M1, M2)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -33,20 +33,35 @@ handler for it. Processes ordered by memory rather than CPU, and named without
 their command line — §15 forbids publishing a raw workspace path, and an
 argument list is where one appears.
 
-Nine of the ten capabilities §3.1 names are `unavailable`, each naming its
-milestone. `nervis.dashboard@1` is `degraded`: the shell and this machine's
-telemetry are served, and the peer data on it still comes from RAVIS and SIRVIS
-directly. **Nothing advertises an operation it
-cannot perform** — §4.1 forbids it, and both sibling services spent milestones
-learning why.
+Eight of the ten capabilities §3.1 names are `unavailable`, each naming its
+milestone. `nervis.registry@1` is available. `nervis.dashboard@1` is `degraded`:
+the shell, this machine's telemetry and the registry are served, and the rest of
+the peer data on it still comes from RAVIS and SIRVIS directly. **Nothing
+advertises an operation it cannot perform** — §4.1 forbids it, and both sibling
+services spent milestones learning why.
 
-**No peer is probed.** That is M2. NERVIS is ready with RAVIS, SIRVIS and Clarvis
-all absent, deliberately: a control plane that reported itself broken when the
-things it watches are broken could not be used to find out why.
+**M2** adds `/api/v1/services` — §5.1's registry, probed on a timer, and §5.2's
+capability negotiation per operation. The states are NERVIS's own observer-side
+eight rather than the services' three: *"healthy" means the service's truthful
+response plus NERVIS reachability, never a successful TCP connect alone.* A peer
+that answers with a proxy login page is `degraded`; a peer that answers and
+reports itself unhealthy is `degraded` too, because NERVIS reached it and it said
+no. `stopped` is never inferred from a refused connection — that needs M16's
+ownership.
 
-`/api/v1` has `health`, `settings` and `system`. §14's other five paths arrive
-with the milestones that own them, because a stub returning plausible data is §4.1's
-prohibition one layer up.
+Endpoints are checked against an allowlist that is loopback-only by default, and
+a **hostname is refused rather than resolved**: resolving makes the check depend
+on DNS at the moment of the check, which is the rebinding half of SSRF.
+Refusals are published rather than silently dropped, because a service missing
+because it was refused looks exactly like one nobody configured.
+
+**NERVIS is still ready with every peer absent.** A control plane that reported
+itself broken when the things it watches are broken could not be used to find
+out why.
+
+`/api/v1` has `health`, `settings`, `system` and `services`. §14's other four
+paths arrive with the milestones that own them, because a stub returning
+plausible data is §4.1's prohibition one layer up.
 
 Two deviations from §3, stated rather than left to be discovered. **Not
 SQLAlchemy and not Alembic**: both sibling services migrate with the standard

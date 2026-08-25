@@ -22,7 +22,7 @@ just quietly cannot be integrated with.
 
 from __future__ import annotations
 
-from ecosystem_protocol import DEGRADED, UNAVAILABLE, Capability, EcosystemSurface
+from ecosystem_protocol import AVAILABLE, DEGRADED, UNAVAILABLE, Capability, EcosystemSurface
 
 # The build's own version, distinct from the protocol it speaks. Consumers must
 # never infer behaviour from it (runbook §4.2) — that is what capabilities are
@@ -32,8 +32,8 @@ BUILD_VERSION = "0.0.1"
 DECLARED: dict[str, Capability] = {
     "nervis.registry@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the service registry and health model land at M2",
+        state=AVAILABLE,
+        reason="§5.1's registry, probed on a timer, with §5.2 negotiation per operation",
     ),
     # Degraded rather than available, and the distinction is exactly M0's shape.
     # The dashboard is served — that is M0's "web shell" and its exit criterion

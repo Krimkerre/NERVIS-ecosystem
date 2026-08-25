@@ -14,9 +14,12 @@ sends a request past.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
-from typing import Any, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
+import httpx
 from ecosystem_protocol import new_request_id
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
@@ -26,6 +29,8 @@ from nervis.api import router as api_router
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, nervis_surface
 from nervis.errors import NervisError, to_response
+from nervis.probes import probe
+from nervis.registry import Registry, admissible, declared_services
 from nervis.storage import installation_identity, prepare_database
 from nervis.web import register_dashboard
 
@@ -40,7 +45,7 @@ def create_app(settings: Settings) -> FastAPI:
     Takes settings rather than reading them, so a test constructs an app with
     the configuration it means instead of by arranging the environment first.
     """
-    api = FastAPI(title="NERVIS", version=BUILD_VERSION)
+    api = FastAPI(title="NERVIS", version=BUILD_VERSION, lifespan=_lifespan)
     _attach_shared_state(api, settings)
     _register_correlation(api)
     _register_error_handling(api)
@@ -71,6 +76,20 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         database=api.state.database,
     )
 
+    # §5.1's registry, built from configuration alone. A declaration whose
+    # endpoint fails the SSRF guard is dropped and recorded rather than raised:
+    # one bad entry must not stop NERVIS starting, which is the same rule that
+    # says an offline service never breaks the page.
+    admitted, refused = admissible(declared_services(settings), settings.allowed_hosts)
+    api.state.refused_endpoints = refused
+    for key, reason in refused:
+        logger.warning("registry entry %s refused: %s", key, reason)
+    api.state.registry = Registry(admitted, stale_after_seconds=settings.stale_after_seconds)
+    # One client for every probe. Connection reuse matters here: six services on
+    # a twenty-second timer is a new TCP handshake every three seconds
+    # otherwise, against processes on this same machine.
+    api.state.probe_client = httpx.AsyncClient()
+
 
 def _register_error_handling(api: FastAPI) -> None:
     """Turn a refusal into a response, in one place.
@@ -100,3 +119,71 @@ def _register_correlation(api: FastAPI) -> None:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
+    """Keep the registry warm while the service is up.
+
+    **The first pass is scheduled, not awaited, and that is a correction.**
+    Awaiting it here runs it before uvicorn binds the socket, which makes the
+    self-probe fail by construction — NERVIS cannot answer itself while it is
+    still starting — and reports as `unreachable` any peer that happens to still
+    be coming up, which on a one-command launcher is most of them. Both read as
+    real outages on a dashboard opened seconds later.
+
+    Until that pass lands, entries read `discovering`, which is exactly what
+    §5.1 lists that state for: not asked yet, as distinct from asked and silent.
+    """
+    task = asyncio.create_task(_refresh_periodically(api))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await api.state.probe_client.aclose()
+
+
+async def refresh_registry(api: FastAPI) -> None:
+    """Probe every declared service once, concurrently.
+
+    Concurrently because they are independent and a stopped service costs the
+    full timeout — six of those in sequence is twelve seconds during which every
+    other entry is also not being refreshed.
+    """
+    registry: Registry = api.state.registry
+    entries = registry.all()
+    observations = await asyncio.gather(
+        *(probe(api.state.probe_client, entry.declaration) for entry in entries),
+        return_exceptions=True,
+    )
+    for entry, observation in zip(entries, observations, strict=True):
+        if isinstance(observation, BaseException):
+            # A probe should map every failure to a state rather than raise, so
+            # reaching here is a bug in `probes.py`. Logged and recorded as
+            # unreachable rather than allowed to kill the refresh: the whole
+            # registry going dark because one probe had an unhandled path is
+            # exactly the failure §5.1's gate forbids.
+            logger.exception("probe for %s raised", entry.key, exc_info=observation)
+            continue
+        registry.record(entry.key, observation)
+
+
+async def _refresh_periodically(api: FastAPI) -> None:
+    """Re-probe on a timer, tolerating everything.
+
+    A refresh that raised would kill the task and freeze every entry at
+    whatever it last held — which is worse than a stale reading, because a
+    frozen one still looks current. Staleness is computed on read for the same
+    reason.
+    """
+    interval: float = api.state.settings.probe_interval_seconds
+    while True:
+        try:
+            await refresh_registry(api)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a probe loop must outlive any single failure
+            logger.exception("registry refresh failed")
+        await asyncio.sleep(interval)

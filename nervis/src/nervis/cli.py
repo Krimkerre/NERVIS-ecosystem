@@ -19,6 +19,7 @@ from ecosystem_protocol import PROTOCOL_VERSION, configure_logging
 from nervis.app import create_app
 from nervis.config import ConfigurationReport, Settings, inspect_configuration
 from nervis.ecosystem import DECLARED
+from nervis.registry import admissible, declared_services
 from nervis.storage import prepare_database
 from nervis.web import DASHBOARD
 
@@ -111,13 +112,25 @@ def _print_capabilities() -> None:
 def _print_peers(settings: Settings) -> None:
     """Where NERVIS would look, without looking.
 
-    Nothing here is contacted: M2 owns probing, and `doctor` must work with the
-    whole ecosystem down. Printing the addresses is still worth doing, because
-    "NERVIS cannot see RAVIS" is most often "NERVIS is pointed somewhere else".
+    Nothing here is contacted, and that stayed true when M2 added probing:
+    `doctor` has to work with the whole ecosystem down, and a command that
+    probed would take one timeout per stopped service before printing anything.
+    The running service probes on a timer; this prints what it would probe.
+
+    Endpoints the SSRF guard refuses are printed with the rule they broke, which
+    is the only place they are visible before the service starts.
     """
-    print("\npeers (not contacted — probing is M2)")
-    print(f"  RAVIS   {settings.ravis_base_url}")
-    print(f"  SIRVIS  {settings.sirvis_base_url}")
+    declarations = declared_services(settings)
+    admitted, refused = admissible(declarations, settings.allowed_hosts)
+    print("\nregistry (not contacted — the running service probes on a timer)")
+    for declaration in admitted:
+        kind = "MEP" if declaration.mep else "reachability only"
+        print(f"  {declaration.label:<16} {declaration.base_url:<28} {kind}")
+    if not refused:
+        return
+    print("\n  REFUSED — these will not be probed at all")
+    for key, reason in refused:
+        print(f"    {key}: {reason}")
 
 
 if __name__ == "__main__":

@@ -134,7 +134,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
     states = {capability["id"]: capability["state"] for capability in body["capabilities"]}
 
     assert states == {
-        "nervis.registry": "unavailable",             # M2
+        "nervis.registry": "available",               # M2
         "nervis.dashboard": "degraded",               # shell at M0, data at M1/M2
         "nervis.event_hub": "unavailable",            # M6
         "nervis.traces": "unavailable",               # M7

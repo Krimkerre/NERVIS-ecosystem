@@ -57,6 +57,27 @@ class Settings(BaseSettings):
     # these exist at M0 so `doctor` can print where it *would* look.
     ravis_base_url: str = "http://127.0.0.1:8731"
     sirvis_base_url: str = "http://127.0.0.1:8721"
+    # The Clarvis Bridge is per extension host, so this is only the first
+    # instance. §5.1 lists it among the initial registry entries because an
+    # optional peer that is absent should read as absent rather than be missing
+    # from the list entirely.
+    clarvis_base_url: str = "http://127.0.0.1:7071"
+    # Runtimes rather than ecosystem members: neither publishes a MEP surface,
+    # so the registry can claim reachability about them and nothing more.
+    lmstudio_base_url: str = "http://127.0.0.1:1234"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+
+    # Hosts NERVIS may probe beyond loopback. Empty by default, which is §5.1's
+    # SSRF rule: a control plane holds a list of URLs and fetches every one on a
+    # timer, so an unconstrained list is a request-forgery primitive with a
+    # scheduler attached.
+    allowed_hosts: list[str] = []
+
+    # How often the registry re-probes, and how long an entry stays believable
+    # without one. The second must exceed the first or every entry would spend
+    # part of each cycle stale.
+    probe_interval_seconds: float = 20.0
+    stale_after_seconds: float = 90.0
 
 
 @dataclass(frozen=True)

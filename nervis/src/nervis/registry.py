@@ -1,0 +1,317 @@
+"""Who is out there, what they said, and how sure NERVIS is (§5.1).
+
+**The states here are NERVIS's, not the services'.** A service reports MEP
+`healthy | degraded | unhealthy` *about itself*; NERVIS adds reachability on
+top, and the result is a different vocabulary with eight members. Conflating
+them would lose the distinction the whole registry exists for — "it says it is
+fine" and "I can reach it and it says it is fine" are not the same claim, and
+only the second is worth putting a control behind.
+
+§5.1 states the rule in one sentence, and it is the load-bearing one:
+
+> "Healthy" means the service's truthful response plus NERVIS reachability —
+> never a successful TCP connect alone.
+
+**Declared, never discovered.** §5.3: configured localhost ports for the MVP,
+and explicitly no Bonjour or mDNS. Entries come from configuration; a peer does
+not get to tell NERVIS that it exists, because §5.1 forbids accepting an
+unauthenticated process's claimed service type or endpoint.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Mapping
+from urllib.parse import urlsplit
+
+
+# §5.1's observer-side states. `discovering` is the initial one rather than a
+# guess at `unreachable`: an entry NERVIS has not yet asked about has not failed
+# — a dashboard that opened on a wall of red would be lying about a service it
+# simply had not gotten to.
+class RegistryState(str, Enum):
+    DISCOVERING = "discovering"
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNREACHABLE = "unreachable"
+    INCOMPATIBLE = "incompatible"
+    UNAUTHORIZED = "unauthorized"
+    STALE = "stale"
+    STOPPED = "stopped"
+
+
+# Which states mean a control bound to this service may run. Deliberately two:
+# `degraded` is usable — it means some capability is missing, which the
+# capability check catches at a finer grain than the service state can.
+USABLE_STATES = frozenset({RegistryState.HEALTHY, RegistryState.DEGRADED})
+
+
+class OwnershipMode(str, Enum):
+    """Whether NERVIS may control this service (§5.1, and M16's precondition).
+
+    `EXTERNAL` is the default and the only one M2 ships. §3.1 attaches the
+    supervision capability to *"explicitly configured owned services"*, so an
+    entry that has not been declared owned is one NERVIS observes and does not
+    touch.
+    """
+
+    EXTERNAL = "external"
+    OWNED = "owned"
+
+
+@dataclass(frozen=True)
+class ServiceDeclaration:
+    """One configured service, before anything has been asked of it.
+
+    `probe_path` is what NERVIS reads when the service publishes no MEP surface.
+    LM Studio and Ollama are runtimes rather than ecosystem members: they answer
+    a catalogue endpoint and nothing else, so reachability is all NERVIS can
+    honestly claim about them.
+    """
+
+    key: str
+    label: str
+    base_url: str
+    mep: bool = True
+    probe_path: str = ""
+    ownership: OwnershipMode = OwnershipMode.EXTERNAL
+
+
+@dataclass
+class RegistryEntry:
+    """A declaration plus everything observing it has established (§5.1).
+
+    Mutable, unlike almost everything else in this codebase, because that is
+    what an entry *is*: one row whose observed half is rewritten on every probe
+    while its declared half never changes.
+    """
+
+    declaration: ServiceDeclaration
+    state: RegistryState = RegistryState.DISCOVERING
+    detail: str = ""
+    service_id: str = ""
+    instance_id: str = ""
+    machine_id: str = ""
+    build_version: str = ""
+    protocol_version: str = ""
+    api_version: str = ""
+    capabilities: dict[str, str] = field(default_factory=dict)
+    capability_revision: int = 0
+    last_seen: float = 0.0
+    checked_at: float = 0.0
+
+    @property
+    def key(self) -> str:
+        return self.declaration.key
+
+    @property
+    def is_usable(self) -> bool:
+        return self.state in USABLE_STATES
+
+    def as_dict(self) -> dict[str, Any]:
+        """The entry as `/api/v1/services` publishes it.
+
+        No authentication reference and no credential. §5.1 says secrets are
+        stored separately, and a registry listing is exactly the surface where
+        one would otherwise be published by accident.
+        """
+        return {
+            "key": self.key,
+            "label": self.declaration.label,
+            "endpoint": self.declaration.base_url,
+            "ownership": self.declaration.ownership.value,
+            "publishes_mep": self.declaration.mep,
+            "state": self.state.value,
+            "detail": self.detail,
+            "service_id": self.service_id,
+            "instance_id": self.instance_id,
+            "machine_id": self.machine_id,
+            "build_version": self.build_version,
+            "protocol_version": self.protocol_version,
+            "api_version": self.api_version,
+            "capabilities": dict(self.capabilities),
+            "capability_revision": self.capability_revision,
+            "last_seen": self.last_seen or None,
+            "checked_at": self.checked_at or None,
+        }
+
+
+class EndpointRefusedError(ValueError):
+    """An endpoint NERVIS will not talk to, whatever declared it."""
+
+
+# Loopback only, by default. §5.1 requires SSRF prevention by "allowing only
+# configured local transports and hosts by default", and a control plane is the
+# single worst place to get this wrong: it holds a list of URLs and fetches
+# every one of them on a timer, which is a server-side request forgery primitive
+# with a scheduler attached.
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
+def allowed_endpoint(url: str, *, extra_hosts: frozenset[str] = frozenset()) -> str:
+    """The endpoint, normalised — or a refusal saying which rule it broke.
+
+    Applied to *every* entry regardless of where it came from. M2 registers
+    only from configuration, so there is no untrusted registration path yet;
+    writing the guard at the entry rather than at the registration endpoint
+    means the endpoint cannot be added later without it.
+
+    A hostname that is not a literal address is refused rather than resolved.
+    Resolving would make the check depend on DNS at the moment of the check, and
+    a name that resolves to loopback now can resolve elsewhere on the next
+    probe — which is the DNS-rebinding half of SSRF, and the half a naive
+    allowlist misses.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ALLOWED_SCHEMES:
+        raise EndpointRefusedError(f"scheme {parts.scheme or '(none)'!r} is not http or https")
+    host = parts.hostname or ""
+    if not host:
+        raise EndpointRefusedError("no host")
+    if host in extra_hosts:
+        return url.rstrip("/")
+    if host in {"localhost", "localhost."}:
+        return url.rstrip("/")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as failure:
+        raise EndpointRefusedError(
+            f"host {host!r} is a name, not a literal address; "
+            "resolving one would make this check depend on DNS at probe time"
+        ) from failure
+    if not address.is_loopback:
+        raise EndpointRefusedError(f"host {host} is not loopback; add it to NERVIS_ALLOWED_HOSTS")
+    return url.rstrip("/")
+
+
+class Registry:
+    """Every declared service and the last thing observed about each (§5.1).
+
+    In-process and rebuilt from configuration at startup. What persists is the
+    *observation* — `service_seen` in the database — because "stale" and
+    "stopped" are claims about time, and a registry that forgot every restart
+    could never make one.
+    """
+
+    def __init__(
+        self,
+        declarations: list[ServiceDeclaration],
+        *,
+        stale_after_seconds: float = 90.0,
+        now: Any = time.time,
+    ) -> None:
+        self._now = now
+        self._stale_after = stale_after_seconds
+        self._entries: dict[str, RegistryEntry] = {}
+        for declaration in declarations:
+            self._entries[declaration.key] = RegistryEntry(declaration=declaration)
+
+    def all(self) -> list[RegistryEntry]:
+        """Every entry, in declaration order, with staleness applied.
+
+        Staleness is computed on read rather than written by a timer. A value
+        that only becomes stale when something runs is a value that stays fresh
+        forever if the timer dies — and the timer dying is precisely the failure
+        this state exists to make visible.
+        """
+        return [self._aged(entry) for entry in self._entries.values()]
+
+    def get(self, key: str) -> RegistryEntry | None:
+        entry = self._entries.get(key)
+        return self._aged(entry) if entry else None
+
+    def _aged(self, entry: RegistryEntry) -> RegistryEntry:
+        if entry.state not in USABLE_STATES:
+            return entry
+        if self._now() - entry.checked_at <= self._stale_after:
+            return entry
+        entry.state = RegistryState.STALE
+        entry.detail = f"last answered {int(self._now() - entry.checked_at)}s ago"
+        return entry
+
+    def record(self, key: str, observation: Mapping[str, Any]) -> RegistryEntry:
+        """Write what a probe established, refusing to overwrite a live instance.
+
+        §5.1: *"Resolve duplicate stable IDs without overwriting a live
+        instance."* Two processes claiming one `service_id` is either a
+        misconfiguration or an impersonation attempt, and the resolution is to
+        keep the one already answering rather than to let the newest writer win
+        — a race that an attacker controls the timing of is not a tie-break.
+        """
+        entry = self._entries[key]
+        claimed = str(observation.get("service_id") or "")
+        if claimed and self._claimed_elsewhere(key, claimed):
+            entry.state = RegistryState.UNAUTHORIZED
+            entry.detail = f"service_id {claimed} is already held by a live instance"
+            entry.checked_at = self._now()
+            return entry
+        for name, value in observation.items():
+            setattr(entry, name, value)
+        entry.checked_at = self._now()
+        if entry.state in USABLE_STATES:
+            entry.last_seen = entry.checked_at
+        return entry
+
+    def _claimed_elsewhere(self, key: str, service_id: str) -> bool:
+        """Whether another entry that is currently answering holds this id."""
+        return any(
+            other.key != key and other.service_id == service_id and other.is_usable
+            for other in self._entries.values()
+        )
+
+
+def declared_services(settings: Any) -> list[ServiceDeclaration]:
+    """§5.1's initial entries, from configuration.
+
+    `code-server` is on §5.1's list and is deliberately absent here: §3.1 gates
+    its capability on M13's spike, whose exit may be that it is never built.
+    Declaring an entry for something with no decided endpoint would put a row on
+    the dashboard that can only ever read `unreachable`.
+
+    NERVIS itself is included, because §3.1 says it *"implements and consumes"*
+    the MEP and a registry that skipped its own host would be the one entry
+    nobody could check.
+    """
+    return [
+        ServiceDeclaration("nervis", "NERVIS", f"http://{settings.host}:{settings.port}"),
+        ServiceDeclaration("ravis", "RAVIS", settings.ravis_base_url),
+        ServiceDeclaration("sirvis", "SIRVIS", settings.sirvis_base_url),
+        ServiceDeclaration(
+            "clarvis", "Clarvis Bridge", settings.clarvis_base_url,
+            mep=False, probe_path="/instances",
+        ),
+        ServiceDeclaration(
+            "lmstudio", "LM Studio", settings.lmstudio_base_url,
+            mep=False, probe_path="/v1/models",
+        ),
+        ServiceDeclaration(
+            "ollama", "Ollama", settings.ollama_base_url,
+            mep=False, probe_path="/api/tags",
+        ),
+    ]
+
+
+def admissible(
+    declarations: list[ServiceDeclaration], allowed_hosts: list[str]
+) -> tuple[list[ServiceDeclaration], list[tuple[str, str]]]:
+    """Split declarations into the ones NERVIS may probe and the ones it refuses.
+
+    Refusals are *returned* rather than raised. A single bad endpoint must not
+    stop NERVIS starting — §5.1's gate says an offline service never breaks the
+    page, and a malformed one deserves the same treatment. `doctor` prints them
+    and the registry omits them, which is visible without being fatal.
+    """
+    extra = frozenset(allowed_hosts)
+    admitted: list[ServiceDeclaration] = []
+    refused: list[tuple[str, str]] = []
+    for declaration in declarations:
+        try:
+            allowed_endpoint(declaration.base_url, extra_hosts=extra)
+        except EndpointRefusedError as refusal:
+            refused.append((declaration.key, str(refusal)))
+            continue
+        admitted.append(declaration)
+    return admitted, refused

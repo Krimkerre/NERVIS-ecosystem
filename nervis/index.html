@@ -677,6 +677,11 @@ function syncPanelAvatar(){
    than leaving the reader to guess whether a number is real. */
 const SOURCE={};
 const LIVE_TIMEOUT_MS=1500;
+/* What NERVIS's registry last published beside the entries: §5.2's negotiated
+   operations, and any endpoint its SSRF guard refused. Empty until a live read
+   fills them, so a screen must treat empty as "not read" rather than "none". */
+let OPERATIONS=[];
+let REFUSED=[];
 
 async function live(service,path,mock,adapt){
  try{
@@ -1856,12 +1861,51 @@ const API={
    thermal_state:null,processes:[],sensitive_fields:['hostname']}},
 
   async services(){
-   /* The registry, read from the two services that publish a MEP surface.
-      §1's `/ecosystem/identity` and `/ecosystem/capabilities` are exactly this
-      card's columns — build, protocol, and what the service says it can do —
-      so the mock below is a fallback for when nothing is running rather than
-      the source. Clarvis and LM Studio have no MEP surface to read, and are
-      declared as external rather than invented as live. */
+   /* **NERVIS's registry, not six fetches from the browser.** Until M2 this
+      method asked each service for its own `/ecosystem/*` and assembled the
+      table here, which made the dashboard the thing doing the negotiating —
+      every open of the page re-probed the ecosystem, a stopped service cost a
+      timeout in the render path, and nothing could observe `stale` because
+      nothing remembered a previous answer.
+
+      NERVIS probes on a timer and publishes the result. The browser reads one
+      endpoint, and the states it renders are §5.1's observer-side eight rather
+      than "did my fetch work". The per-service fallback below still exists for
+      the case this file is opened from disk with nothing running. */
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/services',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    SOURCE.nervis='live';
+    /* The registry's own view of each peer replaces the hard-coded SERVICES
+       map wherever one is live. `capable()` reads that map, so this is what
+       finally makes control gating real rather than a promise. */
+    for(const e of d.items){
+     if(SERVICES[e.key]){
+      SERVICES[e.key].state=e.state;
+      SERVICES[e.key].caps=Object.entries(e.capabilities||{})
+        .filter(([,state])=>state==='available'||state==='degraded').map(([id])=>id);
+     }
+     if(e.state==='healthy'||e.state==='degraded')SOURCE[e.key]='live';
+    }
+    OPERATIONS=d.operations||[];
+    REFUSED=d.refused||[];
+    REGISTRY_ROWS=d.items.map(e=>({label:e.label,state:e.state}));
+    return{items:d.items.map(e=>({
+     service_type:e.key,label:e.label,build_version:e.build_version||'—',
+     protocol_version:e.protocol_version||'—',
+     /* The first *available* capability, not the first declared: a service that
+        publishes ten and offers none should read as offering none. */
+     capability:Object.entries(e.capabilities||{}).find(([,st])=>st==='available')?.[0]
+       ||(e.publishes_mep?'none available':'no MEP surface'),
+     capabilities_available:Object.values(e.capabilities||{}).filter(st=>st==='available').length,
+     capabilities_total:Object.keys(e.capabilities||{}).length,
+     key:e.key,state:e.state,detail:e.detail,age:0}))};
+   }catch(err){/* fall through to the per-service reads below */}
+
+   /* NERVIS is not answering — which, since it serves this page, mostly means
+      this file was opened from disk. Ask each service directly, as this did
+      before M2. */
    const ask=async key=>{
     try{
      const stop=AbortSignal.timeout(LIVE_TIMEOUT_MS);
@@ -1873,34 +1917,18 @@ const API={
      const up=all.filter(c=>c.state==='available');
      return{service_type:id.service_type,label:key.toUpperCase(),
       build_version:id.build_version,protocol_version:id.protocol_version,
-      /* The first *available* capability, not the first declared one: a
-         service that publishes five and offers one should read as offering
-         one. The count travels beside it so the card cannot imply otherwise. */
       capability:up.length?up[0].id:'none available',
-      /* The row carries its own state. It used to be looked up in `SERVICES`
-         by key, which mixed a live read with a hard-coded map and crashed the
-         whole Overview the moment a row's key was not in that map. A service
-         that answered both MEP reads is reachable — that is what the column
-         means, and the live answer is the one that knows it. */
-      state:'healthy',
-      /* Just read, so the "as of" stamp is now rather than a number from a
-         fallback map that has no idea when this row was last refreshed. */
-      age:0,
+      state:'healthy',age:0,
       capabilities_available:up.length,capabilities_total:all.length,key};
     }catch(e){return null}};
-   /* NERVIS reads itself, and same-origin: BASE.nervis is '' because the page
-      is served by the service it is asking. Since M0 that is a real MEP
-      surface rather than a static file server, so the registry no longer has
-      to declare its own host from a literal. */
-   const [rv,sv,nv]=await Promise.all([ask('ravis'),ask('sirvis'),ask('nervis')]);
-   if(!rv&&!sv&&!nv)return this._servicesMock();
+   const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
+   if(!rv&&!sv)return this._servicesMock();
    if(rv)SOURCE.ravis='live';
    if(sv)SOURCE.sirvis='live';
-   if(nv)SOURCE.nervis='live';
    const fallback=(await this._servicesMock()).items;
    const pick=(live,key)=>live||fallback.find(x=>x.key===key);
-   const read=new Set(['ravis','sirvis','nervis']);
-   return{items:[pick(nv,'nervis'),pick(rv,'ravis'),pick(sv,'sirvis'),
+   const read=new Set(['ravis','sirvis']);
+   return{items:[pick(rv,'ravis'),pick(sv,'sirvis'),
                  ...fallback.filter(x=>!read.has(x.key))]};
   },
 
@@ -2157,9 +2185,18 @@ if(state.app==='sirvis')return `<svg class="avatar" viewBox="0 0 200 200"><circl
 if(state.app==='ravis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><path class="coreline" d="M39 62H81M39 100H81M39 138H81M119 100H165"/><circle class="sat" cx="35" cy="62" r="7"/><circle class="sat" cx="35" cy="100" r="7"/><circle class="sat" cx="35" cy="138" r="7"/><polygon class="coreline" points="100,70 126,85 126,115 100,130 74,115 74,85"/><path class="data flow" d="M42 100H75M126 100H159"/><circle class="fill" cx="100" cy="100" r="8"/><path d="M94 100l5 5 10-12" fill="none" stroke="#ffc861" stroke-width="3"/></svg>`;
 return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><g style="animation:bob 4s ease-in-out infinite;transform-origin:100px 100px"><rect x="43" y="48" width="114" height="94" rx="31" fill="#182231" stroke="var(--cyan)" stroke-width="2"/><path d="M100 48V34" stroke="#40516a" stroke-width="3"/><circle cx="100" cy="29" r="5" fill="var(--cyan)"/><rect x="63" y="78" width="27" height="21" rx="10" fill="#060b10"/><rect x="110" y="78" width="27" height="21" rx="10" fill="#060b10"/><circle cx="77" cy="89" r="7" fill="var(--cyan)"/><circle cx="124" cy="89" r="7" fill="var(--cyan)"/><circle cx="124" cy="89" r="20" fill="none" stroke="var(--cyan)"/><path d="M86 119q14 5 28 0" fill="none" stroke="var(--cyan)" stroke-width="4" stroke-linecap="round"/><path d="M100 151L79 142V160zM100 151l21-9v18z" fill="var(--cyan)"/></g></svg>`}
 function setAvatarState(s){const frames=$$('iframe[data-avatar]');const actionMap={nervis:{active:'routing',warn:'degraded',bad:'critical'},sirvis:{active:'measuring',warn:'thermal',bad:'thermal'},ravis:{active:'selected',warn:'fallback',bad:'blocked'},clarvis:{active:'talking',warn:'judging',bad:'surprised'}};frames.forEach(frame=>{const desired=s?(actionMap[frame.dataset.avatar]||{})[s]:desiredAvatarState(frame.dataset.avatar,state.view);try{frame.contentWindow.setState(desired)}catch(e){}})}
+/* Rows from NERVIS's registry, once any screen has read them. Empty before the
+   first read, which is why `globalStatus` falls back to the `SERVICES` map
+   rather than reporting an empty ecosystem. */
+let REGISTRY_ROWS=[];
 function globalStatus(){
- const bad=Object.values(SERVICES).filter(v=>!['healthy','degraded'].includes(v.state));
- const deg=Object.values(SERVICES).filter(v=>v.state==='degraded');
+ /* The registry when it has been read, the fallback map otherwise. This banner
+    is painted at the top of every `render()`, before the screen below it has
+    fetched anything — so reading only `SERVICES` made it report the state from
+    one render ago, and it disagreed with the table directly beneath it. */
+ const rows=REGISTRY_ROWS.length?REGISTRY_ROWS:Object.values(SERVICES);
+ const bad=rows.filter(v=>!['healthy','degraded'].includes(v.state));
+ const deg=rows.filter(v=>v.state==='degraded');
  const el=$('#globalStatus'),dot=$('.top-status .dot');if(!el)return;
  if(bad.length){el.textContent=`${bad.map(v=>v.label).join(', ')} unreachable · other surfaces operational`;dot.dataset.state='bad'}
  else if(deg.length){el.textContent=`${deg.map(v=>v.label).join(', ')} degraded`;dot.dataset.state='warn'}
@@ -2188,14 +2225,17 @@ async function nervis(){
  heading('Ecosystem overview','What each service reports, when it said so, and how sure it is.',control('Run diagnostics','diagnose',' primary'));
  const [svc,inst,tr,ev,usage]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
    API.nervis.trace(),API.nervis.events(),API.ravis.usage()]);
- const live=Object.values(SERVICES).filter(v=>['healthy','degraded'].includes(v.state)).length;
+ /* From the rows NERVIS just published, not from the fallback `SERVICES` map
+    and not against a hardcoded four. §5.1 declares six entries and the map
+    holds four, so the two disagreed the moment the registry went live. */
+ const live=svc.items.filter(x=>['healthy','degraded'].includes(x.state)).length;
  const bar=sp=>spanBar(sp,tr.window_ms);
  $('#content').innerHTML=kpis([['Requests / min','128','↗ 12%','ravis'],['Latency p50','0.42s','healthy','ravis'],
-   ['Local',usage.local_pct+'%','of today','ravis'],['Services',`${live} / 4`,'registered','nervis']])
+   ['Local',usage.local_pct+'%','of today','ravis'],['Services',`${live} / ${svc.items.length}`,'reachable','nervis']])
  +`<div class="card wide live"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':' warn'}">${r.state}</span></div>`).join('')}
-   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>NERVIS, RAVIS and SIRVIS are read live</b> from <b>/ecosystem/identity</b> and <b>/ecosystem/capabilities</b> — NERVIS since M0, same-origin, because the service serving this page is the one being asked. The capability shown is the first each reports as <i>available</i> rather than the first it declares, which is why NERVIS reads <i>none available</i>: it publishes ten and offers none of them yet. <b>Clarvis Bridge and LM Studio publish no MEP surface</b>, so their rows are declared here rather than read.</small></div>
+   <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
   <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
   <div class="card wide"><h3>Clarvis instances</h3>
    ${usable('clarvis')?`<div class="table-row head"><span>Workspace</span><span>Mode</span><span>State</span><span>Route</span></div>

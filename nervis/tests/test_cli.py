@@ -90,3 +90,35 @@ def test_an_unknown_command_is_rejected() -> None:
     """argparse exits rather than returning, so the failure is loud."""
     with pytest.raises(SystemExit):
         main(["teleport"])
+
+
+def test_doctor_prints_the_registry_without_contacting_it(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001
+    """M2 added probing and `doctor` still contacts nothing.
+
+    It has to work with the whole ecosystem down, and a version that probed
+    would take one timeout per stopped service before printing anything — on
+    the command somebody runs precisely because things are stopped.
+    """
+    monkeypatch.setenv("NERVIS_DATABASE_PATH", str(tmp_path / "nervis.db"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    main(["doctor"])
+    printed = capsys.readouterr().out
+
+    assert "not contacted" in printed
+    assert "LM Studio" in printed and "reachability only" in printed
+    assert "RAVIS" in printed and "MEP" in printed
+
+
+def test_doctor_names_a_refused_endpoint(  # noqa: ANN001
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The only place a refused endpoint is visible before the service starts."""
+    monkeypatch.setenv("NERVIS_DATABASE_PATH", str(tmp_path / "nervis.db"))
+    monkeypatch.setenv("NERVIS_RAVIS_BASE_URL", "http://169.254.169.254")
+
+    main(["doctor"])
+    printed = capsys.readouterr().out
+
+    assert "REFUSED" in printed
+    assert "not loopback" in printed
