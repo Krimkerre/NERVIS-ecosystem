@@ -3312,8 +3312,8 @@ resolved per model   2 of 4 blocked — granite, qwen. Ollama's models keep serv
 Every lifecycle method on the chain already received the target, so the scope
 could always have been resolved from the model rather than assumed for the
 request. `provider` now accepts a resolver, `HealthRegistry.unavailable` takes
-one too, and `chat.py` supplies one that asks `resolve()` which upstream owns a
-model — the same collision rule the catalogue, the candidate set and the
+one too, and `ravis/src/ravis/api/openai/chat.py` supplies one that asks `resolve()`
+which upstream owns a model — the same collision rule the catalogue, the candidate set and the
 forwarder already share.
 
 **The health target for a singular deployment is now `default`, not
