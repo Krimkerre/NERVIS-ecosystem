@@ -407,6 +407,20 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .mode-chip.on{color:var(--accent);border-color:var(--accent)}
 /* armed = chosen, not yet committed. Deliberately not the active styling. */
 .mode-chip.armed{color:#ffb648;border-color:#ffb648;background:rgba(255,182,72,.09)}
+.chat-params{border:1px solid rgba(var(--rgb),.16);border-radius:3px;padding:6px 9px;margin:0 0 8px;
+  background:rgba(var(--rgb),.03)}
+.chat-params>summary{cursor:pointer;font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.14em;
+  text-transform:uppercase;color:#72b9cf;list-style:none}
+.chat-params>summary::-webkit-details-marker{display:none}
+.chat-params>summary:before{content:"▸ ";opacity:.6}
+.chat-params[open]>summary:before{content:"▾ "}
+.param-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin:9px 0 4px}
+.param-grid label{display:flex;flex-direction:column;gap:4px;font:9px/1.4 "SFMono-Regular",monospace;
+  letter-spacing:.1em;text-transform:uppercase;color:#617286}
+.param-grid input,.param-grid textarea{background:rgba(255,255,255,.04);color:inherit;
+  border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:5px 6px;font:inherit;
+  font-family:"SFMono-Regular",monospace;font-size:11px;resize:vertical}
+@media (max-width:720px){.param-grid{grid-template-columns:1fr 1fr}}
 .route-card{border:1px solid rgba(var(--rgb),.22);border-radius:7px;padding:8px 10px;margin:2px 0 12px;
   background:rgba(var(--rgb),.04)}
 /* The routing explanation, moved out of the transcript. It is reference
@@ -2228,6 +2242,27 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');CHAT_SESSION.profile=this.dataset.profile;notify('Routing on '+this.dataset.profile)">${pr.label}</button>`).join('')}
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
    <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
+  <details class="chat-params"${CHAT_SESSION.paramsOpen?' open':''}
+    ontoggle="CHAT_SESSION.paramsOpen=this.open"><summary>Parameters${paramSummary()}</summary>
+   <div class="param-grid">
+    <label>System prompt
+     <textarea id="cpSystem" rows="2" placeholder="empty — no system message is sent"
+       oninput="CHAT_SESSION.system=this.value">${escapeHtml(CHAT_SESSION.system)}</textarea></label>
+    <label>Temperature
+     <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.temperature))}"
+       oninput="CHAT_SESSION.temperature=this.value"></label>
+    <label>Max tokens
+     <input id="cpMax" class="mono" inputmode="numeric" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.max_tokens))}"
+       oninput="CHAT_SESSION.max_tokens=this.value"></label>
+    <label>Top&nbsp;p
+     <input id="cpTopP" class="mono" inputmode="decimal" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.top_p))}"
+       oninput="CHAT_SESSION.top_p=this.value"></label>
+   </div>
+   <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would silently override a choice made elsewhere. A system prompt applies from the next message onward and is not retrospective; the messages already above were not sent with it. These are the request's parameters, not the route's: they travel to whichever model the profile selects.</small>
+  </details>
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
@@ -3690,7 +3725,32 @@ const CHAT_SESSION={
  title:'New conversation',
  messages:[],
  profile:'ravis/auto',
+ /* Generation parameters, held for the tab like everything else here. Defaults
+    are *unset* rather than guessed: an omitted `temperature` lets the model and
+    the runtime apply their own, and sending 0.7 because it is a common default
+    would override a deliberate choice somebody made elsewhere. Only what is
+    filled in gets sent. */
+ /* Whether the panel is open survives a re-render: `render()` runs after
+    every message, and a panel that snapped shut each time you sent one would
+    be unusable exactly when you are adjusting it. */
+ paramsOpen:false,
+ system:'',
+ temperature:'',
+ max_tokens:'',
+ top_p:'',
  busy:false};
+
+function paramSummary(){
+ /* What is actually in force, shown on the closed summary. A parameters panel
+    that hides whether anything is set invites the question it exists to answer. */
+ const c=CHAT_SESSION, on=[];
+ if(String(c.system).trim())on.push('system prompt');
+ if(String(c.temperature).trim()!=='')on.push('temp '+c.temperature);
+ if(String(c.max_tokens).trim()!=='')on.push('max '+c.max_tokens);
+ if(String(c.top_p).trim()!=='')on.push('top_p '+c.top_p);
+ return on.length?` <span class="chip">${escapeHtml(on.join(' · '))}</span>`
+                 :' <span class="mono dim">model defaults</span>';
+}
 
 async function chatDecision(id){
  /* The chat screen's own lookup, deliberately not `API.ravis.routeDecision`.
@@ -3708,6 +3768,25 @@ async function chatDecision(id){
  }catch(e){return null}
 }
 
+function chatRequestBody(){
+ /* Built from what is set, and nothing else. An empty box means the field is
+    omitted from the request entirely rather than sent as null or as a default
+    picked here — the model and the runtime own their own defaults, and §14's
+    rule about never presenting a guess as a measurement has an equivalent here:
+    do not present a guess as a choice. */
+ const c=CHAT_SESSION;
+ const history=c.messages.filter(m=>!m.pending).map(m=>({role:m.role,content:m.text}));
+ const system=String(c.system).trim();
+ const body={model:c.profile,
+   messages:system?[{role:'system',content:system},...history]:history};
+ const num=(v,key)=>{const t=String(v).trim();if(t==='')return;
+   const n=Number(t);if(Number.isFinite(n))body[key]=n};
+ num(c.temperature,'temperature');
+ num(c.max_tokens,'max_tokens');
+ num(c.top_p,'top_p');
+ return body;
+}
+
 async function sendChat(){
  const box=document.getElementById('chatInput');
  const text=(box&&box.value||'').trim();
@@ -3718,13 +3797,11 @@ async function sendChat(){
  if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
  CHAT_SESSION.messages.push({role:'assistant',text:'…',pending:true});
  render();
- let reply='',requestId='',served='';
+ let reply='',requestId='',served='',reasoningOnly=false;
  try{
   const r=await fetch(BASE.ravis+'/v1/chat/completions',{
    method:'POST',headers:{'content-type':'application/json'},
-   body:JSON.stringify({model:CHAT_SESSION.profile,
-    messages:CHAT_SESSION.messages.filter(m=>!m.pending).map(m=>({role:m.role,content:m.text})),
-    max_tokens:512})});
+   body:JSON.stringify(chatRequestBody())});
   requestId=r.headers.get('x-request-id')||'';
   const d=await r.json().catch(()=>({}));
   if(!r.ok){
@@ -3733,13 +3810,30 @@ async function sendChat(){
       reason it gives. */
    reply=(d.error&&(d.error.message||d.error))||('RAVIS returned HTTP '+r.status);
   }else{
-   reply=((d.choices||[{}])[0].message||{}).content||'(empty response)';
+   const ch=(d.choices||[{}])[0]||{}, msg=ch.message||{};
+   reply=msg.content||'';
    served=d.model||'';
+   if(!reply){
+    /* An empty answer is almost never an empty answer. On this corpus it is a
+       reasoning model spending the whole budget thinking — SIRVIS measured
+       exactly this on both Gemma-4 builds, 253 of 256 tokens with no answer —
+       and the response says so if anyone reads it. Reporting "(empty
+       response)" would hide a cause the payload is carrying. */
+    const det=(d.usage||{}).completion_tokens_details||{};
+    const think=det.reasoning_tokens;
+    const spent=(d.usage||{}).completion_tokens;
+    reply=think
+     ? `No answer. ${think} of ${spent} tokens went to reasoning and generation stopped at ${ch.finish_reason==='length'?'the token limit':'the model\u2019s own stop'} — raise Max tokens, or pick a profile that avoids reasoning models.`
+     : ch.finish_reason==='length'
+       ? 'No answer — generation stopped at the token limit before anything was produced. Raise Max tokens.'
+       : 'The model returned an empty message.';
+    reasoningOnly=true;
+   }
   }
  }catch(e){reply='RAVIS is not reachable: '+e.message}
 
  CHAT_SESSION.messages.pop();
- CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId});
+ CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId,reasoningOnly});
  /* Correlate the reply with the decision RAVIS recorded for it. The response
     carries `x-request-id` and a route decision carries the same `request_id`,
     so the link is exact rather than "the most recent decision", which would be

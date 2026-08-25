@@ -3130,6 +3130,36 @@ panel made obvious by having less room than it wanted. The height is now
 measured from the card's own top offset on render and on resize, because that
 offset depends on a heading that wraps differently at narrow widths.
 
+## Chat parameters
+
+There was no way to set a system prompt, a temperature or a token budget — the
+screen sent a fixed `max_tokens: 512` and nothing else. A collapsible panel now
+carries **system prompt, temperature, max tokens and top&nbsp;p**, held for the
+tab like the rest of the conversation.
+
+**An empty field is not sent at all.** No default is filled in here, because
+picking a common value like `0.7` would silently override a choice the model or
+the runtime had already made. The same instinct as §14's rule about estimates:
+do not present a guess as a choice. The closed summary shows what is actually in
+force — `system prompt · temp 0.1 · max 40`, or *model defaults* — so the panel
+does not hide the answer it exists to give.
+
+The panel's open state survives a re-render, because `render()` runs after every
+message and a panel that snapped shut each time would be unusable exactly while
+being adjusted. A system prompt applies from the next message onward and the
+screen says so: the messages already above were not sent with it.
+
+**"(empty response)" was hiding a cause the payload was carrying.** A reply with
+no content is almost never an empty reply on this corpus — it is a reasoning
+model spending its whole budget thinking, which SIRVIS measured directly on both
+Gemma-4 builds at 253 of 256 tokens. The response says so if anyone reads it, so
+now it is read: an empty answer reports the reasoning tokens, the total, and why
+generation stopped.
+
+Seen immediately, with a 40-token budget: *"No answer. 38 of 40 tokens went to
+reasoning and generation stopped at the token limit — raise Max tokens, or pick
+a profile that avoids reasoning models."*
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
