@@ -56,10 +56,16 @@ DECLARED: dict[str, Capability] = {
         state=UNAVAILABLE,
         reason="trace correlation lands at M7, on top of M6's event hub",
     ),
+    # Degraded rather than available, and the gap is one named thing. §7 lists
+    # conversation titles as a RAVIS *background call* carrying §9.6.1's marker;
+    # RAVIS defines `may_declare_background_calls` and honours it nowhere, so
+    # NERVIS titles a conversation by truncating its first message instead.
+    # Everything else §7 asks of the MVP is served.
     "nervis.ravis_chat@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="RAVIS-backed chat lands at M4",
+        state=DEGRADED,
+        reason="chat, streaming, history and the route inspector are served; "
+        "generated titles wait for RAVIS to honour §9.6.1's background marker",
     ),
     "nervis.sirvis_views@1": Capability(
         version="1.0.0",

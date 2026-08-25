@@ -147,3 +147,30 @@ def negotiate(operation: Operation, entry: RegistryEntry | None) -> Verdict:
         Availability.UNAVAILABLE,
         f"{entry.declaration.label} reports {operation.capability} as {state}",
     )
+
+
+def may_attempt(verdict: Verdict, entry: RegistryEntry | None) -> bool:
+    """Whether to make the call, which is narrower than "is this control usable".
+
+    **Liveness is not a veto.** The registry's reading is up to one probe
+    interval old, so gating a call on it means refusing a peer that came back
+    twenty seconds ago — reporting `ConnectError` for a service that is
+    answering. That is guessing in the other direction from the one §5.2
+    forbids.
+
+    What the gate is for is *"never calls a guessed endpoint"*: a capability
+    never advertised, or one the service says it does not offer. Those stay
+    refused without a request. A capability last seen usable on a service now
+    thought unreachable is **attempted** — the connection refuses in about a
+    millisecond on loopback, and the transport's answer is fresher and more
+    specific than the registry's.
+
+    `negotiate()` still returns `SERVICE_DOWN`, and a *control* should grey out
+    on it. A call should try. Shared by the M3 readers and M4's chat because
+    both need the same answer and two copies would drift.
+    """
+    if verdict.usable:
+        return True
+    if entry is None or verdict.availability is not Availability.SERVICE_DOWN:
+        return False
+    return entry.capabilities.get(verdict.operation.capability) in {"available", "degraded"}

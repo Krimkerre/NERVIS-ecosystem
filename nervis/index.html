@@ -346,6 +346,10 @@ body.zen body.zen .fault-controls{display:none}
 /* the caret only exists while characters are still arriving */
 .bubble.typing:after{content:"▌";color:var(--accent);animation:mikuCaret .7s steps(1) infinite}
 @keyframes mikuCaret{0%,49%{opacity:1}50%,100%{opacity:0}}
+/* The same caret, on the chat reply that is still arriving. Reused rather than
+   redefined: two blink rates on one screen reads as two different things
+   happening. */
+.stream-caret{color:var(--accent);animation:mikuCaret .7s steps(1) infinite}
 
 /* ── SCREEN CORRUPTION ─────────────────────────────────────────────────────
    Fires once, on the one line where she loses containment. Nothing here filters
@@ -2463,14 +2467,18 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
-     :`<div class="bubble">${m.route_decision_id&&rd[m.route_decision_id]
+     :`<div class="bubble"${m.pending?' id="streaming"':''}>${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
         : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}</div>`).join('')}
   </div>
-  <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">➤</button></div>
+  <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${CHAT_SESSION.busy?'■':'➤'}</button></div>
   <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is kept in this browser's local storage, listed under <b>History</b>, and can be deleted there; prompts are not sent to the trace collector.</small>
  </div>`;
- $('#sendChat').onclick=sendChat;$('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
+ /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
+    streaming — aborting the fetch closes the connection, NERVIS sees the
+    disconnect, cancels RAVIS and keeps the partial text. */
+ $('#sendChat').onclick=()=>CHAT_SESSION.busy?stopChat():sendChat();
+ $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
  sizeChat();}
 
 /* Measured rather than guessed: the card's distance from the top of the
@@ -4200,17 +4208,24 @@ async function chatDecision(id){
  }catch(e){return null}
 }
 
-function chatRequestBody(){
+function chatRequestBody(conversationId){
  /* Built from what is set, and nothing else. An empty box means the field is
     omitted from the request entirely rather than sent as null or as a default
     picked here — the model and the runtime own their own defaults, and §14's
     rule about never presenting a guess as a measurement has an equivalent here:
-    do not present a guess as a choice. */
+    do not present a guess as a choice.
+
+    **NERVIS's shape since M4, not RAVIS's.** It used to assemble the whole
+    `messages` array here, which meant the browser owned the conversation and
+    NERVIS could not have stored it even if it wanted to. Now the last message
+    goes up and NERVIS supplies the history it already holds — one copy, on the
+    side that persists it. */
  const c=CHAT_SESSION;
- const history=c.messages.filter(m=>!m.pending).map(m=>({role:m.role,content:m.text}));
+ const last=[...c.messages].reverse().find(m=>m.role==='user'&&!m.pending);
  const system=String(c.system).trim();
- const body={model:c.profile,
-   messages:system?[{role:'system',content:system},...history]:history};
+ const body={content:last?last.text:'',profile:c.profile};
+ if(conversationId)body.conversation_id=conversationId;
+ if(system)body.system=system;
  const num=(v,key)=>{const t=String(v).trim();if(t==='')return;
    const n=Number(t);if(Number.isFinite(n))body[key]=n};
  num(c.temperature,'temperature');
@@ -4227,66 +4242,129 @@ async function sendChat(){
  CHAT_SESSION.busy=true;
  CHAT_SESSION.messages.push({role:'user',text});
  if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
- CHAT_SESSION.messages.push({role:'assistant',text:'…',pending:true});
- render();
- let reply='',requestId='',served='',reasoningOnly=false;
+ CHAT_SESSION.messages.push({role:'assistant',text:'',pending:true});
+ /* **Awaited.** `render()` refetches this screen's profiles and decisions, so
+    leaving it unawaited meant the reply bubble did not exist for the first
+    second — and every delta arriving before it was written into nothing. The
+    text still appeared, because `paint()` writes the whole accumulated string
+    rather than appending, but the first second was blank: exactly the blank
+    screen streaming exists to remove. */
+ await render();
+
+ /* **Through NERVIS since M4, and streamed.** This used to POST straight to
+    RAVIS and wait for a whole completion — a blank screen for however long a
+    local model took, and a conversation that lived only in `localStorage` and
+    vanished with the browser profile.
+
+    NERVIS forwards RAVIS's SSE frames unchanged, so what arrives here is
+    exactly OpenAI's shape; what NERVIS adds is storing both turns and
+    cancelling RAVIS when this connection goes away. */
+ const stop=new AbortController();
+ CHAT_SESSION.abort=stop;
+ let reply='',requestId='',served='',conversationId=CHAT_SESSION.remote_id||'',reasoning=0,failed='';
+ /* Tracked separately from `failed`, because a stop is not a failure and must
+    not borrow a failure's explanation. Without this, stopping a reasoning model
+    before it produced any text rendered "the model spent its whole budget on
+    reasoning — raise Max tokens", which is a confident diagnosis of something
+    that did not happen. */
+ let aborted=false;
+ const node=()=>document.getElementById('streaming');
+ const paint=()=>{const el=node();if(el)el.innerHTML='<b>NERVIS</b><br>'+escapeHtml(reply)+
+   (CHAT_SESSION.busy?'<span class="stream-caret">▌</span>':'')};
+
  try{
-  const r=await fetch(BASE.ravis+'/v1/chat/completions',{
-   method:'POST',headers:{'content-type':'application/json'},
-   body:JSON.stringify(chatRequestBody())});
+  const r=await fetch(BASE.nervis+'/api/v1/chat',{
+   method:'POST',headers:{'content-type':'application/json'},signal:stop.signal,
+   body:JSON.stringify(chatRequestBody(conversationId))});
   requestId=r.headers.get('x-request-id')||'';
-  const d=await r.json().catch(()=>({}));
+  conversationId=r.headers.get('x-conversation-id')||conversationId;
   if(!r.ok){
-   /* The router's own refusal, shown as the router phrased it. A no-route is an
-      outcome rather than an error (§9.2), and rewriting it here would lose the
-      reason it gives. */
-   reply=(d.error&&(d.error.message||d.error))||('RAVIS returned HTTP '+r.status);
+   const d=await r.json().catch(()=>({}));
+   failed=(d.error&&(d.error.message||d.error))||('NERVIS returned HTTP '+r.status);
   }else{
-   const ch=(d.choices||[{}])[0]||{}, msg=ch.message||{};
-   reply=msg.content||'';
-   served=d.model||'';
-   if(!reply){
-    /* An empty answer is almost never an empty answer. On this corpus it is a
-       reasoning model spending the whole budget thinking — SIRVIS measured
-       exactly this on both Gemma-4 builds, 253 of 256 tokens with no answer —
-       and the response says so if anyone reads it. Reporting "(empty
-       response)" would hide a cause the payload is carrying. */
-    const det=(d.usage||{}).completion_tokens_details||{};
-    const think=det.reasoning_tokens;
-    const spent=(d.usage||{}).completion_tokens;
-    reply=think
-     ? `No answer. ${think} of ${spent} tokens went to reasoning and generation stopped at ${ch.finish_reason==='length'?'the token limit':'the model\u2019s own stop'} — raise Max tokens, or pick a profile that avoids reasoning models.`
-     : ch.finish_reason==='length'
-       ? 'No answer — generation stopped at the token limit before anything was produced. Raise Max tokens.'
-       : 'The model returned an empty message.';
-    reasoningOnly=true;
+   /* Read the stream by hand rather than with `EventSource`: that one cannot
+      POST, cannot send a body and cannot be aborted, which rules out all three
+      things this needs. */
+   const reader=r.body.getReader(),decoder=new TextDecoder();
+   let buffer='';
+   for(;;){
+    const {value,done}=await reader.read();
+    if(done)break;
+    buffer+=decoder.decode(value,{stream:true});
+    const parts=buffer.split('\n\n');
+    buffer=parts.pop();
+    for(const part of parts){
+     for(const line of part.split('\n')){
+      if(line.startsWith('event: error')){failed='stream';continue}
+      if(!line.startsWith('data:'))continue;
+      const payload=line.slice(5).trim();
+      if(payload==='[DONE]')continue;
+      let frame;try{frame=JSON.parse(payload)}catch(e){continue}
+      if(failed==='stream'){failed=frame.message||'RAVIS refused mid-stream';continue}
+      const delta=((frame.choices||[{}])[0]||{}).delta||{};
+      if(delta.content){reply+=delta.content;paint()}
+      /* Counted, not shown. Reasoning tokens are the model thinking, not its
+         answer — but a reply that is *only* reasoning needs explaining, and
+         the count is the explanation. */
+      if(delta.reasoning_content)reasoning++;
+      served=frame.model||served;
+     }
+    }
    }
   }
- }catch(e){reply='RAVIS is not reachable: '+e.message}
+ }catch(e){
+  aborted=e.name==='AbortError';
+  failed=aborted?'':'NERVIS is not reachable: '+e.message;
+ }
 
+ CHAT_SESSION.busy=false;
+ CHAT_SESSION.abort=null;
+ CHAT_SESSION.remote_id=conversationId;
  CHAT_SESSION.messages.pop();
- CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId,reasoningOnly});
- /* Correlate the reply with the decision RAVIS recorded for it. The response
-    carries `x-request-id` and a route decision carries the same `request_id`,
-    so the link is exact rather than "the most recent decision", which would be
-    wrong the moment two requests overlap. */
- if(requestId){
+ if(failed){
+  CHAT_SESSION.messages.push({role:'assistant',text:failed,served,request_id:requestId});
+ }else if(aborted){
+  /* What the reader saw, kept, and labelled as stopped rather than finished.
+     NERVIS stored the same partial with `interrupted` set, so the two agree. */
+  CHAT_SESSION.messages.push({role:'assistant',served,request_id:requestId,interrupted:true,
+   text:reply?reply+'\n\n— stopped —':'— stopped before the model produced anything —'});
+ }else if(!reply){
+  /* An empty answer is almost never an empty answer. On this corpus it is a
+     reasoning model spending the whole budget thinking — SIRVIS measured
+     exactly that on both Gemma-4 builds, 253 of 256 tokens with no answer —
+     and the frames say so if anyone counts them. "(empty response)" would hide
+     a cause the stream was carrying. */
+  CHAT_SESSION.messages.push({role:'assistant',served,request_id:requestId,reasoningOnly:true,
+   text:reasoning
+    ? `No answer. The model spent its whole budget on reasoning (${reasoning} frames) and stopped before producing any. Raise Max tokens.`
+    : 'The model returned an empty message.'});
+ }else{
+  CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId});
+ }
+
+ /* Correlate the reply with the decision RAVIS recorded for it. NERVIS looks it
+    up by the request id it sent, so the link is exact rather than "the most
+    recent decision" — which would be wrong the moment two requests overlap. */
+ if(requestId&&!failed){
   try{
-   const rd=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=25',
+   const rd=await fetch(BASE.nervis+'/api/v1/ravis/routes/for/'+encodeURIComponent(requestId),
      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
    if(rd.ok){
-    const hit=((await rd.json()).items||[]).find(x=>x.request_id===requestId);
+    const hit=(await rd.json()).decision;
     if(hit)CHAT_SESSION.messages[CHAT_SESSION.messages.length-1].route_decision_id=hit.decision_id;
    }
   }catch(e){}
  }
- CHAT_SESSION.busy=false;
- /* Saved after each exchange rather than on some explicit action: the failure
-    this prevents is closing a tab and finding the conversation gone, and
-    nobody presses save before closing a tab. */
+ /* NERVIS stored both turns already; this keeps the browser copy for the case
+    the page is opened from disk with nothing running. */
  CHAT_STORE.save(CHAT_SESSION);
  render();
 }
+
+/* Stop a reply in flight. Aborting the fetch closes the connection, NERVIS's
+   relay sees the disconnect, cancels RAVIS and stores the partial text — so
+   stopping keeps what was said rather than discarding it. */
+function stopChat(){if(CHAT_SESSION.abort)CHAT_SESSION.abort.abort()}
 
 const CREDS={
  async save(name){

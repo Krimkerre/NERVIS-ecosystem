@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 997 tests, no network, no live service
+.venv/bin/pytest                      # part of 1015 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 353 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 98 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 116 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 997 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1015 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4160,6 +4160,99 @@ wrong is worse than one a person can read.
 **Markdown counts as a reference site.** A name that appears only in a
 specification is not called, but it *is* claimed — and the gap between the two
 is the whole thing this exists to find.
+
+## NERVIS M4 — chat, streamed through NERVIS and kept
+
+M4's exit: *"`ravis/auto` chat works; streaming behaves; the route inspector
+shows the decision."* All three, plus §7.2's storage.
+
+Chat used to POST straight to RAVIS from the browser and wait for a whole
+completion — a blank screen for as long as a local model took — with the
+conversation living in `localStorage`, which is why it vanished with a browser
+profile. It now goes through `/api/v1/chat`, streamed, and both turns are
+stored in the NERVIS database.
+
+**RAVIS's SSE frames reach the browser unchanged.** Reshaping them would make
+NERVIS a second protocol nobody documented and would break the moment RAVIS
+added a field. What NERVIS adds is keeping the text and cancelling RAVIS when
+the connection goes away.
+
+### Three things happen at once on a streamed turn
+
+Bytes forward, text accumulates, and a disconnect cancels upstream. That last
+one matters on a local GPU: a closed tab that kept RAVIS generating is a model
+burning power for nobody. Measured, by hanging up mid-stream:
+
+```text
+read 22528 bytes, then hung up
+stored 158 chars, interrupted=True
+  '\n\n**Solution: Counting from One to Sixty**\n\nHere is the count starting'
+```
+
+The partial is **kept and marked**. Discarding it would delete text the reader
+watched arrive; storing it unmarked would let the next turn present a
+half-sentence as a finished thought.
+
+### The route inspector, correlated exactly
+
+§7.1 calls this "what makes ordinary chat a RAVIS debugging tool". RAVIS records
+`request_id` on every decision and echoes the same id in `x-request-id`, so
+NERVIS sends its own id and looks that one up — exact, rather than "the most
+recent decision", which is wrong the moment two requests overlap:
+
+```text
+decision: 15524a8b1de2  TRANSPARENT_OPENAI  ravis/auto -> deepseek-r1-distill-qwen-1.5b
+reason  : first eligible candidate in stable order. already loaded (HOT), so no load is required…
+```
+
+A miss is `null` and a 200, not a 404: RAVIS holds decisions in memory, so a
+restart legitimately loses them and an older reply should read "no longer
+recorded" rather than error.
+
+### Titles are truncated, not generated — deliberately
+
+§7 wants generated titles as a RAVIS **background call** carrying §9.6.1's
+marker. RAVIS defines `may_declare_background_calls` on its application identity
+and **honours it nowhere**, so a generated title would route as ordinary work
+through `ravis/auto` and could select a paid model for a string nobody reads.
+§7 states the trade outright: *an untitled conversation is a smaller failure
+than a title billed to a frontier model.*
+
+So `nervis.ravis_chat@1` is **degraded**, not available, and says which half is
+missing.
+
+Worth noting how that was found: `may_declare_background_calls` is a dataclass
+*field*, and `tools/check_dead_code.py` only sweeps functions and classes. The
+same class of claim, one level below where the gate looks.
+
+### Three defects the wiring found
+
+**A reply that produced no content was not stored at all.** Observed on the
+second turn of the first real conversation: a reasoning model spent its entire
+120-token budget on `reasoning_content` and emitted no `content`, so the append
+was skipped and the question sat there with no answer beside it and nothing to
+say why. An empty assistant turn that *finished* is now stored — "it answered
+with nothing" is true, and is what a screen needs in order to explain it.
+
+**The reply bubble did not exist for the first second.** `render()` refetches
+this screen's profiles and decisions, and it was called without `await`, so
+every delta arriving before it completed was written into nothing. The text
+still appeared — `paint()` writes the whole accumulated string rather than
+appending — but the first second was blank, which is exactly the blank screen
+streaming exists to remove.
+
+**Stopping a reply blamed the model.** An aborted stream with no text fell
+through to the reasoning-exhaustion branch and rendered *"the model spent its
+whole budget on reasoning — raise Max tokens"*, which is a confident diagnosis
+of something that did not happen. A stop is not a failure and must not borrow a
+failure's explanation.
+
+### What §7 forbids, asserted rather than assumed
+
+*Not a workspace, not a coding agent, no tools, no gates, no agent role.* The
+absence is the feature, and an absence is the one thing a reader cannot see — so
+a test inspects the body actually sent to RAVIS and asserts none of `tools`,
+`tool_choice`, `functions`, `session_id` or `workspace` is in it.
 
 ## Starting the thing
 

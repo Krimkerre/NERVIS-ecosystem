@@ -26,6 +26,7 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from nervis.api import chat_router
 from nervis.api import router as api_router
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, nervis_surface
@@ -52,6 +53,7 @@ def create_app(settings: Settings) -> FastAPI:
     _register_error_handling(api)
     api.include_router(ecosystem_router)
     api.include_router(api_router)
+    api.include_router(chat_router)
     register_dashboard(api)
     return api
 

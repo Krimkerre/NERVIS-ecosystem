@@ -79,6 +79,46 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        4,
+        "chat conversations and messages, per NERVIS.md §7.2",
+        # §7.2's list, and nothing beyond it: conversation ID, title,
+        # timestamps, messages, RAVIS route IDs. Local only by default.
+        #
+        # `route_decision_id` and `request_id` are what make §7.1's inspector a
+        # lookup rather than a re-derivation — RAVIS already recorded why it
+        # chose what it chose, and storing the handle beats storing a copy that
+        # can disagree with it.
+        #
+        # ON DELETE CASCADE because §7.2 requires deletion to work, and a
+        # conversation whose messages outlive it is not deleted, it is hidden.
+        """
+        CREATE TABLE IF NOT EXISTS chat_conversation (
+            conversation_id TEXT PRIMARY KEY,
+            title           TEXT NOT NULL DEFAULT '',
+            profile         TEXT NOT NULL DEFAULT '',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_message (
+            message_id        TEXT PRIMARY KEY,
+            conversation_id   TEXT NOT NULL
+                REFERENCES chat_conversation(conversation_id) ON DELETE CASCADE,
+            role              TEXT NOT NULL,
+            content           TEXT NOT NULL,
+            model             TEXT NOT NULL DEFAULT '',
+            profile           TEXT NOT NULL DEFAULT '',
+            request_id        TEXT NOT NULL DEFAULT '',
+            route_decision_id TEXT NOT NULL DEFAULT '',
+            interrupted       INTEGER NOT NULL DEFAULT 0,
+            created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS chat_message_by_conversation
+            ON chat_message(conversation_id, created_at);
+        """,
+    ),
 ]
 
 

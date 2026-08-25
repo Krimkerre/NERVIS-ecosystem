@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0 – M3)
+## The service (M0 – M4)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -76,8 +76,24 @@ Every outcome has one shape, `{available, reason, availability, data}`, with
 none of these*, and confusing the two is how a screen renders a confident zero
 over an outage.
 
-`/api/v1` has `health`, `settings`, `system`, `services` and `ravis`. §14's
-other four paths arrive with the milestones that own them, because a stub
+**M4** adds `/api/v1/chat` — a normal client of RAVIS's *published*
+OpenAI-compatible API, streamed, with both turns stored (§7, §7.2). RAVIS's SSE
+frames reach the browser unchanged; what NERVIS adds is keeping the text and
+cancelling RAVIS when the connection goes away. A cancelled reply is stored as
+the partial the reader actually saw, marked `interrupted`.
+
+**Titles are truncated from the first message, never generated.** §7 wants them
+produced as a RAVIS background call carrying §9.6.1's marker, and RAVIS honours
+that marker nowhere — so a generated title would route as ordinary work and
+could select a paid model for a string nobody reads. §7's own words: an untitled
+conversation is a smaller failure than a title billed to a frontier model.
+
+**It is not Clarvis chat.** No workspace, no tools, no gates, no agent role, and
+a test asserts none of them appear in the body sent to RAVIS — because the
+absence is the feature, and an absence is the one thing a reader cannot see.
+
+`/api/v1` has `health`, `settings`, `system`, `services`, `ravis` and `chat`.
+§14's other three paths arrive with the milestones that own them, because a stub
 returning plausible data is §4.1's prohibition one layer up.
 
 Two deviations from §3, stated rather than left to be discovered. **Not

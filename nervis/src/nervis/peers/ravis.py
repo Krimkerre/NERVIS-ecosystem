@@ -27,7 +27,7 @@ from typing import Any, Mapping
 
 import httpx
 
-from nervis.negotiation import Availability, Operation, Verdict, negotiate
+from nervis.negotiation import Availability, Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
 
 # How long a management read may take. Short: these back a dashboard, and a
@@ -114,7 +114,7 @@ async def read(
     verdict = negotiate(
         Operation(surface.key, "ravis", surface.capability, surface.label), entry
     )
-    if not _may_attempt(verdict, entry):
+    if not may_attempt(verdict, entry):
         return PeerRead(
             surface=surface.key,
             available=False,
@@ -122,7 +122,7 @@ async def read(
             reason=verdict.reason or f"{surface.capability} is not usable",
         )
 
-    assert entry is not None  # `_may_attempt` is false without one
+    assert entry is not None  # `may_attempt` is false without one
     headers = {"x-request-id": request_id} if request_id else {}
     try:
         response = await client.get(
@@ -168,33 +168,6 @@ async def read(
     )
 
 
-def _may_attempt(verdict: Verdict, entry: RegistryEntry | None) -> bool:
-    """Whether to make the call, which is a narrower question than "is it usable".
-
-    **Liveness is not a veto, and treating it as one was a bug.** The registry's
-    reading is up to one probe interval old, so gating a read on it meant NERVIS
-    refused a perfectly healthy RAVIS for twenty seconds after it came up —
-    reporting `ConnectError` for a service that was answering. That is guessing
-    in the other direction from the one §5.2 forbids.
-
-    What the gate is actually for is *"never calls a guessed endpoint"*: a
-    capability that was never advertised, or that the service says it does not
-    offer. Those stay refused without a request. A capability last seen usable
-    on a service now thought unreachable is **attempted** — the connection
-    refuses in about a millisecond on loopback, and the transport's answer is
-    both fresher and more specific than the registry's.
-
-    The registry's job is to describe. `negotiate()` still returns
-    `SERVICE_DOWN`, and a *control* should grey out on it; a read should try.
-    """
-    if verdict.usable:
-        return True
-    if entry is None or verdict.availability is not Availability.SERVICE_DOWN:
-        return False
-    # Down, but we know what it offered when it last answered.
-    return entry.capabilities.get(verdict.operation.capability) in {"available", "degraded"}
-
-
 def _refusal(response: httpx.Response) -> str:
     """RAVIS's own words for why it said no, when it gave any.
 
@@ -211,3 +184,30 @@ def _refusal(response: httpx.Response) -> str:
     if isinstance(error, Mapping) and error.get("message"):
         return f"{error.get('code', 'ERROR')}: {error['message']}"
     return f"RAVIS answered HTTP {response.status_code}"
+
+
+async def decision_for(
+    client: httpx.AsyncClient, entry: RegistryEntry | None, request_id: str
+) -> dict[str, Any] | None:
+    """The route decision behind one request, or None.
+
+    §7.1's inspector — *"this makes ordinary chat a RAVIS debugging tool"* —
+    needs the decision that produced a reply. RAVIS records `request_id` on
+    every decision and echoes the same id in `x-request-id`, so the correlation
+    already exists; NERVIS sends its own id and looks that one up.
+
+    A scan of the recent page rather than a filtered query, because
+    `/api/v1/route-decisions` publishes no filter. Bounded and cheap: the
+    decision for a reply that just streamed is at the top, and a miss returns
+    None rather than an error — decisions are held in memory and a RAVIS restart
+    legitimately loses them.
+    """
+    if not request_id:
+        return None
+    result = await read(client, entry, BY_KEY["routes"], params={"limit": 50})
+    if not result.available or not isinstance(result.data, Mapping):
+        return None
+    for item in result.data.get("items") or []:
+        if isinstance(item, Mapping) and item.get("request_id") == request_id:
+            return dict(item)
+    return None

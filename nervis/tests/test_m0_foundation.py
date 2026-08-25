@@ -138,7 +138,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.dashboard": "degraded",               # shell at M0, data at M1/M2
         "nervis.event_hub": "unavailable",            # M6
         "nervis.traces": "unavailable",               # M7
-        "nervis.ravis_chat": "unavailable",           # M4
+        "nervis.ravis_chat": "degraded",              # M4, titles await RAVIS M16
         "nervis.sirvis_views": "unavailable",         # M5
         "nervis.clarvis_visibility": "unavailable",   # M8
         "nervis.diagnostics": "unavailable",          # M12, M17

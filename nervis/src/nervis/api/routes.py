@@ -249,3 +249,25 @@ async def read_ravis(surface: str, request: Request) -> dict[str, Any]:
         request_id=getattr(request.state, "request_id", ""),
     )
     return result.as_dict()
+
+
+@router.get("/ravis/routes/for/{request_id}")
+async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]:
+    """The route decision behind one request (§7.1).
+
+    Its own path rather than a query parameter on `/ravis/routes`, because it
+    answers a different question — *why did this reply choose that model* — and
+    returns one decision or nothing rather than a page.
+
+    A miss is `null` and a 200, not a 404. RAVIS holds decisions in memory, so a
+    restart legitimately loses them, and a chat screen asking about an older
+    reply should render "no longer recorded" rather than an error.
+    """
+    return {
+        "request_id": request_id,
+        "decision": await ravis_peer.decision_for(
+            request.app.state.probe_client,
+            request.app.state.registry.get("ravis"),
+            request_id,
+        ),
+    }
