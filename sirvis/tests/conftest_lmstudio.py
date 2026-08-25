@@ -42,6 +42,22 @@ INSTALLED = [
         "max_context_length": 1048576,
         "capabilities": ["tool_use"],
     },
+    {
+        # A third build, added when `MODEL_NOT_INSTALLED` started being raised.
+        # The resource-manager tests need three *distinct* installed models to
+        # exercise a session that exhausts a two-model ceiling; before the check
+        # existed they used invented ids and were handed leases for builds this
+        # fake runtime had never heard of.
+        "id": "smollm3-3b",
+        "object": "model",
+        "type": "llm",
+        "publisher": "lmstudio-community",
+        "arch": "smollm3",
+        "compatibility_type": "gguf",
+        "quantization": "Q4_K_M",
+        "state": "not-loaded",
+        "max_context_length": 65536,
+    },
 ]
 
 

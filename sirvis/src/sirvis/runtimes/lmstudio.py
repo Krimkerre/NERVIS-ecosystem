@@ -35,7 +35,9 @@ from sirvis.runtimes.base import (
     GenerationChunk,
     LoadedModel,
     RuntimeInfo,
+    RuntimeLoadFailedError,
     RuntimeState,
+    RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
 
@@ -235,7 +237,10 @@ class LMStudioAdapter:
             arguments += ["--gpu", str(requested["gpu_offload"])]
         honoured = {"context_length", "gpu_offload"}
 
-        self._run_lms(arguments, timeout=LOAD_TIMEOUT_SECONDS)
+        # A non-zero exit here is the runtime answering and failing to load
+        # this build — which is not the same fact as the runtime being absent,
+        # and not the same thing to do about it.
+        self._run_lms(arguments, timeout=LOAD_TIMEOUT_SECONDS, refused=RuntimeLoadFailedError)
 
         resident = {model.model_key: model for model in await self.list_loaded_models()}
         actual = resident.get(model_key)
@@ -317,8 +322,32 @@ class LMStudioAdapter:
             return None
         return shutil.which("lms")
 
-    def _run_lms(self, arguments: list[str], timeout: float) -> str:
-        """Run one `lms` command, or say clearly that the lifecycle is unavailable."""
+    def _run_lms(
+        self,
+        arguments: list[str],
+        timeout: float,
+        refused: type[RuntimeUnavailableError] = RuntimeUnavailableError,
+    ) -> str:
+        """Run one `lms` command, distinguishing the three ways it can fail.
+
+        **All three used to raise `RuntimeUnavailableError`**, so the error
+        model published three codes and used one. §4.3 exists so a caller can
+        branch on the code, and a caller told the runtime was unreachable when
+        it was answering perfectly well and simply refused the operation looks
+        at the wrong process. Found by sweeping for definitions nothing
+        references: `LoadFailedError` and `DeadlineExceededError` were both
+        written, both documented, and never raised.
+
+        - **No binary** — genuinely unavailable. LM Studio exposes no HTTP
+          load or unload, so without the CLI there is no lifecycle at all.
+        - **Timed out** — a *busy* runtime, not an absent one. The obvious
+          response to "unreachable" is to retry immediately, which is the worst
+          possible response to a load already underway.
+        - **Non-zero exit** — the CLI ran and the command failed. `refused`
+          lets the caller say what that means, because a failed `load` is a
+          load failure while a failed `ps` really is the lifecycle being
+          unusable.
+        """
         binary = self._resolve_lms()
         if binary is None:
             raise RuntimeUnavailableError(
@@ -330,9 +359,13 @@ class LMStudioAdapter:
                 [binary, *arguments], capture_output=True, text=True,
                 timeout=timeout, check=True,
             )
+        except subprocess.TimeoutExpired as failure:
+            raise RuntimeTimeoutError(
+                f"lms {' '.join(arguments)} was still running after {timeout:.0f}s"
+            ) from failure
         except subprocess.CalledProcessError as failure:
             detail = (failure.stderr or failure.stdout or "").strip()
-            raise RuntimeUnavailableError(f"lms {' '.join(arguments)}: {detail}") from failure
+            raise refused(f"lms {' '.join(arguments)}: {detail}") from failure
         except (subprocess.SubprocessError, OSError) as failure:
             raise RuntimeUnavailableError(f"lms {' '.join(arguments)}: {failure}") from failure
         return finished.stdout.strip()

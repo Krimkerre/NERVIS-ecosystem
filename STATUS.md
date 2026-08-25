@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 992 tests, no network, no live service
+.venv/bin/pytest                      # part of 997 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 353 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 98 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 992 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 997 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4067,6 +4067,99 @@ refuses the second. Scheduled as SIRVIS **M22b** (reasoning-token overhead as
 evidence, measured per build like every other figure) with RAVIS **M16**'s
 tiebreak as its consumer. Not built here, because building it would have meant
 inventing the evidence.
+
+## A sweep for dead code, and what it turned out to be hiding
+
+Four times in two days a definition turned out to be written, exported,
+documented and never called — `capable()` in the dashboard, then
+`UnsupportedProtocolVersionError`, then `is_due_for_refresh`. None failed a
+test, a lint or a type check, because there is nothing wrong with the *code*;
+what is wrong is the belief that it does something. So the sweep became
+`tools/check_dead_code.py`, and it runs in CI.
+
+It found **eight**. Two were what the name suggests. **Five were not dead code
+at all** — they were conditions nobody was detecting, with the class already
+written for each.
+
+### Deleted: four that were speculative
+
+`requirements_of` in RAVIS's routing engine and `unknown_claim` in SIRVIS's
+inventory both carried the same tell in their own docstrings — *"for callers
+that need them directly"*, *"for callers assembling partial records"* — and had
+none. `ServiceUnreachableError` was written at NERVIS M0 and superseded at M3 by
+an envelope that reports rather than raises. `seedEvents` in the dashboard
+targeted `#events`, an element that is not in the document.
+
+### Wired: §4.3 published three codes and used one
+
+`LoadFailedError` and `DeadlineExceededError` had never been raised, because
+`_run_lms` raised `RuntimeUnavailableError` for **all three** ways the CLI can
+fail: the binary being absent, a non-zero exit, and a timeout.
+
+So a lease that failed because the runtime could not load a build reported
+`RUNTIME_UNAVAILABLE` — sending whoever read it to check a process that was
+working perfectly well. §4.3 publishes codes precisely so a caller can branch on
+them, and this had three names for one answer.
+
+The adapter now distinguishes them, and the shape matters: `RuntimeLoadFailedError`
+and `RuntimeTimeoutError` are **subclasses** of `RuntimeUnavailableError`, not
+siblings. Twelve `except RuntimeUnavailableError` sites already existed; as
+siblings, each would have silently stopped handling a case it used to handle.
+
+| the CLI | means | code |
+|---|---|---|
+| is not installed | no lifecycle exists on this machine | `RUNTIME_UNAVAILABLE` |
+| exits non-zero on a load | the runtime answered and could not load this build | `LOAD_FAILED` |
+| is still running past its deadline | a **busy** runtime, not an absent one | `TIMEOUT` |
+
+The last distinction is the one worth having: the obvious response to
+"unreachable" is to retry immediately, which is the worst possible response to a
+load that is already underway.
+
+Adding two `except` clauses pushed `open_session` past the complexity gate,
+which was the right complaint — three branches differing only in which class
+they construct is data pretending to be control flow. It is a table now.
+
+### Wired: a 404 that was arriving as a 502
+
+`MODEL_NOT_INSTALLED` is in SIRVIS.md §4.3's published list and nothing raised
+it. A lease for a build this machine does not have went all the way to `lms
+load`, failed, and came back as `LOAD_FAILED`. Now refused before the load, with
+one deliberate exception: **an inventory that could not be read says nothing**,
+because an empty inventory means the runtime did not answer, and refusing on
+that basis would turn one unreachable runtime into every model being reported
+missing.
+
+**Two existing tests were leasing models the fake runtime had never heard of**
+and being handed leases for them. That is exactly the bug the check closes, so
+the fixtures now use ids the recorded runtime actually publishes — and a third
+build was added to `tests/conftest_lmstudio.py`, because exercising a session
+that exhausts a two-model ceiling needs three real ones.
+
+### Kept and tested: §9's escape hatch
+
+`ResourceManager.force_unload` had no caller, no endpoint and **no test**. §9
+permits it "explicitly with authority", so deleting specified behaviour because
+nothing calls it yet would be the wrong correction — but an untested escape
+hatch is a claim rather than a feature. It has a test now. Nothing exposes it;
+reaching it needs the authorization story M16 owns.
+
+### The gate
+
+`tools/check_dead_code.py` parses every module-level definition and method in
+the four packages, plus every function in the dashboard's inline script, and
+counts references across all Python, HTML, Markdown, TOML and YAML in the
+repository. Anything at one — its own definition — fails.
+
+Decorator-registered functions are exempt, because a FastAPI handler's name is
+legitimately written once and forty route handlers would bury the seven real
+findings. Reference counting is textual on purpose: an AST call graph would miss
+`getattr`, pytest collection and decorators, and a sweep that is confidently
+wrong is worse than one a person can read.
+
+**Markdown counts as a reference site.** A name that appears only in a
+specification is not called, but it *is* claimed — and the gap between the two
+is the whole thing this exists to find.
 
 ## Starting the thing
 

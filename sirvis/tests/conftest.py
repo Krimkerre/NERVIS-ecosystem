@@ -67,7 +67,9 @@ def _no_lifecycle_to_a_real_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
 
     real = LMStudioAdapter._run_lms
 
-    def guarded(self: LMStudioAdapter, arguments: list[str], timeout: float) -> str:
+    def guarded(
+        self: LMStudioAdapter, arguments: list[str], timeout: float, **rest: object
+    ) -> str:
         """Refuse only when a real binary would actually have been invoked.
 
         Not a blanket block, because two tests exist to assert the adapter's own
@@ -79,7 +81,11 @@ def _no_lifecycle_to_a_real_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         developer's memory.
         """
         if self._resolve_lms() is None:
-            return real(self, arguments, timeout)
+            # `**rest` forwarded rather than dropped: the adapter grew a
+            # `refused` argument naming which error a non-zero exit means, and a
+            # guard that silently discarded it would make the two tests below
+            # assert against a signature the real code no longer has.
+            return real(self, arguments, timeout, **rest)  # type: ignore[arg-type]
         raise AssertionError(
             f"a test tried to run `lms {' '.join(arguments)}`, which would load or "
             "unload a real model on this machine (runbook §14.5). Use a recorded "

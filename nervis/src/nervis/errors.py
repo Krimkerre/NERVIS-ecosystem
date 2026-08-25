@@ -56,17 +56,6 @@ class InvalidConfigurationError(NervisError):
     status = 422
 
 
-class ServiceUnreachableError(NervisError):
-    """A peer NERVIS reads did not answer.
-
-    502 rather than 503: NERVIS is fine, and something it depends on is not.
-    The distinction matters to whatever is watching NERVIS's own health, which
-    must not go unhealthy because RAVIS was restarted.
-    """
-
-    code = "SERVICE_UNREACHABLE"
-    status = 502
-
 
 def to_response(request: Request, error: NervisError) -> JSONResponse:
     """The one place an exception becomes a body (§4.3).

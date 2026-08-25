@@ -130,4 +130,29 @@ class RuntimeUnavailableError(Exception):
     Deliberately not called `RuntimeError`: that name is a builtin meaning
     something else entirely, and a module where it means two things depending
     on the import is a trap for whoever reads it next.
+
+    The two subclasses below are **narrower cases of this, not alternatives to
+    it**, and that is what makes them safe to add: every `except
+    RuntimeUnavailableError` in the codebase keeps catching them, so nothing
+    that used to be handled stops being handled. What changes is that a caller
+    which cares can now tell the three apart.
+    """
+
+
+class RuntimeLoadFailedError(RuntimeUnavailableError):
+    """The runtime answered, and could not load the model.
+
+    A different fact from "the runtime is not there", and a different thing to
+    do about it: one means start the runtime, the other means this build will
+    not load on this machine. Collapsing them sends a reader to the wrong
+    process.
+    """
+
+
+class RuntimeTimeoutError(RuntimeUnavailableError):
+    """The operation was still running when its deadline passed.
+
+    Not an absent runtime — a busy one. The distinction matters because the
+    obvious response to "unreachable" is to retry immediately, which is the
+    worst possible response to a load that is already underway.
     """

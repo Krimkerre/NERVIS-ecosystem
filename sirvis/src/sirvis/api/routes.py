@@ -42,15 +42,24 @@ from sirvis.core.runtime_sets import (
 )
 from sirvis.errors import (
     BenchmarkNotFoundError,
+    DeadlineExceededError,
     InsufficientMemoryError,
     InvalidConfigurationError,
+    LoadFailedError,
     ModelNotFoundError,
+    ModelNotInstalledError,
     ResourceBusyError,
     RuntimeUnreachableError,
+    SirvisError,
     UnsupportedParameterError,
 )
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
-from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
+from sirvis.runtimes import (
+    LMStudioAdapter,
+    RuntimeLoadFailedError,
+    RuntimeTimeoutError,
+    RuntimeUnavailableError,
+)
 from sirvis.storage import list_runs, read_result, read_run
 from sirvis.storage.evidence import (
     FILTERS,
@@ -765,6 +774,35 @@ def _config_constraints(parameters: Any) -> dict[str, str]:
     }
 
 
+# An adapter failure and the §4.3 code that names it, most specific first —
+# `RuntimeUnavailableError` is the base of the other two, so order is the whole
+# of the matching rule.
+#
+# All three reported `RUNTIME_UNREACHABLE` until a sweep for definitions nothing
+# references found `LoadFailedError` and `DeadlineExceededError` written,
+# documented and never raised. §4.3 publishes codes so a caller can branch on
+# them, and one told the runtime was unreachable while it was answering
+# perfectly well goes and looks at a process that is working fine.
+_RUNTIME_FAILURES: tuple[tuple[type[RuntimeUnavailableError], type[SirvisError]], ...] = (
+    (RuntimeTimeoutError, DeadlineExceededError),
+    (RuntimeLoadFailedError, LoadFailedError),
+    (RuntimeUnavailableError, RuntimeUnreachableError),
+)
+
+
+def _wire_failure(failure: RuntimeUnavailableError) -> SirvisError:
+    """The published error for one adapter failure.
+
+    A table rather than a chain of `except` clauses, because the clauses pushed
+    `open_session` past the complexity gate — and three branches that differ
+    only in which class they construct is data pretending to be control flow.
+    """
+    for adapter, wire in _RUNTIME_FAILURES:
+        if isinstance(failure, adapter):
+            return wire(str(failure))
+    return RuntimeUnreachableError(str(failure))
+
+
 @router.post("/runtime/sessions")
 async def open_session(request: Request) -> dict[str, Any]:
     """Acquire one or more models under a lease (§9).
@@ -778,6 +816,7 @@ async def open_session(request: Request) -> dict[str, Any]:
     require(request, Scope.RUNTIME)
     body = await _json_body(request)
     wanted, pinned = await _session_members(request, body)
+    await _refuse_uninstalled(request, wanted)
 
     manager: ResourceManager = request.app.state.resources
     owner = str(body.get("owner") or "anonymous")
@@ -808,10 +847,44 @@ async def open_session(request: Request) -> dict[str, Any]:
     except RuntimeUnavailableError as failure:
         if session_id:
             await manager.release(session_id)
-        raise RuntimeUnreachableError(str(failure)) from failure
+        raise _wire_failure(failure) from failure
 
     assert lease is not None  # the loop ran at least once, or 422 was raised
     return lease.as_dict() | pinned | {"snapshot_revision": SNAPSHOT_REVISION}
+
+
+async def _refuse_uninstalled(request: Request, members: list[dict[str, Any]]) -> None:
+    """Refuse a model this machine does not have, before trying to load it.
+
+    §4.3 publishes `MODEL_NOT_INSTALLED` and nothing raised it. A lease for a
+    build that is not here went all the way to `lms load`, failed, and came back
+    as `LOAD_FAILED` — a 502 saying the runtime could not load it, when the
+    truthful answer is a 404 saying it was never there. Found by sweeping for
+    definitions nothing references.
+
+    **Silent when the inventory cannot be read.** An empty inventory means the
+    runtime did not answer, not that the machine has no models, and refusing
+    everything on that basis would turn one unreachable runtime into every model
+    being reported missing. In that case this says nothing and the load attempt
+    decides, exactly as before.
+    """
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError:
+        return
+    if not inventory.installed:
+        return
+    known = set(inventory.installed)
+    missing = [
+        str(member.get("model_id"))
+        for member in members
+        if str(member.get("model_id")) not in known
+    ]
+    if missing:
+        raise ModelNotInstalledError(
+            f"not installed on this machine: {', '.join(sorted(missing))}",
+            requested=sorted(missing),
+        )
 
 
 async def _session_members(

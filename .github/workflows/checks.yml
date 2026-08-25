@@ -114,6 +114,12 @@ jobs:
       # one observation: finishing a milestone always adds tests.
       - name: STATUS.md is current
         run: python3 tools/check_status.py
+      # Definitions nothing references. Ruff catches unused imports and locals;
+      # it does not catch a function that is defined, exported, documented and
+      # never called — which is how `capable()`, `is_due_for_refresh` and two
+      # published error codes all came to describe behaviour that did not exist.
+      - name: nothing is defined and unreferenced
+        run: python3 tools/check_dead_code.py
 
   prototype:
     name: nervis — parse, endpoints, citations

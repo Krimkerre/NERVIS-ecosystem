@@ -4589,7 +4589,6 @@ document.addEventListener('toggle',e=>{
    rest of this file follows, a control must not imply an effect it does not
    have, and a toast is a control's way of saying it worked. */
 function selectOne(el,selector){$$(selector).forEach(x=>x.classList.remove('selected'));el.classList.add('selected')}
-function seedEvents(){const box=$('#events');if(!box)return;['RAVIS routed clarvis/agent','Clarvis connected to workspace','SIRVIS benchmark completed','LM Studio model loaded'].forEach((x,i)=>box.insertAdjacentHTML('beforeend',`<div class="event"><time>10:26:0${8-i}</time><span>${x}</span></div>`))}
 function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>t.classList.remove('show'),2300)}/* An absent figure, rendered as absent. Used wherever SIRVIS reports a machine
    fact it cannot detect — the enclosure name, the at-rest memory baseline, and
    the model budget derived from that baseline. Printing `null` or defaulting to

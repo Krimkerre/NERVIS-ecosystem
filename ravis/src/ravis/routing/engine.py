@@ -26,7 +26,7 @@ from __future__ import annotations
 from difflib import get_close_matches
 from typing import Mapping
 
-from ravis.core.capabilities import Capability, ModelCapabilities
+from ravis.core.capabilities import ModelCapabilities
 from ravis.core.pools import (
     POOL_PREFIX,
     POOLS_BY_ID,
@@ -459,9 +459,3 @@ def _size_note(
         f"{len(peers)} other candidate(s) matched this pool exactly as well, and it was "
         f"chosen as the {measure} — a tiebreak on cost to run, not on quality"
     )
-
-
-def requirements_of(pool_id: str) -> frozenset[Capability]:
-    """The capabilities a pool requires, for callers that need them directly."""
-    pool = POOLS_BY_ID.get(pool_id)
-    return pool.requirements.required if pool else frozenset()

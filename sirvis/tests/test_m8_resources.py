@@ -440,7 +440,11 @@ def test_a_session_holds_its_models_until_released() -> None:
 
     opened = client.post(  # type: ignore[attr-defined]
         "/api/v1/runtime/sessions",
-        json={"owner": "benchmark", "models": [{"model_id": "coder-7b"}]},
+        # An id the recorded runtime actually lists. It said `coder-7b` until
+        # `MODEL_NOT_INSTALLED` started being raised, at which point this test
+        # was leasing a build the fake runtime had never heard of and being
+        # given a lease for it — which is the thing that check exists to stop.
+        json={"owner": "benchmark", "models": [{"model_id": "qwen2.5-coder-7b-instruct"}]},
         headers=auth,
     ).json()
     residency = client.get("/api/v1/runtime/residency").json()  # type: ignore[attr-defined]
@@ -448,9 +452,9 @@ def test_a_session_holds_its_models_until_released() -> None:
         f"/api/v1/runtime/sessions/{opened['session_id']}", headers=auth
     ).json()
 
-    assert opened["models"] == ["coder-7b"]
+    assert opened["models"] == ["qwen2.5-coder-7b-instruct"]
     assert residency["holdings"][0]["reference_count"] == 1
-    assert closed["unloaded"] == ["coder-7b"]
+    assert closed["unloaded"] == ["qwen2.5-coder-7b-instruct"]
 
 
 def test_a_partly_acquired_session_is_released_rather_than_left_dangling() -> None:
@@ -465,7 +469,12 @@ def test_a_partly_acquired_session_is_released_rather_than_left_dangling() -> No
 
     response = client.post(  # type: ignore[attr-defined]
         "/api/v1/runtime/sessions",
-        json={"models": [{"model_id": "a"}, {"model_id": "b"}, {"model_id": "c"}],
+        # Three ids the runtime lists — two real builds and one repeat — so the
+        # test still exercises partial acquisition rather than being refused up
+        # front for asking about models that do not exist.
+        json={"models": [{"model_id": "qwen2.5-coder-7b-instruct"},
+                         {"model_id": "lmstudio-community/granite-4.0-h-tiny"},
+                         {"model_id": "smollm3-3b"}],
               "policy": "reject"},
         headers=auth,
     )
@@ -484,3 +493,109 @@ def test_renewing_a_lapsed_session_is_a_404_not_a_new_lease() -> None:
     )
 
     assert response.status_code == 404
+
+
+# ── The three codes §4.3 published and nothing raised ───────────────────────
+
+
+def test_a_model_this_machine_does_not_have_is_a_404_not_a_502() -> None:
+    """`MODEL_NOT_INSTALLED` is in SIRVIS.md §4.3's list and nothing raised it.
+
+    A lease for an absent build went all the way to `lms load`, failed, and came
+    back as `LOAD_FAILED` — a 502 saying the runtime could not load it, when the
+    truthful answer is a 404 saying it was never here. Found by sweeping for
+    definitions nothing references.
+    """
+    client, token = _api()
+
+    response = client.post(  # type: ignore[attr-defined]
+        "/api/v1/runtime/sessions",
+        json={"owner": "benchmark", "models": [{"model_id": "a-build-nobody-installed"}]},
+        headers={"content-type": "application/json", "authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["code"] == "MODEL_NOT_INSTALLED"
+    assert "a-build-nobody-installed" in body["error"]["details"]["requested"]
+
+
+def test_an_unreadable_inventory_does_not_report_every_model_missing() -> None:
+    """An empty inventory means the runtime did not answer.
+
+    Refusing everything on that basis would turn one unreachable runtime into
+    every model on the machine being reported as uninstalled, which is a much
+    larger and much wronger claim.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from sirvis.api.routes import _refuse_uninstalled
+    from sirvis.runtimes import RuntimeUnavailableError
+
+    class Silent:
+        async def list_models(self) -> list[dict[str, object]]:
+            raise RuntimeUnavailableError("not answering")
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(lmstudio=Silent())))
+
+    # Must not raise: the load attempt decides, exactly as before.
+    asyncio.run(_refuse_uninstalled(request, [{"model_id": "anything"}]))  # type: ignore[arg-type]
+
+
+def test_a_failed_load_is_load_failed_and_a_timeout_is_timeout() -> None:
+    """Three adapter failures, three published codes.
+
+    All three reported `RUNTIME_UNREACHABLE` until this sweep, so §4.3 published
+    three codes and used one — and a caller told the runtime was unreachable
+    while it was answering perfectly well goes and looks at a process that is
+    working fine.
+    """
+    from sirvis.api.routes import _wire_failure
+    from sirvis.runtimes import (
+        RuntimeLoadFailedError,
+        RuntimeTimeoutError,
+        RuntimeUnavailableError,
+    )
+
+    assert _wire_failure(RuntimeTimeoutError("slow")).code == "TIMEOUT"
+    assert _wire_failure(RuntimeLoadFailedError("nope")).code == "LOAD_FAILED"
+    assert _wire_failure(RuntimeUnavailableError("gone")).code == "RUNTIME_UNAVAILABLE"
+
+
+def test_the_narrower_failures_are_still_caught_as_unavailable() -> None:
+    """Subclasses, not alternatives — which is what made them safe to add.
+
+    Twelve `except RuntimeUnavailableError` sites already existed. Had these
+    been siblings rather than subclasses, each would have silently stopped
+    handling a case it used to handle.
+    """
+    from sirvis.runtimes import (
+        RuntimeLoadFailedError,
+        RuntimeTimeoutError,
+        RuntimeUnavailableError,
+    )
+
+    assert issubclass(RuntimeLoadFailedError, RuntimeUnavailableError)
+    assert issubclass(RuntimeTimeoutError, RuntimeUnavailableError)
+
+
+async def test_force_unload_takes_a_model_held_by_someone_else() -> None:
+    """§9's explicit escape hatch, which had no caller and no test.
+
+    Kept rather than deleted — §9 permits this "explicitly with authority" and
+    deleting specified behaviour because nothing calls it yet is the wrong
+    correction. But an untested escape hatch is a claim, not a feature, so it is
+    tested here. **No surface exposes it**; reaching it needs the authorization
+    story M16 owns.
+    """
+    runtime = FakeRuntime()
+    manager = _manager(runtime)
+    lease = await manager.acquire("benchmark", "coder-7b")
+
+    taken = await manager.force_unload("coder-7b", authority="operator")
+
+    assert taken is True
+    assert runtime.unloads == ["coder-7b"]
+    # The lease's holding is gone, so releasing it unloads nothing further.
+    assert await manager.release(lease.session_id) == []

@@ -4,7 +4,9 @@ from sirvis.runtimes.base import (
     GenerationChunk,
     LoadedModel,
     RuntimeInfo,
+    RuntimeLoadFailedError,
     RuntimeState,
+    RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
 from sirvis.runtimes.lmstudio import LMStudioAdapter
@@ -15,5 +17,7 @@ __all__ = [
     "LoadedModel",
     "RuntimeInfo",
     "RuntimeState",
+    "RuntimeLoadFailedError",
+    "RuntimeTimeoutError",
     "RuntimeUnavailableError",
 ]

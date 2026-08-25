@@ -17,11 +17,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sirvis.core.models import (
-    Claim,
     LocalModel,
     ModelFamily,
     ModelVariant,
-    Provenance,
     RuntimeModelInstance,
 )
 
@@ -210,8 +208,3 @@ def _number(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def unknown_claim() -> Claim:
-    """An explicitly unknown value, for callers assembling partial records."""
-    return Claim(None, Provenance.UNKNOWN)
