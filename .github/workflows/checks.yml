@@ -106,6 +106,7 @@ jobs:
       - run: pip install -e ./protocol
       - run: pip install -e "./ravis[dev]"
       - run: pip install -e "./sirvis[dev]"
+      - run: pip install -e "./nervis[dev]"
       # STATUS.md is what a cold session reads to learn where the build is,
       # which makes it the most damaging file to be wrong: a stale spec misleads
       # someone who is checking, a stale status file misleads someone who is not.
@@ -134,3 +135,23 @@ jobs:
       - name: prototype checks
         run: python3 tools/check.py
         working-directory: nervis
+
+  nervis:
+    name: nervis — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nervis
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e ../protocol
+      - run: pip install -e ".[dev]"
+      - name: lint and complexity
+        run: ruff check src tests
+      - name: strict types
+        run: mypy
+      - name: tests
+        run: pytest
