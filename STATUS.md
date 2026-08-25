@@ -25,21 +25,21 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 879 tests, no network, no live service
+.venv/bin/pytest                      # part of 889 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
 The other two packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 15 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 345 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 879 passing across the three, conformance `PASS`. CI runs the same four on
+Expected: all clean, 889 passing across the three, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3368,6 +3368,111 @@ command that can explain a bad declaration must not be the one that dies on it.
 
 Eight tests, several pointing the configuration at `127.0.0.1:9`, where nothing
 listens: if this ever starts probing for real models they fail rather than hang.
+
+## Seven audit findings, and what each one turned out to be
+
+The audit found eight things the code claimed and did not do. One was a routing
+bug and is recorded above. The rest were **claims** — docstrings, comments and
+capability declarations asserting behaviour that did not exist — which is a
+category worth naming, because nothing fails when a comment is wrong and so
+nothing catches it.
+
+### The shorthand was going out on the wire
+
+§4.1 says `<id>@<major>` "is never a wire value": the `id` field carries the
+identifier alone and `version` carries the semantic version, because `@<major>`
+names a compatibility boundary rather than part of a name. Every capability in
+both services was declared under a dict key like `ravis.events@1`, and that key
+went straight into `id`. A consumer negotiating on the pair would have seen a
+name no registry it compares against would match.
+
+Stripped at the boundary in `protocol/src/ecosystem_protocol/capabilities.py`,
+not in the declarations — everything inside a service still keys on the form its
+prose uses, and no service can forget.
+
+The same change added a consistency check: a shorthand whose `@<major>`
+disagrees with the major in `version` now raises. **It caught a live one on its
+first run** — this project's own protocol fixture declared `example.other@1` at
+version `2.1.0`, which is a service advertising a major-1 contract while running
+major-2 code.
+
+### SIRVIS published seven capability names it had invented
+
+SIRVIS.md §4.1 publishes a table of eight. `sirvis/src/sirvis/ecosystem.py`
+declared seven under different names, of which two matched by coincidence:
+
+| §4.1 says | the code said |
+|---|---|
+| `sirvis.inventory.read@1` | `sirvis.models.inventory@1` + `sirvis.system.snapshot@1` |
+| `sirvis.runtime.state.read@1` | — |
+| `sirvis.runtime.control@1` | `sirvis.runtime.lmstudio@1` |
+| `sirvis.benchmarks.jobs@1` | — |
+| `sirvis.benchmarks.results@1` | `sirvis.evidence.query@1` + `sirvis.benchmarks.single_model@1` |
+| `sirvis.runtime_sets@1` | — |
+| `sirvis.recommendations@1` | ✓ |
+| `sirvis.events@1` | ✓ |
+
+A capability name is the thing a peer negotiates on, so this is not a cosmetic
+divergence: it advertised a contract no consumer written against the
+specification would look for, and hid the eight it would. The declarations are
+now §4.1's table verbatim. `sirvis.benchmarks.jobs@1` is **unavailable** —
+benchmarks run, but §4.1 means submit/poll/cancel by "jobs", and declaring it
+available because a neighbouring operation works is §4.1's exact prohibition.
+
+### RAVIS was reading SIRVIS without negotiating anything
+
+A comment in `ravis/src/ravis/evidence/sirvis.py` said the evidence capability
+"is checked separately — a peer that stops advertising it stops being read."
+Nothing checked it. RAVIS read `/api/v1/evidence` from whatever answered.
+`UnsupportedProtocolVersionError` had been defined for the same purpose and was
+never raised anywhere in the repository.
+
+`_negotiate()` is that sentence made true. Before evidence is read, RAVIS checks
+the protocol major and the capability state. Both §4.2 and §13.4 apply and they
+pull in opposite directions — one requires rejecting an unsupported major with a
+structured error, the other requires SIRVIS being unusable never to stop RAVIS
+routing — so the refusal is **raised** where it is detected and **applied as a
+degraded source** at the call site.
+
+A 404 on `/ecosystem/*` is tolerated: that is a SIRVIS build older than the
+shared protocol package, and §13.4 makes evidence optional. Answering-and-saying-no
+is a refusal; not answering is not one.
+
+### `ravis.virtual_profiles@1` was advertising a revision that does not exist
+
+§4.1 sets a condition per capability, and this one's is *"profiles are versioned
+and revisioned"*. `VirtualModelPool` has a `pool_id`, a label and its
+requirements — no version, no revision. Thirteen pools route, so `unavailable`
+would make a peer hide a working feature; but a consumer reading `available` is
+entitled to pin a revision and be told when it changes. Now `degraded`, with the
+versioning work added to RAVIS M16.
+
+### `POST /api/v1/recommendations` documented four inputs and read two
+
+The docstring listed §14.3's body — profile, roles, constraints, mode. The
+handler read `roles` and `mode`. §14.3's own printed example carries
+`{"avoid_swap": true}`, and dropping it returns a recommendation that may swap,
+to a caller who asked for one that would not, with nothing in the response
+saying so.
+
+`constraints` is now refused with `UNSUPPORTED_PARAMETER` rather than ignored —
+§7.1's distinction between "you asked for something I cannot do" and "your
+request was malformed", where only the first means the answer would have
+described a configuration nobody chose. An unknown `profile` is refused for the
+same reason: one family is defined, and scoring with `clarvis` weights under
+another name answers a question nobody asked.
+
+### The `Recommendation` docstring claimed §14.3's output "whole"
+
+It said *"every field there is a field here"*. Two of the fields it named as
+proof — `coverage` and `supporting_evidence` — are not on that record at all;
+they live on `Utility`, one level down, and the second is called `evidence_ids`.
+Four of §14.3's outputs are genuinely absent: Runtime Set recommendation,
+expected memory, performance and quality as named outputs, and evidence level.
+
+The docstring now says which is which, and the four are scheduled as SIRVIS
+**M15b**. That is the whole lesson of this section in one example: the docstring
+read as a completeness guarantee, so nobody checked it for eleven milestones.
 
 ## Starting the thing
 

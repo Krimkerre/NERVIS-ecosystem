@@ -25,7 +25,7 @@ from ecosystem_protocol import (
 
 DECLARED = {
     "example.thing@1": Capability(version="1.0.0", state=AVAILABLE),
-    "example.other@1": Capability(version="2.1.0", state=UNAVAILABLE, reason="lands at M4"),
+    "example.other@2": Capability(version="2.1.0", state=UNAVAILABLE, reason="lands at M4"),
 }
 
 
@@ -134,15 +134,16 @@ def test_capability_order_is_stable_so_a_revision_means_something() -> None:
     second = capability_snapshot(3, dict(reversed(list(DECLARED.items()))))
 
     assert first == second
-    assert [c["id"] for c in first["capabilities"]] == sorted(DECLARED)
+    # Wire ids, so the `@<major>` the declarations are keyed by is absent (§4.1).
+    assert [c["id"] for c in first["capabilities"]] == ["example.other", "example.thing"]
 
 
 def test_an_available_capability_needs_no_excuse_and_others_do() -> None:
     body = capability_snapshot(1, DECLARED)
     reasons = {c["id"]: c["reason"] for c in body["capabilities"]}
 
-    assert reasons["example.thing@1"] == ""
-    assert reasons["example.other@1"] == "lands at M4"
+    assert reasons["example.thing"] == ""
+    assert reasons["example.other"] == "lands at M4"
 
 
 @pytest.mark.parametrize(
@@ -159,3 +160,29 @@ def test_only_the_major_decides_compatibility(requested: str, supported: bool) -
     that is the one not to improvise with.
     """
     assert is_supported_protocol(requested) is supported
+
+
+def test_the_shorthand_never_reaches_the_wire() -> None:
+    """§4.1: `id` carries the identifier alone, `version` the semantic version.
+
+    The `<id>@<major>` form is how prose, UI labels and the declarations
+    themselves name a capability. A consumer negotiating on the pair reads the
+    two fields, so shipping the shorthand in `id` would give it a name no
+    registry it compares against would match.
+    """
+    body = capability_snapshot(1, DECLARED)
+
+    assert all("@" not in capability["id"] for capability in body["capabilities"])
+    versions = {c["id"]: c["version"] for c in body["capabilities"]}
+    assert versions == {"example.thing": "1.0.0", "example.other": "2.1.0"}
+
+
+def test_a_shorthand_that_disagrees_with_its_version_is_refused() -> None:
+    """The two say the same thing, so a disagreement means one is stale.
+
+    Caught the moment it was written: this project's own fixture declared
+    `example.other@1` at version `2.1.0`, which would have advertised a major-1
+    contract while running major-2 code.
+    """
+    with pytest.raises(ValueError, match="declares major 1 but version 2.1.0"):
+        capability_snapshot(1, {"drift@1": Capability(version="2.1.0", state=AVAILABLE)})

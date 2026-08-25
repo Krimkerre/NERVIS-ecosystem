@@ -1130,6 +1130,7 @@ mapping is in §21.2.
 | **M13** | Clarvis role benchmarks | `clarvis-chat`, `clarvis-agent` using wrapped existing tests where possible | Role-specific verdicts exist; agent evidence includes tool-call reliability; no metadata-only capability claim |
 | **M14** | Web UI | Dashboard, Models, Downloads, Benchmarks, Queue, Results, System, Settings | Core workflow works entirely in the browser; provenance is drillable everywhere |
 | **M15** | Recommendation engine | Role profiles, fit, single-model and Runtime Set recommendation, evidence levels, fast mode | SIRVIS recommends a Clarvis chat + agent pair; exclusions and uncertainty are reproducible |
+| **M15b** | The §14.3 outputs M15 left out | Runtime Set recommendation (M15 ranks models only), expected memory, performance and quality as named outputs rather than `Utility.axes` entries, evidence level as an input and an output, and §14.3's hard `constraints` — refused with `UNSUPPORTED_PARAMETER` until then | A request carrying `{"avoid_swap": true}` changes the ranking rather than being rejected; a Runtime Set can win a role |
 | **M16** | RAVIS evidence API | Filtering and query APIs RAVIS requires | A RAVIS test client queries `clarvis-agent` on this machine for candidate builds and receives provenance-rich evidence |
 | **M17** | Configuration sweeps | Model, context and runtime-flag matrix expansion with warnings | Expanded run count shown before execution |
 | **M18** | Advanced quality suites | Coding, reasoning, structured output, long-context, tool use | — |

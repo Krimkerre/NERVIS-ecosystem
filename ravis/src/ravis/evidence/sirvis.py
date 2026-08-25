@@ -45,6 +45,7 @@ from enum import Enum
 from typing import Any, Mapping, Sequence
 
 import httpx
+from ecosystem_protocol import is_supported_protocol, wire_identifier
 
 from ravis.core.capabilities import (
     Capability,
@@ -52,6 +53,7 @@ from ravis.core.capabilities import (
     CapabilityState,
     Provenance,
 )
+from ravis.errors import UnsupportedProtocolVersionError
 
 # §13.2's accepted threshold for the agent role, recorded in SIRVIS.md §13.2.
 # Both axes, because the phrasing axis is the one that catches failures.
@@ -78,10 +80,15 @@ DEFAULT_MAX_AGE_SECONDS = 30 * 24 * 3600
 # **Zero, because SIRVIS is pre-1.0** — it publishes `sirvis_version: "0.0.1"`.
 # Worth stating plainly rather than leaving as a puzzling constant: the record
 # carries a *build* version and there is no separate evidence-contract version
-# to read, so this checks the only major there is. The negotiated capability
-# `sirvis.evidence.query@1` is what actually names the contract, and it is
-# checked separately — a peer that stops advertising it stops being read.
+# to read, so this checks the only major there is.
 SUPPORTED_EVIDENCE_MAJOR = 0
+
+# The capability that names the evidence contract, from SIRVIS.md §4.1's table.
+# This comment used to claim the capability "is checked separately — a peer that
+# stops advertising it stops being read", and nothing checked it: RAVIS read
+# `/api/v1/evidence` from whatever answered, negotiating nothing. `_negotiate`
+# below is that sentence made true.
+EVIDENCE_CAPABILITY = "sirvis.benchmarks.results@1"
 
 
 class EvidenceProvenance(str, Enum):
@@ -414,12 +421,25 @@ class EvidenceStore:
             self._detail = "no candidates to ask about"
             return
         try:
+            refusal = await self._negotiate(client)
+            if refusal:
+                self._records, self._state = {}, SourceState.DEGRADED
+                self._detail = refusal
+                return
             response = await client.get(
                 f"{self._base_url}/api/v1/evidence",
                 params=[("role", self._role), *(("candidate", key) for key in candidates)],
             )
             response.raise_for_status()
             payload = response.json()
+        except UnsupportedProtocolVersionError as mismatch:
+            # §4.2 requires a consumer to reject an unsupported major with a
+            # structured error, and §13.4 requires SIRVIS being unusable never
+            # to stop RAVIS routing. Both hold: the refusal is raised
+            # structurally where it is detected and applied as a degrade here.
+            self._records, self._state = {}, SourceState.DEGRADED
+            self._detail = mismatch.message
+            return
         except (httpx.HTTPError, ValueError) as failure:
             self._records = {}
             self._state = SourceState.DEGRADED
@@ -427,6 +447,50 @@ class EvidenceStore:
             return
         self._absorb(payload)
         await self._absorb_context(client)
+
+    async def _negotiate(self, client: httpx.AsyncClient) -> str:
+        """Check the protocol major and the capability before reading anything.
+
+        Returns a reason not to read, or an empty string when SIRVIS may be
+        read. Raises `UnsupportedProtocolVersionError` for a major mismatch
+        specifically, because §4.2 makes that structural rather than advisory —
+        a withdrawn capability is a service choosing not to offer something,
+        while a major mismatch is two builds that cannot understand each other.
+
+        **Tolerant of a peer with no MEP surface.** A 404 on either endpoint
+        leaves this silent rather than refusing: `RAVIS_SIRVIS_BASE_URL` may
+        point at a build predating the shared protocol package, and §13.4 makes
+        evidence optional rather than the router's problem. What it will not do
+        is read evidence from a service that answers and says no.
+        """
+        version = await self._peer_json(client, "/ecosystem/version")
+        declared = str(version.get("protocol_version") or "")
+        if declared and not is_supported_protocol(declared):
+            raise UnsupportedProtocolVersionError(
+                f"SIRVIS speaks protocol {declared}, which this build does not implement"
+            )
+
+        capabilities = await self._peer_json(client, "/ecosystem/capabilities")
+        entries = capabilities.get("capabilities")
+        if not isinstance(entries, list):
+            return ""
+        wanted = wire_identifier(EVIDENCE_CAPABILITY)
+        for entry in entries:
+            if isinstance(entry, Mapping) and entry.get("id") == wanted:
+                if entry.get("state") == "available":
+                    return ""
+                reason = entry.get("reason") or "no reason given"
+                return f"SIRVIS reports {EVIDENCE_CAPABILITY} as {entry.get('state')}: {reason}"
+        return f"SIRVIS does not advertise {EVIDENCE_CAPABILITY}"
+
+    async def _peer_json(self, client: httpx.AsyncClient, path: str) -> Mapping[str, Any]:
+        """One MEP read, treating an absent surface as an empty answer."""
+        response = await client.get(f"{self._base_url}{path}")
+        if response.status_code == 404:
+            return {}
+        response.raise_for_status()
+        body = response.json()
+        return body if isinstance(body, Mapping) else {}
 
     async def _absorb_context(self, client: httpx.AsyncClient) -> None:
         """Read declared context ceilings, tolerating their absence.

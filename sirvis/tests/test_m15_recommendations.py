@@ -16,7 +16,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
+from sirvis.app import create_app
+from sirvis.config import Settings
 from sirvis.core.recommendations import (
     ALGORITHM_VERSION,
     CLARVIS_AGENT,
@@ -429,3 +432,64 @@ def test_an_incomplete_matrix_carries_no_penalty() -> None:
                        matrices=[a_matrix(complete=False)])
 
     assert result.combination_score == pytest.approx(2.0)
+
+
+# ── The endpoint's inputs: two were read, four were documented ───────────────
+
+
+def an_api() -> TestClient:
+    """A running SIRVIS with an empty results database.
+
+    Empty is enough here: these tests are about which request bodies the
+    endpoint accepts, which is decided before any evidence is read.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        lmstudio_base_url="http://127.0.0.1:9",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    return TestClient(create_app(settings))
+
+
+def test_the_documented_default_request_is_accepted() -> None:
+    """The body §14.3 prints, minus the constraints — and the one NERVIS sends."""
+    response = an_api().post(
+        "/api/v1/recommendations",
+        json={"profile": "clarvis", "roles": ["clarvis-chat"], "mode": "fast"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["profile"] == "clarvis"
+
+
+def test_constraints_are_refused_rather_than_silently_dropped() -> None:
+    """§14.3's own example body carries `{"avoid_swap": true}`.
+
+    The handler never read it. Answering 200 to that request returns a
+    recommendation that may swap, to a caller who asked for one that would not —
+    and nothing in the response would say so. §4.1's "never a stub returning
+    plausible data" is the same rule one layer up.
+    """
+    response = an_api().post(
+        "/api/v1/recommendations",
+        json={"roles": ["clarvis-chat"], "constraints": {"avoid_swap": True}},
+    )
+
+    # 422 rather than 400, and `UNSUPPORTED_PARAMETER` rather than
+    # `INVALID_CONFIGURATION`: the request is coherent and documented, and §7.1
+    # requires "cannot do that" to be distinguishable from "malformed".
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "UNSUPPORTED_PARAMETER"
+    assert "constraints are not implemented" in response.text
+
+
+def test_an_unknown_profile_is_refused() -> None:
+    """One family is defined. Scoring with `clarvis` weights under another
+    name would answer a question nobody asked."""
+    response = an_api().post(
+        "/api/v1/recommendations",
+        json={"profile": "something-else", "roles": ["clarvis-chat"]},
+    )
+
+    assert response.status_code == 422
+    assert "unknown profile" in response.text

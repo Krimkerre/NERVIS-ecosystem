@@ -58,11 +58,24 @@ DECLARED: dict[str, Capability] = {
     ),
     # §9.7 explanations are recorded per decision and served at
     # /api/v1/route-decisions, including the excluded candidates and why.
-    "ravis.routing.explanations@1": Capability(version="1.0.0", state=AVAILABLE),
-    "ravis.virtual_profiles@1": Capability(
+    "ravis.routing.explanations@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        constraints={"pools": 13},
+        reason="every decision records its excluded candidates and why (§9.7)",
+    ),
+    # Degraded, and the gap is exactly one word in §4.1. The advertise-when
+    # condition is *"profiles are versioned and revisioned"*; `VirtualModelPool`
+    # carries a `pool_id`, a label and its requirements, and no version or
+    # revision at all. The pools route — thirteen of them, live — so
+    # `unavailable` would make a peer hide a working feature; but a consumer
+    # reading `available` here is entitled to pin a revision and be told when it
+    # changes, and there is nothing to pin. §14's rule about not presenting an
+    # estimate as an invoice is the same rule in a different costume.
+    "ravis.virtual_profiles@1": Capability(
+        version="1.0.0",
+        state=DEGRADED,
+        reason="pools route and are queryable; versioning and revisions land with M16",
+        constraints={"pools": 13, "versioned": False},
     ),
     "ravis.sessions@1": Capability(
         version="1.0.0", state=UNAVAILABLE, reason="sessions land at M11"

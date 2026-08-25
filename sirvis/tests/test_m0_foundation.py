@@ -131,28 +131,46 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
     body = _client(settings).get("/ecosystem/capabilities").json()
     states = {c["id"]: c["state"] for c in body["capabilities"]}
 
+    # §4.1's published table, and nothing invented beside it. Wire ids, so no
+    # `@<major>`: the shorthand stays out of the `id` field.
     assert states == {
-        "sirvis.system.snapshot@1": "available",          # M1
-        "sirvis.runtime.lmstudio@1": "available",         # M2
-        "sirvis.models.inventory@1": "available",         # M3
-        "sirvis.benchmarks.single_model@1": "available",  # M6
-        "sirvis.evidence.query@1": "available",           # M7 + M16
-        "sirvis.recommendations@1": "available",           # M15
-        "sirvis.events@1": "unavailable",                 # M21
+        "sirvis.inventory.read": "available",       # M1 + M2 + M3
+        "sirvis.runtime.state.read": "available",   # M8
+        "sirvis.runtime.control": "available",      # M8
+        "sirvis.benchmarks.jobs": "unavailable",    # M14
+        "sirvis.benchmarks.results": "available",   # M6 + M7 + M16
+        "sirvis.runtime_sets": "available",         # M9
+        "sirvis.recommendations": "available",      # M15
+        "sirvis.events": "unavailable",             # M21
     }
     # Every entry still says why, available or not: "not yet, because M15" tells
     # a peer when to look again, and a bare refusal tells it nothing.
     assert all(c["reason"] for c in body["capabilities"])
 
 
-def test_the_evidence_capability_ravis_waits_on_is_named_from_the_start(
+def test_every_capability_the_specification_names_is_published(
     settings: Settings,
 ) -> None:
-    """RAVIS's M13 reads this. Absent-and-declared beats absent-and-silent."""
+    """§4.1's table is a floor, and a name is what a peer negotiates on.
+
+    This file previously declared seven capabilities it had named itself, of
+    which two happened to match the specification. A consumer written against
+    SIRVIS.md would have found six of the eight missing and the evidence surface
+    RAVIS reads advertised under a name that appears in no document.
+    """
     body = _client(settings).get("/ecosystem/capabilities").json()
     declared = {c["id"] for c in body["capabilities"]}
 
-    assert "sirvis.evidence.query@1" in declared
+    assert declared >= {
+        "sirvis.inventory.read",
+        "sirvis.runtime.state.read",
+        "sirvis.runtime.control",
+        "sirvis.benchmarks.jobs",
+        "sirvis.benchmarks.results",
+        "sirvis.runtime_sets",
+        "sirvis.recommendations",
+        "sirvis.events",
+    }
 
 
 def test_a_mismatched_protocol_major_fails_cleanly() -> None:

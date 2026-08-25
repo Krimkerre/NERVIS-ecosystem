@@ -27,6 +27,7 @@ from sirvis.api.security import (
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
 from sirvis.core.recommendations import (
+    DEFAULT_PROFILE,
     MODE_FAST,
     MODE_VERIFIED,
     TOOL_CALL_PASS_RATE,
@@ -45,6 +46,7 @@ from sirvis.errors import (
     ModelNotFoundError,
     ResourceBusyError,
     RuntimeUnreachableError,
+    UnsupportedParameterError,
 )
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError
@@ -468,6 +470,13 @@ async def make_recommendation(request: Request) -> dict[str, Any]:
     constraints, mode — and because the result is generated rather than stored:
     two calls a day apart against changed evidence are two different opinions,
     and neither is a resource that was sitting there.
+
+    **`constraints` is refused rather than ignored, and that is the point.**
+    This docstring used to list all four inputs while the handler read two.
+    Silently dropping `{"avoid_swap": true}` returns a recommendation that may
+    well swap, to a caller who asked for one that would not — §4.1's *"never a
+    stub returning plausible data"*, one layer up. An explicit refusal is worse
+    to receive and far better to debug.
     """
     require_unauthenticated_post(request)
     body = await _json_body(request)
@@ -477,6 +486,22 @@ async def make_recommendation(request: Request) -> dict[str, Any]:
     mode = str(body.get("mode") or MODE_FAST)
     if mode not in (MODE_FAST, MODE_VERIFIED):
         raise InvalidConfigurationError(f"unknown mode {mode!r}; expected fast or verified")
+    profile = str(body.get("profile") or DEFAULT_PROFILE)
+    if profile != DEFAULT_PROFILE:
+        # One profile family exists. Accepting an unknown name and scoring with
+        # `clarvis` weights anyway would answer a question nobody asked.
+        raise InvalidConfigurationError(
+            f"unknown profile {profile!r}; this build defines only {DEFAULT_PROFILE!r}"
+        )
+    if body.get("constraints"):
+        # `UNSUPPORTED_PARAMETER` rather than `INVALID_CONFIGURATION`: the
+        # request is coherent and §14.3 documents it. This is "you asked for
+        # something I cannot do", which §7.1 requires a caller be able to tell
+        # apart from "your request was malformed".
+        raise UnsupportedParameterError(
+            "constraints are not implemented; §14.3's hard constraints are unbuilt, "
+            "and applying none while reporting success would misreport the result"
+        )
 
     database = request.app.state.database
     by_variant, contexts = await _build_lookups(request)

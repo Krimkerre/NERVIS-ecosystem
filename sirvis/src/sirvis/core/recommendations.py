@@ -136,6 +136,12 @@ CLARVIS_CHAT = RoleProfile(
 
 PROFILES = {profile.name: profile for profile in (CLARVIS_AGENT, CLARVIS_CHAT)}
 
+# §14.3's request body carries a `profile` naming a *family* of role weights,
+# which is a different thing from the per-role entries above. One family exists,
+# so this is both the default and the only accepted value — named rather than
+# spelled inline at the endpoint so the two cannot drift apart.
+DEFAULT_PROFILE = "clarvis"
+
 
 @dataclass
 class Utility:
@@ -350,12 +356,30 @@ def _median(record: Mapping[str, Any], name: str) -> float | None:
 
 @dataclass
 class Recommendation:
-    """§14.3's output, whole. Every field there is a field here.
+    """§14.3's output — most of it, and this docstring used to claim all of it.
 
-    The ones easiest to leave out are the ones that make it honest: `excluded`
-    with reasons, `uncertainty`, `coverage`, `supporting_evidence`, and the
-    expiry. A recommendation without them is a name, and a name is what §12.2
-    spent a whole section forbidding.
+    The ones easiest to leave out are the ones that make it honest, and those
+    are here: `excluded` with reasons, `uncertainty`, `generated_at`, the
+    expiry, and the algorithm version. Two more live one level down on `Utility`
+    rather than on this record, because they are per candidate rather than per
+    recommendation — `coverage`, and `evidence_ids` for §14.3's *supporting
+    benchmark IDs*.
+
+    **What §14.3 asks for and is not here yet**, stated rather than implied by
+    an over-confident summary:
+
+    - *recommended model **or Runtime Set*** — only models are ranked. Runtime
+      Sets exist (M9) and are never recommended.
+    - *memory* — the weighting has a `memory` axis, but no expected footprint
+      is reported for the recommendation itself.
+    - *expected performance* and *quality* as named outputs — both are folded
+      into `Utility.axes` and neither is surfaced as a figure a caller can read
+      without knowing the axis names.
+    - *evidence level* — the acceptable level is an input §14.3 names and this
+      engine neither accepts nor reports.
+
+    Recorded here because the previous version of this docstring is exactly how
+    a gap survives: it read as a completeness guarantee, so nobody checked.
     """
 
     profile: str
@@ -436,7 +460,7 @@ def recommend(
     """
     by_role = _records_by_role(records)
     recommendation = Recommendation(
-        profile="clarvis", mode=mode, generated_at=generated_at
+        profile=DEFAULT_PROFILE, mode=mode, generated_at=generated_at
     )
     for role in roles:
         profile = PROFILES.get(role)

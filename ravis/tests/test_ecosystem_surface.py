@@ -59,13 +59,19 @@ def test_only_conformance_passing_operations_are_advertised(settings: Settings) 
     body = _client(settings).get("/ecosystem/capabilities").json()
     states = {c["id"]: c["state"] for c in body["capabilities"]}
 
-    assert states["ravis.openai_compatible.chat_completions@1"] == "available"
+    assert states["ravis.openai_compatible.chat_completions"] == "available"
     # §4.1's condition for this one is *"a translated adapter ships"*, not
     # "conformance passes" — the table sets a bar per capability. Anthropic's
     # adapter shipped at M4 and the local ones at M8. This assertion said
     # `unavailable` for the whole of Stage 5, which is the same drift the
     # docstring above describes, one capability along.
-    assert states["ravis.providers.native@1"] == "available"
+    assert states["ravis.providers.native"] == "available"
+    # And the same table read in the other direction. §4.1's condition for
+    # virtual profiles is *"profiles are versioned and revisioned"*, and
+    # `VirtualModelPool` has neither field. Thirteen pools route, so this is
+    # `degraded` rather than `unavailable` — but not `available`, because a peer
+    # reading that is entitled to pin a revision that does not exist.
+    assert states["ravis.virtual_profiles"] == "degraded"
 
 
 def test_anything_not_fully_available_says_why(settings: Settings) -> None:
@@ -92,8 +98,8 @@ def test_a_degraded_capability_is_distinguishable_from_a_missing_one(
     body = _client(settings).get("/ecosystem/capabilities").json()
     states = {c["id"]: c["state"] for c in body["capabilities"]}
 
-    assert states["ravis.management@1"] == "degraded"
-    assert states["ravis.usage_cost@1"] == "degraded"
+    assert states["ravis.management"] == "degraded"
+    assert states["ravis.usage_cost"] == "degraded"
 
 
 def test_a_matching_protocol_major_is_supported() -> None:

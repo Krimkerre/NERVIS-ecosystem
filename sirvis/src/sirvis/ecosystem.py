@@ -19,6 +19,16 @@ still said `unavailable`. It was found when RAVIS tried to negotiate
 had just been built against did not exist. A warning in a docstring is not a
 mechanism, and the reason this went unnoticed is that nothing fails when a
 service under-advertises — it just quietly cannot be integrated with.
+
+**Then a third variant of the same failure.** The names above were invented
+here. SIRVIS.md §4.1 publishes a table of eight, and this file declared seven
+under different names — `sirvis.evidence.query@1` for §4.1's
+`sirvis.benchmarks.results@1`, `sirvis.models.inventory@1` for its
+`sirvis.inventory.read@1`, and so on. Only `recommendations` and `events`
+matched. A capability name is the thing a peer negotiates on, so inventing one
+is not a cosmetic divergence: it advertises a contract that no consumer written
+against the specification will look for, and hides the eight it will. The
+declarations below are §4.1's table, verbatim.
 """
 
 from __future__ import annotations
@@ -31,32 +41,43 @@ from ecosystem_protocol import AVAILABLE, UNAVAILABLE, Capability, EcosystemSurf
 BUILD_VERSION = "0.0.1"
 
 DECLARED: dict[str, Capability] = {
-    "sirvis.system.snapshot@1": Capability(
+    # §4.1's table, in its order. The `@<major>` here is the shorthand every
+    # docstring and UI label uses; `ecosystem_protocol` strips it on the wire,
+    # where `id` carries the identifier alone.
+    "sirvis.inventory.read@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="machine detection, M1",
+        reason="machines (M1), runtimes (M2), models and instances (M3)",
     ),
-    "sirvis.runtime.lmstudio@1": Capability(
+    "sirvis.runtime.state.read@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="the LM Studio adapter, M2",
+        reason="residency and session reads from the Resource Manager, M8",
     ),
-    "sirvis.models.inventory@1": Capability(
+    "sirvis.runtime.control@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="the model domain and inventory, M3",
+        reason="lease, renew and release through the one owner of load/unload, M8",
     ),
-    "sirvis.benchmarks.single_model@1": Capability(
+    # Benchmarks run, but they run synchronously through the engine. §4.1 means
+    # something narrower by "jobs": submit, poll, cancel. Declaring this
+    # available because benchmarking works would be §4.1's exact prohibition —
+    # advertising an operation that has not passed conformance because a
+    # neighbouring one has.
+    "sirvis.benchmarks.jobs@1": Capability(
         version="1.0.0",
-        state=AVAILABLE,
-        reason="the benchmark engine, M6 — run live against 19 builds",
+        state=UNAVAILABLE,
+        reason="submit/poll/cancel lands with the queue at M14; M6 runs synchronously",
     ),
-    # The one RAVIS is waiting on. Named here from the start so a peer can see
-    # it is planned and absent, rather than having to infer it from silence.
-    "sirvis.evidence.query@1": Capability(
+    "sirvis.benchmarks.results@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="the evidence schema (M7) and the query API RAVIS reads (M16)",
+        reason="runs and results (M6), the evidence schema (M7), the query API RAVIS reads (M16)",
+    ),
+    "sirvis.runtime_sets@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="versioned multi-model combinations with revisions, M9",
     ),
     "sirvis.recommendations@1": Capability(
         version="1.0.0",

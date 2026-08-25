@@ -15,6 +15,7 @@ from ecosystem_protocol.capabilities import (
     DEGRADED,
     UNAVAILABLE,
     Capability,
+    wire_identifier,
     capability_snapshot,
 )
 from ecosystem_protocol.observability import (
@@ -40,6 +41,7 @@ __all__ = [
     "PROTOCOL_VERSION",
     "UNAVAILABLE",
     "Capability",
+    "wire_identifier",
     "EcosystemSurface",
     "JsonLineFormatter",
     "capability_snapshot",

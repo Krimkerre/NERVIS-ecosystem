@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
+from ecosystem_protocol import PROTOCOL_VERSION
 
 from ravis.core.capabilities import Capability, CapabilityState, ModelCapabilities, Provenance
 from ravis.evidence.sirvis import (
@@ -88,12 +89,38 @@ def payload(*items: dict[str, Any], variants: dict[str, str] | None = None) -> d
     }
 
 
-def store_with(response: Any, *, status: int = 200, **options: Any) -> EvidenceStore:
+# A minimal MEP surface, so every store in this file negotiates for real before
+# it reads. Serving the evidence payload from `/ecosystem/*` too would have let
+# negotiation pass by accident on its tolerant defaults, which is the opposite
+# of what these tests are for.
+MEP_VERSION = {"protocol_version": PROTOCOL_VERSION}
+MEP_CAPABILITIES = {
+    "revision": 1,
+    "capabilities": [
+        {"id": "sirvis.benchmarks.results", "version": "1.0.0", "state": "available", "reason": ""}
+    ],
+}
+
+
+def mep_surface(*, version: Any = None, capabilities: Any = None) -> dict[str, Any]:
+    """The two MEP bodies a store reads before it will look at evidence."""
+    return {
+        "/ecosystem/version": MEP_VERSION if version is None else version,
+        "/ecosystem/capabilities": MEP_CAPABILITIES if capabilities is None else capabilities,
+    }
+
+
+def store_with(
+    response: Any, *, status: int = 200, surface: dict[str, Any] | None = None, **options: Any
+) -> EvidenceStore:
     """A store that has read one canned SIRVIS response."""
     import asyncio
 
+    mep = mep_surface() if surface is None else surface
+
     def handle(request: httpx.Request) -> httpx.Response:
-        del request
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
         if isinstance(response, str):
             return httpx.Response(status, content=response)
         return httpx.Response(status, json=response)
@@ -461,3 +488,93 @@ def test_an_absent_inventory_leaves_the_ceiling_unknown_rather_than_zero() -> No
 
     assert store.context_window(GGUF) is None
     assert store.claims_for(GGUF)[0].state is CapabilityState.SUPPORTED
+
+
+# ── Negotiation: what RAVIS checks before it believes anything ───────────────
+
+
+def test_evidence_is_read_when_sirvis_advertises_the_capability() -> None:
+    """The happy path, and the one every other test in this file runs through."""
+    store = store_with(payload(record(), variants={GGUF: "var_gguf"}))
+
+    assert store.state is SourceState.FRESH
+
+
+def test_a_withdrawn_capability_stops_evidence_being_read() -> None:
+    """A comment claimed this for two milestones and nothing implemented it.
+
+    §4.1 exists so a peer can say "not this, not yet". Reading `/api/v1/evidence`
+    from a service that declares the evidence surface unavailable would make the
+    capability list decorative — and §13.3 forbids presenting whatever came back
+    as a measurement.
+    """
+    store = store_with(
+        payload(record(), variants={GGUF: "var_gguf"}),
+        surface=mep_surface(
+            capabilities={
+                "revision": 4,
+                "capabilities": [
+                    {
+                        "id": "sirvis.benchmarks.results",
+                        "version": "1.0.0",
+                        "state": "unavailable",
+                        "reason": "results database is being rebuilt",
+                    }
+                ],
+            }
+        ),
+    )
+
+    assert store.state is SourceState.DEGRADED
+    assert "results database is being rebuilt" in store.detail
+    assert store.record_for(GGUF) is None
+
+
+def test_a_capability_that_is_not_advertised_at_all_is_refused() -> None:
+    """Silence is not consent. §4.1: absent means absent, not assume-it-works."""
+    store = store_with(
+        payload(record(), variants={GGUF: "var_gguf"}),
+        surface=mep_surface(capabilities={"revision": 1, "capabilities": []}),
+    )
+
+    assert store.state is SourceState.DEGRADED
+    assert "does not advertise" in store.detail
+
+
+def test_an_unsupported_protocol_major_is_refused_but_never_fatal() -> None:
+    """Both halves of the rule at once.
+
+    §4.2 requires a consumer to reject an unsupported major structurally, and
+    §13.4 requires SIRVIS being unusable never to stop RAVIS routing. So the
+    refusal is raised as `UnsupportedProtocolVersionError` where it is detected
+    and lands here as a degraded source rather than an exception.
+    """
+    store = store_with(
+        payload(record(), variants={GGUF: "var_gguf"}),
+        surface=mep_surface(version={"protocol_version": "99.0.0"}),
+    )
+
+    assert store.state is SourceState.DEGRADED
+    assert "protocol 99.0.0" in store.detail
+    assert store.record_for(GGUF) is None
+
+
+def test_a_peer_with_no_mep_surface_is_still_read() -> None:
+    """A 404 on `/ecosystem/*` is a build older than the shared package.
+
+    Refusing there would make evidence mandatory in a deployment that upgrades
+    RAVIS first, and §13.4 makes it optional. Answering-and-saying-no is the
+    only refusal; not answering is not one.
+    """
+    import asyncio
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/ecosystem/"):
+            return httpx.Response(404, json={"detail": "Not Found"})
+        return httpx.Response(200, json=payload(record(), variants={GGUF: "var_gguf"}))
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(store.refresh(client, [GGUF, MLX]))
+
+    assert store.state is SourceState.FRESH
