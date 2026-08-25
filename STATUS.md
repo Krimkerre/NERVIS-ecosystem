@@ -3928,6 +3928,68 @@ outage. The Providers card names which of the four happened rather than
 rendering them identically, and a refusal passes RAVIS's own §4.3 error code and
 message through instead of replacing them with "HTTP 422".
 
+## A real completion through M3's read path, and what it exposed
+
+Ran with the user's approval, on a cold LM Studio. `lms server start`, then
+`ravis/auto` with nothing loaded:
+
+```text
+elapsed 1.4s
+model : deepseek-r1-distill-qwen-1.5b
+reply : "\n\nOk, thanks! How can I assist you today?"
+usage : 93 tokens
+```
+
+Read back through NERVIS, which is the point:
+
+```text
+GET /api/v1/ravis/routes?limit=2   available: True
+  785e9cc61bd6  TRANSPARENT_OPENAI  ravis/auto -> deepseek-r1-distill-qwen-1.5b
+  8490ce3a60e7  TRANSPARENT_OPENAI  ravis/auto -> deepseek-r1-distill-qwen-1.5b
+```
+
+And on the Routes screen, from live data rather than the mock:
+
+```text
+Pool       | Model                         | Path               | TTFT | Result
+ravis/auto | deepseek-r1-distill-qwen-1.5b | TRANSPARENT_OPENAI |  —   | OK
+```
+
+The 1.89 GB JIT-loaded instance was unloaded afterwards; 8.3 GB free went back
+to 9.2 GB.
+
+**The first attempt at 16 max_tokens returned an empty string**, which is not a
+bug in anything here: `deepseek-r1-distill-qwen-1.5b` is a reasoning model and
+spent 14 of the 16 on reasoning tokens, leaving nothing for content. Worth
+recording because a pool that picks the smallest build on a cost tiebreak will
+keep picking this one, and a caller with a small `max_tokens` will keep getting
+nothing back with a `finish_reason` that looks fine.
+
+### RAVIS has no recovery path when an upstream returns
+
+Found while setting this up, and it is a genuine defect rather than a quirk of
+the test. RAVIS refreshes its catalogue every `models_cache_ttl_seconds` — **300
+seconds**. It had started while LM Studio was down, so its candidate set was
+empty, and starting LM Studio did not change that:
+
+```text
+POST /v1/chat/completions {"model": "ravis/auto"}
+  → no models are available from the configured upstream
+     considered: []
+```
+
+Meanwhile `GET /v1/models` on the same RAVIS reported **13 models**, because the
+`ModelRegistry` refreshes lazily on read and the router's candidate set does
+not. So the gateway simultaneously listed models a client could ask for and
+refused to route to any of them, for up to five minutes after the upstream came
+back.
+
+Restarting RAVIS fixed it, which is the shape of the problem: **the only
+recovery is a restart or a five-minute wait.** This is the same class as the
+status bar being one paint behind — a true reading held far past the point where
+it is still true — and it belongs with M14's lifecycle work. Not fixed here;
+recorded so it is not rediscovered.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
