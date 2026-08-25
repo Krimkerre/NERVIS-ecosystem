@@ -22,7 +22,12 @@
 /* Avatar slot stays in the same top-right position but swaps per top-level tab. */
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
-.map{height:230px;position:relative;display:grid;place-items:center}.hub,.node{position:absolute;border:1px solid var(--line);background:#0a1118;border-radius:7px;padding:8px 13px}.hub{color:var(--accent);border-color:var(--accent);z-index:2}.node:nth-of-type(2){top:15px}.node:nth-of-type(3){left:8%;bottom:18px}.node:nth-of-type(4){right:8%;bottom:18px}.node:nth-of-type(5){right:7%;top:15px}.map svg{position:absolute;inset:0;width:100%;height:100%}.map line{stroke:var(--accent);stroke-opacity:.55;stroke-dasharray:5 5;animation:flow 1.2s linear infinite}.event{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid #1c2630;font:10px/1.4 "SFMono-Regular",monospace;color:#8797a7}.event time{color:#566779}.event.new{animation:flash .8s}.chat{display:flex;flex-direction:column;max-height:min(560px,72vh)}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
+.map{height:230px;position:relative;display:grid;place-items:center}.hub,.node{position:absolute;border:1px solid var(--line);background:#0a1118;border-radius:7px;padding:8px 13px}.hub{color:var(--accent);border-color:var(--accent);z-index:2}.node:nth-of-type(2){top:15px}.node:nth-of-type(3){left:8%;bottom:18px}.node:nth-of-type(4){right:8%;bottom:18px}.node:nth-of-type(5){right:7%;top:15px}.map svg{position:absolute;inset:0;width:100%;height:100%}.map line{stroke:var(--accent);stroke-opacity:.55;stroke-dasharray:5 5;animation:flow 1.2s linear infinite}.event{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid #1c2630;font:10px/1.4 "SFMono-Regular",monospace;color:#8797a7}.event time{color:#566779}.event.new{animation:flash .8s}/* The chat card fills whatever is left below the page heading rather than
+   stopping at a fixed 560px. A capped frame left dead space under it and made
+   the transcript needlessly short — which the routing popover made obvious, as
+   it had less room than the panel needed. `--chat-h` is set on render from the
+   card's own top offset; the fallback matters only for the first paint. */
+.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
 .model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
@@ -404,6 +409,37 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .mode-chip.armed{color:#ffb648;border-color:#ffb648;background:rgba(255,182,72,.09)}
 .route-card{border:1px solid rgba(var(--rgb),.22);border-radius:7px;padding:8px 10px;margin:2px 0 12px;
   background:rgba(var(--rgb),.04)}
+/* The routing explanation, moved out of the transcript. It is reference
+   material rather than conversation: worth reaching for on the one reply that
+   surprised you, not worth a card under every single one.
+
+   `<details>` rather than a hover tooltip, deliberately. Hover has no answer on
+   a touch screen, cannot be reached by keyboard, and vanishes the moment the
+   pointer crosses a gap — and this panel is a table somebody may want to read
+   rather than glance at. `details` brings toggle, focus and Escape with it and
+   needs no outside-click handler. */
+.bubble{position:relative}
+.route-info{position:absolute;top:6px;right:8px}
+.route-info>summary{list-style:none;cursor:pointer;width:15px;height:15px;border-radius:50%;
+  border:1px solid rgba(var(--rgb),.45);color:rgba(var(--rgb),.85);font:600 10px/13px ui-monospace,monospace;
+  text-align:center;opacity:.5;transition:opacity .12s}
+.route-info>summary::-webkit-details-marker{display:none}
+.route-info>summary:after{content:"i"}
+.route-info>summary:hover,.route-info[open]>summary{opacity:1;background:rgba(var(--rgb),.14)}
+.route-info>summary:focus-visible{outline:1px solid rgba(var(--rgb),.8);outline-offset:2px;opacity:1}
+/* Fixed rather than absolute, and positioned on open. The transcript is a
+   scroll container, so an absolutely positioned panel is clipped by it — tried,
+   and the panel came out two rows tall with the rest cut off. Fixed positioning
+   escapes the clip without touching the scrolling the transcript depends on. */
+.route-pop{position:fixed;width:min(460px,72vw);max-height:min(340px,52vh);overflow:auto;z-index:60;
+  border:1px solid rgba(var(--rgb),.3);border-radius:4px;padding:2px 8px 0;
+  background:#0a1520;box-shadow:0 12px 30px #000a}
+.route-pop .route-card{border:0;background:none;margin:6px 0}
+/* The transcript is a scroll container (`overflow-y:auto`, and `sendChat`
+   drives `scrollTop`), so the popover deliberately scrolls *with* it rather
+   than escaping it. Forcing `overflow:visible` to let the panel out would have
+   broken the scrolling the transcript depends on — a worse trade than a panel
+   that occasionally needs a scroll to read in full. */
 .route-card .table-row{padding:5px 2px}
 
 /* Hover label for the rail. Uses ::before because ::after is already the active-item
@@ -2195,12 +2231,27 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
-     :`<div class="bubble"><b>NERVIS</b><br>${escapeHtml(m.text)}</div>`+(m.route_decision_id&&rd[m.route_decision_id]?card(rd[m.route_decision_id]):'')).join('')}
+     :`<div class="bubble">${m.route_decision_id&&rd[m.route_decision_id]
+        ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
+        : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}</div>`).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">➤</button></div>
   <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is stored locally and can be deleted; prompts are not sent to the trace collector.</small>
  </div>`;
- $('#sendChat').onclick=sendChat;$('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}}
+ $('#sendChat').onclick=sendChat;$('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
+ sizeChat();}
+
+/* Measured rather than guessed: the card's distance from the top of the
+   viewport depends on the heading, which wraps differently at narrow widths.
+   Re-run on resize for the same reason. */
+function sizeChat(){
+ const card=document.querySelector('.card.chat');
+ if(!card)return;
+ const top=card.getBoundingClientRect().top;
+ const vh=window.innerHeight||document.documentElement.clientHeight||800;
+ card.style.setProperty('--chat-h',Math.max(320,Math.round(vh-top-22))+'px');
+}
+addEventListener('resize',()=>{if(document.querySelector('.card.chat'))sizeChat()});
 
 
 /* ── ECOSYSTEM MAP ─────────────────────────────────────────────────────────
@@ -3884,6 +3935,57 @@ function markPrototype(){
 async function render(){applyTheme();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
  if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();syncPanelAvatar()}
+/* Place an opened routing popover, and keep only one open.
+
+   `<details>` supplies the toggle, the keyboard handling and Escape; what it
+   cannot do is escape a scrolling ancestor, so the panel is `position:fixed`
+   and gets its coordinates here. It flips above the marker when there is not
+   room below, and is clamped to the viewport so a bubble near the right edge
+   does not push it off screen. */
+function placeRoutePopover(details){
+ const pop=details.querySelector('.route-pop');
+ const mark=details.querySelector('summary');
+ if(!pop||!mark)return;
+ /* Anchored without ever measuring the panel.
+
+    Reading `offsetHeight` here proved unreliable — the panel is measured while
+    still mid-flow and reports a height it will not have once positioned, which
+    put it off the bottom of the screen. So the two cases are expressed with the
+    edge that is actually known: opening downward pins `top` to the marker's
+    bottom, opening upward pins `bottom` to the marker's top. Neither needs to
+    know how tall the panel is, and `max-height` is set to the space that
+    remains so it can never overrun whichever way it opened.
+
+    `window.innerHeight` is not always trustworthy either — an embedded or
+    freshly-hidden pane can report 0 — so the document element is the fallback. */
+ /* Clamped, not merely defaulted: a collapsed pane can report a *small*
+    height as readily as a zero one, and either turns the arithmetic below into
+    a panel positioned off-screen. Observed repeatedly while testing, with the
+    same pane alternating between 720 and 0 across consecutive reads. */
+ const vh=Math.max(window.innerHeight||document.documentElement.clientHeight||0,480);
+ const vw=Math.max(window.innerWidth||document.documentElement.clientWidth||0,640);
+ const m=mark.getBoundingClientRect();
+ const w=Math.min(460,vw*0.72);
+ const below=vh-m.bottom-16, above=m.top-16;
+ pop.style.left=Math.round(Math.min(Math.max(8,m.right-w),vw-w-8))+'px';
+ if(below>=Math.min(220,above)){
+  pop.style.top=Math.round(m.bottom+6)+'px';
+  pop.style.bottom='auto';
+  pop.style.maxHeight=Math.round(below)+'px';
+ }else{
+  pop.style.top='auto';
+  pop.style.bottom=Math.round(vh-m.top+6)+'px';
+  pop.style.maxHeight=Math.round(above)+'px';
+ }
+}
+document.addEventListener('toggle',e=>{
+ const d=e.target;
+ if(!d.classList||!d.classList.contains('route-info'))return;
+ if(!d.open)return;
+ document.querySelectorAll('details.route-info[open]').forEach(o=>{if(o!==d)o.open=false});
+ placeRoutePopover(d);
+},true);
+
 /* Highlight only. It used to end with notify('Selection updated'), which was a
    claim that something had been updated — nothing had. Under the same rule the
    rest of this file follows, a control must not imply an effect it does not

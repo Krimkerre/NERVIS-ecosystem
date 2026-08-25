@@ -3089,6 +3089,47 @@ stops with an editor window, so "not running" is the ordinary case. The KPI now
 reads **0 — Clarvis Bridge is not running**. Everything else on that screen was
 already live once the registry was, since every node is a registry row.
 
+## The routing explanation, out of the transcript
+
+A route card under every reply crowded the conversation with reference
+material. It is now a small marker at the top-right of each assistant bubble,
+opening the same card as a panel.
+
+**`<details>` rather than a hover tooltip.** Hover has no answer on a touch
+screen, cannot be reached from a keyboard, and vanishes when the pointer crosses
+a gap — and this panel is a table somebody may want to *read* rather than
+glance at. `details` brings the toggle, focus handling and Escape with it, and
+needs no outside-click handler. A `toggle` listener closes any other open panel
+and places the one being opened.
+
+**Three attempts at positioning, and the first two were wrong.**
+
+Absolute positioning inside the bubble was clipped by the transcript, which is a
+scroll container — the panel came out two rows tall with the rest cut off.
+Making `.messages` overflow visible would have fixed the clip and broken the
+scrolling the transcript depends on, including the `scrollTop` the send path
+drives. Rejected.
+
+Fixed positioning computed from the panel's own `offsetHeight` was worse: the
+height is read while the element is still mid-flow and is not the height it will
+have once placed, so the panel landed off the bottom of the screen.
+
+What works measures nothing about the panel. Opening downward pins `top` to the
+marker's bottom edge; opening upward pins `bottom` to the marker's top edge.
+Neither needs a height, and `max-height` is set to whatever space remains in
+that direction, so it cannot overrun either way.
+
+**The viewport is clamped rather than merely defaulted.** A collapsed or
+embedded pane can report a height of zero — observed repeatedly during testing,
+with the same pane alternating between 720 and 0 across consecutive reads — and
+a small-but-nonzero reading breaks the arithmetic just as thoroughly.
+
+**The chat frame fills the page.** It was capped at `min(560px, 72vh)`, leaving
+dead space beneath and a transcript shorter than it needed to be — which the
+panel made obvious by having less room than it wanted. The height is now
+measured from the card's own top offset on render and on resize, because that
+offset depends on a heading that wraps differently at narrow widths.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
