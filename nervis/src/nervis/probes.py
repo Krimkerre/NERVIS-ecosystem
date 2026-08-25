@@ -26,7 +26,7 @@ from typing import Any, Mapping
 import httpx
 from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol, wire_identifier
 
-from nervis.registry import RegistryState, ServiceDeclaration
+from nervis.registry import RegistryEntry, RegistryState, ServiceDeclaration
 
 # Long enough for a service that is starting, short enough that six of them in
 # sequence still finish inside a dashboard's patience.
@@ -34,12 +34,25 @@ PROBE_TIMEOUT_SECONDS = 2.0
 
 
 async def probe(
-    client: httpx.AsyncClient, declaration: ServiceDeclaration
+    client: httpx.AsyncClient,
+    declaration: ServiceDeclaration,
+    known: RegistryEntry | None = None,
 ) -> dict[str, Any]:
-    """One observation, as fields the registry can write straight onto an entry."""
+    """One observation, as fields the registry can write straight onto an entry.
+
+    `known` is what the registry already holds, and passing it turns a four-call
+    probe into a two-call one. Identity and version change when a peer restarts
+    or is rebuilt, and `instance_id` on the health-free path would not reveal
+    that — so the full pass runs again whenever the light one finds the service
+    not answering, which is what a restart looks like from here.
+
+    The saving is not cosmetic. Four calls per service per pass against three MEP
+    services is twelve requests a pass; RAVIS's anonymous limit is sixty a
+    minute, and NERVIS exceeded it by shortening its own interval.
+    """
     if not declaration.mep:
         return await _probe_runtime(client, declaration)
-    return await _probe_mep(client, declaration)
+    return await _probe_mep(client, declaration, known)
 
 
 async def _probe_runtime(
@@ -62,6 +75,11 @@ async def _probe_runtime(
             "state": RegistryState.UNAUTHORIZED,
             "detail": f"{declaration.probe_path or '/'} refused: HTTP {response.status_code}",
         }
+    if response.status_code == 429:
+        return {
+            "state": RegistryState.DEGRADED,
+            "detail": "rate limited — NERVIS is probing more often than this service allows",
+        }
     if response.status_code >= 500:
         return {
             "state": RegistryState.DEGRADED,
@@ -79,7 +97,9 @@ async def _probe_runtime(
 
 
 async def _probe_mep(
-    client: httpx.AsyncClient, declaration: ServiceDeclaration
+    client: httpx.AsyncClient,
+    declaration: ServiceDeclaration,
+    known: RegistryEntry | None = None,
 ) -> dict[str, Any]:
     """Identity, version and capabilities, in the order that lets each fail usefully.
 
@@ -90,9 +110,15 @@ async def _probe_mep(
     from unreachable and deserves its own state rather than a failed health
     read.
     """
-    version = await _read(client, declaration.base_url + "/ecosystem/version")
-    if isinstance(version, dict) and "state" in version:
-        return version
+    settled = known is not None and known.is_usable and known.service_id
+    if settled:
+        assert known is not None
+        version: Any = {"protocol_version": known.protocol_version,
+                        "build_version": known.build_version}
+    else:
+        version = await _read(client, declaration.base_url + "/ecosystem/version")
+        if isinstance(version, dict) and "state" in version:
+            return version
     declared = str(version.get("protocol_version") or "")
     if declared and not is_supported_protocol(declared):
         return {
@@ -102,16 +128,24 @@ async def _probe_mep(
             "build_version": str(version.get("build_version") or ""),
         }
 
-    identity = await _read(client, declaration.base_url + "/ecosystem/identity")
-    if isinstance(identity, dict) and "state" in identity:
-        return identity
+    if settled:
+        assert known is not None
+        identity: Any = {
+            "service_id": known.service_id, "instance_id": known.instance_id,
+            "machine_id": known.machine_id, "build_version": known.build_version,
+            "api_version": known.api_version,
+        }
+    else:
+        identity = await _read(client, declaration.base_url + "/ecosystem/identity")
+        if isinstance(identity, dict) and "state" in identity:
+            return identity
 
     health = await _read(client, declaration.base_url + "/ecosystem/health")
     if isinstance(health, dict) and "state" in health:
         return health
 
     capabilities = await _read(client, declaration.base_url + "/ecosystem/capabilities")
-    known = _capabilities(capabilities if isinstance(capabilities, Mapping) else {})
+    advertised = _capabilities(capabilities if isinstance(capabilities, Mapping) else {})
 
     return {
         # §5.1's sentence, applied: the state is the service's own truthful
@@ -126,7 +160,7 @@ async def _probe_mep(
         "build_version": str(identity.get("build_version") or ""),
         "protocol_version": declared,
         "api_version": str(identity.get("api_version") or ""),
-        "capabilities": known,
+        "capabilities": advertised,
         "capability_revision": int((capabilities or {}).get("revision") or 0)
         if isinstance(capabilities, Mapping)
         else 0,
@@ -149,6 +183,17 @@ async def _read(client: httpx.AsyncClient, url: str) -> Any:
         return {
             "state": RegistryState.UNAUTHORIZED,
             "detail": f"authentication rejected: HTTP {response.status_code}",
+        }
+    if response.status_code == 429:
+        # Reachable, answering, and telling NERVIS to ask less often. Not a
+        # health problem and emphatically not something probing harder fixes —
+        # NERVIS caused this once by shortening its interval until it exceeded
+        # RAVIS's 60-per-minute anonymous limit, at which point every read
+        # failed, the registry read as unhealthy, and that kept the short
+        # interval on. A self-sustaining outage of NERVIS's own making.
+        return {
+            "state": RegistryState.DEGRADED,
+            "detail": "rate limited — NERVIS is probing more often than this service allows",
         }
     if response.status_code >= 400:
         return {

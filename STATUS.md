@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 965 tests, no network, no live service
+.venv/bin/pytest                      # part of 987 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 76 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 98 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 965 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 987 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3834,6 +3834,99 @@ The ecosystem map drew **two boxes labelled NERVIS** — one at the hub and one 
 the ring — because §5.1 puts NERVIS in its own registry and the map drew every
 entry. A control plane that skipped its own row would be the one entry nobody
 could check, so the entry stays and the ring excludes it.
+
+## NERVIS M3 — reading RAVIS, and three ways of getting the gate wrong
+
+M3's exit: *"NERVIS inspects RAVIS without touching its DB; provider health and
+recent routes visible; the RAVIS-unavailable state works."* Seven surfaces at
+`/api/v1/ravis/{surface}` — health, providers, models, pools, routes, usage,
+sessions.
+
+**Not touching RAVIS's database is asserted as an absence of capability, not of
+behaviour.** `nervis/src/nervis/peers/ravis.py` takes a base URL and an HTTP client and has no
+filesystem access at all, and the test checks that `nervis.config.Settings` has
+no field naming a RAVIS path. A test that watched for a file open would pass
+right up until somebody added the setting that made one possible; this one fails
+the moment such a setting exists.
+
+**Sessions is listed and refuses.** RAVIS M11 has not shipped, so
+`ravis.sessions@1` is advertised `unavailable` and NERVIS makes **no request at
+all** — that is §5.2's *"never calls a guessed endpoint"*, and it is asserted by
+counting requests rather than by inspecting a return value, because the claim is
+about a call that must not happen.
+
+### The gate was wrong three times, each differently
+
+**Liveness as a veto.** The first version refused any read whose registry entry
+was not `usable`. The registry's reading is up to one probe interval old, so
+NERVIS reported `ConnectError` for a RAVIS that was answering, for twenty
+seconds after it came up. That is guessing in the other direction from the one
+§5.2 forbids. The gate is about *capability* — a surface never advertised, or
+one the service says it does not offer. A capability last seen usable on a
+service now thought unreachable is **attempted**: the connection refuses in
+about a millisecond on loopback, and the transport's answer is fresher and more
+specific than the registry's. `negotiate()` still returns `SERVICE_DOWN` and a
+*control* should still grey out on it; a read should try.
+
+**A retry loop with no exit.** The fix for the startup race was to probe every
+three seconds while anything looked unwell. Four MEP endpoints × three MEP
+services × every three seconds is **eighty requests a minute**. RAVIS's
+anonymous rate limit is **sixty**. So NERVIS got itself rate limited, read the
+resulting 429s as unwell, and kept the fast interval on — a self-sustaining
+outage of its own making, observed rather than theorised:
+
+```text
+providers → RATE_LIMITED: Inbound rate limit exceeded
+sessions  → version answered HTTP 429
+```
+
+The window is now bounded **by the clock**, not by a condition. A window that
+closes after thirty seconds cannot keep itself open.
+
+**429 read as a health problem.** It means reachable, answering, and asking too
+often — which is the one thing probing harder cannot fix. Now `degraded` with
+that stated, and `degraded` is usable, so a rate-limited peer does not take its
+operations down with it.
+
+### Probe cost, halved
+
+A settled service is re-probed with **two calls, not four**. Identity and
+version change on a restart or a rebuild and are not worth re-reading every
+twenty seconds; health and capabilities are, and §5.2 has no capability-change
+events until M6, so polling is the only way to know. A service that stops
+answering gets the full probe again on recovery — a restart is exactly what
+"stopped answering, then answered" looks like from here, and its identity is
+what changed.
+
+Startup recovery measured end to end: **RAVIS readable 3.1 s after NERVIS
+answered**, against twenty before, with no rate limiting once the window closed.
+
+### `execution_path` was being blanked after RAVIS started publishing it
+
+`recentDecisions()` set `execution_path: null` under a comment explaining that
+RAVIS "has only built Path A, and asserting TRANSPARENT_OPENAI here would be
+this page claiming something the API never said". Path B shipped at M4 and every
+decision record now carries the field:
+
+```text
+86e938f92064  path='TRANSPARENT_OPENAI'  provider='default'
+```
+
+§8 makes showing it mandatory — *transparent versus translated* is what a
+compatibility regression turns on. **Blanking a field the API started publishing
+is the same failure as inventing one, in the direction nobody checks.** `ttft_s`
+stays empty and stays honest: it is per *target* on `/api/v1/health`, not per
+decision, and averaging one into that column would be manufacturing a number.
+
+### One shape for every outcome
+
+RAVIS down, RAVIS refusing, a capability absent, and NERVIS itself not answering
+all return `{available, reason, availability, data}`. `data` is `null` on every
+failure and **never an empty list**, because an empty list means *RAVIS has none
+of these* — confusing the two is how a screen renders a confident zero over an
+outage. The Providers card names which of the four happened rather than
+rendering them identically, and a refusal passes RAVIS's own §4.3 error code and
+message through instead of replacing them with "HTTP 422".
 
 ## Starting the thing
 

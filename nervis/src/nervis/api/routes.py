@@ -1,12 +1,13 @@
 """NERVIS's own API surface.
 
-§14 lists eight paths. Four exist:
+§14 lists eight paths. Four exist, plus M3's RAVIS reads:
 
 - `/api/v1/health` — the convenience alias §4.1 permits beside the canonical
   `/ecosystem/health`, carrying the same data.
 - `/api/v1/settings` — the key/value store M0's migration creates.
 - `/api/v1/system` — M1's live telemetry for the machine NERVIS runs on.
 - `/api/v1/services` — M2's registry, and the operations negotiated from it.
+- `/api/v1/ravis/{surface}` — M3's negotiated reads of RAVIS (§8).
 
 The other four arrive with the milestones that own them. A stub returning
 plausible data would be §4.1's exact prohibition one layer up, and the two
@@ -22,8 +23,9 @@ from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
 
 from nervis.errors import InvalidConfigurationError, NotFoundError
-from nervis.negotiation import negotiate
+from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
+from nervis.peers import ravis as ravis_peer
 from nervis.telemetry import sample_system
 
 router = APIRouter(prefix="/api/v1", tags=["nervis"])
@@ -191,3 +193,59 @@ async def read_service(key: str, request: Request) -> dict[str, Any]:
             if operation.service == key
         ],
     }
+
+
+@router.get("/ravis")
+async def read_ravis_surfaces(request: Request) -> dict[str, Any]:
+    """What NERVIS can read from RAVIS right now, without reading any of it.
+
+    An index rather than a fan-out. Reading all seven surfaces to answer "which
+    are available" would make the cheapest question on the screen the most
+    expensive call on the service — and the answer is already known from the
+    registry, which was probed on a timer.
+    """
+    entry = request.app.state.registry.get("ravis")
+    return {
+        "service": entry.as_dict() if entry else None,
+        "surfaces": [
+            {
+                "key": surface.key,
+                "label": surface.label,
+                "capability": surface.capability,
+                "path": surface.path,
+                **negotiate(
+                    Operation(surface.key, "ravis", surface.capability, surface.label), entry
+                ).as_dict(),
+            }
+            for surface in ravis_peer.SURFACES
+        ],
+    }
+
+
+@router.get("/ravis/{surface}")
+async def read_ravis(surface: str, request: Request) -> dict[str, Any]:
+    """One negotiated read of one RAVIS surface (§8, M3).
+
+    **Never RAVIS's database.** `peers/ravis.py` holds a base URL and an HTTP
+    client and nothing else, so there is no path by which this could open
+    `ravis.db` — the guarantee is structural rather than promised.
+
+    Query parameters are forwarded, which is what makes `?limit=` on route
+    decisions work without NERVIS re-implementing RAVIS's paging. The
+    `X-Request-ID` travels too, so one click produces one id in three logs
+    (§4.3).
+    """
+    known = ravis_peer.BY_KEY.get(surface)
+    if known is None:
+        raise NotFoundError(
+            f"no RAVIS surface {surface!r}",
+            known=sorted(ravis_peer.BY_KEY),
+        )
+    result = await ravis_peer.read(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        known,
+        params=dict(request.query_params),
+        request_id=getattr(request.state, "request_id", ""),
+    )
+    return result.as_dict()

@@ -709,6 +709,32 @@ function absorbRegistry(d){
  REGISTRY_AT=Date.now();
 }
 
+/* ── One negotiated read of a RAVIS surface, through NERVIS (M3, §8) ────────
+   NERVIS checks the capability before it calls, so a surface RAVIS has not
+   advertised produces **no request at all** rather than a 404 this page then
+   has to interpret — §5.2's gate is "never calls a guessed endpoint", and a
+   check that lives in this file is one that anything not this file can skip.
+
+   Every outcome has the same shape: `{available, reason, availability, data}`.
+   `data` is null on every failure and never an empty list, because an empty
+   list means *RAVIS has none of these* and confusing the two is how a screen
+   renders a confident zero over an outage. */
+async function ravisRead(surface,params){
+ const q=new URLSearchParams(params||{}).toString();
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/'+surface+(q?'?'+q:''),
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return await r.json();
+ }catch(e){
+  /* NERVIS itself is not answering — which, since it serves this page, mostly
+     means this file was opened from disk. Distinct from RAVIS being down, and
+     said differently, because the two need different things done about them. */
+  return{surface,available:false,availability:'unknown',data:null,
+         reason:'NERVIS is not answering, so nothing negotiated this read'};
+ }
+}
+
 async function live(service,path,mock,adapt){
  try{
   /* A refused connection fails instantly; a filtered port hangs forever. The
@@ -733,11 +759,18 @@ async function live(service,path,mock,adapt){
 /* GET /api/v1/route-decisions → the shape the Routes table already reads.
    Contract names stay in `API`; this is the rename-in-the-view boundary.
 
-   Two fields are deliberately left empty rather than filled in. `execution_path`
-   is not published — RAVIS has only built Path A, and asserting TRANSPARENT_OPENAI
-   here would be this page claiming something the API never said, which is the one
-   thing it must not do. `ttft_s` is not per-decision either; it exists per target
-   on /api/v1/health. Both render as an em dash, which is the honest answer. */
+   **`execution_path` is now read rather than blanked.** This said it "is not
+   published — RAVIS has only built Path A, and asserting TRANSPARENT_OPENAI
+   here would be this page claiming something the API never said". Path B
+   shipped at M4 and `execution_path` is on every decision record; NERVIS.md §8
+   makes showing it mandatory, because *transparent versus translated* is the
+   one thing a compatibility regression turns on. Blanking a field the API
+   started publishing is the same failure as inventing one, in the direction
+   nobody checks.
+
+   `ttft_s` stays empty and stays honest: it is not per-decision. It exists per
+   *target* on /api/v1/health, and averaging one into this column would be
+   manufacturing a number. It renders as an em dash. */
 function recentDecisions(payload){
  const outcome=d=>{
   if(!d.selected)return 'NO_ROUTE';
@@ -749,7 +782,7 @@ function recentDecisions(payload){
  return{items:payload.items.map(d=>({
   pool:d.pool||d.requested,
   model:d.selected,
-  execution_path:null,
+  execution_path:d.execution_path||null,
   ttft_s:null,
   result:outcome(d),
   reason:d.reason}))};
@@ -1612,7 +1645,14 @@ const API={
      when it does not. The mock stays because it is the only thing that renders
      when nothing is running, and because it carries a NO_ROUTE example that a
      healthy service will never produce on demand. */
-  async requests(){return live('ravis','/api/v1/route-decisions?limit=25',
+  async requests(){
+   /* Through NERVIS since M3. `ravis.routing.explanations@1` is the capability
+      it negotiates, which is the one RAVIS reports `available` — so this is the
+      surface that demonstrates the gate letting a call through rather than
+      only refusing them. */
+   const read=await ravisRead('routes',{limit:25});
+   if(read.available)return recentDecisions(read.data);
+   return live('ravis','/api/v1/route-decisions?limit=25',
    ()=>({items:[
    {pool:'ravis/clarvis-agent',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
    {pool:'ravis/clarvis-chat',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
@@ -3631,20 +3671,22 @@ async function ravisProviders(){
     the split is deliberate rather than tidy: the rows here are what RAVIS
     actually has, and mixing them into the mocked table would make it
     impossible to tell which numbers are real. */
- let liveRows=null;
- try{
-  const r=await fetch(BASE.ravis+'/api/v1/providers');
-  if(r.ok)liveRows=(await r.json()).items||[];
-  /* One filter preview per provider, fetched alongside. The count is the whole
-     point of the column — "28 / 417" is what tells an operator their pattern
-     did something, and a column showing only the pattern would not. */
-  if(liveRows)await Promise.all(liveRows.map(async x=>{
-   try{
-    const f=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(x.name)+'/models');
-    if(f.ok)x.models=await f.json();
-   }catch(e){}
-  }));
- }catch(e){liveRows=null}
+ /* Through NERVIS since M3, rather than a direct fetch from this browser.
+    NERVIS negotiates `ravis.management` before calling, so a RAVIS that has
+    withdrawn the surface produces a stated reason here instead of a 404 this
+    file would have to guess at. */
+ const read=await ravisRead('providers');
+ let liveRows=read.available?(read.data.items||[]):null;
+ /* One filter preview per provider. Still direct: `/providers/{name}/models` is
+    not one of M3's six surfaces, and adding a NERVIS route for it to save one
+    cross-origin call would be inventing a surface the specification does not
+    list. Its failure is already tolerated per provider. */
+ if(liveRows)await Promise.all(liveRows.map(async x=>{
+  try{
+   const f=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(x.name)+'/models');
+   if(f.ok)x.models=await f.json();
+  }catch(e){}
+ }));
  const p=await API.ravis.providers();
  const on=p.items.filter(x=>x.enabled);
  const breakers=p.items.filter(x=>x.breaker!=='CLOSED');
@@ -3680,8 +3722,10 @@ async function ravisProviders(){
     </div>`).join('')}
    <small class="mono dim">the <b>Models</b> count is a link — it opens the filter for that provider. OpenRouter publishes over 400 models, and without a filter every one of them lands in <b>/v1/models</b>, which a client renders as a picker, and becomes a routing candidate on every request. Patterns are globs; <b>exclude wins over include</b>, and an empty include means all rather than none. The filter applies identically to the catalogue a client reads and the candidates the router picks from, so the two can never disagree about whether a model exists.<br><br>turning a provider off is not the same as removing its key. Disabled means <b>not right now</b> and is one click back; deleting the credential on <b>RAVIS → Credentials</b> means this deployment no longer holds one. A disabled provider is not probed, not advertised in <b>/v1/models</b>, and not a routing candidate — and addressing it directly returns 503 rather than quietly going somewhere else.</small>`,'ravis')}</div>`
   :`<div class="card full live"><h3>Configured now</h3>${cell(`
-   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/providers</span></div>
-   <small class="mono dim">RAVIS is not answering, so this card shows nothing rather than a remembered list. Everything below is prototype content and always was.</small>`,'ravis')}</div>`;
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/ravis/providers</span></div>
+   <div class="trace-step"><b>why not</b><span>${escapeHtml(read.reason)}</span></div>
+   <div class="trace-step"><b>state</b><span class="chip warn">${escapeHtml(read.availability)}</span></div>
+   <small class="mono dim">this card shows nothing rather than a remembered list. The reason above is <b>NERVIS's</b>, and it distinguishes the four ways this read can fail: RAVIS unreachable, RAVIS refusing, the capability not advertised, or NERVIS itself not answering. Rendering them identically would hide three of them. Everything below is prototype content and always was.</small>`,'ravis')}</div>`;
 
  $('#content').innerHTML=liveCard+kpis([
    ['Enabled',`${on.length} / ${p.items.length}`,'a disabled provider is not a candidate','ravis'],

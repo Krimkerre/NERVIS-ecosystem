@@ -78,6 +78,19 @@ class Settings(BaseSettings):
     # part of each cycle stale.
     probe_interval_seconds: float = 20.0
     stale_after_seconds: float = 90.0
+    # How soon to re-probe during the startup window below. A launcher starts
+    # the services in sequence, so NERVIS's first pass routinely catches a peer
+    # mid-startup — and at the ordinary interval the dashboard then reports it
+    # unreachable for twenty seconds after it is up.
+    recovery_interval_seconds: float = 3.0
+    # And how long that fast window lasts, which is a **hard bound rather than a
+    # condition**. The first version sped up whenever anything looked unwell,
+    # which is a loop with no exit: probing four MEP endpoints every three
+    # seconds against three services is eighty requests a minute, RAVIS's
+    # anonymous limit is sixty, and being rate limited reads as unwell — so the
+    # fast interval kept itself on and NERVIS produced its own outage. A window
+    # that closes on the clock cannot do that.
+    startup_window_seconds: float = 30.0
 
 
 @dataclass(frozen=True)

@@ -101,6 +101,12 @@ OPERATIONS: tuple[Operation, ...] = (
         idempotent=False,
     ),
     Operation(
+        key="ravis.sessions",
+        service="ravis",
+        capability="ravis.sessions",
+        label="Inspect routing sessions",
+    ),
+    Operation(
         key="nervis.events",
         service="nervis",
         capability="nervis.event_hub",

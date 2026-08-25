@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0, M1, M2)
+## The service (M0 – M3)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -59,9 +59,26 @@ because it was refused looks exactly like one nobody configured.
 itself broken when the things it watches are broken could not be used to find
 out why.
 
-`/api/v1` has `health`, `settings`, `system` and `services`. §14's other four
-paths arrive with the milestones that own them, because a stub returning
-plausible data is §4.1's prohibition one layer up.
+**M3** adds `/api/v1/ravis/{surface}` — negotiated reads of RAVIS's health,
+providers, models, pools, route decisions, usage and sessions (§8). NERVIS
+**never reads RAVIS's database**, and that is structural: the reader takes a
+base URL and an HTTP client and has no filesystem access at all.
+
+The gate is about *capability*, not liveness. A surface RAVIS has not advertised
+produces no request — `sessions` refuses today, because RAVIS M11 has not
+shipped. A surface last seen usable on a service the registry currently thinks
+is down is **attempted anyway**: the registry's reading is up to one probe
+interval old, and a connection that refuses in a millisecond gives a fresher,
+more specific answer than a stale veto.
+
+Every outcome has one shape, `{available, reason, availability, data}`, with
+`data` null on failure and never an empty list — an empty list means *RAVIS has
+none of these*, and confusing the two is how a screen renders a confident zero
+over an outage.
+
+`/api/v1` has `health`, `settings`, `system`, `services` and `ravis`. §14's
+other four paths arrive with the milestones that own them, because a stub
+returning plausible data is §4.1's prohibition one layer up.
 
 Two deviations from §3, stated rather than left to be discovered. **Not
 SQLAlchemy and not Alembic**: both sibling services migrate with the standard

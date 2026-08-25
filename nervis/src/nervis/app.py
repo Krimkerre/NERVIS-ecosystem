@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
@@ -89,6 +90,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # a twenty-second timer is a new TCP handshake every three seconds
     # otherwise, against processes on this same machine.
     api.state.probe_client = httpx.AsyncClient()
+    # When probing began, for the startup window in `_next_interval`. Monotonic
+    # so a clock adjustment cannot widen or close the window by surprise.
+    api.state.probe_started_at = time.monotonic()
 
 
 def _register_error_handling(api: FastAPI) -> None:
@@ -155,7 +159,7 @@ async def refresh_registry(api: FastAPI) -> None:
     registry: Registry = api.state.registry
     entries = registry.all()
     observations = await asyncio.gather(
-        *(probe(api.state.probe_client, entry.declaration) for entry in entries),
+        *(probe(api.state.probe_client, entry.declaration, entry) for entry in entries),
         return_exceptions=True,
     )
     for entry, observation in zip(entries, observations, strict=True):
@@ -178,7 +182,6 @@ async def _refresh_periodically(api: FastAPI) -> None:
     frozen one still looks current. Staleness is computed on read for the same
     reason.
     """
-    interval: float = api.state.settings.probe_interval_seconds
     while True:
         try:
             await refresh_registry(api)
@@ -186,4 +189,31 @@ async def _refresh_periodically(api: FastAPI) -> None:
             raise
         except Exception:  # noqa: BLE001 - a probe loop must outlive any single failure
             logger.exception("registry refresh failed")
-        await asyncio.sleep(interval)
+        await asyncio.sleep(_next_interval(api))
+
+
+def _next_interval(api: FastAPI) -> float:
+    """Fast for a bounded window after start, ordinary thereafter.
+
+    A launcher starts the services in sequence, so NERVIS's first pass routinely
+    catches a peer mid-startup. At the ordinary interval the dashboard then
+    reports that peer unreachable for twenty seconds after it is up — the same
+    class of wrongness as a stale status bar: a true reading held too long to
+    still be true.
+
+    **The window is bounded by the clock and not by whether anything looks
+    unwell**, and that distinction is the whole of this function. The first
+    version used the condition, which is a loop with no exit: four MEP endpoints
+    every three seconds against three services is eighty requests a minute,
+    RAVIS's anonymous limit is sixty, and being rate limited reads as unwell —
+    so the fast interval kept itself on and NERVIS manufactured its own outage.
+    Observed, not theorised.
+    """
+    settings: Settings = api.state.settings
+    elapsed = time.monotonic() - api.state.probe_started_at
+    if elapsed > settings.startup_window_seconds:
+        return settings.probe_interval_seconds
+    unsettled = any(not entry.is_usable for entry in api.state.registry.all())
+    return (
+        settings.recovery_interval_seconds if unsettled else settings.probe_interval_seconds
+    )
