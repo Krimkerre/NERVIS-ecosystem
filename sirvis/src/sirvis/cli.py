@@ -516,6 +516,12 @@ def _print_outcome(outcome: ExperimentOutcome) -> None:
     print(f"\nrun              {outcome.run_id} · {outcome.state.value}")
     print(f"  experiment     {outcome.experiment_id}")
     print(f"  raw results    {outcome.results_path}")
+    # The stored rows, not just the directory. `result_ids` was recorded on
+    # every outcome and printed nowhere, so a run told you where its files went
+    # and never which database rows it produced — leaving the lookup to a
+    # timestamp guess, which is the reconstruction a stored id exists to avoid.
+    if outcome.result_ids:
+        print(f"  result rows    {', '.join(outcome.result_ids)}")
     if outcome.record is None:
         print(f"  detail         {outcome.detail}")
         return

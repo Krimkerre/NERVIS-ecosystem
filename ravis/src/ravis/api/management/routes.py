@@ -213,9 +213,35 @@ async def read_providers(request: Request) -> dict[str, Any]:
             "enabled": name not in disabled,
             "credential_configured": status.configured,
             "credential_source": status.source.value,
+            # Why this provider's catalogue is the size it is. `last_error` has
+            # been recorded on every failed refresh since M1, under a docstring
+            # calling it "a distinction a diagnostic needs" — and no diagnostic
+            # read it. A provider reachable now whose catalogue is empty because
+            # the refresh before this one failed looked identical to one that
+            # genuinely has no models.
+            **_catalogue_of(request, name),
             **probe,
         })
     return _listing(rows)
+
+
+def _catalogue_of(request: Request, name: str) -> dict[str, Any]:
+    """What this provider's last catalogue refresh produced, and why.
+
+    Empty for a translating provider, which has no catalogue to refresh — the
+    keys are omitted rather than reported as zero, because a count of nothing
+    and no count at all are different claims.
+    """
+    transparents: dict[str, Any] = getattr(request.app.state, "transparents", {})
+    built = transparents.get(name)
+    if built is None:
+        return {}
+    snapshot = built.registry.snapshot
+    return {
+        "catalogue_size": len(snapshot.models),
+        "catalogue_refreshed": snapshot.has_been_refreshed,
+        "catalogue_error": snapshot.last_error,
+    }
 
 
 def _provider_entries(request: Request) -> list[tuple[str, Any, str]]:

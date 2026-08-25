@@ -194,6 +194,10 @@ class MultiModelOutcome:
     matrix: dict[str, Any] = field(default_factory=dict)
     telemetry: list[MemorySample] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # The rows `finish_run` wrote. Printed by the CLI summary rather than
+    # merely held: an outcome that says where its files went but not which
+    # database rows it produced leaves the lookup to a timestamp guess, which is
+    # the reconstruction a stored id exists to avoid.
     result_ids: list[str] = field(default_factory=list)
     # Set when the members could not be made co-resident. Its presence is what
     # stops the alone measurements being read as a working combination.

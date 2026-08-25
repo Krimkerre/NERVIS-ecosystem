@@ -66,7 +66,6 @@ class ProcessSample:
 
     pid: int
     command: str
-    cpu_percent: float
     memory_bytes: int
 
 
@@ -223,12 +222,16 @@ def _processes(limit: int) -> tuple[ProcessSample, ...]:
 
     Memory rather than CPU: this ecosystem's failure mode is a multi-gigabyte
     model resident when something else needs the room, and CPU on a machine
-    running an inference server is either idle or pinned. `cpu_percent` is
-    reported for each anyway — as the value since that process was last polled,
-    which for a fresh process object is since it started.
+    running an inference server is either idle or pinned.
+
+    **`cpu_percent` used to be reported beside it and is gone.** Nothing read
+    it — not the ordering, not the screen, not a test — and psutil's first
+    reading for a fresh process object is the average since that process
+    started, which is not a useful number to put next to a live memory figure
+    even for whoever might have read it.
     """
     found: list[ProcessSample] = []
-    for process in psutil.process_iter(["pid", "name", "memory_info", "cpu_percent"]):
+    for process in psutil.process_iter(["pid", "name", "memory_info"]):
         try:
             info = process.info
             memory = info.get("memory_info")
@@ -238,7 +241,6 @@ def _processes(limit: int) -> tuple[ProcessSample, ...]:
                 ProcessSample(
                     pid=int(info["pid"]),
                     command=str(info.get("name") or "?"),
-                    cpu_percent=float(info.get("cpu_percent") or 0.0),
                     memory_bytes=int(memory.rss),
                 )
             )

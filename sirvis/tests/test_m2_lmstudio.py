@@ -143,3 +143,33 @@ def test_lms_json_output_is_read_past_its_surrounding_noise() -> None:
 
 def test_unreadable_lms_output_yields_nothing_rather_than_raising() -> None:
     assert parse_lms_json("no json here") == []
+
+
+async def test_unload_all_drives_the_cli_and_is_reachable_nowhere_else() -> None:
+    """SIRVIS.md §7 lists `unload_all` on the runtime interface, and nothing calls it.
+
+    Kept rather than deleted, for the same reason as
+    `ResourceManager.force_unload`: deleting specified behaviour because nothing
+    calls it yet is the wrong correction. But an operator escape hatch with no
+    test is a claim rather than a feature, and the dead-code gate is right to
+    say so.
+
+    **No surface exposes it.** Reaching it means an authorization story SIRVIS
+    does not have — the same one `force_unload` waits on.
+    """
+    ran: list[list[str]] = []
+
+    adapter = LMStudioAdapter("http://runtime.invalid", client=httpx.AsyncClient(
+        transport=transport()
+    ))
+    adapter._resolve_lms = lambda: "/fake/lms"  # type: ignore[method-assign]
+    def record(arguments: list[str], timeout: float, **rest: object) -> str:
+        del timeout, rest
+        ran.append(arguments)
+        return ""
+
+    adapter._run_lms = record  # type: ignore[method-assign]
+
+    await adapter.unload_all()
+
+    assert ran == [["unload", "--all"]]

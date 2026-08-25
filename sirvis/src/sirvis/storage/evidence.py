@@ -77,16 +77,23 @@ class EvidenceQuery:
 
 @dataclass
 class EvidenceAnswer:
-    """What a query found, and what it could not resolve.
+    """What a query found.
 
-    `unresolved` is the field that keeps this honest. A candidate runtime key
-    that no installed build matches is **not** the same as a build with no
-    evidence, and returning an empty list for both would tell RAVIS the model
-    was measured and found wanting when in fact it is not installed.
+    A candidate runtime key that no installed build matches is **not** the same
+    as a build with no evidence: returning an empty list for both would tell
+    RAVIS the model was measured and found wanting when in fact it is not
+    installed.
+
+    **That distinction is real and is not kept here.** This carried an
+    `unresolved` field described as "the field that keeps this honest", which no
+    constructor ever populated and nothing ever read — the API builds
+    `unresolved_candidates` from its own local in
+    `sirvis/src/sirvis/api/routes.py`, which is where resolution happens and so
+    where the answer is known. The field was a second home for a fact that
+    already had one.
     """
 
     items: list[dict[str, Any]] = field(default_factory=list)
-    unresolved: list[str] = field(default_factory=list)
     next_cursor: str | None = None
 
 

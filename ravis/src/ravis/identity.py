@@ -50,13 +50,17 @@ class ClientApplication:
     application_id: str
     label: str
     rate_limit_per_minute: int
-    # §9.6.1: the background marker lowers cost and relaxes limits, so it is
-    # honoured only for an authenticated identity. It buys that and nothing else
-    # — no policy exemption, no provider access, no management authority.
-    may_declare_background_calls: bool
-    # §9.6.0: anonymous may not rise above NORMAL. Recorded on the identity
-    # rather than checked at each call site, so there is one place to read.
-    max_privacy_level: str
+
+    # **Two fields were removed from here, and their absence is the honest
+    # state.** `may_declare_background_calls` and `max_privacy_level` recorded
+    # §9.6.1's background marker and §9.6.0's privacy ceiling — both trust
+    # boundaries, both set on every identity, and both read by nothing but a
+    # test asserting the constructor had set them.
+    #
+    # A field describing an unenforced boundary is worse than no field: it reads
+    # as protection. Neither can be enforced before M16, because neither the
+    # background-call class nor the privacy ladder exists to enforce them
+    # against. They come back with the engine that checks them.
 
 
 def anonymous_identity(settings: Settings) -> ClientApplication:
@@ -71,8 +75,6 @@ def anonymous_identity(settings: Settings) -> ClientApplication:
         application_id="anonymous",
         label="anonymous",
         rate_limit_per_minute=settings.anonymous_rate_limit_per_minute,
-        may_declare_background_calls=False,
-        max_privacy_level="NORMAL",
     )
 
 
@@ -113,6 +115,4 @@ def resolve_identity(headers: dict[str, str], settings: Settings) -> ClientAppli
         application_id="configured",
         label="configured",
         rate_limit_per_minute=settings.rate_limit_per_minute,
-        may_declare_background_calls=True,
-        max_privacy_level="LOCAL_ONLY",
     )

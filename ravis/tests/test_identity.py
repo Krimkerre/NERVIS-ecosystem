@@ -17,11 +17,24 @@ def test_no_credential_resolves_to_anonymous(settings: Settings) -> None:
     assert identity.application_id == "anonymous"
 
 
-def test_anonymous_may_not_declare_background_calls(settings: Settings) -> None:
-    """The background marker lowers cost, so it needs an authenticated caller."""
+def test_the_identity_claims_no_boundary_it_does_not_enforce(settings: Settings) -> None:
+    """Two fields were removed from `ClientApplication`, and this pins that.
+
+    `may_declare_background_calls` and `max_privacy_level` recorded §9.6.1's
+    background marker and §9.6.0's privacy ceiling. Both were set on every
+    identity and read by nothing except the two tests that asserted the
+    constructor had set them — which is the shape the dead-code gate exists to
+    catch: asserted, never acted on.
+
+    A field describing an unenforced trust boundary reads as protection. Neither
+    can be enforced before M16, because neither the background-call class nor
+    the privacy ladder exists to enforce them against, so they return with the
+    engine that checks them.
+    """
     identity = resolve_identity({}, settings)
 
-    assert identity.may_declare_background_calls is False
+    assert not hasattr(identity, "may_declare_background_calls")
+    assert not hasattr(identity, "max_privacy_level")
 
 
 def test_anonymous_gets_the_stricter_rate_limit(settings: Settings) -> None:
@@ -29,11 +42,6 @@ def test_anonymous_gets_the_stricter_rate_limit(settings: Settings) -> None:
 
     assert identity.rate_limit_per_minute == settings.anonymous_rate_limit_per_minute
 
-
-def test_anonymous_may_not_raise_its_privacy_level(settings: Settings) -> None:
-    identity = resolve_identity({}, settings)
-
-    assert identity.max_privacy_level == "NORMAL"
 
 
 def test_a_claimed_identity_header_grants_nothing() -> None:

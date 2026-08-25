@@ -405,7 +405,7 @@ def test_a_process_row_carries_no_command_line(settings: Settings) -> None:
 
     assert body["processes"], "no process was readable, which makes this test vacuous"
     for process in body["processes"]:
-        assert set(process) == {"pid", "command", "cpu_percent", "memory_bytes"}
+        assert set(process) == {"pid", "command", "memory_bytes"}
         assert "/" not in process["command"]
 
 

@@ -26,14 +26,14 @@ cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
 .venv/bin/pytest                      # part of 1015 tests, no network, no live service
-.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
+.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 353 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 116 tests
 ```
 
@@ -4253,6 +4253,84 @@ failure's explanation.
 absence is the feature, and an absence is the one thing a reader cannot see — so
 a test inspects the body actually sent to RAVIS and asserts none of `tools`,
 `tool_choice`, `functions`, `session_id` or `workspace` is in it.
+
+## The dead-code gate learned to read fields, and the rule it was using was wrong
+
+Extending it to dataclass fields took three attempts, and each failure was more
+interesting than the extension.
+
+**First: fields cannot be counted the way functions are.**
+`may_declare_background_calls` appears three times — its declaration and two
+constructor keywords — so a textual count called it referenced while nothing
+ever asked what it held. **Setting a value is not using it.** Fields are now
+judged by *reads*: `x.field` in a load context, plus `getattr(x, "field")`.
+Keyword arguments deliberately do not count.
+
+**Second: documentation was silencing the gate.** The original version counted a
+Markdown mention as a reference, reasoning that "a name in a specification is
+claimed, and the gap between claimed and called is what this finds". That is
+exactly backwards — a name appearing only in prose is the *strongest* evidence
+it is dead. The proof was immediate: `may_declare_background_calls` went
+unreported because **STATUS.md's own entry about it being dead was the second
+reference**. Writing about the problem made the gate stop seeing it. Markdown is
+out; HTML stays, because the dashboard genuinely calls things.
+
+**Third: a test is not a use.** With prose excluded it still went unreported,
+because one line read it — `assert identity.may_declare_background_calls is
+False`. That is the exact shape the gate exists to catch: *asserted, never acted
+on*. Reads are now collected from `src/` only.
+
+### Twelve findings, and none of them were what the name suggests
+
+Two docstring lies, two unenforced trust boundaries, four values recorded and
+never shown, three speculative fields and one specified escape hatch.
+
+**`original_envelope` was described as the most important field in its file and
+read nowhere.** Its module docstring opened *"one field here does more work than
+the rest combined"*; its class docstring said the transparent path "forwards
+`original_envelope` instead — which is why that field is not optional in
+practice". Path A forwards `_Call.body` and `_Call.body_for`, which hold the same
+bytes and always did. §7's guarantee is real and lives somewhere else entirely.
+The test asserting the field is replaced by one asserting its absence, so it
+cannot quietly return and be believed again.
+
+**Two trust boundaries that protected nothing.** `may_declare_background_calls`
+and `max_privacy_level` recorded §9.6.1's background marker and §9.6.0's privacy
+ceiling on every resolved identity, and were read by nothing. A field describing
+an unenforced boundary is worse than no field, because it reads as protection.
+Neither can be enforced before M16 — the background-call class and the privacy
+ladder do not exist to enforce them against — so both are gone until the engine
+that checks them arrives.
+
+**Four things recorded and never shown:**
+
+| what | recorded since | now |
+|---|---|---|
+| `ModelSnapshot.last_error` | M1, under "a distinction a diagnostic needs" | `catalogue_error` on each provider row |
+| `ReadStream.malformed_frames` | M2, counted on every stream | a 17th conformance check |
+| `result_ids` on both outcomes | M6 | printed by the CLI run summary |
+| `EvidenceAnswer.unresolved` | M7, "the field that keeps this honest" | deleted — the API's own local already did it |
+
+`last_error` is the one worth dwelling on. A provider reachable *now* whose
+catalogue is empty because the previous refresh failed looked identical to one
+that genuinely has no models — which is precisely the confusion that cost an
+afternoon yesterday.
+
+`malformed_frames` is the sharpest. Every other conformance check compares what
+survived the proxy against a direct read, so **a proxy corrupting a frame that
+both sides skipped identically passed all sixteen of them.**
+
+**One specified escape hatch, kept and tested.** `LMStudioAdapter.unload_all` is
+on SIRVIS.md §7's runtime interface with no caller — the same position as
+`ResourceManager.force_unload`. Deleting specified behaviour because nothing
+calls it yet is the wrong correction; leaving it untested makes it a claim. It
+has a test.
+
+**And one of mine.** `ProcessSample.cpu_percent`, added at NERVIS M1 yesterday,
+collected on every sample and read by nothing — not the ordering, not the
+screen, not a test. psutil's first reading for a fresh process object is the
+average since that process started, which is not a number to put beside a live
+memory figure even for whoever might have read it.
 
 ## Starting the thing
 

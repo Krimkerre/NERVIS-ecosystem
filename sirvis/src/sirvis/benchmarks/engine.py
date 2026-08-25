@@ -291,6 +291,10 @@ class ExperimentOutcome:
     detail: str
     results_path: str
     record: EvidenceRecord | None = None
+    # The rows `finish_run` wrote. Printed by the CLI summary rather than
+    # merely held: an outcome that says where its files went but not which
+    # database rows it produced leaves the lookup to a timestamp guess, which is
+    # the reconstruction a stored id exists to avoid.
     result_ids: list[str] = field(default_factory=list)
     repetitions: list[Repetition] = field(default_factory=list)
     telemetry: list[MemorySample] = field(default_factory=list)

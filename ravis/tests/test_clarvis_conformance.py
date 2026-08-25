@@ -18,6 +18,11 @@ EXPECTED_CHECKS = {
     "/v1/models cached response",
     "chat stream",
     "[DONE] terminator",
+    # Reads `ReadStream.malformed_frames`, which had been counted on every
+    # stream since M2 and reported nowhere. Every other check compares what
+    # survived the proxy against a direct read, so a proxy corrupting a frame
+    # both sides skipped identically passed all of them.
+    "frames parse",
     "fragmented tool arguments",
     "tool_call_id preserved",
     "multiple tool indexes",

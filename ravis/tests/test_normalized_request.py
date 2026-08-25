@@ -11,19 +11,24 @@ def _envelope(payload: dict) -> bytes:
     return json.dumps(payload).encode()
 
 
-def test_the_original_envelope_is_kept_verbatim() -> None:
-    """§7: the transparent path forwards these bytes after routing chooses.
+def test_the_normalized_view_does_not_carry_the_client_s_bytes() -> None:
+    """§7's guarantee is real; this object is not where it lives.
 
-    Without them the only option is re-serialising a normalized view, which §6
-    forbids for an already-compatible upstream — and re-serialising is where
-    tool-call fragment boundaries get lost.
+    `NormalizedRequest` used to have an `original_envelope` field, described in
+    two docstrings as the one doing "more work than the rest combined" — and
+    read nowhere. The transparent path forwards `_Call.body` and
+    `_Call.body_for`, which hold the same bytes and always did.
+
+    The guarantee itself is asserted where it happens, by
+    `test_streamed_bytes_arrive_exactly_as_the_upstream_sent_them` in
+    `ravis/tests/test_transparent_proxy.py`. What this pins is the absence, so
+    the field cannot quietly return and be believed again.
     """
     payload = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
-    envelope = _envelope(payload)
 
-    request = normalize(envelope, payload)
+    request = normalize(_envelope(payload), payload)
 
-    assert request.original_envelope == envelope
+    assert not hasattr(request, "original_envelope")
 
 
 def test_a_system_message_is_lifted_out_for_providers_that_need_it() -> None:

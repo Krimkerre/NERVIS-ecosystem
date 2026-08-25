@@ -213,6 +213,7 @@ async def run_suite() -> ConformanceResult:
     await _check_models_endpoint(result)
     await _check_stream("chat stream", fixtures.PLAIN_CHAT, result, "text")
     await _check_done_terminator(result)
+    await _check_frames_are_well_formed(result)
     await _check_tool_calls(result)
     await _check_reasoning(result)
     await _check_byte_preservation(result)
@@ -363,6 +364,25 @@ async def _check_done_terminator(result: ConformanceResult) -> None:
     """A stream that ends without `[DONE]` leaves Clarvis waiting (§8.2)."""
     proxied, _ = await _through_ravis(fixtures.PLAIN_CHAT)
     result.record("[DONE] terminator", proxied.saw_done, "no [DONE] frame reached the client")
+
+
+async def _check_frames_are_well_formed(result: ConformanceResult) -> None:
+    """Nothing RAVIS forwards should be unparseable to a Clarvis client.
+
+    `read_stream` has always counted malformed frames — *"one bad chunk should
+    cost a few tokens, not the whole answer"* — and nothing has ever read the
+    count. Every other check compares what survived the proxy against what a
+    direct read produced, so a proxy that corrupted a frame in a way both sides
+    skipped identically passed all of them. This is the check that notices.
+    """
+    direct = read_stream(fixtures.PLAIN_CHAT)
+    proxied, _ = await _through_ravis(fixtures.PLAIN_CHAT)
+    result.record(
+        "frames parse",
+        proxied.malformed_frames <= direct.malformed_frames,
+        f"{proxied.malformed_frames} unparseable frame(s) reached the client, "
+        f"against {direct.malformed_frames} read directly",
+    )
 
 
 async def _check_tool_calls(result: ConformanceResult) -> None:

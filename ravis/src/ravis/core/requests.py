@@ -1,14 +1,22 @@
 """The provider-independent request shape (RAVIS.md §7).
 
-One field here does more work than the rest combined: `original_envelope`. §7
-requires that an OpenAI-compatible route keep the bytes the client sent, so that
-after a route is chosen the transparent path can forward them untouched.
+§7 requires that an OpenAI-compatible route keep the bytes the client sent, so
+the transparent path can forward them untouched after a route is chosen —
+because §6 is explicit that re-serialising an already-compatible stream buys
+nothing and risks the fragile parts: tool-call indexes, fragmented arguments,
+reasoning fields, `[DONE]`.
 
-Without it, "normalize everything then re-serialise" becomes the only option,
-and §6 is explicit that re-serialising an already-compatible stream buys nothing
-and risks the fragile parts — tool-call indexes, fragmented arguments, reasoning
-fields, `[DONE]`. Keeping the original alongside the normalized view is what
-lets one router serve both execution paths without either compromising.
+**That requirement is met, and not by anything in this file.** This docstring
+used to open with *"one field here does more work than the rest combined:
+`original_envelope`"*, and the class docstring said the transparent path
+"forwards `original_envelope` instead — which is why that field is not optional
+in practice". Neither was true. Path A forwards `call.body` and `call.body_for`
+in `ravis/src/ravis/api/openai/chat.py`, which hold the same bytes; the field
+was written, described at length, and read nowhere. Found by the dead-code gate
+once it learned to look at fields.
+
+What remains here is the *normalized* view, which is what a translated adapter
+renders from.
 """
 
 from __future__ import annotations
@@ -22,9 +30,8 @@ class NormalizedRequest:
     """What a client asked for, in terms no provider owns.
 
     Built by parsing an incoming request once. Translated adapters (M3b) render
-    it into their provider's native shape; the transparent path ignores it and
-    forwards `original_envelope` instead — which is why that field is not
-    optional in practice, even though a purely translated future could drop it.
+    it into their provider's native shape; the transparent path ignores this
+    object entirely and forwards the client's own bytes from the call record.
     """
 
     messages: list[dict[str, Any]] = field(default_factory=list)
@@ -32,16 +39,11 @@ class NormalizedRequest:
     tools: list[dict[str, Any]] = field(default_factory=list)
     tool_choice: Any = None
     response_schema: dict[str, Any] | None = None
-    modalities: list[str] = field(default_factory=lambda: ["text"])
     temperature: float | None = None
     max_output_tokens: int | None = None
     reasoning_effort: str | None = None
     stream: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
-    routing_context: dict[str, Any] = field(default_factory=dict)
-
-    # The bytes the client sent, kept verbatim for transparent forwarding (§7).
-    original_envelope: bytes = b""
     # The model the client named. Not a routing decision — §5.3 puts an explicit
     # pool above a request signal — but it is what a direct address resolves to,
     # and it travels untouched on the transparent path.
@@ -71,17 +73,22 @@ class NormalizedRequest:
 def normalize(envelope: bytes, payload: dict[str, Any]) -> NormalizedRequest:
     """Build a NormalizedRequest from a parsed OpenAI-compatible body.
 
-    Takes both the raw bytes and the already-parsed payload rather than parsing
-    here, because the caller has parsed it once already for admission control
-    and parsing twice would be both wasteful and a chance for the two views to
-    disagree.
+    Takes the already-parsed payload rather than parsing here, because the
+    caller has parsed it once for admission control and parsing twice would be
+    both wasteful and a chance for the two views to disagree.
 
-    Unknown fields are deliberately dropped from the normalized view and
-    preserved in the envelope. That asymmetry is the point: a translated adapter
-    should not silently forward a parameter it does not understand — §7 says
-    unsupported features must never silently disappear, and inventing a
-    translation for an unrecognised field is how they do.
+    Unknown fields are deliberately dropped from the normalized view. That is
+    the point: a translated adapter should not silently forward a parameter it
+    does not understand — §7 says unsupported features must never silently
+    disappear, and inventing a translation for an unrecognised field is how they
+    do. The client's own bytes are kept by the caller, which is what the
+    transparent path forwards.
+
+    `envelope` is accepted and unused. Kept in the signature because every call
+    site passes it and the argument documents *which* bytes belong to this
+    request — dropping it would leave nothing at the boundary pairing the two.
     """
+    del envelope
     return NormalizedRequest(
         messages=payload.get("messages") or [],
         system=_extract_system(payload.get("messages") or []),
@@ -93,7 +100,6 @@ def normalize(envelope: bytes, payload: dict[str, Any]) -> NormalizedRequest:
         reasoning_effort=payload.get("reasoning_effort"),
         stream=bool(payload.get("stream")),
         metadata=payload.get("metadata") or {},
-        original_envelope=envelope,
         requested_model=payload.get("model") or "",
     )
 
