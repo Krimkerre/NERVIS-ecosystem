@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 987 tests, no network, no live service
+.venv/bin/pytest                      # part of 992 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 98 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 987 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 992 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3978,17 +3978,95 @@ POST /v1/chat/completions {"model": "ravis/auto"}
      considered: []
 ```
 
-Meanwhile `GET /v1/models` on the same RAVIS reported **13 models**, because the
-`ModelRegistry` refreshes lazily on read and the router's candidate set does
-not. So the gateway simultaneously listed models a client could ask for and
-refused to route to any of them, for up to five minutes after the upstream came
-back.
+**The first explanation written here was wrong and is corrected rather than
+edited away.** It said `GET /v1/models` reported 13 models at the same time,
+"because the `ModelRegistry` refreshes lazily on read and the router's candidate
+set does not", and concluded the gateway was contradicting itself. Neither half
+held up. `is_due_for_refresh` is defined in `ravis/src/ravis/registry.py` and
+**called from nowhere**, so there is no lazy refresh; and the 13 were the 13
+*pools*, which `as_openai_list` lists ahead of the upstream's own models. The
+count was `13 pools + 0 models`. The two surfaces agreed exactly.
 
-Restarting RAVIS fixed it, which is the shape of the problem: **the only
-recovery is a restart or a five-minute wait.** This is the same class as the
-status bar being one paint behind — a true reading held far past the point where
-it is still true — and it belongs with M14's lifecycle work. Not fixed here;
-recorded so it is not rediscovered.
+The actual bug is simpler and no less real: **the catalogue refreshed on a
+300-second timer and never sooner, whatever happened last time.** An upstream
+that was down when RAVIS started left it serving an empty candidate set for up
+to five minutes after that upstream came back, and the only recovery was a
+restart or the wait.
+
+Same class as a status bar held one paint behind — a true reading kept far past
+the point where it is still true. **Fixed below.**
+
+## Fixing the catalogue, and declining to fix the other thing
+
+### The interval now shortens, and only for the case that recovers
+
+`refresh_periodically` slept `models_cache_ttl_seconds` unconditionally. It now
+sleeps fifteen seconds instead **while the upstream is unreachable** — and the
+distinction it draws is the whole fix:
+
+| last attempt | interval | why |
+|---|---|---|
+| did not answer | 15 s | may come back at any moment; a refused connection on loopback costs a millisecond |
+| answered 429 or 403 | 300 s | present, and telling RAVIS something. Asking more often is the one response guaranteed to make it worse |
+| answered with an empty catalogue | 300 s | LM Studio with its server up and nothing installed is legitimately empty. Retrying would not install anything |
+
+The middle row is not hypothetical caution. NERVIS produced exactly that outage
+on itself the same day by shortening its probe interval until it exceeded
+RAVIS's sixty-per-minute anonymous limit, then reading the 429s as ill health
+and keeping the short interval on.
+
+Measured end to end — RAVIS started against a stopped LM Studio, then
+`lms server start`:
+
+```text
+RAVIS started with LM Studio down:  0 upstream models, 13 pools
+catalogue recovered 8s after LM Studio came back — 20 models
+
+POST /v1/chat/completions {"model": "ravis/auto"}
+  routed to : deepseek-r1-distill-qwen-1.5b
+  finish    : stop
+```
+
+Eight seconds against up to three hundred, and the route that had been refusing
+now answers.
+
+**`is_due_for_refresh` was dead code** — defined in
+`ravis/src/ravis/registry.py`, called from nowhere, and its existence is what
+made the catalogue *look* self-healing when the only thing refreshing it was the
+timer. It is what the loop reads now. Third one of these found in two days,
+after `capable()` in the dashboard and `UnsupportedProtocolVersionError`.
+
+### The empty reply was not a defect
+
+The earlier completion returned `content: ""` at `max_tokens: 16`, because
+`deepseek-r1-distill-qwen-1.5b` is a reasoning distill and spent 14 of the 16 on
+reasoning tokens. Re-run at 120 tokens:
+
+```text
+finish  : stop
+content : ' you\'re saying "OK." How can I assist you today? 😊'
+```
+
+`finish_reason` was correct both times and RAVIS proxied faithfully — §6's Path
+A is transparent, and rewriting a response to make it look better is the one
+thing it must not do. **Nothing here is broken.**
+
+What is real is narrower: `ravis/auto` breaks a tie on *smallest build is
+cheapest to run*, and on this machine that selects a reasoning distill, which is
+a poor default for short completions. RAVIS cannot know that from advertised
+metadata — LM Studio's `/api/v0/models` publishes `type`, `arch`, `quantization`
+and `max_context_length`, and nothing about reasoning:
+
+```json
+{"id": "deepseek-r1-distill-qwen-1.5b", "type": "llm", "arch": "qwen2",
+ "compatibility_type": "gguf", "quantization": "Q8_0", "max_context_length": 131072}
+```
+
+So the options were **measure it** or **guess from the name**, and this codebase
+refuses the second. Scheduled as SIRVIS **M22b** (reasoning-token overhead as
+evidence, measured per build like every other figure) with RAVIS **M16**'s
+tiebreak as its consumer. Not built here, because building it would have meant
+inventing the evidence.
 
 ## Starting the thing
 

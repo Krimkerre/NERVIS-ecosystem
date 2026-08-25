@@ -62,6 +62,10 @@ class ModelRegistry:
         self._upstream = upstream
         self._client = client
         self._ttl_seconds = ttl_seconds
+        # Whether the last attempt failed to reach the upstream at all, as
+        # opposed to reaching it and being refused. Drives the recovery
+        # interval in `refresh_periodically`.
+        self._unreachable = False
         self._snapshot = ModelSnapshot()
         # Refreshed alongside the catalogue rather than queried per request:
         # §9.8 budgets routing at P50 under 5 ms and requires it to read cached
@@ -92,8 +96,31 @@ class ModelRegistry:
         return [entry["id"] for entry in self._snapshot.models if entry.get("id")]
 
     def is_due_for_refresh(self, now: float | None = None) -> bool:
+        """Whether the snapshot has aged past its TTL.
+
+        **Called from nowhere until now**, which is worth stating: it was
+        written as a lazy-refresh hook, nothing ever used it, and its existence
+        made the catalogue look self-healing when the only thing refreshing it
+        was a 300-second timer. `refresh_periodically` reads it now.
+        """
         moment = time.monotonic() if now is None else now
         return moment - self._snapshot.refreshed_at >= self._ttl_seconds
+
+    @property
+    def needs_recovery(self) -> bool:
+        """Whether the last attempt failed to reach the upstream at all.
+
+        The distinction that matters is **did not answer** versus **answered and
+        said no**. An upstream that refused the connection may come back at any
+        moment and is worth asking again soon; one that answered 429 or 403 is
+        present and telling RAVIS something, and asking it more often is the one
+        response guaranteed to make it worse.
+
+        An empty catalogue from a *successful* fetch is not recovery either. LM
+        Studio with its server up and nothing installed is legitimately empty,
+        and retrying every fifteen seconds would not install anything.
+        """
+        return self._unreachable
 
     async def refresh(self) -> None:
         """Fetch the catalogue and replace the snapshot, or leave it alone.
@@ -108,10 +135,23 @@ class ModelRegistry:
             return
         try:
             models = await self._fetch()
+        except httpx.HTTPStatusError as failure:
+            # It answered, and said no. A 429 or a 403 is the upstream present
+            # and telling RAVIS something; retrying sooner is the one response
+            # guaranteed to make it worse.
+            logger.warning("model refresh refused", extra={"detail": str(failure)})
+            self._snapshot.last_error = str(failure)
+            self._unreachable = False
+            return
         except (httpx.HTTPError, ValueError) as failure:
+            # It did not answer, or answered with something unparseable. This is
+            # the case that recovers on its own, and the case worth asking about
+            # again soon.
             logger.warning("model refresh failed", extra={"detail": str(failure)})
             self._snapshot.last_error = str(failure)
+            self._unreachable = True
             return
+        self._unreachable = False
         self._snapshot = ModelSnapshot(models=models, refreshed_at=time.monotonic())
         # Best-effort and never fatal: an upstream that is not LM Studio simply
         # 404s here, leaving residency UNKNOWN and routing exactly as it was.
@@ -157,7 +197,17 @@ class ModelRegistry:
         return {"object": "list", "data": pools + upstream}
 
 
-async def refresh_periodically(registry: ModelRegistry, interval_seconds: float) -> None:
+# How soon to try again when the upstream did not answer at all. Short, because
+# the thing being waited for is a local runtime being started by hand — and
+# cheap, because a refused connection on loopback costs about a millisecond.
+RECOVERY_INTERVAL_SECONDS = 15.0
+
+
+async def refresh_periodically(
+    registry: ModelRegistry,
+    interval_seconds: float,
+    recovery_seconds: float = RECOVERY_INTERVAL_SECONDS,
+) -> None:
     """Background task: keep the snapshot warm for as long as the process runs.
 
     Sleeps *before* the first refresh, not after. Startup already warms the
@@ -165,9 +215,20 @@ async def refresh_periodically(registry: ModelRegistry, interval_seconds: float)
     which is harmless against a local runtime and exactly the wrong first
     impression to make on a rate-limited provider.
 
+    **The interval shortens while the upstream is unreachable**, and that is a
+    fix rather than a refinement. With a flat 300-second TTL, a RAVIS that
+    started while LM Studio was down served an empty catalogue for up to five
+    minutes after LM Studio came back — every route refused with *"no models are
+    available from the configured upstream"* and `considered: []` — and the only
+    recovery was a restart. Observed 2026-08-25.
+
+    Only for *unreachable*, never for refused. An upstream answering 429 is
+    present and rate limiting, and the shorter interval would be NERVIS's
+    self-inflicted outage again in a different service.
+
     Cancellation is the normal way this ends, at shutdown, so it is allowed to
     propagate rather than being caught and logged as a failure.
     """
     while True:
-        await asyncio.sleep(interval_seconds)
+        await asyncio.sleep(recovery_seconds if registry.needs_recovery else interval_seconds)
         await registry.refresh()

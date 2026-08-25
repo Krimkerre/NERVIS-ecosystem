@@ -8,6 +8,8 @@ about what the endpoint refuses to do — authenticate, block, or empty itself.
 
 from __future__ import annotations
 
+import contextlib
+
 import httpx
 from fastapi.testclient import TestClient
 from tests.conftest_upstream import RecordingUpstream
@@ -129,3 +131,132 @@ def test_the_endpoint_answers_without_a_credential() -> None:
 
     assert response.status_code == 200
     assert response.json()["object"] == "list"
+
+
+# ── Recovery when an upstream comes back ────────────────────────────────────
+
+
+def _dead_registry(failure: Exception) -> ModelRegistry:
+    """A registry whose upstream never answers."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        raise failure
+
+    return ModelRegistry(
+        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ttl_seconds=300.0,
+    )
+
+
+def _refusing_registry(status: int) -> ModelRegistry:
+    """A registry whose upstream answers, and says no."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(status, json={"error": "no"})
+
+    return ModelRegistry(
+        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ttl_seconds=300.0,
+    )
+
+
+async def test_an_unreachable_upstream_asks_for_a_shorter_interval() -> None:
+    """The bug this exists for: a five-minute empty catalogue after recovery.
+
+    A RAVIS that started while LM Studio was down served an empty candidate set
+    for up to `models_cache_ttl_seconds` after LM Studio came back — every route
+    refused with "no models are available from the configured upstream" and
+    `considered: []`. The only recovery was a restart.
+    """
+    registry = _dead_registry(httpx.ConnectError("refused"))
+
+    await registry.refresh()
+
+    assert registry.needs_recovery is True
+
+
+async def test_a_refused_upstream_does_not(status: int = 429) -> None:
+    """It answered. It is present and telling RAVIS something.
+
+    Asking a rate limiter more often is the one response guaranteed to make it
+    worse — NERVIS proved that on itself the same day, by shortening its probe
+    interval until it exceeded this service's anonymous limit.
+    """
+    registry = _refusing_registry(status)
+
+    await registry.refresh()
+
+    assert registry.needs_recovery is False
+
+
+async def test_a_successful_but_empty_catalogue_is_not_recovery() -> None:
+    """LM Studio with its server up and nothing installed is legitimately empty.
+
+    Retrying every fifteen seconds would not install anything, and treating
+    "this upstream has no models" as a fault would make an ordinary state look
+    like an outage.
+    """
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json={"data": []})
+
+    registry = ModelRegistry(
+        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ttl_seconds=300.0,
+    )
+
+    await registry.refresh()
+
+    assert registry.snapshot.models == []
+    assert registry.needs_recovery is False
+
+
+async def test_recovery_clears_once_the_upstream_answers() -> None:
+    """Otherwise the short interval would be permanent, which is the loop."""
+    fake = RecordingUpstream()
+    registry = _registry(fake)
+    registry._unreachable = True  # noqa: SLF001 - simulating a prior failed pass
+
+    await registry.refresh()
+
+    assert registry.needs_recovery is False
+    assert len(registry.snapshot.models) == 2
+
+
+async def test_the_loop_sleeps_the_recovery_interval_while_unreachable() -> None:
+    """The interval is chosen per pass rather than fixed when the task starts.
+
+    A loop that read the interval once would keep the long one for the life of
+    the process, which is the bug with extra steps.
+    """
+    import asyncio
+
+    from ravis.registry import refresh_periodically
+
+    registry = _dead_registry(httpx.ConnectError("refused"))
+    slept: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def record(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) >= 3:
+            raise asyncio.CancelledError
+        await real_sleep(0)
+
+    asyncio.sleep = record  # type: ignore[assignment]
+    try:
+        with contextlib.suppress(asyncio.CancelledError):
+            await refresh_periodically(registry, interval_seconds=300.0, recovery_seconds=15.0)
+    finally:
+        asyncio.sleep = real_sleep  # type: ignore[assignment]
+
+    # First sleep is the long one — nothing has failed yet. Every one after a
+    # failed pass is the short one.
+    assert slept[0] == 300.0
+    assert slept[1:] == [15.0, 15.0]
