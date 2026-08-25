@@ -1,13 +1,13 @@
 """NERVIS's own API surface.
 
-§14 lists eight paths. M0 ships the two that can be answered without any peer
-and without any data NERVIS has not yet collected:
+§14 lists eight paths. Three exist:
 
 - `/api/v1/health` — the convenience alias §4.1 permits beside the canonical
   `/ecosystem/health`, carrying the same data.
 - `/api/v1/settings` — the key/value store M0's migration creates.
+- `/api/v1/system` — M1's live telemetry for the machine NERVIS runs on.
 
-The other six arrive with the milestones that own them. A stub returning
+The other five arrive with the milestones that own them. A stub returning
 plausible data would be §4.1's exact prohibition one layer up, and the two
 sibling services both shipped one before learning that.
 """
@@ -21,6 +21,7 @@ from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
 
 from nervis.errors import InvalidConfigurationError
+from nervis.telemetry import sample_system
 
 router = APIRouter(prefix="/api/v1", tags=["nervis"])
 
@@ -107,3 +108,27 @@ async def _json_body(request: Request) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise InvalidConfigurationError("body must be a JSON object")
     return body
+
+
+@router.get("/system")
+async def read_system(request: Request) -> dict[str, Any]:
+    """This machine's current load (§6, M1).
+
+    Sampled when asked rather than by a background timer. M1's exit says
+    sampling must not noticeably load the machine, and having no sampler is the
+    only way to guarantee that — it also makes the number honest, since a value
+    from a timer is whatever the timer last caught rather than the state at the
+    moment somebody looked.
+
+    **`redact=true` withholds the identifying fields** rather than dropping the
+    keys, so a consumer can tell "withheld" from "this platform did not answer".
+    §5.1 requires a display to be able to label sensitivity and redact; the
+    query parameter is what makes that possible without a second endpoint.
+
+    Not SIRVIS's `/api/v1/system`, which answers a different question: that one
+    is an immutable snapshot of *what this machine is*, attached to benchmark
+    results as provenance. This one is what it is doing, now, and the two may
+    describe different machines once NERVIS watches a remote peer.
+    """
+    redact = request.query_params.get("redact", "").lower() in {"1", "true", "yes"}
+    return sample_system().as_dict(redact=redact)

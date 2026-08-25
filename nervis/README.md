@@ -13,15 +13,30 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0)
+## The service (M0, M1)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
 `/ecosystem/{health,identity,capabilities,version,events}` surface.
 
+**M1** adds `/api/v1/system` — this machine's live load. Not SIRVIS's endpoint
+of the same name, which is an immutable snapshot of *what this machine is*,
+pinned to every benchmark result as provenance. This one is what it is *doing*,
+sampled at the moment of the request, and once NERVIS watches a remote peer the
+two describe different machines.
+
+Sampled on demand rather than by a timer, because M1's exit says sampling must
+not noticeably load the machine and no sampler is the only way to guarantee it.
+Load average rather than CPU percent, because a percentage needs two readings
+separated by real time and `cpu_percent(interval=…)` would block a request
+handler for it. Processes ordered by memory rather than CPU, and named without
+their command line — §15 forbids publishing a raw workspace path, and an
+argument list is where one appears.
+
 Nine of the ten capabilities §3.1 names are `unavailable`, each naming its
-milestone. `nervis.dashboard@1` is `degraded`: the shell is served, and its data
-still comes from RAVIS and SIRVIS directly. **Nothing advertises an operation it
+milestone. `nervis.dashboard@1` is `degraded`: the shell and this machine's
+telemetry are served, and the peer data on it still comes from RAVIS and SIRVIS
+directly. **Nothing advertises an operation it
 cannot perform** — §4.1 forbids it, and both sibling services spent milestones
 learning why.
 
@@ -29,8 +44,8 @@ learning why.
 all absent, deliberately: a control plane that reported itself broken when the
 things it watches are broken could not be used to find out why.
 
-`/api/v1` has `health` and `settings`. §14's other six paths arrive with the
-milestones that own them, because a stub returning plausible data is §4.1's
+`/api/v1` has `health`, `settings` and `system`. §14's other five paths arrive
+with the milestones that own them, because a stub returning plausible data is §4.1's
 prohibition one layer up.
 
 Two deviations from §3, stated rather than left to be discovered. **Not

@@ -343,3 +343,110 @@ def test_a_credential_alone_is_still_refused() -> None:
     )
 
     assert not report.is_startable
+
+
+# ── M1: this machine's live telemetry (§6) ───────────────────────────────────
+
+
+def test_the_system_sample_describes_load_not_hardware(settings: Settings) -> None:
+    """The distinction that keeps this from duplicating SIRVIS.
+
+    SIRVIS's `/api/v1/system` is an immutable snapshot of *what this machine
+    is*, attached to benchmark results as provenance. This one is *what it is
+    doing*, sampled now — and once NERVIS watches a remote peer the two describe
+    different machines.
+    """
+    body = _client(settings).get("/api/v1/system").json()
+
+    assert body["sampled_at"] > 0
+    assert body["memory_total_bytes"] > body["memory_available_bytes"] > 0
+    assert body["disk_free_bytes"] > 0
+    assert body["cpu_count"] >= 1
+
+
+def test_two_samples_are_two_readings(settings: Settings) -> None:
+    """Sampled on demand, so asking twice asks twice.
+
+    A cached sample would make the dashboard show whatever a timer last caught
+    rather than the state at the moment somebody looked.
+    """
+    client = _client(settings)
+
+    first = client.get("/api/v1/system").json()
+    second = client.get("/api/v1/system").json()
+
+    assert second["sampled_at"] >= first["sampled_at"]
+
+
+def test_the_identifying_fields_are_labelled_and_redactable(settings: Settings) -> None:
+    """§5.1: a display must be able to label sensitivity and redact.
+
+    Redaction blanks the field rather than dropping the key, so "withheld" stays
+    distinguishable from "this platform did not answer" — which is precisely
+    the distinction §5.1 asks a display to be able to make.
+    """
+    client = _client(settings)
+
+    plain = client.get("/api/v1/system").json()
+    hidden = client.get("/api/v1/system?redact=true").json()
+
+    assert plain["sensitive_fields"] == ["hostname"]
+    assert "hostname" in hidden
+    assert hidden["hostname"] is None
+
+
+def test_a_process_row_carries_no_command_line(settings: Settings) -> None:
+    """§15 forbids publishing a raw workspace path.
+
+    The argument list of an editor or a benchmark runner is exactly where one
+    shows up, so the row carries the executable name and never the command line.
+    """
+    body = _client(settings).get("/api/v1/system").json()
+
+    assert body["processes"], "no process was readable, which makes this test vacuous"
+    for process in body["processes"]:
+        assert set(process) == {"pid", "command", "cpu_percent", "memory_bytes"}
+        assert "/" not in process["command"]
+
+
+def test_processes_are_ordered_by_the_resource_that_runs_out(settings: Settings) -> None:
+    """Memory, not CPU.
+
+    This ecosystem's failure mode is a multi-gigabyte model resident when
+    something else needs the room; CPU on a machine running an inference server
+    is either idle or pinned.
+    """
+    body = _client(settings).get("/api/v1/system").json()
+    sizes = [process["memory_bytes"] for process in body["processes"]]
+
+    assert sizes == sorted(sizes, reverse=True)
+
+
+def test_an_unreadable_reading_is_absent_rather_than_zero(settings: Settings) -> None:
+    """A zero for "we could not read swap" is a number somebody will believe.
+
+    Checked against thermal state, which only macOS reports: on every other
+    platform the field must be `None` rather than a comfortable-looking
+    `nominal`. SIRVIS's first probe collapsed the two and reported a happy
+    machine while it lost 48% of its throughput to heat.
+    """
+    import platform
+
+    body = _client(settings).get("/api/v1/system").json()
+
+    if platform.system() != "Darwin":
+        assert body["thermal_state"] is None
+    else:
+        assert body["thermal_state"] in {None, "nominal", "fair", "serious", "critical"}
+
+
+def test_the_os_description_is_specific_enough_for_a_bug_report(settings: Settings) -> None:
+    """"macOS" alone is not an OS description.
+
+    The column reads `OS` and the value underneath has to distinguish the three
+    platforms this runs on rather than assuming one of them.
+    """
+    body = _client(settings).get("/api/v1/system").json()
+
+    assert body["os_description"].strip()
+    assert body["os_description"] != "Darwin"

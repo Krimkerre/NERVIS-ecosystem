@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 918 tests, no network, no live service
+.venv/bin/pytest                      # part of 925 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 16 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 348 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 29 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 36 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 918 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 925 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -3569,6 +3569,93 @@ the things it watches are broken could not be used to find out why.
 the comment above `SERVICES` claimed controls were bound to capabilities, and
 they are bound to whether their service answered. Corrected in place rather than
 quietly, and binding each control is what M2's registry is for.
+
+## NERVIS M1 — what this machine is doing, as distinct from what it is
+
+SIRVIS already publishes `/api/v1/system`. NERVIS M1 adds one at the same path
+and they answer different questions, which is the entire design rather than an
+awkward overlap:
+
+| | SIRVIS | NERVIS |
+|---|---|---|
+| question | *what is this machine* | *what is it doing right now* |
+| lifetime | immutable, recorded once | sampled at the moment of the request |
+| purpose | provenance on every benchmark result | a dashboard reading |
+| machine | the one that ran the benchmark | the one NERVIS runs on |
+
+Those diverge the moment NERVIS watches a remote peer, which is why neither
+replaces the other and why the System screen now shows both.
+
+### psutil, and the ladder that led there
+
+§3 names psutil and M1 is where it earns its place. The alternative was hand
+parsing `vm_stat`, `sysctl`, `/proc/meminfo` and Windows' WMI — SIRVIS took that
+route for *static* detection and it is **398 lines that still needed a portable
+fallback**, with no CPU utilisation and no process list. NERVIS has to run on
+macOS, Linux and Windows, so the hand-rolled route is three more copies of that
+parsing.
+
+`types-psutil` is a dev dependency rather than a mypy override. SIRVIS waives
+the check for PyYAML because its stubs return `Any` for the one call in use, so
+nothing is lost; psutil's are genuinely typed, and `virtual_memory`,
+`swap_memory` and `process_iter` are exactly the fields that get renamed between
+major versions.
+
+### Three properties that are decisions rather than mechanics
+
+**No background sampler.** M1's exit says sampling must not noticeably load the
+machine, and having no sampler at all is the only way to guarantee that. It also
+makes the number honest: a value from a timer is whatever the timer last caught,
+not the state at the moment somebody looked.
+
+**Load average, not CPU percent.** A percentage needs two readings separated by
+real time, and `psutil.cpu_percent(interval=…)` blocks for that interval — inside
+a request handler, on every poll. The kernel already maintains a load average.
+
+**Processes ordered by memory, and named without their command line.** Memory
+because this ecosystem's failure mode is a multi-gigabyte model resident when
+something else needs the room; CPU on a machine running an inference server is
+either idle or pinned. And §15 forbids publishing a raw workspace path — the
+argument list of an editor or a benchmark runner is exactly where one appears.
+
+### The thermal probe is a second copy, deliberately
+
+`psutil.sensors_temperatures()` does not exist on macOS, so the first version of
+this field returned `None` on the only platform that can answer. It now reads
+`NSProcessInfo.thermalState` through `osascript`, which is the same fifteen lines
+`sirvis/src/sirvis/telemetry/thermal.py` already has.
+
+Not extracted. `ecosystem_protocol` is the wire contract, and putting
+`osascript` in it would make the one package every service depends on
+platform-specific. Two copies is a cost; a protocol package that knows about
+macOS is a worse one. **A third copy is where that trade changes.**
+
+`None` is not collapsed into `nominal`, for the reason SIRVIS records: its first
+probe did exactly that and reported a comfortable machine while it lost 48% of
+its throughput to heat. A run *this session* was contaminated by thermal state
+going unnoticed.
+
+### Three things the wiring found
+
+**A reduce seeded with `null` and not guarded on it.** SIRVIS's Dashboard —
+the default screen — did `.reduce((a,b)=>b.measured.gen_tok_s>a.measured.gen_tok_s?b:a, null)`.
+Unseeded it throws on an empty array, which is why the seed was added when
+`/api/v1/models` carried no measurements. But `null` as the seed makes the first
+callback read `a.measured` on null, so it threw for the opposite reason the
+moment a build did carry one. `render()` has no catch, so either failure blanks
+the whole app. `!a||` was the missing half.
+
+**Two different totals for one machine.** The dashboard's SIRVIS adapter divided
+by `1e9` and rendered a 24 GB Mac as "25.8 GB" — decimal-correct, and something
+nobody including Apple calls that machine. It became visible the moment NERVIS's
+own sample landed beside it on the same screen. Now GiB, which is what the
+runtime-set adapter three hundred lines below already used.
+
+**The Settings card said NERVIS had no service.** It read *"M0 — the package,
+FastAPI, SQLite and migrations — has never been built"*, which was true for as
+long as the dashboard was served statically. It now reports the count of
+settings stored in the NERVIS database, `null` rather than `0` when NERVIS does
+not answer — nought settings and no service are different facts.
 
 ## Starting the thing
 

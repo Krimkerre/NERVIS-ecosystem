@@ -44,7 +44,7 @@ DECLARED: dict[str, Capability] = {
     "nervis.dashboard@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="the shell is served at M0; NERVIS supplies its data from M1 and M2",
+        reason="the shell and this machine's telemetry are served; peer data lands at M2",
     ),
     "nervis.event_hub@1": Capability(
         version="1.0.0",

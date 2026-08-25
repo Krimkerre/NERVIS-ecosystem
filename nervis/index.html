@@ -1204,7 +1204,12 @@ const API={
       version:x.version||`${x.model_count} builds · ${x.state}`}));
    }catch(e){runtimes=[]}
    return live('sirvis','/api/v1/system',this._machineMock,p=>{
-   const gb=b=>b==null?null:+(b/1e9).toFixed(1);
+   /* GiB, not decimal GB. This divided by 1e9 and rendered a 24 GB Mac as
+      "25.8 GB" — technically correct and something nobody, including Apple,
+      calls that machine. It also put two different totals for one machine on
+      the System screen the moment NERVIS's own live sample landed beside it,
+      because the runtime-set adapter below already used 1073741824. */
+   const gb=b=>b==null?null:+(b/1073741824).toFixed(1);
    return{
     machine_id:p.machine_id,
     chip:p.chip,
@@ -1833,6 +1838,23 @@ const API={
   /* The registry is NERVIS's own state, assembled from each peer's
      GET /ecosystem/{identity,version,capabilities} plus its own reachability.
      `state` is observer-side and must never be inferred from a TCP connect. */
+  /* GET {nervis}/api/v1/system — this machine's live load (§6, M1).
+     Same-origin, and a different question from SIRVIS's `/api/v1/system`: that
+     one is an immutable snapshot of *what this machine is*, pinned to every
+     benchmark result as provenance. This one is what it is *doing*, sampled at
+     the moment of the request. The two may describe different machines once
+     NERVIS watches a remote peer, which is why neither replaces the other. */
+  async system(){
+   return live('nervis','/api/v1/system?redact=false',()=>this._systemMock(),d=>d);
+  },
+
+  /* The shape the card reads when NERVIS is not answering — which, since the
+     dashboard is served by NERVIS, mostly means opening this file from disk. */
+  async _systemMock(){return{sampled_at:0,hostname:null,os_description:'unknown',
+   cpu_count:null,load_average:null,memory_total_bytes:null,memory_available_bytes:null,
+   swap_total_bytes:null,swap_used_bytes:null,disk_total_bytes:null,disk_free_bytes:null,
+   thermal_state:null,processes:[],sensitive_fields:['hostname']}},
+
   async services(){
    /* The registry, read from the two services that publish a MEP surface.
       §1's `/ecosystem/identity` and `/ecosystem/capabilities` are exactly this
@@ -2491,14 +2513,26 @@ async function settingsView(){
     the endpoints this dashboard talks to *are* its configuration, and their
     reachability is the only setting whose effect can be observed. */
  const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
+ /* NERVIS's own stored settings, since M0 gave it a database to store them in.
+    `null` rather than 0 when it does not answer: nought settings and no service
+    are different facts and the card says which. */
+ const STORED_SETTINGS=await (async()=>{
+  try{
+   const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(!r.ok)return null;
+   return Object.keys((await r.json()).items||{}).length;
+  }catch(e){return null}
+ })();
  const liveCard=`<div class="card full live"><h3>What NERVIS is configured with <span class="chip">observed</span></h3>${cell(`
    ${['ravis','sirvis','clarvis'].map((k,n)=>{
      const d=n<2?peers[n]:null;
      return `<div class="trace-step"><b>${k.toUpperCase()}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
        n<2?(d?'answering':'not answering'):'no MEP surface — the optional bridge'}</span></div>`;}).join('')}
+   <div class="trace-step"><b>NERVIS</b><span class="mono" style="opacity:.85">${escapeHtml(location.origin)} · serving this page</span></div>
+   <div class="trace-step"><b>stored settings</b><span>${STORED_SETTINGS==null?'<span class="chip warn">NERVIS not answering</span>':STORED_SETTINGS+' in the NERVIS database'}</span></div>
    <div class="trace-step"><b>conversations</b><span>${CHAT_STORE.read().length} stored in this browser</span></div>
    <div class="trace-step"><b>runtime token</b><span>${RUNTIME_TOKEN?'<span class="chip">held for this tab</span>':'<span class="chip warn">none</span>'}</span></div>
-   <small class="mono dim"><b>NERVIS has no service to configure.</b> M0 — the package, FastAPI, SQLite and migrations — has never been built, so there is no <span class="mono">nervis serve</span>, no database and no settings to read; this dashboard is a single HTML file served statically. The addresses above are its whole configuration, and each is shown with whether it actually answered. Everything below describes settings a NERVIS service would own and is prototype content.</small>`,'nervis')}</div>`;
+   <small class="mono dim"><b>NERVIS M0 shipped, so there is a service to configure.</b> <span class="mono">nervis serve</span> serves this page, holds a migrated SQLite database and answers <span class="mono">/api/v1/settings</span> — the count above is read from it. This card said the opposite for as long as the dashboard was a statically served file, which it no longer is. <b>Conversations are still in this browser</b>, not the database: moving them is M20. Everything below describes settings the service does not yet expose and is prototype content until the screens that own them land.</small>`,'nervis')}</div>`;
  $('#content').innerHTML=liveCard+`<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
    ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="healthTest('${escapeHtml(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
@@ -2885,13 +2919,22 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  const loaded=builds.filter(m=>m.state!=='stopped');
  const resident=loaded.reduce((n,m)=>n+(m.resident_gb||0),0);
  const measured=builds.filter(m=>m.measured);
- /* Seeded, because live `/api/v1/models` carries no measurements at all —
-    throughput lives on evidence records, not on a build — so this array is
-    empty and an unseeded reduce throws. It threw on the *default* SIRVIS
-    screen, which is this one, and `render()` has no catch: the whole app
-    would have failed to paint the moment the accessor went live. */
+ /* Seeded with null AND guarded on it, which are two separate requirements
+    this got half right twice.
+
+    Unseeded, an empty array throws — and live `/api/v1/models` carried no
+    measurements at all for a while, because throughput lives on evidence
+    records rather than on a build. So a seed was added.
+
+    But `null` as the seed makes the *first* callback call read `a.measured` on
+    null, so it then threw for the opposite reason the moment any build did
+    carry a measurement. Both failures land on the **default** SIRVIS screen,
+    and `render()` has no catch, so either one blanks the whole app.
+
+    `!a||` is the half that was missing. Empty array returns null; non-empty
+    starts from its first element. */
  const fastest=measured.filter(m=>m.measured&&m.measured.gen_tok_s)
-   .reduce((a,b)=>b.measured.gen_tok_s>a.measured.gen_tok_s?b:a,null);
+   .reduce((a,b)=>!a||b.measured.gen_tok_s>a.measured.gen_tok_s?b:a,null);
  const K=n=>n==null?null:n>=1024?Math.round(n/1024)+'K':n;
  const ctx=c=>c.context_length?K(c.context_length)+' loaded'
    :c.max_context_length?K(c.max_context_length)+' max':'—';
@@ -3296,16 +3339,32 @@ async function sirvisDownloads(){
    why every cell on it is cell()'d to 'sirvis'. NERVIS hosts the page; it does not
    own the figure, and with SIRVIS absent the page says so rather than describing
    the host it happens to be running on. */
+/* Bytes as GiB, or null when the platform did not answer. Never 0: a zero for
+   "we could not read swap" is a number somebody will believe. */
+const gib=b=>b==null?null:+(b/1073741824).toFixed(1);
+const orDash=v=>v==null?'<span class="mono dim">—</span>':v;
+
 async function systemView(){
- heading('System','The machine every benchmark result is pinned to — as SIRVIS reports it.');
- const m=await API.sirvis.machine();
+ heading('System','What this machine is — as SIRVIS pinned it to every result — and what it is doing right now.');
+ const [m,now]=await Promise.all([API.sirvis.machine(),API.nervis.system()]);
  const usedPct=Math.round((m.memory_gb-m.available_gb)/m.memory_gb*100);
  $('#content').innerHTML=kpis([
    ['Memory',m.available_gb+' GB',`free of ${m.memory_gb} · ${m.swap_gb} GB swap`,'sirvis'],
    ['Thermal',m.thermal_state,`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
- +`<div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
+ +`<div class="card full live"><h3>Live load <span class="chip">sampled now</span></h3>${cell(`
+   <div class="table-row head five"><span>OS</span><span>Load average</span><span>Memory in use</span><span>Swap</span><span>Thermal</span></div>
+   <div class="table-row five"><span>${now.os_description}<small class="mono" style="opacity:.5;display:block">${orDash(now.cpu_count)} CPU</small></span>
+    <span class="mono">${now.load_average?now.load_average.map(x=>x.toFixed(2)).join(' · '):'<span class="dim">not reported</span>'}</span>
+    <span class="mono">${gib(now.memory_total_bytes)==null?'—':`${(gib(now.memory_total_bytes)-gib(now.memory_available_bytes)).toFixed(1)} of ${gib(now.memory_total_bytes)} GB`}</span>
+    <span class="mono">${gib(now.swap_used_bytes)==null?'—':`${gib(now.swap_used_bytes)} of ${gib(now.swap_total_bytes)} GB`}</span>
+    <span class="chip${now.thermal_state&&now.thermal_state!=='nominal'?' warn':''}">${now.thermal_state||'not reported'}</span></div>
+   <div class="table-row head" style="margin-top:14px"><span>Heaviest processes</span><span style="grid-column:2/-1">Resident</span></div>
+   ${now.processes.length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
+    :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
+   <small class="mono dim">read from <b>NERVIS /api/v1/system</b>, sampled at the moment of the request rather than by a background timer — a value from a timer is whatever the timer last caught, not the state when you looked. Ordered by <b>memory</b> rather than CPU: this ecosystem's failure mode is a multi-gigabyte model resident when something else needs the room. A command name, never a command line — an argument list is where a workspace path leaks. <b>Thermal is macOS-only</b> and reads <i>not reported</i> elsewhere rather than a comfortable-looking <i>nominal</i>: SIRVIS's first probe collapsed those two and reported a happy machine while it lost 48% of its throughput to heat.</small>`,'nervis')}</div>
+  <div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
    <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
    <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
