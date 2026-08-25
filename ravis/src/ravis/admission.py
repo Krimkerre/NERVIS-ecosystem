@@ -178,12 +178,19 @@ def check_origin(headers: dict[str, str], method: str, settings: Settings) -> No
 # browser origin is permitted anything until an operator names one. This changes
 # what an already-trusted origin may do, not who is trusted.
 #
-# **Why PUT rather than POST**, beyond idempotency: POST with a simple
-# content-type is CORS-safelisted and is sent *without* a preflight, so the
-# allow-list never gets consulted. PUT always preflights. Choosing it means a
+# **Why PUT rather than POST** for credentials, beyond idempotency: POST with a
+# simple content-type is CORS-safelisted and is sent *without* a preflight, so
+# the allow-list never gets consulted. PUT always preflights. Choosing it means a
 # page that was never allow-listed cannot slip a credential write through as a
 # simple request — the browser asks first, and RAVIS says no.
-CORS_METHODS = "GET, HEAD, OPTIONS, PUT, DELETE"
+#
+# **POST is here for `/v1/chat/completions`**, which is the service's whole
+# purpose and the one thing a browser client exists to call. It is not the
+# safelisted kind: a JSON body always preflights, so this permits an
+# allow-listed origin and nobody else. Without it the dashboard's chat screen
+# fails at the preflight and reports RAVIS as unreachable, which is the wrong
+# diagnosis of a CORS list.
+CORS_METHODS = "GET, HEAD, OPTIONS, POST, PUT, DELETE"
 
 # Request headers a browser may send cross-origin. `authorization` is here
 # because an allow-listed dashboard on a non-loopback bind needs the §4.4 client

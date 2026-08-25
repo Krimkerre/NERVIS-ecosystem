@@ -1429,6 +1429,20 @@ const API={
      capability probes over model names: they are the strongest coding builds
      installed here and they still cannot serve a role that needs tools. */
   async routeDecision(id){
+   /* A lookup in the live list, because there is no single-decision endpoint —
+      `/api/v1/route-decisions/{id}` is a 404. Searching the recent window is
+      exact rather than approximate: the id came from the reply that produced
+      it. An id that has aged out of the in-memory window returns null, and the
+      caller renders nothing rather than a placeholder. */
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=50',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return null;
+    return ((await r.json()).items||[]).find(x=>x.decision_id===id)||null;
+   }catch(e){return null}
+  },
+
+  async _routeDecisionMock(id){
    /* Every reply records the decision that produced it, so the inspector is a lookup
       rather than a re-derivation. An unknown id is an error in the real build. */
    const CHAT={
@@ -1803,7 +1817,20 @@ const API={
 
   /* GET {bridge}/v1/status per instance — one entry per extension host.
      Never merge two windows, and never resolve a gate from here. */
-  async clarvisInstances(){return{items:[
+  async clarvisInstances(){
+   /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
+      surface that starts and stops with the editor window, so "not running" is
+      the ordinary case rather than a fault — and an empty list is the truthful
+      answer, where two invented workspaces were not. */
+   try{
+    const r=await fetch(BASE.clarvis+'/instances',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{items:d.items||d.instances||[],live:true}}
+   }catch(e){}
+   return{items:[],live:false};
+  },
+
+  async _clarvisInstancesMock(){return{items:[
    {instance_id:'ins_4f1a',workspace_id:'ws_4f1a',label:'my-project',mode:'agent',
     state:'agent_running',route:'ravis/clarvis-agent'},
    {instance_id:'ins_9c72',workspace_id:'ws_9c72',label:'notes',mode:'chat',
@@ -1839,7 +1866,15 @@ const API={
   /* GET /api/v1/chat/conversations/{id} — NERVIS's own local store. Retention and
      deletion are user-controlled; prompts never reach the trace collector. Assistant
      turns carry the route decision that produced them. */
-  async conversation(){return{conversation_id:'cv_18a3',title:'Pancakes, and a failover',
+  async conversation(){
+   /* Session-local, and deliberately not persisted. NERVIS.md §7 makes this a
+      plain RAVIS client rather than a workspace: no tools, no files, no agent
+      role, and nothing that outlives the tab. The transcribed conversation this
+      replaced described an exchange nobody had. */
+   return{conversation_id:CHAT_SESSION.id,title:CHAT_SESSION.title,messages:CHAT_SESSION.messages};
+  },
+
+  async _conversationMock(){return{conversation_id:'cv_18a3',title:'Pancakes, and a failover',
    messages:[
     {role:'user',text:"What's a good recipe for pancakes?"},
     {role:'assistant',text:'200 g flour, two eggs, 300 ml milk, a pinch of salt. Whisk smooth, rest it twenty minutes, then a medium pan and about a minute a side. I kept this local — it seemed unlikely to require Anthropic.',route_decision_id:'rd_c001'},
@@ -2157,21 +2192,24 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  const ids=[...new Set(conv.messages.map(m=>m.route_decision_id).filter(Boolean))];
  const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await API.ravis.routeDecision(id)])));
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
- const active=prof.items.find(p=>p.default);
+ const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default);
  /* The route card is a lookup by decision id — the same record RAVIS's own Routes
     screen renders. A router that cannot say why is just a proxy. */
+ /* Built from the decision RAVIS actually recorded. Cost and time-to-first-token
+    are absent rather than zeroed: the cost engine is M15, and a decision record
+    carries no timing — a €0.00 would read as measured and free. */
  const card=d=>`<div class="route-card">
-   <div class="table-row head"><span>Selected</span><span>Provider</span><span>Path</span><span>Cost</span></div>
-   <div class="table-row"><span>${d.selected}</span><span>${d.provider}</span><span class="mono">${d.execution_path}</span><span>€${d.cost_eur.toFixed(2)}</span></div>
-   <small class="mono dim">${d.reasons.join(' · ')} ${prov(ekind[d.evidence.kind],d.evidence.samples?'SIRVIS n='+d.evidence.samples:'')} · TTFT ${d.ttft_s}s${d.not_selected.length?'<br>not selected — '+d.not_selected.map(n=>n.target+': '+n.why).join(' · '):'<br>no eligible alternative remained after the privacy constraint'}</small></div>`;
+   <div class="table-row head"><span>Selected</span><span>Pool</span><span>Path</span><span>Excluded</span></div>
+   <div class="table-row"><span class="mono">${escapeHtml(d.selected||'no route')}</span><span class="mono" style="opacity:.8">${escapeHtml(d.pool||'—')}</span><span class="mono">${escapeHtml(d.execution_path||'—')}</span><span>${(d.excluded||[]).length} of ${(d.considered||[]).length}</span></div>
+   <small class="mono dim">${escapeHtml(d.reason||'')}${(d.excluded||[]).length?'<br>excluded — '+(d.excluded||[]).slice(0,3).map(n=>escapeHtml(n.model)+': '+escapeHtml((n.reasons||[])[0]||'')).join(' · ')+((d.excluded||[]).length>3?` · and ${(d.excluded||[]).length-3} more`:''):''}<br>cost and time-to-first-token are not carried on a decision record — the cost engine is M15, and a zero here would read as measured.</small></div>`;
  $('#content').innerHTML=`<div class="card full chat">
-  <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');notify('This conversation will route on '+this.dataset.profile)">${pr.label}</button>`).join('')}
+  <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');CHAT_SESSION.profile=this.dataset.profile;notify('Routing on '+this.dataset.profile)">${pr.label}</button>`).join('')}
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
    <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
-     :`<div class="bubble"><b>NERVIS</b><br>${escapeHtml(m.text)}</div>`+(m.route_decision_id?card(rd[m.route_decision_id]):'')).join('')}
+     :`<div class="bubble"><b>NERVIS</b><br>${escapeHtml(m.text)}</div>`+(m.route_decision_id&&rd[m.route_decision_id]?card(rd[m.route_decision_id]):'')).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">➤</button></div>
   <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is stored locally and can be deleted; prompts are not sent to the trace collector.</small>
@@ -2197,7 +2235,7 @@ async function mapView(){
    ['Registered',String(svc.items.length),'one row per identity','nervis'],
    ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis'],
    ['Protocol','major 1','negotiated with every peer','nervis'],
-   ['Editor hosts',String(inst.items.length),'extension hosts · never merged','clarvis']])
+   ['Editor hosts',String(inst.items.length),inst.live?'extension hosts · never merged':'Clarvis Bridge is not running','clarvis']])
  +`<div class="card full"><h3>Topology <span class="chip">as observed</span></h3>
    <div class="map" style="height:320px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
@@ -3192,7 +3230,7 @@ async function ravisRoutes(){
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  const considered=rd.eligible.length+rd.excluded.length;
  const phases=Object.entries(rd.timings_ms).filter(([k])=>k!=='total');
- const active=prof.items.find(p=>p.default);
+ const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default);
  $('#content').innerHTML=kpis([
    ['Profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Candidates',`${considered} → ${rd.eligible.length}`,'after hard constraints','ravis'],
@@ -3601,6 +3639,72 @@ const PROVIDERS={
   ravisProviders();
  }};
 
+/* The chat screen is a real client of RAVIS's OpenAI-compatible API.
+
+   It was previously wired to a button calling `sendChat`, which was never
+   defined anywhere — pressing send threw a ReferenceError. So the screen was
+   not merely showing a transcribed conversation, it could not have held a real
+   one.
+
+   Messages live for the tab and no longer. Nothing is written to disk, which is
+   what the screen already claimed and now does. */
+const CHAT_SESSION={
+ id:'cv_'+Math.random().toString(36).slice(2,6),
+ title:'New conversation',
+ messages:[],
+ profile:'ravis/auto',
+ busy:false};
+
+async function sendChat(){
+ const box=document.getElementById('chatInput');
+ const text=(box&&box.value||'').trim();
+ if(!text||CHAT_SESSION.busy)return;
+ box.value='';
+ CHAT_SESSION.busy=true;
+ CHAT_SESSION.messages.push({role:'user',text});
+ if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
+ CHAT_SESSION.messages.push({role:'assistant',text:'…',pending:true});
+ render();
+ let reply='',requestId='',served='';
+ try{
+  const r=await fetch(BASE.ravis+'/v1/chat/completions',{
+   method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({model:CHAT_SESSION.profile,
+    messages:CHAT_SESSION.messages.filter(m=>!m.pending).map(m=>({role:m.role,content:m.text})),
+    max_tokens:512})});
+  requestId=r.headers.get('x-request-id')||'';
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){
+   /* The router's own refusal, shown as the router phrased it. A no-route is an
+      outcome rather than an error (§9.2), and rewriting it here would lose the
+      reason it gives. */
+   reply=(d.error&&(d.error.message||d.error))||('RAVIS returned HTTP '+r.status);
+  }else{
+   reply=((d.choices||[{}])[0].message||{}).content||'(empty response)';
+   served=d.model||'';
+  }
+ }catch(e){reply='RAVIS is not reachable: '+e.message}
+
+ CHAT_SESSION.messages.pop();
+ CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId});
+ /* Correlate the reply with the decision RAVIS recorded for it. The response
+    carries `x-request-id` and a route decision carries the same `request_id`,
+    so the link is exact rather than "the most recent decision", which would be
+    wrong the moment two requests overlap. */
+ if(requestId){
+  try{
+   const rd=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=25',
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(rd.ok){
+    const hit=((await rd.json()).items||[]).find(x=>x.request_id===requestId);
+    if(hit)CHAT_SESSION.messages[CHAT_SESSION.messages.length-1].route_decision_id=hit.decision_id;
+   }
+  }catch(e){}
+ }
+ CHAT_SESSION.busy=false;
+ render();
+}
+
 const CREDS={
  async save(name){
   const field=document.getElementById('cred-'+name);
@@ -3732,7 +3836,11 @@ ${se.terminal.output}</div>
    control that implies an endpoint exists is the one thing the dashboard must
    not do. This is the same rule applied to *numbers*. */
 const PROTOTYPE={
- nervis:{'Overview':1,'Chat':1,'Ecosystem map':1,
+ nervis:{'Overview':1,
+         /* Chat is a real RAVIS client — live profiles, real completions, and
+            the route decision behind each reply. The map draws the registry,
+            which reads /ecosystem/identity, and asks the Clarvis bridge rather
+            than inventing workspaces. */
          /* Events and Traces are no longer listed. Traces reads RAVIS's route
             decisions; Events reads each service's declared capability state,
             which is the honest live fact about a feed that does not exist. */

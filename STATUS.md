@@ -3051,6 +3051,44 @@ and only one of those is a number anybody recognises.
 **Verified on macOS only.** The Linux and Windows paths are exercised by tests
 that call them directly, not on real hardware of either kind.
 
+## Chat and the Ecosystem map
+
+**The chat screen could not have held a conversation.** Its send button was
+wired to `sendChat`, a function defined nowhere in the file — pressing it threw
+a `ReferenceError`. So it was not merely showing a transcribed exchange; it had
+no path to a real one.
+
+It is now what its own subtitle always claimed: a plain client of RAVIS's
+OpenAI-compatible API. The profile chips come from `/api/v1/profiles` — 13 of
+them, real revisions — and **they now set the profile** instead of only
+announcing it in a toast, which was the same lie the build has been removing
+everywhere else. Messages live for the tab and are written nowhere, which is
+what NERVIS.md §7 asks of a client that is not a workspace.
+
+**Each reply is correlated to the decision that produced it, exactly.** The
+completion returns `x-request-id` and a route decision carries the same
+`request_id`, so the link is precise rather than "the most recent decision" —
+which would be wrong the moment two requests overlap. Verified live: request
+`a70ac098abe0` → decision `64983b4d42e3`, served by
+`deepseek-r1-distill-qwen-1.5b` through `ravis/auto`.
+
+The route card is built from that record and **drops what a decision does not
+carry**: cost and time-to-first-token are absent rather than zeroed, because the
+cost engine is M15 and a `€0.00` reads as measured and free.
+
+**One CORS line was the actual blocker.** POST was not in RAVIS's allowed
+methods, so every completion from the dashboard would have failed at the
+preflight — and reported as *RAVIS unreachable*, which is the wrong diagnosis of
+an allow-list. POST is now permitted, and the reason sits beside the note
+explaining why credentials deliberately use PUT: a JSON body always preflights,
+so this admits an allow-listed origin and nobody else.
+
+**The map asks the Clarvis bridge rather than inventing workspaces.** It was
+asserting two editor hosts; the bridge is a localhost surface that starts and
+stops with an editor window, so "not running" is the ordinary case. The KPI now
+reads **0 — Clarvis Bridge is not running**. Everything else on that screen was
+already live once the registry was, since every node is a registry row.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
