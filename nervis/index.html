@@ -1903,7 +1903,7 @@ const API={
      deletion are user-controlled; prompts never reach the trace collector. Assistant
      turns carry the route decision that produced them. */
   async conversation(){
-   /* Session-local, and deliberately not persisted. NERVIS.md §7 makes this a
+   /* Session-held, and persisted by `CHAT_STORE` after every exchange. NERVIS.md §7 makes this a
       plain RAVIS client rather than a workspace: no tools, no files, no agent
       role, and nothing that outlives the tab. The transcribed conversation this
       replaced described an exchange nobody had. */
@@ -3783,8 +3783,9 @@ const PROVIDERS={
    not merely showing a transcribed conversation, it could not have held a real
    one.
 
-   Messages live for the tab and no longer. Nothing is written to disk, which is
-   what the screen already claimed and now does. */
+   Conversations are persisted by `CHAT_STORE` below — this comment used to say
+   nothing was written to disk, which was true when it was written and stopped
+   being true the moment storage landed. */
 /* Conversation storage.
 
    §7.2 asks for exactly this and no more: "Local only by default: conversation

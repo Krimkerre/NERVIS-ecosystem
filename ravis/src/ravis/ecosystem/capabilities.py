@@ -37,9 +37,15 @@ DECLARED: dict[str, Capability] = {
     ),
     # §4.1's table sets a condition **per capability**, not one blanket
     # conformance bar: `chat_completions@1` says "conformance passes", and this
-    # one says *"a translated adapter ships"*. Anthropic's shipped at M4 and the
-    # local adapters at M8, with a tool-calling completion routed through Ollama
-    # and back — so the condition is met.
+    # one says *"a translated adapter ships"*. Anthropic's did, at M4.
+    #
+    # **M8's adapters do not count and the first version of this comment said
+    # they did.** `LmStudioAdapter` and `OllamaAdapter` subclass
+    # `GenericOpenAiAdapter`, carry `protocol_mode = OPENAI_TRANSPARENT`, and
+    # define no `complete()` or `stream()` — they describe an upstream that
+    # already speaks the client's protocol, which is the opposite of
+    # translation. Citing the Ollama run as evidence for this capability was
+    # citing §6's Path A for a Path B condition.
     #
     # The old reason said "translated execution path is M3b (runbook Stage 5)",
     # which became false the moment M3b landed and read as though the work were
@@ -48,7 +54,7 @@ DECLARED: dict[str, Capability] = {
     "ravis.providers.native@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="translated adapters ship: Anthropic (M4), LM Studio and Ollama (M8)",
+        reason="a translated adapter ships: Anthropic (M4)",
     ),
     # §9.7 explanations are recorded per decision and served at
     # /api/v1/route-decisions, including the excluded candidates and why.

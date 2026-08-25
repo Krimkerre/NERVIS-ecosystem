@@ -103,10 +103,15 @@ into the order work actually happens.
 | 26 | **SIRVIS M12 + M13** | Clarvis's benchmark assets inspected and **wrapped, not rewritten** — the eight phrasings, the streamed index-keyed assembly, and the F17 follow-up turn, all from `clarvis-firstrun/tools/suite2.py`. Evidence is now filed under `clarvis-chat` and `clarvis-agent`, and `TrialRate` has a producer for the first time since M7 declared it. Settled below |
 | 27 | **RAVIS M13** | SIRVIS evidence consumption — §13's identity kept whole, §13.2's two-axis threshold applied, §13.3's provenance never upgraded, and §13.4's seven pairwise fixtures each producing their own answer. **Stage 5's exit criterion met**: a SIRVIS result changed a RAVIS preference. Settled below |
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
-| 29 | **RAVIS M8** *(adapters half)* | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
+| 29 | **RAVIS M8** | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
+| 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
 
-**Stages 0, 1, 2, 3 and 4 are complete** — Stage 2 as of 2026-08-24, when M10
-landed. This file claimed Stage 2 was complete for some time before that, and
+**Stages 0, 2, 3 and 4 are complete. Stage 1 is not**, and this file claimed it
+was. The runbook's Stage 1 requires the metadata endpoints "in SIRVIS, RAVIS and
+**NERVIS**", and exits when all three "pass live MEP conformance at one pinned
+protocol version". SIRVIS and RAVIS do. **NERVIS has no MEP surface at all** —
+NERVIS M0 has never been built, and `nervis/` is one HTML file. Two services out
+of three is not a stage. Stage 2 completed as of 2026-08-24, when M10 landed. This file claimed Stage 2 was complete for some time before that, and
 was wrong: the stage mapping puts **RAVIS M10** in Stage 2, *"since an upstream
 needing a credential cannot be reached without it"*, and M10 had never been
 built. No gate caught it; a question about where an operator would type an API
@@ -2051,8 +2056,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 ### After that
 
 What is left of Stage 5 is RAVIS's remaining intelligence: **M7** (Google,
-OpenRouter), **M8** (LM Studio, Ollama, generic adapters), the rest of **M14**,
-and **M16** (policy). Stage 6 is NERVIS core — **M11** + **M15**.
+OpenRouter), the rest of **M14**, and **M16** (policy). **M8 is done** — it was
+still listed here eleven lines above the section that declares it finished. Stage 6 is NERVIS core — **M11** + **M15**.
 
 **M3b, M4 and M13 are done, out of stage order**, and all three for the same
 reason: §20.2 holds translation back until the transparent Clarvis slice works,
@@ -2770,8 +2775,10 @@ on their behalf — precisely the fight §9's reference counting exists to preve
 It now releases only a lease owned by `nervis-dashboard`, and names the other
 holders instead of acting on them.
 
-**Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()`
-remains one of the invented twenty-four; running a benchmark is CLI-only.
+**Still no endpoint:** starting a benchmark run from the UI. `API.sirvis.jobs()` reads real runs
+from `/api/v1/benchmark-runs` — it is not one of the invented set, and calling
+it so was wrong. What is missing is an endpoint to **start** a run: nothing
+submits one, so running a benchmark is CLI-only.
 
 ## Getting a runtime token, without a terminal
 

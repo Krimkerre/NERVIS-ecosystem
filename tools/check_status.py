@@ -154,10 +154,78 @@ def check_next_milestone_is_not_already_done(text: str, failures: list[str]) -> 
     """
     done_section = text.split("### Next")[0]
     next_section = text.split("### Next")[1].split("### After that")[0] if "### Next" in text else ""
-    done = set(re.findall(r"\*\*(M\d+[ab]?)\*\*", done_section))
-    upcoming = set(re.findall(r"\*\*(M\d+[ab]?)\*\*", next_section))
+    done = set(_milestones(done_section))
+    upcoming = set(_milestones(next_section))
     for milestone in sorted(done & upcoming):
+        # A milestone deliberately split across stages is named as split on at
+        # least one side — "**M14** *(observation half)*" in Done, "**The rest
+        # of M14**" in Next. That is a disclosed decision rather than a
+        # contradiction, and failing on it would train whoever hits it to
+        # weaken the check. An *undisclosed* repeat still fails.
+        if _is_declared_split(milestone, done_section, next_section):
+            continue
         failures.append(f"{milestone} is listed as both done and next")
+
+
+# Words that mark a milestone as knowingly split rather than accidentally
+# repeated. Deliberately short: anything longer becomes a way to silence the
+# check by phrasing.
+SPLIT_MARKERS = ("rest of", "half", "remaining")
+
+# The milestone's own name, plus any italic qualifier immediately after it —
+# "**The rest of M14**", "**M14** *(observation half)*". The marker has to live
+# *there* and not merely somewhere in the row: an ordinary description like
+# "the remaining native adapters" contains one of these words and would
+# otherwise excuse the repeat it sits next to. That is not hypothetical; it is
+# what this check did on its first working draft.
+_NAMED = re.compile(r"\*\*([^*]*?\b%s\b[^*]*?)\*\*(\s*\*\([^)]*\)\*)?")
+
+
+def _is_declared_split(milestone: str, done_section: str, next_section: str) -> bool:
+    """Whether one side of the repeat names itself a split."""
+    bare = re.escape(milestone.split()[-1])
+    pattern = re.compile(_NAMED.pattern % bare)
+    for section in (done_section, next_section):
+        for line in section.splitlines():
+            if not line.lstrip().startswith("|"):
+                continue
+            for name, qualifier in pattern.findall(line):
+                span = (name + " " + (qualifier or "")).lower()
+                if any(marker in span for marker in SPLIT_MARKERS):
+                    return True
+    return False
+
+
+# A milestone id as it is actually written in this file: bolded, and almost
+# always qualified — "**RAVIS M7**", "**SIRVIS M10**", "**The rest of M14**",
+# "**M14** *(observation half)*". The first version of this required the bold
+# span to hold a bare id and nothing else, which no row in the Next table has
+# ever been written as — so the check ran on every push and could not fire, on
+# real content or on a deliberate regression. STATUS.md meanwhile advertised it
+# as enforced. Found by an audit, not by the gate.
+# The alternation puts the qualified form first *and* the lazy prefix stops at a
+# word boundary, so "**RAVIS M8**" yields "RAVIS M8" rather than a bare "M8".
+# Getting that wrong is not cosmetic: Done wrote "RAVIS M8" while Next wrote
+# "M8", the two sets never intersected, and the check stayed silent — the same
+# failure in a new place.
+# The closing `**` is required. Without it the *closing* delimiter of one bold
+# span becomes the opening of a phantom one, and the id is read out of the plain
+# text that follows — which is how "M11" was picked up from a row whose bold
+# name is "Stage 6 — NERVIS core".
+_MILESTONE = re.compile(
+    r"\*\*[^*]*?\b((?:RAVIS|SIRVIS|NERVIS)\s+M\d+[ab]?|M\d+[ab]?)\b[^*]*?\*\*"
+)
+
+
+def _milestones(section: str) -> list[str]:
+    """Every milestone a section names, normalised to `SERVICE Mn` or `Mn`.
+
+    Normalised because "**M8**" and "**RAVIS M8**" are the same milestone, and a
+    check that treated them as different would miss exactly the contradiction it
+    exists to catch. Service prefixes are kept where present so that SIRVIS M10
+    and RAVIS M10 — genuinely different milestones — never collide.
+    """
+    return [" ".join(match.split()) for match in _MILESTONE.findall(section)]
 
 
 def main() -> int:
@@ -165,7 +233,7 @@ def main() -> int:
         print("STATUS.md is missing — it is the file a cold session reads first", file=sys.stderr)
         return 1
     text = STATUS.read_text()
-    failures: list[str] = []
+    failures: list[str] = self_test()
     check_numbers(text, failures)
     check_referenced_paths(text, failures)
     check_next_milestone_is_not_already_done(text, failures)
@@ -182,6 +250,42 @@ def main() -> int:
         return 1
     print("STATUS.md matches the repository")
     return 0
+
+
+def self_test() -> list[str]:
+    """Prove the milestone check can actually fail.
+
+    This exists because the check could not. It ran on every push for months
+    with a regex that no row in the Next table has ever matched, so it passed
+    unconditionally while STATUS.md advertised it as enforced — a gate nobody
+    tested, guarding a file everybody believes.
+
+    Positive cases matter more than the negative one here: a checker that only
+    ever sees passing input is indistinguishable from a checker that cannot
+    fail.
+    """
+    text = STATUS.read_text(encoding="utf-8")
+    problems: list[str] = []
+
+    clean: list[str] = []
+    check_next_milestone_is_not_already_done(text, clean)
+    if clean:
+        problems.append(f"self-test: real STATUS.md should be clean, got {clean}")
+
+    # A milestone written into Next that the Done table already claims, in the
+    # table's own convention and in the bare form.
+    for injected in ("**RAVIS M8**", "**M16**"):
+        row = text.replace("| 1 | **RAVIS M7**", f"| 1 | {injected}", 1)
+        caught: list[str] = []
+        check_next_milestone_is_not_already_done(row, caught)
+        if not caught:
+            problems.append(f"self-test: {injected} in Next was not caught")
+
+    # A declared split must not be reported: it is a recorded decision.
+    if not _is_declared_split("M14", text.split("### Next")[0],
+                              text.split("### Next")[1].split("### After that")[0]):
+        problems.append("self-test: M14's declared split should be tolerated")
+    return problems
 
 
 if __name__ == "__main__":
