@@ -1781,7 +1781,12 @@ const API={
      list the dashboard must not offer it, and `nervis-chat` does not exist until
      RAVIS ships it. */
   async profiles(){return live('ravis','/api/v1/profiles',this._profilesMock,payload=>({
-   items:payload.items.map(p=>({
+   /* Unlisted pools are dropped here, once, rather than at each picker.
+      `ravis/private` carries the identical constraint to `ravis/local` — §5
+      requires both IDs and never says how they differ — and offering two
+      indistinguishable options invites a reader to reason about a difference
+      that is not there. The ID stays addressable; it stops being a choice. */
+   items:payload.items.filter(p=>p.listed!==false).map(p=>({
     profile_id:p.profile_id,
     label:p.label,
     description:p.description,
@@ -4254,6 +4259,133 @@ async function ravisRoutes(){
    member, so the interesting question is not which pool is empty but who is in
    the strictest one and who is not. The membership card answers that per build,
    because a derived count nobody can audit is just a number with better manners. */
+/* One pool, with its membership picker folded underneath.
+   A pool is its invariants and picks from whatever satisfies them — the right
+   default, and what keeps it working as a catalogue changes. With six hundred
+   models across four providers that is a wider net than most people want
+   `ravis/fast` casting, so the picker is an optional *narrowing*: tick fewer,
+   and the pool chooses among those. Tick everything and it goes back to
+   choosing for itself. */
+/* Narrowing a pool to the models an operator wants it choosing among.
+   The same shape as the provider picker, and deliberately so — one interaction
+   learned once. What differs is what the list contains: a provider's picker
+   offers its whole catalogue, and a pool's offers only what already satisfies
+   that pool's invariants, because everything else is not a choice. */
+const POOLEDIT={
+ state:{},
+
+ toggle(key){
+  const panel=document.getElementById('pm-'+key);
+  if(!panel)return;
+  const opening=panel.style.display==='none';
+  panel.style.display=opening?'block':'none';
+  if(opening)this.load(key);
+ },
+
+ async load(key){
+  const list=document.getElementById('pml-'+key);
+  if(!list)return;
+  list.innerHTML='<div class="picker-empty">reading candidates…</div>';
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/pools/'+encodeURIComponent(key)+'/members',
+     {signal:AbortSignal.timeout(15000)});
+   if(!r.ok){list.innerHTML=`<div class="picker-empty">RAVIS refused: HTTP ${r.status}</div>`;return}
+   const d=await r.json();
+   if(!(d.items||[]).length){
+    list.innerHTML=`<div class="picker-empty">no model satisfies this pool’s invariants right now${d.locality==='local'?' — no local runtime is answering, and this pool never leaves this machine':''}.</div>`;
+   }
+   this.state[key]={all:(d.items||[]).map(i=>i.id),
+     remote:new Set((d.items||[]).filter(i=>i.remote).map(i=>i.id)),
+     on:new Set((d.items||[]).filter(i=>i.selected).map(i=>i.id)),q:''};
+   this.render(key);
+  }catch(e){list.innerHTML='<div class="picker-empty">RAVIS is not reachable.</div>'}
+ },
+
+ render(key){
+  const st=this.state[key];
+  if(!st)return;
+  const list=document.getElementById('pml-'+key);
+  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  if(shown.length)list.innerHTML=shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}">
+    <input type="checkbox"${st.on.has(id)?' checked':''}
+      onchange="POOLEDIT.tick('${escapeHtml(key)}','${escapeHtml(id).replace(/'/g,'&#39;')}',this.checked)">
+    <span>${escapeHtml(id)}</span></label>`).join('');
+  else if(st.all.length)list.innerHTML='<div class="picker-empty">nothing matches that.</div>';
+  this.count(key);
+ },
+
+ count(key){
+  const st=this.state[key];
+  const node=document.getElementById('pmc-'+key);
+  if(!st||!node)return;
+  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  /* Says how many of the *eligible* models are chosen, never how many of the
+     search results — the second number changes meaning with the search box. */
+  node.textContent=`${st.on.size} of ${st.all.length} chosen`+(st.q?` · ${shown.length} shown`:'');
+ },
+
+ tick(key,id,on){
+  const st=this.state[key];
+  if(!st)return;
+  if(on)st.on.add(id); else st.on.delete(id);
+  this.count(key);
+ },
+
+ search(key,q){
+  const st=this.state[key];
+  if(!st)return;
+  st.q=(q||'').trim().toLowerCase();
+  this.render(key);
+ },
+
+ checkAll(key,on){
+  const st=this.state[key];
+  if(!st)return;
+  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  for(const id of shown){if(on)st.on.add(id); else st.on.delete(id)}
+  this.render(key);
+ },
+
+ async apply(key){
+  const st=this.state[key];
+  if(!st)return;
+  /* Everything ticked is sent as an empty list, which RAVIS stores as no
+     narrowing at all — so a model added tomorrow still qualifies on its own
+     rather than being excluded by yesterday's snapshot. */
+  const models=st.on.size===st.all.length?[]:[...st.on];
+  if(!models.length&&st.on.size!==st.all.length
+     &&!confirm('Nothing is ticked, which leaves this pool with no members and every request to it refused. Continue?'))return;
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/pools/'+encodeURIComponent(key)+'/members',
+     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({models})});
+   if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
+   const d=await r.json();
+   /* Named rather than swallowed. A picker that reported success on a selection
+      it did not keep would teach an operator the invariants are advisory. */
+   if((d.refused||[]).length)alert(`${d.refused.length} model(s) were not stored — they do not satisfy this pool's invariants:\n\n`+d.refused.slice(0,8).join('\n'));
+  }catch(e){alert('RAVIS is not reachable.');return}
+  delete this.state[key];
+  ravisPools();
+ },
+};
+
+function poolRow(x,inv){
+ const key=x.pool_id.replace(/^ravis\//,'');
+ return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${escapeHtml(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${x.pool_id}</a></span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${warnUnless(x.available)}">${x.available?'yes':'no'}</span><span style="opacity:.7">${dash(x.reason)}</span></div>
+  <div id="pm-${escapeHtml(key)}" class="model-picker" style="display:none">
+   <div class="picker-head">
+    <input class="picker-search mono" placeholder="filter this pool\u2019s candidates\u2026"
+      oninput="POOLEDIT.search('${escapeHtml(key)}',this.value)">
+    <span class="mono dim" id="pmc-${escapeHtml(key)}">loading\u2026</span>
+    <button class="btn" onclick="POOLEDIT.checkAll('${escapeHtml(key)}',true)">All</button>
+    <button class="btn" onclick="POOLEDIT.checkAll('${escapeHtml(key)}',false)">None</button>
+    <button class="btn primary" onclick="POOLEDIT.apply('${escapeHtml(key)}')">Apply</button>
+   </div>
+   <div class="picker-list" id="pml-${escapeHtml(key)}"></div>
+   <small class="mono dim">only models that already satisfy this pool\u2019s invariants are listed, and only those can be ticked \u2014 a selection is a <b>narrowing</b>, never a widening. <b>ravis/local</b> promises the request never leaves this machine, and a promise somebody can tick away in a picker is not a promise. Tick everything and the narrowing is cleared rather than stored, so models added later still qualify on their own.</small>
+  </div>`;
+}
+
 async function ravisPools(){
  heading('Pools','A pool is its invariants. Membership is counted from the builds that satisfy them, not written down.');
  const [p,mdl]=await Promise.all([API.ravis.pools(),API.ravis.models()]);
@@ -4298,7 +4430,7 @@ async function ravisPools(){
    ['Clarvis pools',String(p.items.filter(x=>x.pool_id.includes('clarvis')).length),'agent and chat','ravis']])
  +`<div class="card full"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
-   ${p.items.map(x=>`<div class="table-row five"><span class="mono">${x.pool_id}</span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${warnUnless(x.available)}">${x.available?'yes':'no'}</span><span style="opacity:.7">${dash(x.reason)}</span></div>`).join('')}
+   ${p.items.map(x=>poolRow(x,inv)).join('')}
    <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   <div class="card wide"><h3>${agent.pool_id} · membership <span class="chip">${agent.members} of ${mdl.items.length}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Context ceiling</span><span>Tools advertised</span><span>Tools measured</span><span>Verdict</span></div>

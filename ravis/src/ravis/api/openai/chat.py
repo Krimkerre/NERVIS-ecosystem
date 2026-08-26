@@ -40,7 +40,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ravis.api.management.decisions import RecordedDecision
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
-from ravis.core.pools import direct_provider
+from ravis.core.pools import direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
@@ -249,6 +249,19 @@ def _translating_for(request: Request, requested: str) -> TranslatingAdapter | N
     if adapter is None or not adapter.has_credential:
         return None
     return adapter
+
+
+def _chosen(request: Request, requested: str) -> tuple[str, ...]:
+    """The models an operator picked for this pool, or empty.
+
+    Empty for anything that is not a pool: a direct address names its target and
+    a bare model name is passed through, so neither has a membership list to
+    consult.
+    """
+    membership = getattr(request.app.state, "pool_membership", None)
+    if membership is None or not is_pool_id(requested):
+        return ()
+    return tuple(membership.for_pool(requested))
 
 
 def _record_path(call: _Call, path: str) -> None:
@@ -502,6 +515,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # reach the engine — it had no way to know, and answered `ravis/local`
         # with an OpenRouter model.
         remote_models=remote_models(transparents),
+        # An operator's narrowing of this pool, if they made one. Read per
+        # request for the same reason the provider toggles are.
+        chosen=_chosen(request, payload.get("model") or ""),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.

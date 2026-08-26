@@ -70,6 +70,7 @@ class RoutingEngine:
         unavailable: Mapping[str, str] | None = None,
         foreign_providers: frozenset[str] = frozenset(),
         remote_models: frozenset[str] = frozenset(),
+        chosen: tuple[str, ...] = (),
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -100,6 +101,7 @@ class RoutingEngine:
                 requirements,
                 unavailable or {},
                 remote_models,
+                chosen,
             )
 
         target = direct_target(requested)
@@ -169,6 +171,7 @@ class RoutingEngine:
         requirements: RequestRequirements,
         unavailable: Mapping[str, str],
         remote: frozenset[str] = frozenset(),
+        chosen: tuple[str, ...] = (),
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -184,8 +187,12 @@ class RoutingEngine:
             requirements=_all_requirements(pool, requirements),
             unverified=unverified_notes(requirements, candidates),
         )
-        decision.excluded = _exclusions(pool, candidates, requirements, unavailable, remote)
-        eligible = _rank(pool, candidates, residency, memory, requirements, unavailable, remote)
+        decision.excluded = _exclusions(
+            pool, candidates, requirements, unavailable, remote, chosen
+        )
+        eligible = _rank(
+            pool, candidates, residency, memory, requirements, unavailable, remote, chosen
+        )
 
         if not eligible:
             # §5.2: a pool with no satisfying candidate is *unavailable*. Never
@@ -297,6 +304,7 @@ def _exclusions(
     requirements: RequestRequirements,
     unavailable: Mapping[str, str],
     remote: frozenset[str] = frozenset(),
+    chosen: tuple[str, ...] = (),
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
@@ -311,6 +319,8 @@ def _exclusions(
     excluded = []
     for model in sorted(candidates):
         reasons = pool.requirements.unmet_by(candidates[model], remote=model in remote)
+        if chosen and model not in chosen:
+            reasons.append("not among the models chosen for this pool")
         reasons += unmet_by(requirements, candidates[model])
         refused = model in unavailable
         if refused:
@@ -330,6 +340,7 @@ def _rank(
     requirements: RequestRequirements,
     unavailable: Mapping[str, str],
     remote: frozenset[str] = frozenset(),
+    chosen: tuple[str, ...] = (),
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -349,6 +360,11 @@ def _rank(
         if not pool.requirements.unmet_by(known, remote=model in remote)
         and not unmet_by(requirements, known)
         and model not in unavailable
+        # An operator's selection narrows what the invariants already allowed.
+        # Applied *after* them, never instead: `ravis/local` promises the
+        # request never leaves this machine, and a promise somebody can tick
+        # away in a picker is not a promise.
+        and (not chosen or model in chosen)
     ]
     pressured = memory.under_pressure
 

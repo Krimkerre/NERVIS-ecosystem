@@ -47,6 +47,7 @@ from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
 from ravis.model_filter import ModelFilters
+from ravis.pool_membership import PoolMembership
 from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
@@ -147,6 +148,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # the same reason as the enable toggle: a narrowing that only took effect
     # after a restart is a narrowing nobody trusts.
     api.state.model_filters = ModelFilters.default()
+    # Which models an operator chose for each pool (empty = whatever qualifies).
+    # Read per request like the two above, so a change in a picker takes effect
+    # on the next request rather than the next restart.
+    api.state.pool_membership = PoolMembership.default()
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.

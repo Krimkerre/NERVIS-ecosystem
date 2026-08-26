@@ -85,6 +85,14 @@ class VirtualModelPool:
     description: str
     requirements: PoolRequirements = field(default_factory=PoolRequirements)
     prefer: tuple[str, ...] = ()
+    # Whether a picker should offer this pool.
+    #
+    # The ID stays addressable either way — §5 requires it and a client may name
+    # it — so this hides a choice rather than removing a capability. Exactly one
+    # pool uses it: `ravis/private` is indistinguishable from `ravis/local`
+    # today, and offering two identical options invites somebody to reason about
+    # a difference that is not there.
+    listed: bool = True
 
     def eligible(
         self,

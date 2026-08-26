@@ -28,10 +28,12 @@ import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
-from ravis.core.pools import DEFAULT_POOLS
+from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
@@ -39,6 +41,7 @@ from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
+from ravis.transparent import merged_candidates, remote_models
 
 router = APIRouter(prefix="/api/v1", tags=["management"])
 
@@ -303,10 +306,110 @@ async def read_profiles(request: Request) -> dict[str, Any]:
                 # Revisioning arrives with §5.4's versioned profiles; saying 1
                 # is honest only because nothing can change it yet.
                 "revision": 1,
+                # Whether a picker should offer it. Reported rather than
+                # filtered out here: this endpoint is the list of pools, and a
+                # client addressing `ravis/private` directly must still find it
+                # described. Hiding it from the *payload* would make the ID look
+                # retired when it is merely not worth choosing between.
+                "listed": pool.listed,
             }
             for pool in DEFAULT_POOLS
         ]
     )
+
+
+class PoolMembersInput(BaseModel):
+    """The models an operator chose for one pool."""
+
+    models: list[str] = []
+
+
+@router.get("/pools/{pool_key}/members")
+async def read_pool_members(pool_key: str, request: Request) -> Any:
+    """Every model that *could* be in this pool, and which are chosen.
+
+    `eligible` is the pool's own answer — what satisfies its invariants — and it
+    is reported separately from `chosen` because the two answer different
+    questions. A model that is not eligible cannot be ticked into the pool at
+    all: `ravis/local` promises the request never leaves this machine, and a
+    promise an operator can tick away in a picker is not a promise.
+
+    An empty `chosen` means "whatever qualifies", which is what a pool has
+    always meant and what it goes back to meaning when everything is ticked.
+    """
+    pool_id = f"{POOL_PREFIX}{pool_key}" if not pool_key.startswith(POOL_PREFIX) else pool_key
+    pool = POOLS_BY_ID.get(pool_id)
+    if pool is None:
+        return JSONResponse(
+            {"error": {"message": f"unknown pool {pool_id}", "type": "not_found"}},
+            status_code=404,
+        )
+    candidates, remote = await _pool_candidates(request)
+    eligible = pool.eligible(candidates, remote)
+    chosen = set(request.app.state.pool_membership.for_pool(pool_id))
+    return {
+        "pool_id": pool_id,
+        "label": pool.label,
+        "locality": pool.requirements.locality,
+        "items": [
+            {"id": model, "selected": not chosen or model in chosen,
+             "remote": model in remote}
+            for model in eligible
+        ],
+        "total": len(eligible),
+        "narrowed": bool(chosen),
+        "catalogue_total": len(candidates),
+    }
+
+
+@router.put("/pools/{pool_key}/members")
+async def set_pool_members(
+    pool_key: str, body: PoolMembersInput, request: Request
+) -> Any:
+    """Narrow one pool to the models chosen, or clear the narrowing.
+
+    Only ever a narrowing. Anything that fails the pool's invariants is dropped
+    from the selection here rather than stored and quietly ignored later — a
+    stored member that can never be routed to is a lie the file tells the next
+    person to read it.
+    """
+    pool_id = f"{POOL_PREFIX}{pool_key}" if not pool_key.startswith(POOL_PREFIX) else pool_key
+    pool = POOLS_BY_ID.get(pool_id)
+    if pool is None:
+        return JSONResponse(
+            {"error": {"message": f"unknown pool {pool_id}", "type": "not_found"}},
+            status_code=404,
+        )
+    candidates, remote = await _pool_candidates(request)
+    eligible = set(pool.eligible(candidates, remote))
+    asked = [model for model in body.models if model in eligible]
+    refused = [model for model in body.models if model not in eligible]
+    # Everything eligible ticked is stored as no narrowing at all: the two
+    # select the same models today and diverge the moment the catalogue grows,
+    # and "I ticked everything" plainly means the pool should keep qualifying
+    # models on its own.
+    stored = () if len(asked) == len(eligible) else tuple(asked)
+    request.app.state.pool_membership.set_for(pool_id, stored)
+    return {
+        "pool_id": pool_id,
+        "chosen": list(stored),
+        "narrowed": bool(stored),
+        # Named rather than silently dropped, because a picker that reported
+        # success on a selection it did not keep would teach an operator that
+        # the invariants are advisory.
+        "refused": refused,
+    }
+
+
+async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[str]]:
+    """Every model the router could consider, and which of them are remote."""
+    transparents = getattr(request.app.state, "transparents", {})
+    if not transparents:
+        return {}, frozenset()
+    candidates = await merged_candidates(
+        transparents, getattr(request.app.state, "evidence", None)
+    )
+    return candidates, remote_models(transparents)
 
 
 @router.get("/policies")
