@@ -239,7 +239,15 @@ def _translating_for(request: Request, requested: str) -> TranslatingAdapter | N
     if provider is None:
         return None
     adapters: dict[str, TranslatingAdapter] = getattr(request.app.state, "translating", {})
-    return adapters.get(provider)
+    adapter = adapters.get(provider)
+    # Registered but unusable is not routable. A provider is in that table
+    # because RAVIS knows how to reach it, not because it can authenticate
+    # today — checked here so a key saved on the Credentials screen takes effect
+    # on the next request, and an unconfigured provider still serves nothing
+    # rather than forwarding a request that can only come back 401.
+    if adapter is None or not adapter.has_credential:
+        return None
+    return adapter
 
 
 def _record_path(call: _Call, path: str) -> None:

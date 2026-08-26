@@ -39,6 +39,10 @@ class FakeAnthropic:
     """
 
     name = "fake"
+    # Configured, because these tests are about the *path* and an adapter that
+    # cannot authenticate is never reached. The real check is exercised in
+    # `test_credential_wiring.py`.
+    has_credential = True
 
     def __init__(self, events: list[NormalizedStreamEvent] | None = None,
                  fail: str = "") -> None:

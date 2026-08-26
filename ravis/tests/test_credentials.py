@@ -77,8 +77,38 @@ def test_reveal_is_the_only_way_out() -> None:
 # ── 2. Resolution order ──────────────────────────────────────────────────────
 
 
+# Where `_store` puts its file, per test. Set by the autouse fixture below.
+_CONFIG_HOME: dict[str, str] = {}
+
+
+@pytest.fixture(autouse=True)
+def _never_the_operators_own_credentials(tmp_path: Path) -> None:
+    """Point every store built here at a throwaway directory.
+
+    `config_directory` promises this in its own docstring — *"resolved from the
+    environment rather than hard-coded so a test never touches a real home
+    directory"* — and the mechanism works. What did not was the calling
+    convention: `_store(environment={})` passes an environment with no
+    `XDG_CONFIG_HOME` in it, which falls through to `~/.config/ravis`, so this
+    file has always read and written the operator's actual credentials.
+
+    The symptom was a test that passed on a clean machine and failed on a
+    working one: `test_status_of_an_absent_credential_says_absent` asserts that
+    `google` is absent, and it is absent right up until somebody configures
+    Google. A suite whose result depends on the developer's own config is
+    reporting on the wrong thing.
+    """
+    _CONFIG_HOME["path"] = str(tmp_path)
+
+
 def _store(**kwargs: object) -> CredentialStore:
     kwargs.setdefault("keychain", False)
+    # Injected into whatever environment the caller asked for, rather than
+    # replacing it: several tests below supply `RAVIS_*_API_KEY` deliberately
+    # and still must not see the real config directory.
+    environment = dict(kwargs.get("environment") or {})
+    environment.setdefault("XDG_CONFIG_HOME", _CONFIG_HOME["path"])
+    kwargs["environment"] = environment
     return CredentialStore(**kwargs)  # type: ignore[arg-type]
 
 

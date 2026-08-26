@@ -125,8 +125,15 @@ def forwardable_headers(incoming: dict[str, str], upstream: Upstream) -> dict[st
         for name, value in incoming.items()
         if name.lower() not in HOP_BY_HOP_HEADERS and name.lower() != "authorization"
     }
-    if upstream.api_key:
-        forwarded["authorization"] = f"Bearer {upstream.key()}"
+    # `key()`, not `api_key`. The field holds only what a declaration wrote;
+    # a credential from the store lives behind the resolver, so testing the
+    # field meant the transparent forward sent no Authorization header at all
+    # for exactly the providers the store exists to serve. The catalogue read
+    # authenticated and the chat forward did not, which is a confusing shape of
+    # broken: the provider lists its models and then refuses every request.
+    key = upstream.key()
+    if key:
+        forwarded["authorization"] = f"Bearer {key}"
     return forwarded
 
 

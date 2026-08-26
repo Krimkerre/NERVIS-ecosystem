@@ -125,6 +125,18 @@ class TranslatingAdapter(ProviderAdapter, Protocol):
     invite it to be invented differently later.
     """
 
+    @property
+    def has_credential(self) -> bool:
+        """Whether this provider could authenticate a request sent right now.
+
+        A translated provider is registered whether or not a key exists, so that
+        the Credentials screen can say the provider is reachable *before* anyone
+        has typed one — the alternative reads "unroutable" precisely when a
+        person is about to fix it, and hides that a restart used to be needed.
+        Routing consults this instead.
+        """
+        ...
+
     async def complete(self, request: NormalizedRequest) -> NormalizedResponse:
         """Run a non-streaming generation and normalize the result."""
         ...

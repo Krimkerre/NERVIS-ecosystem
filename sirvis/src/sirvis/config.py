@@ -42,10 +42,26 @@ class Settings(BaseSettings):
     tls_certificate_path: str = ""
     tls_key_path: str = ""
 
-    # Origins allowed to make browser requests. Empty means none, which is
-    # correct until a dashboard is actually served: an empty allowlist fails
-    # closed, an absent check fails open.
-    allowed_origins: list[str] = []
+    # Origins allowed to make browser requests. An empty allowlist fails closed;
+    # an absent check fails open, which is why this is a list and not a flag.
+    #
+    # **The default was empty, and the reason given was that it was "correct
+    # until a dashboard is actually served".** One is served now — NERVIS puts
+    # its page on 8790 — and the consequence of not revisiting the line was
+    # quiet rather than loud: a cross-origin read that is refused reaches the
+    # page as a failed fetch, and the dashboard turns every failed fetch into
+    # its mock. So its SIRVIS screens showed invented numbers and said nothing.
+    #
+    # Two entries because `localhost` and `127.0.0.1` are different origins to a
+    # browser, and which one appears depends on what was typed into the address
+    # bar. Nothing else is named, including other ports on this machine: SIRVIS
+    # exposes runtime mutations that load and unload models, and "any local page
+    # may call them" is a browser handing a stranger the ability to evict a
+    # model another client is holding.
+    allowed_origins: list[str] = [
+        "http://127.0.0.1:8790",
+        "http://localhost:8790",
+    ]
 
     # ── The local runtime SIRVIS measures through (§7) ───────────────────────
     # Empty is a legitimate state and M0's exit requires it: SIRVIS must start,

@@ -325,24 +325,27 @@ def _translating_adapters(
     # into the Credentials screen was written to a 0600 file, reported as
     # configured, and never reached a request — the screen was not wrong about
     # having stored it, only about what storing it would do.
-    anthropic_key = credential_for(credentials, "anthropic", settings.anthropic_api_key)
-    if anthropic_key:
-        adapters["anthropic"] = AnthropicAdapter(
-            upstream=Upstream(
-                base_url=settings.anthropic_base_url,
-                api_key=settings.anthropic_api_key,
-                # Re-read per request, like every transparent upstream. Whether
-                # the adapter *exists* is still decided at startup — a provider
-                # with no credential at all has nothing to register — so a first
-                # Anthropic key does need a restart. Replacing one does not.
-                credential=lambda: credential_for(
-                    credentials, "anthropic", settings.anthropic_api_key
-                ),
+    # **Registered whether or not a key exists.** This was gated on the key, so
+    # a provider RAVIS knows perfectly well how to reach reported itself
+    # `unroutable` until one was saved *and* the service restarted — which reads
+    # as "do not bother" at exactly the moment somebody is about to fix it.
+    # Whether a request is actually routed here is decided per request, by
+    # `has_credential`, so an unconfigured provider still serves nothing.
+    adapters["anthropic"] = AnthropicAdapter(
+        upstream=Upstream(
+            base_url=settings.anthropic_base_url,
+            api_key=settings.anthropic_api_key,
+            # Re-read per request, like every transparent upstream, so a key
+            # saved on the Credentials screen takes effect on the next request
+            # rather than the next restart.
+            credential=lambda: credential_for(
+                credentials, "anthropic", settings.anthropic_api_key
             ),
-            client=client,
-            max_output_tokens=settings.anthropic_max_output_tokens,
-            configured_capabilities=resolved_capabilities(settings),
-        )
+        ),
+        client=client,
+        max_output_tokens=settings.anthropic_max_output_tokens,
+        configured_capabilities=resolved_capabilities(settings),
+    )
     return adapters
 
 

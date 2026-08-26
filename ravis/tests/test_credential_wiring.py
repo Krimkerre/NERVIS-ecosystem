@@ -23,9 +23,16 @@ from ravis.upstreams import api_root_for, default_base_url
 
 
 def a_store(tmp_path, environment=None) -> CredentialStore:
-    store = CredentialStore(allow_environment=True, environment=environment or {})
-    store._file = type(store._file)(tmp_path / "credentials.json")
-    return store
+    """A store whose file is a throwaway, never the operator's own.
+
+    Via `XDG_CONFIG_HOME`, which is the supported redirect — `config_directory`
+    reads it precisely so that a test never touches a real home directory.
+    """
+    return CredentialStore(
+        allow_environment=True,
+        keychain=False,
+        environment={**(environment or {}), "XDG_CONFIG_HOME": str(tmp_path)},
+    )
 
 
 # ── The store reaches a request now ────────────────────────────────────────
@@ -270,6 +277,14 @@ async def test_a_key_that_was_never_stored_sends_no_authorization(tmp_path) -> N
 # ── Who may call this API from a browser ───────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _never_the_operators_own_credentials(tmp_path, monkeypatch) -> None:
+    """The app-backed tests build a real `CredentialStore` inside `create_app`,
+    which reads the process environment. Redirect that too, so running this
+    suite on a machine with a provider configured cannot change its result."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+
 def _cors(origin: str, settings: Settings | None = None):
     """One credentials read, as a browser on `origin` would make it.
 
@@ -348,3 +363,82 @@ def test_no_ambient_authority_is_offered_across_origins() -> None:
     response = _cors("http://localhost:8790")
 
     assert response.headers.get("access-control-allow-credentials") != "true"
+
+
+# ── "Unroutable" must not mean "you have not configured it yet" ────────────
+
+
+def test_a_provider_with_no_key_is_still_reachable_in_principle() -> None:
+    """The Anthropic adapter was registered only *if* a key already existed.
+
+    So the Credentials screen reported `anthropic` unroutable until one was
+    saved and the service restarted — which reads as "do not bother" at exactly
+    the moment somebody is about to fix it, and hid that a restart was needed.
+    Registered unconditionally now; routing checks the credential per request.
+    """
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+
+    with TestClient(create_app(Settings())) as client:
+        items = client.get("/api/v1/providers/credentials").json()["items"]
+
+    anthropic = next(i for i in items if i["name"] == "anthropic")
+    assert anthropic["configured"] is False
+    assert anthropic["routable"] is True
+
+
+def test_a_provider_with_no_key_still_serves_nothing(tmp_path) -> None:
+    """The other half. Reachable in principle is not reachable now.
+
+    Without this, registering the adapter unconditionally would forward a
+    request that can only come back 401 — which is a worse answer than no route,
+    because it looks like the provider is broken rather than unconfigured.
+    """
+    from ravis.app import _translating_adapters
+
+    store = a_store(tmp_path)
+    client = httpx.AsyncClient()
+    adapters = _translating_adapters(Settings(anthropic_api_key=""), client, store)
+
+    assert adapters["anthropic"].has_credential is False
+
+    store.store("anthropic", "sk-ant-typed-just-now")
+    # Same adapter object, no restart.
+    assert adapters["anthropic"].has_credential is True
+
+
+def test_the_transparent_forward_sends_a_stored_credential(tmp_path) -> None:
+    """The bug this file did not catch the first time.
+
+    `forwardable_headers` gated on `upstream.api_key` — the field, which holds
+    only what a declaration wrote. A credential from the store lives behind the
+    resolver, so the catalogue read authenticated and the chat forward sent no
+    Authorization header at all: the provider listed its models and then refused
+    every request, which is a confusing shape of broken.
+
+    Caught by an actual call to Google, not by a test, which is the reason this
+    one exists.
+    """
+    from ravis.upstream import forwardable_headers
+
+    store = a_store(tmp_path)
+    store.store("google", "from-the-store")
+    settings = Settings(upstreams='[{"name": "google", "kind": "google"}]')
+    upstream = build_transparents(settings, httpx.AsyncClient(), store)["google"].upstream
+
+    assert upstream.api_key == ""  # nothing was written into the declaration
+    assert forwardable_headers({}, upstream)["authorization"] == "Bearer from-the-store"
+
+
+def test_no_credential_means_no_authorization_header(tmp_path) -> None:
+    """A header that is present and empty reads as a failed authentication
+    attempt. Absent is the honest and more diagnosable state."""
+    from ravis.upstream import forwardable_headers
+
+    settings = Settings(upstreams='[{"name": "google", "kind": "google"}]')
+    upstream = build_transparents(
+        settings, httpx.AsyncClient(), a_store(tmp_path)
+    )["google"].upstream
+
+    assert "authorization" not in forwardable_headers({}, upstream)

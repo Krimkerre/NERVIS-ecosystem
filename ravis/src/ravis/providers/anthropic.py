@@ -102,6 +102,18 @@ class AnthropicAdapter:
 
     protocol_mode = ProtocolMode.TRANSLATED
 
+
+    @property
+    def has_credential(self) -> bool:
+        """Whether a request sent now could authenticate.
+
+        Read per call rather than captured, because the credential is resolved
+        per call — a key saved on the Credentials screen has to take effect
+        without a restart, and this is the check that decides whether the
+        provider is offered at all.
+        """
+        return bool(self._upstream.key())
+
     def __init__(
         self,
         upstream: Upstream,
