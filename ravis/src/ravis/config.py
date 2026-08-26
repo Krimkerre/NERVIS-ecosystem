@@ -48,10 +48,27 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 600
     anonymous_rate_limit_per_minute: int = 60
 
-    # Origins allowed to make browser requests. Empty means no browser origin is
-    # allowed, which is correct until a dashboard is actually served: an empty
-    # allowlist fails closed, an absent check fails open.
-    allowed_origins: list[str] = []
+    # Origins allowed to make browser requests. An empty allowlist fails closed;
+    # an absent check fails open, which is why this is a list and not a flag.
+    #
+    # **The default was empty, and the reason given was that it was "correct
+    # until a dashboard is actually served".** One is served now — NERVIS puts
+    # its page on 8790 — and the consequence of not noticing was quiet: every
+    # cross-origin read from that page was refused, and the dashboard's own
+    # fallback turned each refusal into invented data rather than an error. Half
+    # its live reads had never worked in a browser, and nothing said so.
+    #
+    # So the default names that one page, and nothing else. Two entries because
+    # `localhost` and `127.0.0.1` are different origins to a browser and which
+    # one appears depends on what was typed into the address bar. Any other
+    # origin — a different port on this machine included — still gets nothing,
+    # which is the property that matters: this API stores provider credentials,
+    # and "any local page may write one" is the browser handing a stranger a
+    # local write primitive. A named port is a boundary; "localhost" is not.
+    allowed_origins: list[str] = [
+        "http://127.0.0.1:8790",
+        "http://localhost:8790",
+    ]
     # Only these proxies may set a forwarded client address. Trusting that header
     # from anyone else is a rate-limit bypass, since the caller then picks their
     # own bucket (§4.4).

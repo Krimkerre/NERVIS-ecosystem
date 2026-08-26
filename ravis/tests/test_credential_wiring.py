@@ -265,3 +265,86 @@ async def test_a_key_that_was_never_stored_sends_no_authorization(tmp_path) -> N
 
     assert "authorization" not in seen[0].headers
     await client.aclose()
+
+
+# ── Who may call this API from a browser ───────────────────────────────────
+
+
+def _cors(origin: str, settings: Settings | None = None):
+    """One credentials read, as a browser on `origin` would make it.
+
+    RAVIS already had all of this — the allowlist, the headers, and a written
+    reason why credentials use PUT (it always preflights, so a page that was
+    never allow-listed cannot slip a write through as a simple request). What it
+    had was an empty default, justified as "correct until a dashboard is
+    actually served". One is served now.
+    """
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+
+    with TestClient(create_app(settings or Settings())) as client:
+        return client.get("/api/v1/providers/credentials", headers={"Origin": origin})
+
+
+def test_the_dashboard_may_call_this_api() -> None:
+    """Without this the credential screen cannot reach RAVIS at all.
+
+    A page on one port calling a service on another is cross-origin by the
+    browser's definition, so every request failed preflight and the screen fell
+    back silently to invented data.
+    """
+    response = _cors("http://localhost:8790")
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8790"
+
+
+def test_both_spellings_of_loopback_are_allowed() -> None:
+    """They are different origins to a browser, and which one appears depends
+    on what the operator typed into the address bar."""
+    assert _cors("http://127.0.0.1:8790").headers["access-control-allow-origin"] == (
+        "http://127.0.0.1:8790"
+    )
+
+
+def test_a_request_with_no_origin_is_untouched() -> None:
+    """No Origin header means no browser made this request.
+
+    Command-line clients and SDKs do not set one, and they are the ordinary
+    caller — the allowlist must not turn into an authentication check.
+    """
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+
+    with TestClient(create_app(Settings())) as client:
+        assert client.get("/api/v1/providers/credentials").status_code == 200
+
+
+def test_another_local_port_may_not() -> None:
+    """The reason this is an exact allowlist rather than a loopback pattern.
+
+    This API stores provider credentials. Allowing any local origin would let
+    any page the operator happens to visit write one — the browser handing a
+    stranger a local write primitive. A named port is a boundary; "localhost"
+    is not one.
+    """
+    refused = _cors("http://localhost:3000")
+
+    assert refused.status_code == 403
+    assert "access-control-allow-origin" not in refused.headers
+
+
+def test_a_remote_origin_may_not() -> None:
+    refused = _cors("https://evil.example")
+
+    assert refused.status_code == 403
+    assert "access-control-allow-origin" not in refused.headers
+
+
+def test_no_ambient_authority_is_offered_across_origins() -> None:
+    """RAVIS authenticates with a header, never a cookie, so there is no
+    ambient authority for a cross-origin page to borrow."""
+    response = _cors("http://localhost:8790")
+
+    assert response.headers.get("access-control-allow-credentials") != "true"
