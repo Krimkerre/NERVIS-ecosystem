@@ -65,6 +65,7 @@ from ravis.transparent import (
     merged_residency,
     remote_models,
     resolve,
+    translated_candidates,
 )
 from ravis.upstream import Upstream, forwardable_headers
 
@@ -190,7 +191,7 @@ async def create_chat_completion(request: Request) -> Response:
     # does not speak the external protocol needs Path B; everything else is
     # forwarded untouched, because §6 forbids normalising an already-compatible
     # stream for architectural purity.
-    translating = _translating_for(request, parsed.get("model", ""))
+    translating = _translating_for(request, parsed.get("model", ""), decision.selected or "")
     _record_path(call, TRANSLATED if translating else TRANSPARENT)
     if translating is not None:
         return await _translated(call, translating, decision)
@@ -225,18 +226,32 @@ def _destination_for(
     return destination
 
 
-def _translating_for(request: Request, requested: str) -> TranslatingAdapter | None:
+def _translating_for(
+    request: Request, requested: str, selected: str = ""
+) -> TranslatingAdapter | None:
     """The adapter that must translate this request, or None for Path A.
 
-    Keyed on the provider segment of a direct address — `ravis/anthropic/…` —
-    because that is the only part of a request that names an upstream. A pool
-    resolves to a model rather than to a provider until the M8 provider table
-    exists, so a pooled request cannot reach a translating adapter yet and is
-    forwarded transparently. That is a real limit and not a silent one: it is
-    why `execution_path` is recorded on every request rather than only on the
-    interesting ones.
+    Two ways to arrive here, and for a long time only the first worked.
+
+    A **direct address** names its provider outright — `ravis/anthropic/…` —
+    and that segment is the only part of a request that identifies an upstream.
+
+    A **pool** resolves to a bare model id, and this used to stop there: the
+    docstring said "a pooled request cannot reach a translating adapter yet and
+    is forwarded transparently", which meant every Anthropic model was invisible
+    to every pool. What was missing was not a lookup but a *map* — nothing knew
+    which provider served a given translated model. `translated_candidates`
+    returns one alongside the candidates it contributes, built from the same
+    catalogue read, so the answer cannot disagree with the set the router chose
+    from.
+
+    Forking on the **selected** model rather than the requested one is the whole
+    fix. What a client asked for is a pool; what has to be translated is what
+    the router picked.
     """
     provider = direct_provider(requested)
+    if provider is None:
+        provider = getattr(request.state, "translated_owners", {}).get(selected)
     if provider is None:
         return None
     adapters: dict[str, TranslatingAdapter] = getattr(request.app.state, "translating", {})
@@ -499,6 +514,21 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
             transparents, evidence, _disabled(request), _filters(request)
         )
         residency = merged_residency(transparents)
+        # Translated providers join the candidate set. They were absent
+        # entirely, so an Anthropic model could not be selected by any pool —
+        # only addressed directly. The owner map travels with them so the fork
+        # below can attribute a selection back to the adapter that serves it.
+        translated, owners = await translated_candidates(
+            {
+                name: adapter
+                for name, adapter in getattr(request.app.state, "translating", {}).items()
+                if name not in _disabled(request)
+            },
+            evidence,
+        )
+        for model, known in translated.items():
+            candidates.setdefault(model, known)
+        request.state.translated_owners = owners
     else:
         adapter: ProviderAdapter = request.app.state.adapter
         candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
@@ -520,7 +550,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # `ravis/private` are refusals rather than preferences, so this has to
         # reach the engine — it had no way to know, and answered `ravis/local`
         # with an OpenRouter model.
-        remote_models=remote_models(transparents),
+        # Every translated provider is hosted, so its models are remote — which
+        # is what keeps them out of `ravis/local` now that they are candidates.
+        remote_models=remote_models(transparents)
+        | frozenset(getattr(request.state, "translated_owners", {})),
         # An operator's narrowing of this pool, if they made one. Read per
         # request for the same reason the provider toggles are.
         chosen=_chosen(request, payload.get("model") or ""),

@@ -332,7 +332,13 @@ def test_a_refused_translation_does_not_count_against_the_provider() -> None:
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "invalid_request_error"
     assert "prefill" in response.json()["error"]["message"]
-    assert fake.requests == [], "a refused request must never reach the provider"
+    # Generation requests, not discovery. Routing reads the Anthropic catalogue
+    # now — that is what makes an Anthropic model selectable by a pool at all —
+    # so the provider does see cached GETs against /v1/models. The invariant
+    # here has always been about the *generation*: a request RAVIS refused must
+    # never be sent to be generated.
+    generations = [r for r in fake.requests if r.method == "POST"]
+    assert generations == [], "a refused request must never reach the provider"
     assert all(entry["consecutive_failures"] == 0 for entry in health), (
         "a request RAVIS refused must leave no mark on the provider it never reached"
     )

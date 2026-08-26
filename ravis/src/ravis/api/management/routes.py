@@ -42,7 +42,11 @@ from ravis.observations import MINIMUM_SAMPLES
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
-from ravis.transparent import merged_candidates, remote_models
+from ravis.transparent import (
+    merged_candidates,
+    remote_models,
+    translated_candidates,
+)
 from ravis.upstreams import is_local_address
 
 router = APIRouter(prefix="/api/v1", tags=["management"])
@@ -78,7 +82,13 @@ async def _candidates(request: Request) -> dict[str, Any]:
     transparents = getattr(request.app.state, "transparents", {})
     evidence = getattr(request.app.state, "evidence", None)
     if transparents:
-        return await merged_candidates(transparents, evidence)
+        candidates = await merged_candidates(transparents, evidence)
+        translated, _ = await translated_candidates(
+            getattr(request.app.state, "translating", {}), evidence
+        )
+        for model, known in translated.items():
+            candidates.setdefault(model, known)
+        return candidates
     adapter = request.app.state.adapter
     registry = request.app.state.model_registry
     return await candidates_with_evidence(adapter, registry.model_ids(), evidence)
@@ -450,10 +460,16 @@ async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[
     transparents = getattr(request.app.state, "transparents", {})
     if not transparents:
         return {}, frozenset()
-    candidates = await merged_candidates(
-        transparents, getattr(request.app.state, "evidence", None)
+    evidence = getattr(request.app.state, "evidence", None)
+    candidates = await merged_candidates(transparents, evidence)
+    # Translated providers too, or this screen describes a different candidate
+    # set than the router uses — and the router is the one that answers.
+    translated, owners = await translated_candidates(
+        getattr(request.app.state, "translating", {}), evidence
     )
-    return candidates, remote_models(transparents)
+    for model, known in translated.items():
+        candidates.setdefault(model, known)
+    return candidates, remote_models(transparents) | frozenset(owners)
 
 
 @router.get("/observations")

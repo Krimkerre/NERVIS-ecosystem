@@ -97,6 +97,12 @@ class AnthropicUpstreamError(RuntimeError):
     """
 
 
+# How long a discovery read is believed. The same window the other adapters
+# use: a catalogue changes daily rather than by the second, and this is about
+# not fetching it once per routing pass rather than about freshness.
+DISCOVERY_TTL_SECONDS = 300.0
+
+
 class AnthropicAdapter:
     """A `TranslatingAdapter` for the Anthropic Messages API (§6, Path B)."""
 
@@ -122,6 +128,8 @@ class AnthropicAdapter:
         name: str = "anthropic",
         max_output_tokens: int = 16000,
         configured_capabilities: dict[str, dict[str, str]] | None = None,
+        discovery_ttl_seconds: float = DISCOVERY_TTL_SECONDS,
+        clock: Any = time.monotonic,
     ) -> None:
         self.name = name
         self._upstream = upstream
@@ -131,6 +139,10 @@ class AnthropicAdapter:
         # number — a default for the unstated case, never a cap on a stated one.
         self._max_output_tokens = max_output_tokens
         self._configured = configured_capabilities or {}
+        self._ttl = discovery_ttl_seconds
+        self._clock = clock
+        # path -> (read at, payload). Only discovery reads land here.
+        self._discovery: dict[str, tuple[float, dict[str, Any]]] = {}
 
     # ── Discovery ────────────────────────────────────────────────────────────
 
@@ -148,7 +160,7 @@ class AnthropicAdapter:
 
     async def models(self) -> list[str]:
         """The model IDs this account can address, or an empty list."""
-        payload = await self._get(MODELS_PATH)
+        payload = await self._get(MODELS_PATH, cache=True)
         entries = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(entries, list):
             return []
@@ -173,7 +185,7 @@ class AnthropicAdapter:
                     detail="implied by the Anthropic Messages API",
                 )
             )
-        _record_advertised(known, await self._get(f"{MODELS_PATH}/{model}"))
+        _record_advertised(known, await self._get(f"{MODELS_PATH}/{model}", cache=True))
         apply_configured(known, self._configured.get(model, {}))
         return known
 
@@ -256,8 +268,16 @@ class AnthropicAdapter:
 
     # ── Plumbing ─────────────────────────────────────────────────────────────
 
-    async def _get(self, path: str) -> dict[str, Any]:
+    async def _get(self, path: str, *, cache: bool = False) -> dict[str, Any]:
         """A discovery GET, or an empty mapping when it cannot be answered.
+
+        `cache` is for the two reads a *route* makes — the catalogue and a
+        model's entry. Those were uncached, which was fine while a translated
+        provider could only be reached by direct address and is not now: a pool
+        asks about every candidate on every request, so an uncached listing
+        would put an Anthropic round trip on the routing path and blow §9.8's
+        five-millisecond budget several times over. The generation calls below
+        are deliberately not cached — those are the request.
 
         Discovery failures are absence rather than errors here: `models()` and
         `capabilities()` are called to *inform* a route, and a provider that
@@ -266,13 +286,23 @@ class AnthropicAdapter:
         """
         if not self._upstream.is_configured:
             return {}
+        if cache:
+            hit = self._discovery.get(path)
+            if hit is not None and self._clock() - hit[0] < self._ttl:
+                return hit[1]
         try:
             response = await self._client.get(self._url(path), headers=self._headers())
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError):
+            # A failed read is not cached. Holding a blip for the whole window
+            # would leave every Anthropic model capability-less — which fails
+            # closed, so a moment's outage would empty the pools for minutes.
             return {}
-        return payload if isinstance(payload, dict) else {}
+        answer = payload if isinstance(payload, dict) else {}
+        if cache:
+            self._discovery[path] = (self._clock(), answer)
+        return answer
 
     def _url(self, path: str) -> str:
         return self._upstream.url_for(path)

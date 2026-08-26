@@ -290,6 +290,45 @@ def remote_models(transparents: dict[str, TransparentUpstream]) -> frozenset[str
     )
 
 
+async def translated_candidates(
+    translating: dict[str, Any], evidence: Any = None
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Every translated provider's models, and which provider serves each.
+
+    **These were absent from routing entirely.** `merged_candidates` walks
+    transparent upstreams, so an Anthropic model was never a pool candidate —
+    reachable only by direct address, invisible to `ravis/clarvis-chat` and to
+    every other pool. `_translating_for`'s docstring said so plainly: *"a pooled
+    request cannot reach a translating adapter yet."*
+
+    Both halves come out of one catalogue read, so the router cannot select a
+    model it is then unable to attribute to a provider — which would leave it
+    forwarding an Anthropic id down the transparent path to something that has
+    never heard of it.
+
+    A provider that cannot authenticate is skipped rather than listed. Its
+    models would be eligible, chosen, and refused at the first request, and a
+    pool that selects something unreachable is worse than one that never
+    offered it.
+    """
+    merged: dict[str, Any] = {}
+    owners: dict[str, str] = {}
+    for name, adapter in translating.items():
+        if not getattr(adapter, "has_credential", True):
+            continue
+        try:
+            models = await adapter.models()
+        except Exception:  # noqa: BLE001 — discovery failure is absence, not error
+            continue
+        found = await candidates_with_evidence(adapter, models, evidence)
+        # First declared wins a collision, the rule every other merge here uses.
+        for model, known in found.items():
+            if model not in merged:
+                merged[model] = known
+                owners[model] = name
+    return merged, owners
+
+
 async def merged_candidates(
     transparents: dict[str, TransparentUpstream],
     evidence: Any,
