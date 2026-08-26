@@ -186,7 +186,41 @@ async def set_credential(name: str, body: CredentialInput, request: Request) -> 
             {"error": {"message": str(failure), "type": "invalid_request_error"}},
             status_code=400,
         )
-    return status.as_dict()
+    refreshed = await _recatalogue(request, name)
+    return {**status.as_dict(), "catalogue_total": refreshed}
+
+
+async def _recatalogue(request: Request, name: str) -> int | None:
+    """Re-read the catalogue of whatever this credential unlocks.
+
+    **A key is usually the reason the catalogue was empty**, and until now
+    nothing connected the two: the credential took effect on the very next
+    request, and the *model list* did not. So a provider keyed a moment ago
+    reported no models, and a request to one of them came back `no_route` —
+    which reads as "that model does not exist" rather than "I have not looked
+    since you gave me the key". A five-minute timer eventually fixed it, which
+    is the worst duration for a bug: long enough to be reported, short enough to
+    have healed by the time anybody investigates.
+
+    Awaited rather than backgrounded. Saving a credential is a deliberate act
+    and its whole point is the catalogue that follows, so the wait belongs in
+    the response that reports the result. A refresh that fails leaves the
+    previous snapshot alone, so the worst case is the state that existed before.
+
+    Matched by upstream name *and* by kind, the same two-step `_key_for` uses, so
+    an upstream named `gemini` of kind `google` is refreshed by a credential
+    stored under either.
+    """
+    transparents = getattr(request.app.state, "transparents", {})
+    targets = [
+        built for key, built in transparents.items()
+        if key == name or built.spec.kind.strip().lower() == name
+    ]
+    if not targets:
+        return None
+    for built in targets:
+        await built.registry.refresh()
+    return sum(len(built.registry.model_ids()) for built in targets)
 
 
 @router.delete("/credentials/{name}")

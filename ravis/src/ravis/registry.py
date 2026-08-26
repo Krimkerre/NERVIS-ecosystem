@@ -95,17 +95,6 @@ class ModelRegistry:
         """The upstream model IDs, for routing to choose among."""
         return [entry["id"] for entry in self._snapshot.models if entry.get("id")]
 
-    def is_due_for_refresh(self, now: float | None = None) -> bool:
-        """Whether the snapshot has aged past its TTL.
-
-        **Called from nowhere until now**, which is worth stating: it was
-        written as a lazy-refresh hook, nothing ever used it, and its existence
-        made the catalogue look self-healing when the only thing refreshing it
-        was a 300-second timer. `refresh_periodically` reads it now.
-        """
-        moment = time.monotonic() if now is None else now
-        return moment - self._snapshot.refreshed_at >= self._ttl_seconds
-
     @property
     def needs_recovery(self) -> bool:
         """Whether the last attempt failed to reach the upstream at all.
@@ -213,6 +202,13 @@ async def refresh_periodically(
     catalogue, so refreshing immediately here would fetch twice in a second —
     which is harmless against a local runtime and exactly the wrong first
     impression to make on a rate-limited provider.
+
+    **There is no TTL predicate.** One existed — `is_due_for_refresh` — and its
+    docstring said this function read it. This function did not, and never had:
+    the loop sleeps the interval and then refreshes, so "is it due" is answered
+    by having just woken up. The method was dead for a second time, and the
+    second time it carried a comment asserting it was not, which is worse than
+    dead code because a reader has no reason to check.
 
     **The interval shortens while the upstream is unreachable**, and that is a
     fix rather than a refinement. With a flat 300-second TTL, a RAVIS that

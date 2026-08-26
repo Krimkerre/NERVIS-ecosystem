@@ -131,3 +131,66 @@ def test_an_unfiltered_provider_has_everything_selected() -> None:
     assert all(i["selected"] for i in page["items"])
     assert page["filtered"] is False
     client.__exit__(None, None, None)
+
+
+# ── Saving a key is usually why the catalogue was empty ────────────────────
+
+
+def test_saving_a_credential_re_reads_the_catalogue() -> None:
+    """The credential took effect on the next request; the model list did not.
+
+    So a provider keyed a moment ago reported no models, and a request to one of
+    them came back `no_route` — which reads as "that model does not exist"
+    rather than "I have not looked since you gave me the key". A five-minute
+    timer eventually fixed it, which is the worst duration for a bug: long
+    enough to be reported, short enough to have healed before anyone looks.
+    """
+    calls: list[int] = []
+    catalogue: list[str] = []
+
+    class _Registry:
+        async def refresh(self) -> None:
+            calls.append(1)
+            # What a real one does once a key exists: the fetch that returned
+            # nothing now returns the catalogue.
+            catalogue[:] = ["demo/one", "demo/two"]
+
+        def model_ids(self) -> list[str]:
+            return list(catalogue)
+
+    class _Spec:
+        kind = "demo"
+
+    class _Built:
+        registry = _Registry()
+        spec = _Spec()
+
+    client = TestClient(create_app(Settings()))
+    client.__enter__()
+    client.app.app.state.transparents = {"demo": _Built()}  # type: ignore[attr-defined]
+
+    assert client.get("/api/v1/providers/demo/catalogue").json()["total"] == 0
+
+    saved = client.put(
+        "/api/v1/providers/credentials/demo", json={"secret": "sk-something"}
+    ).json()
+
+    assert calls == [1]
+    assert saved["catalogue_total"] == 2
+    assert client.get("/api/v1/providers/demo/catalogue").json()["total"] == 2
+    client.__exit__(None, None, None)
+
+
+def test_a_credential_for_a_provider_with_no_upstream_reports_no_catalogue() -> None:
+    """`None`, not zero. Nothing was refreshed because nothing is declared, and
+    "no catalogue to read" is a different fact from "the catalogue is empty"."""
+    client = TestClient(create_app(Settings()))
+    client.__enter__()
+    client.app.app.state.transparents = {}  # type: ignore[attr-defined]
+
+    saved = client.put(
+        "/api/v1/providers/credentials/nowhere", json={"secret": "sk-x"}
+    ).json()
+
+    assert saved["catalogue_total"] is None
+    client.__exit__(None, None, None)
