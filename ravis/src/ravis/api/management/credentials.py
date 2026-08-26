@@ -40,7 +40,7 @@ router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 # The providers RAVIS knows how to reach. Listed rather than discovered so the
 # screen can show a row for a provider that has *no* credential yet — which is
 # the only row that matters when someone is trying to add one.
-KNOWN_PROVIDERS = ("anthropic", "google", "openrouter")
+KNOWN_PROVIDERS = ("anthropic", "google", "openai", "openrouter")
 
 # What to call each provider on a screen.
 #
@@ -55,6 +55,7 @@ KNOWN_PROVIDERS = ("anthropic", "google", "openrouter")
 PROVIDER_LABELS = {
     "anthropic": "Anthropic",
     "google": "Google AI Studio",
+    "openai": "OpenAI",
     "openrouter": "OpenRouter",
 }
 

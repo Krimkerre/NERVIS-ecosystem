@@ -478,3 +478,36 @@ def test_every_adapter_authenticates_from_the_resolved_credential(tmp_path) -> N
     settings = Settings(upstreams='[{"name": "google", "kind": "google"}]')
     upstream = build_transparents(settings, httpx.AsyncClient(), store)["google"].upstream
     assert forwardable_headers({}, upstream)["authorization"] == "Bearer goog-from-the-store"
+
+
+def test_openai_is_offered_and_needs_no_translation(tmp_path) -> None:
+    """The shape every other provider here is compatible *with*.
+
+    Listing it is not about translation — there is none to do. It is so that
+    "OpenAI" is a row on the Credentials screen and a `kind` somebody can
+    declare without looking up an address, exactly like the providers that do
+    need a quirk.
+    """
+    store = a_store(tmp_path)
+    store.store("openai", "sk-proj-from-the-store")
+    settings = Settings(upstreams='[{"name": "openai", "kind": "openai"}]')
+
+    upstream = build_transparents(settings, httpx.AsyncClient(), store)["openai"].upstream
+
+    assert upstream.base_url == "https://api.openai.com"
+    assert upstream.api_url("/chat/completions") == "https://api.openai.com/v1/chat/completions"
+    assert upstream.key() == "sk-proj-from-the-store"
+
+
+def test_the_credentials_screen_offers_a_row_for_openai() -> None:
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+
+    with TestClient(create_app(Settings())) as client:
+        items = client.get("/api/v1/providers/credentials").json()["items"]
+
+    openai = next(i for i in items if i["name"] == "openai")
+    assert openai["label"] == "OpenAI"
+    # Not declared here, so honestly unroutable until an upstream exists.
+    assert openai["routable"] is False

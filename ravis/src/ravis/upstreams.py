@@ -49,6 +49,12 @@ DEFAULT_NAME = "default"
 # wrong machine as healthy.
 KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
     "google": ("https://generativelanguage.googleapis.com", "/v1beta/openai"),
+    # The shape everything else here is compatible *with*, so it needs no
+    # special handling at all — which is the point worth recording. Listing it
+    # is not about translation; it is so that "OpenAI" is a row on the
+    # Credentials screen and a `kind` somebody can declare without looking up an
+    # address, exactly like the two below it.
+    "openai": ("https://api.openai.com", "/v1"),
     "openrouter": ("https://openrouter.ai/api", "/v1"),
 }
 
