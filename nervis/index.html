@@ -663,8 +663,63 @@ function startNetworkField(){
  const ctx=canvas.getContext('2d'),reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let w=0,h=0,dpr=1,raf=0,pointer={x:-9999,y:-9999},nodes=[],pulses=[];
  const palette=['85,220,255','52,230,242','125,108,255'];
  function resize(){const r=canvas.getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,1.7);w=Math.max(1,r.width);h=Math.max(1,r.height);canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);const count=Math.max(20,Math.min(44,Math.round(w*h/26000)));while(nodes.length<count)nodes.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-.5)*.16,vy:(Math.random()-.5)*.16,r:Math.random()*1.4+.7,c:palette[Math.floor(Math.random()*palette.length)],phase:Math.random()*6.28});nodes.length=count}
- function draw(t){ctx.clearRect(0,0,w,h);const links=[];for(let i=0;i<nodes.length;i++){const a=nodes[i];if(!reduce){a.x+=a.vx;a.y+=a.vy;if(a.x<0||a.x>w)a.vx*=-1;if(a.y<0||a.y>h)a.vy*=-1;const dx=a.x-pointer.x,dy=a.y-pointer.y,dist=Math.hypot(dx,dy);if(dist<170&&dist>1){a.x+=dx/dist*.075;a.y+=dy/dist*.075}}for(let j=i+1;j<nodes.length;j++){const b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);if(d<165){const alpha=.035+(1-d/165)*.30;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.strokeStyle=`rgba(68,198,235,${alpha})`;ctx.lineWidth=.85;ctx.stroke();links.push([a,b])}}const glow=.62+Math.sin(t*.0015+a.phase)*.22;ctx.beginPath();ctx.arc(a.x,a.y,a.r*7,0,Math.PI*2);ctx.fillStyle=`rgba(${a.c},${glow*.075})`;ctx.fill();ctx.beginPath();ctx.arc(a.x,a.y,a.r*2.3,0,Math.PI*2);ctx.fillStyle=`rgba(${a.c},${glow*.16})`;ctx.fill();ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,Math.PI*2);ctx.fillStyle=`rgba(${a.c},${glow})`;ctx.fill()}
- if(!reduce&&links.length&&Math.random()<.045){const e=links[Math.floor(Math.random()*links.length)];pulses.push({a:e[0],b:e[1],p:0,s:.006+Math.random()*.007})}pulses=pulses.filter(q=>{q.p+=reduce?0:q.s;const x=q.a.x+(q.b.x-q.a.x)*q.p,y=q.a.y+(q.b.y-q.a.y)*q.p;ctx.beginPath();ctx.arc(x,y,2.2,0,Math.PI*2);ctx.fillStyle='rgba(145,241,255,.96)';ctx.shadowBlur=13;ctx.shadowColor='#55dcff';ctx.fill();ctx.shadowBlur=0;return q.p<1});if(!reduce)raf=requestAnimationFrame(draw)}
+ /* Split into a step, a link pass and a pulse pass. It was one function at
+    cyclomatic complexity 15 — decorative code, and the gate applies to it for
+    the same reason the compiler does: an exemption for "it is only the
+    background" is how the background becomes the thing nobody can change. */
+ function stepNode(a){
+  if(reduce)return;
+  a.x+=a.vx;a.y+=a.vy;
+  if(a.x<0||a.x>w)a.vx*=-1;
+  if(a.y<0||a.y>h)a.vy*=-1;
+  const dx=a.x-pointer.x,dy=a.y-pointer.y,dist=Math.hypot(dx,dy);
+  /* Drifts toward the cursor, and only within reach — the lower bound stops a
+     divide-by-almost-zero flinging a node across the canvas. */
+  if(dist<170&&dist>1){a.x+=dx/dist*.075;a.y+=dy/dist*.075}
+ }
+ function linkFrom(a,from,links){
+  for(let j=from;j<nodes.length;j++){
+   const b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
+   if(d>=165)continue;
+   const alpha=.035+(1-d/165)*.30;
+   ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+   ctx.strokeStyle=`rgba(68,198,235,${alpha})`;ctx.lineWidth=.85;ctx.stroke();
+   links.push([a,b]);
+  }
+ }
+ function glowNode(a,t){
+  const glow=.62+Math.sin(t*.0015+a.phase)*.22;
+  for(const [radius,strength] of [[a.r*7,.075],[a.r*2.3,.16],[a.r,1]]){
+   ctx.beginPath();ctx.arc(a.x,a.y,radius,0,Math.PI*2);
+   ctx.fillStyle=`rgba(${a.c},${glow*strength})`;ctx.fill();
+  }
+ }
+ function advancePulses(links){
+  if(!reduce&&links.length&&Math.random()<.045){
+   const e=links[Math.floor(Math.random()*links.length)];
+   pulses.push({a:e[0],b:e[1],p:0,s:.006+Math.random()*.007});
+  }
+  pulses=pulses.filter(q=>{
+   q.p+=reduce?0:q.s;
+   const x=q.a.x+(q.b.x-q.a.x)*q.p,y=q.a.y+(q.b.y-q.a.y)*q.p;
+   ctx.beginPath();ctx.arc(x,y,2.2,0,Math.PI*2);
+   ctx.fillStyle='rgba(145,241,255,.96)';ctx.shadowBlur=13;ctx.shadowColor='#55dcff';
+   ctx.fill();ctx.shadowBlur=0;
+   return q.p<1;
+  });
+ }
+ function draw(t){
+  ctx.clearRect(0,0,w,h);
+  const links=[];
+  for(let i=0;i<nodes.length;i++){
+   const a=nodes[i];
+   stepNode(a);
+   linkFrom(a,i+1,links);
+   glowNode(a,t);
+  }
+  advancePulses(links);
+  if(!reduce)raf=requestAnimationFrame(draw);
+ }
  addEventListener('resize',resize,{passive:true});addEventListener('pointermove',e=>{pointer.x=e.clientX-220;pointer.y=e.clientY-62},{passive:true});addEventListener('pointerleave',()=>pointer={x:-9999,y:-9999},{passive:true});resize();draw(0)
 }
 startNetworkField();
@@ -927,7 +982,7 @@ function sirvisEvidence(result){
    return m?m[1]:(f.passed?'used-result':null)};
  return{evidence_type:result.evidence_type,role:result.role,
   target:{family:t.model_family,
-          variant:[t.format,t.quantization].filter(Boolean).join(' ')||t.variant||'—',
+          variant:[t.format,t.quantization].filter(Boolean).join(' ')||dash(t.variant),
           runtime:t.runtime,lmstudio_id:result.target_key,
           runtime_config:t.runtime_config||{}},
   samples:result.samples,
@@ -1319,7 +1374,7 @@ const API={
    if(live&&live.items.length)return{source:'live',items:live.items.map(r=>{
     const e=(r.results||[])[0]||{},s=e.suite||{};
     return{job_id:r.run_id,state:r.state,detail:r.detail||null,
-     suite:s.id?s.id+'@'+s.version:'—',target:e.target_key||'—',
+     suite:s.id?s.id+'@'+s.version:'—',target:dash(e.target_key),
      /* Null, not zero. A run is created already running and either finishes or
         does not; nothing publishes a fraction, and a zero bar would claim a job
         that had started and achieved nothing. */
@@ -1524,66 +1579,112 @@ const API={
    const [sets,runs]=await Promise.all([
      liveSirvis('/api/v1/runtime-sets'),
      liveSirvis('/api/v1/benchmark-runs?limit=50')]);
-   if(!sets||!runs||!(sets.items||[]).length)return this._runtimeSetMock();
-
-   const measured=[];
-   for(const run of runs.items||[])for(const res of run.results||[])
-    if(res.interaction_matrix)measured.push({res,m:res.interaction_matrix});
+   const items=(sets&&sets.items)||[];
+   if(!runs||!items.length)return this._runtimeSetMock();
+   const measured=this._measuredMatrices(runs);
    if(!measured.length)return this._runtimeSetMock();
-
    const newest=measured[0];
-   const set=(sets.items||[]).find(s=>s.name===newest.m.runtime_set)||sets.items[0];
-   /* Defaulted once, at the top, rather than at each of the twenty places that
-      reached into it. This function measured cyclomatic complexity 30 and two
-      thirds of that was `||{}` repeated — optional-field shaping counted as
-      branching, which it technically is and which no reader experiences as
-      thirty decisions. */
-   const rows=newest.m.rows||{};
-   const roles=newest.m.load_order||Object.keys(rows);
+   const set=items.find(s=>s.name===newest.m.runtime_set)||items[0];
+   SOURCE.sirvis='live';
+   return this._runtimeSetView(set,newest,
+     this._matrixLens(newest,this._resultsByRole(measured,newest)));
+  },
+
+  /* Every stored result that carries an interaction matrix, newest first.
+     Split out of `runtimeSet`, which measured cyclomatic complexity 30 — the
+     highest in the file and nearly four times the gate the Python is held to.
+     Almost all of it was optional-field shaping: `||{}` and `||[]` repeated at
+     each of twenty reads. Those are genuinely branches, and no reader ever
+     experienced them as thirty decisions, which is exactly why they
+     accumulated unnoticed. */
+  _measuredMatrices(runs){
+   return ((runs&&runs.items)||[]).flatMap(run=>((run.results)||[])
+     .filter(res=>res.interaction_matrix)
+     .map(res=>({res,m:res.interaction_matrix})));
+  },
+
+  /* The result per role, for the newest matrix only.
+     Keyed by revision as well as set name: two runs of the same Runtime Set at
+     different revisions are different measurements, and merging them would
+     read one revision's throughput under another's label. */
+  _resultsByRole(measured,newest){
    const forRole={};
    for(const {res,m} of measured)
     if(m.runtime_set===newest.m.runtime_set&&m.revision===newest.m.revision)
      forRole[res.target_key]=res;
+   return forRole;
+  },
 
-   const round=(n,d)=>n==null?null:Math.round(n*Math.pow(10,d==null?2:d))/Math.pow(10,d==null?2:d);
+  /* One place where every optional field is defaulted, instead of twenty.
+     The accessors below are the reason the complexity collapsed: `fig(role,
+     cond)` states "a figure may be absent" once, and the twelve call sites
+     that used to spell `(row.figures||{})[cond]||{}` inline now state nothing
+     at all. */
+  _matrixLens(newest,forRole){
+   const m=newest.m,rows=m.rows||{};
+   const roles=m.load_order||Object.keys(rows);
+   const round=(n,d=2)=>n==null?null:Math.round(n*Math.pow(10,d))/Math.pow(10,d);
    const row=role=>rows[role]||{};
    const fig=(role,cond)=>(row(role).figures||{})[cond]||{};
-   const deg=role=>row(role).degradation_percent||{};
    const build=role=>{const r=forRole[role];if(!r)return role;
     return [r.target.model_family,[r.target.format&&r.target.format.toUpperCase(),
       r.target.quantization].filter(Boolean).join(' ')].filter(Boolean).join(' · ');};
-   const mem=newest.m.memory||{};
-   const gb=b=>b==null?null:round(b/1073741824,1);
-   const anyResult=forRole[roles[0]]||newest.res;
-
-   SOURCE.sirvis='live';
-   return{
-    runtime_set_id:set.runtime_set_id,name:set.name,revision:newest.m.revision,
-    evidence_type:anyResult.evidence_type,
+   return{roles,round,row,fig,build,
+    gb:b=>b==null?null:round(b/1073741824,1),
+    deg:role=>row(role).degradation_percent||{},
+    conc:(m.memory||{}).concurrent||{},
+    conditions:m.conditions||[],
     samples:fig(roles[0],'alone').samples||0,
-    combined_peak_gb:gb((mem.concurrent||{}).lowest_available_bytes),
-    swap_gb:gb((mem.concurrent||{}).swap_used_bytes),
-    complete:newest.m.complete,
-    co_residency_failure:newest.m.co_residency_failure,
-    conditions:newest.m.conditions||[],
-    members:roles.map(role=>({
-     role,family:build(role),
-     alone_tok_s:round(fig(role,'alone').tokens_per_second,1),
-     sequential_tok_s:round(fig(role,'sequential').tokens_per_second,1),
-     concurrent_tok_s:round(fig(role,'concurrent').tokens_per_second,1),
-     first_token_alone_s:round(fig(role,'alone').time_to_first_token,3),
-     first_token_concurrent_s:round(fig(role,'concurrent').time_to_first_token,3),
-     degradation:deg(role),
-     follow_up_alone:null,follow_up_concurrent:null})),
+    anyResult:forRole[roles[0]]||newest.res};
+  },
+
+  _runtimeSetMembers({roles,round,fig,deg,build}){
+   return roles.map(role=>({
+    role,family:build(role),
+    alone_tok_s:round(fig(role,'alone').tokens_per_second,1),
+    sequential_tok_s:round(fig(role,'sequential').tokens_per_second,1),
+    concurrent_tok_s:round(fig(role,'concurrent').tokens_per_second,1),
+    first_token_alone_s:round(fig(role,'alone').time_to_first_token,3),
+    first_token_concurrent_s:round(fig(role,'concurrent').time_to_first_token,3),
+    degradation:deg(role),
+    follow_up_alone:null,follow_up_concurrent:null}));
+  },
+
+  /* Co-residency is three states, not two.
+     This read `complete ? 'every member resident together' : 'FAILED — ' +
+     co_residency_failure`, so a matrix that simply had not recorded the field
+     rendered as **"FAILED — undefined"** — an unknown printed as a confident
+     failure, which is the one thing every honesty rule in these specifications
+     forbids. Found by the sparse fixture in `tools/shaping_fixtures.js`, on the
+     first run of a check that had ever executed this branch. */
+  _coResidency(m){
+   if(m.complete===true)return 'every member resident together';
+   if(m.complete===false)return `FAILED — ${m.co_residency_failure||'reason not recorded'}`;
+   return 'not recorded';
+  },
+
+  _runtimeSetView(set,newest,lens){
+   const m=newest.m;
+   const {roles,round,fig,deg,gb,build,conc,conditions,samples,anyResult}=lens;
+   return{
+    runtime_set_id:set.runtime_set_id,name:set.name,revision:m.revision,
+    evidence_type:anyResult.evidence_type,
+    samples,
+    combined_peak_gb:gb(conc.lowest_available_bytes),
+    swap_gb:gb(conc.swap_used_bytes),
+    complete:m.complete,
+    co_residency_failure:m.co_residency_failure,
+    conditions,
+    members:this._runtimeSetMembers(lens),
     pairs:[{members:roles.map(build),
-      peak_gb:gb((mem.concurrent||{}).lowest_available_bytes),
+      peak_gb:gb(conc.lowest_available_bytes),
       first_token_s:roles.map(r=>round(fig(r,'concurrent').time_to_first_token,3)),
-      follow_up:roles.map(function(){return null}),
-      note:`${(newest.m.conditions||[]).length} conditions · ${fig(roles[0],'alone').samples||0} repetitions each`}],
+      follow_up:roles.map(()=>null),
+      note:`${conditions.length} conditions · ${samples} repetitions each`}],
     validity:{measurement:anyResult.validity,
       notes:(anyResult.validity_notes||[]).join('; ')||'none recorded',
-      basis:newest.m.basis,
-      co_residency:newest.m.complete?'every member resident together':`FAILED — ${newest.m.co_residency_failure}`},
+      basis:m.basis,
+      co_residency:this._coResidency(m)},
     finding:roles.map(r=>`${r} lost ${round((deg(r).concurrent||{}).tokens_per_second,1)}% of its throughput under concurrent load`).join(', and ')};
   },
 
@@ -2051,8 +2152,8 @@ const API={
     const d=await r.json();
     absorbRegistry(d);
     return{items:d.items.map(e=>({
-     service_type:e.key,label:e.label,build_version:e.build_version||'—',
-     protocol_version:e.protocol_version||'—',
+     service_type:e.key,label:e.label,build_version:dash(e.build_version),
+     protocol_version:dash(e.protocol_version),
      /* The first *available* capability, not the first declared: a service that
         publishes ten and offers none should read as offering none. */
      capability:Object.entries(e.capabilities||{}).find(([,st])=>st==='available')?.[0]
@@ -2457,7 +2558,7 @@ async function nervis(){
         hidden behind a banner whenever that map disagreed — the same defect
         found twice before on other screens. The rows are the live answer; if
         there are rows, there are Bridges. -->
-   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${c.live?'':' warn'}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
+   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
   <div class="card narrow"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${e.occurred_at}</time><span class="mono">${e.event_type}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.</small></div>
@@ -2515,7 +2616,7 @@ async function eventsView(){
  const row=(label,cap)=>`<div class="table-row" style="grid-template-columns:.8fr .9fr 1fr 2.2fr">
    <span><b>${label}</b></span>
    <span class="mono" style="opacity:.75">${cap?escapeHtml(cap.id):'—'}</span>
-   <span><span class="chip${cap&&cap.state==='available'?'':' warn'}">${cap?escapeHtml(cap.state):'not reachable'}</span></span>
+   <span><span class="chip${warnUnless(cap&&cap.state==='available')}">${cap?escapeHtml(cap.state):'not reachable'}</span></span>
    <span style="opacity:.75">${cap?escapeHtml(cap.reason||''):'the service did not answer, so nothing is claimed about it either way'}</span></div>`;
 
  /* Newest first for reading. The API returns oldest-first because it doubles as
@@ -2536,7 +2637,7 @@ async function eventsView(){
    ${shown.length?`<div class="table-row head five"><span>When</span><span>Service</span><span>Type</span><span>Severity</span><span>Detail</span></div>
    ${shown.map(e=>`<div class="table-row five">
      <span class="mono dim">${escapeHtml(String(e.occurred_at||'').slice(11,23))}</span>
-     <span class="mono">${escapeHtml((e.source||{}).service_type||'—')}</span>
+     <span class="mono">${escapeHtml(dash((e.source||{}).service_type))}</span>
      <span class="mono">${escapeHtml(e.event_type||'')}</span>
      <span><span class="chip${sev(e.severity)}">${escapeHtml(e.severity||'info')}</span></span>
      <span style="opacity:.8">${escapeHtml(JSON.stringify(e.data||{}).slice(0,90))}</span></div>`).join('')}`
@@ -2549,7 +2650,7 @@ async function eventsView(){
    ${row('SIRVIS',sv)}
    <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests; <b>neither peer publishes yet</b>, so every event in the feed above is NERVIS's own — mostly registry transitions. RAVIS events land at its M18b and SIRVIS's at its M21, and until then a feed implying otherwise would be inventing traffic.</small>`,'nervis')}</div>
 
-  <div class="card wide live"><h3>Quarantine <span class="chip${quarantine.items.length?' warn':''}">${quarantine.items.length}</span></h3>${cell(`
+  <div class="card wide live"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${quarantine.items.length}</span></h3>${cell(`
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
    ${quarantine.items.map(q=>`<div class="table-row"><span class="mono">${escapeHtml(q.reason)}</span><span class="mono dim" style="grid-column:2/-1">${escapeHtml(q.detail||'')} · ${escapeHtml(String(q.payload).slice(0,70))}</span></div>`).join('')}`
     :'<small class="mono dim">nothing has been refused.</small>'}
@@ -2602,7 +2703,7 @@ async function diagnosticsView(){
    <small class="mono dim">three different kinds of claim, three different levels of confidence, never added together.</small></div>
   <div class="card wide"><h3>Log adapters</h3>
    <div class="table-row head"><span>Source</span><span>Path</span><span>Gate</span><span>Note</span></div>
-   ${d.sources.filter(x=>x.adapter).map(x=>`<div class="table-row"><span>${x.service}</span><span class="mono">${x.adapter.path}</span><span class="chip${x.adapter.gated?' warn':''}">${x.adapter.gated?'approval required':'open'}</span><span style="opacity:.7">${x.adapter.note}</span></div>`).join('')}
+   ${d.sources.filter(x=>x.adapter).map(x=>`<div class="table-row"><span>${x.service}</span><span class="mono">${x.adapter.path}</span><span class="chip${warnIf(x.adapter.gated)}">${x.adapter.gated?'approval required':'open'}</span><span style="opacity:.7">${x.adapter.note}</span></div>`).join('')}
    <small class="mono dim">an adapter exists only for a documented source, and carries its own cursor, rotation and redaction. An undocumented log is not a data source.</small></div>
   <div class="card wide"><h3>Analyze packet <span class="chip">${d.packet.route}</span></h3>
    <div class="table-row head"><span>Included</span><span>Excluded</span></div>
@@ -2628,7 +2729,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
     carries no timing — a €0.00 would read as measured and free. */
  const card=d=>`<div class="route-card">
    <div class="table-row head"><span>Selected</span><span>Pool</span><span>Path</span><span>Excluded</span></div>
-   <div class="table-row"><span class="mono">${escapeHtml(d.selected||'no route')}</span><span class="mono" style="opacity:.8">${escapeHtml(d.pool||'—')}</span><span class="mono">${escapeHtml(d.execution_path||'—')}</span><span>${(d.excluded||[]).length} of ${(d.considered||[]).length}</span></div>
+   <div class="table-row"><span class="mono">${escapeHtml(d.selected||'no route')}</span><span class="mono" style="opacity:.8">${escapeHtml(dash(d.pool))}</span><span class="mono">${escapeHtml(dash(d.execution_path))}</span><span>${(d.excluded||[]).length} of ${(d.considered||[]).length}</span></div>
    <small class="mono dim">${escapeHtml(d.reason||'')}${(d.excluded||[]).length?'<br>excluded — '+(d.excluded||[]).slice(0,3).map(n=>escapeHtml(n.model)+': '+escapeHtml((n.reasons||[])[0]||'')).join(' · ')+((d.excluded||[]).length>3?` · and ${(d.excluded||[]).length-3} more`:''):''}<br>cost and time-to-first-token are not carried on a decision record — the cost engine is M15, and a zero here would read as measured.</small></div>`;
  $('#content').innerHTML=`<div class="card full chat">
   <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');CHAT_SESSION.profile=this.dataset.profile;notify('Routing on '+this.dataset.profile)">${pr.label}</button>`).join('')}
@@ -2784,54 +2885,128 @@ async function mapView(){
 let TRACE_SHOWN=null;
 function showTrace(id){TRACE_SHOWN=id;render()}
 
-async function tracesView(){
- heading('Traces','One request across services — as recorded, with the holes marked.');
- /* **The waterfall since M7.** Assembled by NERVIS from the event hub and
-    nothing else: §11.1 makes the hub operational telemetry rather than the
-    system of record, so a trace here is what was *recorded*, not what happened,
-    and where those differ the difference is reported rather than filled in. */
- let traces={items:[]},shown=null;
+/* One attempt list, one outcome, one clock reading — shared by the two cards
+   below so neither has to restate what an absent execution record means. */
+function attemptsOf(d){return((d.execution||{}).attempts)||[]}
+function outcomeOf(d){const a=attemptsOf(d);return a.length?a[a.length-1].outcome:(d.selected?'routed':'no_route')}
+function clockOf(t){return dash(String(t||'').slice(11,19))}
+
+/* The trace index, and whichever trace is being shown.
+   Both reads in one place, and a failure of either yields "nothing recorded"
+   rather than a broken screen — the hub is NERVIS's own, so this must render
+   whether or not any peer is answering. */
+async function readTraces(){
+ const empty={items:[]};
  try{
   const r=await fetch(BASE.nervis+'/api/v1/traces?limit=500',
     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  if(r.ok)traces=await r.json();
+  const traces=r.ok?await r.json():empty;
   const pick=TRACE_SHOWN||((traces.items[0]||{}).trace_id);
-  if(pick){
-   const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick),
-     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-   if(t.ok)shown=await t.json();
-  }
- }catch(e){}
+  if(!pick)return{traces,shown:null};
+  const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick),
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  return{traces,shown:t.ok?await t.json():null};
+ }catch(e){return{traces:empty,shown:null}}
+}
 
- let payload=null;
- try{
-  const read=await ravisRead('routes',{limit:25});
-  if(read.available)payload=read.data;
- }catch(e){payload=null}
+async function routeDecisions(){
+ try{const read=await ravisRead('routes',{limit:25});return read.available?read.data:null}
+ catch(e){return null}
+}
 
- /* Built before the early returns below, so a trace still renders when RAVIS
-    is not answering — the hub is NERVIS's own and does not need a peer. */
- const waterfall=(()=>{
-  if(!traces.items.length)return `<div class="card full"><h3>Trace waterfall</h3>${cell(`
-    <small class="mono dim">no trace has been recorded. A trace needs a <b>traceparent</b> on an inbound request — NERVIS creates a span when it has one and never manufactures one when it does not, because a trace containing a single service is a fact about nothing. <b>RAVIS and SIRVIS do not publish events yet</b> (their Stage 7 milestones), so a cross-service waterfall needs those first.</small>`,'nervis')}</div>`;
-  const win=(shown&&shown.window_ms)||0;
-  const at=sp=>shown.started!=null&&sp.started!=null?(sp.started-shown.started)*1000:0;
-  return `<div class="card full live"><h3>Trace waterfall <span class="chip mono">${escapeHtml((shown&&shown.trace_id||'').slice(0,16))}</span></h3>${cell(`
-   <div class="filter-row">${traces.items.slice(0,6).map(t=>`<button class="mode-chip${shown&&t.trace_id===shown.trace_id?' on':''}" onclick="showTrace('${escapeHtml(t.trace_id)}')">${escapeHtml(t.trace_id.slice(0,8))} · ${t.services.join('+')}</button>`).join('')}</div>
-   ${shown?`${shown.spans.map(sp=>`<div class="trace-step" style="align-items:center">
+/* One span's bar, or its moment.
+   **A point, not a bar.** One event is a recorded moment; giving it width would
+   be the invented duration §11.2 forbids. */
+function spanBar(sp,offsetPct,win){
+ if(sp.is_point)
+  return `<i style="position:absolute;left:${win?Math.min(offsetPct,99):0}%;width:3px;height:16px;background:var(--accent);border-radius:2px"></i>`;
+ return `<i style="position:absolute;left:${win?offsetPct:0}%;width:${win?Math.max(sp.duration_ms/win*100,1):100}%;height:16px;background:rgba(var(--rgb),.5);border-radius:3px"></i>`;
+}
+
+/* **The waterfall since M7.** Assembled by NERVIS from the event hub and
+   nothing else: §11.1 makes the hub operational telemetry rather than the
+   system of record, so a trace here is what was *recorded*, not what happened,
+   and where those differ the difference is reported rather than filled in.
+
+   Split out of `tracesView`, which measured cyclomatic complexity 25. */
+function traceWaterfall(traces,shown){
+ if(!traces.items.length)return `<div class="card full"><h3>Trace waterfall</h3>${cell(`
+   <small class="mono dim">no trace has been recorded. A trace needs a <b>traceparent</b> on an inbound request — NERVIS creates a span when it has one and never manufactures one when it does not, because a trace containing a single service is a fact about nothing. <b>RAVIS and SIRVIS do not publish events yet</b> (their Stage 7 milestones), so a cross-service waterfall needs those first.</small>`,'nervis')}</div>`;
+ const win=(shown&&shown.window_ms)||0;
+ const at=sp=>shown.started!=null&&sp.started!=null?(sp.started-shown.started)*1000:0;
+ const pct=sp=>win?at(sp)/win*100:0;
+ const chips=traces.items.slice(0,6).map(t=>`<button class="mode-chip${shown&&t.trace_id===shown.trace_id?' on':''}" onclick="showTrace('${escapeHtml(t.trace_id)}')">${escapeHtml(t.trace_id.slice(0,8))} · ${t.services.join('+')}</button>`).join('');
+ const body=shown
+  ?`${shown.spans.map(sp=>`<div class="trace-step" style="align-items:center">
      <b style="min-width:88px">${escapeHtml(sp.label)}</b>
-     <span style="flex:1;position:relative;height:16px">
-      ${sp.is_point
-        /* A point, not a bar. One event is a recorded moment; giving it width
-           would be the invented duration §11.2 forbids. */
-        ? `<i style="position:absolute;left:${win?Math.min(at(sp)/win*100,99):0}%;width:3px;height:16px;background:var(--accent);border-radius:2px"></i>`
-        : `<i style="position:absolute;left:${win?at(sp)/win*100:0}%;width:${win?Math.max(sp.duration_ms/win*100,1):100}%;height:16px;background:rgba(var(--rgb),.5);border-radius:3px"></i>`}
-     </span>
+     <span style="flex:1;position:relative;height:16px">${spanBar(sp,pct(sp),win)}</span>
      <span class="mono dim" style="min-width:104px;text-align:right">${sp.is_point?'one moment':(sp.duration_ms+' ms')} · ${sp.events} ev</span></div>`).join('')}
    ${(shown.warnings||[]).map(w=>`<div class="trace-step"><b style="color:#ffb648">gap</b><span>${escapeHtml(w)}</span></div>`).join('')}`
-    :'<small class="mono dim">that trace is no longer recorded.</small>'}
+  :'<small class="mono dim">that trace is no longer recorded.</small>';
+ return `<div class="card full live"><h3>Trace waterfall <span class="chip mono">${escapeHtml((shown&&shown.trace_id||'').slice(0,16))}</span></h3>${cell(`
+   <div class="filter-row">${chips}</div>
+   ${body}
    <small class="mono dim">a span is <b>the interval a service's events cover</b>, which is a weaker claim than a real start/end pair and is said so here because the difference matters when reading a waterfall. <b>One event is drawn as a moment</b>, not a zero-length bar. A service that recorded nothing gets <b>no bar at all</b> — §11.2 forbids synthesizing a span as fact, and a hole in the record is the finding rather than something to fill. Clock skew is reported and never corrected: a straightened waterfall deletes the only evidence two clocks disagree.</small>`,'nervis')}</div>`;
- })();
+}
+
+function decisionsCard(items,latest){
+ return `<div class="card full live"><h3>Recent routing decisions</h3>${cell(`
+   <div class="table-row head six"><span>Decision</span><span>At</span><span>Application</span><span>Pool</span><span>Selected</span><span>Outcome</span></div>
+   ${items.map(d=>`<div class="table-row six${d.decision_id===latest.decision_id?' selected':''}">
+     <span class="mono">${escapeHtml(dash(d.decision_id))}</span>
+     <span class="mono">${clockOf(d.decided_at)}</span>
+     <span>${escapeHtml(dash(d.application_id))}</span>
+     <span class="mono" style="opacity:.8">${escapeHtml(d.pool||dash(d.requested))}</span>
+     <span class="mono">${escapeHtml(dash(d.selected))}</span>
+     <span class="chip${warnUnless(['ok','success','succeeded','routed'].includes(outcomeOf(d)))}">${escapeHtml(outcomeOf(d))}</span></div>`).join('')}
+   <small class="mono dim"><b>no_route</b> is an outcome rather than a failure — it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it (§9.2). These are held in memory only: §17 does not list route decisions as stored state, so a restart loses them and that is the intended trade.</small>`,'ravis')}</div>`;
+}
+
+/* Everything about one decision that is only shown when it happened.
+   A list rather than five inline conditionals: each `? … : ''` was a branch on
+   the gate, and a row that is absent because there was nothing to say is not a
+   decision the reader makes. */
+function decisionDetailRows(latest){
+ const fallbacks=latest.fallbacks||[],requirements=latest.requirements||[];
+ const stopped=(latest.execution||{}).stopped_because;
+ const rows=[];
+ if(fallbacks.length)
+  rows.push(`<div class="trace-step"><b>fallbacks</b><span class="mono" style="opacity:.75">${fallbacks.map(escapeHtml).join(' · ')}</span></div>`);
+ rows.push(...requirements.map(r=>`<div class="trace-step"><b>required</b><span class="mono">${escapeHtml(r)}</span></div>`));
+ rows.push(`<div class="trace-step"><b>considered</b><span>${(latest.considered||[]).length} candidate(s), ${(latest.excluded||[]).length} excluded</span></div>`);
+ rows.push(...attemptsOf(latest).map((a,n)=>`<div class="trace-step"><b>attempt ${n+1}</b><span class="mono">${escapeHtml(a.model)} → ${escapeHtml(a.outcome)}${a.detail?' · '+escapeHtml(a.detail):''}</span></div>`));
+ if(stopped)
+  rows.push(`<div class="trace-step"><b>stopped</b><span style="opacity:.75">${escapeHtml(stopped)}</span></div>`);
+ return rows.join('');
+}
+
+function latestDecisionCard(latest){
+ return `<div class="card wide live"><h3>Decision ${escapeHtml(latest.decision_id||'')} <span class="chip">${escapeHtml(latest.execution_path||'')}</span></h3>${cell(`
+   <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(dash(latest.requested))}</span></div>
+   <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(latest.selected||'no route')}</span></div>
+   ${decisionDetailRows(latest)}
+   <small class="mono dim">${escapeHtml(latest.reason||'')}</small>`,'ravis')}</div>
+
+`;
+}
+
+/* Its own card, because it is its own claim: what is above is RAVIS's decision
+   record, not a distributed trace. */
+function crossServiceCard(){
+ return `<div class="card narrow"><h3>Cross-service spans <span class="chip warn">unavailable</span></h3>${cell(`
+   <div class="trace-step"><b>RAVIS events</b><span class="mono">M18b · Stage 7</span></div>
+   <div class="trace-step"><b>SIRVIS events</b><span class="mono">M21 · Stage 7</span></div>
+   <div class="trace-step"><b>span timeline</b><span>not drawn</span></div>
+   <small class="mono dim">what is above is <b>RAVIS's own decision record</b>, not a distributed trace. A timeline correlating Clarvis, RAVIS, SIRVIS and the runtime needs event publication, which both services currently declare <b>unavailable</b> on their own capability surface. Drawing a timeline from one service's record would invent the other three rows.</small>`,'ravis')}</div>`;
+}
+
+async function tracesView(){
+ heading('Traces','One request across services — as recorded, with the holes marked.');
+ const {traces,shown}=await readTraces();
+ const payload=await routeDecisions();
+ /* Built before the early returns below, so a trace still renders when RAVIS
+    is not answering — the hub is NERVIS's own and does not need a peer. */
+ const waterfall=traceWaterfall(traces,shown);
 
  if(!payload){
   $('#content').innerHTML=waterfall+`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
@@ -2846,43 +3021,13 @@ async function tracesView(){
    <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
   return;}
 
- const clock=t=>String(t||'').slice(11,19)||'—';
  const routed=items.filter(d=>d.selected).length;
- const attemptsOf=d=>((d.execution||{}).attempts)||[];
- const outcomeOf=d=>{const a=attemptsOf(d);return a.length?a[a.length-1].outcome:(d.selected?'routed':'no_route');};
- const latest=items[0];
-
  $('#content').innerHTML=waterfall+kpis([
    ['Decisions',String(items.length),'kept in memory, not persisted','ravis'],
    ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis'],
-   ['Pools',String(new Set(items.map(d=>d.pool||'—')).size),'distinct pools addressed','ravis'],
+   ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis'],
    ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis']])
- +`<div class="card full live"><h3>Recent routing decisions</h3>${cell(`
-   <div class="table-row head six"><span>Decision</span><span>At</span><span>Application</span><span>Pool</span><span>Selected</span><span>Outcome</span></div>
-   ${items.map(d=>`<div class="table-row six${d.decision_id===latest.decision_id?' selected':''}">
-     <span class="mono">${escapeHtml(d.decision_id||'—')}</span>
-     <span class="mono">${clock(d.decided_at)}</span>
-     <span>${escapeHtml(d.application_id||'—')}</span>
-     <span class="mono" style="opacity:.8">${escapeHtml(d.pool||d.requested||'—')}</span>
-     <span class="mono">${escapeHtml(d.selected||'—')}</span>
-     <span class="chip${['ok','success','succeeded','routed'].includes(outcomeOf(d))?'':' warn'}">${escapeHtml(outcomeOf(d))}</span></div>`).join('')}
-   <small class="mono dim"><b>no_route</b> is an outcome rather than a failure — it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it (§9.2). These are held in memory only: §17 does not list route decisions as stored state, so a restart loses them and that is the intended trade.</small>`,'ravis')}</div>
-
-  <div class="card wide live"><h3>Decision ${escapeHtml(latest.decision_id||'')} <span class="chip">${escapeHtml(latest.execution_path||'')}</span></h3>${cell(`
-   <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(latest.requested||'—')}</span></div>
-   <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(latest.selected||'no route')}</span></div>
-   ${(latest.fallbacks||[]).length?`<div class="trace-step"><b>fallbacks</b><span class="mono" style="opacity:.75">${(latest.fallbacks||[]).map(escapeHtml).join(' · ')}</span></div>`:''}
-   ${(latest.requirements||[]).map(r=>`<div class="trace-step"><b>required</b><span class="mono">${escapeHtml(r)}</span></div>`).join('')}
-   <div class="trace-step"><b>considered</b><span>${(latest.considered||[]).length} candidate(s), ${(latest.excluded||[]).length} excluded</span></div>
-   ${attemptsOf(latest).map((a,n)=>`<div class="trace-step"><b>attempt ${n+1}</b><span class="mono">${escapeHtml(a.model)} → ${escapeHtml(a.outcome)}${a.detail?' · '+escapeHtml(a.detail):''}</span></div>`).join('')}
-   ${(latest.execution||{}).stopped_because?`<div class="trace-step"><b>stopped</b><span style="opacity:.75">${escapeHtml(latest.execution.stopped_because)}</span></div>`:''}
-   <small class="mono dim">${escapeHtml(latest.reason||'')}</small>`,'ravis')}</div>
-
-  <div class="card narrow"><h3>Cross-service spans <span class="chip warn">unavailable</span></h3>${cell(`
-   <div class="trace-step"><b>RAVIS events</b><span class="mono">M18b · Stage 7</span></div>
-   <div class="trace-step"><b>SIRVIS events</b><span class="mono">M21 · Stage 7</span></div>
-   <div class="trace-step"><b>span timeline</b><span>not drawn</span></div>
-   <small class="mono dim">what is above is <b>RAVIS's own decision record</b>, not a distributed trace. A timeline correlating Clarvis, RAVIS, SIRVIS and the runtime needs event publication, which both services currently declare <b>unavailable</b> on their own capability surface. Drawing a timeline from one service's record would invent the other three rows.</small>`,'ravis')}</div>`;
+ +decisionsCard(items,items[0])+latestDecisionCard(items[0])+crossServiceCard();
 }
 
 /* ── SETTINGS ──────────────────────────────────────────────────────────────
@@ -2901,7 +3046,7 @@ async function settingsView(){
             nervis_managed:'stop and restart · NERVIS started it through a configured adapter'};
  /* A chip is warned only when the switch sits in the *less private* position.
    Redaction on is the safe state and reads green; payload capture on does not. */
- const flag=(on,safe=false)=>`<span class="chip${on===safe?'':' warn'}">${on?'on':'off'}</span>`;
+ const flag=(on,safe=false)=>`<span class="chip${warnUnless(on===safe)}">${on?'on':'off'}</span>`;
  
  /* NERVIS's own configuration, which is a shorter list than the cards below
     suggest. There is no NERVIS service to ask — `nervis/` is one HTML file and
@@ -3011,6 +3156,34 @@ async function mikuFace(name){
   try{if(f&&f.contentWindow.setState){f.contentWindow.setState(name);return}}catch(e){}
   await wait(60)}}
 
+/* One spoken line: the bubble, the typing, and the corruption that fires with
+   the line causing it rather than around it.
+   Split out of `mikuMode`, which measured 15 — the scene loop and the
+   per-line rendering are two different things and only one of them is worth
+   reading when the timing is wrong. */
+async function mikuLine(box,line){
+ await mikuFace(line.state);
+ const b=document.createElement('div');
+ b.className='bubble miku typing'+(line.shout?' shout':'');
+ const body=document.createElement('span');
+ if(!line.shout){
+  const who=document.createElement('b');who.textContent='MIKU';
+  b.append(who,document.createElement('br'));
+ }
+ b.append(body);
+ box.append(b);box.scrollTop=box.scrollHeight;
+ if(line.shout)corrupt(true);
+ await typeInto(body,line.text,line.shout?MIKU.shoutMs:MIKU.typeMs);
+ b.classList.remove('typing');
+ await wait(line.shout?MIKU.holdShout:MIKU.holdLine);
+ if(line.shout)corrupt(false);
+}
+
+function corrupt(on){
+ $('#corrupt').classList.toggle('on',on);
+ document.body.classList.toggle('corrupting',on);
+}
+
 async function mikuMode(btn){
  if(mikuMode.running)return;mikuMode.running=true;
  const app=document.querySelector('.app');
@@ -3034,19 +3207,8 @@ async function mikuMode(btn){
   /* Someone clicked away mid-scene. Stop rather than typing into a detached
      node, and let the finally below put everything back. */
   if(!box||!box.isConnected)break;
-  await mikuFace(line.state);
-  const b=document.createElement('div');
-  b.className='bubble miku typing'+(line.shout?' shout':'');
-  const body=document.createElement('span');
-  if(!line.shout){const who=document.createElement('b');who.textContent='MIKU';b.append(who,document.createElement('br'))}
-  b.append(body);
-  if(box){box.append(b);box.scrollTop=box.scrollHeight}
-  /* The corruption fires with the line that causes it, not around it. */
-  if(line.shout){$('#corrupt').classList.add('on');document.body.classList.add('corrupting')}
-  await typeInto(body,line.text,line.shout?MIKU.shoutMs:MIKU.typeMs);
-  b.classList.remove('typing');
-  await wait(line.shout?MIKU.holdShout:MIKU.holdLine);
-  if(line.shout){$('#corrupt').classList.remove('on');document.body.classList.remove('corrupting')}}
+  await mikuLine(box,line);
+ }
 
  await wait(MIKU.beforeRevert);
  }finally{
@@ -3103,23 +3265,52 @@ let RUNTIME_TOKEN='';
  addEventListener('load',scrub);
 })();
 
+/* The effective configuration of one resident model, as a sentence.
+   An empty configuration is a dash rather than an empty cell: "SIRVIS reported
+   no overrides" and "this table failed to render a value" look identical
+   otherwise, and only one of them is fine. */
+function effectiveConfig(h){
+ const parts=Object.entries(h.effective_configuration||{}).map(([k,v])=>`${k} ${v}`);
+ return dash(parts.join(' · '));
+}
+
+/* Whether the mutation controls on this screen are usable.
+   Reads are open on loopback; loading or releasing a model is not, because it
+   spends gigabytes and can evict a model another client is holding. */
+function runtimeArmed(){
+ return RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required" style="opacity:.45;cursor:not-allowed"';
+}
+
+/* Residency has no transcription to fall back to, on purpose: it is a fact
+   about *right now*, and a remembered one would describe a machine that no
+   longer exists. */
+function runtimeUnreachable(){
+ return `<div class="card full"><h3>SIRVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/runtime/residency</span></div>
+   <small class="mono dim">this screen has no transcription to fall back to, on purpose. Residency is a fact about <b>right now</b> — which models are in memory this second — and a remembered answer to that question is worse than none, because it looks the same as a current one.</small>`,'sirvis')}</div>`;;
+}
+
+/* Instances the runtime loaded by itself. LM Studio does this when a request
+   wants more context than the running copy has, and a person can load anything
+   by hand — SIRVIS reports them rather than reclaiming them, because reclaiming
+   something another client is using is the exact failure §9 exists to prevent. */
+function foreignInstancesCard(foreign){
+ if(!foreign.length)return '';
+ return `<div class="card wide"><h3>Foreign instances</h3>${cell(`
+   ${foreign.map(f=>`<div class="trace-step"><b class="mono">${escapeHtml(f)}</b><span>loaded by the runtime, not by SIRVIS</span></div>`).join('')}
+   <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`;
+}
+
 async function sirvisRuntime(){
  heading('Runtime','What is resident, who holds it, and when their claim lapses.',
    control('Refresh evidence','refreshEvidence'));
  const [res,mdl]=await Promise.all([liveSirvis('/api/v1/runtime/residency'),API.sirvis.models()]);
- if(!res){
-  $('#content').innerHTML=`<div class="card full"><h3>SIRVIS is not answering</h3>${cell(`
-   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/runtime/residency</span></div>
-   <small class="mono dim">this screen has no transcription to fall back to, on purpose. Residency is a fact about <b>right now</b> — which models are in memory this second — and a remembered answer to that question is worse than none, because it looks the same as a current one.</small>`,'sirvis')}</div>`;
-  return;}
+ if(!res){$('#content').innerHTML=runtimeUnreachable();return}
 
  const held=res.holdings||[],leases=res.leases||[],foreign=res.foreign||[];
  const owned=held.filter(h=>h.owned).length;
- const cfg=h=>{const c=h.effective_configuration||{};
-   const parts=Object.entries(c).map(([k,v])=>`${k} ${v}`);
-   return parts.length?parts.join(' · '):'—';};
  const opts=mdl.items.map(m=>`<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.model_id)}</option>`).join('');
- const armed=RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required" style="opacity:.45;cursor:not-allowed"';
+ const armed=runtimeArmed();
 
  $('#content').innerHTML=kpis([
    ['Resident',`${held.length} / ${res.max_loaded}`,'against the manager ceiling','sirvis'],
@@ -3138,14 +3329,14 @@ async function sirvisRuntime(){
   <div class="card full"><h3>Resident now</h3>${cell(
    held.length?`
    <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
-   ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}</span><span>${h.reference_count}</span><span class="mono" style="opacity:.7">${(h.sessions||[]).map(s=>s.slice(0,8)).join(' · ')||'—'}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(cfg(h))}</span><span style="grid-column:5/-1"><span class="chip${h.owned?'':' warn'}">${h.owned?'SIRVIS':'adopted'}</span></span></div>`).join('')}
+   ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}</span><span>${h.reference_count}</span><span class="mono" style="opacity:.7">${dash((h.sessions||[]).map(s=>s.slice(0,8)).join(' · '))}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(effectiveConfig(h))}</span><span style="grid-column:5/-1"><span class="chip${warnUnless(h.owned)}">${h.owned?'SIRVIS':'adopted'}</span></span></div>`).join('')}
    <small class="mono dim">a model is unloaded when its reference count reaches zero and not before — releasing one lease on a model two clients hold takes it from neither. <b>Adopted</b> is the column that matters for memory: SIRVIS did not load those and will never unload them, so releasing every lease here does not give that memory back.</small>`
    :`<div class="trace-step"><b>resident</b><span>nothing</span></div>
    <small class="mono dim">no model is in memory and no lease is outstanding. This is the ordinary state of an idle machine, and it is the state that makes the ceiling above meaningful: ${res.max_loaded} is what the manager will hold at once, not what is loaded.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Leases</h3>${cell(
    leases.length?`
    <div class="table-row head six"><span>Session</span><span>Owner</span><span style="grid-column:3/5">Models</span><span>Lease</span><span style="grid-column:6/-1">Action</span></div>
-   ${leases.map(l=>`<div class="table-row six"><span class="mono">${escapeHtml((l.session_id||'').slice(0,12))}</span><span>${escapeHtml(l.owner||'—')}</span><span class="mono" style="grid-column:3/5;opacity:.75">${(l.models||[]).map(escapeHtml).join(' · ')}</span><span class="mono">${l.lease_seconds}s</span><span style="grid-column:6/-1"><button class="btn"${armed} onclick="RUNTIME.renew('${escapeHtml(l.session_id)}')">Renew</button> <button class="btn"${armed} onclick="RUNTIME.release('${escapeHtml(l.session_id)}')">Release</button></span></div>`).join('')}
+   ${leases.map(l=>`<div class="table-row six"><span class="mono">${escapeHtml((l.session_id||'').slice(0,12))}</span><span>${escapeHtml(dash(l.owner))}</span><span class="mono" style="grid-column:3/5;opacity:.75">${(l.models||[]).map(escapeHtml).join(' · ')}</span><span class="mono">${l.lease_seconds}s</span><span style="grid-column:6/-1"><button class="btn"${armed} onclick="RUNTIME.renew('${escapeHtml(l.session_id)}')">Renew</button> <button class="btn"${armed} onclick="RUNTIME.release('${escapeHtml(l.session_id)}')">Release</button></span></div>`).join('')}
    <small class="mono dim">a lease is how SIRVIS recovers from a client that died without saying it had finished, which is indistinguishable from one that is merely slow. Renewing is the heartbeat; releasing is the polite version of the same outcome.</small>`
    :`<div class="trace-step"><b>leases</b><span>none outstanding</span></div>
    <small class="mono dim">nothing holds a claim on this runtime right now.</small>`,'sirvis')}</div>
@@ -3162,9 +3353,7 @@ async function sirvisRuntime(){
     <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
    </div>
    <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`,'sirvis')}</div>
-  ${foreign.length?`<div class="card wide"><h3>Foreign instances</h3>${cell(`
-   ${foreign.map(f=>`<div class="trace-step"><b class="mono">${escapeHtml(f)}</b><span>loaded by the runtime, not by SIRVIS</span></div>`).join('')}
-   <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`:''}`;
+  ${foreignInstancesCard(foreign)}`;
  const box=$('#rtToken');if(box)box.value=RUNTIME_TOKEN;}
 
 /* The four real mutations. Each one re-renders from the service afterwards
@@ -3210,54 +3399,96 @@ const BUILD={
  paint(inner){const el=document.getElementById('buildPanel');
   if(el)el.innerHTML=`<h3>Selected build</h3>`+cell(inner,'sirvis');},
 
- render(m,ev,res){
-  const v=m.variant||{},f=m.family||{},inst=m.instances||[];
+ /* The declared identity of a build: what it is, how it is packaged, and what
+    it says about itself.
+
+    Split out of `render`, which measured cyclomatic complexity 28 — the second
+    highest in the file. Not one branch here is a decision a reader would
+    recognise as one; it is twenty optional fields each falling back to an em
+    dash, which is how a render function reaches 28 without anybody noticing it
+    happening. */
+ _identityRows(m){
+  const v=m.variant||{},f=m.family||{};
+  /* A measured field arrives either bare or wrapped with its provenance, and
+     both spellings are live in SIRVIS's payloads. */
   const val=x=>x&&typeof x==='object'&&'value' in x?x.value:x;
   const prov=x=>x&&typeof x==='object'&&x.provenance?` <span class="mono" style="opacity:.5">${escapeHtml(x.provenance)}</span>`:'';
+  const step=(label,body)=>`<div class="trace-step"><b>${label}</b>${body}</div>`;
+  const mono=inner=>`<span class="mono">${inner}</span>`;
+
+  const rows=[
+   step('family',`<span>${escapeHtml(f.display_name||dash(m.display_name))}</span>`),
+   step('packaging',mono(escapeHtml(dash([v.runtime_format,v.quantization].filter(Boolean).join(' · '))))),
+   step('architecture',mono(escapeHtml(String(val(f.architecture)||dash(v.architecture)))+prov(f.architecture)))];
+  if(val(f.parameter_billions)!=null)
+   rows.push(step('parameters',mono(escapeHtml(String(val(f.parameter_billions)))+' B'+prov(f.parameter_billions))));
+  rows.push(step('declared context',mono(escapeHtml(String(val(m.declared_context)??'—'))+prov(m.declared_context))));
+  rows.push(step('publisher',mono(escapeHtml(dash(v.publisher)))));
+  return rows.join('')+this._stateRows(m);
+ },
+
+ /* What is true of this build right now, as opposed to what it declares. */
+ _stateRows(m){
+  const inst=m.instances||[];
+  const step=(label,body)=>`<div class="trace-step"><b>${label}</b>${body}</div>`;
   const rows=[];
-  rows.push(`<div class="trace-step"><b>family</b><span>${escapeHtml(f.display_name||m.display_name||'—')}</span></div>`);
-  rows.push(`<div class="trace-step"><b>packaging</b><span class="mono">${escapeHtml([v.runtime_format,v.quantization].filter(Boolean).join(' · ')||'—')}</span></div>`);
-  rows.push(`<div class="trace-step"><b>architecture</b><span class="mono">${escapeHtml(String(val(f.architecture)||v.architecture||'—'))}${prov(f.architecture)}</span></div>`);
-  if(val(f.parameter_billions)!=null)rows.push(`<div class="trace-step"><b>parameters</b><span class="mono">${escapeHtml(String(val(f.parameter_billions)))} B${prov(f.parameter_billions)}</span></div>`);
-  rows.push(`<div class="trace-step"><b>declared context</b><span class="mono">${escapeHtml(String(val(m.declared_context)??'—'))}${prov(m.declared_context)}</span></div>`);
-  rows.push(`<div class="trace-step"><b>publisher</b><span class="mono">${escapeHtml(v.publisher||'—')}</span></div>`);
-  if(v.family_architecture_disagrees)rows.push(`<div class="trace-step"><b>architecture</b><span class="chip warn">family and variant disagree</span></div>`);
-  rows.push(`<div class="trace-step"><b>loaded</b><span>${m.is_loaded?`<span class="chip">${inst.length} instance(s)</span>`:'<span class="chip warn">not resident</span>'}</span></div>`);
-  inst.forEach(x=>rows.push(`<div class="trace-step"><b>effective context</b><span class="mono">${escapeHtml(String(x.effective_context??'—'))}</span></div>`));
+  if((m.variant||{}).family_architecture_disagrees)
+   rows.push(step('architecture','<span class="chip warn">family and variant disagree</span>'));
+  rows.push(step('loaded',`<span>${m.is_loaded
+    ?`<span class="chip">${inst.length} instance(s)</span>`
+    :'<span class="chip warn">not resident</span>'}</span>`));
+  inst.forEach(x=>rows.push(step('effective context',
+    `<span class="mono">${escapeHtml(String(x.effective_context??'—'))}</span>`)));
+  return rows.join('');
+ },
 
-  /* Evidence, grouped by role. A count per role rather than one number,
-     because a build measured for chat says nothing about whether it can drive
-     an agent — the distinction the whole role vocabulary exists for. */
-  let evidence='';
-  if(ev){
-   const byRole={};(ev.items||[]).forEach(e=>{byRole[e.role]=(byRole[e.role]||0)+1});
-   const roles=Object.keys(byRole).sort();
-   evidence=roles.length
-    ?`<div class="trace-step"><b>evidence</b><span>${roles.map(r=>`${escapeHtml(r)} <span class="mono" style="opacity:.6">${byRole[r]}</span>`).join(' · ')}</span></div>`
-    :`<div class="trace-step"><b>evidence</b><span class="chip warn">none for this packaging</span></div>`;
-  }
+ /* Evidence, grouped by role. A count per role rather than one number, because
+    a build measured for chat says nothing about whether it can drive an agent —
+    the distinction the whole role vocabulary exists for. */
+ _evidenceRow(ev){
+  if(!ev)return '';
+  const byRole={};(ev.items||[]).forEach(e=>{byRole[e.role]=(byRole[e.role]||0)+1});
+  const roles=Object.keys(byRole).sort();
+  return roles.length
+   ?`<div class="trace-step"><b>evidence</b><span>${roles.map(r=>`${escapeHtml(r)} <span class="mono" style="opacity:.6">${byRole[r]}</span>`).join(' · ')}</span></div>`
+   :`<div class="trace-step"><b>evidence</b><span class="chip warn">none for this packaging</span></div>`;
+ },
 
-  /* Only *this* dashboard's lease may be released from here. A model can be
-     held by several owners at once — that is the entire point of §9's
-     reference counting — and the first lease a search happens to return may
-     belong to somebody else. Offering to release it would be the dashboard
-     unloading another client's model on their behalf, which is precisely the
-     fight the reference count exists to prevent. Caught in testing, with a
-     probe holding one lease and the dashboard the other. */
+ /* Only *this* dashboard's lease may be released from here. A model can be held
+    by several owners at once — that is the entire point of §9's reference
+    counting — and the first lease a search happens to return may belong to
+    somebody else. Offering to release it would be the dashboard unloading
+    another client's model on their behalf, which is precisely the fight the
+    reference count exists to prevent. Caught in testing, with a probe holding
+    one lease and the dashboard the other. */
+ _leaseState(m,res){
   const onModel=(res&&res.leases||[]).filter(l=>(l.models||[]).includes(m.runtime_key));
   const held=onModel.find(l=>l.owner==='nervis-dashboard');
   const others=onModel.filter(l=>l!==held);
   const armed=RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required — set one on the Runtime screen" style="opacity:.45;cursor:not-allowed"';
-  const actions=held
-   ? `<button class="btn"${armed} onclick="BUILD.release('${escapeHtml(held.session_id)}',${(held.models||[]).length})">Release lease</button>`
-   : `<button class="btn primary"${armed} onclick="BUILD.load('${escapeHtml(m.runtime_key)}')">Load</button>`;
-  const heldElsewhere=others.length
-   ? `<div class="trace-step"><b>also held by</b><span>${others.map(l=>escapeHtml(l.owner||'unknown')).join(' · ')}</span></div>`
-   : '';
+  return{held,others,
+   actions:held
+    ? `<button class="btn"${armed} onclick="BUILD.release('${escapeHtml(held.session_id)}',${(held.models||[]).length})">Release lease</button>`
+    : `<button class="btn primary"${armed} onclick="BUILD.load('${escapeHtml(m.runtime_key)}')">Load</button>`,
+   heldElsewhere:others.length
+    ? `<div class="trace-step"><b>also held by</b><span>${others.map(l=>escapeHtml(l.owner||'unknown')).join(' · ')}</span></div>`
+    : ''};
+ },
 
-  return rows.join('')+evidence+heldElsewhere
-   +`<div style="margin-top:10px">${actions}</div>`
-   +`<small class="mono dim">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.${held&&(held.models||[]).length>1?` <b>This lease holds ${(held.models||[]).length} models</b> — releasing it unloads all of them.`:''}${others.length?` It is also held by ${others.length} other owner(s), so releasing this lease will not unload it.`:''}</small>`;
+ /* The two things a reader must know before clicking Release. */
+ _leaseNote({held,others}){
+  const bundled=held&&(held.models||[]).length>1
+   ? ` <b>This lease holds ${(held.models||[]).length} models</b> — releasing it unloads all of them.` : '';
+  const shared=others.length
+   ? ` It is also held by ${others.length} other owner(s), so releasing this lease will not unload it.` : '';
+  return bundled+shared;
+ },
+
+ render(m,ev,res){
+  const lease=this._leaseState(m,res);
+  return this._identityRows(m)+this._evidenceRow(ev)+lease.heldElsewhere
+   +`<div style="margin-top:10px">${lease.actions}</div>`
+   +`<small class="mono dim">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.${this._leaseNote(lease)}</small>`;
  },
 
  async load(runtimeKey){
@@ -3346,7 +3577,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
   /* Only a *known* advertisement can disagree with a measurement. Null is not
      a "no", and comparing against it manufactures a clash on every row. */
   const clash=m.tools_advertised!=null&&works!==m.tools_advertised;
-  return `<span class="chip${works?'':' warn'}">${ok}/${n} tools</span>${clash?` <span class="prov" data-kind="ESTIMATED">claim says ${m.tools_advertised?'yes':'no'}</span>`:''}`};
+  return `<span class="chip${warnUnless(works)}">${ok}/${n} tools</span>${clash?` <span class="prov" data-kind="ESTIMATED">claim says ${m.tools_advertised?'yes':'no'}</span>`:''}`};
  $('#content').innerHTML=kpis([
    ['Loaded',`${loaded.length} / ${builds.length}`,'builds resident now'],
    ['Memory',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'resident now · budget not detected':`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
@@ -3355,7 +3586,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
  +`<div class="card wide live"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
-   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${escapeHtml(m.local_model_id||'')}','${escapeHtml(m.variant_id||'')}')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${m.state==='stopped'?' warn':''}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${m.runtime||'—'} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
+   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${escapeHtml(m.local_model_id||'')}','${escapeHtml(m.variant_id||'')}')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${warnIf(m.state==='stopped')}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${dash(m.runtime)} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
    </div>
    <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. ${fastest
      ?`The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${fastest.family}</b> tops it at ${fastest.measured.gen_tok_s} tok/s${fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:''}.`
@@ -3397,6 +3628,35 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    runtime config, never the family name. This machine has granite-4.0-h-tiny
    twice — once GGUF through llama.cpp, once MLX — and they are different subjects
    with different context ceilings and different evidence. */
+/* One measured capability, as a chip.
+   `null` is not a no. A measurement that was never taken and a measurement
+   that came back negative are different facts, and the column says so — a
+   dash for unknown, never a quiet "none". */
+function toolChip(x){
+ const t=x.measured&&x.measured.tools;
+ if(!t)return{t:null,works:null,html:'<span class="prov" data-kind="UNKNOWN">UNKNOWN</span>'};
+ const works=t[0]===t[1];
+ return{t,works,html:`<span class="chip${warnUnless(works)}">${t[0]}/${t[1]}</span>`};
+}
+
+function advertisedChip(x){
+ if(x.tools_advertised==null)return '<span class="mono" style="opacity:.35">—</span>';
+ return x.tools_advertised
+  ?'<span class="chip">tool_use</span>'
+  :'<span class="mono" style="opacity:.35">none</span>';
+}
+
+/* One build's row. Split out of the table, where it measured cyclomatic
+   complexity 16 inline — the highest remaining in the file, and entirely made
+   of "this field may be absent" repeated across seven columns. */
+function buildRow(x,contextLabel){
+ const {t,works,html:measured}=toolChip(x);
+ /* Only a known advertisement can clash with a measurement; null is not a no. */
+ const clash=works!==null&&x.tools_advertised!=null&&works!==x.tools_advertised;
+ const size=x.size_gb==null?'—':x.size_gb+' GB';
+ return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${dash(x.variant)}</span><span class="mono">${dash(x.runtime)} · ${contextLabel(x.runtime_config)}</span><span>${advertisedChip(x)}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${measured}</span><span class="mono">${size}${x.resident_gb?' / '+x.resident_gb:''}</span><span class="chip${warnIf(x.state==='stopped')}">${x.state}</span></div>`;
+}
+
 async function sirvisModels(){
  heading('Installed builds','Identity is family, variant, runtime and runtime config — never the model name alone.',
   `<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button>`);
@@ -3424,21 +3684,16 @@ async function sirvisModels(){
    ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis']])
  +`<div class="card full"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
-   ${m.items.map(x=>{const t=x.measured&&x.measured.tools,works=t?t[0]===t[1]:null;
-    /* Only a known advertisement can clash with a measurement; null is not a no. */
-    const clash=works!==null&&x.tools_advertised!=null&&works!==x.tools_advertised;
-    const advertised=x.tools_advertised==null?'<span class="mono" style="opacity:.35">—</span>'
-      :x.tools_advertised?'<span class="chip">tool_use</span>':'<span class="mono" style="opacity:.35">none</span>';
-    return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant||'—'}</span><span class="mono">${x.runtime||'—'} · ${ctx(x.runtime_config)}</span><span>${advertised}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${t?`<span class="chip${works?'':' warn'}">${t[0]}/${t[1]}</span>`:'<span class="prov" data-kind="UNKNOWN">UNKNOWN</span>'}</span><span class="mono">${x.size_gb==null?'—':x.size_gb+' GB'}${x.resident_gb?' / '+x.resident_gb:''}</span><span class="chip${x.state==='stopped'?' warn':''}">${x.state}</span></div>`}).join('')}
+   ${m.items.map(x=>buildRow(x,ctx)).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`identity is the whole row: this machine has <b>granite-4.0-h-tiny</b> twice, once GGUF and once MLX, and they are different subjects with different evidence. Both capability columns are absent because SIRVIS's inventory publishes neither — it does not republish the runtime's advertised flags, and measurements are filed against evidence records rather than against a build. Two absences rather than two zeros: nobody has asked these builds to call a tool yet, which is <b>M13</b>.`
      :`the two capability columns disagree about ${m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.`}</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Evidence identity</h3>${cell(`
    <div class="trace-step"><b>family</b><span>${first?first.family:'—'}</span></div>
-   <div class="trace-step"><b>build · variant</b><span>${first&&first.variant||'—'}</span></div>
-   <div class="trace-step"><b>runtime</b><span>${first&&first.runtime||'—'}</span></div>
+   <div class="trace-step"><b>build · variant</b><span>${first&&dash(first.variant)}</span></div>
+   <div class="trace-step"><b>runtime</b><span>${first&&dash(first.runtime)}</span></div>
    <div class="trace-step"><b>runtime config</b><span>${first?ctx(first.runtime_config):'—'}</span></div>
-   <div class="trace-step"><b>machine</b><span>${mc.model||'—'} · ${mc.machine_id}</span></div>
+   <div class="trace-step"><b>machine</b><span>${dash(mc.model)} · ${mc.machine_id}</span></div>
    <div class="trace-step"><b>role</b><span>set by the benchmark suite, not the model</span></div>
    <small class="mono dim">this chain is the key every benchmark result is filed under. Collapse any link of it and you get <b>model → score</b>, which is the one shape SIRVIS is not allowed to publish.</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>Memory</h3>${cell(`
@@ -3471,7 +3726,7 @@ function discoverFilter(items){
 function discoverRows(items,free){
  if(!items.length)return `<div class="table-row"><span style="grid-column:1/-1;opacity:.6">no catalog entry matches these filters</span></div>`;
  return items.map(x=>{const after=+(free-x.size_gb).toFixed(1),tight=after<0||after<free*0.1;
-  return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono" style="opacity:.75">${x.runtime} · ${x.quantization}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools_measured?` <span class="chip${x.tools?'':' warn'}" title="measured">${x.tools_measured.join('/')}</span>`:x.tools?' <span class="chip" title="published claim, not measured" style="opacity:.6">claims</span>':''}</span><span>${x.size_gb} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
+  return `<div class="table-row seven"><span>${x.family}</span><span class="mono">${x.variant}</span><span class="mono" style="opacity:.75">${x.runtime} · ${x.quantization}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools_measured?` <span class="chip${warnUnless(x.tools)}" title="measured">${x.tools_measured.join('/')}</span>`:x.tools?' <span class="chip" title="published claim, not measured" style="opacity:.6">claims</span>':''}</span><span>${x.size_gb} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
    ?'<span class="chip">installed</span>'
    :(after<0?`<button class="btn" disabled title="insufficient disk" style="opacity:.45;cursor:not-allowed">Download</button>`:control('Download','download'))}</span></div>`}).join('')}
 async function sirvisDiscover(){
@@ -3535,7 +3790,7 @@ async function sirvisBenchmarks(){
    ['Failed',String(by('failed')),'no result written','sirvis']])
  +`<div class="card full"><h3>Queue</h3>${cell(`
    <div class="table-row head six"><span>Job</span><span>Suite</span><span>Target</span><span>Submitted</span><span>State</span><span>Progress</span></div>
-   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${x.state==='succeeded'||x.state==='running'?'':' warn'}">${x.state}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div>`}<small class="mono" style="opacity:.55">${x.detail||(x.progress==null?'ran to completion':'—')}</small></span></div>`).join('')}
+   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${warnUnless(x.state==='succeeded'||x.state==='running')}">${x.state}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div>`}<small class="mono" style="opacity:.55">${x.detail||(x.progress==null?'ran to completion':'—')}</small></span></div>`).join('')}
    <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>State versus detail</h3>${cell(`
    <div class="table-row head"><span>Contract state</span><span>Jobs</span><span style="grid-column:3/-1">What a consumer may rely on</span></div>
@@ -3548,7 +3803,7 @@ async function sirvisBenchmarks(){
    <div class="trace-step"><b>job</b><span>${partial.job_id}</span></div>
    <div class="trace-step"><b>suite</b><span>${partial.suite}</span></div>
    <div class="trace-step"><b>reached</b><span>${partial.progress==null?'—':Math.round(partial.progress*100)+'%'}</span></div>
-   <div class="trace-step"><b>why</b><span>${partial.detail||'—'}</span></div>
+   <div class="trace-step"><b>why</b><span>${dash(partial.detail)}</span></div>
    <small class="mono dim">the runs it did complete are kept and the shortfall is stated. Thermal aborts are a property of this machine on this day — discarding them would hide exactly the condition a local benchmark exists to catch.</small>`:`
    <div class="trace-step"><b>none</b><span>no run here ended partial</span></div>
    <small class="mono dim">the card stays rather than disappearing. <b>partial</b> is a state §11.10 names and this engine can reach — fewer runs than requested, the ones that completed kept — and an empty card says the state exists and has not occurred. A card that vanished would say the opposite by saying nothing.</small>`,'sirvis')}</div>`}
@@ -3580,7 +3835,7 @@ async function sirvisRuntimeSets(){
  +`<div class="card full"><h3>Every measured pairing</h3>${cell(`
    <div class="table-row head six"><span>Build A</span><span>Build B</span><span>Peak</span><span>First token</span><span>Follow-up</span><span>Note</span></div>
    ${rs.pairs.map(p=>{const bad=known(p).some(f=>f!=='used-result'&&f!=='never-reached');
-    return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${bad?' warn':''}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
+    return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${warnIf(bad)}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`the follow-up column is the interesting half of this screen and it has no source yet: nothing has asked these builds to call a tool while a second model is resident. <b>TrialRate</b> exists on the evidence record and is constructed nowhere — that is <b>M13</b>. Peak memory is absent for a different reason: M10's matrix carries it, but the rows were added after the only run that exists, so this run's figures are in its telemetry rather than on this record.`
      :`holding two builds costs almost nothing up to ${heaviest?heaviest.peak_gb:'—'} GB resident, and every pairing still clears the deadlines — the first-token penalty is a few hundred milliseconds. That is the finding that makes a two-model setup worth having, and it is the boring half. The interesting half is the follow-up column.`}</small>`,'sirvis')}</div>
@@ -3652,7 +3907,7 @@ async function sirvisResults(){
  +`<div class="card full"><h3>Generation rate</h3>${cell(`
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100)}%" title="${e.target.family} · ${e.metrics.generation_tok_s} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${e.target.family} · no visible output"></i>`).join('')}</div>
    <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
-   ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${e.metrics.effective_tok_s||'—'}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${e.metrics.follow_up||'—'}</span></div>`).join('')}
+   ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${dash(e.metrics.effective_tok_s)}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${dash(e.metrics.follow_up)}</span></div>`).join('')}
    <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. Here the two are within about 5% everywhere, which is itself the finding — none of these front-load. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Rate falls off with size, steeply</h3>${cell(`
    <div class="table-row head"><span>Build</span><span>Size</span><span>Rate</span><span>Accuracy</span></div>
@@ -3718,7 +3973,7 @@ async function sirvisDownloads(){
    ['Failed',String(by('failed')),failed?failed.error:'none','sirvis']])
  +`<div class="card full"><h3>Jobs</h3>${cell(`
    <div class="table-row head five"><span>Variant</span><span>Status</span><span>Transferred</span><span style="grid-column:4/-1">Progress</span></div>
-   ${d.items.map(x=>`<div class="table-row five"><span>${x.variant}</span><span class="chip${x.status==='completed'||x.status==='already_present'?'':' warn'}">${x.status}</span><span class="mono">${x.bytes} / ${x.total} GB</span><span style="grid-column:4/-1"><div class="bar" style="margin:0"><i style="--w:${pct(x)}%"></i></div><small class="mono" style="opacity:.55">${x.error||pct(x)+'%'}</small></span></div>`).join('')}
+   ${d.items.map(x=>`<div class="table-row five"><span>${x.variant}</span><span class="chip${warnUnless(x.status==='completed'||x.status==='already_present')}">${x.status}</span><span class="mono">${x.bytes} / ${x.total} GB</span><span style="grid-column:4/-1"><div class="bar" style="margin:0"><i style="--w:${pct(x)}%"></i></div><small class="mono" style="opacity:.55">${x.error||pct(x)+'%'}</small></span></div>`).join('')}
    <small class="mono dim"><b>already_present</b> is its own status, not a completed download: nothing was transferred, and reporting it as complete would make the disk figure above unexplainable.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>Failure detail</h3>${cell(`
    <div class="trace-step"><b>variant</b><span>${failed.variant}</span></div>
@@ -3759,7 +4014,7 @@ async function systemView(){
     <span class="mono">${now.load_average?now.load_average.map(x=>x.toFixed(2)).join(' · '):'<span class="dim">not reported</span>'}</span>
     <span class="mono">${gib(now.memory_total_bytes)==null?'—':`${(gib(now.memory_total_bytes)-gib(now.memory_available_bytes)).toFixed(1)} of ${gib(now.memory_total_bytes)} GB`}</span>
     <span class="mono">${gib(now.swap_used_bytes)==null?'—':`${gib(now.swap_used_bytes)} of ${gib(now.swap_total_bytes)} GB`}</span>
-    <span class="chip${now.thermal_state&&now.thermal_state!=='nominal'?' warn':''}">${now.thermal_state||'not reported'}</span></div>
+    <span class="chip${warnIf(now.thermal_state&&now.thermal_state!=='nominal')}">${now.thermal_state||'not reported'}</span></div>
    <div class="table-row head" style="margin-top:14px"><span>Heaviest processes</span><span style="grid-column:2/-1">Resident</span></div>
    ${now.processes.length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
     :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
@@ -3776,8 +4031,8 @@ async function systemView(){
    <small class="mono dim">runtime versions are pinned too. An LM Studio or MLX upgrade is exactly the event that moves throughput without anything else changing, and comparing across one without saying so produces a regression nobody can locate.</small>`,'sirvis')}</div>
   <div class="card full live"><h3>Conditions</h3>${cell(`
    <div class="table-row head five"><span>Condition</span><span>Now</span><span style="grid-column:3/-1">Effect on a measurement taken in it</span></div>
-   <div class="table-row five"><span>Thermal state</span><span class="chip${m.thermal_state==='nominal'?'':' warn'}">${m.thermal_state}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
-   <div class="table-row five"><span>Swap</span><span class="chip${m.swap_gb?' warn':''}">${m.swap_gb} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
+   <div class="table-row five"><span>Thermal state</span><span class="chip${warnUnless(m.thermal_state==='nominal')}">${m.thermal_state}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
+   <div class="table-row five"><span>Swap</span><span class="chip${warnIf(m.swap_gb)}">${m.swap_gb} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
    <div class="table-row five"><span>Available memory</span><span class="mono">${m.available_gb} GB</span><span style="grid-column:3/-1;opacity:.75">bounds which builds and which combinations can be attempted at all</span></div>
    <small class="mono dim">these are read at the start and the end of every run. They are the difference between "this build is slow" and "this machine was busy".</small>`,'sirvis')}</div>`}
 
@@ -3822,7 +4077,7 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
   ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${f.split(' · ')[0]}</span></div>`).join('')}
   <small class="mono dim">every fallback satisfies the same hard constraints and pool invariant. Cancellation is not a failure and never triggers one.</small></div>
  <div class="card wide"><h3>Recent requests</h3><div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-  ${req.items.map(r=>`<div class="table-row five"><span>${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
+  ${req.items.map(r=>`<div class="table-row five"><span>${r.pool}</span><span>${dash(r.model)}</span><span class="mono">${dash(r.execution_path)}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${r.result}</span></div>`).join('')}
   <small class="mono dim">${noRouteNote(req)}— a no-route is a first-class outcome, not an error: it failed closed rather than reaching for a provider.</small></div>`}
 
 /* ── RAVIS SCREENS ─────────────────────────────────────────────────────────
@@ -3879,7 +4134,7 @@ async function ravisRoutes(){
    <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed rule. A user cancelling is not a failure and never advances this chain.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Recent decisions</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
+   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${dash(r.model)}</span><span class="mono">${dash(r.execution_path)}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${r.result}</span></div>`).join('')}
    <small class="mono dim">${noRouteNote(req)}NO_ROUTE is a first-class result: it failed closed on a constraint rather than reaching for a provider that would have satisfied the request and broken the promise.</small>`,'ravis')}</div>`}
 
 /* Pools — a pool is its invariants, and on this machine every one of them has a
@@ -3930,12 +4185,12 @@ async function ravisPools(){
    ['Clarvis pools',String(p.items.filter(x=>x.pool_id.includes('clarvis')).length),'agent and chat','ravis']])
  +`<div class="card full"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
-   ${p.items.map(x=>`<div class="table-row five"><span class="mono">${x.pool_id}</span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${x.available?'':' warn'}">${x.available?'yes':'no'}</span><span style="opacity:.7">${x.reason||'—'}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row five"><span class="mono">${x.pool_id}</span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${warnUnless(x.available)}">${x.available?'yes':'no'}</span><span style="opacity:.7">${dash(x.reason)}</span></div>`).join('')}
    <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   <div class="card wide"><h3>${agent.pool_id} · membership <span class="chip">${agent.members} of ${mdl.items.length}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Context ceiling</span><span>Tools advertised</span><span>Tools measured</span><span>Verdict</span></div>
    ${mdl.items.map(m=>{const [v,why]=verdict(m);
-    return `<div class="table-row five"${v==='out'?' style="background:rgba(255,92,106,.06)"':''}><span>${short(m.model_id)}</span><span class="mono">${ceiling(m)}</span><span class="mono" style="opacity:.7">${m.tools.advertised===null?'—':m.tools.advertised?'tool_use':'none'}</span><span class="mono"${m.tools.measured&&m.tools.measured[0]!==m.tools.measured[1]?' style="color:#ffb648"':''}>${m.tools.measured?m.tools.measured.join('/'):'—'}</span><span class="chip${v==='in'?'':' warn'}">${v} · ${why}</span></div>`}).join('')}
+    return `<div class="table-row five"${v==='out'?' style="background:rgba(255,92,106,.06)"':''}><span>${short(m.model_id)}</span><span class="mono">${ceiling(m)}</span><span class="mono" style="opacity:.7">${m.tools.advertised===null?'—':m.tools.advertised?'tool_use':'none'}</span><span class="mono"${m.tools.measured&&m.tools.measured[0]!==m.tools.measured[1]?' style="color:#ffb648"':''}>${m.tools.measured?m.tools.measured.join('/'):'—'}</span><span class="chip${warnUnless(v==='in')}">${v} · ${why}</span></div>`}).join('')}
    <small class="mono dim">${SOURCE.ravis==='live'
      ?`every verdict is the pool's own invariant re-run per build, so the count above can be checked rather than taken. On this deployment every build is <b>out</b> for the same reason: RAVIS holds no tool-capability claim for any of them, and §5.1's invariant fails closed on what it does not know. That is the pool working, not the models failing — the claim arrives with SIRVIS evidence (RAVIS M13), and until then the honest membership of a tool-requiring pool is zero.`
      :`one build is out, and not the one the advertised column would predict. <b>granite-4.0-h-tiny · MLX</b> declares <b>tool_use</b> and delivered 1 call in 8; its GGUF packaging of the same weights delivered 8 in 8 and is in. Three builds advertise nothing and are in on measurement alone. Every verdict here is the pool's own invariant re-run per build, so a reader can check the count rather than take it.`}</small>`,'ravis')}</div>
@@ -4027,11 +4282,11 @@ async function ravisProviders(){
    ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis']])
  +`<div class="card full"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
-   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==='CLOSED'?'':' warn'}">${x.breaker}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${x.breaker}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
    <small class="mono dim">${p.items.map(x=>`<b>${x.label}</b> — ${x.note}`).join('<br>')}</small>`,'ravis')}</div>
   <div class="card full"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
    <div class="table-row head six"><span>Provider</span><span style="grid-column:2/4">Origin</span><span>Chat path</span><span>Auth</span><span>Secret</span></div>
-   ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path)}</span><span class="mono">${x.auth.scheme}${x.auth.header?' · '+x.auth.header:''}</span><span class="mono" style="opacity:.7">${x.auth.secret_ref||'—'}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path)}</span><span class="mono">${x.auth.scheme}${x.auth.header?' · '+x.auth.header:''}</span><span class="mono" style="opacity:.7">${dash(x.auth.secret_ref)}</span></div>`).join('')}
    <small class="mono dim">this is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Protocol mode</h3>${cell(`
    <div class="table-row head"><span>Mode</span><span>Providers</span><span style="grid-column:3/-1">What RAVIS does to the request</span></div>
@@ -4056,7 +4311,7 @@ async function ravisPolicies(){
    ['Enabled',String(p.items.filter(x=>x.enabled).length),'a disabled rule is not evaluated','ravis']])
  +`<div class="card full"><h3>Evaluation order</h3>${cell(`
    <div class="table-row head six"><span>Id</span><span style="grid-column:2/4">When</span><span style="grid-column:4/6">Then</span><span>Kind</span></div>
-   ${p.items.map(x=>`<div class="table-row six"><span class="mono">${x.policy_id}</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(x.when)}</span><span style="grid-column:4/6">${x.then}</span><span class="chip${x.kind==='hard'?'':' warn'}">${x.kind}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row six"><span class="mono">${x.policy_id}</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(x.when)}</span><span style="grid-column:4/6">${x.then}</span><span class="chip${warnUnless(x.kind==='hard')}">${x.kind}</span></div>`).join('')}
    <small class="mono dim">order matters: <b>${p.items[1].policy_id}</b> removes every cloud provider before anything is scored, so a cheaper or faster cloud model is not out-ranked — it is never a candidate. A soft policy such as <b>${p.items.find(x=>x.kind==='soft').policy_id}</b> can only move a candidate down the list.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Hard versus soft</h3>${cell(`
    <div class="table-row head"><span>Kind</span><span>Count</span><span style="grid-column:3/-1">Guarantee to a caller</span></div>
@@ -4092,7 +4347,7 @@ async function ravisEvidence(){
    ['Routing p50',usage.routing_p50_ms+' ms','decision cost, cached evidence','ravis']])
  +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
-   ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${v.state==='SUPPORTED'?'':' warn'}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
+   ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${warnUnless(v.state==='SUPPORTED')}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
    <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${(verdicts.source.threshold.tool_call_pass_rate*100)}%</b> over <b>${verdicts.source.threshold.phrasings}</b> phrasings × <b>${verdicts.source.threshold.repetitions_each}</b> repetitions.</small>`,'ravis')}</div>`:'')
  +`<div class="card full"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
@@ -4124,11 +4379,11 @@ async function ravisLogs(){
    ['Payload capture','off','no prompt or completion is stored','ravis']])
  +`<div class="card full"><h3>Request log</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${r.model||'—'}</span><span class="mono">${r.execution_path||'—'}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${['OK','CANCELLED'].includes(r.result)?'':' warn'}">${r.result}</span></div>`).join('')}
+   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${dash(r.model)}</span><span class="mono">${dash(r.execution_path)}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${r.result}</span></div>`).join('')}
    <small class="mono dim">every row is a decision id away from its full record — pool, requirements, candidates, exclusions and timings. What no row leads to is the text of the request, because it was never written down.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Events published by RAVIS</h3>${cell(`
    <div class="table-row head five"><span>Time</span><span>Type</span><span>Version</span><span>Trace</span><span>Severity</span></div>
-   ${mine.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.event_version}</span><span class="mono">${e.trace_id||'—'}</span><span class="chip${e.severity==='warning'?' warn':''}">${e.severity}</span></div>`).join('')}
+   ${mine.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.event_version}</span><span class="mono">${dash(e.trace_id)}</span><span class="chip${warnIf(e.severity==='warning')}">${e.severity}</span></div>`).join('')}
    <small class="mono dim">these are the frames RAVIS handed the hub, carrying identifiers and result classes only. Export failing never blocks a route: telemetry is downstream of serving the request, and a collector outage must not become a routing outage.</small>`,'ravis')}</div>
   <div class="card narrow"><h3>What is not logged</h3>${cell(`
    <div class="trace-step"><b>prompt</b><span>never</span></div>
@@ -4172,7 +4427,7 @@ async function ravisSettings(){
    serviceDiagnostics('ravis')]);
  const liveCard=`<div class="card full live"><h3>How RAVIS is running <span class="chip">observed</span></h3>${cell(`
    <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(BASE.ravis)}</span></div>
-   ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(sDiag.identity.build_version||'—')}</span></div>`:''}
+   ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(dash(sDiag.identity.build_version))}</span></div>`:''}
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${sHealth.models_known} model(s) visible</span>`:''}</span></div>
    ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${p.enabled?'enabled':'disabled'} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${p.reachable===null?'not probed':(p.reachable?'answering':'not answering')}</span></div>`).join('')}
    <div class="trace-step"><b>credentials</b><span><a href="#" onclick="state.view='Credentials';render();return false" style="color:inherit">RAVIS → Credentials</a></span></div>
@@ -4191,11 +4446,11 @@ async function ravisSettings(){
    <small class="mono dim">this card used to list five actions under a chip reading <b>has an endpoint</b>, with a working-looking button beside each. Not one of them existed: RAVIS publishes nine reads and no writes. The buttons raised a toast and changed nothing, which is worse than an absent control — an operator learns the system does something it does not, and only finds out when it matters. The suite is a real operation and runs on the CLI, which is where it is named.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Serving surface</h3>${cell(`
    <div class="table-row head"><span>Endpoint</span><span>Status</span><span style="grid-column:3/-1">Constraint</span></div>
-   ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${escapeHtml(ep)}</span><span class="chip${st==='required'?'':' warn'}">${st}</span><span style="grid-column:3/-1;opacity:.75">${note}</span></div>`).join('')}
+   ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${escapeHtml(ep)}</span><span class="chip${warnUnless(st==='required')}">${st}</span><span style="grid-column:3/-1;opacity:.75">${note}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${s.serving.supported.length} supported</span></div>
    <small class="mono dim" style="opacity:.8">${s.serving.supported.join(' · ')}</small>
    <small class="mono dim">${s.serving.note}. Errors are <b>${s.serving.error_shape}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
-  <div class="card full"><h3>Listen address <span class="chip${s.listen.tls?'':' warn'}">${s.listen.tls?'tls':'loopback, no tls'}</span></h3>${cell(`
+  <div class="card full"><h3>Listen address <span class="chip${warnUnless(s.listen.tls)}">${s.listen.tls?'tls':'loopback, no tls'}</span></h3>${cell(`
    <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
    ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">http://${s.listen.host}:${s.listen.port}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:11px"><b>set by</b><span class="mono">${escapeHtml(s.listen.set_by)}</span></div>
@@ -4461,7 +4716,7 @@ async function serviceDiagnostics(key){
 function healthChip(d){
  if(!d||!d.health)return '<span class="chip warn">not answering</span>';
  const h=d.health;
- return `<span class="chip${h.status==='healthy'?'':' warn'}">${escapeHtml(h.status||'unknown')}</span>`
+ return `<span class="chip${warnUnless(h.status==='healthy')}">${escapeHtml(h.status||'unknown')}</span>`
    +` <span class="mono dim">live ${h.live?'yes':'no'} · ready ${h.ready?'yes':'no'}</span>`;
 }
 
@@ -4595,91 +4850,117 @@ function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
     : 'The model returned an empty message.'};
 }
 
+/* One arriving frame, folded into the accumulator.
+   Pure apart from the repaint, which is why it is out here rather than inside
+   the stream loop: `sendChat` measured cyclomatic complexity 30 — the joint
+   highest in the file — and the only way to get coverage on this logic without
+   a running model was to make it a function that takes a frame and returns
+   nothing but its effect on an object. `tools/shaping_check.js` now feeds it
+   recorded frames. */
+function frameDelta(frame){return((frame.choices||[{}])[0]||{}).delta||{}}
+
+function absorbFrame(item,acc,paint){
+ if(item.error){acc.failed='stream';return}
+ const frame=item.frame;
+ /* A refusal arrives as an error marker followed by the frame carrying the
+    reason, so the second frame is read only once the first has been seen. */
+ if(acc.failed==='stream'){acc.failed=frame.message||'RAVIS refused mid-stream';return}
+ const delta=frameDelta(frame);
+ if(delta.content){acc.reply+=delta.content;if(paint)paint()}
+ /* Counted, not shown. Reasoning tokens are the model thinking, not its
+    answer — but a reply that is *only* reasoning needs explaining, and the
+    count is the explanation. */
+ if(delta.reasoning_content)acc.reasoning++;
+ acc.served=frame.model||acc.served;
+}
+
+/* Why a request was refused, from the error envelope if there is one. */
+async function refusalMessage(r){
+ const d=await r.json().catch(()=>({}));
+ return (d.error&&(d.error.message||d.error))||('NERVIS returned HTTP '+r.status);
+}
+
+/* A stop is not a failure and must not borrow a failure's explanation.
+   Without the distinction, stopping a reasoning model before it produced any
+   text rendered "the model spent its whole budget on reasoning — raise Max
+   tokens", which is a confident diagnosis of something that did not happen. */
+function transportFailure(e){
+ const aborted=e.name==='AbortError';
+ return{aborted,failed:aborted?'':'NERVIS is not reachable: '+e.message};
+}
+
+/* The user's turn and the placeholder the stream paints into. */
+function stageTurn(text){
+ CHAT_SESSION.busy=true;
+ CHAT_SESSION.messages.push({role:'user',text});
+ if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
+ CHAT_SESSION.messages.push({role:'assistant',text:'',pending:true});
+}
+
+/* **Through NERVIS since M4, and streamed.** This used to POST straight to
+   RAVIS and wait for a whole completion — a blank screen for however long a
+   local model took, and a conversation that lived only in `localStorage` and
+   vanished with the browser profile.
+
+   NERVIS forwards RAVIS's SSE frames unchanged, so what arrives here is exactly
+   OpenAI's shape; what NERVIS adds is storing both turns and cancelling RAVIS
+   when this connection goes away. */
+async function streamReply(stop){
+ const acc={reply:'',requestId:'',served:'',
+   conversationId:CHAT_SESSION.remote_id||'',reasoning:0,failed:'',aborted:false};
+ const node=()=>document.getElementById('streaming');
+ const paint=()=>{const el=node();if(el)el.innerHTML='<b>NERVIS</b><br>'+escapeHtml(acc.reply)+
+   (CHAT_SESSION.busy?'<span class="stream-caret">▌</span>':'')};
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat',{
+   method:'POST',headers:{'content-type':'application/json'},signal:stop.signal,
+   body:JSON.stringify(chatRequestBody(acc.conversationId))});
+  acc.requestId=r.headers.get('x-request-id')||'';
+  acc.conversationId=r.headers.get('x-conversation-id')||acc.conversationId;
+  if(!r.ok)acc.failed=await refusalMessage(r);
+  else for await(const item of sseFrames(r.body))absorbFrame(item,acc,paint);
+ }catch(e){Object.assign(acc,transportFailure(e))}
+ return acc;
+}
+
+/* Correlate the reply with the decision RAVIS recorded for it. NERVIS looks it
+   up by the request id it sent, so the link is exact rather than "the most
+   recent decision" — which would be wrong the moment two requests overlap. */
+async function attachRouteDecision({requestId,failed}){
+ if(!requestId||failed)return;
+ try{
+  const rd=await fetch(BASE.nervis+'/api/v1/ravis/routes/for/'+encodeURIComponent(requestId),
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!rd.ok)return;
+  const hit=(await rd.json()).decision;
+  if(hit)CHAT_SESSION.messages[CHAT_SESSION.messages.length-1].route_decision_id=hit.decision_id;
+ }catch(e){}
+}
+
 async function sendChat(){
  const box=document.getElementById('chatInput');
  const text=(box&&box.value||'').trim();
  if(!text||CHAT_SESSION.busy)return;
  box.value='';
- CHAT_SESSION.busy=true;
- CHAT_SESSION.messages.push({role:'user',text});
- if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
- CHAT_SESSION.messages.push({role:'assistant',text:'',pending:true});
+ stageTurn(text);
  /* **Awaited.** `render()` refetches this screen's profiles and decisions, so
     leaving it unawaited meant the reply bubble did not exist for the first
     second — and every delta arriving before it was written into nothing. The
-    text still appeared, because `paint()` writes the whole accumulated string
-    rather than appending, but the first second was blank: exactly the blank
-    screen streaming exists to remove. */
+    text still appeared, because the repaint writes the whole accumulated
+    string rather than appending, but the first second was blank: exactly the
+    blank screen streaming exists to remove. */
  await render();
 
- /* **Through NERVIS since M4, and streamed.** This used to POST straight to
-    RAVIS and wait for a whole completion — a blank screen for however long a
-    local model took, and a conversation that lived only in `localStorage` and
-    vanished with the browser profile.
-
-    NERVIS forwards RAVIS's SSE frames unchanged, so what arrives here is
-    exactly OpenAI's shape; what NERVIS adds is storing both turns and
-    cancelling RAVIS when this connection goes away. */
  const stop=new AbortController();
  CHAT_SESSION.abort=stop;
- let reply='',requestId='',served='',conversationId=CHAT_SESSION.remote_id||'',reasoning=0,failed='';
- /* Tracked separately from `failed`, because a stop is not a failure and must
-    not borrow a failure's explanation. Without this, stopping a reasoning model
-    before it produced any text rendered "the model spent its whole budget on
-    reasoning — raise Max tokens", which is a confident diagnosis of something
-    that did not happen. */
- let aborted=false;
- const node=()=>document.getElementById('streaming');
- const paint=()=>{const el=node();if(el)el.innerHTML='<b>NERVIS</b><br>'+escapeHtml(reply)+
-   (CHAT_SESSION.busy?'<span class="stream-caret">▌</span>':'')};
-
- try{
-  const r=await fetch(BASE.nervis+'/api/v1/chat',{
-   method:'POST',headers:{'content-type':'application/json'},signal:stop.signal,
-   body:JSON.stringify(chatRequestBody(conversationId))});
-  requestId=r.headers.get('x-request-id')||'';
-  conversationId=r.headers.get('x-conversation-id')||conversationId;
-  if(!r.ok){
-   const d=await r.json().catch(()=>({}));
-   failed=(d.error&&(d.error.message||d.error))||('NERVIS returned HTTP '+r.status);
-  }else{
-   for await(const item of sseFrames(r.body)){
-      if(item.error){failed='stream';continue}
-      const frame=item.frame;
-      if(failed==='stream'){failed=frame.message||'RAVIS refused mid-stream';continue}
-      const delta=((frame.choices||[{}])[0]||{}).delta||{};
-      if(delta.content){reply+=delta.content;paint()}
-      /* Counted, not shown. Reasoning tokens are the model thinking, not its
-         answer — but a reply that is *only* reasoning needs explaining, and
-         the count is the explanation. */
-      if(delta.reasoning_content)reasoning++;
-      served=frame.model||served;
-   }
-  }
- }catch(e){
-  aborted=e.name==='AbortError';
-  failed=aborted?'':'NERVIS is not reachable: '+e.message;
- }
+ const outcome=await streamReply(stop);
 
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
- CHAT_SESSION.remote_id=conversationId;
+ CHAT_SESSION.remote_id=outcome.conversationId;
  CHAT_SESSION.messages.pop();
- CHAT_SESSION.messages.push(replyMessage({reply,failed,aborted,reasoning,served,requestId}));
-
- /* Correlate the reply with the decision RAVIS recorded for it. NERVIS looks it
-    up by the request id it sent, so the link is exact rather than "the most
-    recent decision" — which would be wrong the moment two requests overlap. */
- if(requestId&&!failed){
-  try{
-   const rd=await fetch(BASE.nervis+'/api/v1/ravis/routes/for/'+encodeURIComponent(requestId),
-     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-   if(rd.ok){
-    const hit=(await rd.json()).decision;
-    if(hit)CHAT_SESSION.messages[CHAT_SESSION.messages.length-1].route_decision_id=hit.decision_id;
-   }
-  }catch(e){}
- }
+ CHAT_SESSION.messages.push(replyMessage(outcome));
+ await attachRouteDecision(outcome);
  /* NERVIS stored both turns already; this keeps the browser copy for the case
     the page is opened from disk with nothing running. */
  CHAT_STORE.save(CHAT_SESSION);
@@ -4717,50 +4998,79 @@ const CREDS={
 /* Diagnostics — is this build actually Clarvis-compatible, and is anything in the
    way right now. The conformance suite is the release gate: every check passes or
    the build does not claim compatibility. */
+/* RAVIS's own health, read live.
+   `ravis conformance clarvis` is a CLI command with no HTTP surface, so the
+   conformance table cannot be read from anywhere and stays prototype. What
+   *is* readable is whether RAVIS's upstream answers, how quickly, and how many
+   models it can see. */
+async function ravisHealth(){
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/health',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  return r.ok?await r.json():null;
+ }catch(e){return null}
+}
+
+function upstreamRow(rhealth){
+ if(!rhealth.upstream_reachable)
+  return `<span class="chip warn">not answering</span> <span class="mono dim">${escapeHtml(rhealth.upstream_detail||'')}</span>`;
+ const ms=rhealth.upstream_latency_ms;
+ return `<span class="chip">answering</span> <span class="mono dim">${ms!=null?Math.round(ms)+' ms':''}</span>`;
+}
+
+function ravisHealthCard(rhealth,rdiag){
+ if(!rhealth)return '';
+ const identity=(rdiag&&rdiag.identity)||null;
+ return `<div class="card full live"><h3>RAVIS health <span class="chip">live</span></h3>${cell(`
+   <div class="trace-step"><b>status</b><span>${healthChip(rdiag)}</span></div>
+   <div class="trace-step"><b>upstream</b><span>${upstreamRow(rhealth)}</span></div>
+   <div class="trace-step"><b>models visible</b><span class="mono">${rhealth.models_known}</span></div>
+   ${identity?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(dash(identity.build_version))} · protocol ${escapeHtml(dash(identity.protocol_version))}</span></div>`:''}
+   ${((rdiag&&rdiag.unavailable)||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
+   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the sixteen checks below are the suite's shape rather than a run of it. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
+}
+
+function conformanceCard(cf){
+ return `<div class="card full"><h3>Clarvis conformance <span class="chip warn">shape, not a run</span> <span class="chip${warnUnless(cf.pass)}">${cf.pass?'pass':'fail'}</span></h3>${cell(`
+   <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name,ok])=>`
+    <div class="lane${ok?'':' excluded'}" style="cursor:default"><b>${name}</b><span class="chip${warnUnless(ok)}">${ok?'pass':'fail'}</span></div>`).join('')}</div>
+   <small class="mono dim">these are not unit tests of RAVIS — they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
+}
+
+function providerHealthCard(pr,breakers){
+ const note=breakers.length
+  ? `<b>${breakers[0].label}</b> is at ${breakers[0].breaker}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`
+  : 'Every breaker closed and every enabled provider answering.';
+ return `<div class="card wide"><h3>Provider health</h3>${cell(`
+   <div class="table-row head five"><span>Provider</span><span>Breaker</span><span>Error rate</span><span>p50</span><span>Enabled</span></div>
+   ${pr.items.map(x=>`<div class="table-row five"><span>${x.label}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${x.breaker}</span><span>${Math.round(x.error_rate*100)}%</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span><span class="chip${warnUnless(x.enabled)}">${x.enabled?'yes':'no'}</span></div>`).join('')}
+   <small class="mono dim">${note}</small>`,'ravis')}</div>`;
+}
+
+function unavailablePoolsCard(down){
+ const body=down.length
+  ? down.map(x=>`<div class="trace-step"><b>${x.pool_id}</b><span>${x.reason||'no member satisfies its invariants'}</span></div>`).join('')
+    +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
+  : `<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`;
+ return `<div class="card narrow"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
+}
+
 async function ravisDiagnostics(){
  heading('Diagnostics','The Clarvis conformance suite, breaker state and pool availability — the three things that break a client.',
   `<span class="mono" style="opacity:.6;font-size:12px">ravis conformance clarvis</span>`);
- const [cf,pr,pl]=await Promise.all([API.ravis.conformance(),API.ravis.providers(),API.ravis.pools()]);
+ const [cf,pr,pl,rhealth,rdiag]=await Promise.all([
+   API.ravis.conformance(),API.ravis.providers(),API.ravis.pools(),
+   ravisHealth(),serviceDiagnostics('ravis')]);
  const passed=cf.checks.filter(([,ok])=>ok).length;
  const breakers=pr.items.filter(x=>x.breaker!=='CLOSED');
  const down=pl.items.filter(x=>!x.available);
- 
- /* The live half. `ravis conformance clarvis` is a CLI command with no HTTP
-    surface, so the conformance table below cannot be read from anywhere — it
-    stays prototype and is labelled as such. What *is* readable is RAVIS's own
-    health: whether its upstream answers, how quickly, and how many models it
-    can see. */
- const [rhealth,rdiag]=await Promise.all([
-   (async()=>{try{const r=await fetch(BASE.ravis+'/api/v1/health',
-      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?await r.json():null}
-    catch(e){return null}})(),
-   serviceDiagnostics('ravis')]);
- const liveCard=rhealth?`<div class="card full live"><h3>RAVIS health <span class="chip">live</span></h3>${cell(`
-   <div class="trace-step"><b>status</b><span>${healthChip(rdiag)}</span></div>
-   <div class="trace-step"><b>upstream</b><span>${rhealth.upstream_reachable
-     ?`<span class="chip">answering</span> <span class="mono dim">${rhealth.upstream_latency_ms!=null?Math.round(rhealth.upstream_latency_ms)+' ms':''}</span>`
-     :`<span class="chip warn">not answering</span> <span class="mono dim">${escapeHtml(rhealth.upstream_detail||'')}</span>`}</span></div>
-   <div class="trace-step"><b>models visible</b><span class="mono">${rhealth.models_known}</span></div>
-   ${(rdiag&&rdiag.identity)?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(rdiag.identity.build_version||'—')} · protocol ${escapeHtml(rdiag.identity.protocol_version||'—')}</span></div>`:''}
-   ${(rdiag&&rdiag.unavailable||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
-   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the sixteen checks below are the suite's shape rather than a run of it. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`:'';
- $('#content').innerHTML=liveCard+kpis([
+
+ $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+kpis([
    ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis'],
    ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis'],
    ['Breakers',String(breakers.length),breakers.length?'not closed':'all closed','ravis'],
    ['Pools down',String(down.length),down.length?down[0].pool_id:'none','ravis']])
- +`<div class="card full"><h3>Clarvis conformance <span class="chip warn">shape, not a run</span> <span class="chip${cf.pass?'':' warn'}">${cf.pass?'pass':'fail'}</span></h3>${cell(`
-   <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name,ok])=>`
-    <div class="lane${ok?'':' excluded'}" style="cursor:default"><b>${name}</b><span class="chip${ok?'':' warn'}">${ok?'pass':'fail'}</span></div>`).join('')}</div>
-   <small class="mono dim">these are not unit tests of RAVIS — they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Provider health</h3>${cell(`
-   <div class="table-row head five"><span>Provider</span><span>Breaker</span><span>Error rate</span><span>p50</span><span>Enabled</span></div>
-   ${pr.items.map(x=>`<div class="table-row five"><span>${x.label}</span><span class="chip${x.breaker==='CLOSED'?'':' warn'}">${x.breaker}</span><span>${Math.round(x.error_rate*100)}%</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span><span class="chip${x.enabled?'':' warn'}">${x.enabled?'yes':'no'}</span></div>`).join('')}
-   <small class="mono dim">${breakers.length?`<b>${breakers[0].label}</b> is at ${breakers[0].breaker}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`:'Every breaker closed and every enabled provider answering.'}</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Unavailable pools</h3>${cell(down.length?down.map(x=>`
-   <div class="trace-step"><b>${x.pool_id}</b><span>${x.reason||'no member satisfies its invariants'}</span></div>`).join('')
-   +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
-   :`<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`,'ravis')}</div>`}
+ +conformanceCard(cf)+providerHealthCard(pr,breakers)+unavailablePoolsCard(down);
+}
 
 /* ── EDITOR_PREVIEW ────────────────────────────────────────────────────────
    Everything in here is rendered by code-server and the Clarvis extension inside
@@ -5001,6 +5311,31 @@ function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show
    the model budget derived from that baseline. Printing `null` or defaulting to
    a number would both be worse: one looks broken, the other looks measured. */
 function orUnknown(v,suffix){return v==null?'<span class="mono" style="opacity:.5">not detected</span>':v+(suffix||'')}
+/* An absent value, said once.
+ *
+ * `dash(x)` appeared forty-one times across the view functions, and every one of
+ * them counted as a branch — which is most of the reason a dozen render
+ * functions sat between ten and fifteen on the complexity gate while containing
+ * no decision a reader would recognise as one. The branch still exists; it
+ * exists **here**, once, instead of at each of forty-one call sites.
+ *
+ * Falsy rather than nullish on purpose: it replaces `||`, and an empty string
+ * rendered as an empty cell is the bug this dash was always there to prevent.
+ */
+function dash(value){return value||'—'}
+
+/* A chip's warning modifier, said once.
+ *
+ * `${warnUnless(ok)}` and its inverse appeared thirty-seven times, each one a
+ * branch on the complexity gate and none of them a decision — the class list
+ * of a status chip is a *rendering* of a boolean, not a choice about one. The
+ * two spellings exist because the sense of the boolean differs by call site:
+ * `warnUnless(healthy)` and `warnIf(broken)` both read correctly, and one of
+ * them read backwards at half the sites.
+ */
+function warnUnless(ok){return ok?'':' warn'}
+function warnIf(bad){return bad?' warn':''}
+
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 /* Cycling a service through healthy → degraded → unreachable is the whole point:
    the rule is that removing a dependency changes only the UI that depends on it,

@@ -27,18 +27,39 @@ const fs = require("node:fs");
 const path = require("node:path");
 const acorn = require("acorn");
 
-/* A ratchet, not a standard. The Python packages hold 8; this file cannot yet,
- * and setting 8 here would be actively harmful — only 21% of this file's
- * decision points are control flow, and 69% are `||`, `??` and `?:` shaping
- * optional fields, mostly inside template literals. Sixteen of the thirty
- * functions above 8 contain no `if`, loop, `case` or `catch` at all. A limit of
- * 8 would pressure a reader toward hiding optional-field handling rather than
- * writing it out, which is worse code that scores better.
+/* A ratchet, not a standard — but a ratchet is only honest at a number that
+ * would not embarrass anyone. This sat at 30, and 30 is deep in the band
+ * conventionally read as "high risk": thirty independent paths through one
+ * function is more than any test suite realistically covers. Sitting there was
+ * defensible only as a statement that nothing new could be worse, and it was
+ * rightly challenged.
  *
- * So: set just at the worst survivor, and lowered whenever one comes down. It
- * catches a NEW tangle, which is the thing worth catching. Raising it needs a
+ * It is 13 now. What came down, and how:
+ *
+ *   runtimeSet       30 → 11   accessors defined once instead of at twenty
+ *                              reads; the sparse fixture caught a live bug on
+ *                              the first execution of a branch it added
+ *   sendChat         30 → ~7   the frame loop pulled out as a pure function,
+ *                              which is also how it finally got coverage
+ *   render (build)   28 → ~5   split by section
+ *   tracesView       25 → ~4   split by card
+ *   ravisDiagnostics 18 → ~6   split by card
+ *   the whole file   —         `dash()` and `warnUnless()` replaced 78 inline
+ *                              fallbacks, each of which had been a branch
+ *
+ * The Python packages hold 8 and this still does not, for a reason that is
+ * measured rather than assumed: only about a fifth of this file's decision
+ * points are control flow, and most of the rest are `||`, `??` and `?:` shaping
+ * optional fields inside template literals. Forcing 8 would pressure a reader
+ * toward hiding optional-field handling rather than writing it out — worse code
+ * that scores better. The two sweeps above are the honest version of that fix:
+ * name the pattern once, and the branch genuinely stops existing at the call
+ * site.
+ *
+ * **The target is 10**, the conventional threshold, reachable by the same
+ * method. Lower this whenever the worst survivor comes down. Raising it needs a
  * reason in the commit message. */
-const LIMIT = Number(process.env.NERVIS_COMPLEXITY_LIMIT || 30);
+const LIMIT = Number(process.env.NERVIS_COMPLEXITY_LIMIT || 13);
 
 const page = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const open = page.indexOf("<script>") + "<script>".length;

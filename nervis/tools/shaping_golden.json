@@ -1,0 +1,581 @@
+{
+  "full": {
+    "runtimeSet": {
+      "runtime_set_id": "rs_balanced",
+      "name": "clarvis-balanced",
+      "revision": 3,
+      "evidence_type": "MEASURED",
+      "samples": 3,
+      "combined_peak_gb": 8,
+      "swap_gb": 0,
+      "complete": true,
+      "co_residency_failure": null,
+      "conditions": [
+        "alone",
+        "sequential",
+        "concurrent"
+      ],
+      "members": [
+        {
+          "role": "agent",
+          "family": "qwen2.5-coder-7b-instruct · MLX 4bit",
+          "alone_tok_s": 29.5,
+          "sequential_tok_s": 28.1,
+          "concurrent_tok_s": 19,
+          "first_token_alone_s": 0.261,
+          "first_token_concurrent_s": 0.441,
+          "degradation": {
+            "concurrent": {
+              "tokens_per_second": 35.52
+            }
+          },
+          "follow_up_alone": null,
+          "follow_up_concurrent": null
+        },
+        {
+          "role": "chat",
+          "family": "ministral-8b-instruct-2410 · MLX 4bit",
+          "alone_tok_s": 25.3,
+          "sequential_tok_s": 24,
+          "concurrent_tok_s": 16.9,
+          "first_token_alone_s": 0.224,
+          "first_token_concurrent_s": 0.502,
+          "degradation": {
+            "concurrent": {
+              "tokens_per_second": 33.31
+            }
+          },
+          "follow_up_alone": null,
+          "follow_up_concurrent": null
+        }
+      ],
+      "pairs": [
+        {
+          "members": [
+            "qwen2.5-coder-7b-instruct · MLX 4bit",
+            "ministral-8b-instruct-2410 · MLX 4bit"
+          ],
+          "peak_gb": 8,
+          "first_token_s": [
+            0.441,
+            0.502
+          ],
+          "follow_up": [
+            null,
+            null
+          ],
+          "note": "3 conditions · 3 repetitions each"
+        }
+      ],
+      "validity": {
+        "measurement": "VALID",
+        "notes": "ambient load below 5%",
+        "basis": "three repetitions per condition",
+        "co_residency": "every member resident together"
+      },
+      "finding": "agent lost 35.5% of its throughput under concurrent load, and chat lost 33.3% of its throughput under concurrent load"
+    },
+    "source": "live"
+  },
+  "sparse": {
+    "runtimeSet": {
+      "runtime_set_id": "rs_balanced",
+      "name": "clarvis-balanced",
+      "revision": 1,
+      "samples": 0,
+      "combined_peak_gb": null,
+      "swap_gb": null,
+      "conditions": [],
+      "members": [
+        {
+          "role": "agent",
+          "family": "solo-model",
+          "alone_tok_s": null,
+          "sequential_tok_s": null,
+          "concurrent_tok_s": null,
+          "first_token_alone_s": null,
+          "first_token_concurrent_s": null,
+          "degradation": {},
+          "follow_up_alone": null,
+          "follow_up_concurrent": null
+        }
+      ],
+      "pairs": [
+        {
+          "members": [
+            "solo-model"
+          ],
+          "peak_gb": null,
+          "first_token_s": [
+            null
+          ],
+          "follow_up": [
+            null
+          ],
+          "note": "0 conditions · 0 repetitions each"
+        }
+      ],
+      "validity": {
+        "notes": "none recorded",
+        "co_residency": "not recorded"
+      },
+      "finding": "agent lost null% of its throughput under concurrent load"
+    },
+    "source": "live"
+  },
+  "no-matrix": {
+    "runtimeSet": {
+      "runtime_set_id": "rs_clarvis_balanced",
+      "revision": 3,
+      "name": "clarvis-balanced",
+      "evidence_type": "MEASURED",
+      "samples": 3,
+      "combined_peak_gb": 8.8,
+      "swap_gb": 0,
+      "members": [
+        {
+          "role": "agent",
+          "family": "qwen2.5-coder-7b-instruct",
+          "variant": "MLX 4bit",
+          "alone_tok_s": 29.5,
+          "concurrent_tok_s": null,
+          "first_token_alone_s": 0.26,
+          "first_token_concurrent_s": 0.34,
+          "follow_up_alone": "used-result",
+          "follow_up_concurrent": "used-result"
+        },
+        {
+          "role": "chat",
+          "family": "ministral-8b-instruct-2410",
+          "variant": "MLX 4bit",
+          "alone_tok_s": 25.3,
+          "concurrent_tok_s": null,
+          "first_token_alone_s": 0.26,
+          "first_token_concurrent_s": 0.49,
+          "follow_up_alone": "used-result",
+          "follow_up_concurrent": "no-call"
+        }
+      ],
+      "pairs": [
+        {
+          "members": [
+            "phi-4-mini-instruct",
+            "qwen2.5-coder-7b-instruct"
+          ],
+          "peak_gb": 6.5,
+          "first_token_s": [
+            0.3,
+            0.69
+          ],
+          "follow_up": [
+            "used-result",
+            "used-result"
+          ],
+          "note": "no meaningful contention"
+        },
+        {
+          "members": [
+            "qwen2.5-coder-7b-instruct",
+            "ministral-8b-instruct-2410"
+          ],
+          "peak_gb": 8.8,
+          "first_token_s": [
+            0.34,
+            0.49
+          ],
+          "follow_up": [
+            "used-result",
+            "no-call"
+          ],
+          "note": "ministral stopped calling the tool at all"
+        },
+        {
+          "members": [
+            "mlx-community/granite-4.0-h-tiny",
+            "qwen2.5-coder-7b-instruct"
+          ],
+          "peak_gb": 8.2,
+          "first_token_s": [
+            0.13,
+            0.24
+          ],
+          "follow_up": [
+            "never-reached",
+            "used-result"
+          ],
+          "note": "neither degraded · granite reached a full 300-character line in 0.65s against the control 2.43s"
+        },
+        {
+          "members": [
+            "lfm2.5-2.6b-mlx",
+            "qwen2.5-coder-14b-instruct-mlx"
+          ],
+          "peak_gb": 9.9,
+          "first_token_s": [
+            4.5,
+            1.39
+          ],
+          "follow_up": [
+            "used-result",
+            "used-result"
+          ],
+          "note": "lfm2.5 briefing reached 11.1s"
+        },
+        {
+          "members": [
+            "ministral-8b-instruct-2410",
+            "qwen2.5-coder-14b-instruct-mlx"
+          ],
+          "peak_gb": 12.9,
+          "first_token_s": [
+            0.43,
+            0.77
+          ],
+          "follow_up": [
+            "gave-up",
+            "used-result"
+          ],
+          "note": "ministral abandoned the tool a second time, in a different way"
+        }
+      ],
+      "validity": {
+        "thermal": "nominal",
+        "swap": "none",
+        "effective_config": "matches requested",
+        "verdict": "VALID"
+      },
+      "finding": "memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB"
+    }
+  },
+  "co-residency-failure": {
+    "runtimeSet": {
+      "runtime_set_id": "rs_balanced",
+      "name": "clarvis-balanced",
+      "revision": 3,
+      "evidence_type": "MEASURED",
+      "samples": 3,
+      "combined_peak_gb": 8,
+      "swap_gb": 0,
+      "complete": false,
+      "co_residency_failure": "chat evicted agent at 31.2 GB",
+      "conditions": [
+        "alone",
+        "sequential",
+        "concurrent"
+      ],
+      "members": [
+        {
+          "role": "agent",
+          "family": "big-model · GGUF q8",
+          "alone_tok_s": 29.5,
+          "sequential_tok_s": 28.1,
+          "concurrent_tok_s": 19,
+          "first_token_alone_s": 0.261,
+          "first_token_concurrent_s": 0.441,
+          "degradation": {
+            "concurrent": {
+              "tokens_per_second": 35.52
+            }
+          },
+          "follow_up_alone": null,
+          "follow_up_concurrent": null
+        },
+        {
+          "role": "chat",
+          "family": "chat",
+          "alone_tok_s": 25.3,
+          "sequential_tok_s": 24,
+          "concurrent_tok_s": 16.9,
+          "first_token_alone_s": 0.224,
+          "first_token_concurrent_s": 0.502,
+          "degradation": {
+            "concurrent": {
+              "tokens_per_second": 33.31
+            }
+          },
+          "follow_up_alone": null,
+          "follow_up_concurrent": null
+        }
+      ],
+      "pairs": [
+        {
+          "members": [
+            "big-model · GGUF q8",
+            "chat"
+          ],
+          "peak_gb": 8,
+          "first_token_s": [
+            0.441,
+            0.502
+          ],
+          "follow_up": [
+            null,
+            null
+          ],
+          "note": "3 conditions · 3 repetitions each"
+        }
+      ],
+      "validity": {
+        "measurement": "VALID",
+        "notes": "ambient load below 5%",
+        "basis": "three repetitions per condition",
+        "co_residency": "FAILED — chat evicted agent at 31.2 GB"
+      },
+      "finding": "agent lost 35.5% of its throughput under concurrent load, and chat lost 33.3% of its throughput under concurrent load"
+    },
+    "source": "live"
+  },
+  "no-sets": {
+    "runtimeSet": {
+      "runtime_set_id": "rs_clarvis_balanced",
+      "revision": 3,
+      "name": "clarvis-balanced",
+      "evidence_type": "MEASURED",
+      "samples": 3,
+      "combined_peak_gb": 8.8,
+      "swap_gb": 0,
+      "members": [
+        {
+          "role": "agent",
+          "family": "qwen2.5-coder-7b-instruct",
+          "variant": "MLX 4bit",
+          "alone_tok_s": 29.5,
+          "concurrent_tok_s": null,
+          "first_token_alone_s": 0.26,
+          "first_token_concurrent_s": 0.34,
+          "follow_up_alone": "used-result",
+          "follow_up_concurrent": "used-result"
+        },
+        {
+          "role": "chat",
+          "family": "ministral-8b-instruct-2410",
+          "variant": "MLX 4bit",
+          "alone_tok_s": 25.3,
+          "concurrent_tok_s": null,
+          "first_token_alone_s": 0.26,
+          "first_token_concurrent_s": 0.49,
+          "follow_up_alone": "used-result",
+          "follow_up_concurrent": "no-call"
+        }
+      ],
+      "pairs": [
+        {
+          "members": [
+            "phi-4-mini-instruct",
+            "qwen2.5-coder-7b-instruct"
+          ],
+          "peak_gb": 6.5,
+          "first_token_s": [
+            0.3,
+            0.69
+          ],
+          "follow_up": [
+            "used-result",
+            "used-result"
+          ],
+          "note": "no meaningful contention"
+        },
+        {
+          "members": [
+            "qwen2.5-coder-7b-instruct",
+            "ministral-8b-instruct-2410"
+          ],
+          "peak_gb": 8.8,
+          "first_token_s": [
+            0.34,
+            0.49
+          ],
+          "follow_up": [
+            "used-result",
+            "no-call"
+          ],
+          "note": "ministral stopped calling the tool at all"
+        },
+        {
+          "members": [
+            "mlx-community/granite-4.0-h-tiny",
+            "qwen2.5-coder-7b-instruct"
+          ],
+          "peak_gb": 8.2,
+          "first_token_s": [
+            0.13,
+            0.24
+          ],
+          "follow_up": [
+            "never-reached",
+            "used-result"
+          ],
+          "note": "neither degraded · granite reached a full 300-character line in 0.65s against the control 2.43s"
+        },
+        {
+          "members": [
+            "lfm2.5-2.6b-mlx",
+            "qwen2.5-coder-14b-instruct-mlx"
+          ],
+          "peak_gb": 9.9,
+          "first_token_s": [
+            4.5,
+            1.39
+          ],
+          "follow_up": [
+            "used-result",
+            "used-result"
+          ],
+          "note": "lfm2.5 briefing reached 11.1s"
+        },
+        {
+          "members": [
+            "ministral-8b-instruct-2410",
+            "qwen2.5-coder-14b-instruct-mlx"
+          ],
+          "peak_gb": 12.9,
+          "first_token_s": [
+            0.43,
+            0.77
+          ],
+          "follow_up": [
+            "gave-up",
+            "used-result"
+          ],
+          "note": "ministral abandoned the tool a second time, in a different way"
+        }
+      ],
+      "validity": {
+        "thermal": "nominal",
+        "swap": "none",
+        "effective_config": "matches requested",
+        "verdict": "VALID"
+      },
+      "finding": "memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB"
+    }
+  },
+  "chat streams": {
+    "ordinary reply": {
+      "acc": {
+        "reply": "Hello, world",
+        "requestId": "req_1",
+        "served": "qwen2.5-coder-7b",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "qwen2.5-coder-7b",
+        "request_id": "req_1",
+        "text": "Hello, world"
+      }
+    },
+    "reasoning only": {
+      "acc": {
+        "reply": "",
+        "requestId": "req_1",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 2,
+        "failed": "",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "req_1",
+        "reasoningOnly": true,
+        "text": "No answer. The model spent its whole budget on reasoning (2 frames) and stopped before producing any. Raise Max tokens."
+      }
+    },
+    "refused mid-stream": {
+      "acc": {
+        "reply": "partial ",
+        "requestId": "req_1",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "no upstream available",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "req_1",
+        "text": "no upstream available"
+      }
+    },
+    "refused with no reason given": {
+      "acc": {
+        "reply": "",
+        "requestId": "req_1",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "RAVIS refused mid-stream",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "req_1",
+        "text": "RAVIS refused mid-stream"
+      }
+    },
+    "malformed frames": {
+      "acc": {
+        "reply": "survived",
+        "requestId": "req_1",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "req_1",
+        "text": "survived"
+      }
+    },
+    "stopped by the reader": {
+      "acc": {
+        "reply": "half a sen",
+        "requestId": "",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "aborted": true,
+        "failed": ""
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "",
+        "interrupted": true,
+        "text": "half a sen\n\n— stopped —"
+      }
+    },
+    "connection dropped": {
+      "acc": {
+        "reply": "",
+        "requestId": "",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "aborted": false,
+        "failed": "NERVIS is not reachable: load failed"
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "",
+        "text": "NERVIS is not reachable: load failed"
+      }
+    }
+  },
+  "build panels": {
+    "fully described, loaded, held by this dashboard": "<div class=\"trace-step\"><b>family</b><span>Qwen2.5 Coder</span></div><div class=\"trace-step\"><b>packaging</b><span class=\"mono\">mlx · 4bit</span></div><div class=\"trace-step\"><b>architecture</b><span class=\"mono\">qwen2 <span class=\"mono\" style=\"opacity:.5\">config.json</span></span></div><div class=\"trace-step\"><b>parameters</b><span class=\"mono\">7.6 B <span class=\"mono\" style=\"opacity:.5\">config.json</span></span></div><div class=\"trace-step\"><b>declared context</b><span class=\"mono\">32768 <span class=\"mono\" style=\"opacity:.5\">model card</span></span></div><div class=\"trace-step\"><b>publisher</b><span class=\"mono\">mlx-community</span></div><div class=\"trace-step\"><b>loaded</b><span><span class=\"chip\">1 instance(s)</span></span></div><div class=\"trace-step\"><b>effective context</b><span class=\"mono\">8192</span></div><div class=\"trace-step\"><b>evidence</b><span>agent <span class=\"mono\" style=\"opacity:.6\">1</span> · chat <span class=\"mono\" style=\"opacity:.6\">2</span></span></div><div style=\"margin-top:10px\"><button class=\"btn\" disabled title=\"a runtime-scoped token is required — set one on the Runtime screen\" style=\"opacity:.45;cursor:not-allowed\" onclick=\"BUILD.release('s_1',1)\">Release lease</button></div><small class=\"mono dim\">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.</small>",
+    "bare build, nothing known, nothing resident": "<div class=\"trace-step\"><b>family</b><span>—</span></div><div class=\"trace-step\"><b>packaging</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>architecture</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>declared context</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>publisher</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>loaded</b><span><span class=\"chip warn\">not resident</span></span></div><div style=\"margin-top:10px\"><button class=\"btn primary\" disabled title=\"a runtime-scoped token is required — set one on the Runtime screen\" style=\"opacity:.45;cursor:not-allowed\" onclick=\"BUILD.load('mystery-build')\">Load</button></div><small class=\"mono dim\">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.</small>",
+    "architecture disagrees, no evidence for this packaging": "<div class=\"trace-step\"><b>family</b><span>Granite 3B</span></div><div class=\"trace-step\"><b>packaging</b><span class=\"mono\">gguf · Q4_K_M</span></div><div class=\"trace-step\"><b>architecture</b><span class=\"mono\">granite</span></div><div class=\"trace-step\"><b>declared context</b><span class=\"mono\">4096</span></div><div class=\"trace-step\"><b>publisher</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>architecture</b><span class=\"chip warn\">family and variant disagree</span></div><div class=\"trace-step\"><b>loaded</b><span><span class=\"chip warn\">not resident</span></span></div><div class=\"trace-step\"><b>evidence</b><span class=\"chip warn\">none for this packaging</span></div><div style=\"margin-top:10px\"><button class=\"btn primary\" disabled title=\"a runtime-scoped token is required — set one on the Runtime screen\" style=\"opacity:.45;cursor:not-allowed\" onclick=\"BUILD.load('granite-3b-gguf-q4')\">Load</button></div><small class=\"mono dim\">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3.</small>",
+    "held elsewhere, by a bundled lease": "<div class=\"trace-step\"><b>family</b><span>Shared</span></div><div class=\"trace-step\"><b>packaging</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>architecture</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>declared context</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>publisher</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>loaded</b><span><span class=\"chip\">2 instance(s)</span></span></div><div class=\"trace-step\"><b>effective context</b><span class=\"mono\">16384</span></div><div class=\"trace-step\"><b>effective context</b><span class=\"mono\">—</span></div><div class=\"trace-step\"><b>evidence</b><span>agent <span class=\"mono\" style=\"opacity:.6\">1</span></span></div><div class=\"trace-step\"><b>also held by</b><span>clarvis · unknown</span></div><div style=\"margin-top:10px\"><button class=\"btn\" disabled title=\"a runtime-scoped token is required — set one on the Runtime screen\" style=\"opacity:.45;cursor:not-allowed\" onclick=\"BUILD.release('s_2',2)\">Release lease</button></div><small class=\"mono dim\">measurements are looked up by <b>variant</b>, not by model: two packagings of one model are two different things, and on this machine one granite build passed 24 of 24 tool trials while the other passed 3. <b>This lease holds 2 models</b> — releasing it unloads all of them. It is also held by 2 other owner(s), so releasing this lease will not unload it.</small>"
+  }
+}

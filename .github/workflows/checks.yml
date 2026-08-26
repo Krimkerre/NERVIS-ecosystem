@@ -161,6 +161,16 @@ jobs:
       - name: nothing in the dashboard is more tangled than the worst survivor
         run: node tools/complexity_check.js
         working-directory: nervis
+      # `render_check` makes every fetch reject, so it exercises the *mock* path
+      # of every live reader and none of the shaping. That is where the
+      # complexity actually was — `runtimeSet` alone reached 30, essentially all
+      # of it optional-field handling, and not one of those branches had ever
+      # been executed by a check. This runs the readers against recorded
+      # payloads (including a sparse one, which is what proves the fallbacks do
+      # what their author believed) and fails if the shaped output moves.
+      - name: the live readers still shape their payloads the same way
+        run: node tools/shaping_check.js
+        working-directory: nervis
 
   nervis:
     name: nervis — lint, types, tests
