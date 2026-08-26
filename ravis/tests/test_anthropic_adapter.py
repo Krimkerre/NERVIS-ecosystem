@@ -33,7 +33,7 @@ ADDRESS = "ravis/anthropic/claude-opus-5"
 def adapter_for(fake: RecordingAnthropic, **options: Any) -> AnthropicAdapter:
     """The adapter, pointed at an in-process Anthropic."""
     return AnthropicAdapter(
-        upstream=Upstream(base_url="https://anthropic.invalid", api_key="sk-test"),
+        upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-test"),
         client=httpx.AsyncClient(transport=fake.transport()),
         **options,
     )
@@ -196,7 +196,7 @@ def test_models_and_health_answer_from_the_catalogue() -> None:
 def test_an_unconfigured_provider_is_empty_rather_than_broken() -> None:
     """Runbook §14.4: no credential is a state, not a failure."""
     adapter = AnthropicAdapter(
-        upstream=Upstream(base_url="", api_key=""),
+        upstream=Upstream(base_url="", declared_key=""),
         client=httpx.AsyncClient(transport=RecordingAnthropic().transport()),
     )
 

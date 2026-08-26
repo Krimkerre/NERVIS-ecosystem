@@ -57,7 +57,7 @@ def _adapter(
         )
 
     return LmStudioAdapter(
-        upstream=Upstream(base_url="http://lmstudio.invalid", api_key=""),
+        upstream=Upstream(base_url="http://lmstudio.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         configured_capabilities=configured,
     )
@@ -220,7 +220,7 @@ def _counting_adapter(clock: _Clock, *, fail: bool = False) -> tuple[LmStudioAda
         return httpx.Response(200, json={"object": "list", "data": []})
 
     adapter = LmStudioAdapter(
-        upstream=Upstream(base_url="http://lmstudio.invalid", api_key=""),
+        upstream=Upstream(base_url="http://lmstudio.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         clock=clock,
     )

@@ -280,10 +280,15 @@ class AnthropicAdapter:
     def _headers(self) -> dict[str, str]:
         """RAVIS's own credential and the API version — never a caller's token."""
         headers = {"content-type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
-        if self._upstream.api_key:
+        # `key()`, never the declared field. Testing the field meant this
+        # adapter sent no credential at all once credentials moved into the
+        # store, and the failure surfaced as Anthropic's own
+        # "x-api-key header is required" rather than as anything RAVIS said.
+        key = self._upstream.key()
+        if key:
             # `x-api-key`, not `authorization: Bearer`. The two are not
             # interchangeable on this API.
-            headers["x-api-key"] = self._upstream.key()
+            headers["x-api-key"] = key
         return headers
 
 

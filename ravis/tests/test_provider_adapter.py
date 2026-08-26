@@ -25,7 +25,7 @@ def _adapter(configured: dict | None = None, reachable: bool = True) -> GenericO
         return httpx.Response(200, json={"object": "list", "data": [{"id": "a"}, {"id": "b"}]})
 
     return GenericOpenAiAdapter(
-        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        upstream=Upstream(base_url="http://upstream.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         configured_capabilities=configured,
     )

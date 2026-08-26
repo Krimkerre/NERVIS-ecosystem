@@ -74,7 +74,7 @@ def build_transparents(
     for spec in upstream_specs(settings):
         upstream = Upstream(
             base_url=spec.base_url,
-            api_key=spec.api_key,
+            declared_key=spec.api_key,
             api_root=api_root_for(spec.kind),
             # A closure rather than a value, so a key typed into the Credentials
             # screen reaches the next request instead of the next restart.

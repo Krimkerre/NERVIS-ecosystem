@@ -21,7 +21,7 @@ from ravis.upstream import Upstream
 
 
 def _registry(upstream_fake: RecordingUpstream, configured: bool = True) -> ModelRegistry:
-    upstream = Upstream(base_url="http://upstream.invalid" if configured else "", api_key="")
+    upstream = Upstream(base_url="http://upstream.invalid" if configured else "", declared_key="")
     return ModelRegistry(
         upstream=upstream,
         client=httpx.AsyncClient(transport=upstream_fake.transport()),
@@ -144,7 +144,7 @@ def _dead_registry(failure: Exception) -> ModelRegistry:
         raise failure
 
     return ModelRegistry(
-        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        upstream=Upstream(base_url="http://upstream.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         ttl_seconds=300.0,
     )
@@ -158,7 +158,7 @@ def _refusing_registry(status: int) -> ModelRegistry:
         return httpx.Response(status, json={"error": "no"})
 
     return ModelRegistry(
-        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        upstream=Upstream(base_url="http://upstream.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         ttl_seconds=300.0,
     )
@@ -206,7 +206,7 @@ async def test_a_successful_but_empty_catalogue_is_not_recovery() -> None:
         return httpx.Response(200, json={"data": []})
 
     registry = ModelRegistry(
-        upstream=Upstream(base_url="http://upstream.invalid", api_key=""),
+        upstream=Upstream(base_url="http://upstream.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         ttl_seconds=300.0,
     )

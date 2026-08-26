@@ -50,7 +50,7 @@ def _adapter(
         return httpx.Response(200, json={"object": "list", "data": [{"id": "llama3.2:latest"}]})
 
     return OllamaAdapter(
-        upstream=Upstream(base_url="http://ollama.invalid", api_key=""),
+        upstream=Upstream(base_url="http://ollama.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         configured_capabilities=configured,
     )
@@ -190,7 +190,7 @@ def _counting_adapter(clock: _Clock, *, fail: bool = False) -> tuple[OllamaAdapt
         return httpx.Response(200, json={"object": "list", "data": []})
 
     adapter = OllamaAdapter(
-        upstream=Upstream(base_url="http://ollama.invalid", api_key=""),
+        upstream=Upstream(base_url="http://ollama.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         clock=clock,
     )

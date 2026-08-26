@@ -78,7 +78,7 @@ def _built(
 ) -> TransparentUpstream:
     return TransparentUpstream(
         spec=UpstreamSpec(name=name, base_url=f"http://{name}.invalid"),
-        upstream=Upstream(base_url=f"http://{name}.invalid", api_key=""),
+        upstream=Upstream(base_url=f"http://{name}.invalid", declared_key=""),
         adapter=_Adapter(name, tools),  # type: ignore[arg-type]
         registry=_Registry(models, residency or ResidencySnapshot()),  # type: ignore[arg-type]
     )

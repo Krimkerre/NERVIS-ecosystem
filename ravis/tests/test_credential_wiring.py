@@ -90,7 +90,7 @@ def test_google_roots_its_api_somewhere_openai_does_not() -> None:
     OpenAI-compatible surface, so the difference is two strings.
     """
     upstream = Upstream(
-        base_url=default_base_url("google"), api_key="k", api_root=api_root_for("google")
+        base_url=default_base_url("google"), declared_key="k", api_root=api_root_for("google")
     )
 
     assert upstream.api_url("/chat/completions") == (
@@ -107,7 +107,7 @@ def test_a_native_path_is_never_versioned() -> None:
     Ollama reads `/api/show`. Applying an API root to it would break the two
     upstreams this project actually runs on, to support one it does not yet.
     """
-    upstream = Upstream(base_url="http://127.0.0.1:11434", api_key="")
+    upstream = Upstream(base_url="http://127.0.0.1:11434", declared_key="")
 
     assert upstream.url_for("/api/show") == "http://127.0.0.1:11434/api/show"
     assert upstream.api_url("/models") == "http://127.0.0.1:11434/v1/models"
@@ -411,14 +411,15 @@ def test_a_provider_with_no_key_still_serves_nothing(tmp_path) -> None:
 def test_the_transparent_forward_sends_a_stored_credential(tmp_path) -> None:
     """The bug this file did not catch the first time.
 
-    `forwardable_headers` gated on `upstream.api_key` — the field, which holds
-    only what a declaration wrote. A credential from the store lives behind the
-    resolver, so the catalogue read authenticated and the chat forward sent no
-    Authorization header at all: the provider listed its models and then refused
-    every request, which is a confusing shape of broken.
+    `forwardable_headers` gated on `upstream.declared_key` — the field, which
+    holds only what a declaration wrote. A credential from the store lives
+    behind the resolver, so the catalogue read authenticated and the chat
+    forward sent no Authorization header at all: the provider listed its models
+    and then refused every request, which is a confusing shape of broken.
 
-    Caught by an actual call to Google, not by a test, which is the reason this
-    one exists.
+    Caught by an actual call to Google, not by a test, which is why this exists
+    — and then by an actual call to Anthropic, in a fourth place, which is why
+    the field is no longer called `api_key`.
     """
     from ravis.upstream import forwardable_headers
 
@@ -427,7 +428,7 @@ def test_the_transparent_forward_sends_a_stored_credential(tmp_path) -> None:
     settings = Settings(upstreams='[{"name": "google", "kind": "google"}]')
     upstream = build_transparents(settings, httpx.AsyncClient(), store)["google"].upstream
 
-    assert upstream.api_key == ""  # nothing was written into the declaration
+    assert upstream.declared_key == ""  # nothing was written into the declaration
     assert forwardable_headers({}, upstream)["authorization"] == "Bearer from-the-store"
 
 
@@ -442,3 +443,38 @@ def test_no_credential_means_no_authorization_header(tmp_path) -> None:
     )["google"].upstream
 
     assert "authorization" not in forwardable_headers({}, upstream)
+
+
+def test_every_adapter_authenticates_from_the_resolved_credential(tmp_path) -> None:
+    """One test per header shape, because each was wrong once.
+
+    The same guard — testing the declared field for truthiness rather than
+    calling `key()` — was written four times and fixed three times, each
+    surfacing only when that one path was exercised against a real provider.
+    Renaming the field made the fourth a type error; this keeps the answer
+    pinned for all of them.
+    """
+    from ravis.providers.anthropic import AnthropicAdapter
+    from ravis.upstream import Upstream, forwardable_headers
+
+    store = a_store(tmp_path)
+    store.store("anthropic", "sk-ant-from-the-store")
+    store.store("google", "goog-from-the-store")
+
+    # Path B: a translating adapter, which uses `x-api-key` rather than Bearer.
+    anthropic = AnthropicAdapter(
+        upstream=Upstream(
+            base_url="https://api.anthropic.com",
+            declared_key="",
+            credential=lambda: credential_for(store, "anthropic", ""),
+        ),
+        client=httpx.AsyncClient(),
+    )
+    assert anthropic.has_credential is True
+    assert anthropic._headers()["x-api-key"] == "sk-ant-from-the-store"
+    assert "authorization" not in anthropic._headers()
+
+    # Path A: the transparent forward, and the adapter that reads its catalogue.
+    settings = Settings(upstreams='[{"name": "google", "kind": "google"}]')
+    upstream = build_transparents(settings, httpx.AsyncClient(), store)["google"].upstream
+    assert forwardable_headers({}, upstream)["authorization"] == "Bearer goog-from-the-store"

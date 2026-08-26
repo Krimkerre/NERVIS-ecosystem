@@ -21,7 +21,7 @@ def _adapter_for(kind: str) -> GenericOpenAiAdapter:
     settings = Settings(  # type: ignore[call-arg]
         database_path=":memory:", upstream_kind=kind, _env_file=None
     )
-    upstream = Upstream(base_url="http://upstream.invalid", api_key="")
+    upstream = Upstream(base_url="http://upstream.invalid", declared_key="")
     return adapter_for(
         UpstreamSpec(name="probe", base_url=upstream.base_url, kind=kind),
         upstream,

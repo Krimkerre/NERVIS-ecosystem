@@ -334,7 +334,7 @@ def _translating_adapters(
     adapters["anthropic"] = AnthropicAdapter(
         upstream=Upstream(
             base_url=settings.anthropic_base_url,
-            api_key=settings.anthropic_api_key,
+            declared_key=settings.anthropic_api_key,
             # Re-read per request, like every transparent upstream, so a key
             # saved on the Credentials screen takes effect on the next request
             # rather than the next restart.

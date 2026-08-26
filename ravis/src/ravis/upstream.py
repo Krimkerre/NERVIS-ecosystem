@@ -38,7 +38,18 @@ class Upstream:
     """
 
     base_url: str
-    api_key: str
+    # **The credential written into the declaration, which is rarely the one to
+    # send.** Named `declared_key` rather than `api_key` because the short name
+    # was a trap: it reads as "the credential", four separate places tested it
+    # for truthiness to decide whether to authenticate, and once credentials
+    # moved into the store this field became empty for exactly the providers the
+    # store exists to serve. Each site failed silently and only when that one
+    # path was exercised against a real provider — the catalogue read
+    # authenticated while the chat forward did not, twice, in different files.
+    #
+    # `key()` is the only correct read. The rename is what makes a wrong one a
+    # type error instead of a 401 an hour later.
+    declared_key: str
     # Where this upstream's OpenAI-shaped API lives under `base_url`.
     #
     # `/v1` for OpenAI itself and for everything that copied it, which is why it
@@ -87,7 +98,7 @@ class Upstream:
             resolved = self.credential()
             if resolved:
                 return resolved
-        return self.api_key
+        return self.declared_key
 
     def url_for(self, path: str) -> str:
         """Join the base to an endpoint path without doubling the separator.
@@ -108,7 +119,9 @@ class Upstream:
 
 def upstream_from(settings: Settings) -> Upstream:
     """Read the configured upstream out of settings."""
-    return Upstream(base_url=settings.upstream_base_url, api_key=settings.upstream_api_key)
+    return Upstream(
+        base_url=settings.upstream_base_url, declared_key=settings.upstream_api_key
+    )
 
 
 def forwardable_headers(incoming: dict[str, str], upstream: Upstream) -> dict[str, str]:
