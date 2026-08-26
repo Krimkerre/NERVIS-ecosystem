@@ -28,6 +28,11 @@ router = APIRouter(prefix="/api/v1/events", tags=["events"])
 # slow hop without a proxy deciding the connection is idle.
 HEARTBEAT_SECONDS = 12.0
 
+# How much context a *new* subscriber gets. Enough to show the screen is alive,
+# far short of the retained history — which is what an unbounded replay handed
+# to anyone who connected without a cursor.
+FRESH_TAIL = 25
+
 
 @router.post("")
 async def ingest(request: Request) -> dict[str, Any]:
@@ -110,11 +115,18 @@ async def stream(request: Request) -> StreamingResponse:
     """
     hub = request.app.state.hub
     resume = request.headers.get("last-event-id") or request.query_params.get("after") or ""
+    # **A subscriber with no cursor is new, not resuming from zero.** `_int("")`
+    # is 0, and `query(after=0)` returns the *oldest* 500 events — so one
+    # connection with no `Last-Event-ID` dumped the start of the retained
+    # history to whoever asked. A new subscriber wants what happens next, and a
+    # short tail for context; a resuming one says where it stopped.
+    fresh = not resume
+    start = max(0, hub.latest_sequence() - FRESH_TAIL) if fresh else _int(resume, 0)
 
     async def frames() -> AsyncIterator[bytes]:
         queue = hub.subscribe()
         try:
-            for missed in hub.query(after=_int(resume, 0), limit=500):
+            for missed in hub.query(after=start, limit=FRESH_TAIL if fresh else 500):
                 yield sse_frame(missed)
             # Tells a client the backlog is done and everything after this is
             # live. Without it, a burst of replay and a burst of new events are

@@ -341,3 +341,55 @@ def test_a_live_event_carries_its_cursor() -> None:
     live = queue.get_nowait()
     assert live["_sequence"] == 1
     assert sse_frame(live).startswith(b"id: 1\n")
+
+
+# ── What an adversarial review of the M8 design found in the existing hub ───
+
+
+def test_quarantine_keeps_the_shape_and_never_the_values() -> None:
+    """The validator refuses on envelope shape alone.
+
+    So an otherwise ordinary event that merely omits `occurred_at` had its whole
+    `data` stored verbatim — and the quarantine is readable over HTTP. A
+    producer that posts a prompt, a file excerpt or a token under the wrong
+    event type had it kept and served. Truncating at four thousand characters
+    was never the mitigation it looked like: the interesting part of a leaked
+    value is rarely past the four-thousandth character.
+    """
+    hub = a_hub()
+
+    hub.ingest({"event_type": "t", "secret": "sk-live-do-not-store", "path": "/Users/me/x"})
+
+    stored = json.dumps(hub.quarantined())
+    assert "sk-live-do-not-store" not in stored
+    assert "/Users/me/x" not in stored
+    # The diagnostic survives: which keys, and a digest to tell two apart.
+    assert "secret" in stored and "path" in stored
+    assert "sha256:" in stored
+
+
+def test_a_fresh_subscriber_starts_near_the_end_not_at_the_beginning() -> None:
+    """`_int("") == 0`, and `query(after=0)` returns the *oldest* events.
+
+    So one connection with no `Last-Event-ID` replayed the start of the retained
+    history to whoever asked. A subscriber with no cursor is new, not resuming
+    from zero: it wants what happens next and a short tail for context.
+
+    Tested as the cursor arithmetic rather than by opening the stream — the
+    stream does not end, so asserting on it means racing a generator that is
+    designed to outlive the request.
+    """
+    from nervis.api.events import FRESH_TAIL, _int
+
+    hub = a_hub()
+    for n in range(FRESH_TAIL + 30):
+        hub.ingest(envelope(event_id=f"e{n}"))
+
+    # What the handler computes for a client that sent no cursor.
+    fresh_start = max(0, hub.latest_sequence() - FRESH_TAIL)
+    replayed = hub.query(after=fresh_start, limit=FRESH_TAIL)
+
+    assert _int("", 0) == 0                       # the trap
+    assert fresh_start > 0                        # and what replaces it
+    assert len(replayed) <= FRESH_TAIL
+    assert replayed[0]["event_id"] != "e0"

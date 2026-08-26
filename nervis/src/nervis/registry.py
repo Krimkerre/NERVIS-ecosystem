@@ -21,11 +21,14 @@ unauthenticated process's claimed service type or endpoint.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Mapping
 from urllib.parse import urlsplit
+
+logger = logging.getLogger("nervis.registry")
 
 
 # §5.1's observer-side states. `discovering` is the initial one rather than a
@@ -47,6 +50,16 @@ class RegistryState(str, Enum):
 # `degraded` is usable — it means some capability is missing, which the
 # capability check catches at a finer grain than the service state can.
 USABLE_STATES = frozenset({RegistryState.HEALTHY, RegistryState.DEGRADED})
+
+# What a probe may write onto an entry. `declaration` is deliberately absent:
+# what a service *is* comes from configuration, and what it *did* comes from
+# observation — letting an observation rewrite the declaration would let a peer
+# change its own endpoint by answering a probe.
+OBSERVABLE = frozenset({
+    "state", "detail", "service_id", "instance_id", "machine_id",
+    "build_version", "protocol_version", "api_version",
+    "capabilities", "capability_revision",
+})
 
 
 class OwnershipMode(str, Enum):
@@ -199,20 +212,23 @@ def allowed_endpoint(url: str, *, extra_hosts: frozenset[str] = frozenset()) -> 
     host = parts.hostname or ""
     if not host:
         raise EndpointRefusedError("no host")
-    if host in extra_hosts:
-        return url.rstrip("/")
-    if host in {"localhost", "localhost."}:
-        return url.rstrip("/")
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError as failure:
+    # **Userinfo first, because it is the trick.** `http://127.0.0.1@evil/` has
+    # hostname `evil` and reads to a person as loopback.
+    if parts.username or parts.password:
+        raise EndpointRefusedError("a base URL may not carry credentials")
+
+    _refuse_remote_host(host, extra_hosts)
+
+    # A base URL is an **origin**. A path, query or fragment on it would be
+    # silently prepended to every surface path, so an entry that passed the
+    # loopback check could still point at a proxying path on a genuinely local
+    # service. Checked after the host, so an obviously remote address reports
+    # the reason that matters rather than the one it happened to trip first.
+    if parts.path.strip("/") or parts.query or parts.fragment:
         raise EndpointRefusedError(
-            f"host {host!r} is a name, not a literal address; "
-            "resolving one would make this check depend on DNS at probe time"
-        ) from failure
-    if not address.is_loopback:
-        raise EndpointRefusedError(f"host {host} is not loopback; add it to NERVIS_ALLOWED_HOSTS")
-    return url.rstrip("/")
+            "a base URL is an origin — it may not carry a path, query or fragment"
+        )
+    return f"{parts.scheme}://{parts.netloc}".rstrip("/")
 
 
 class Registry:
@@ -277,6 +293,14 @@ class Registry:
             entry.checked_at = self._now()
             return entry
         for name, value in observation.items():
+            if name not in OBSERVABLE:
+                # A closed allowlist rather than a blind `setattr`. This wrote
+                # whatever a caller handed it, which is fine while the only
+                # caller is `probes.py` returning a fixed shape — and is a hole
+                # the moment anything else can reach it, because `declaration`
+                # and `state` are both attributes and both spellable.
+                logger.warning("ignoring unexpected observation field %r for %s", name, key)
+                continue
             setattr(entry, name, value)
         entry.checked_at = self._now()
         if entry.state in USABLE_STATES:
@@ -328,9 +352,17 @@ def declared_services(settings: Any) -> list[ServiceDeclaration]:
         ServiceDeclaration("sirvis", "SIRVIS", settings.sirvis_base_url),
         # §5.1 calls this "the optional bridge" outright: it starts and stops
         # with an editor window, so absent is its ordinary state.
+        #
+        # **A full MEP peer, and it was declared as a runtime.** CLARVIS.md §6
+        # opens with "The Bridge conforms to the MEP" and §6.2 publishes
+        # `clarvis.status.read@1`, `clarvis.events@1` and
+        # `clarvis.diagnostics.summary@1`. Declaring it `mep=False` against
+        # `/instances` — a path §6.3 does not define — meant NERVIS negotiated
+        # nothing and painted "healthy" for **anything that answered below 400
+        # on that port**, which §6.1 warns is exactly the impersonation the
+        # Bridge's own authentication exists to stop.
         ServiceDeclaration(
             "clarvis", "Clarvis Bridge", settings.clarvis_base_url,
-            mep=False, probe_path="/instances",
             optional="clarvis_base_url" not in chosen,
         ),
         runtime("lmstudio", "LM Studio", settings.lmstudio_base_url, "/v1/models"),
@@ -353,9 +385,34 @@ def admissible(
     refused: list[tuple[str, str]] = []
     for declaration in declarations:
         try:
-            allowed_endpoint(declaration.base_url, extra_hosts=extra)
+            canonical = allowed_endpoint(declaration.base_url, extra_hosts=extra)
         except EndpointRefusedError as refusal:
             refused.append((declaration.key, str(refusal)))
             continue
-        admitted.append(declaration)
+        # The *canonical* form, not the one that was declared. Returning a
+        # normalised origin and then discarding it left the guard checking one
+        # string while every probe used another.
+        admitted.append(replace(declaration, base_url=canonical))
     return admitted, refused
+
+
+def _refuse_remote_host(host: str, extra_hosts: frozenset[str]) -> None:
+    """Everything the host alone decides, extracted so `allowed_endpoint` stays
+    under the complexity gate as it grew.
+
+    A hostname is refused rather than resolved: resolving would make the check
+    depend on DNS at the moment of the check, and a name that resolves to
+    loopback now can resolve elsewhere on the next probe — which is the
+    rebinding half of SSRF, and the half a resolve-then-allowlist always misses.
+    """
+    if host in extra_hosts or host in {"localhost", "localhost."}:
+        return
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as failure:
+        raise EndpointRefusedError(
+            f"host {host!r} is a name, not a literal address; "
+            "resolving one would make this check depend on DNS at probe time"
+        ) from failure
+    if not address.is_loopback:
+        raise EndpointRefusedError(f"host {host} is not loopback; add it to NERVIS_ALLOWED_HOSTS")

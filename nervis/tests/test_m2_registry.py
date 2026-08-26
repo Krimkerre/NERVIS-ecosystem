@@ -708,3 +708,62 @@ def test_a_required_peer_is_never_quietly_absent() -> None:
     registry.record("ravis", observe(refusing(httpx.ConnectError("x")), RAVIS))
 
     assert registry.get("ravis").awaiting_first_contact is False
+
+
+# ── Hardening found by an adversarial review of the registration design ─────
+
+
+def test_userinfo_cannot_disguise_a_remote_host() -> None:
+    """`http://127.0.0.1@evil.example/` has hostname `evil.example`.
+
+    It reads to a person as loopback, which is the entire trick, and the check
+    used to look only at `hostname`.
+    """
+    with pytest.raises(EndpointRefusedError, match="may not carry credentials"):
+        allowed_endpoint("http://127.0.0.1@evil.example/")
+
+
+def test_a_base_url_may_not_carry_a_path() -> None:
+    """A base URL is an origin.
+
+    A path on it is silently prepended to every surface path, so an entry that
+    passes the loopback check could still point at a proxying path on a service
+    that is genuinely local.
+    """
+    with pytest.raises(EndpointRefusedError, match="may not carry a path"):
+        allowed_endpoint("http://127.0.0.1:8731/proxy/to/anywhere")
+
+
+def test_an_obviously_remote_address_reports_that_rather_than_its_path() -> None:
+    """Order matters in a refusal. Both facts are true of the cloud metadata
+    address; only one of them is the reason anybody cares."""
+    with pytest.raises(EndpointRefusedError, match="not loopback"):
+        allowed_endpoint("http://169.254.169.254/latest/meta-data/")
+
+
+def test_the_canonical_origin_is_what_gets_stored() -> None:
+    """The guard returned a normalised origin and the caller threw it away, so
+    the check ran on one string and every probe used another."""
+    admitted, _ = admissible(
+        [ServiceDeclaration("ravis", "RAVIS", "http://127.0.0.1:8731/")], []
+    )
+
+    assert admitted[0].base_url == "http://127.0.0.1:8731"
+
+
+def test_an_observation_cannot_rewrite_what_a_service_is() -> None:
+    """`record()` blind-`setattr`ed whatever it was handed.
+
+    Harmless while the only caller is `probes.py` returning a fixed shape, and a
+    hole the moment anything else can reach it — `declaration` and `state` are
+    both attributes and both spellable. What a service *is* comes from
+    configuration; what it *did* comes from observation.
+    """
+    registry = registry_of(RAVIS)
+    hostile = ServiceDeclaration("ravis", "RAVIS", "http://127.0.0.1:9999")
+
+    registry.record("ravis", {"state": RegistryState.HEALTHY, "declaration": hostile})
+
+    entry = registry.get("ravis")
+    assert entry is not None
+    assert entry.declaration.base_url == RAVIS.base_url

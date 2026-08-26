@@ -465,6 +465,39 @@ async def _fit_for(request: Request, stored: RuntimeSet) -> Any:
 # ── Evidence, the surface RAVIS reads (§15.1) ────────────────────────────────
 
 
+def _recommendation_request(body: dict[str, Any]) -> tuple[list[str], str]:
+    """§14.3's inputs, validated — or the refusal that says which one is wrong.
+
+    Separated from the endpoint because deciding *whether a request is coherent*
+    and *what the answer is* are two jobs, and the endpoint was at the
+    complexity cap holding both. Each refusal is also now reachable from a test
+    without standing a recommendation engine up behind it.
+    """
+    roles = body.get("roles") or ["clarvis-chat", "clarvis-agent"]
+    if not isinstance(roles, list) or not roles:
+        raise InvalidConfigurationError("roles must be a non-empty list")
+    mode = str(body.get("mode") or MODE_FAST)
+    if mode not in (MODE_FAST, MODE_VERIFIED):
+        raise InvalidConfigurationError(f"unknown mode {mode!r}; expected fast or verified")
+    profile = str(body.get("profile") or DEFAULT_PROFILE)
+    if profile != DEFAULT_PROFILE:
+        # One profile family exists. Accepting an unknown name and scoring with
+        # `clarvis` weights anyway would answer a question nobody asked.
+        raise InvalidConfigurationError(
+            f"unknown profile {profile!r}; this build defines only {DEFAULT_PROFILE!r}"
+        )
+    if body.get("constraints"):
+        # `UNSUPPORTED_PARAMETER` rather than `INVALID_CONFIGURATION`: the
+        # request is coherent and §14.3 documents it. This is "you asked for
+        # something I cannot do", which §7.1 requires a caller be able to tell
+        # apart from "your request was malformed".
+        raise UnsupportedParameterError(
+            "constraints are not implemented; §14.3's hard constraints are unbuilt, "
+            "and applying none while reporting success would misreport the result"
+        )
+    return [str(role) for role in roles], mode
+
+
 @router.post("/recommendations")
 async def make_recommendation(request: Request) -> dict[str, Any]:
     """§14.3's recommendation, computed from evidence that already exists.
@@ -493,29 +526,7 @@ async def make_recommendation(request: Request) -> dict[str, Any]:
     to receive and far better to debug.
     """
     require_unauthenticated_post(request)
-    body = await _json_body(request)
-    roles = body.get("roles") or ["clarvis-chat", "clarvis-agent"]
-    if not isinstance(roles, list) or not roles:
-        raise InvalidConfigurationError("roles must be a non-empty list")
-    mode = str(body.get("mode") or MODE_FAST)
-    if mode not in (MODE_FAST, MODE_VERIFIED):
-        raise InvalidConfigurationError(f"unknown mode {mode!r}; expected fast or verified")
-    profile = str(body.get("profile") or DEFAULT_PROFILE)
-    if profile != DEFAULT_PROFILE:
-        # One profile family exists. Accepting an unknown name and scoring with
-        # `clarvis` weights anyway would answer a question nobody asked.
-        raise InvalidConfigurationError(
-            f"unknown profile {profile!r}; this build defines only {DEFAULT_PROFILE!r}"
-        )
-    if body.get("constraints"):
-        # `UNSUPPORTED_PARAMETER` rather than `INVALID_CONFIGURATION`: the
-        # request is coherent and §14.3 documents it. This is "you asked for
-        # something I cannot do", which §7.1 requires a caller be able to tell
-        # apart from "your request was malformed".
-        raise UnsupportedParameterError(
-            "constraints are not implemented; §14.3's hard constraints are unbuilt, "
-            "and applying none while reporting success would misreport the result"
-        )
+    roles, mode = _recommendation_request(await _json_body(request))
 
     database = request.app.state.database
     by_variant, contexts = await _build_lookups(request)

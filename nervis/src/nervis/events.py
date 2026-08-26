@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -87,6 +88,22 @@ def validate(payload: Any) -> Rejected | dict[str, Any]:
         # of not checking is an exception at the INSERT, inside a transaction.
         return Rejected("not serialisable", str(failure))
     return dict(payload)
+
+
+def _shape_of(payload: Any) -> str:
+    """What a refused payload looked like, with nothing that was in it.
+
+    Key names, a type, a length and a digest. Names are structure and are worth
+    keeping — *"it had `event_type` but no `occurred_at`"* is the diagnostic.
+    Values are the producer's business and are never NERVIS's to store.
+    """
+    digest = hashlib.sha256(repr(payload).encode("utf-8", "replace")).hexdigest()[:16]
+    if isinstance(payload, Mapping):
+        keys = ", ".join(sorted(str(k) for k in payload)[:20]) or "(no keys)"
+        return f"object with keys: {keys} · sha256:{digest}"
+    if isinstance(payload, list):
+        return f"list of {len(payload)} · sha256:{digest}"
+    return f"{type(payload).__name__} of length {len(repr(payload))} · sha256:{digest}"
 
 
 class Hub:
@@ -160,17 +177,25 @@ class Hub:
         return int(cursor.lastrowid or 0) if cursor.rowcount > 0 else 0
 
     def _quarantine(self, payload: Any, rejected: Rejected) -> None:
-        """Keep what was refused, in a form that cannot itself cause trouble.
+        """Keep the *shape* of what was refused, never its values.
 
-        The payload is stored as text through `repr`, truncated. A malformed
-        payload is by definition something that failed to parse the way it was
-        expected to, so anything that re-parses it to store it prettily is a
-        second chance to fail on the same input.
+        This stored `repr(payload)[:4000]` — the whole thing — and the
+        quarantine is readable over HTTP. The validator refuses on envelope
+        shape alone, so a well-formed secret in a malformed envelope was stored
+        verbatim and served: a producer that posts a prompt, a file excerpt or a
+        token under the wrong `event_type` had it kept and shown. Truncation is
+        not a mitigation, because the interesting part of a leaked value is
+        rarely past four thousand characters.
+
+        A digest answers the question quarantine exists for — *which producer is
+        sending what shape of rubbish* — without carrying anything worth
+        stealing. §11.1 asks for "safe diagnostics", and this is what makes them
+        safe rather than merely bounded.
         """
         with self._database.connection as connection:
             connection.execute(
                 "INSERT INTO event_quarantine (reason, detail, payload) VALUES (?, ?, ?)",
-                (rejected.reason, rejected.detail, repr(payload)[:4000]),
+                (rejected.reason, rejected.detail, _shape_of(payload)),
             )
 
     def emit(

@@ -50,9 +50,15 @@ async def probe(
     services is twelve requests a pass; RAVIS's anonymous limit is sixty a
     minute, and NERVIS exceeded it by shortening its own interval.
     """
-    if not declaration.mep:
-        return await _probe_runtime(client, declaration)
-    return await _probe_mep(client, declaration, known)
+    try:
+        if not declaration.mep:
+            return await _probe_runtime(client, declaration)
+        return await _probe_mep(client, declaration, known)
+    except ProbeFailed as decided:
+        # One place turns a failed read into an entry state, rather than five
+        # call sites each re-checking whether what they got back was a body or
+        # an excuse.
+        return decided.observation
 
 
 async def _probe_runtime(
@@ -117,8 +123,6 @@ async def _probe_mep(
                         "build_version": known.build_version}
     else:
         version = await _read(client, declaration.base_url + "/ecosystem/version")
-        if isinstance(version, dict) and "state" in version:
-            return version
     declared = str(version.get("protocol_version") or "")
     if declared and not is_supported_protocol(declared):
         return {
@@ -137,15 +141,11 @@ async def _probe_mep(
         }
     else:
         identity = await _read(client, declaration.base_url + "/ecosystem/identity")
-        if isinstance(identity, dict) and "state" in identity:
-            return identity
 
     health = await _read(client, declaration.base_url + "/ecosystem/health")
-    if isinstance(health, dict) and "state" in health:
-        return health
 
     capabilities = await _read(client, declaration.base_url + "/ecosystem/capabilities")
-    advertised = _capabilities(capabilities if isinstance(capabilities, Mapping) else {})
+    advertised = _capabilities(capabilities)
 
     return {
         # §5.1's sentence, applied: the state is the service's own truthful
@@ -161,29 +161,38 @@ async def _probe_mep(
         "protocol_version": declared,
         "api_version": str(identity.get("api_version") or ""),
         "capabilities": advertised,
-        "capability_revision": int((capabilities or {}).get("revision") or 0)
-        if isinstance(capabilities, Mapping)
-        else 0,
+        "capability_revision": int(capabilities.get("revision") or 0),
     }
 
 
-async def _read(client: httpx.AsyncClient, url: str) -> Any:
-    """One MEP read, or the registry state its failure means.
+class ProbeFailed(Exception):  # noqa: N818 - not an error; a probe outcome
+    """A read that decided the entry's state, carrying that state.
 
-    Returns either the decoded body or a state dict, which the caller
-    distinguishes by looking for a `state` key. A body with a top-level `state`
-    would be ambiguous — no MEP endpoint publishes one, and the two that come
-    closest use `status`.
+    **Raised rather than returned, and that is a correction.** `_read` used to
+    return *either* the decoded body *or* a state dict, and every one of its
+    call sites re-discriminated the union with `isinstance(x, dict) and "state"
+    in x`. The docstring even acknowledged the ambiguity — "a body with a
+    top-level `state` would be ambiguous" — which is the tell: an in-band error
+    signal that needs a caveat about collisions is one collision away from being
+    wrong, and each new MEP endpoint added another copy of the check.
     """
+
+    def __init__(self, observation: dict[str, Any]) -> None:
+        super().__init__(str(observation.get("detail") or observation.get("state")))
+        self.observation = observation
+
+
+async def _read(client: httpx.AsyncClient, url: str) -> Mapping[str, Any]:
+    """One MEP read. Raises `ProbeFailed` carrying the state its failure means."""
     try:
         response = await client.get(url, timeout=PROBE_TIMEOUT_SECONDS)
     except httpx.HTTPError as failure:
-        return _unreachable(failure)
+        raise ProbeFailed(_unreachable(failure)) from failure
     if response.status_code in (401, 403):
-        return {
+        raise ProbeFailed({
             "state": RegistryState.UNAUTHORIZED,
             "detail": f"authentication rejected: HTTP {response.status_code}",
-        }
+        })
     if response.status_code == 429:
         # Reachable, answering, and telling NERVIS to ask less often. Not a
         # health problem and emphatically not something probing harder fixes —
@@ -191,22 +200,22 @@ async def _read(client: httpx.AsyncClient, url: str) -> Any:
         # RAVIS's 60-per-minute anonymous limit, at which point every read
         # failed, the registry read as unhealthy, and that kept the short
         # interval on. A self-sustaining outage of NERVIS's own making.
-        return {
+        raise ProbeFailed({
             "state": RegistryState.DEGRADED,
             "detail": "rate limited — NERVIS is probing more often than this service allows",
-        }
+        })
     if response.status_code >= 400:
-        return {
+        raise ProbeFailed({
             "state": RegistryState.UNREACHABLE,
             "detail": f"{url.rsplit('/', 1)[-1]} answered HTTP {response.status_code}",
-        }
+        })
     try:
         body = response.json()
-    except ValueError:
-        return {
+    except ValueError as failure:
+        raise ProbeFailed({
             "state": RegistryState.DEGRADED,
             "detail": "answered with something that is not JSON",
-        }
+        }) from failure
     return body if isinstance(body, Mapping) else {}
 
 

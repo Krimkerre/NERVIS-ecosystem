@@ -111,14 +111,7 @@ async def read(
         )
 
     assert entry is not None  # `may_attempt` is false without one
-    headers: dict[str, str] = {}
-    if request_id:
-        headers["x-request-id"] = request_id
-    if trace_id:
-        # A *new* span within the same trace, not the caller's header forwarded.
-        # Forwarding makes the receiver's parent the sender's parent — every
-        # service becomes a sibling and §11.2's waterfall has no shape.
-        headers["traceparent"] = new_traceparent(trace_id)
+    headers = _context_headers(request_id, trace_id)
     try:
         response = await client.request(
             surface.method,
@@ -182,3 +175,19 @@ def _refusal(response: httpx.Response) -> str:
         return f"{error.get('code', 'ERROR')}: {error['message']}"
     return f"the peer answered HTTP {response.status_code}"
 
+
+
+def _context_headers(request_id: str, trace_id: str) -> dict[str, str]:
+    """§4.3's context, forwarded to a peer.
+
+    `traceparent` is a **new span within the same trace**, never the caller's
+    header passed on: forwarding makes the receiver's parent the sender's
+    parent, so every service becomes a sibling and §11.2's waterfall has no
+    shape.
+    """
+    headers: dict[str, str] = {}
+    if request_id:
+        headers["x-request-id"] = request_id
+    if trace_id:
+        headers["traceparent"] = new_traceparent(trace_id)
+    return headers

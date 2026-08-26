@@ -136,16 +136,7 @@ async def send(request: Request) -> Any:
     )
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
-    payload: dict[str, Any] = {
-        "model": profile,
-        "messages": [*prior, {"role": "user", "content": content}],
-        "stream": True,
-    }
-    for name in ("temperature", "max_tokens", "top_p"):
-        if name in body:
-            payload[name] = body[name]
-    if body.get("system"):
-        payload["messages"].insert(0, {"role": "system", "content": str(body["system"])})
+    payload = _completion_payload(body, profile, prior, content)
 
     trace_id = getattr(request.state, "trace_id", "")
     _note_turn(request, conversation_id, profile, request_id, trace_id)
@@ -202,8 +193,9 @@ async def _relay(
             started = True
             async for line in response.aiter_lines():
                 text, done = _delta(line)
-                if text:
-                    collected.append(text)
+                # Appended unconditionally: `"".join` treats an empty string as
+                # nothing, so the guard bought a branch and no behaviour.
+                collected.append(text)
                 model = model or _model_of(line)
                 yield f"{line}\n\n".encode() if line else b"\n"
                 if done:
@@ -337,3 +329,27 @@ def _note_turn(
         trace_id=trace_id,
         request_id=request_id,
     )
+
+
+def _completion_payload(
+    body: dict[str, Any], profile: str, prior: list[dict[str, str]], content: str
+) -> dict[str, Any]:
+    """The body RAVIS receives, assembled from what the caller actually set.
+
+    A separate job from deciding *whether* to send one, and extracted because
+    `send` was at the complexity cap — where a function doing two jobs is what
+    the gate is usually pointing at.
+
+    Only what was supplied travels. An absent `temperature` is omitted rather
+    than defaulted here, because the model and the runtime own their own
+    defaults and filling one in would be NERVIS inventing a choice nobody made.
+    """
+    messages = [*prior, {"role": "user", "content": content}]
+    if body.get("system"):
+        messages.insert(0, {"role": "system", "content": str(body["system"])})
+    return {
+        "model": profile,
+        "messages": messages,
+        "stream": True,
+        **{name: body[name] for name in ("temperature", "max_tokens", "top_p") if name in body},
+    }

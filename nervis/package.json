@@ -1,0 +1,11 @@
+{
+  "name": "nervis-dashboard-checks",
+  "private": true,
+  "description": "Tooling for index.html. Not a build step — the dashboard is still one file with no bundler, and this exists only so the checks can parse it properly.",
+  "scripts": {
+    "check": "node tools/render_check.js && node tools/complexity_check.js"
+  },
+  "devDependencies": {
+    "acorn": "^8.14.0"
+  }
+}

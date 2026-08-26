@@ -1,3 +1,4 @@
 .DS_Store
 *.bak
 _sheet.html
+node_modules/

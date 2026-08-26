@@ -276,40 +276,9 @@ async def _translated(
 
     started = call.chain.begin(model)
 
-    async def relay() -> AsyncGenerator[bytes, None]:
-        committed = False
-        try:
-            async with aclosing(adapter.stream(request)) as events:
-                async for frame in _translated_frames(events, model, completion_id):
-                    if not committed:
-                        committed = True
-                        call.chain.succeeded(model, started, ttft=call.chain.now() - started)
-                    yield frame
-        except (GeneratorExit, asyncio.CancelledError):
-            # §8.6 again, and for the same reason: a disconnect must reach the
-            # adapter so the provider stops generating, and must never be
-            # recorded as a failure.
-            call.chain.cancelled(model)
-            call.finish()
-            raise
-        except Exception as failure:  # noqa: BLE001 - an adapter is third-party code
-            if committed:
-                call.chain.interrupted(model)
-            else:
-                call.chain.failed(model, started, _adapter_failure(failure), str(failure))
-            # A refused translation is the client's request being wrong, and
-            # says so even here — the status line was committed the moment the
-            # stream opened, so the error type in the frame is all that is left
-            # to carry it.
-            kind = (
-                "invalid_request_error"
-                if isinstance(failure, TranslationError)
-                else "upstream_error"
-            )
-            yield _sse_error(json.dumps(_error_body(str(failure), kind)).encode())
-        call.finish()
-
-    return StreamingResponse(relay(), media_type="text/event-stream",
+    return StreamingResponse(
+        _translated_relay(call, adapter, request, model, completion_id, started),
+        media_type="text/event-stream",
                              headers={"cache-control": "no-cache"})
 
 
@@ -1006,3 +975,52 @@ def _error_body(message: str, error_type: str) -> dict[str, Any]:
 def _openai_error(message: str, error_type: str, status: int) -> JSONResponse:
     """An error in OpenAI's shape, because /v1 clients parse it (§4.5)."""
     return JSONResponse(status_code=status, content=_error_body(message, error_type))
+
+async def _translated_relay(
+    call: _Call,
+    adapter: TranslatingAdapter,
+    request: NormalizedRequest,
+    model: str,
+    completion_id: str,
+    started: float,
+) -> AsyncGenerator[bytes, None]:
+    """Path B's stream, at module level rather than nested inside `_translated`.
+
+    **Extracted because ruff charges a nested `def`'s whole complexity to its
+    parent.** `_translated` measured 8 of 8 with only two points of its own; the
+    other six were this closure. The trap that makes it worth fixing is not the
+    number: editing *this* code failed the build with an error citing
+    `_translated` at a line the developer had not touched, which is the least
+    actionable form a complexity error can take.
+    """
+    committed = False
+    try:
+        async with aclosing(adapter.stream(request)) as events:
+            async for frame in _translated_frames(events, model, completion_id):
+                if not committed:
+                    committed = True
+                    call.chain.succeeded(model, started, ttft=call.chain.now() - started)
+                yield frame
+    except (GeneratorExit, asyncio.CancelledError):
+        # §8.6 again, and for the same reason: a disconnect must reach the
+        # adapter so the provider stops generating, and must never be
+        # recorded as a failure.
+        call.chain.cancelled(model)
+        call.finish()
+        raise
+    except Exception as failure:  # noqa: BLE001 - an adapter is third-party code
+        if committed:
+            call.chain.interrupted(model)
+        else:
+            call.chain.failed(model, started, _adapter_failure(failure), str(failure))
+        # A refused translation is the client's request being wrong, and
+        # says so even here — the status line was committed the moment the
+        # stream opened, so the error type in the frame is all that is left
+        # to carry it.
+        kind = (
+            "invalid_request_error"
+            if isinstance(failure, TranslationError)
+            else "upstream_error"
+        )
+        yield _sse_error(json.dumps(_error_body(str(failure), kind)).encode())
+    call.finish()

@@ -45,6 +45,17 @@ class Availability(str, Enum):
 USABLE = frozenset({Availability.AVAILABLE, Availability.DEGRADED})
 
 
+# §4.1's states, as this layer's vocabulary. A state NERVIS has never heard of
+# is `UNAVAILABLE` rather than an error: a peer inventing one is not a reason to
+# stop rendering, and treating the unknown as unusable is the same fail-closed
+# direction §5.2 takes everywhere else.
+_ADVERTISED = {
+    "available": Availability.AVAILABLE,
+    "degraded": Availability.DEGRADED,
+    "unavailable": Availability.UNAVAILABLE,
+}
+
+
 @dataclass(frozen=True)
 class Operation:
     """One thing the UI can do, and what it needs to be true (§5.2).
@@ -134,17 +145,15 @@ def negotiate(operation: Operation, entry: RegistryEntry | None) -> Verdict:
             Availability.UNKNOWN,
             f"{entry.declaration.label} does not advertise {operation.capability}",
         )
-    if state == "available":
+    # A table rather than a ladder: one new protocol capability state would
+    # otherwise be one more branch on a function already at seven of eight, and
+    # three branches that differ only in which enum they name is data.
+    known_state = _ADVERTISED.get(state)
+    if known_state is Availability.AVAILABLE:
         return Verdict(operation, Availability.AVAILABLE)
-    if state == "degraded":
-        return Verdict(
-            operation,
-            Availability.DEGRADED,
-            f"{entry.declaration.label} reports {operation.capability} as degraded",
-        )
     return Verdict(
         operation,
-        Availability.UNAVAILABLE,
+        known_state or Availability.UNAVAILABLE,
         f"{entry.declaration.label} reports {operation.capability} as {state}",
     )
 

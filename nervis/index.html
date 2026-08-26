@@ -1533,15 +1533,22 @@ const API={
 
    const newest=measured[0];
    const set=(sets.items||[]).find(s=>s.name===newest.m.runtime_set)||sets.items[0];
-   const roles=newest.m.load_order||Object.keys(newest.m.rows||{});
+   /* Defaulted once, at the top, rather than at each of the twenty places that
+      reached into it. This function measured cyclomatic complexity 30 and two
+      thirds of that was `||{}` repeated — optional-field shaping counted as
+      branching, which it technically is and which no reader experiences as
+      thirty decisions. */
+   const rows=newest.m.rows||{};
+   const roles=newest.m.load_order||Object.keys(rows);
    const forRole={};
    for(const {res,m} of measured)
     if(m.runtime_set===newest.m.runtime_set&&m.revision===newest.m.revision)
      forRole[res.target_key]=res;
 
    const round=(n,d)=>n==null?null:Math.round(n*Math.pow(10,d==null?2:d))/Math.pow(10,d==null?2:d);
-   const fig=(role,cond)=>(((newest.m.rows||{})[role]||{}).figures||{})[cond]||{};
-   const deg=role=>((newest.m.rows||{})[role]||{}).degradation_percent||{};
+   const row=role=>rows[role]||{};
+   const fig=(role,cond)=>(row(role).figures||{})[cond]||{};
+   const deg=role=>row(role).degradation_percent||{};
    const build=role=>{const r=forRole[role];if(!r)return role;
     return [r.target.model_family,[r.target.format&&r.target.format.toUpperCase(),
       r.target.quantization].filter(Boolean).join(' ')].filter(Boolean).join(' · ');};
@@ -2409,7 +2416,12 @@ async function nervis(){
   <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
   <div class="card wide"><h3>Clarvis instances</h3>
    ${usable('clarvis')?`<div class="table-row head"><span>Workspace</span><span>Mode</span><span>State</span><span>Route</span></div>
-   ${inst.items.map(c=>`<div class="table-row"><span>${c.label} <small class="mono" style="opacity:.5">${c.workspace_id}…</small></span><span>${c.mode}</span><span class="chip${c.state==='waiting_for_approval'?' warn':''}">${c.state}</span><span class="mono">${c.route}</span></div>`).join('')}
+   <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
+        process can bind the port a Bridge would have used and impersonate one,
+        so this is untrusted input arriving in NERVIS's own origin — and the
+        event feed two hundred lines below escaped every field while this table
+        escaped none. -->
+   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)} <small class="mono" style="opacity:.5">${escapeHtml(c.workspace_id)}…</small></span><span>${escapeHtml(c.mode)}</span><span class="chip${c.state==='waiting_for_approval'?' warn':''}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(c.route)}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — never merged. NERVIS can see that a gate is waiting. It cannot resolve one, run a tool, or widen a workspace: <b>Open Clarvis</b> is the only action it has.</small>`
    :banner('Clarvis Bridge '+SERVICES.clarvis.state,REASON[SERVICES.clarvis.state]+'. No editor instance is visible. Clarvis itself is unaffected.','info')}</div>
   <div class="card narrow"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${e.occurred_at}</time><span class="mono">${e.event_type}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.</small></div>
@@ -2892,7 +2904,7 @@ async function settingsView(){
    <div class="table-row"><span>Redact paths</span><span>${flag(s.privacy.redact_paths,true)}</span><span style="opacity:.7;grid-column:3/-1">workspace paths are removed by the producer, before NERVIS receives the frame</span></div>
    <div class="table-row"><span>Redact prompts</span><span>${flag(s.privacy.redact_prompts,true)}</span><span style="opacity:.7;grid-column:3/-1">defence in depth: NERVIS re-applies redaction it already expects upstream</span></div>
    <div class="table-row"><span>Diagnostics route</span><span class="mono">${s.privacy.diagnostics_route}</span><span style="opacity:.7;grid-column:3/-1">cloud analysis is never implicit — sending a diagnostic packet is still sending your data somewhere</span></div>
-   <small class="mono dim">these read as state because changing one is a mutation: it needs an actor, an audit record with precondition and result, and a revalidated capability. A toggle wired to nothing would be a claim that the endpoint exists.</small></div>
+   <small class="mono dim"><b>None of these five is enforced by NERVIS.</b> They describe what the specification requires and are read from a fixed shape, not from any setting NERVIS honours — no code reads <span class="mono">redact_paths</span> or <span class="mono">redact_prompts</span>, and <span class="mono">/api/v1/system</span> publishes this machine's hostname by default. Said plainly because a switch rendered <b>ON</b> beside "workspace paths are removed" is a claim of protection, and an unenforced claim of protection is worse than no claim: it is the reason nobody checks. What <i>is</i> enforced today is narrower and elsewhere — the event quarantine stores a shape digest rather than a producer's values, and <span class="mono">/api/v1/system?redact=true</span> withholds the fields it labels sensitive. These read as state because changing one is a mutation: it needs an actor, an audit record with precondition and result, and a revalidated capability. A toggle wired to nothing would be a claim that the endpoint exists.</small></div>
   <div class="card narrow"><h3>Retention</h3>
    <div class="trace-step"><b>events</b><span>${s.retention.events_days} days</span></div>
    <div class="trace-step"><b>traces</b><span>${s.retention.traces_days} days</span></div>
@@ -4481,6 +4493,72 @@ function chatRequestBody(conversationId){
  return body;
 }
 
+/* One SSE body as a stream of parsed frames.
+ *
+ * Read by hand rather than with `EventSource`: that one cannot POST, cannot
+ * send a body and cannot be aborted, which rules out all three things a chat
+ * turn needs.
+ *
+ * Extracted from `sendChat`, which measured **cyclomatic complexity 41** — the
+ * worst function in this file by a wide margin — with the reader, the decoder,
+ * the buffer, the frame splitting, the JSON parsing and the reply assembly all
+ * in one scope. The parsing has nothing to do with the conversation; separating
+ * them means the tangle is now two ordinary jobs.
+ *
+ * Yields `{frame}` for a data frame and `{error:true}` for the stream's own
+ * error event. `[DONE]` and unparseable payloads are skipped here rather than at
+ * the caller, because "what is a frame" is this function's question. */
+async function* sseFrames(body){
+ const reader=body.getReader(),decoder=new TextDecoder();
+ let buffer='';
+ for(;;){
+  const {value,done}=await reader.read();
+  if(done)return;
+  buffer+=decoder.decode(value,{stream:true});
+  const parts=buffer.split('\n\n');
+  buffer=parts.pop();
+  for(const part of parts){
+   for(const line of part.split('\n')){
+    if(line.startsWith('event: error')){yield{error:true};continue}
+    if(!line.startsWith('data:'))continue;
+    const payload=line.slice(5).trim();
+    if(payload==='[DONE]')continue;
+    let frame;
+    try{frame=JSON.parse(payload)}catch(e){continue}
+    yield{frame};
+   }
+  }
+ }
+}
+
+/* What one finished turn became, as a message. Pure: no DOM, no session, no
+   fetch — which is what makes the four outcomes readable side by side instead of
+   spread down a ladder inside `sendChat`.
+
+   The four are genuinely different and none of them may borrow another's
+   explanation. That was a real defect: stopping a reasoning model before it
+   produced text fell through to the budget-exhaustion branch and announced "the
+   model spent its whole budget on reasoning", which is a confident diagnosis of
+   something that did not happen. */
+function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
+ const base={role:'assistant',served,request_id:requestId};
+ if(failed)return{...base,text:failed};
+ if(aborted)return{...base,interrupted:true,
+   /* What the reader saw, kept, and labelled stopped rather than finished.
+      NERVIS stored the same partial with `interrupted` set, so the two agree. */
+   text:reply?reply+'\n\n— stopped —':'— stopped before the model produced anything —'};
+ if(reply)return{...base,text:reply};
+ /* An empty answer is almost never an empty answer. On this corpus it is a
+    reasoning model spending the whole budget thinking — SIRVIS measured exactly
+    that on both Gemma-4 builds, 253 of 256 tokens with no answer — and the
+    frames say so if anyone counts them. "(empty response)" would hide a cause
+    the stream was carrying. */
+ return{...base,reasoningOnly:true,
+   text:reasoning
+    ? `No answer. The model spent its whole budget on reasoning (${reasoning} frames) and stopped before producing any. Raise Max tokens.`
+    : 'The model returned an empty message.'};
+}
+
 async function sendChat(){
  const box=document.getElementById('chatInput');
  const text=(box&&box.value||'').trim();
@@ -4529,24 +4607,9 @@ async function sendChat(){
    const d=await r.json().catch(()=>({}));
    failed=(d.error&&(d.error.message||d.error))||('NERVIS returned HTTP '+r.status);
   }else{
-   /* Read the stream by hand rather than with `EventSource`: that one cannot
-      POST, cannot send a body and cannot be aborted, which rules out all three
-      things this needs. */
-   const reader=r.body.getReader(),decoder=new TextDecoder();
-   let buffer='';
-   for(;;){
-    const {value,done}=await reader.read();
-    if(done)break;
-    buffer+=decoder.decode(value,{stream:true});
-    const parts=buffer.split('\n\n');
-    buffer=parts.pop();
-    for(const part of parts){
-     for(const line of part.split('\n')){
-      if(line.startsWith('event: error')){failed='stream';continue}
-      if(!line.startsWith('data:'))continue;
-      const payload=line.slice(5).trim();
-      if(payload==='[DONE]')continue;
-      let frame;try{frame=JSON.parse(payload)}catch(e){continue}
+   for await(const item of sseFrames(r.body)){
+      if(item.error){failed='stream';continue}
+      const frame=item.frame;
       if(failed==='stream'){failed=frame.message||'RAVIS refused mid-stream';continue}
       const delta=((frame.choices||[{}])[0]||{}).delta||{};
       if(delta.content){reply+=delta.content;paint()}
@@ -4555,8 +4618,6 @@ async function sendChat(){
          the count is the explanation. */
       if(delta.reasoning_content)reasoning++;
       served=frame.model||served;
-     }
-    }
    }
   }
  }catch(e){
@@ -4568,26 +4629,7 @@ async function sendChat(){
  CHAT_SESSION.abort=null;
  CHAT_SESSION.remote_id=conversationId;
  CHAT_SESSION.messages.pop();
- if(failed){
-  CHAT_SESSION.messages.push({role:'assistant',text:failed,served,request_id:requestId});
- }else if(aborted){
-  /* What the reader saw, kept, and labelled as stopped rather than finished.
-     NERVIS stored the same partial with `interrupted` set, so the two agree. */
-  CHAT_SESSION.messages.push({role:'assistant',served,request_id:requestId,interrupted:true,
-   text:reply?reply+'\n\n— stopped —':'— stopped before the model produced anything —'});
- }else if(!reply){
-  /* An empty answer is almost never an empty answer. On this corpus it is a
-     reasoning model spending the whole budget thinking — SIRVIS measured
-     exactly that on both Gemma-4 builds, 253 of 256 tokens with no answer —
-     and the frames say so if anyone counts them. "(empty response)" would hide
-     a cause the stream was carrying. */
-  CHAT_SESSION.messages.push({role:'assistant',served,request_id:requestId,reasoningOnly:true,
-   text:reasoning
-    ? `No answer. The model spent its whole budget on reasoning (${reasoning} frames) and stopped before producing any. Raise Max tokens.`
-    : 'The model returned an empty message.'});
- }else{
-  CHAT_SESSION.messages.push({role:'assistant',text:reply,served,request_id:requestId});
- }
+ CHAT_SESSION.messages.push(replyMessage({reply,failed,aborted,reasoning,served,requestId}));
 
  /* Correlate the reply with the decision RAVIS recorded for it. NERVIS looks it
     up by the request id it sent, so the link is exact rather than "the most
