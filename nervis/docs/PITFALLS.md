@@ -244,7 +244,99 @@ mentioned. A queue view counts states; a log does not.
 
 ---
 
+## 6a · Mixing a live read with the map beside it
+
+**Three separate defects, one mistake.** `SERVICES` is a hard-coded fallback map;
+the registry is live. A screen that reads one for part of a row and the other for
+the rest breaks the moment they disagree — which is whenever a row exists that the
+map has never held.
+
+| what it did | what happened |
+|---|---|
+| `SERVICES[row.key].state` | `undefined.state` on a row whose key was new. **Blanked the whole Overview and Ecosystem map.** |
+| `usable(s.key)` on a chip | a *healthy* LM Studio rendered wearing an amber warning, because the map has no `lmstudio` entry |
+| `usable(k)` in a filter | threw for a registry row carrying a key with no entry |
+
+**The rule: if a row carries its own state, read that.** Rows have since M2. And
+`usable()` now treats an unknown key as *not usable* rather than throwing — one
+guard in the shared function beats a guard at every caller.
+
+The middle one is the nastiest: it did not throw, did not fail the render check,
+and just quietly put a warning on something that was fine.
+
+---
+
+## 6b · Guards that pass for the wrong reason
+
+```js
+r.uncertainty && r.uncertainty.length ? r.uncertainty.map(…) : ''
+```
+
+The live API returns a **list**. The mock carried a **string**. `.length` on a
+string is truthy, so the guard passed and `.map` threw immediately after —
+blanking the Recommendations screen **whenever SIRVIS was not answering**, which
+is exactly the condition this page promises to survive.
+
+Nobody found it for weeks because nobody runs the dashboard with SIRVIS switched
+off. `tools/render_check.js` found it on its first run.
+
+**A mock whose shape differs from the live response is worse than no mock**: it
+makes the failure conditional on which one you happened to exercise.
+
+---
+
+## 6c · A wildcard route eats its siblings
+
+Registering `/api/v1/{service}` on the NERVIS side matched **everything** under
+`/api/v1` — so `/api/v1/chat/conversations` resolved to "peer `chat`, surface
+`conversations`" and 404'd. Caught by a test for a *different* milestone.
+
+Two literal paths cost two lines and cannot shadow a route that has not been
+written yet.
+
+---
+
+## 6d · Clever stubs hang; boring stubs name the missing method
+
+Writing `tools/render_check.js`, the DOM stub started as a `Proxy` answering to
+any property. Fewer lines, looked elegant, and cost hours:
+
+- **A `Proxy` responds to `then`.** Awaiting anything that had touched the DOM
+  turned it into a thenable that called `then(resolve, reject)`, got the proxy
+  back, and waited forever.
+- Fixed, it hung again inside the page's canvas animation, where proxy arithmetic
+  turned a bounded loop into an unbounded one.
+
+Both hangs presented identically with **no output at all**, because `console`
+output to a pipe is buffered and discarded when the process is killed. The
+enumerated stub is more lines and every gap announces itself as `x is not a
+function` naming the method.
+
+Two smaller traps from the same file: a script's top-level `const` is
+**script-scoped, not a property of the vm context**, so `context.APP_CONFIG` is
+`undefined` however well the script ran; and `main()` without a `.catch()` sent
+its own failures into the unhandled-rejection collector, exiting **0 and printing
+nothing**.
+
+---
+
 ## 7 · What actually catches these
+
+Since this list was written, three of them became automated:
+
+- **`node tools/render_check.js`** renders all 34 screens with nothing running
+  and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
+  render. **Runs in CI.**
+- **`python3 ../tools/check_dead_code.py`** finds definitions and dataclass
+  fields nothing references — the shape behind a comment that describes
+  behaviour which does not exist. **Runs in CI.**
+- **`python3 ../tools/check_status.py`** checks STATUS.md's counts and cited
+  paths against the repository.
+
+None of them catches a **prose claim about the state of the world**.
+`docs/CURRENT_STATE.md` said "NERVIS is still a specification" three days after
+NERVIS became a running service, and nothing noticed. That one is still on you.
+
 
 In order of how much they have found here:
 

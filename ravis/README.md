@@ -84,8 +84,12 @@ load-bearing: compare by full `publisher/model`, never the bare name.
 
 **The claims go in at `CONFIGURED` provenance, not `MEASURED`.** That is deliberate and it
 is a downgrade: RAVIS did not do the measuring and must not say it did. §13.3 forbids
-upgrading provenance, never downgrading it. When SIRVIS evidence lands at M13 it should
-*replace* this file rather than sit beside it.
+upgrading provenance, never downgrading it.
+
+**M13 has since landed**, and it does replace this file rather than sit beside it:
+`MEASURED_BY_SIRVIS` outranks `CONFIGURED`, so a build SIRVIS has measured is routed on
+the measurement. The file still matters for everything SIRVIS has not measured, which on
+any real machine is most of the catalogue.
 
 `RAVIS_MODEL_CAPABILITIES` still works and overrides the file per capability, so one model
 can be corrected without editing anything. A path that is named and cannot be read is

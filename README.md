@@ -15,11 +15,11 @@ Two things live here, and they are two halves of the same work.
 and a cross-product runbook. They are the authority for what each service owes the
 others.
 
-**[`nervis/`](./nervis/)** — an interactive, single-file prototype of the NERVIS
-dashboard and the three applications it observes. It is the visual scaffolding those
-build plans get poured into: every screen reads from a data layer shaped like the real
-API responses, and every endpoint it cites is cited from the spec beside it. Open
-`nervis/index.html` in a browser; no build step, no server.
+**[`nervis/`](./nervis/)** — the NERVIS service, and the single-file dashboard it
+serves for itself and the three applications it observes. `src/nervis/` is a Python
+package like its two siblings; `index.html` is the frontend, still one file with no
+build step. Every screen reads from a data layer shaped like the real API responses,
+and every endpoint it cites is cited from the spec beside it.
 
 It is also the dashboard that **is** served: since NERVIS M0 it comes from `nervis serve`
 rather than a static file server, so the thing serving it has a database, a stable

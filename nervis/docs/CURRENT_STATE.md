@@ -1,8 +1,13 @@
 # Current state
 
-*Snapshot as of 23 Aug 2026. Written so an agent with no memory of how this got here
+*Snapshot as of 26 Aug 2026. Written so an agent with no memory of how this got here
 can be useful in five minutes. If this file and the code disagree, the code is right
 and this file is stale — fix it.*
+
+*It was stale, and by a lot: it said "NERVIS is still a specification" three days
+after NERVIS became a running service with six milestones behind it. Nothing catches
+that — `tools/check_status.py` checks STATUS.md's counts and paths, and the dead-code
+gate reads definitions. A prose claim about the state of the world has no gate.*
 
 ## What exists
 
@@ -10,13 +15,17 @@ One file, `index.html`, containing four applications' worth of UI: a top-level t
 bar (NERVIS / SIRVIS / RAVIS / CLARVIS), a per-app sidebar, and a data layer shaped
 like the API responses each service will eventually return.
 
-**Clarvis, SIRVIS and RAVIS all exist as real code now**; NERVIS is still a
-specification, and this file is its first concrete form. Clarvis is a VS Code
-extension in its own repository (`../../clarvis`); SIRVIS and RAVIS are Python
-services one directory up, and three screens here read a running SIRVIS rather
-than a mock. The specs are in the root of this repository and there is no second
-copy to keep in step. `../STATUS.md` says what is actually finished — this file
-covers the prototype only.
+**All four exist as real code.** Clarvis is a VS Code extension in its own
+repository (`../../clarvis`); SIRVIS, RAVIS and — since M0 — NERVIS are Python
+services, and this file is **served by `nervis serve`** rather than opened from
+disk. Most screens read a running service.
+
+That changes what this file is. It is no longer "the prototype"; it is NERVIS's
+frontend, and the data layer below is a client of NERVIS rather than of every
+service at once. `../STATUS.md` says what is actually finished.
+
+**The one rule that has not changed**: it must still render with nothing running.
+`tools/render_check.js` enforces that in CI now, across all 34 screens.
 
 ## Architecture, in one pass
 
@@ -30,6 +39,20 @@ registry states (`healthy`, `degraded`, `unreachable`, `stale`, `incompatible`,
 `healthy|degraded|unhealthy` a peer reports about itself. `cell(body, service)`
 renders the value only if that service can answer, and otherwise names the service
 and the reason.
+
+**`SERVICES` is now the *fallback*, not the source.** NERVIS's registry
+(`/api/v1/services`) is polled every eight seconds and overwrites it. Three separate
+defects have come from a screen mixing a live read with this map — a `usable(key)`
+on a key the map has never held, a `SERVICES[row.key].state` on a row whose key was
+new, a healthy service wearing a warning chip. **If a row carries its own state,
+read that.**
+
+**`peerRead(service, surface, params, method)`** — every read of RAVIS or SIRVIS goes
+through NERVIS, which negotiates the capability first. See `docs/WIRING.md`; the
+direct-`fetch` pattern that used to live there is the pre-M3 one.
+
+**`EVENT_FILTERS` + the hub** — the Events screen is a live feed of
+`/api/v1/events` since M6, with §11.2's filters held across renders.
 
 **`prov()` / `stamp()`** — `MEASURED` / `ESTIMATED` / `UNKNOWN` and staleness, kept
 visible at the point of the number rather than in a footnote.

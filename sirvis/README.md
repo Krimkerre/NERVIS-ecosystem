@@ -45,8 +45,12 @@ The exit criterion worth naming is still that **it starts with no runtime presen
 case rather than a fault. `doctor` does contact the runtime and reports what it finds —
 an absent runtime is a finding, not a failure, which is the guarantee that matters.
 
-Capabilities are advertised with the milestone behind each one. `sirvis.events@1` is the
-remaining `unavailable` entry, and it names M21.
+Capabilities are §4.1's published table, verbatim — this file used to declare seven
+names it had invented, of which two matched by coincidence, and a capability name is
+what a peer negotiates on. Each is advertised with the milestone behind it, and **two
+are `unavailable`**: `sirvis.events@1` names M21, and `sirvis.benchmarks.jobs@1` names
+M14. Benchmarks run, but §4.1 means submit/poll/cancel by "jobs", and advertising it
+available because a neighbouring operation works is that section's exact prohibition.
 
 ## Two things it deliberately does not share
 

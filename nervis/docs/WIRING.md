@@ -16,14 +16,38 @@ Every screen reads from `API`, which has one method per real endpoint:
 async models(){return{snapshot_revision:412,items:[ /* … */ ]}}
 ```
 
-Replace the body, keep the shape:
+Replace the body, keep the shape. The views are already `async` and already
+`await`, so a method that starts doing I/O behaves exactly as the mock did.
+
+**Go through NERVIS, not straight at the service.** This page used to show a
+direct `fetch(BASE.sirvis + …)`, which was right before NERVIS was a service and
+is wrong now:
 
 ```js
-async models(){return (await fetch(BASE.sirvis + '/api/v1/models')).json()}
+async models(){
+ const read = await sirvisRead('models');        // or ravisRead(…)
+ return read.available ? read.data : this._modelsMock();
+}
 ```
 
-That is the whole change. The views are already `async` and already `await`, so a
-method that starts doing I/O behaves exactly as the mock did.
+What that buys, and why the direct call is no longer the pattern:
+
+- **The capability is negotiated first.** §5.2's gate is *"never calls a guessed
+  endpoint"*, and a check living in this file is one that anything not this file
+  can skip. A surface the peer has withdrawn produces **no request at all**.
+- **One shape for every outcome.** `{available, reason, availability, data}`,
+  whether the peer is down, refusing, missing the capability, or NERVIS itself is
+  not answering. `data` is `null` on failure and **never an empty list** — an
+  empty list means *the peer has none of these*, and confusing the two is how a
+  screen renders a confident zero over an outage.
+- **The peer's own words survive.** A refusal carries §4.3's code and message,
+  which is more use than `HTTP 422`.
+
+A direct `fetch` is still correct for a path that is **not a declared surface** —
+`/api/v1/models/{id}` on SIRVIS, `/providers/{name}/models` on RAVIS. Adding a
+NERVIS route to save one cross-origin call would be inventing a surface the
+specification does not list. Say so in a comment where you do it; both existing
+cases do.
 
 `BASE` holds the four service origins in one place. Their default ports are assigned in
 `../../ECOSYSTEM_RUNBOOK.md` §5 — this page hardcodes them because it runs from disk
@@ -63,10 +87,15 @@ stages two resident builds so routing has something to route to; delete it and
 
 `API.sirvis.evidence()`, `runs()`, `runtimeSet()` and `recommendations()` are built
 from `BENCHMARK` and `BENCHMARK_PAIRS`, which are a transcription of
-`../clarvis/docs/benchmarks.md` — a real suite run on this machine. When a live
-SIRVIS exists it overwrites all four from `/api/v1/benchmark-results`,
-`/benchmark-runs`, `/runtime-sets` and `/recommendations`; nothing about the views
-changes, because they already read measures rather than a score.
+`../clarvis/docs/benchmarks.md` — a real suite run on this machine. A live SIRVIS
+overwrites all four, through NERVIS, from `/api/v1/evidence`,
+`/api/v1/benchmark-runs`, `/api/v1/runtime-sets` and `/api/v1/recommendations`;
+nothing about the views changes, because they already read measures rather than a
+score.
+
+*(This used to cite `/api/v1/benchmark-results`, which SIRVIS serves only as
+`/benchmark-results/{result_id}` — there is no collection endpoint. Found by
+checking every path this documentation cites against the services' own OpenAPI.)*
 
 **There is no `score` field, and that is deliberate.** Two of the four accuracy
 measures returned identical values for every model in the run. A composite that
