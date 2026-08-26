@@ -408,6 +408,8 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 /* Chat carries its own route explanation, because a router that cannot say why is
    just a proxy. Neutral throughout: NERVIS has no personality — that is Clarvis's job. */
 .profile-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+/* The event feed's filter strip: the same chips, plus a free-text box. */
+.filter-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .mode-chip{font:9px/1 ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;
   padding:6px 9px;border-radius:2px;border:1px solid #1b4050;background:rgba(6,20,29,.9);
   color:#8494a5;cursor:pointer}
@@ -739,6 +741,18 @@ const LIVE_TIMEOUT_MS=1500;
 /* What NERVIS's registry last published beside the entries: §5.2's negotiated
    operations, and any endpoint its SSRF guard refused. Empty until a live read
    fills them, so a screen must treat empty as "not read" rather than "none". */
+/* §11.2's filters, held across renders. A filter that reset every time the
+   screen repainted would be unusable on a live feed, which repaints. */
+const EVENT_FILTERS={service:'',severity:'',event_type:'',text:''};
+function setEventFilter(name,value){
+ EVENT_FILTERS[name]=EVENT_FILTERS[name]===value&&name!=='text'?'':value;
+ render();
+}
+function clearEventFilters(){
+ for(const k of Object.keys(EVENT_FILTERS))EVENT_FILTERS[k]='';
+ render();
+}
+
 let OPERATIONS=[];
 let REFUSED=[];
 let REGISTRY_ROWS=[];
@@ -2414,22 +2428,39 @@ async function nervis(){
    condition — buffer, drops, quarantine, gaps — alongside the frames, because a
    feed that silently lost events looks identical to a quiet one. */
 async function eventsView(){
- heading('Event hub','MEP envelopes from every service — when there are any.');
- /* Not wired to an event feed, because there is not one. Both services publish
-    a capability surface that declares `events@1` and its state, so this screen
-    reads *that* — the honest live fact about events is that they are
-    unavailable, and each service says so itself with a reason and a milestone.
+ heading('Event hub','NERVIS\'s own hub. Live, filtered, and honest about who is producing.',
+  control('Clear filters','clearEventFilters'));
+ /* **Live since M6.** This screen used to read each service's `events@1`
+    capability and report that publication was unavailable, which was the honest
+    thing while NERVIS had no hub. It has one now — §11.1's envelope, ingestion,
+    bounded persistence, filters and an SSE broadcast.
+ 
+    What has *not* changed is who produces. RAVIS and SIRVIS still advertise
+    `events@1` as unavailable until their Stage 7 milestones, so every event
+    here is NERVIS's own until then, and the producer table below still says so.
+    A feed that implied otherwise would be the invented traffic this build is
+    careful about. */
+ const f=EVENT_FILTERS;
+ const query=Object.entries({limit:200,service:f.service,severity:f.severity,
+   event_type:f.event_type,text:f.text}).filter(([,v])=>v!=='' && v!=null);
+ let feed={items:[],latest_sequence:0},quarantine={items:[]};
+ try{
+  const [a,b]=await Promise.all([
+   fetch(BASE.nervis+'/api/v1/events?'+new URLSearchParams(query),
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)}).then(r=>r.ok?r.json():null),
+   fetch(BASE.nervis+'/api/v1/events/quarantine?limit=10',
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)}).then(r=>r.ok?r.json():null)]);
+  if(a){feed=a;SOURCE.nervis='live'}
+  if(b)quarantine=b;
+ }catch(e){}
 
-    An invented stream here would be the worst instance of the thing the rest of
-    this build is careful about: an operations screen showing traffic nobody
-    produced. */
  const ask=async key=>{
   try{
    const r=await fetch(BASE[key]+'/ecosystem/capabilities',
      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
    if(!r.ok)return null;
    const all=((await r.json()).capabilities)||[];
-   return all.find(c=>/\bevents?@/.test(c.id))||null;
+   return all.find(c=>/\bevents?@?\d*$/.test(c.id))||null;
   }catch(e){return null}};
  const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
 
@@ -2439,12 +2470,42 @@ async function eventsView(){
    <span><span class="chip${cap&&cap.state==='available'?'':' warn'}">${cap?escapeHtml(cap.state):'not reachable'}</span></span>
    <span style="opacity:.75">${cap?escapeHtml(cap.reason||''):'the service did not answer, so nothing is claimed about it either way'}</span></div>`;
 
+ /* Newest first for reading. The API returns oldest-first because it doubles as
+    replay, and a client resuming wants what it missed in the order it happened —
+    reversing here is easier than reconstructing an order that was thrown away. */
+ const shown=[...feed.items].reverse();
+ const sev=s=>s==='error'||s==='critical'?' warn':'';
+
  $('#content').innerHTML=`
-  <div class="card full live"><h3>Event publication <span class="chip warn">unavailable</span></h3>${cell(`
-   <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Declared reason</span></div>
+  <div class="card full live"><h3>Feed <span class="chip">${feed.items.length} shown · seq ${feed.latest_sequence}</span></h3>${cell(`
+   <div class="filter-row">
+    ${['','nervis','ravis','sirvis'].map(v=>`<button class="mode-chip${f.service===v?' on':''}" onclick="setEventFilter('service','${v}')">${v||'all services'}</button>`).join('')}
+    ${['','info','warning','error'].map(v=>`<button class="mode-chip${f.severity===v?' on':''}" onclick="setEventFilter('severity','${v}')">${v||'any severity'}</button>`).join('')}
+    <input class="mono" id="evText" placeholder="free text over the envelope"
+      value="${escapeHtml(f.text)}" onchange="setEventFilter('text',this.value)"
+      style="flex:1;min-width:150px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:5px 7px">
+   </div>
+   ${shown.length?`<div class="table-row head five"><span>When</span><span>Service</span><span>Type</span><span>Severity</span><span>Detail</span></div>
+   ${shown.map(e=>`<div class="table-row five">
+     <span class="mono dim">${escapeHtml(String(e.occurred_at||'').slice(11,23))}</span>
+     <span class="mono">${escapeHtml((e.source||{}).service_type||'—')}</span>
+     <span class="mono">${escapeHtml(e.event_type||'')}</span>
+     <span><span class="chip${sev(e.severity)}">${escapeHtml(e.severity||'info')}</span></span>
+     <span style="opacity:.8">${escapeHtml(JSON.stringify(e.data||{}).slice(0,90))}</span></div>`).join('')}`
+    :`<small class="mono dim">no event matches. The hub is running — <b>seq ${feed.latest_sequence}</b> events have passed through it — so this is a filter, not an outage.</small>`}
+   <small class="mono dim">read from <b>NERVIS /api/v1/events</b>. Ordering is guaranteed only <b>within one source stream</b> (§4.4), so this list is arrival order across producers and not a global sequence of what happened. <b>occurred_at</b> is the producer's clock and <b>_received_at</b> is NERVIS's; both are kept, because §11.2 requires clock skew to be visible rather than smoothed away.</small>`,'nervis')}</div>
+
+  <div class="card wide live"><h3>Who is producing</h3>${cell(`
+   <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Why</span></div>
    ${row('RAVIS',rv)}
    ${row('SIRVIS',sv)}
-   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. This screen shows no events because there are none to show — not because none happened. Every control on this dashboard is bound to a declared capability, and an unavailable one means the control is <b>absent</b> rather than disabled-and-hopeful; the same rule applies to a feed.</small>`,'nervis')}</div>
+   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests; <b>neither peer publishes yet</b>, so every event in the feed above is NERVIS's own — mostly registry transitions. RAVIS events land at its M18b and SIRVIS's at its M21, and until then a feed implying otherwise would be inventing traffic.</small>`,'nervis')}</div>
+
+  <div class="card wide live"><h3>Quarantine <span class="chip${quarantine.items.length?' warn':''}">${quarantine.items.length}</span></h3>${cell(`
+   ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
+   ${quarantine.items.map(q=>`<div class="table-row"><span class="mono">${escapeHtml(q.reason)}</span><span class="mono dim" style="grid-column:2/-1">${escapeHtml(q.detail||'')} · ${escapeHtml(String(q.payload).slice(0,70))}</span></div>`).join('')}`
+    :'<small class="mono dim">nothing has been refused.</small>'}
+   <small class="mono dim">§11.1: malformed events are <b>quarantined with safe diagnostics and never crash the hub</b>. Kept rather than dropped, because "the hub is quiet" and "a producer is sending rubbish" look identical from outside and need different things done about them. Ingestion answers <b>202 with the reason</b> rather than an error, so a producer's mistake never becomes a retry storm.</small>`,'nervis')}</div>
 
   <div class="card wide"><h3>What lands with it <span class="chip">specified, not built</span></h3>${cell(`
    <div class="trace-step"><b>envelope</b><span class="mono">event_id · event_type · event_version · occurred_at · source · trace_id</span></div>
@@ -4709,7 +4770,11 @@ function markPrototype(){
    Repainting those on a timer would be a worse bug than the stale reading it
    fixes, so the list is an allowlist rather than an exclusion — a screen added
    later is not live until somebody says it is. */
-const LIVE_VIEWS={nervis:['Overview','Ecosystem map','System']};
+/* Events joins the live views: it is a feed, and a feed that only updated when
+   somebody navigated is a list of what had happened by the time they last
+   clicked. Its filter inputs live in `EVENT_FILTERS` rather than the DOM, so a
+   repaint cannot lose half-typed text. */
+const LIVE_VIEWS={nervis:['Overview','Ecosystem map','System','Events']};
 
 /* How often the dashboard re-reads the registry. NERVIS itself probes every 20
    seconds, so anything faster only re-reads the same answer; anything much

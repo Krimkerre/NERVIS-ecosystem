@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # mid-startup — and at the ordinary interval the dashboard then reports it
     # unreachable for twenty seconds after it is up.
     recovery_interval_seconds: float = 3.0
+
+    # §11.1: retention is bounded and configurable, 7–30 days a sensible
+    # default. Two bounds because they fail differently — age alone lets a burst
+    # fill a disk inside the window, and a count alone keeps a quiet week
+    # forever.
+    event_retention_days: float = 14.0
+    event_retention_count: int = 50_000
     # And how long that fast window lasts, which is a **hard bound rather than a
     # condition**. The first version sped up whenever anything looked unwell,
     # which is a loop with no exit: probing four MEP endpoints every three

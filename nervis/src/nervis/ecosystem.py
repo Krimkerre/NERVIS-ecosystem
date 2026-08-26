@@ -46,10 +46,17 @@ DECLARED: dict[str, Capability] = {
         state=DEGRADED,
         reason="the shell and this machine's telemetry are served; peer data lands at M2",
     ),
+    # Available: the hub itself is complete — §4.4's envelope, HTTP ingestion,
+    # bounded persistence with retention, §11.2's filters and an SSE broadcast
+    # with replay. What is *available* is the hub, not the ecosystem's traffic:
+    # RAVIS and SIRVIS advertise `events@1` as unavailable until their Stage 7
+    # milestones, so NERVIS is currently its own only producer. That is a fact
+    # about them and is theirs to declare, which is exactly why it does not
+    # degrade this.
     "nervis.event_hub@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="ingestion, persistence and SSE broadcast land at M6",
+        state=AVAILABLE,
+        reason="§11.1's hub: envelope, ingestion, retention, filters, SSE with replay",
     ),
     "nervis.traces@1": Capability(
         version="1.0.0",

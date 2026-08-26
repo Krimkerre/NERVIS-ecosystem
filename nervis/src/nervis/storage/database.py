@@ -119,6 +119,57 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON chat_message(conversation_id, created_at);
         """,
     ),
+    (
+        5,
+        "the event hub, per NERVIS.md §11.1 and the runbook's §4.4 envelope",
+        # `sequence` is the primary key and `event_id` is merely unique, which
+        # is the other way round from the obvious choice. Two things need it:
+        # §4.4's deduplication, which `INSERT OR IGNORE` against the UNIQUE
+        # constraint gives for free, and §11.1's **replay cursor**, which needs
+        # a monotonic value a client can resume from. `rowid` cannot be indexed
+        # explicitly and is not a contract; an explicit sequence is both.
+        #
+        # `received_at` is separate from `occurred_at` and both are kept. A
+        # producer's clock is its own, and §11.2 requires clock skew to be
+        # visible rather than smoothed away — one timestamp cannot show it.
+        #
+        # `envelope` holds the whole event as it arrived. The columns beside it
+        # exist to filter on; they are a projection, not the record. §11.1 is
+        # explicit that the hub is operational telemetry and never the system of
+        # record, so re-serialising from columns would be NERVIS inventing a
+        # version of somebody else's fact.
+        """
+        CREATE TABLE IF NOT EXISTS event (
+            sequence     INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id     TEXT NOT NULL UNIQUE,
+            event_type   TEXT NOT NULL,
+            service_type TEXT NOT NULL DEFAULT '',
+            severity     TEXT NOT NULL DEFAULT 'info',
+            trace_id     TEXT NOT NULL DEFAULT '',
+            request_id   TEXT NOT NULL DEFAULT '',
+            session_id   TEXT NOT NULL DEFAULT '',
+            occurred_at  TEXT NOT NULL,
+            received_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            envelope     TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS event_by_arrival ON event(received_at);
+        CREATE INDEX IF NOT EXISTS event_by_trace   ON event(trace_id);
+        CREATE INDEX IF NOT EXISTS event_by_type    ON event(event_type);
+
+        -- §11.1: malformed events are quarantined with safe diagnostics and
+        -- never crash the hub. Kept rather than dropped, because "the hub is
+        -- silent" and "a producer is sending rubbish" look identical from the
+        -- outside and need different things done about them.
+        CREATE TABLE IF NOT EXISTS event_quarantine (
+            quarantine_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reason        TEXT NOT NULL,
+            detail        TEXT NOT NULL DEFAULT '',
+            payload       TEXT NOT NULL,
+            received_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        """,
+    ),
 ]
 
 

@@ -26,11 +26,12 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis.api import chat_router
+from nervis.api import chat_router, events_router
 from nervis.api import router as api_router
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, nervis_surface
 from nervis.errors import NervisError, to_response
+from nervis.events import Hub
 from nervis.probes import probe
 from nervis.registry import Registry, admissible, declared_services
 from nervis.storage import installation_identity, prepare_database
@@ -54,6 +55,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(ecosystem_router)
     api.include_router(api_router)
     api.include_router(chat_router)
+    api.include_router(events_router)
     register_dashboard(api)
     return api
 
@@ -92,6 +94,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # a twenty-second timer is a new TCP handshake every three seconds
     # otherwise, against processes on this same machine.
     api.state.probe_client = httpx.AsyncClient()
+    api.state.hub = Hub(
+        api.state.database,
+        retention_days=settings.event_retention_days,
+        retention_events=settings.event_retention_count,
+    )
     # When probing began, for the startup window in `_next_interval`. Monotonic
     # so a clock adjustment cannot widen or close the window by surprise.
     api.state.probe_started_at = time.monotonic()
@@ -164,6 +171,7 @@ async def refresh_registry(api: FastAPI) -> None:
         *(probe(api.state.probe_client, entry.declaration, entry) for entry in entries),
         return_exceptions=True,
     )
+    before = {entry.key: entry.state for entry in entries}
     for entry, observation in zip(entries, observations, strict=True):
         if isinstance(observation, BaseException):
             # A probe should map every failure to a state rather than raise, so
@@ -174,6 +182,40 @@ async def refresh_registry(api: FastAPI) -> None:
             logger.exception("probe for %s raised", entry.key, exc_info=observation)
             continue
         registry.record(entry.key, observation)
+    _announce_transitions(api, before)
+
+
+def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
+    """Emit an event for each peer whose state actually changed.
+
+    The hub's first real producer, and NERVIS's own: RAVIS and SIRVIS advertise
+    `events@1` as unavailable until their Stage 7 milestones, so until then the
+    only thing with events to publish is the service watching them.
+
+    **Only on a change.** A probe every twenty seconds against six peers would
+    otherwise write eighteen events a minute saying nothing happened, and
+    retention would then be measuring how long NERVIS had been running rather
+    than how much had occurred.
+    """
+    hub = getattr(api.state, "hub", None)
+    if hub is None:
+        return
+    for entry in api.state.registry.all():
+        was = before.get(entry.key)
+        if was is None or was == entry.state:
+            continue
+        hub.emit(
+            "nervis.service.state_changed",
+            severity="warning" if not entry.is_usable else "info",
+            subject={"type": "service", "id": entry.key},
+            data={
+                "service": entry.key,
+                "label": entry.declaration.label,
+                "from": was.value,
+                "to": entry.state.value,
+                "detail": entry.detail,
+            },
+        )
 
 
 async def _refresh_periodically(api: FastAPI) -> None:
@@ -191,6 +233,11 @@ async def _refresh_periodically(api: FastAPI) -> None:
             raise
         except Exception:  # noqa: BLE001 - a probe loop must outlive any single failure
             logger.exception("registry refresh failed")
+        # §11.1's retention, on the probe timer rather than a second one. It is
+        # a bounded DELETE against an indexed column; giving it its own task
+        # would be a scheduler for something that takes a millisecond.
+        with contextlib.suppress(Exception):
+            api.state.hub.enforce_retention()
         await asyncio.sleep(_next_interval(api))
 
 

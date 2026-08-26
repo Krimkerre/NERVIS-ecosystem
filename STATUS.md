@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1028 tests, no network, no live service
+.venv/bin/pytest                      # part of 1046 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 129 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 147 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1028 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1046 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4594,6 +4594,90 @@ not in the path as a *query* parameter, so registering one function at
 **The recommendation POST needed thirty seconds, not the read timeout's 1.5.**
 It reads every evidence record for the roles asked about, and the dashboard's
 four-second budget was aborting calls that were working.
+
+## NERVIS M6 — the event hub, and the one clause that gets the tests
+
+M6's exit: *"Events appear live; RAVIS events ingest; retention is enforced;
+**an invalid event cannot crash the hub**."* The last clause is the headline and
+has the most tests, because it is the one a hub fails silently — a producer
+sending rubbish is ordinary, and the wrong response punishes every *other*
+producer for one's mistake.
+
+`POST /api/v1/events` always answers **202 with the outcome**, never a 4xx or a
+5xx. A rejected event is a fact about the producer, not a failure of the hub,
+and an error status invites a retry of something that will never parse:
+
+```text
+POST {"looks": "nothing like an envelope"}
+  → {"accepted": 0, "rejected": [{"reason": "missing required field(s)",
+                                  "detail": "event_id, event_type, occurred_at"}]}
+```
+
+Refusals are **quarantined rather than dropped**, because *"the hub is quiet"*
+and *"a producer is sending rubbish"* look identical from outside and need
+different things done about them. The Events screen renders the quarantine
+beside the feed.
+
+The hub does **not** validate `data`. §4.4 says event type plus version
+determines that schema, which makes it the consumer's business — a hub that
+checked it would need to know every event type in the ecosystem, which is the
+coupling the envelope exists to avoid.
+
+### "RAVIS events ingest" — the half NERVIS owns
+
+The ingestion path takes a RAVIS-shaped envelope over HTTP POST and it works.
+The *producer* half does not exist: RAVIS advertises `ravis.events@1` as
+unavailable until M18b, SIRVIS's until M21, and §1 forbids inventing either.
+
+So **every event in the feed today is NERVIS's own** — registry transitions,
+emitted through the same door as everyone else's, because §3.1 has NERVIS
+implementing *and* consuming the MEP and a hub whose own events took a private
+path would be the one producer nobody could validate. The screen says exactly
+this rather than implying a busier ecosystem than there is.
+
+Emitted **only on a change**: six peers probed every twenty seconds would
+otherwise write eighteen events a minute saying nothing happened, and retention
+would be measuring how long NERVIS had been running rather than how much had
+occurred.
+
+### Two bounds on retention, because they fail differently
+
+Age alone lets a burst fill a disk inside the window; a count alone keeps a
+quiet week forever. Retention by age uses **arrival, not the producer's clock** —
+retaining on `occurred_at` would let a producer with a wrong year delete its
+events on arrival, or never. Both timestamps are kept, because §11.2 requires
+clock skew to be visible and one timestamp cannot show it.
+
+### Three bugs the tests and the live stream found
+
+**`json.dumps` allows `NaN` by default.** The serialisability check passed an
+event no other JSON parser in the ecosystem would accept — an event only NERVIS
+can read is not an event. `allow_nan=False`.
+
+**The gap marker was never delivered.** On a full subscriber queue the code
+discarded the subscriber and then put the marker *into the queue that had just
+refused an event*, so it was silently dropped and the reader was cut loose with
+no explanation — which is the one thing §4.1 asks a gap to prevent. It makes
+room now by dropping the oldest unread event.
+
+**A live event went out with an empty `id:`.** Found by watching an actual
+stream rather than by a test. The sequence was attached only by the read path,
+on the way *out* of storage, so a broadcast frame carried no cursor — and a
+client that reconnected after receiving live events resumed from wherever its
+last *stored* read had left off, silently duplicating everything between. The
+sequence travels with the broadcast now, and a test pins it.
+
+### What the hub is not
+
+§11.1: *"the hub is operational telemetry, not the system of record"* for SIRVIS
+evidence, RAVIS accounting or Clarvis workspace state. Envelopes are stored
+whole and the columns beside them exist only to filter on — re-serialising an
+event from those columns would be NERVIS publishing its own version of somebody
+else's fact.
+
+`nervis.event_hub@1` is **available**, and that is about the hub rather than the
+ecosystem's traffic. Whether peers publish is theirs to declare, which is
+exactly why their silence does not degrade this.
 
 ## Starting the thing
 

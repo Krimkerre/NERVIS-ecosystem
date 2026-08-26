@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0 – M5a)
+## The service (M0 – M6)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -112,8 +112,26 @@ rather than inferred: launching a benchmark and streaming its progress need
 `sirvis.benchmarks.jobs@1`, which SIRVIS advertises as *unavailable* until its
 M14 queue exists — and §1 forbids inventing the endpoint.
 
-`/api/v1` has `health`, `settings`, `system`, `services`, `ravis`, `sirvis` and
-`chat`.
+**M6** adds `/api/v1/events` — §11.1's hub: §4.4's envelope, HTTP ingestion,
+bounded persistence with retention, §11.2's filters, and an SSE stream with
+`Last-Event-ID` replay.
+
+**An invalid event cannot crash the hub**, which is M6's headline clause.
+Ingestion always answers `202` with the outcome — a rejected event is a fact
+about the producer, not a failure of the hub, and an error status invites a
+retry of something that will never parse. Refusals are quarantined rather than
+dropped, because "the hub is quiet" and "a producer is sending rubbish" look
+identical from outside.
+
+**NERVIS is currently its own only producer.** RAVIS and SIRVIS advertise
+`events@1` as unavailable until their Stage 7 milestones, so the feed carries
+registry transitions and says so. Those go through the same ingestion door as
+anyone else's: §3.1 has NERVIS implementing *and* consuming the MEP, and a hub
+whose own events took a private path would be the one producer nobody could
+validate.
+
+`/api/v1` has `health`, `settings`, `system`, `services`, `ravis`, `sirvis`,
+`chat` and `events`.
 §14's other three paths arrive with the milestones that own them, because a stub
 returning plausible data is §4.1's prohibition one layer up.
 
