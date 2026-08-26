@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1071 tests, no network, no live service
+.venv/bin/pytest                      # part of 1087 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 167 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1071 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1087 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -107,12 +107,12 @@ into the order work actually happens.
 | 29 | **RAVIS M8** | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 | 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
 
-**Stages 0, 2, 3 and 4 are complete. Stage 1 is not**, and this file claimed it
-was. The runbook's Stage 1 requires the metadata endpoints "in SIRVIS, RAVIS and
+**Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
+close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
 **NERVIS**", and exits when all three "pass live MEP conformance at one pinned
-protocol version". SIRVIS and RAVIS do. **NERVIS has no MEP surface at all** —
-NERVIS M0 has never been built, and `nervis/` is one HTML file. Two services out
-of three is not a stage. Stage 2 completed as of 2026-08-24, when M10 landed. This file claimed Stage 2 was complete for some time before that, and
+protocol version" — and for a long stretch this file claimed the stage was done
+while NERVIS had no MEP surface at all, because `nervis/` was one HTML file.
+Two services out of three was not a stage. NERVIS M0 built the third. Stage 2 completed as of 2026-08-24, when M10 landed. This file claimed Stage 2 was complete for some time before that, and
 was wrong: the stage mapping puts **RAVIS M10** in Stage 2, *"since an upstream
 needing a credential cannot be reached without it"*, and M10 had never been
 built. No gate caught it; a question about where an operator would type an API
@@ -4768,6 +4768,114 @@ exist there:
 
 That is exactly the class the check exists for — a screen nobody was looking at,
 broken by an edit to a different screen.
+
+## NERVIS M8a — letting a Bridge announce itself, without gaining anything by it
+
+M8 is the Clarvis integration and it splits cleanly in two. The half that reads
+a running Bridge is blocked: `CLARVIS.md` §6 specifies one and the Clarvis
+repository contains no implementation, and §1 forbids inventing another
+component's API. The half that can be built is the receiving end — registration,
+leases, redaction — and that half turns out to be where all the interesting
+decisions are.
+
+**§5.1 asks for two things that sound compatible and are not.** *"Support
+static configuration and authenticated local dynamic registration"*, and, one
+sentence later, *"do not accept an unauthenticated process's claimed service
+type or endpoint."* So a Bridge must be able to say "I exist, on port 7073"
+without any process on the machine being able to say the same thing and be
+believed. Something has to distinguish them, and it cannot be the claim itself.
+
+**The answer is a file, and its permissions are the authentication.** NERVIS
+writes a random secret next to its database at `0600`, in a `0700` directory. A
+registering process proves it is the user's by being able to read it. That is
+the same check `ssh` makes of a private key, it needs no user interaction, and
+the last point is not a convenience — the alternative considered here was
+printing a token for somebody to paste into a terminal, and this project has
+already rejected exactly that once, on the grounds that a security step which
+is annoying is a security step that gets turned off.
+
+What it does not prove is *which program* is registering. Any process running
+as this user can read the file. That is the correct boundary for a localhost
+control plane on a single-user desktop and it is the one the ecosystem already
+assumes everywhere else — but it is a boundary, it is written down in
+`enrollment.py`, and it would not be adequate on a shared machine.
+
+### Three refusals that came out of taking the threat model seriously
+
+**A registrant sends a port, not a URL.** The first draft took a `base_url`,
+which is the obvious shape and hands an unvetted local process the exact SSRF
+primitive `allowed_endpoint` exists to deny — from the one endpoint whose whole
+purpose is to be called by things NERVIS has not checked. It sends a number
+between 1 and 65535; NERVIS supplies `127.0.0.1` and runs the guard underneath
+anyway, so the two can only disagree in NERVIS's favour.
+
+**Only Clarvis may register dynamically.** Enrolment proves the caller is the
+user, not that it is the Bridge. Without a list, a compromised local process
+that read the secret could register itself as RAVIS — and then be handed the
+chat traffic. `DYNAMIC_SERVICES` is one entry long.
+
+**A live instance id is not taken over.** §5.1: *"resolve duplicate stable IDs
+without overwriting a live instance."* The tempting resolution is last-writer-
+wins, which is a race whose timing an attacker chooses. The instance already
+answering keeps the row.
+
+### Redaction that is structural rather than careful
+
+The claim a registrant may make is a closed allowlist, and the thing worth
+recording is what got *removed* from it. The first version had a `label`, on the
+reasonable grounds that somebody with three editor windows open wants to tell
+them apart. But a Bridge's natural label is its workspace folder name, and §6.7
+forbids NERVIS holding the workspace root.
+
+**A field that invites the value you have promised not to store is worse than
+no field**, because the promise then rests on every future caller's restraint.
+NERVIS derives the label from the instance id instead. There is nowhere for a
+path to go, which is a stronger claim than filtering paths out.
+
+The same reasoning applies to the tokens. Registration returns the instance's
+token exactly once, in the response; it is not readable back, because if the
+dashboard could read it then a browser tab would be sufficient to impersonate
+an editor window. And the two credentials are deliberately different: the
+enrollment secret registers and cannot renew, the instance token renews and
+cannot register. One leaked heartbeat token is not a registration capability.
+
+### §6.7 enforced by there being no code that could
+
+`CLARVIS.md` §6.7 lists what NERVIS may not do: resolve gates, invoke tools,
+expand the workspace root, change safety settings, read SecretStorage, keep
+Clarvis alive past its extension host. None of those is behaviour that could
+regress at runtime. Each would have to be **written** — which is why the test
+for it reads the source instead of calling anything.
+
+The first attempt asserted that NERVIS issues no non-GET request anywhere, and
+failed immediately on two legitimate calls: chat POSTs to RAVIS, and SIRVIS's
+recommendation endpoint takes a body. A test that is wrong in an obvious way is
+a test somebody deletes. The invariant that is actually true and actually
+load-bearing is narrower: **no surface declared for Clarvis is anything but a
+read**, which is a property of the Bridge rather than a choice — §6.3 says
+*"there is no write path on the Bridge, and §6.7 is why."* Every §6.7 verb would
+need one, so adding one fails the suite before it can ship.
+
+### And the recurring bug, for the fourth time
+
+The dashboard's instances card gated on `usable('clarvis')` — the hard-coded
+`SERVICES` fallback map — while rendering rows from a live read. A Bridge that
+had registered stayed hidden behind a banner whenever the map disagreed. This
+is the same defect found on three other screens and it now has a name: **a
+screen that mixes a live read with the fallback map has a bug in it, and the
+fix is always to gate on the rows.** If there are rows, there are Bridges.
+
+The card also read `{bridge}/instances`, a path §6.3 does not define — and one
+that could not have worked, since §6.6 says an instance describes *the host
+serving it* and never aggregates, so no single Bridge can answer "which Bridges
+exist". NERVIS holds that list. It reads `/api/v1/registry/instances` now, and
+two registered windows show as two rows with their own leases.
+
+**Verified live, 2026-08-26.** Unauthenticated registration refused; a claim
+carrying `workspace_root`, `label` and `bridge_token` accepted with none of the
+three surviving anywhere in the API; two windows listed separately; a duplicate
+id while live refused; RAVIS refused; the enrollment secret unable to renew an
+instance; one instance's token unable to delete another's.
 
 ## Starting the thing
 

@@ -140,8 +140,17 @@ def check_referenced_paths(text: str, failures: list[str]) -> None:
     for path in sorted(set(re.findall(r"`([\w./-]+\.(?:md|py|toml|yml))`", text))):
         if path.startswith(("../", "http")) or path.startswith(SIBLING_REPOSITORIES):
             continue
-        candidates = [ROOT / path, *(ROOT / pkg / path for pkg in PACKAGES),
-                      RAVIS / "src/ravis" / path]
+        # A bare module name resolves inside *any* package's source tree, not
+        # just RAVIS's. It was `RAVIS / "src/ravis"` alone, which meant a
+        # NERVIS module named in STATUS.md failed this check for existing in
+        # the wrong package — a false alarm on the gate that is supposed to
+        # catch real drift, and the fastest way to teach somebody to ignore it.
+        candidates = [
+            ROOT / path,
+            *(ROOT / pkg / path for pkg in PACKAGES),
+            *(ROOT / pkg / "src" / pkg / path for pkg in PACKAGES),
+            *(ROOT / pkg / "src" / f"ecosystem_{pkg}" / path for pkg in PACKAGES),
+        ]
         if not any(candidate.exists() for candidate in candidates):
             failures.append(f"STATUS.md references `{path}`, which does not exist")
 

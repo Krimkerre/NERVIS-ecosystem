@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0 – M7)
+## The service (M0 – M8a)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -143,8 +143,48 @@ events"* is a recorded fact rather than an inference — and it stays a **warnin
 never a span**, because a decision proves something happened, not when it
 started and stopped.
 
-`/api/v1` has `health`, `settings`, `system`, `services`, `ravis`, `sirvis`,
-`chat`, `events` and `traces`.
+**M8a** adds `/api/v1/registry/instances` — §5.1's *authenticated local dynamic
+registration*, and the receiving half of the Clarvis integration. A Bridge is
+one process per open editor window, so instances are keyed by
+`(service, instance_id)` and **never merged**: §6.6 says an instance describes
+the host serving it, and folding two windows into one row would show one
+window's activity under the other's name.
+
+Registration is authenticated by a secret NERVIS writes beside its database at
+`0600`. **The file's permissions are the authentication** — a registering
+process proves it is the user's by being able to read it, which needs no user
+interaction and is the same check `ssh` makes of a private key. It does not
+prove *which program* is registering; that boundary is written down in
+`enrollment.py`.
+
+Three refusals follow from taking that seriously. A registrant sends a **port,
+not a URL**, so it never gains the SSRF primitive `allowed_endpoint` exists to
+deny. Only Clarvis may register dynamically, so a local process that read the
+secret cannot register as RAVIS and be handed the chat traffic. And a live
+instance id is **not taken over**, because last-writer-wins is a race whose
+timing an attacker chooses.
+
+**Redaction is structural.** The claim is a closed allowlist with no free-form
+string in it — not even a label, which was tried and removed: a Bridge's natural
+label is its workspace folder name, and §6.7 forbids NERVIS holding the
+workspace root. A field that invites the value you promised not to store is
+worse than no field, because the promise then rests on every future caller's
+restraint. NERVIS derives the label from the instance id, so there is nowhere
+for a path to go.
+
+The instance's token is returned once and never listed — if the dashboard could
+read it, a browser tab would be enough to impersonate an editor window — and the
+two credentials do different jobs: the enrollment secret registers and cannot
+renew, the instance token renews and cannot register.
+
+**M8b is blocked.** Reading a running Bridge needs one to exist; `CLARVIS.md` §6
+specifies it and the Clarvis repository has no implementation, and §1 forbids
+inventing another component's API. `peers/clarvis.py` declares the surfaces §6.3
+names, all reads — §6.7's limits are enforced by there being no write surface to
+use, and a test fails the suite if one appears.
+
+`/api/v1` has `health`, `settings`, `system`, `services`, `registry/instances`,
+`ravis`, `sirvis`, `chat`, `events` and `traces`.
 §14's other three paths arrive with the milestones that own them, because a stub
 returning plausible data is §4.1's prohibition one layer up.
 

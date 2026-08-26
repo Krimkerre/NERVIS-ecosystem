@@ -49,6 +49,30 @@ class NotFoundError(NervisError):
     status = 404
 
 
+class UnauthorizedError(NervisError):
+    """The caller did not prove it may do this.
+
+    401 rather than 403: the distinction is whether credentials were *missing
+    or wrong* (401) or *valid and insufficient* (403), and every refusal on the
+    registration path is the first kind — there are no partial rights to hold.
+    """
+
+    code = "UNAUTHORIZED"
+    status = 401
+
+
+class RefusedError(NervisError):
+    """A well-formed request that breaks a rule NERVIS enforces.
+
+    Distinct from `InvalidConfigurationError` because the caller is not
+    misconfigured — it asked for something that is coherent and disallowed,
+    like registering as a service that may not register.
+    """
+
+    code = "REFUSED"
+    status = 409
+
+
 class InvalidConfigurationError(NervisError):
     """The request is well-formed and asks for something incoherent."""
 

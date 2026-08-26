@@ -2114,15 +2114,45 @@ const API={
 
   /* GET {bridge}/v1/status per instance — one entry per extension host.
      Never merge two windows, and never resolve a gate from here. */
+  /* One registered Bridge, as the screens want it.
+
+     The registration payload deliberately has no `label`, no workspace path and
+     no mode — CLARVIS.md §6.7 forbids NERVIS holding the workspace root, and a
+     free-form label is exactly where a folder name would arrive. So the fields
+     the old mock invented (`workspace_id`, `label:'my-project'`, `mode`) are
+     not missing here by oversight; there is nowhere for them to come from.
+
+     `state` is what NERVIS can honestly say: whether the lease is current.
+     Reading the Bridge's own `/v1/status` for `agent_running` or
+     `waiting_for_approval` is M8b, and M8b is blocked on Clarvis building the
+     Bridge — so those read `unknown` rather than being guessed. */
+  _bridgeRow(one){return{
+   instance_id:one.instance_id, label:one.label,
+   endpoint:one.endpoint, machine_id:one.machine_id,
+   state:one.live?'registered':'lease lapsed',
+   live:one.live, expires_in:one.expires_in,
+   capabilities:one.capabilities||{},
+   /* Not read yet, and said so rather than left blank — a blank cell reads as
+      "idle", which is a claim. */
+   mode:'unknown', route:'unknown',
+  }},
+
   async clarvisInstances(){
    /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
       surface that starts and stops with the editor window, so "not running" is
       the ordinary case rather than a fault — and an empty list is the truthful
-      answer, where two invented workspaces were not. */
+      answer, where two invented workspaces were not.
+
+      **Read from NERVIS, not from the Bridge.** This asked `{bridge}/instances`
+      — a path CLARVIS.md §6.3 does not define, and one that could not have
+      worked: §6.6 says an instance describes *the extension host serving it*
+      and never aggregates two windows, so no single Bridge can answer "which
+      Bridges exist". NERVIS holds that list because M8a's registration is how
+      each one announces itself. */
    try{
-    const r=await fetch(BASE.clarvis+'/instances',
+    const r=await fetch('/api/v1/registry/instances',
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(r.ok){const d=await r.json();return{items:d.items||d.instances||[],live:true}}
+    if(r.ok){const d=await r.json();return{items:(d.items||[]).map(one=>this._bridgeRow(one)),lease:d.lease_seconds,live:true}}
    }catch(e){}
    return{items:[],live:false};
   },
@@ -2414,16 +2444,22 @@ async function nervis(){
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
   <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
-  <div class="card wide"><h3>Clarvis instances</h3>
-   ${usable('clarvis')?`<div class="table-row head"><span>Workspace</span><span>Mode</span><span>State</span><span>Route</span></div>
+  <div class="card wide live"><h3>Clarvis instances</h3>
+   ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
         process can bind the port a Bridge would have used and impersonate one,
         so this is untrusted input arriving in NERVIS's own origin — and the
         event feed two hundred lines below escaped every field while this table
-        escaped none. -->
-   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)} <small class="mono" style="opacity:.5">${escapeHtml(c.workspace_id)}…</small></span><span>${escapeHtml(c.mode)}</span><span class="chip${c.state==='waiting_for_approval'?' warn':''}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(c.route)}</span></div>`).join('')}
-   <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — never merged. NERVIS can see that a gate is waiting. It cannot resolve one, run a tool, or widen a workspace: <b>Open Clarvis</b> is the only action it has.</small>`
-   :banner('Clarvis Bridge '+SERVICES.clarvis.state,REASON[SERVICES.clarvis.state]+'. No editor instance is visible. Clarvis itself is unaffected.','info')}</div>
+        escaped none.
+
+        **Gated on the rows, not on the SERVICES map.** It read usable('clarvis')
+        from the hard-coded fallback map, so a Bridge that had registered was
+        hidden behind a banner whenever that map disagreed — the same defect
+        found twice before on other screens. The rows are the live answer; if
+        there are rows, there are Bridges. -->
+   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${c.live?'':' warn'}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
+   <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root.</small>`
+   :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
   <div class="card narrow"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${e.occurred_at}</time><span class="mono">${e.event_type}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.</small></div>
   <div class="card wide"><h3>Trace ${tr.trace_id} <span class="chip">cross-service</span></h3>
    ${tr.spans.map(sp=>`<div class="wf"><span>${sp.service}</span><div class="track">${bar(sp)}</div></div>`).join('')}

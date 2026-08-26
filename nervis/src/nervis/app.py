@@ -26,12 +26,14 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis.api import chat_router, events_router, traces_router
+from nervis.api import chat_router, events_router, instances_router, traces_router
 from nervis.api import router as api_router
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, nervis_surface
+from nervis.enrollment import load_or_create
 from nervis.errors import NervisError, to_response
 from nervis.events import Hub
+from nervis.instances import Instances
 from nervis.probes import probe
 from nervis.registry import Registry, admissible, declared_services
 from nervis.storage import installation_identity, prepare_database
@@ -57,6 +59,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(chat_router)
     api.include_router(events_router)
     api.include_router(traces_router)
+    api.include_router(instances_router)
     register_dashboard(api)
     return api
 
@@ -103,6 +106,13 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # When probing began, for the startup window in `_next_interval`. Monotonic
     # so a clock adjustment cannot widen or close the window by surprise.
     api.state.probe_started_at = time.monotonic()
+    # M8a. The secret is created on first run rather than configured — see
+    # `enrollment.py` for why a file's permissions are the authentication here.
+    api.state.enrollment_secret = load_or_create(settings.database_path)
+    api.state.instances = Instances(allowed_hosts=frozenset(settings.allowed_hosts))
+    # Injected rather than called, so a test can register an instance and then
+    # move time past its lease without sleeping through it.
+    api.state.instances_clock = time.time
 
 
 def _register_error_handling(api: FastAPI) -> None:
