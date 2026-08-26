@@ -4412,6 +4412,62 @@ template-literal renders. That needs ESLint and the dependency tree that comes
 with it, and it is the second problem there — a complexity number on untested
 code says which function is frightening; a render check says when it broke.
 
+## Chat parameters and history fold out from the right
+
+Both used to sit stacked above the transcript as `<details>` blocks, each
+pushing the messages further down while open — and both are reference material
+consulted occasionally rather than read while typing. They are one drawer now,
+opened by two small buttons in the chat card's top-right corner.
+
+Four details that are decisions rather than styling:
+
+**One `drawer` value, not two open flags.** The panel shows one thing at a time,
+and two booleans would allow a state the layout has no way to draw.
+
+**A dot on the Parameters button when anything is set.** A panel that folds away
+must not fold away the fact that a system prompt is in force. `paramSummary()`
+— which rendered that as text on the old closed summary — is deleted rather than
+left behind, because nothing called it any more and the dead-code gate would
+have said so on the next run.
+
+**The buttons are pinned above the drawer, not inside the profile row.** That is
+where they started, and the profile row wraps thirteen chips and then gets
+covered by the drawer — so the buttons scrolled out of reach and the one that
+closes the panel was underneath it. Found by looking at a screenshot.
+
+**No close button in the drawer header.** It landed exactly under the openers,
+which occupy the same corner. The opener toggles, Escape closes, and the header
+says so.
+
+Off-screen is `visibility:hidden` as well as translated, because a drawer whose
+inputs are still focusable is a keyboard trap with no visible cursor. Under
+640px the buttons fall back to sitting inline above the transcript, since a
+340px drawer over a 380px card is not a drawer.
+
+## LM Studio and Ollama draw as one node
+
+They are interchangeable local runtimes serving the same purpose, and the
+ecosystem map answers *can NERVIS reach a local model* rather than *which of two
+ports is listening*. One node, **green when either answers**, with the label
+naming which — so bundling never hides that one of them is down:
+
+```text
+both down          Local models · unreachable · LM Studio and Ollama unreachable
+LM Studio only     Local models · healthy     · LM Studio answering
+```
+
+Both stay listed separately on the registry table, which is where the narrower
+question belongs. That is also why the card's **Registered** counts six while
+the diagram draws four, and the footnote says so rather than leaving the
+arithmetic to the reader.
+
+**The status bar still names Ollama individually**, and that is left alone: the
+bar reports registry rows, which is the finer view. Worth noting as a
+consequence rather than a defect — an installation with only LM Studio will
+permanently read "Ollama unreachable" there, which is noise about software that
+was never installed. Whether an unconfigured runtime belongs in the registry at
+all is a §5.1 question, not a display one.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

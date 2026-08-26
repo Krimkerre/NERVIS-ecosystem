@@ -413,6 +413,58 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .mode-chip.armed{color:#ffb648;border-color:#ffb648;background:rgba(255,182,72,.09)}
 .chat-params{border:1px solid rgba(var(--rgb),.16);border-radius:3px;padding:6px 9px;margin:0 0 8px;
   background:rgba(var(--rgb),.03)}
+
+/* ── The chat side drawer ────────────────────────────────────────────────────
+   Parameters and history used to sit stacked above the transcript, each pushing
+   it further down — and both are reference material consulted occasionally
+   rather than read while typing. They fold out from the right instead.
+
+   `position:absolute` inside the chat card rather than `fixed`: the drawer
+   belongs to this panel, and a fixed one would sit over the navigation and the
+   page heading, which it has nothing to do with. */
+.chat{position:relative}
+.chat-drawer{position:absolute;top:0;right:0;height:100%;width:min(340px,86%);
+  display:flex;flex-direction:column;z-index:6;
+  background:rgba(10,14,20,.97);backdrop-filter:blur(9px);
+  border-left:1px solid rgba(var(--rgb),.24);
+  box-shadow:-18px 0 40px -22px rgba(0,0,0,.9);
+  transform:translateX(101%);transition:transform .18s ease;
+  /* Off-screen means out of the way *and* out of the tab order: a drawer whose
+     inputs are still focusable is a keyboard trap with no visible cursor. */
+  visibility:hidden}
+.chat-drawer[data-open]{transform:translateX(0);visibility:visible}
+/* 101% rather than 100% so the border-left clears the edge too — at 100% a
+   one-pixel line stays visible against the card. */
+@media (prefers-reduced-motion:reduce){.chat-drawer{transition:none}}
+.chat-drawer header{display:flex;align-items:center;gap:8px;padding:9px 11px;
+  border-bottom:1px solid rgba(var(--rgb),.16);
+  font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#72b9cf}
+/* No close button in the header: it would land exactly under the openers,
+   which are pinned to the same corner and above this panel. The opener that
+   brought the drawer out closes it, and so does Escape — the header says so. */
+.chat-drawer .drawer-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 11px}
+/* Stacked in the drawer: four fields side by side in 340px is four unusable
+   fields. The system prompt gets the room it needs. */
+.chat-drawer .param-grid{grid-template-columns:1fr;gap:10px}
+.chat-drawer .param-grid textarea{min-height:76px}
+/* The two openers, pinned to the chat card's top-right corner and **above the
+   drawer**. They started inside the profile row, which wraps thirteen chips and
+   then gets covered by the drawer — so the buttons scrolled out of reach and
+   the one that closes the panel was underneath it. */
+.chat-tools{position:absolute;top:10px;right:11px;display:flex;gap:6px;z-index:7}
+/* Room for them, so a wrapped profile chip never slides underneath. */
+.chat .profile-row{padding-right:190px}
+@media (max-width:640px){.chat .profile-row{padding-right:0}
+  .chat-tools{position:static;justify-content:flex-end;margin:0 0 8px}}
+.chat-tool{font:9px/1 "SFMono-Regular",monospace;letter-spacing:.12em;text-transform:uppercase;
+  background:transparent;color:#72b9cf;border:1px solid rgba(var(--rgb),.28);border-radius:4px;
+  padding:5px 8px;cursor:pointer}
+.chat-tool:hover{background:rgba(var(--rgb),.10)}
+.chat-tool[data-on]{background:rgba(var(--rgb),.18);color:#cde9f4}
+/* A dot when something is set, so folding the panel away never hides that a
+   system prompt or a temperature is in force. */
+.chat-tool .dot{display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--accent);margin-left:5px;vertical-align:middle}
 .chat-params>summary{cursor:pointer;font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.14em;
   text-transform:uppercase;color:#72b9cf;list-style:none}
 .chat-params>summary::-webkit-details-marker{display:none}
@@ -2441,19 +2493,27 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="profile-row">${prof.items.map(pr=>`<button class="mode-chip${pr.profile_id===active.profile_id?' on':''}" data-profile="${pr.profile_id}" onclick="selectOne(this,'.mode-chip');CHAT_SESSION.profile=this.dataset.profile;notify('Routing on '+this.dataset.profile)">${pr.label}</button>`).join('')}
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
    <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
-  ${(()=>{const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
-    return saved.length?`<details class="chat-params"${CHAT_SESSION.historyOpen?' open':''}
-      ontoggle="CHAT_SESSION.historyOpen=this.open"><summary>History <span class="chip">${saved.length}</span></summary>
-      ${saved.map(c=>`<div class="table-row" style="grid-template-columns:1fr auto auto;align-items:center">
-        <span><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></span>
-        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg</span>
-        <button class="btn" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></div>`).join('')}
-      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 asks for a local store NERVIS owns; that arrives with NERVIS M0, which is the package, database and migrations this dashboard does not yet have.</small></details>`:''})()}
-  <details class="chat-params"${CHAT_SESSION.paramsOpen?' open':''}
-    ontoggle="CHAT_SESSION.paramsOpen=this.open"><summary>Parameters${paramSummary()}</summary>
+  <div class="chat-tools">
+   <button class="chat-tool" id="chatParamsBtn" title="System prompt, temperature, max tokens, top_p"
+     onclick="chatDrawer('params')">Parameters${paramsAreSet()?'<span class="dot"></span>':''}</button>
+   <button class="chat-tool" id="chatHistoryBtn" title="Conversations stored in this browser"
+     onclick="chatDrawer('history')">History${savedCount()?` ${savedCount()}`:''}</button></div>
+  <aside class="chat-drawer"${CHAT_SESSION.drawer?' data-open':''} aria-hidden="${CHAT_SESSION.drawer?'false':'true'}">
+   <header>${CHAT_SESSION.drawer==='history'?'History':'Parameters'}
+    <span class="mono dim" style="margin-left:auto;text-transform:none;letter-spacing:0">esc to close</span></header>
+   <div class="drawer-body">
+   ${CHAT_SESSION.drawer==='history'?(()=>{
+     const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
+     return saved.length?`${saved.map(c=>`<div class="trace-step" style="align-items:flex-start">
+        <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
+        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
+        <button class="btn" style="margin-left:6px" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></span></div>`).join('')}
+      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 keeps conversations local by default.</small>`
+      :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
+    })():`
    <div class="param-grid">
     <label>System prompt
-     <textarea id="cpSystem" rows="2" placeholder="empty — no system message is sent"
+     <textarea id="cpSystem" rows="3" placeholder="empty — no system message is sent"
        oninput="CHAT_SESSION.system=this.value">${escapeHtml(CHAT_SESSION.system)}</textarea></label>
     <label>Temperature
      <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
@@ -2468,8 +2528,8 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
        value="${escapeHtml(String(CHAT_SESSION.top_p))}"
        oninput="CHAT_SESSION.top_p=this.value"></label>
    </div>
-   <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would silently override a choice made elsewhere. A system prompt applies from the next message onward and is not retrospective; the messages already above were not sent with it. These are the request's parameters, not the route's: they travel to whichever model the profile selects.</small>
-  </details>
+   <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would be this page inventing a choice nobody made.</small>`}
+   </div></aside>
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
@@ -2483,8 +2543,15 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
     streaming — aborting the fetch closes the connection, NERVIS sees the
     disconnect, cancels RAVIS and keeps the partial text. */
+ /* The opener reflects what is out, so the two buttons never both look active. */
+ const opener=CHAT_SESSION.drawer==='history'?$('#chatHistoryBtn')
+   :CHAT_SESSION.drawer==='params'?$('#chatParamsBtn'):null;
+ if(opener)opener.dataset.on='';
  $('#sendChat').onclick=()=>CHAT_SESSION.busy?stopChat():sendChat();
  $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
+ /* Escape closes the drawer, which is what every drawer everywhere does and the
+    only way out that does not require finding a small ✕ with the mouse. */
+ $('#content').onkeydown=e=>{if(e.key==='Escape'&&CHAT_SESSION.drawer)chatDrawer(null)}
  sizeChat();}
 
 /* Measured rather than guessed: the card's distance from the top of the
@@ -2522,7 +2589,24 @@ async function mapView(){
     NERVIS on the diagram, one at the centre and one on the ring.
 
     `ok` from the row's own state, like every other reader of this list. */
- const ring=svc.items.filter(s=>s.key!=='nervis');
+ /* **LM Studio and Ollama are one node.** They are interchangeable local
+    runtimes serving the same purpose, and this diagram answers "can NERVIS
+    reach a local model", not "which of two ports is listening" — that question
+    has a better home on the registry table, which still lists both separately.
+
+    Green when **either** answers, because either is enough to serve one. The
+    label says which, so a bundled node never hides that one of them is down. */
+ const local=svc.items.filter(s=>s.key==='lmstudio'||s.key==='ollama');
+ const up=local.filter(s=>['healthy','degraded'].includes(s.state));
+ const bundled=local.length?[{
+   key:'local', label:'Local models',
+   state:up.length?'healthy':'unreachable',
+   detail:up.length
+     ? `${up.map(s=>s.label).join(' and ')} answering`
+     : local.map(s=>s.label).join(' and ')+' unreachable',
+   publishes_mep:false, capabilities:{}, age:0,
+ }]:[];
+ const ring=[...svc.items.filter(s=>!['nervis','lmstudio','ollama'].includes(s.key)), ...bundled];
  const pts=ring.map((s,i)=>({...s,...pos(i,ring.length),
    ok:['healthy','degraded'].includes(s.state)}));
  $('#content').innerHTML=kpis([
@@ -2536,7 +2620,7 @@ async function mapView(){
     <div class="hub">NERVIS</div>
     ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${n.label}</b><br><small style="opacity:.6">${n.state}</small></div>`).join('')}
    </div>
-   <small class="mono dim">the hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
+   <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
   <div class="card wide"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(s=>`<div class="table-row five caps"><span>${s.label}</span><span class="mono">${s.build_version}</span><span class="mono">${s.protocol_version?'proto '+s.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${s.capability}</span><span class="chip${usable(s.key)?'':' warn'}">${s.state}</span></div>`).join('')}
@@ -4089,10 +4173,10 @@ const CHAT_SESSION={
     the runtime apply their own, and sending 0.7 because it is a common default
     would override a deliberate choice somebody made elsewhere. Only what is
     filled in gets sent. */
- /* Whether the panel is open survives a re-render: `render()` runs after
-    every message, and a panel that snapped shut each time you sent one would
-    be unusable exactly when you are adjusting it. */
- paramsOpen:false,
+ /* Which drawer pane is out, and it survives a re-render: `render()` runs after
+    every message, and a panel that snapped shut each time you sent one would be
+    unusable exactly when you are adjusting it. `null` is closed. */
+ drawer:null,
  system:'',
  temperature:'',
  max_tokens:'',
@@ -4186,17 +4270,27 @@ function healthChip(d){
    +` <span class="mono dim">live ${h.live?'yes':'no'} · ready ${h.ready?'yes':'no'}</span>`;
 }
 
-function paramSummary(){
- /* What is actually in force, shown on the closed summary. A parameters panel
-    that hides whether anything is set invites the question it exists to answer. */
- const c=CHAT_SESSION, on=[];
- if(String(c.system).trim())on.push('system prompt');
- if(String(c.temperature).trim()!=='')on.push('temp '+c.temperature);
- if(String(c.max_tokens).trim()!=='')on.push('max '+c.max_tokens);
- if(String(c.top_p).trim()!=='')on.push('top_p '+c.top_p);
- return on.length?` <span class="chip">${escapeHtml(on.join(' · '))}</span>`
-                 :' <span class="mono dim">model defaults</span>';
+/* Which drawer pane is out, or null. One value rather than two open flags: the
+   panel is one drawer showing one thing, and two booleans would allow a state
+   the layout has no way to draw. */
+function chatDrawer(pane){
+ CHAT_SESSION.drawer = CHAT_SESSION.drawer===pane ? null : pane;
+ render();
 }
+
+function paramsAreSet(){
+ /* Whether anything is in force. A parameters panel that folds away must not
+    fold away the fact that a system prompt is set — the dot on the button is
+    what keeps that visible with the drawer shut. */
+ const c=CHAT_SESSION;
+ return Boolean(String(c.system).trim() || String(c.temperature).trim()
+   || String(c.max_tokens).trim() || String(c.top_p).trim());
+}
+
+function savedCount(){
+ return CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id).length;
+}
+
 
 async function chatDecision(id){
  /* The chat screen's own lookup, deliberately not `API.ravis.routeDecision`.
