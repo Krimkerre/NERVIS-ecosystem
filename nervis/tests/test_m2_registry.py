@@ -628,3 +628,83 @@ def test_no_registry_entry_carries_a_credential() -> None:
     forbidden = {"api_key", "token", "credential", "authorization", "secret", "password"}
     for entry in body["items"]:
         assert not (forbidden & set(entry)), entry
+
+
+# ── Optional peers: absent is a fact, not an outage ─────────────────────────
+
+
+def test_an_unconfigured_runtime_is_optional_and_a_named_one_is_not() -> None:
+    """"Configured" means the operator supplied the address, not that it happens
+    to equal the default.
+
+    Comparing against the default would call somebody who deliberately typed
+    `http://127.0.0.1:11434` unconfigured, which is the opposite of what they
+    did. pydantic records which fields were actually supplied.
+    """
+    from nervis.config import Settings
+    from nervis.registry import declared_services
+
+    plain = {d.key: d for d in declared_services(
+        Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    )}
+    named = {d.key: d for d in declared_services(
+        Settings(  # type: ignore[call-arg]
+            database_path=":memory:", ollama_base_url="http://127.0.0.1:11434", _env_file=None
+        )
+    )}
+
+    assert plain["ollama"].optional is True
+    assert named["ollama"].optional is False
+    # RAVIS and SIRVIS are never optional: NERVIS exists to watch them, and one
+    # being down is the thing it is for.
+    assert plain["ravis"].optional is False
+    assert plain["sirvis"].optional is False
+
+
+def test_an_optional_peer_that_never_answered_is_absent_rather_than_broken() -> None:
+    """An installation with LM Studio and no Ollama is an ordinary machine.
+
+    Reporting it as an outage forever is an alarm about software that was never
+    installed.
+    """
+    ollama = ServiceDeclaration(
+        "ollama", "Ollama", "http://127.0.0.1:11434", mep=False,
+        probe_path="/api/tags", optional=True,
+    )
+    registry = registry_of(ollama)
+    registry.record("ollama", observe(refusing(httpx.ConnectError("refused")), ollama))
+
+    entry = registry.get("ollama")
+    assert entry is not None
+    assert entry.state is RegistryState.UNREACHABLE  # still truthful
+    assert entry.awaiting_first_contact is True
+
+
+def test_an_optional_peer_that_answered_once_is_a_real_outage_after() -> None:
+    """The distinction that keeps this honest is *has it ever answered*.
+
+    A runtime somebody was using and which then stopped is a real outage,
+    whatever it was configured from.
+    """
+    ollama = ServiceDeclaration(
+        "ollama", "Ollama", "http://127.0.0.1:11434", mep=False,
+        probe_path="/api/tags", optional=True,
+    )
+    registry = registry_of(ollama)
+    registry.record("ollama", observe(peer({"/api/tags": {"models": []}}), ollama))
+    assert registry.get("ollama").awaiting_first_contact is False
+
+    registry.record("ollama", observe(refusing(httpx.ConnectError("gone")), ollama))
+
+    entry = registry.get("ollama")
+    assert entry is not None
+    assert entry.state is RegistryState.UNREACHABLE
+    assert entry.awaiting_first_contact is False
+
+
+def test_a_required_peer_is_never_quietly_absent() -> None:
+    """RAVIS being down is the thing NERVIS is for."""
+    registry = registry_of(RAVIS)
+    registry.record("ravis", observe(refusing(httpx.ConnectError("x")), RAVIS))
+
+    assert registry.get("ravis").awaiting_first_contact is False

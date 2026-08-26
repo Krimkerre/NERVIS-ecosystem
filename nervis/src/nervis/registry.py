@@ -78,6 +78,18 @@ class ServiceDeclaration:
     mep: bool = True
     probe_path: str = ""
     ownership: OwnershipMode = OwnershipMode.EXTERNAL
+    # Whether this peer's absence is an outage or a fact.
+    #
+    # An optional peer is one NERVIS works without and did not choose the
+    # address of: a local runtime nobody configured, or the Clarvis Bridge,
+    # which starts and stops with an editor window. It is still probed — a
+    # refused connection on loopback costs about a millisecond, and probing is
+    # what lets one appear the moment somebody starts it — but until it has
+    # answered once, "not there" is reported as **absent rather than broken**.
+    #
+    # The distinction that makes this honest is *has it ever answered*. Once a
+    # peer has, its going away is a real outage and says so.
+    optional: bool = False
 
 
 @dataclass
@@ -111,6 +123,20 @@ class RegistryEntry:
     def is_usable(self) -> bool:
         return self.state in USABLE_STATES
 
+    @property
+    def awaiting_first_contact(self) -> bool:
+        """An optional peer that has never answered — absent, not broken.
+
+        The condition a status line should stay quiet about. An installation
+        with LM Studio and no Ollama would otherwise read "Ollama unreachable"
+        forever, which is an alarm about software that was never installed.
+
+        Deliberately keyed on `last_seen` rather than on configuration alone: a
+        peer that answered once and then stopped is a genuine outage, whatever
+        it was configured from.
+        """
+        return self.declaration.optional and not self.last_seen and not self.is_usable
+
     def as_dict(self) -> dict[str, Any]:
         """The entry as `/api/v1/services` publishes it.
 
@@ -123,6 +149,8 @@ class RegistryEntry:
             "label": self.declaration.label,
             "endpoint": self.declaration.base_url,
             "ownership": self.declaration.ownership.value,
+            "optional": self.declaration.optional,
+            "awaiting_first_contact": self.awaiting_first_contact,
             "publishes_mep": self.declaration.mep,
             "state": self.state.value,
             "detail": self.detail,
@@ -275,22 +303,38 @@ def declared_services(settings: Any) -> list[ServiceDeclaration]:
     the MEP and a registry that skipped its own host would be the one entry
     nobody could check.
     """
+    # Whether the operator chose this address or inherited a default. pydantic
+    # records which fields were actually supplied, which is the only reliable
+    # answer — comparing a value against the default would call an operator who
+    # deliberately typed the default address "unconfigured".
+    chosen = set(getattr(settings, "model_fields_set", set()))
+
+    def runtime(key: str, label: str, url: str, path: str) -> ServiceDeclaration:
+        """A local runtime, optional unless somebody named it.
+
+        RAVIS and SIRVIS are not optional: NERVIS exists to watch them, and one
+        being down is the thing it is for. A runtime is different — it is
+        somebody else's program, and a machine with LM Studio and no Ollama is
+        an ordinary machine rather than one with a fault.
+        """
+        return ServiceDeclaration(
+            key, label, url, mep=False, probe_path=path,
+            optional=f"{key}_base_url" not in chosen,
+        )
+
     return [
         ServiceDeclaration("nervis", "NERVIS", f"http://{settings.host}:{settings.port}"),
         ServiceDeclaration("ravis", "RAVIS", settings.ravis_base_url),
         ServiceDeclaration("sirvis", "SIRVIS", settings.sirvis_base_url),
+        # §5.1 calls this "the optional bridge" outright: it starts and stops
+        # with an editor window, so absent is its ordinary state.
         ServiceDeclaration(
             "clarvis", "Clarvis Bridge", settings.clarvis_base_url,
             mep=False, probe_path="/instances",
+            optional="clarvis_base_url" not in chosen,
         ),
-        ServiceDeclaration(
-            "lmstudio", "LM Studio", settings.lmstudio_base_url,
-            mep=False, probe_path="/v1/models",
-        ),
-        ServiceDeclaration(
-            "ollama", "Ollama", settings.ollama_base_url,
-            mep=False, probe_path="/api/tags",
-        ),
+        runtime("lmstudio", "LM Studio", settings.lmstudio_base_url, "/v1/models"),
+        runtime("ollama", "Ollama", settings.ollama_base_url, "/api/tags"),
     ]
 
 

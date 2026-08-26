@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1015 tests, no network, no live service
+.venv/bin/pytest                      # part of 1019 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 116 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 120 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1015 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1019 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4467,6 +4467,52 @@ consequence rather than a defect — an installation with only LM Studio will
 permanently read "Ollama unreachable" there, which is noise about software that
 was never installed. Whether an unconfigured runtime belongs in the registry at
 all is a §5.1 question, not a display one.
+
+## An unconfigured runtime is absent, not broken
+
+An installation with LM Studio and no Ollama read **"Ollama unreachable"** in
+the status bar forever — an alarm about software that was never installed. §5.1
+lists both among the initial registry entries, so both were probed, and a
+refused connection is truthfully `unreachable`. The state was right; raising it
+was not.
+
+**"Configured" means the operator supplied the address**, not that it happens to
+equal the default. `Settings.model_fields_set` records which fields were
+actually given, and that is the only answer that holds — comparing a value
+against the default would call somebody who deliberately typed
+`http://127.0.0.1:11434` unconfigured, which is the opposite of what they did.
+
+**Absence is still probed.** A refused connection on loopback costs about a
+millisecond, and probing is what lets a runtime appear the moment somebody
+starts it. What changes is what the absence *means*.
+
+**The distinction that keeps it honest is "has it ever answered".** A peer that
+answered once and then stopped is a real outage and says so, whatever it was
+configured from — `awaiting_first_contact` is `optional and never seen and not
+usable`, not `optional` alone.
+
+| | banner | registry table | map node |
+|---|---|---|---|
+| LM Studio up, no Ollama configured | *All systems operational* | Ollama · **not configured** | Local models · healthy |
+| `NERVIS_OLLAMA_BASE_URL` set, absent | Ollama unreachable | Ollama · unreachable | Local models · unreachable |
+| Ollama answered, then stopped | Ollama unreachable | Ollama · unreachable | — |
+
+RAVIS and SIRVIS are never optional: NERVIS exists to watch them, and one being
+down is the thing it is for. The Clarvis Bridge is optional by §5.1's own
+words — it starts and stops with an editor window.
+
+### And a warning chip on a healthy service
+
+Found while checking the result: **LM Studio rendered `healthy` wearing an amber
+warning** on the ecosystem map. That table's chip read `usable(s.key)`, which
+consults the fallback `SERVICES` map — and that map has no entry for `lmstudio`
+or `ollama`, so `usable()` was false for a service the same row had just
+labelled healthy.
+
+It is the third variant of one mistake: a screen mixing a live read with the
+hard-coded map beside it. The row has carried its own state since M2, and now
+this chip reads it. The registry row shape was also dropping the two new flags
+before the map ever saw them, which is why the fix took two passes.
 
 ## Starting the thing
 

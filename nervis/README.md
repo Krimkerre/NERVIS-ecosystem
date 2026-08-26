@@ -49,6 +49,14 @@ reports itself unhealthy is `degraded` too, because NERVIS reached it and it sai
 no. `stopped` is never inferred from a refused connection — that needs M16's
 ownership.
 
+**An unconfigured local runtime is absent, not broken.** LM Studio and Ollama
+are both declared, both probed, and neither raises an alarm until it has
+answered once — an installation with one of them is an ordinary machine, not a
+faulty one. "Configured" means the operator supplied the address
+(`Settings.model_fields_set`), not that it matches the default. A peer that
+answered once and then stopped *is* a real outage and says so. RAVIS and SIRVIS
+are never optional: NERVIS exists to watch them.
+
 Endpoints are checked against an allowlist that is loopback-only by default, and
 a **hostname is refused rather than resolved**: resolving makes the check depend
 on DNS at the moment of the check, which is the rebinding half of SSRF.
