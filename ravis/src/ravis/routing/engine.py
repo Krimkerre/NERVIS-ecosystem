@@ -23,6 +23,7 @@ one that admits the choice was made on stable ordering.
 
 from __future__ import annotations
 
+import math
 from difflib import get_close_matches
 from typing import Mapping
 
@@ -404,7 +405,7 @@ def _rank(
         # total, reproducible order §9.7's determinism gate requires.
         terms: list[float | str] = []
         if pool.prefer_fast:
-            terms.append(_speed_rank(model, observed or {}))
+            terms.append(_speed_rank(model, observed or {}, pool.speed_bucket_ms))
         if pool.prefer_cheap:
             terms.append(_price_rank(candidates.get(model)))
         if pool.prefer_local:
@@ -490,14 +491,25 @@ _UNPRICED = float("inf")
 _UNMEASURED_MS = 1_000.0
 
 
-def _speed_rank(model: str, observed: Mapping[str, float]) -> float:
+def _speed_rank(
+    model: str, observed: Mapping[str, float], bucket_ms: float = 0.0
+) -> float:
     """Median time-to-first-token, for models with enough samples to mean it.
 
     `Observations.ttft_for_ranking` has already dropped anything below the
     sample floor, so a model missing here is one RAVIS has not timed enough —
     not one that was slow.
+
+    `bucket_ms` widens the comparison so models within a window count as equally
+    fast and a later term decides between them. It is how a pool uses speed
+    *and* cost without weighting one against the other: 380 ms and 420 ms are
+    not a difference anybody would trade money for, and treating that ordering
+    as meaningful lets a rounding error outrank a published price.
     """
-    return observed.get(model, _UNMEASURED_MS)
+    measured = observed.get(model, _UNMEASURED_MS)
+    if bucket_ms <= 0:
+        return measured
+    return math.ceil(measured / bucket_ms) * bucket_ms
 
 
 def _price_rank(known: ModelCapabilities | None) -> float:

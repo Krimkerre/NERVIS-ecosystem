@@ -595,6 +595,7 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
         provider=_provider_of(request),
         budget=request.app.state.retry_budget,
         observations=getattr(request.app.state, "observations", None),
+        from_pool=decision.pool_id is not None,
     )
     chain.load(decision.selected or "", decision.fallbacks)
     return chain

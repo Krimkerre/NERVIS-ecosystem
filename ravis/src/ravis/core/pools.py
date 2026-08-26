@@ -109,6 +109,20 @@ class VirtualModelPool:
     # has simply never been called here, and sorting it last would be a trap
     # that closes: never chosen, so never measured, so never chosen.
     prefer_fast: bool = False
+    # How close two measured models have to be before they count as equally
+    # fast, in milliseconds. Zero means exact ordering.
+    #
+    # **This is what makes a pool balanced rather than merely fast.** Speed and
+    # cost are both real here — one measured, one published — and combining them
+    # needs an exchange rate between milliseconds and dollars that no
+    # measurement supplies. Inventing a weight would be §9.4's opaque magic with
+    # arithmetic on top.
+    #
+    # A bucket avoids the invention. Models within the window count as equally
+    # quick, which is a claim the data does support at this resolution, and the
+    # cheaper of them wins. Nothing is weighted against anything; two facts are
+    # consulted in a stated order.
+    speed_bucket_ms: float = 0.0
     # Which size tier this pool takes by default: `small`, `mid`, `large`.
     #
     # **A declared default, not a measurement, and the difference is the whole
@@ -323,6 +337,13 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         label="Balanced",
         description="A reasonable middle between speed, cost and quality",
         default_tier="mid",
+        # Mid-sized models, ordered by measured speed at a quarter-second
+        # resolution, and the cheaper one wherever that ordering ties. All three
+        # words in the description end up meaning something: size is the only
+        # available proxy for quality, the bucket is speed, price breaks the tie.
+        prefer_fast=True,
+        prefer_cheap=True,
+        speed_bucket_ms=250.0,
     ),
     VirtualModelPool(
         pool_id="ravis/fast",

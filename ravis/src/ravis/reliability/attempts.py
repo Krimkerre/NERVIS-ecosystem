@@ -104,6 +104,14 @@ class AttemptChain:
     # process. Optional so that every test constructing a chain keeps working
     # and so a deployment can turn the record off by not supplying one.
     observations: Observations | None = None
+    # Whether the client named a pool rather than one model.
+    #
+    # It changes what a failure means. A direct address says *use this one*, so
+    # a 401 against it is the answer and moving on would hide it. A pool says
+    # *pick something that works*, and refusing sixty-six other candidates
+    # because the first one's provider had a credential problem is the opposite
+    # of what was asked for.
+    from_pool: bool = False
 
     _queue: list[str] = field(default_factory=list, init=False)
     _retry: str | None = field(default=None, init=False)
@@ -300,13 +308,35 @@ class AttemptChain:
         """Whether the chain is allowed another target at all."""
         if self._budget_spent():
             return False
-        if self._last_class is not None and not self._last_class.policy.may_fall_back:
+        if self._last_class is not None and not self._may_fall_back(self._last_class):
             self._stopped = (
                 f"{self._last_class.value} is not a fallback-eligible failure; "
                 "another model would fail the same way"
             )
             return False
         return True
+
+    def _may_fall_back(self, failure_class: FailureClass) -> bool:
+        """Whether another candidate is worth trying after this failure.
+
+        The class decides, with one exception that the class cannot see:
+        **authentication, from a pool.**
+
+        Its policy is `may_fall_back=False`, and for a direct address that is
+        right — a fixable 401 naming the problem beats a no-route that does not.
+        But a pool asked for something that works. Observed live: `ravis/balanced`
+        selected a free Gemma model on OpenRouter, OpenRouter's own call to
+        Google came back 401, and the chain stopped with sixty-six untried
+        candidates and a credential error about somebody else's key. Nothing in
+        that 401 was evidence about the other sixty-six.
+
+        Every other class keeps its policy. An invalid request really would fail
+        the same way everywhere, and spending a second model's time to prove it
+        is what the flag exists to prevent.
+        """
+        if failure_class is FailureClass.AUTHENTICATION and self.from_pool:
+            return True
+        return failure_class.policy.may_fall_back
 
     def _next_permitted(self) -> str | None:
         """Pop candidates until one has a closed circuit, or the queue empties.

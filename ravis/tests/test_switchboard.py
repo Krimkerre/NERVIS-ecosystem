@@ -152,3 +152,135 @@ def test_reach_ranks_steps_not_seconds() -> None:
 
     assert _reach_rank(LOCAL, hot, REMOTE) < _reach_rank(PAID, hot, REMOTE)
     assert _reach_rank(PAID, cold, REMOTE) < _reach_rank(LOCAL, cold, REMOTE)
+
+
+# ── balanced: two real signals, no invented exchange rate ──────────────────
+
+
+MID_A = "vendor/sonnet-a"
+MID_B = "vendor/sonnet-b"
+MID_SLOW = "vendor/sonnet-slow"
+
+MID = {
+    MID_A: a_model(MID_A, 15.0),
+    MID_B: a_model(MID_B, 3.0),
+    MID_SLOW: a_model(MID_SLOW, 0.5),
+}
+MID_REMOTE = frozenset(MID)
+# A and B are 40ms apart; the third is two seconds behind both.
+TIMINGS = {MID_A: 380.0, MID_B: 420.0, MID_SLOW: 2_400.0}
+
+
+def balanced(observed: dict[str, float]) -> str | None:
+    return RoutingEngine().select(
+        "ravis/balanced", MID, remote_models=MID_REMOTE, observed_ttft_ms=observed
+    ).selected
+
+
+def test_balanced_treats_a_small_speed_gap_as_a_tie_and_takes_the_cheaper() -> None:
+    """The whole reason it is balanced rather than fast.
+
+    380ms and 420ms is not a difference anybody would trade money for, and
+    treating that ordering as meaningful lets a rounding error outrank a
+    published price. Both land in the same quarter-second bucket, so the $3
+    model wins over the $15 one.
+    """
+    assert balanced(TIMINGS) == MID_B
+
+
+def test_balanced_still_refuses_a_genuinely_slow_model() -> None:
+    """Cheapest of the three by a wide margin, and two seconds behind.
+
+    Price only decides *within* a speed bucket. A model in a slower bucket never
+    reaches the comparison, which is what stops "balanced" collapsing into
+    "cheap".
+    """
+    assert balanced(TIMINGS) != MID_SLOW
+
+
+def test_balanced_falls_back_to_price_when_nothing_is_measured() -> None:
+    """Every model starts unmeasured and they all bucket identically, so the
+    published price is the only fact left — which is the right answer rather
+    than a coin toss on alphabetical order."""
+    assert balanced({}) == MID_SLOW
+
+
+def test_the_three_pools_answer_differently_from_the_same_facts() -> None:
+    """If they agreed, two of them would be decoration."""
+    fast = RoutingEngine().select(
+        "ravis/fast", MID, remote_models=MID_REMOTE, observed_ttft_ms=TIMINGS
+    ).selected
+    cheap = RoutingEngine().select(
+        "ravis/cheap", MID, remote_models=MID_REMOTE, observed_ttft_ms=TIMINGS
+    ).selected
+
+    assert fast == MID_A          # quickest, exactly ordered
+    assert cheap == MID_SLOW      # least money, speed irrelevant
+    assert balanced(TIMINGS) == MID_B
+    assert len({fast, cheap, balanced(TIMINGS)}) == 3
+
+
+def test_a_bucket_of_zero_orders_exactly() -> None:
+    """`ravis/fast` wants the quickest, not the quickest-ish."""
+    from ravis.core.pools import POOLS_BY_ID
+    from ravis.routing.engine import _speed_rank
+
+    assert POOLS_BY_ID["ravis/fast"].speed_bucket_ms == 0.0
+    assert _speed_rank(MID_A, TIMINGS, 0.0) == 380.0
+    assert _speed_rank(MID_A, TIMINGS, 250.0) == 500.0
+    assert _speed_rank(MID_B, TIMINGS, 250.0) == 500.0
+
+
+# ── one candidate's 401 is not evidence about the other sixty-six ──────────
+
+
+def a_chain(from_pool: bool):
+    from ravis.reliability.attempts import AttemptChain
+    from ravis.reliability.health import HealthRegistry
+
+    chain = AttemptChain(health=HealthRegistry(), provider="p", from_pool=from_pool)
+    chain.load("first", ["second", "third"])
+    return chain
+
+
+def test_a_pool_falls_back_past_an_authentication_failure() -> None:
+    """Observed live: `ravis/balanced` selected a free Gemma model on
+    OpenRouter, OpenRouter's own call to Google came back 401, and the chain
+    stopped with sixty-six untried candidates and a credential error about
+    somebody else's key. Nothing in that 401 was evidence about the other
+    sixty-six — and a pool asked for something that works.
+    """
+    from ravis.reliability.failures import FailureClass
+
+    chain = a_chain(from_pool=True)
+    assert chain.next_target() == "first"
+    chain.failed("first", 0.0, FailureClass.AUTHENTICATION, "401")
+
+    assert chain.next_target() == "second"
+
+
+def test_a_direct_address_still_surfaces_the_401() -> None:
+    """"Use this one" and "pick something that works" are different requests.
+
+    Falling back here would replace a fixable error that names the problem with
+    a no-route that does not.
+    """
+    from ravis.reliability.failures import FailureClass
+
+    chain = a_chain(from_pool=False)
+    assert chain.next_target() == "first"
+    chain.failed("first", 0.0, FailureClass.AUTHENTICATION, "401")
+
+    assert chain.next_target() is None
+
+
+def test_every_other_terminal_class_keeps_its_policy_even_from_a_pool() -> None:
+    """An invalid request really would fail the same way everywhere, and
+    spending a second model's time to prove it is what the flag prevents."""
+    from ravis.reliability.failures import FailureClass
+
+    chain = a_chain(from_pool=True)
+    assert chain.next_target() == "first"
+    chain.failed("first", 0.0, FailureClass.INVALID_REQUEST, "bad body")
+
+    assert chain.next_target() is None
