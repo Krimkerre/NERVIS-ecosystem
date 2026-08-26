@@ -4332,6 +4332,86 @@ screen, not a test. psutil's first reading for a fresh process object is the
 average since that process started, which is not a number to put beside a live
 memory figure even for whoever might have read it.
 
+## The dashboard's one invariant now has a check
+
+*"It must render with nothing running"* is the rule the dashboard is built
+around, and until now the only thing enforcing it was a person opening a
+browser. That person caught four screen-blanking crashes in one week — a
+`SERVICES[row.key]` lookup on a key that had no entry, a reduce seeded with
+`null` and not guarded on it, `usable()` on an unknown key, a node list built
+from a registry that had grown a row. Every one was a `TypeError` while building
+a template string. None failed a test, because there were no tests.
+
+`nervis/tools/render_check.js` renders every screen in a DOM shim with `fetch`
+rejecting, and fails if one throws. It runs in CI.
+
+**It found a fifth on its first run**, and one nobody would have found by
+looking:
+
+```text
+1 of 34 screens failed to render:
+  • sirvis/Recommendations: r.uncertainty.map is not a function
+```
+
+SIRVIS publishes `uncertainty` as a **list**, and the live adapter passes it
+straight through. The mock carried one long **string** — and `.length` on a
+string is truthy, so the guard `r.uncertainty && r.uncertainty.length` passed
+and `.map` threw immediately after. **The Recommendations screen blanked
+whenever SIRVIS was not answering**, which is precisely the condition the page
+promises to survive. It was invisible because nobody runs this dashboard with
+SIRVIS off.
+
+Also **34 screens, not 27**. The browser check was iterating three apps; the
+navigation has four.
+
+### The shim, and two wrong turns getting there
+
+A DOM shim rather than jsdom. The failures above happen while a render builds
+its HTML *string*, before anything touches an element, so the DOM only has to
+absorb writes — eighty lines buys that, against an npm dependency tree and a
+lockfile in a repository that has neither.
+
+The first version was a `Proxy` answering to any property, which is fewer lines
+and looked elegant. It cost far more than the boring version would have:
+
+- **A Proxy responds to `then`.** Awaiting anything that had touched the DOM
+  turned it into a thenable that called `then(resolve, reject)`, got the proxy
+  back, and waited forever.
+- **Fixed, it hung again** somewhere inside the page's background canvas
+  animation, where proxy arithmetic turned a bounded loop into an unbounded one.
+
+Both hangs presented identically and gave nothing to work with: no output at
+all, because `console` output to a pipe is buffered and discarded on kill.
+Enumerating what the page actually uses is more lines and no cleverness, and
+every gap announces itself as `x is not a function` naming the method — the
+better failure mode for a thing whose whole job is to fail clearly.
+
+Two smaller traps worth recording: a script's top-level `const` is
+**script-scoped, not a property of the vm context**, so `context.APP_CONFIG` is
+undefined however well the script ran — a second evaluation in the same context
+reaches those bindings. And `main()` without a `.catch()` sent its own failures
+into the unhandled-rejection collector, so the process exited **0 and printed
+nothing**, which is worse than a false failure.
+
+### What it does not prove
+
+That a screen **assembles**. Not that the markup is valid, that anything is laid
+out, or that a click works. It is the cheap half of the check, and the half that
+keeps failing. Verified against a deliberately broken screen before being
+trusted:
+
+```text
+exit: 1
+1 of 34 screens failed to render:
+  • nervis/Chat: Cannot read properties of null (reading 'boom')
+```
+
+**Complexity on that file is still ungated.** Roughly 48 of 262 functions would
+fail the 8 the Python packages are held to, concentrated in the large
+template-literal renders. That needs ESLint and the dependency tree that comes
+with it, and it is the second problem there — a complexity number on untested
+code says which function is frightening; a render check says when it broke.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

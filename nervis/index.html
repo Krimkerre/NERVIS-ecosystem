@@ -1394,7 +1394,13 @@ const API={
      why:'MEASURED · identical accuracy to rank 1 at 9.6 tok/s against 29.5 — three times slower for no measured gain'},
     {target:'Qwen3-Coder-30B-A3B · MLX 4bit',
      why:'DOES_NOT_FIT · 17.2 GB against a 14 GB budget once the system baseline is counted. Not rejected on merit and never tested'}],
-   uncertainty:'rank 2 rests on a partial suite and could displace rank 1 once it has been run properly — it is faster on every figure taken so far. Rank 3 is chosen for tone, and it invented "one commit ahead" in a briefing that the automated grounding check scored clean, so it is a trade rather than a free upgrade'}},
+   /* A list, because that is what SIRVIS publishes and what the live adapter
+      passes straight through. It was one long string here, and `.length` on a
+      string is truthy — so the guard passed and `.map` threw, blanking this
+      screen for anyone whose SIRVIS was not running. Which is the exact
+      condition this page promises to survive. */
+   uncertainty:['rank 2 rests on a partial suite and could displace rank 1 once it has been run properly — it is faster on every figure taken so far',
+                'rank 3 is chosen for tone, and it invented \"one commit ahead\" in a briefing the automated grounding check scored clean — a trade rather than a free upgrade']}},
 
   /* GET /api/v1/runtime-sets/{id} — combination evidence, which is the whole
      point: per-member numbers do not predict the pair.
@@ -3411,7 +3417,7 @@ async function sirvisRecommendations(){
    <div class="trace-step"><b>mode</b><span>${r.mode}</span></div>
    <div class="trace-step"><b>algorithm</b><span>v${r.algorithm_version}</span></div>
    <div class="trace-step"><b>expires</b><span>${r.expires_in_min} min</span></div>
-   <small class="mono dim">${r.uncertainty}.</small>`,'sirvis')}</div>
+   <small class="mono dim">${(r.uncertainty||[]).length?escapeHtml((r.uncertainty||[]).join(' · ')):'nothing was flagged as uncertain'}.</small>`,'sirvis')}</div>
   <div class="card wide"><h3>What the deadlines are</h3>${cell(`
    <div class="table-row head"><span>Caller</span><span>Does</span><span style="grid-column:3/-1">Deadline</span></div>
    ${CLARVIS_DEADLINES.map(([name,does,s])=>`<div class="table-row"><span class="mono">${name}</span><span style="opacity:.75">${does}</span><span style="grid-column:3/-1" class="mono">${s}s</span></div>`).join('')}

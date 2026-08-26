@@ -12,6 +12,12 @@ browser until you click the right thing:
 This catches 1, 2 and 4 statically and lists the endpoints for 3.
 It does NOT catch anything else — see docs/PITFALLS.md.
 Run:  python3 tools/check.py
+
+**A fifth failure has its own check.** `tools/render_check.js` renders every
+screen with nothing running and fails if one throws, which is the class that has
+actually blanked screens: a `TypeError` while building a template string. Run it
+too — CI runs both.
+Run:  node tools/render_check.js
 """
 import pathlib, re, shutil, subprocess, sys, tempfile
 

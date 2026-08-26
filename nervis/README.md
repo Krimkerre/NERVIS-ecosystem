@@ -137,12 +137,21 @@ swapping a mock for a real endpoint;
 
 ```bash
 python3 nervis/tools/check.py
+node nervis/tools/render_check.js
 ```
 
 **One rule outranks every screen on this page: it must render with nothing
 running.** A live read that throws and stops the render destroys that, silently.
-Verified by rendering all 27 screens across the three apps and asserting none
-throws — which is how the `SERVICES[row.key]` crash was caught at M0.
+
+`render_check.js` is what enforces it: every screen rendered in a DOM shim with
+`fetch` rejecting, failing if one throws. It runs in CI. Until it existed the
+only enforcement was a person opening a browser — which caught four
+screen-blanking crashes in a week and missed a fifth, because nobody runs this
+dashboard with SIRVIS switched off.
+
+It proves a screen **assembles**, and nothing more: not that the markup is
+valid, not that anything is laid out, not that a click works. That is the cheap
+half of the check and the half that keeps failing.
 
 ## Running it against a live RAVIS
 
