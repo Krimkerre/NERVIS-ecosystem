@@ -126,10 +126,12 @@ async def read_health(request: Request) -> dict[str, Any]:
     }
 
 
-def _members(pool: Any, eligible: list[str], membership: Any) -> list[str]:
+def _members(
+    pool: Any, eligible: list[str], membership: Any, prices: dict[str, Any] | None = None
+) -> list[str]:
     """What this pool is choosing among right now."""
     stored = tuple(membership.for_pool(pool.pool_id)) if membership is not None else ()
-    return list(stored or pool.default_membership(eligible))
+    return list(stored or pool.default_membership(eligible, prices))
 
 
 @router.get("/pools")
@@ -144,6 +146,7 @@ async def read_pools(request: Request) -> dict[str, Any]:
     candidates = await _candidates(request)
     remote = remote_models(getattr(request.app.state, "transparents", {}))
     membership = getattr(request.app.state, "pool_membership", None)
+    prices = {model: known.price_per_million for model, known in candidates.items()}
     residency = request.app.state.model_registry.residency
     items = []
     for pool in DEFAULT_POOLS:
@@ -163,8 +166,8 @@ async def read_pools(request: Request) -> dict[str, Any]:
                 # then an operator's selection or its own default tier. The
                 # count on a dashboard has to be the count the router uses, or
                 # it is describing a different pool than the one that answers.
-                "members": _members(pool, eligible, membership),
-                "member_count": len(_members(pool, eligible, membership)),
+                "members": _members(pool, eligible, membership, prices),
+                "member_count": len(_members(pool, eligible, membership, prices)),
                 "eligible_count": len(eligible),
                 "default_tier": pool.default_tier,
                 "listed": pool.listed,
@@ -394,14 +397,17 @@ async def read_pool_members(pool_key: str, request: Request) -> Any:
     stored = tuple(request.app.state.pool_membership.for_pool(pool_id))
     # What the pool would use right now: the operator's selection if they made
     # one, otherwise its own default tier over what is actually present.
-    chosen = set(stored or pool.default_membership(eligible))
+    chosen = set(stored or pool.default_membership(
+        eligible, {m: k.price_per_million for m, k in candidates.items()}
+    ))
     return {
         "pool_id": pool_id,
         "label": pool.label,
         "locality": pool.requirements.locality,
         "items": [
             {"id": model, "selected": model in chosen, "remote": model in remote,
-             "tier": size_tier(model)}
+             "tier": size_tier(model),
+             "price_per_million": candidates[model].price_per_million}
             for model in eligible
         ],
         "total": len(eligible),

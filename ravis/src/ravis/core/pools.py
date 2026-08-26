@@ -16,6 +16,7 @@ a broken tool call far from its cause.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from ravis.core.capabilities import Capability, ModelCapabilities
@@ -123,6 +124,22 @@ class VirtualModelPool:
     # cheaper of them wins. Nothing is weighted against anything; two facts are
     # consulted in a stated order.
     speed_bucket_ms: float = 0.0
+    # The most a model may cost per million tokens and still be a default
+    # member, in USD. `None` means price is not a membership condition.
+    #
+    # Set to `0.0` on `ravis/cheap`, which is what "cheap" turned out to mean in
+    # practice: the models that cost nothing per token. A local runtime bills
+    # nothing, and OpenRouter publishes hundreds of `:free` variants at exactly
+    # zero — both are facts somebody published, not estimates.
+    #
+    # **An unpriced model is excluded, and that has a consequence worth naming.**
+    # Google, OpenAI and Anthropic ship catalogues with no pricing at all, so
+    # none of their models can be *derived* as free. Google's free tier is real
+    # but it is a quota on an account, not a property of a model, and whether it
+    # applies depends on whether billing is attached — which is account state
+    # RAVIS cannot see and must not guess at. Those models are one tick away in
+    # the picker; they are simply not something this can conclude.
+    max_price_per_million: float | None = None
     # Which size tier this pool takes by default: `small`, `mid`, `large`.
     #
     # **A declared default, not a measurement, and the difference is the whole
@@ -165,7 +182,11 @@ class VirtualModelPool:
         ]
         return sorted(members, key=lambda model: (self.preference_rank(model), *size_rank(model)))
 
-    def default_membership(self, candidates: list[str]) -> tuple[str, ...]:
+    def default_membership(
+        self,
+        candidates: list[str],
+        prices: Mapping[str, float | None] | None = None,
+    ) -> tuple[str, ...]:
         """The curated members present in this catalogue, or everything.
 
         Returns all candidates when the pool declares no default, so a pool
@@ -173,13 +194,27 @@ class VirtualModelPool:
         when the default matches nothing present — a curated list that happens
         to name no installed model must not empty the pool, because the operator
         did not choose that and an empty pool refuses every request.
+
+        A price ceiling is applied only when prices were supplied. Without them
+        nothing is known about cost, and filtering on an absent fact would empty
+        the pool for a reason nobody could read off the data.
         """
-        if not self.default_tier:
+        if not self.default_tier and self.max_price_per_million is None:
             return tuple(candidates)
-        matched = tuple(
-            model for model in candidates if size_tier(model) == self.default_tier
-        )
-        return matched or tuple(candidates)
+        matched = [
+            model for model in candidates
+            if not self.default_tier or size_tier(model) == self.default_tier
+        ]
+        if self.max_price_per_million is not None and prices is not None:
+            ceiling = self.max_price_per_million
+            matched = [
+                model for model in matched
+                # `is not None` first: unpriced is excluded rather than treated
+                # as free, or every catalogue that publishes nothing would land
+                # in the cheap pool by saying least about itself.
+                if prices.get(model) is not None and prices[model] <= ceiling  # type: ignore[operator]
+            ]
+        return tuple(matched) or tuple(candidates)
 
     def preference_rank(self, model: str) -> int:
         """How well a model matches this pool's declared preference, lowest best.
@@ -371,6 +406,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         # also free, and OpenRouter has hundreds of those.
         prefer_cheap=True,
         prefer_local=True,
+        max_price_per_million=0.0,
     ),
     VirtualModelPool(
         pool_id="ravis/local",

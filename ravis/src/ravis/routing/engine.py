@@ -195,7 +195,10 @@ class RoutingEngine:
         # only when they have made none. Resolved here rather than by the caller
         # because the default is expressed over *this* catalogue — "the small
         # ones" means nothing until you know what is present.
-        effective = chosen or pool.default_membership(sorted(candidates))
+        effective = chosen or pool.default_membership(
+            sorted(candidates),
+            {model: known.price_per_million for model, known in candidates.items()},
+        )
         by_default = not chosen
         decision.excluded = _exclusions(
             pool, candidates, requirements, unavailable, remote, effective, by_default

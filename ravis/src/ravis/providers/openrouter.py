@@ -25,6 +25,7 @@ honesty removed.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -87,6 +88,24 @@ class OpenRouterAdapter(GenericOpenAiAdapter):
         self._clock = clock
         self._catalogue: dict[str, dict[str, Any]] = {}
         self._fetched_at: float | None = None
+        # Where the catalogue comes from when something else already has it.
+        self._shared: Callable[[], list[dict[str, Any]]] | None = None
+
+    def use_catalogue(self, source: Callable[[], list[dict[str, Any]]]) -> None:
+        """Read the entries the model registry already holds, instead of fetching.
+
+        **They are the same request.** `ModelRegistry` reads `/models` for the
+        ids and this adapter was reading `/models` again for the metadata that
+        arrives in the very same response — two identical calls every five
+        minutes, the second parsing fields the first discarded.
+
+        Halving the traffic is the smaller half of the reason. The larger one is
+        that two independently-timed caches of one document can disagree: a
+        model's id could be up to five minutes out of step with its own price,
+        and a router that ranked on the older of the two would be right about
+        nothing in particular. One read cannot drift from itself.
+        """
+        self._shared = source
 
     async def capabilities(self, model: str) -> ModelCapabilities:
         """Protocol defaults, then OpenRouter's metadata, then configuration.
@@ -119,6 +138,11 @@ class OpenRouterAdapter(GenericOpenAiAdapter):
         window — and capability-less fails closed, so a blip would empty the
         pools for five minutes.
         """
+        if self._shared is not None:
+            # No TTL of its own: the registry's refresh is the clock, and adding
+            # a second one here would reintroduce exactly the drift this exists
+            # to remove.
+            return _by_id(self._shared())
         now = self._clock()
         if self._fetched_at is not None and now - self._fetched_at < self._ttl:
             return self._catalogue
@@ -133,13 +157,18 @@ class OpenRouterAdapter(GenericOpenAiAdapter):
         except (httpx.HTTPError, ValueError):
             return {}
         entries = payload.get("data", []) if isinstance(payload, dict) else []
-        self._catalogue = {
-            str(entry["id"]): entry
-            for entry in entries
-            if isinstance(entry, dict) and entry.get("id")
-        }
+        self._catalogue = _by_id(entries)
         self._fetched_at = now
         return self._catalogue
+
+
+def _by_id(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Catalogue entries keyed by model id, skipping anything without one."""
+    return {
+        str(entry["id"]): entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("id")
+    }
 
 
 def _absorb_price(known: ModelCapabilities, pricing: Any) -> None:

@@ -171,3 +171,76 @@ def test_only_the_speed_pool_ranks_on_it() -> None:
     become the whole ordering for every pool that declares nothing."""
     assert POOLS_BY_ID["ravis/fast"].prefer_fast is True
     assert POOLS_BY_ID["ravis/auto"].prefer_fast is False
+
+
+# ── Pruning, and the guard that stops it eating everything ─────────────────
+
+
+DAY = 86_400.0
+
+
+def test_a_withdrawn_model_is_pruned(store: Observations) -> None:
+    """OpenRouter changes its offerings regularly, and a model it no longer
+    lists can never be selected again — its samples are pure clutter."""
+    store.record("still-there", 100.0, 50.0, now=1_000.0)
+    store.record("withdrawn", 100.0, 50.0, now=1_000.0)
+
+    pruned = store.prune({"still-there"}, now=1_000.0)
+
+    assert pruned == ["withdrawn"]
+    assert set(store.all()) == {"still-there"}
+
+
+def test_an_empty_catalogue_prunes_nothing(store: Observations) -> None:
+    """The guard that matters.
+
+    A provider that is disabled, unreachable, or missing a credential
+    contributes nothing to the offered set. Pruning against a set that failed to
+    load would delete every measurement RAVIS has on the strength of one bad
+    fetch — absence is only evidence when something was present to compare with.
+    """
+    store.record("m", 100.0, 50.0, now=1_000.0)
+
+    assert store.prune(set(), now=1_000.0) == []
+    assert store.prune(None, now=1_000.0) == []
+    assert set(store.all()) == {"m"}
+
+
+def test_an_unused_model_ages_out(store: Observations) -> None:
+    """The backstop, for when no catalogue can be believed for a long time."""
+    store.record("ancient", 100.0, 50.0, now=1_000.0)
+
+    pruned = store.prune(None, now=1_000.0 + 31 * DAY)
+
+    assert pruned == ["ancient"]
+
+
+def test_a_recently_used_model_survives_its_absence_from_a_short_catalogue(
+    store: Observations,
+) -> None:
+    """Withdrawal and staleness are separate tests, and either one is enough —
+    but only when the catalogue is real."""
+    store.record("m", 100.0, 50.0, now=1_000.0)
+
+    assert store.prune(None, now=1_000.0 + 5 * DAY) == []
+
+
+def test_an_entry_with_no_timestamp_is_kept(store: Observations) -> None:
+    """Written before `last_seen` existed. "Unknown age" and "thirty-one days
+    old" are not the same claim, so it is stamped on next use rather than
+    deleted."""
+    store.path.write_text('{"m": {"latency_ms": [1, 2, 3], "ttft_ms": []}}', encoding="utf-8")
+    store.load()
+
+    assert store.prune(None, now=9_999_999_999.0) == []
+    assert store.of("m").samples == 3
+
+
+def test_last_seen_round_trips(store: Observations) -> None:
+    store.record("m", 100.0, 50.0, now=1_234.0)
+    store.flush()
+
+    reopened = Observations(store.path)
+    reopened.load()
+
+    assert reopened.of("m").last_seen == 1_234.0

@@ -87,15 +87,21 @@ def build_transparents(
             # screen reaches the next request instead of the next restart.
             credential=_resolver(spec, credentials),
         )
-        built[spec.name] = TransparentUpstream(
-            spec=spec,
+        registry = ModelRegistry(
             upstream=upstream,
-            adapter=adapter_for(spec, upstream, client, settings),
-            registry=ModelRegistry(
-                upstream=upstream,
-                client=client,
-                ttl_seconds=settings.models_cache_ttl_seconds,
-            ),
+            client=client,
+            ttl_seconds=settings.models_cache_ttl_seconds,
+        )
+        adapter = adapter_for(spec, upstream, client, settings)
+        # An adapter that reads catalogue metadata gets the registry's copy
+        # rather than fetching the same document a second time. Built in this
+        # order for that reason — the registry has to exist before the adapter
+        # can be pointed at it.
+        share = getattr(adapter, "use_catalogue", None)
+        if callable(share):
+            share(lambda registry=registry: registry.snapshot.models)
+        built[spec.name] = TransparentUpstream(
+            spec=spec, upstream=upstream, adapter=adapter, registry=registry,
         )
     return built
 

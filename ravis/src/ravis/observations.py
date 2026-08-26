@@ -26,13 +26,17 @@ other is experience.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import statistics
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ravis.credentials import config_directory
+
+logger = logging.getLogger("ravis.observations")
 
 # How many samples of each measure to keep per model.
 #
@@ -52,6 +56,14 @@ WINDOW = 60
 # has to infer the difference.
 MINIMUM_SAMPLES = 5
 
+# How long an unused model's samples are kept once nothing has exercised them.
+#
+# The backstop, not the main mechanism. A model withdrawn from a catalogue is
+# pruned as soon as a healthy refresh proves it gone; this covers the case where
+# no catalogue can be believed — a provider disabled, a key removed, an upstream
+# unreachable for a week — where "absent" is not evidence of anything.
+RETENTION_DAYS = 30.0
+
 
 @dataclass
 class ModelObservations:
@@ -59,13 +71,22 @@ class ModelObservations:
 
     latency_ms: list[float] = field(default_factory=list)
     ttft_ms: list[float] = field(default_factory=list)
+    # Wall-clock seconds, not the monotonic clock the timings use.
+    #
+    # These two measure different things and only one of them may cross a
+    # restart: a monotonic reading is meaningless in a file, because the epoch
+    # it counts from is the process that wrote it. Retention is asked in days,
+    # so wall clock is the right clock even though it can step backwards.
+    last_seen: float = 0.0
 
-    def record(self, latency_ms: float | None, ttft_ms: float | None) -> None:
+    def record(self, latency_ms: float | None, ttft_ms: float | None,
+               now: float | None = None) -> None:
         for window, value in ((self.latency_ms, latency_ms), (self.ttft_ms, ttft_ms)):
             if value is None or value < 0:
                 continue
             window.append(value)
             del window[:-WINDOW]
+        self.last_seen = time.time() if now is None else now
 
     @property
     def median_latency_ms(self) -> float | None:
@@ -96,6 +117,7 @@ class ModelObservations:
             "median_ttft_ms": self.median_ttft_ms,
             "samples": self.samples,
             "confident": self.confident,
+            "last_seen": self.last_seen or None,
             # §13.3's name for exactly this: measured, but not under controlled
             # conditions. SIRVIS's benchmark evidence is the other kind.
             "provenance": "OBSERVED_BY_RAVIS",
@@ -140,14 +162,60 @@ class Observations:
                 self._models[str(model)] = ModelObservations(
                     latency_ms=_floats(record.get("latency_ms")),
                     ttft_ms=_floats(record.get("ttft_ms")),
+                    last_seen=_seconds(record.get("last_seen")),
                 )
 
-    def record(self, model: str, latency_ms: float | None, ttft_ms: float | None) -> None:
+    def record(self, model: str, latency_ms: float | None, ttft_ms: float | None,
+               now: float | None = None) -> None:
         """Fold one request's timings in. Cheap and in memory; `flush` writes."""
         if latency_ms is None and ttft_ms is None:
             return
-        self._models.setdefault(model, ModelObservations()).record(latency_ms, ttft_ms)
+        self._models.setdefault(model, ModelObservations()).record(latency_ms, ttft_ms, now)
         self._dirty = True
+
+    def prune(
+        self,
+        offered: set[str] | None = None,
+        *,
+        now: float | None = None,
+        retention_days: float = RETENTION_DAYS,
+    ) -> list[str]:
+        """Drop samples that can no longer inform a route. Returns what went.
+
+        Two ways a model becomes dead weight, and they need different tests.
+
+        **It is gone from every catalogue.** Then it can never be selected
+        again, and its samples are pure clutter — prune immediately. This is the
+        precise mechanism and the one that matters for OpenRouter, which
+        withdraws models regularly.
+
+        **Nobody has used it in a month.** The backstop, for when no catalogue
+        can be believed. `offered` is only honoured when it is non-empty, which
+        is the guard that matters: a provider that is disabled, unreachable, or
+        missing a credential contributes nothing to that set, and pruning
+        against a set that failed to load would delete every measurement RAVIS
+        has on the strength of one bad fetch. Absence is only evidence when
+        something was actually present to compare against.
+
+        An entry with no `last_seen` is one written before this existed. It is
+        kept and stamped on next use rather than deleted, because "unknown age"
+        and "thirty-one days old" are not the same claim.
+        """
+        moment = time.time() if now is None else now
+        cutoff = moment - retention_days * 86_400
+        # Only a *non-empty* set is evidence of absence. See the docstring.
+        catalogue = offered or set()
+        pruned = []
+        for model, observed in list(self._models.items()):
+            withdrawn = bool(catalogue) and model not in catalogue
+            stale = observed.last_seen > 0 and observed.last_seen < cutoff
+            if withdrawn or stale:
+                del self._models[model]
+                pruned.append(model)
+        if pruned:
+            self._dirty = True
+            logger.info("pruned observations for %d model(s)", len(pruned))
+        return pruned
 
     def of(self, model: str) -> ModelObservations:
         return self._models.get(model) or ModelObservations()
@@ -178,7 +246,11 @@ class Observations:
         if not self._dirty:
             return
         payload = {
-            model: {"latency_ms": observed.latency_ms, "ttft_ms": observed.ttft_ms}
+            model: {
+                "latency_ms": observed.latency_ms,
+                "ttft_ms": observed.ttft_ms,
+                "last_seen": observed.last_seen,
+            }
             for model, observed in self._models.items()
         }
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -188,6 +260,11 @@ class Observations:
             handle.write("\n")
         os.replace(temporary, self.path)
         self._dirty = False
+
+
+def _seconds(value: object) -> float:
+    """A timestamp out of the file, or zero for one written before this existed."""
+    return float(value) if isinstance(value, (int, float)) and value > 0 else 0.0
 
 
 def _floats(value: object) -> list[float]:

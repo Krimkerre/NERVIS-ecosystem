@@ -60,22 +60,33 @@ def test_the_cheap_pool_picks_the_cheapest() -> None:
     assert selected("ravis/cheap") == LOCAL
 
 
+def test_the_cheap_pool_contains_only_models_that_cost_nothing() -> None:
+    """"Cheap" means free, which is a fact somebody published.
+
+    A local runtime bills nothing per token and OpenRouter publishes hundreds of
+    `:free` variants at exactly zero. A paid model is not in this pool at all,
+    rather than merely ranked below the free ones.
+    """
+    decision = RoutingEngine().select("ravis/cheap", CANDIDATES, remote_models=REMOTE)
+
+    assert decision.selected == LOCAL
+    assert PAID not in decision.fallbacks
+    assert set(decision.fallbacks) <= {FREE_CLOUD}
+
+
 def test_an_unpriced_model_is_not_treated_as_free() -> None:
     """Only OpenRouter and the local runtimes publish a price.
 
     OpenAI, Google and Anthropic ship catalogues with no pricing at all, so
-    reading absence as zero would hand every cheap route to whichever provider
-    says least about itself. Unknown sorts last.
+    reading absence as zero would hand the cheap pool to whichever provider says
+    least about itself. Google's free tier is real, but it is a quota on an
+    account rather than a property of a model — and whether it applies depends
+    on whether billing is attached, which is account state RAVIS cannot see.
     """
-    decision = RoutingEngine().select(
-        "ravis/cheap", CANDIDATES, remote_models=REMOTE
-    )
+    decision = RoutingEngine().select("ravis/cheap", CANDIDATES, remote_models=REMOTE)
 
-    # Below even the $90 model, and below the fallback cut — asserted on the
-    # ranking rather than on `fallbacks`, which `MAX_FALLBACKS` truncates.
     assert decision.selected != UNPRICED
     assert UNPRICED not in decision.fallbacks
-    assert PAID in decision.fallbacks
 
 
 def test_free_beats_paid_wherever_it_runs() -> None:

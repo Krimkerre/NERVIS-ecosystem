@@ -151,7 +151,34 @@ async def _flush_observations_periodically(api: FastAPI) -> None:
     """
     while True:
         await asyncio.sleep(OBSERVATION_FLUSH_SECONDS)
+        api.state.observations.prune(await _offered_models(api))
         api.state.observations.flush()
+
+
+async def _offered_models(api: FastAPI) -> set[str]:
+    """Every model id any upstream currently lists, translated ones included.
+
+    Transparent catalogues are read from the registries rather than fetched, so
+    they cost nothing and cannot fail. A translated provider is asked, but its
+    discovery is cached behind a TTL so this is a dictionary lookup in the
+    ordinary case.
+
+    **Both kinds or neither.** Walking only the transparent upstreams would make
+    every Anthropic model look withdrawn the instant the set became non-empty,
+    and prune the measurements for a provider that is working perfectly. An
+    upstream whose refresh failed contributes nothing, and `prune` treats an
+    empty set as no evidence at all — which is the difference between
+    "OpenRouter withdrew this model" and "OpenRouter did not answer just now".
+    """
+    offered: set[str] = set()
+    for built in getattr(api.state, "transparents", {}).values():
+        offered.update(built.registry.model_ids())
+    for adapter in getattr(api.state, "translating", {}).values():
+        try:
+            offered.update(await adapter.models())
+        except Exception:  # noqa: BLE001 — a failed listing is not a withdrawal
+            continue
+    return offered
 
 
 def _attach_shared_state(api: FastAPI, settings: Settings) -> None:

@@ -4514,23 +4514,11 @@ async function ravisPools(){
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>poolRow(x,inv)).join('')}
    <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>${agent.pool_id} · membership <span class="chip">${agent.members} of ${mdl.items.length}</span></h3>${cell(`
-   <div class="table-row head five"><span>Build</span><span>Context ceiling</span><span>Tools advertised</span><span>Tools measured</span><span>Verdict</span></div>
-   ${mdl.items.map(m=>{const [v,why]=verdict(m);
-    return `<div class="table-row five"${v==='out'?' style="background:rgba(255,92,106,.06)"':''}><span>${short(m.model_id)}</span><span class="mono">${ceiling(m)}</span><span class="mono" style="opacity:.7">${m.tools.advertised===null?'—':m.tools.advertised?'tool_use':'none'}</span><span class="mono"${m.tools.measured&&m.tools.measured[0]!==m.tools.measured[1]?' style="color:#ffb648"':''}>${m.tools.measured?m.tools.measured.join('/'):'—'}</span><span class="chip${warnUnless(v==='in')}">${v} · ${why}</span></div>`}).join('')}
-   <small class="mono dim">${SOURCE.ravis==='live'
-     ?`every verdict is the pool's own invariant re-run per build, so the count above can be checked rather than taken. On this deployment every build is <b>out</b> for the same reason: RAVIS holds no tool-capability claim for any of them, and §5.1's invariant fails closed on what it does not know. That is the pool working, not the models failing — the claim arrives with SIRVIS evidence (RAVIS M13), and until then the honest membership of a tool-requiring pool is zero.`
-     :`one build is out, and not the one the advertised column would predict. <b>granite-4.0-h-tiny · MLX</b> declares <b>tool_use</b> and delivered 1 call in 8; its GGUF packaging of the same weights delivered 8 in 8 and is in. Three builds advertise nothing and are in on measurement alone. Every verdict here is the pool's own invariant re-run per build, so a reader can check the count rather than take it.`}</small>`,'ravis')}</div>
   ${down.map(x=>`<div class="card wide"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${inv(x.requires)}</span></div>
    <div class="trace-step"><b>members</b><span>${x.members}</span></div>
    <div class="trace-step"><b>reason</b><span>${x.reason||'not published — a pool reports availability, not a diagnosis'}</span></div>
-   <small class="mono dim">a request to this pool returns NO_ROUTE. Serving it from the nearest thing available would answer with something that cannot hold the request, and the caller named the pool precisely because that matters.</small>`,'ravis')}</div>`).join('')}
-  <div class="card narrow"><h3>Why pools, not models</h3>${cell(`
-   <div class="trace-step"><b>caller names</b><span>a pool</span></div>
-   <div class="trace-step"><b>caller gets</b><span>the invariants</span></div>
-   <div class="trace-step"><b>RAVIS picks</b><span>the member</span></div>
-   <small class="mono dim">Clarvis asks for <b>${agent.pool_id}</b> and never for a model. That is what lets a build be swapped, benchmarked or removed without touching the editor — and what stops any single caller from pinning the ecosystem to one model name.</small>`,'ravis')}</div>`}
+   <small class="mono dim">a request to this pool returns NO_ROUTE. Serving it from the nearest thing available would answer with something that cannot hold the request, and the caller named the pool precisely because that matters.</small>`,'ravis')}</div>`).join('')}`}
 
 /* Providers — health, circuit breakers and the connection facts. `credential` is
    a presence flag and nothing else: no key value ever reaches this surface, which
