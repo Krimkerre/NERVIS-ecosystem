@@ -42,6 +42,7 @@ from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
 from ravis.transparent import merged_candidates, remote_models
+from ravis.upstreams import is_local_address
 
 router = APIRouter(prefix="/api/v1", tags=["management"])
 
@@ -240,6 +241,12 @@ async def read_providers(request: Request) -> dict[str, Any]:
             **describe(adapter),
             "name": name,
             "base_url": base_url,
+            # Whether requests to this provider stay on the machine, from its
+            # address — the same one question `ravis/local` is enforced on, so a
+            # screen and the router cannot disagree about it. A translated
+            # provider carries no base_url here and reads as remote, which is
+            # what Anthropic is.
+            "local": is_local_address(base_url),
             "enabled": name not in disabled,
             "credential_configured": status.configured,
             "credential_source": status.source.value,

@@ -381,10 +381,29 @@ def _rank(
     ]
     pressured = memory.under_pressure
 
-    def key(model: str) -> tuple[int, int, int, float, str]:
+    def key(model: str) -> tuple[float | str, ...]:
         preference = pool.preference_rank(model)
-        warmth = residency_rank(residency.state_of(model))
-        lead = (warmth, preference) if pressured else (preference, warmth)
+        # Reach, not warmth: a hosted model is not a cold one. See `_reach_rank`.
+        warmth = _reach_rank(model, residency, remote)
+        # Built in order rather than by prepending, because the order *is* the
+        # policy and prepending hid it. `prefer_local` was appended after
+        # warmth, so a local model whose residency was unknown lost to a remote
+        # one on reach before placement was ever consulted — and residency is
+        # unknown for every local model until a runtime reports it.
+        #
+        # Cost first, then placement, then the pool's own preference and reach:
+        # a pool that asked to be cheap means money before anything else, and
+        # between two free models the one that costs no network is the cheaper.
+        #
+        # Heterogeneous because the last component is the model name — the
+        # total, reproducible order §9.7's determinism gate requires.
+        terms: list[float | str] = []
+        if pool.prefer_cheap:
+            terms.append(_price_rank(candidates.get(model)))
+        if pool.prefer_local:
+            terms.append(0.0 if model not in remote else 1.0)
+        terms.extend((warmth, preference) if pressured else (preference, warmth))
+        lead: tuple[float | str, ...] = tuple(terms)
         # Size is the *last* thing consulted, and only for a pool that declared
         # a preference at all.
         #
@@ -406,6 +425,58 @@ def _rank(
         return (*lead, *size_rank(model))
 
     return sorted(members, key=key)
+
+
+def _reach_rank(
+    model: str, residency: ResidencySnapshot, remote: frozenset[str]
+) -> float:
+    """How much work stands between the router and a first token.
+
+    **A remote model is not a cold one, and treating them alike was the
+    switchboard's central error.** `Residency.UNKNOWN` ranked 2, tied with
+    `COLD`, and every cloud model is UNKNOWN because a cloud model has no
+    residency to report. So RAVIS believed that calling an API and loading a
+    seventy-billion-parameter model off disk cost about the same. One is a
+    network round trip; the other is tens of seconds and gigabytes of RAM.
+
+    The ordering that follows is fact rather than estimate. A resident local
+    model needs neither a load nor a network hop. A remote model needs no load —
+    that is what "hosted" means — and one round trip. A cold local model needs
+    the load, which is the largest of the three by orders of magnitude.
+
+    What this deliberately does *not* claim is how long any of it takes. RAVIS
+    measures time-to-first-token per model in `HealthRegistry`, but only for
+    models it has actually called: a handful out of six hundred. Ranking a
+    catalogue on four samples would be the invented measurement §9.4 forbids,
+    so this ranks the *steps required*, which is knowable for every model.
+    """
+    if model in remote:
+        return _REMOTE_REACH
+    return residency_rank(residency.state_of(model))
+
+
+# Strictly between WARM (1) and COLD (2), which is the whole point and which the
+# first attempt got wrong: it was set to 2, tying with COLD, and reproduced the
+# exact conflation it was written to remove. A float rather than renumbering
+# `_RESIDENCY_RANK`, because those values mean something to the residency layer
+# and nothing here should redefine them.
+_REMOTE_REACH = 1.5
+
+# Where an unpriced model sorts in a cheap pool: last.
+#
+# **Not free.** Only OpenRouter and the local runtimes publish a price — OpenAI,
+# Google and Anthropic ship catalogues with no pricing at all — so treating
+# absence as zero would hand every cheap route to the providers that happen to
+# say least about themselves. Sorting unknown last is the fail-closed direction:
+# a model whose cost nobody stated is not chosen *for* its cost.
+_UNPRICED = float("inf")
+
+
+def _price_rank(known: ModelCapabilities | None) -> float:
+    """What a million tokens costs, or infinity when nobody published it."""
+    if known is None or known.price_per_million is None:
+        return _UNPRICED
+    return known.price_per_million
 
 
 def _selection_reason(

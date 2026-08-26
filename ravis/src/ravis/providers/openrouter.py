@@ -142,6 +142,36 @@ class OpenRouterAdapter(GenericOpenAiAdapter):
         return self._catalogue
 
 
+def _absorb_price(known: ModelCapabilities, pricing: Any) -> None:
+    """What a million tokens costs, from OpenRouter's own per-token figures.
+
+    Published as strings of dollars *per token* — `"0.0000004"` — which is
+    exact and unreadable, so it is scaled to a million and kept as a float.
+
+    **Prompt plus completion, summed.** Blending them by an assumed input/output
+    ratio would be inventing the shape of a workload nobody described; summing
+    them is a defined quantity — the cost of a million tokens in and a million
+    out — and it orders models the same way any fixed ratio would, which is all
+    a ranking needs.
+
+    A free model prices at `0.0`, and OpenRouter has hundreds of those. That is
+    the same zero a local model gets, which is correct: neither costs money per
+    token. What separates them afterwards is reach, not price.
+    """
+    if not isinstance(pricing, dict):
+        return
+    try:
+        prompt = float(pricing.get("prompt") or 0.0)
+        completion = float(pricing.get("completion") or 0.0)
+    except (TypeError, ValueError):
+        return
+    if prompt < 0 or completion < 0:
+        # OpenRouter uses -1 for "ask the provider". Not a price, and treating
+        # it as one would make those models the cheapest in the catalogue.
+        return
+    known.price_per_million = (prompt + completion) * 1_000_000
+
+
 def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
     """Fold one OpenRouter catalogue entry into what is known about the model."""
     supported = entry.get("supported_parameters")
@@ -169,6 +199,7 @@ def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
                     detail=f"OpenRouter lists {modality!r} among input modalities",
                 )
             )
+    _absorb_price(known, entry.get("pricing"))
     context = entry.get("context_length")
     # A context window is a *number*, not a claim, so it does not go through the
     # provenance ladder — and an unknown one fails every `minimum_context`,

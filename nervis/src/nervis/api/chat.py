@@ -331,6 +331,27 @@ def _note_turn(
     )
 
 
+# Generation parameters NERVIS passes through to RAVIS.
+#
+# **Only what actually travels.** RAVIS's transparent path forwards the body
+# verbatim, so anything here reaches the upstream and it is the upstream that
+# decides whether it understands it. The translated path is different: an
+# Anthropic request is normalised through a fixed shape carrying temperature and
+# a token ceiling, so the sampling knobs below are dropped there rather than
+# refused. That is worth knowing and is said on the screen — a parameter that
+# silently does nothing on one provider and works on another is the kind of
+# difference somebody spends an afternoon on.
+#
+# Still an allowlist rather than a passthrough. The body reaches a third party,
+# and forwarding whatever a page happened to put in it is how a field nobody
+# designed becomes part of the contract.
+FORWARDED = (
+    "temperature", "max_tokens", "top_p",
+    "top_k", "min_p", "frequency_penalty", "presence_penalty",
+    "repetition_penalty", "seed", "stop",
+)
+
+
 def _completion_payload(
     body: dict[str, Any], profile: str, prior: list[dict[str, str]], content: str
 ) -> dict[str, Any]:
@@ -351,5 +372,5 @@ def _completion_payload(
         "model": profile,
         "messages": messages,
         "stream": True,
-        **{name: body[name] for name in ("temperature", "max_tokens", "top_p") if name in body},
+        **{name: body[name] for name in FORWARDED if name in body},
     }

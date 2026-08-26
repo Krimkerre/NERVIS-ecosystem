@@ -127,6 +127,21 @@ class ModelCapabilities:
     claims: dict[Capability, CapabilityClaim] = field(default_factory=dict)
     context_window: int | None = None
     max_output_tokens: int | None = None
+    # What a million tokens through this model costs, in USD, prompt plus
+    # completion.
+    #
+    # A number rather than a claim, like `context_window` and for the same
+    # reason: it is not something a model can partially support, so the
+    # provenance ladder has nothing to arbitrate.
+    #
+    # **`0.0` and `None` are entirely different answers.** Zero is a fact about
+    # a model running on hardware already paid for — a local runtime charges
+    # nothing per token, and that is the single strongest argument a router has
+    # for preferring it. `None` means nobody published a price, which is the
+    # ordinary case for OpenAI, Google and Anthropic: their catalogues carry no
+    # pricing at all. Ranking must sort `None` *last* rather than treat it as
+    # free, or every unpriced model wins the cheap pool by being unmeasured.
+    price_per_million: float | None = None
 
     def state_of(self, capability: Capability) -> CapabilityState:
         """The believed state, defaulting to UNKNOWN.

@@ -105,6 +105,11 @@ class LmStudioAdapter(GenericOpenAiAdapter):
         entry = await self._describe(model)
         if entry is not None:
             _absorb(known, entry)
+        # Nothing per token. Not an estimate and not a default — a model
+        # running on hardware the operator already owns bills nothing for a
+        # token, and it is the strongest argument a router has for reaching
+        # here before reaching for a paid API.
+        known.price_per_million = 0.0
         apply_configured(known, self._configured.get(model, {}))
         return known
 

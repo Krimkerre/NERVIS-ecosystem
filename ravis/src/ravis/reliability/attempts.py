@@ -309,11 +309,20 @@ class AttemptChain:
             # only *considered* does not acquire a health record.
             provider = self.provider_for(candidate)
             if not self.health.allows(HealthScope.PROVIDER, provider):
-                refusal = self.health.refusal(HealthScope.PROVIDER, provider)
-                self._stopped = refusal
-                self._queue.clear()
-                self._attempts.append(Attempt(candidate, "skipped", refusal))
-                return None
+                # **Skip this candidate, not the chain.** This cleared the queue
+                # and returned None, so one provider's open circuit abandoned
+                # every remaining fallback — including candidates on entirely
+                # different providers, and including local ones that cost
+                # nothing and were never asked. A gateway whose whole job is to
+                # have somewhere else to go answered 502 with its alternatives
+                # unspent, which is the failure this layer exists to prevent.
+                #
+                # The model branch below already did the right thing. These two
+                # cases differ in which circuit opened, not in what should
+                # happen next.
+                skipped = self.health.refusal(HealthScope.PROVIDER, provider)
+                self._attempts.append(Attempt(candidate, "skipped", skipped))
+                continue
             if not self.health.allows(HealthScope.MODEL, candidate):
                 skipped = self.health.refusal(HealthScope.MODEL, candidate)
                 self._attempts.append(Attempt(candidate, "skipped", skipped))

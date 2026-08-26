@@ -85,6 +85,21 @@ class VirtualModelPool:
     description: str
     requirements: PoolRequirements = field(default_factory=PoolRequirements)
     prefer: tuple[str, ...] = ()
+    # §9.2's soft preferences, the two of them that had no implementation.
+    #
+    # The spec's soft column reads "prefer local · prefer fast · prefer cheap ·
+    # prefer already loaded". The last is residency and has worked since M5.
+    # These two were prose: `ravis/cheap` described itself as "Least monetary
+    # cost, preferring local models" and did neither — with an installed local
+    # model and a paid cloud one both eligible, it selected whichever sorted
+    # first alphabetically.
+    #
+    # **Opt-in per pool, never global.** An unconditional placement or price
+    # term would become the entire ordering for every pool that declares no
+    # preference, which is most of them — the same trap `size_rank` avoids by
+    # applying only where a pool actually declared what it wants.
+    prefer_local: bool = False
+    prefer_cheap: bool = False
     # Which size tier this pool takes by default: `small`, `mid`, `large`.
     #
     # **A declared default, not a measurement, and the difference is the whole
@@ -318,6 +333,13 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/cheap",
         label="Cheap",
         description="Least monetary cost, preferring local models",
+        # Both halves of its own description, which until now it implemented
+        # neither of. Price first: a local model prices at 0.0 and wins outright
+        # against anything paid, so "preferring local" mostly falls out of
+        # "least cost" — `prefer_local` decides the case where a cloud model is
+        # also free, and OpenRouter has hundreds of those.
+        prefer_cheap=True,
+        prefer_local=True,
     ),
     VirtualModelPool(
         pool_id="ravis/local",

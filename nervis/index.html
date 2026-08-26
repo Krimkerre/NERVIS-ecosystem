@@ -22,7 +22,15 @@
 /* Avatar slot stays in the same top-right position but swaps per top-level tab. */
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
-.map{height:230px;position:relative;display:grid;place-items:center}.hub,.node{position:absolute;border:1px solid var(--line);background:#0a1118;border-radius:7px;padding:8px 13px}.hub{color:var(--accent);border-color:var(--accent);z-index:2}.node:nth-of-type(2){top:15px}.node:nth-of-type(3){left:8%;bottom:18px}.node:nth-of-type(4){right:8%;bottom:18px}.node:nth-of-type(5){right:7%;top:15px}.map svg{position:absolute;inset:0;width:100%;height:100%}.map line{stroke:var(--accent);stroke-opacity:.55;stroke-dasharray:5 5;animation:flow 1.2s linear infinite}.event{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid #1c2630;font:10px/1.4 "SFMono-Regular",monospace;color:#8797a7}.event time{color:#566779}.event.new{animation:flash .8s}/* The chat card fills whatever is left below the page heading rather than
+.map{height:230px;position:relative;display:grid;place-items:center}
+/* The Overview draws the same topology in a narrow column, where a node's label
+   is a third of the card's width — at the shared radius the left and right
+   nodes landed on top of the hub. Smaller type and a wider horizontal spread,
+   applied only to the compact variant so the full-size map is untouched. */
+.map.compact .hub,.map.compact .node{padding:4px 7px;font-size:10px;line-height:1.3;
+  max-width:44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.map.compact .node b{font-weight:600}
+.hub,.node{position:absolute;border:1px solid var(--line);background:#0a1118;border-radius:7px;padding:8px 13px}.hub{color:var(--accent);border-color:var(--accent);z-index:2}.node:nth-of-type(2){top:15px}.node:nth-of-type(3){left:8%;bottom:18px}.node:nth-of-type(4){right:8%;bottom:18px}.node:nth-of-type(5){right:7%;top:15px}.map svg{position:absolute;inset:0;width:100%;height:100%}.map line{stroke:var(--accent);stroke-opacity:.55;stroke-dasharray:5 5;animation:flow 1.2s linear infinite}.event{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid #1c2630;font:10px/1.4 "SFMono-Regular",monospace;color:#8797a7}.event time{color:#566779}.event.new{animation:flash .8s}/* The chat card fills whatever is left below the page heading rather than
    stopping at a fixed 560px. A capped frame left dead space under it and made
    the transcript needlessly short — which the routing popover made obvious, as
    it had less room than the panel needed. `--chat-h` is set on render from the
@@ -377,6 +385,18 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    redefined: two blink rates on one screen reads as two different things
    happening. */
 .stream-caret{color:var(--accent);animation:mikuCaret .7s steps(1) infinite}
+/* The wait before the first token, which the caret could not express: a caret
+   blinking after "NERVIS" and nothing else reads as a finished empty answer.
+   Three dots read as "still coming", and the gap they fill is the longest part
+   of a cold local load or a reasoning model's first reply. */
+.typing-dots{display:inline-flex;gap:4px;align-items:center;height:1em;vertical-align:middle}
+.typing-dots i{width:5px;height:5px;border-radius:50%;background:var(--accent);opacity:.35;
+  animation:typingDot 1.1s ease-in-out infinite}
+.typing-dots i:nth-child(2){animation-delay:.16s}
+.typing-dots i:nth-child(3){animation-delay:.32s}
+@keyframes typingDot{0%,60%,100%{opacity:.28;transform:translateY(0)}
+  30%{opacity:1;transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){.typing-dots i{animation:none;opacity:.6}}
 
 /* ── SCREEN CORRUPTION ─────────────────────────────────────────────────────
    Fires once, on the one line where she loses containment. Nothing here filters
@@ -475,6 +495,12 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 /* Stacked in the drawer: four fields side by side in 340px is four unusable
    fields. The system prompt gets the room it needs. */
 .chat-drawer .param-grid{grid-template-columns:1fr;gap:10px}
+.chat-drawer .param-grid.adv{grid-template-columns:1fr 1fr;gap:8px}
+.adv-toggle{display:flex;align-items:center;gap:7px;margin:11px 0 4px;cursor:pointer;
+  font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--accent);opacity:.85}
+.adv-toggle input{accent-color:var(--accent)}
+.adv-toggle:hover{opacity:1}
 .chat-drawer .param-grid textarea{min-height:76px}
 /* The two openers, pinned to the chat card's top-right corner and **above the
    drawer**. They started inside the profile row, which wraps thirteen chips and
@@ -2660,7 +2686,7 @@ async function nervis(){
        live. Ollama never appeared at all, and a node stayed green for a service
        that had been down for an hour. -->
   <div class="card narrow live"><h3>Ecosystem map</h3>
-   ${topologyMap(ecosystemNodes(svc),210)}
+   ${topologyMap(ecosystemNodes(svc),230,true)}
    <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
   <div class="card wide live"><h3>Clarvis instances</h3>
    ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
@@ -2825,6 +2851,28 @@ async function diagnosticsView(){
    <div class="table-row"><span>${d.packet.includes.map(x=>'· '+x).join('<br>')}</span><span style="opacity:.7">${d.packet.excludes.map(x=>'· '+x).join('<br>')}</span></div>
    <small class="mono dim">${d.packet.size_kb} KB for trace ${d.packet.trace_id}. You see the exact contents before anything is sent, and <b>${d.packet.route}</b> keeps the analysis on this machine — sending a diagnostic packet is still sending your data somewhere.</small></div>`}
 
+/* Keep the newest message in view, without fighting the reader.
+ *
+ * Only scrolls when the view is already near the bottom. Someone who scrolled
+ * up to re-read an earlier answer is *doing something*, and yanking them back
+ * every time a token arrives would make a streaming reply impossible to read
+ * around. Near-bottom is the standard test for "following along", and the
+ * threshold is generous because a reply grows under the cursor: a strict
+ * `scrollTop + clientHeight === scrollHeight` stops matching the moment one
+ * more line lands.
+ */
+const CHAT_FOLLOW_PX = 120;
+
+function chatFollowing(box){
+ return box.scrollHeight - box.scrollTop - box.clientHeight <= CHAT_FOLLOW_PX;
+}
+
+function scrollChatToEnd(force){
+ const box=document.getElementById('messages');
+ if(!box)return;
+ if(force||chatFollowing(box))box.scrollTop=box.scrollHeight;
+}
+
 async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.','<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>');
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
     not inherit a Clarvis workspace, tools, gates, session or agent role — and every
@@ -2861,9 +2909,9 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
-     :`<div class="bubble"${m.pending?' id="streaming"':''}>${m.route_decision_id&&rd[m.route_decision_id]
+     :`<div class="bubble"${m.pending?' id="streaming"':''}>${m.pending?'':''}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}</div>`).join('')}
+        : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}${m.pending?pendingTail(m.text):''}</div>`).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${CHAT_SESSION.busy?'■':'➤'}</button></div>
   <small class="mono dim">No workspace, no tools, no file access — this is a model behind a router, and it is not a Clarvis session. Conversation <b>${conv.conversation_id}</b> is kept in this browser's local storage, listed under <b>History</b>, and can be deleted there; prompts are not sent to the trace collector.</small>
@@ -2911,7 +2959,10 @@ addEventListener('resize',()=>{if(document.querySelector('.card.chat'))sizeChat(
 function ecosystemNodes(svc){
  /* Nodes sit on a circle so the count can change without a layout rewrite. The
     inline position beats the `.node:nth-of-type` rules a fixed map relies on. */
- const pos=(i,n)=>{const a=(-90+i*360/n)*Math.PI/180;return{x:50+Math.cos(a)*33,y:50+Math.sin(a)*32}};
+ /* A wider horizontal radius than vertical. A node's label is far wider than
+    it is tall, so an even circle puts the left and right nodes into the hub
+    while leaving space above and below unused. */
+ const pos=(i,n)=>{const a=(-90+i*360/n)*Math.PI/180;return{x:50+Math.cos(a)*38,y:50+Math.sin(a)*32}};
  /* **LM Studio and Ollama are one node.** They are interchangeable local
     runtimes serving the same purpose, and this diagram answers "can NERVIS
     reach a local model", not "which of two ports is listening" — that question
@@ -2947,12 +2998,13 @@ function localDetail(up,missing){
 }
 
 /* The topology itself, at whatever height the card it sits in can spare. */
-function topologyMap(pts,height){
- return `<div class="map" style="height:${height}px">
+function topologyMap(pts,height,compact){
+ return `<div class="map${compact?' compact':''}" style="height:${height}px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
     <div class="hub">NERVIS</div>
     ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${escapeHtml(n.label)}</b></div>`).join('')}
    </div>`;
+ scrollChatToEnd(true);
 }
 
 async function mapView(){
@@ -4317,7 +4369,7 @@ const POOLEDIT={
   const st=this.state[key];
   if(!st)return;
   const list=document.getElementById('pml-'+key);
-  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  const shown=this.matching(key);
   if(shown.length)list.innerHTML=shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}${st.tier[id]?' \u00b7 '+st.tier[id]:''}">
     <input type="checkbox"${st.on.has(id)?' checked':''}
       onchange="POOLEDIT.tick('${escapeHtml(key)}','${escapeHtml(id).replace(/'/g,'&#39;')}',this.checked)">
@@ -4326,11 +4378,28 @@ const POOLEDIT={
   this.count(key);
  },
 
+ /* What the search box selects.
+    Matches the model id, and also the words describing *where and what* it is —
+    `local`, `remote`, `cloud`, and the size tier. A model id says nothing about
+    placement, so filtering six hundred of them for "the ones on my machine" was
+    impossible until now: the facts existed on every row as a badge and could
+    not be searched for. */
+ matching(key){
+  const st=this.state[key];
+  if(!st)return[];
+  if(!st.q)return st.all;
+  return st.all.filter(id=>{
+   if(id.toLowerCase().includes(st.q))return true;
+   const placement=st.remote.has(id)?'remote cloud api':'local on-machine';
+   return (placement+' '+(st.tier[id]||'')).includes(st.q);
+  });
+ },
+
  count(key){
   const st=this.state[key];
   const node=document.getElementById('pmc-'+key);
   if(!st||!node)return;
-  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  const shown=this.matching(key);
   /* Says how many of the *eligible* models are chosen, never how many of the
      search results — the second number changes meaning with the search box. */
   node.textContent=`${st.on.size} of ${st.all.length} chosen`+(st.q?` · ${shown.length} shown`:'');
@@ -4353,7 +4422,7 @@ const POOLEDIT={
  checkAll(key,on){
   const st=this.state[key];
   if(!st)return;
-  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  const shown=this.matching(key);
   for(const id of shown){if(on)st.on.add(id); else st.on.delete(id)}
   this.render(key);
  },
@@ -4853,11 +4922,22 @@ const PROVIDERS={
   this.render(name);
  },
 
+ /* The search box matches the model id and the provider's own name, so
+    "openrouter" narrows to that provider's rows even though its ids do not all
+    carry the word. */
+ matching(name){
+  const st=this.picked[name];
+  if(!st)return[];
+  if(!st.q)return st.all;
+  return st.all.filter(id=>id.toLowerCase().includes(st.q)
+    || name.toLowerCase().includes(st.q));
+ },
+
  render(name){
   const st=this.picked[name];
   if(!st)return;
   const list=document.getElementById('mfl-'+name);
-  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  const shown=this.matching(name);
   list.innerHTML=shown.length
    ?shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}">
      <input type="checkbox"${st.on.has(id)?' checked':''}
@@ -4878,7 +4958,7 @@ const PROVIDERS={
   if(!st)return;
   if(on)st.on.add(id); else st.on.delete(id);
   document.getElementById('mfc-'+name).textContent=
-    `${st.on.size} of ${st.all.length} selected`+(st.q?` \u00b7 ${(st.q?st.all.filter(m=>m.toLowerCase().includes(st.q)):st.all).length} shown`:'');
+    `${st.on.size} of ${st.all.length} selected`+(st.q?` \u00b7 ${this.matching(name).length} shown`:'');
  },
 
  search(name,q){
@@ -4894,7 +4974,7 @@ const PROVIDERS={
  checkAll(name,on){
   const st=this.picked[name];
   if(!st)return;
-  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  const shown=this.matching(name);
   for(const id of shown){if(on)st.on.add(id); else st.on.delete(id)}
   this.render(name);
  },
@@ -5022,6 +5102,20 @@ const CHAT_SESSION={
  temperature:'',
  max_tokens:'',
  top_p:'',
+ /* The sampling knobs LM Studio exposes, kept unset for the same reason as the
+    three above: an omitted parameter lets the model and the runtime apply their
+    own, and sending a common default would override a deliberate choice made
+    elsewhere. Only what is filled in gets sent. */
+ top_k:'',
+ min_p:'',
+ frequency_penalty:'',
+ presence_penalty:'',
+ repetition_penalty:'',
+ seed:'',
+ stop:'',
+ /* Whether the advanced block is unfolded. Not a parameter — it changes what is
+    visible and nothing about the request. */
+ advanced:false,
  busy:false};
 
 const CHAT_SESSIONS={
@@ -5145,20 +5239,30 @@ const MODELPICK={
      items:(profiles.items||[]).map(p=>({id:p.profile_id,label:p.profile_id,
        note:p.default?'default':''}))});
   }
-  let creds={items:[]};
+  /* **Upstreams, not credentials.** This listed only providers with a stored
+     key, so LM Studio and Ollama never appeared — a local runtime needs no
+     credential, which meant the one place to pick a model offered every cloud
+     model and none of the twenty on the machine. `/api/v1/providers` lists
+     every declared upstream and says which are local. */
+  let providers={items:[]};
   try{
-   const r=await fetch(BASE.ravis+'/api/v1/providers/credentials',
+   const r=await fetch(BASE.ravis+'/api/v1/providers',
      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-   if(r.ok)creds=await r.json();
+   if(r.ok)providers=await r.json();
   }catch(e){}
-  /* Only providers that are both reachable and keyed. A row for a provider that
-     cannot answer is an invitation to pick a model and get a refusal. */
-  const usable=(creds.items||[]).filter(c=>c.routable&&c.configured);
+  /* Enabled, and either local or holding a credential. A row for a provider
+     that cannot answer is an invitation to pick a model and get a refusal. */
+  const usable=(providers.items||[]).filter(
+    c=>c.enabled!==false&&(c.local||c.credential_configured));
   for(const provider of usable){
    const ids=await this.catalogue(provider.name);
-   if(ids.length)groups.push({name:provider.label||provider.name,
-     hint:`pinned to this provider · ${ids.length} model(s) pass its filter`,
-     items:ids.map(id=>({id:`ravis/${provider.name}/${id}`,label:id,note:''}))});
+   if(!ids.length)continue;
+   groups.push({name:provider.label||provider.name, local:Boolean(provider.local),
+     hint:provider.local
+       ? `on this machine · ${ids.length} model(s) · nothing leaves the machine and nothing is billed`
+       : `pinned to this provider · ${ids.length} model(s) pass its filter`,
+     items:ids.map(id=>({id:`ravis/${provider.name}/${id}`,label:id,
+       note:provider.local?'local':''}))});
   }
   this.state={groups,q:''};
   this.render();
@@ -5188,8 +5292,15 @@ const MODELPICK={
   if(!list||!this.state)return;
   const q=this.state.q;
   const current=CHAT_SESSION.profile;
+  /* Matches the model, the group it is in, and where it runs — so `local`
+     finds the on-machine models and `openai` finds that provider's, neither of
+     which every id spells out. */
+  const hit=(g,i)=>!q || i.label.toLowerCase().includes(q)
+    || g.name.toLowerCase().includes(q)
+    || (g.name==='RAVIS pools'?'pool':'remote cloud api').includes(q)
+    || (g.local?'local on-machine':'').includes(q);
   const shown=this.state.groups
-    .map(g=>({...g,items:q?g.items.filter(i=>i.label.toLowerCase().includes(q)):g.items}))
+    .map(g=>({...g,items:g.items.filter(i=>hit(g,i))}))
     .filter(g=>g.items.length);
   if(!shown.length){list.innerHTML='<div class="picker-empty">nothing matches that.</div>';return}
   list.innerHTML=shown.map(g=>`<div class="pick-group"><b>${escapeHtml(g.name)}</b>
@@ -5268,9 +5379,41 @@ function chatDrawerMarkup(){
        value="${escapeHtml(String(CHAT_SESSION.top_p))}"
        oninput="CHAT_SESSION.top_p=this.value"></label>
    </div>
+   <label class="adv-toggle"><input type="checkbox"${CHAT_SESSION.advanced?' checked':''}
+     onchange="CHAT_SESSION.advanced=this.checked;render()"> Advanced sampling</label>
+   ${CHAT_SESSION.advanced?`<div class="param-grid adv">
+    ${ADVANCED_PARAMS.map(p=>`<label>${p.label}
+     <input class="mono" inputmode="${p.mode||'decimal'}" placeholder="${escapeHtml(p.hint)}"
+       value="${escapeHtml(String(CHAT_SESSION[p.key]))}"
+       oninput="CHAT_SESSION['${p.key}']=this.value" title="${escapeHtml(p.help)}"></label>`).join('')}
+    <label style="grid-column:1/-1">Stop sequences
+     <input class="mono" placeholder="comma separated — empty sends none"
+       value="${escapeHtml(String(CHAT_SESSION.stop))}"
+       oninput="CHAT_SESSION.stop=this.value"></label>
+   </div>
+   <small class="mono dim">these are the knobs <b>LM Studio</b> exposes, and they travel to any provider RAVIS reaches <b>transparently</b> — every local runtime, OpenAI, Google and OpenRouter — where the upstream itself decides whether it understands each one. <b>Anthropic is the exception</b>: it is reached through a translating adapter that normalises a request to a fixed shape, so the sampling knobs are dropped there rather than refused. A parameter that works on one provider and quietly does nothing on another is worth knowing about before you spend an afternoon on it.</small>`:''}
    <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would be this page inventing a choice nobody made.</small>`}
    </div></aside>`;
 }
+
+/* The sampling parameters behind the Advanced toggle, modelled on LM Studio's
+   own set. Data rather than markup so the form, the session and the request
+   body stay one list — adding a knob used to be three edits, and the one that
+   got forgotten produced a control that visibly did nothing. */
+const ADVANCED_PARAMS=[
+ {key:'top_k',label:'Top&nbsp;k',mode:'numeric',hint:'model default',
+  help:'Sample only from the k most likely tokens. Lower is more focused.'},
+ {key:'min_p',label:'Min&nbsp;p',hint:'model default',
+  help:'Drop tokens below this fraction of the most likely one. An alternative to top-p.'},
+ {key:'frequency_penalty',label:'Frequency penalty',hint:'model default',
+  help:'Discourage repeating a token in proportion to how often it has appeared.'},
+ {key:'presence_penalty',label:'Presence penalty',hint:'model default',
+  help:'Discourage repeating any token that has appeared at all.'},
+ {key:'repetition_penalty',label:'Repetition penalty',hint:'model default',
+  help:'The local-runtime spelling of the same idea. Not an OpenAI parameter.'},
+ {key:'seed',label:'Seed',mode:'numeric',hint:'random each time',
+  help:'Ask for a reproducible sample. Honoured by some providers and ignored by others.'},
+];
 
 function chatDrawer(pane){
  CHAT_SESSION.drawer = CHAT_SESSION.drawer===pane ? null : pane;
@@ -5307,6 +5450,23 @@ async function chatDecision(id){
  }catch(e){return null}
 }
 
+/* Every numeric generation parameter, in the order the drawer shows them.
+   One list rather than a call per field: adding a knob was three edits — the
+   session, the form and the body builder — and the third was the one that got
+   forgotten, which produces a control that visibly does nothing. */
+/* What a bubble shows while it is still waiting.
+   Dots until the first token arrives, then the text with a caret after it —
+   two different statements, and the caret alone made the first look like the
+   second. */
+function pendingTail(text){
+ if(!CHAT_SESSION.busy)return '';
+ return text ? '<span class="stream-caret">▌</span>'
+   : '<span class="typing-dots" aria-label="waiting for a reply"><i></i><i></i><i></i></span>';
+}
+
+const CHAT_NUMERIC=['temperature','max_tokens','top_p','top_k','min_p',
+  'frequency_penalty','presence_penalty','repetition_penalty','seed'];
+
 function chatRequestBody(conversationId){
  /* Built from what is set, and nothing else. An empty box means the field is
     omitted from the request entirely rather than sent as null or as a default
@@ -5327,9 +5487,13 @@ function chatRequestBody(conversationId){
  if(system)body.system=system;
  const num=(v,key)=>{const t=String(v).trim();if(t==='')return;
    const n=Number(t);if(Number.isFinite(n))body[key]=n};
- num(c.temperature,'temperature');
- num(c.max_tokens,'max_tokens');
- num(c.top_p,'top_p');
+ for(const key of CHAT_NUMERIC)num(c[key],key);
+ /* Stop sequences are a list on the wire and a comma-separated line in the box,
+    because typing JSON into a settings field is not a settings field. Empty
+    entries are dropped rather than sent as `""`, which every provider treats as
+    "stop immediately". */
+ const stops=String(c.stop||'').split(',').map(t=>t.trim()).filter(Boolean);
+ if(stops.length)body.stop=stops;
  return body;
 }
 
@@ -5459,7 +5623,7 @@ async function streamReply(stop){
    conversationId:CHAT_SESSION.remote_id||'',reasoning:0,failed:'',aborted:false};
  const node=()=>document.getElementById('streaming');
  const paint=()=>{const el=node();if(el)el.innerHTML='<b>NERVIS</b><br>'+escapeHtml(acc.reply)+
-   (CHAT_SESSION.busy?'<span class="stream-caret">▌</span>':'')};
+   pendingTail(acc.reply);scrollChatToEnd()};
  try{
   const r=await fetch(BASE.nervis+'/api/v1/chat',{
    method:'POST',headers:{'content-type':'application/json'},signal:stop.signal,
