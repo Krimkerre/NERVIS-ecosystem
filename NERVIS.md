@@ -847,7 +847,8 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M2** | Service registry — health model, registry, RAVIS/SIRVIS/LM Studio/Ollama probes, capability negotiation | Each service shows state independently; an offline service never breaks the page; health timeouts are bounded; status changes update live; spoofing, duplicate, stale, auth and version tests pass |
 | **M3** | RAVIS integration — health, providers, models, routes, usage, sessions | NERVIS inspects RAVIS **without touching its DB**; provider health and recent routes visible; the RAVIS-unavailable state works |
 | **M4** | General chat — RAVIS-backed, streaming, history, mode selector, route inspector | `ravis/auto` chat works; streaming works; route details correspond to the real RAVIS decision; history persists locally; a RAVIS outage produces a clear error; **a NERVIS session never appears as a Clarvis session**; title generation is marked as a background call |
-| **M5** | SIRVIS integration — models, benchmark queue, results, system, recommendations | Existing SIRVIS results appear; a benchmark launches through the SIRVIS API; progress streams live; **no benchmark business logic exists in NERVIS**; provenance renders correctly |
+| **M5a** | SIRVIS integration, read half — models, results, system, Runtime Sets, evidence, recommendations | Existing SIRVIS results appear; **no benchmark business logic exists in NERVIS**; provenance renders correctly |
+| **M5b** | SIRVIS integration, launch half — benchmark submit, cancel, live progress. **Blocked on SIRVIS M14**, which owns the job queue: `sirvis.benchmarks.jobs@1` is advertised *unavailable* and §1 forbids inventing the endpoint | A benchmark launches through the SIRVIS API; progress streams live |
 | **M6** | Event hub — envelope, ingestion, SSE broadcast, bounded persistence, filters | Events appear live; RAVIS events ingest; retention is enforced; **an invalid event cannot crash the hub** |
 | **M7** | Distributed tracing — trace IDs, correlation, timeline | One RAVIS request forms a trace; multiple events correlate; missing spans render gracefully; filters work |
 | **M8** | Clarvis Bridge integration — health, workspace state, mode, busy, agent/task events, gate state | Clarvis still works without NERVIS; connect/disconnect is safe; **no file contents or provider secrets are sent**; existing Clarvis safety behaviour unchanged |
@@ -871,7 +872,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | Stage 0 — baseline and invariant lock | Before M3 — every conceptual peer call is `REAL CONTRACT`, `LABELLED TEST DOUBLE`, `DEFERRED` or `STOP`; **no invented endpoint remains** |
 | Stage 0 — baseline and invariant lock | M0 (foundation), and the contract-replacement audit below |
 | Stage 1 — shared protocol | M0's own `/ecosystem/*` server surface; M2 supplies the client half and the registry at Stage 6 |
-| Stage 6 — NERVIS core | M1 + M2 (dashboard, degradation and the registry), M3 + M4 (RAVIS views and chat), M5 (SIRVIS views and control), M11 (API inspector), M16 (supervision) |
+| Stage 6 — NERVIS core | M1 + M2 (dashboard, degradation and the registry), M3 + M4 (RAVIS views and chat), M5a (SIRVIS views; M5b's control half waits on SIRVIS M14), M11 (API inspector), M16 (supervision) |
 | Stage 7 — events and tracing | M6 + M7 + M10 + M12 (AI diagnostics — §11.5's fencing rule is part of its exit) |
 | Stage 8 — Clarvis Bridge | M8 + M9 + M17 — M17's exit requires a Clarvis → RAVIS → provider trace, and the runbook is explicit that Clarvis joins at Stage 8. Its Stage 7 half (RAVIS → provider correlation) may land earlier; the Clarvis leg cannot |
 | Stage 9 — code-server compatibility and the Code tab | M13 + M14 + M15 |

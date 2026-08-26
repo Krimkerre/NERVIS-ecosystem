@@ -783,11 +783,18 @@ function absorbRegistry(d){
    `data` is null on every failure and never an empty list, because an empty
    list means *RAVIS has none of these* and confusing the two is how a screen
    renders a confident zero over an outage. */
-async function ravisRead(surface,params){
- const q=new URLSearchParams(params||{}).toString();
+async function peerRead(service,surface,params,method){
+ const q=method==='POST'?'':new URLSearchParams(params||{}).toString();
  try{
-  const r=await fetch(BASE.nervis+'/api/v1/ravis/'+surface+(q?'?'+q:''),
-    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  const r=await fetch(BASE.nervis+'/api/v1/'+service+'/'+surface+(q?'?'+q:''),
+    method==='POST'
+      /* Thirty seconds for a POST, against the ordinary 1.5. The only POST
+         surface is §14.3's recommendation, which reads every evidence record
+         for the roles asked about — slow enough that the read timeout would
+         abort a working call. */
+      ? {method:'POST',headers:{'content-type':'application/json'},
+         body:JSON.stringify(params||{}),signal:AbortSignal.timeout(30000)}
+      : {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
   if(!r.ok)throw new Error('HTTP '+r.status);
   return await r.json();
  }catch(e){
@@ -798,6 +805,13 @@ async function ravisRead(surface,params){
          reason:'NERVIS is not answering, so nothing negotiated this read'};
  }
 }
+
+/* The two peers, spelled the way each screen reads best. One implementation,
+   because a second copy of the envelope handling would drift and a screen would
+   then need to know which service it was talking to in order to read a
+   failure. */
+const ravisRead=(surface,params)=>peerRead('ravis',surface,params);
+const sirvisRead=(surface,params,method)=>peerRead('sirvis',surface,params,method);
 
 async function live(service,path,mock,adapt){
  try{
@@ -1326,8 +1340,8 @@ const API={
       null one crashed the screen, which is how this was found. */
    let runtimes=[];
    try{
-    const r=await fetch(BASE.sirvis+'/api/v1/runtimes',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(r.ok)runtimes=((await r.json()).items||[]).map(x=>({
+    const read=await sirvisRead('runtimes');
+    if(read.available)runtimes=((read.data.items)||[]).map(x=>({
       name:x.runtime_key,
       version:x.version||`${x.model_count} builds · ${x.state}`}));
    }catch(e){runtimes=[]}
@@ -1408,12 +1422,14 @@ const API={
      computed. */
   async recommendations(){
    try{
-    const r=await fetch(BASE.sirvis+'/api/v1/recommendations',{
-      method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({profile:'clarvis',roles:['clarvis-chat','clarvis-agent'],mode:'verified'}),
-      signal:AbortSignal.timeout(4000)});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const d=await r.json();
+    /* Through NERVIS since M5, which negotiates `sirvis.recommendations` before
+       calling. The four-second timeout became thirty in `peerRead`: this reads
+       every evidence record for the roles asked about, and the read timeout was
+       aborting calls that were working. */
+    const read=await sirvisRead('recommendations',
+      {profile:'clarvis',roles:['clarvis-chat','clarvis-agent'],mode:'verified'},'POST');
+    if(!read.available)throw new Error(read.reason);
+    const d=read.data;
     SOURCE.sirvis='live';
     const ranked=Object.entries(d.roles).filter(([,u])=>u).map(([role,u],i)=>({
       rank:i+1,target:u.runtime_key,role,
@@ -3026,10 +3042,14 @@ const BUILD={
   this.current={localId,variantId};
   this.paint('<small class="mono dim">reading…</small>');
   const [detail,evidence,residency]=await Promise.all([
+   /* Still direct: `/api/v1/models/{id}` is not one of §9's declared surfaces,
+      and adding a NERVIS route for it to save one cross-origin call would be
+      inventing a surface the specification does not list. Its failure is
+      already tolerated below. */
    fetch(BASE.sirvis+'/api/v1/models/'+encodeURIComponent(localId)).then(r=>r.ok?r.json():null).catch(()=>null),
-   variantId?fetch(BASE.sirvis+'/api/v1/evidence?limit=200&variant='+encodeURIComponent(variantId))
+   variantId?sirvisRead('evidence',{limit:200,variant:variantId}).then(x=>({ok:x.available,json:()=>x.data}))
      .then(r=>r.ok?r.json():null).catch(()=>null):Promise.resolve(null),
-   fetch(BASE.sirvis+'/api/v1/runtime/residency').then(r=>r.ok?r.json():null).catch(()=>null)]);
+   sirvisRead('residency').then(x=>x.available?x.data:null)]);
   if(!detail)return this.paint('<small class="mono dim">SIRVIS did not answer for this build.</small>');
   this.paint(this.render(detail,evidence,residency));
  },

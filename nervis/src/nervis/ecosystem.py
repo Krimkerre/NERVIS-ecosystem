@@ -67,10 +67,17 @@ DECLARED: dict[str, Capability] = {
         reason="chat, streaming, history and the route inspector are served; "
         "generated titles wait for RAVIS to honour §9.6.1's background marker",
     ),
+    # Degraded, and the missing half is named. §9's read surfaces are served —
+    # inventory, state, Runtime Sets, results, evidence, recommendations, with
+    # provenance passed through untouched. What M5's exit also asks for is a
+    # benchmark launching and its progress streaming, and SIRVIS advertises
+    # `sirvis.benchmarks.jobs@1` as unavailable because submit/poll/cancel lands
+    # with its queue at M14. §1 forbids inventing the endpoint to get there.
     "nervis.sirvis_views@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the SIRVIS views land at M5",
+        state=DEGRADED,
+        reason="§9's read surfaces are served with provenance intact; "
+        "launching and streaming a benchmark waits for SIRVIS M14's job queue",
     ),
     "nervis.clarvis_visibility@1": Capability(
         version="1.0.0",

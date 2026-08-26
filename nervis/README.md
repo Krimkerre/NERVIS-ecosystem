@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0 – M4)
+## The service (M0 – M5a)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -100,7 +100,20 @@ conversation is a smaller failure than a title billed to a frontier model.
 a test asserts none of them appear in the body sent to RAVIS — because the
 absence is the feature, and an absence is the one thing a reader cannot see.
 
-`/api/v1` has `health`, `settings`, `system`, `services`, `ravis` and `chat`.
+**M5a** adds `/api/v1/sirvis/{surface}` — §9's reads: machine, models, runtimes,
+residency, Runtime Sets, benchmark runs, evidence and recommendations. **Nothing
+is reshaped on the way through**, which is how §9's rule is kept: preserving
+`MEASURED`, `ESTIMATED`, `UNKNOWN`, timestamps, staleness, method, sample count,
+units and evidence links is easiest when the code is in no position to drop
+them. No benchmark logic lives here.
+
+**M5b is blocked**, and the `jobs` surface is listed so the block is visible
+rather than inferred: launching a benchmark and streaming its progress need
+`sirvis.benchmarks.jobs@1`, which SIRVIS advertises as *unavailable* until its
+M14 queue exists — and §1 forbids inventing the endpoint.
+
+`/api/v1` has `health`, `settings`, `system`, `services`, `ravis`, `sirvis` and
+`chat`.
 §14's other three paths arrive with the milestones that own them, because a stub
 returning plausible data is §4.1's prohibition one layer up.
 

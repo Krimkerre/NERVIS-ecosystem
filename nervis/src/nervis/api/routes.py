@@ -7,7 +7,8 @@
 - `/api/v1/settings` — the key/value store M0's migration creates.
 - `/api/v1/system` — M1's live telemetry for the machine NERVIS runs on.
 - `/api/v1/services` — M2's registry, and the operations negotiated from it.
-- `/api/v1/ravis/{surface}` — M3's negotiated reads of RAVIS (§8).
+- `/api/v1/{peer}/{surface}` — negotiated reads of RAVIS (§8, M3) and
+  SIRVIS (§9, M5).
 
 The other four arrive with the milestones that own them. A stub returning
 plausible data would be §4.1's exact prohibition one layer up, and the two
@@ -26,6 +27,8 @@ from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
 from nervis.peers import ravis as ravis_peer
+from nervis.peers import sirvis as sirvis_peer
+from nervis.peers.reader import read as peer_read
 from nervis.telemetry import sample_system
 
 router = APIRouter(prefix="/api/v1", tags=["nervis"])
@@ -195,16 +198,33 @@ async def read_service(key: str, request: Request) -> dict[str, Any]:
     }
 
 
-@router.get("/ravis")
-async def read_ravis_surfaces(request: Request) -> dict[str, Any]:
-    """What NERVIS can read from RAVIS right now, without reading any of it.
+# The two peers NERVIS reads, and where each one's table lives. A dictionary
+# rather than two pairs of handlers: the gating, the envelope and the 404 that
+# names its alternatives are identical, and the only thing that differs is which
+# table is consulted.
+PEERS = {
+    ravis_peer.SERVICE: ravis_peer,
+    sirvis_peer.SERVICE: sirvis_peer,
+}
 
-    An index rather than a fan-out. Reading all seven surfaces to answer "which
-    are available" would make the cheapest question on the screen the most
-    expensive call on the service — and the answer is already known from the
-    registry, which was probed on a timer.
+
+def _peer(service: str) -> Any:
+    peer = PEERS.get(service)
+    if peer is None:
+        raise NotFoundError(f"no peer {service!r}", known=sorted(PEERS))
+    return peer
+
+
+async def _read_peer_surfaces(service: str, request: Request) -> dict[str, Any]:
+    """What NERVIS can read from one peer right now, without reading any of it.
+
+    An index rather than a fan-out. Reading every surface to answer "which are
+    available" would make the cheapest question on the screen the most expensive
+    call on the service — and the answer is already known from the registry,
+    which was probed on a timer.
     """
-    entry = request.app.state.registry.get("ravis")
+    peer = _peer(service)
+    entry = request.app.state.registry.get(service)
     return {
         "service": entry.as_dict() if entry else None,
         "surfaces": [
@@ -213,51 +233,89 @@ async def read_ravis_surfaces(request: Request) -> dict[str, Any]:
                 "label": surface.label,
                 "capability": surface.capability,
                 "path": surface.path,
+                "method": surface.method,
                 **negotiate(
-                    Operation(surface.key, "ravis", surface.capability, surface.label), entry
+                    Operation(surface.key, service, surface.capability, surface.label), entry
                 ).as_dict(),
             }
-            for surface in ravis_peer.SURFACES
+            for surface in peer.SURFACES
         ],
     }
 
 
-@router.get("/ravis/{surface}")
-async def read_ravis(surface: str, request: Request) -> dict[str, Any]:
-    """One negotiated read of one RAVIS surface (§8, M3).
+async def _read_peer(service: str, surface: str, request: Request) -> dict[str, Any]:
+    """One negotiated read of one peer surface (§8, §9).
 
-    **Never RAVIS's database.** `peers/ravis.py` holds a base URL and an HTTP
-    client and nothing else, so there is no path by which this could open
-    `ravis.db` — the guarantee is structural rather than promised.
+    **Never a peer's database.** `reader.py` holds a base URL and an HTTP client
+    and nothing else, so there is no path by which this could open `ravis.db` or
+    `sirvis.db` — the guarantee is structural rather than promised.
 
-    Query parameters are forwarded, which is what makes `?limit=` on route
-    decisions work without NERVIS re-implementing RAVIS's paging. The
-    `X-Request-ID` travels too, so one click produces one id in three logs
-    (§4.3).
+    **Nothing is reshaped on the way through.** §9 requires views to preserve
+    `MEASURED`, `ESTIMATED`, `UNKNOWN`, timestamps, staleness, method, sample
+    count, units and evidence links; the surest way to preserve them is to be in
+    no position to drop them. The body a peer sent is the body a caller gets.
+
+    Both verbs, because §14.3's recommendation is a POST — its inputs are a body
+    and its result is generated rather than stored. It still reads nothing and
+    changes nothing.
     """
-    known = ravis_peer.BY_KEY.get(surface)
+    peer = _peer(service)
+    known = peer.BY_KEY.get(surface)
     if known is None:
         raise NotFoundError(
-            f"no RAVIS surface {surface!r}",
-            known=sorted(ravis_peer.BY_KEY),
+            f"no {service} surface {surface!r}",
+            known=sorted(peer.BY_KEY),
         )
-    result = await ravis_peer.read(
+    parameters: dict[str, Any] = dict(request.query_params)
+    if known.method != "GET":
+        parameters = await _json_body(request) if await request.body() else {}
+    result = await peer_read(
         request.app.state.probe_client,
-        request.app.state.registry.get("ravis"),
+        request.app.state.registry.get(service),
         known,
-        params=dict(request.query_params),
+        service=service,
+        params=parameters,
         request_id=getattr(request.state, "request_id", ""),
     )
     return result.as_dict()
+
+
+# **Registered per peer rather than as `/{service}`.** A wildcard segment at
+# `/api/v1/{service}` matches everything under `/api/v1` — it swallowed
+# `/api/v1/chat/conversations` the moment it existed, because the chat router is
+# included after this one. Two literal paths cost two lines and cannot shadow a
+# sibling that has not been written yet.
+def _peer_routes(service: str) -> None:
+    """Register one peer's two paths with the service closed over.
+
+    A closure rather than a `service` parameter on the handler: FastAPI reads
+    any argument not in the path as a *query* parameter, so a shared handler
+    taking `service` answered 422 asking for it in the query string.
+    """
+
+    async def index(request: Request) -> dict[str, Any]:
+        return await _read_peer_surfaces(service, request)
+
+    async def surface(surface: str, request: Request) -> dict[str, Any]:
+        return await _read_peer(service, surface, request)
+
+    router.add_api_route(f"/{service}", index, methods=["GET"], name=f"read_{service}_surfaces")
+    router.add_api_route(
+        f"/{service}/{{surface}}", surface, methods=["GET", "POST"], name=f"read_{service}"
+    )
+
+
+for _service in PEERS:
+    _peer_routes(_service)
 
 
 @router.get("/ravis/routes/for/{request_id}")
 async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]:
     """The route decision behind one request (§7.1).
 
-    Its own path rather than a query parameter on `/ravis/routes`, because it
-    answers a different question — *why did this reply choose that model* — and
-    returns one decision or nothing rather than a page.
+    Its own path rather than a query parameter, because it answers a different
+    question — *why did this reply choose that model* — and returns one decision
+    or nothing rather than a page.
 
     A miss is `null` and a 200, not a 404. RAVIS holds decisions in memory, so a
     restart legitimately loses them, and a chat screen asking about an older

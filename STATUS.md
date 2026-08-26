@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1019 tests, no network, no live service
+.venv/bin/pytest                      # part of 1028 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 120 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 129 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1019 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1028 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4513,6 +4513,87 @@ It is the third variant of one mistake: a screen mixing a live read with the
 hard-coded map beside it. The row has carried its own state since M2, and now
 this chip reads it. The registry row shape was also dropping the two new flags
 before the map ever saw them, which is why the fix took two passes.
+
+## NERVIS M5a — reading SIRVIS, and the half that cannot be built
+
+M5's exit has five clauses. Three are met: existing results appear, provenance
+renders correctly, and **no benchmark business logic exists in NERVIS**. Two are
+not, and could only be met by breaking a rule:
+
+> a benchmark launches through the SIRVIS API; progress streams live
+
+Both need `sirvis.benchmarks.jobs@1`, which SIRVIS advertises as **unavailable**
+because submit/poll/cancel lands with its queue at M14 — and §1 forbids
+inventing another component's endpoint to get there sooner. Split into **M5a**
+(shipped) and **M5b** (blocked on SIRVIS M14), with the block written into the
+build plan rather than left as a gap somebody rediscovers.
+
+The `jobs` surface is **listed and refuses**, which is how planned-and-absent
+shows itself:
+
+```text
+GET /api/v1/sirvis/jobs
+  available: false
+  reason:    SIRVIS reports sirvis.benchmarks.jobs as unavailable
+```
+
+`nervis.sirvis_views@1` is `degraded` and names which half is missing.
+
+### §9's requirement is met by being unable to break it
+
+> Never display `Model X: 93`. Display build, runtime, role, run count, median,
+> spread, runtime config.
+
+Nothing in the read path reshapes a body. Not a style choice — the surest way to
+preserve `MEASURED`, `ESTIMATED`, `UNKNOWN`, timestamps, staleness, method,
+sample count, units and evidence links is to be in no position to drop them. The
+test asserts **equality with what SIRVIS sent**, rather than checking fields one
+by one, because a field-by-field test only protects the fields somebody thought
+of.
+
+Live, through NERVIS:
+
+```text
+evidence_type   MEASURED
+target          {"format":"mlx","model_family":"qwen3-4b-2507","quantization":"4bit",…}
+metric          generation_tokens_per_second → median 49.1 · mean 49.2 · max 49.9
+                samples 5 · units tokens/second · direction higher
+21 fields preserved
+```
+
+And on the Recommendations screen: *"1 · qwen/qwen3-4b-2507 · MEASURED ·
+clarvis-chat · fit UNKNOWN · score 1 **on 50% of the profile**"*, with
+exclusions carrying their reasons. A bare score would be §9's forbidden line.
+
+### One reader, two peers
+
+`nervis/src/nervis/peers/ravis.py` was a full implementation; adding a
+SIRVIS peer beside it
+would have been a second copy of the gating, the envelope and the timeout —
+which drift, and which would then make a screen need to know *which* peer it was
+talking to in order to read a failure. The shared half moved to
+`nervis/src/nervis/peers/reader.py`; each peer file is now a table of what
+exists.
+
+`recommendations` is the only POST, and it stays in the read-only module: §14.3
+makes it a POST because its inputs are a body and its result is generated rather
+than stored, but it reads nothing and changes nothing.
+
+### Two things the wiring found
+
+**A wildcard route swallowed the chat router.** `/api/v1/{service}` matches
+everything under `/api/v1`, so `/api/v1/chat/conversations` resolved to "peer
+`chat`, surface `conversations`" and 404'd — caught by an M4 test, not by
+anything in M5. Two literal paths per peer cost two lines and cannot shadow a
+sibling that has not been written yet. Pinned by a test.
+
+**A shared handler taking `service` answered 422.** FastAPI reads any argument
+not in the path as a *query* parameter, so registering one function at
+`/ravis/{surface}` made it demand `?service=`. The service is closed over now.
+
+**The recommendation POST needed thirty seconds, not the read timeout's 1.5.**
+It reads every evidence record for the roles asked about, and the dashboard's
+four-second budget was aborting calls that were working.
 
 ## Starting the thing
 
