@@ -110,6 +110,19 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .picker-item:hover{background:rgba(255,255,255,.05)}
 .picker-item input{accent-color:var(--accent);flex:none}
 .picker-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-group{padding:9px 3px 3px;display:flex;flex-direction:column;gap:1px}
+.pick-group b{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--accent);opacity:.85}
+.pick-group small{font-size:10px;line-height:1.4}
+.pick-row{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;
+  color:inherit;padding:6px 9px;margin:2px 0;
+  font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+.pick-row:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)}
+.pick-row.on{border-color:var(--accent);background:rgba(var(--rgb),.12)}
+.pick-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-row em{flex:none;font-style:normal;font-size:9px;letter-spacing:.08em;text-transform:uppercase;
+  opacity:.6;border:1px solid rgba(255,255,255,.15);border-radius:3px;padding:1px 5px}
 .picker-empty{padding:10px;opacity:.55;font:11px/1.5 ui-monospace,monospace}
 .card.prototype-card{opacity:.4;filter:saturate(.25);border-style:dashed}
 .card.prototype-card:hover{opacity:.82;filter:saturate(.6)}
@@ -2842,42 +2855,13 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    <span class="miku-sep"></span><button class="mode-chip miku-chip" id="agiBtn" title="Not a routing profile. Presentation only." onclick="mikuMode(this)">AGI</button>
    <span class="mono dim" style="margin:0 0 0 auto">this conversation only · ${active.profile_id} rev ${active.revision}</span></div>
   <div class="chat-tools">
+   <button class="chat-tool" id="chatModelBtn" title="Which model answers — a RAVIS pool, or one provider's model pinned"
+     onclick="chatDrawer('model')">Model</button>
    <button class="chat-tool" id="chatParamsBtn" title="System prompt, temperature, max tokens, top_p"
      onclick="chatDrawer('params')">Parameters${paramsAreSet()?'<span class="dot"></span>':''}</button>
    <button class="chat-tool" id="chatHistoryBtn" title="Conversations stored in this browser"
      onclick="chatDrawer('history')">History${savedCount()?` ${savedCount()}`:''}</button></div>
-  <aside class="chat-drawer"${CHAT_SESSION.drawer?' data-open':''} aria-hidden="${CHAT_SESSION.drawer?'false':'true'}">
-   <header>${CHAT_SESSION.drawer==='history'?'History':'Parameters'}
-    <span class="mono dim" style="margin-left:auto;text-transform:none;letter-spacing:0">esc to close</span></header>
-   <div class="drawer-body">
-   ${CHAT_SESSION.drawer==='history'?(()=>{
-     const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
-     return saved.length?`${saved.map(c=>`<div class="trace-step" style="align-items:flex-start">
-        <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
-        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
-        <button class="btn" style="margin-left:6px" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></span></div>`).join('')}
-      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 keeps conversations local by default.</small>`
-      :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
-    })():`
-   <div class="param-grid">
-    <label>System prompt
-     <textarea id="cpSystem" rows="3" placeholder="empty — no system message is sent"
-       oninput="CHAT_SESSION.system=this.value">${escapeHtml(CHAT_SESSION.system)}</textarea></label>
-    <label>Temperature
-     <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
-       value="${escapeHtml(String(CHAT_SESSION.temperature))}"
-       oninput="CHAT_SESSION.temperature=this.value"></label>
-    <label>Max tokens
-     <input id="cpMax" class="mono" inputmode="numeric" placeholder="model default"
-       value="${escapeHtml(String(CHAT_SESSION.max_tokens))}"
-       oninput="CHAT_SESSION.max_tokens=this.value"></label>
-    <label>Top&nbsp;p
-     <input id="cpTopP" class="mono" inputmode="decimal" placeholder="model default"
-       value="${escapeHtml(String(CHAT_SESSION.top_p))}"
-       oninput="CHAT_SESSION.top_p=this.value"></label>
-   </div>
-   <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would be this page inventing a choice nobody made.</small>`}
-   </div></aside>
+  ${chatDrawerMarkup()}
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
@@ -4985,6 +4969,164 @@ function healthChip(d){
 /* Which drawer pane is out, or null. One value rather than two open flags: the
    panel is one drawer showing one thing, and two booleans would allow a state
    the layout has no way to draw. */
+/* Which model answers, and where the choice comes from.
+ *
+ * The chat screen offered RAVIS's routing profiles and nothing else, which is
+ * the right default — choosing a model per request is what RAVIS is *for*, and
+ * a pool stays correct as the catalogue changes. But with four providers
+ * configured there was no way to say "this one, now", which is what somebody
+ * comparing two models needs, and no way to see what was even available.
+ *
+ * A pinned model is addressed `ravis/<provider>/<model>`, which is RAVIS's own
+ * direct-address form: it names the upstream outright and is the only way to
+ * reach a model two providers both serve. Anthropic's models are on Anthropic
+ * and on OpenRouter, and those are different routes with different prices.
+ */
+const MODELPICK={
+ /* Pools and per-provider models, once per open. Not cached across opens: a
+    provider keyed or filtered in another tab should show up, and this list is
+    four small reads against loopback. */
+ state:null,
+
+ async load(){
+  const node=()=>document.getElementById('modelPickList');
+  if(!node())return;
+  const groups=[];
+  let profiles={items:[]};
+  try{profiles=await API.ravis.profiles()}catch(e){}
+  if((profiles.items||[]).length){
+   groups.push({name:'RAVIS pools',
+     hint:'RAVIS picks the model per request, and keeps picking as the catalogue changes.',
+     items:(profiles.items||[]).map(p=>({id:p.profile_id,label:p.profile_id,
+       note:p.default?'default':''}))});
+  }
+  let creds={items:[]};
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/providers/credentials',
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(r.ok)creds=await r.json();
+  }catch(e){}
+  /* Only providers that are both reachable and keyed. A row for a provider that
+     cannot answer is an invitation to pick a model and get a refusal. */
+  const usable=(creds.items||[]).filter(c=>c.routable&&c.configured);
+  for(const provider of usable){
+   const ids=await this.catalogue(provider.name);
+   if(ids.length)groups.push({name:provider.label||provider.name,
+     hint:`pinned to this provider · ${ids.length} model(s) pass its filter`,
+     items:ids.map(id=>({id:`ravis/${provider.name}/${id}`,label:id,note:''}))});
+  }
+  this.state={groups,q:''};
+  this.render();
+ },
+
+ /* One provider's *selected* models — what its filter lets through, which is
+    what the operator chose to expose. Paged to exhaustion for the same reason
+    the Providers picker is: a list that omits a model is one nobody can pick. */
+ async catalogue(name){
+  const ids=[];
+  let offset=0;
+  try{
+   while(offset!==null){
+    const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)
+      +'/catalogue?offset='+offset+'&limit=500',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)return ids;
+    const page=await r.json();
+    ids.push(...(page.items||[]).filter(i=>i.selected).map(i=>i.id));
+    offset=page.next_offset;
+   }
+  }catch(e){}
+  return ids;
+ },
+
+ render(){
+  const list=document.getElementById('modelPickList');
+  if(!list||!this.state)return;
+  const q=this.state.q;
+  const current=CHAT_SESSION.profile;
+  const shown=this.state.groups
+    .map(g=>({...g,items:q?g.items.filter(i=>i.label.toLowerCase().includes(q)):g.items}))
+    .filter(g=>g.items.length);
+  if(!shown.length){list.innerHTML='<div class="picker-empty">nothing matches that.</div>';return}
+  list.innerHTML=shown.map(g=>`<div class="pick-group"><b>${escapeHtml(g.name)}</b>
+    <small class="mono dim">${escapeHtml(g.hint)}</small></div>
+   ${g.items.map(i=>`<button class="pick-row${i.id===current?' on':''}"
+     onclick="MODELPICK.pick('${escapeHtml(i.id).replace(/'/g,'&#39;')}')">
+     <span>${escapeHtml(i.label)}</span>
+     ${i.note?`<em>${escapeHtml(i.note)}</em>`:''}
+     ${i.id===current?'<em>in use</em>':''}</button>`).join('')}`).join('');
+ },
+
+ search(q){
+  if(!this.state)return;
+  this.state.q=(q||'').trim().toLowerCase();
+  this.render();
+ },
+
+ pick(id){
+  CHAT_SESSION.profile=id;
+  CHAT_SESSION.drawer=null;
+  /* Not saved to the stored conversation. The profile travels with each request
+     and NERVIS records it per turn, so a conversation that switched models
+     halfway keeps both facts rather than being retconned to the latest one. */
+  render();
+ },
+};
+
+/* Rendered synchronously and filled in after, because the drawer opens on a
+   render pass and the catalogue is four network reads away. */
+function modelPane(){
+ queueMicrotask(()=>MODELPICK.load());
+ const pinned=String(CHAT_SESSION.profile||'').startsWith('ravis/')
+   && String(CHAT_SESSION.profile||'').split('/').length>2;
+ return `<div class="picker-head" style="margin:0 0 8px">
+   <input class="picker-search mono" placeholder="filter models…"
+     oninput="MODELPICK.search(this.value)">
+  </div>
+  <div id="modelPickList" class="picker-list" style="max-height:none;grid-template-columns:1fr;border-top:0;padding-top:0">
+   <div class="picker-empty">reading catalogues…</div>
+  </div>
+  <small class="mono dim">a <b>pool</b> lets RAVIS choose per request and keeps working as models come and go. Pinning names one upstream outright — the only way to reach a model two providers both serve, and Anthropic's models are on Anthropic <i>and</i> on OpenRouter at different prices. ${pinned?'<b>Pinned right now</b>, so RAVIS is not choosing and a model that stops being offered becomes a refusal rather than a fallback.':''} Only providers that are keyed <i>and</i> reachable are listed, and only the models their filter lets through.</small>`;
+}
+
+/* The fold-out panel: model, parameters, history.
+   Extracted because `chatView` hit the complexity gate the moment a third pane
+   was added — which is the gate doing its job, since a screen function that
+   also renders three alternative panels is two jobs. */
+function chatDrawerMarkup(){
+ return `<aside class="chat-drawer"${CHAT_SESSION.drawer?' data-open':''} aria-hidden="${CHAT_SESSION.drawer?'false':'true'}">
+   <header>${{model:'Model',history:'History'}[CHAT_SESSION.drawer]||'Parameters'}
+    <span class="mono dim" style="margin-left:auto;text-transform:none;letter-spacing:0">esc to close</span></header>
+   <div class="drawer-body">
+   ${CHAT_SESSION.drawer==='model'?modelPane():CHAT_SESSION.drawer==='history'?(()=>{
+     const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
+     return saved.length?`${saved.map(c=>`<div class="trace-step" style="align-items:flex-start">
+        <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
+        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
+        <button class="btn" style="margin-left:6px" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></span></div>`).join('')}
+      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 keeps conversations local by default.</small>`
+      :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
+    })():`
+   <div class="param-grid">
+    <label>System prompt
+     <textarea id="cpSystem" rows="3" placeholder="empty — no system message is sent"
+       oninput="CHAT_SESSION.system=this.value">${escapeHtml(CHAT_SESSION.system)}</textarea></label>
+    <label>Temperature
+     <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.temperature))}"
+       oninput="CHAT_SESSION.temperature=this.value"></label>
+    <label>Max tokens
+     <input id="cpMax" class="mono" inputmode="numeric" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.max_tokens))}"
+       oninput="CHAT_SESSION.max_tokens=this.value"></label>
+    <label>Top&nbsp;p
+     <input id="cpTopP" class="mono" inputmode="decimal" placeholder="model default"
+       value="${escapeHtml(String(CHAT_SESSION.top_p))}"
+       oninput="CHAT_SESSION.top_p=this.value"></label>
+   </div>
+   <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would be this page inventing a choice nobody made.</small>`}
+   </div></aside>`;
+}
+
 function chatDrawer(pane){
  CHAT_SESSION.drawer = CHAT_SESSION.drawer===pane ? null : pane;
  render();
