@@ -2265,7 +2265,27 @@ const API={
     state:'waiting_for_approval',route:'ravis/clarvis-chat'}]}},
 
   /* GET /api/v1/traces/{id} — a dropped span is reported as dropped. */
-  async trace(){return{trace_id:'3f8c…ab12',window_ms:800,spans:[
+  /* GET /api/v1/traces — the newest recorded trace, for the Overview card.
+     Three outcomes, and the middle one is the point: a live trace, or NERVIS
+     answering with none recorded, or NERVIS not answering. Only the third
+     falls back to the mock — "no trace yet" is a fact and drawing an invented
+     waterfall over it is §11.2's forbidden synthesis at card scale. */
+  async trace(){
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/traces?limit=1',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return this._traceMock();
+    const index=await r.json();
+    const newest=(index.items||[])[0];
+    if(!newest)return{live:true,empty:true,spans:[]};
+    const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(newest.trace_id),
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!t.ok)return{live:true,empty:true,spans:[]};
+    return{...await t.json(),live:true};
+   }catch(e){return this._traceMock()}
+  },
+
+  async _traceMock(){return{trace_id:'3f8c…ab12',window_ms:800,spans:[
    {service:'CLARVIS',label:'agent request',start_ms:0,duration_ms:9},
    {service:'RAVIS',label:'route selected',start_ms:9,duration_ms:5},
    {service:'SIRVIS',label:'span missing',start_ms:18,duration_ms:48,missing:true},
@@ -2314,7 +2334,24 @@ const API={
      §4.4 defines them; `privacy.redactions` records what the *producer* removed
      before sending, so the dashboard can say what it is not showing rather than
      silently showing less. Consumers dedupe on event_id and tolerate duplicates. */
-  async events(){return{
+  /* GET /api/v1/events — the hub's own record, newest first.
+     Live first, and the mock only when NERVIS is not answering. The Overview's
+     Recent events card read the mock unconditionally, so it showed the same
+     four invented events on a machine whose hub had thousands — and carried a
+     PROTOTYPE badge while the Events tab beside it was live. */
+  async events(){
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/events?limit=40',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){
+     const d=await r.json();
+     if((d.items||[]).length)return{...d,live:true};
+    }
+   }catch(e){}
+   return this._eventsMock();
+  },
+
+  async _eventsMock(){return{
    stream:{cursor:'01J8F2K9',retention_days:14,buffered:842,capacity:2000,
            dropped:0,quarantined:3,gaps:1,connected_since:'10:04:12'},
    items:[
@@ -2512,8 +2549,15 @@ function globalStatus(){
 function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pageSubtitle').textContent=sub;$('#pageActions').innerHTML=actions}
 /* x = [label, value, note, owningService]. The fourth element is what makes a
    tile falsifiable: without it a figure has no author and cannot go absent. */
+/* A fifth element marks a KPI as read from a service rather than invented.
+   Without it the whole row inherited the screen's prototype styling, so the
+   Overview's `Services 4 / 6` — counted from the registry NERVIS had just
+   published — was faded and badged PROTOTYPE beside three genuinely invented
+   numbers. A live value labelled invented is the same defect as an invented one
+   labelled live, and slightly worse: it teaches a reader to distrust the part
+   that is true. */
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
- return `<div class="card kpi${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
+ return `<div class="card kpi${x[4]?' live':''}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
   cell(`<strong>${x[1]}</strong><small>${x[2]}</small>`,own)}</div>`}).join('');
 /* One bar of a trace waterfall. Hoisted out of the Overview because the Traces
    screen draws the identical thing, and a span NERVIS never received must look
@@ -2522,6 +2566,45 @@ const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
 function spanBar(sp,win){const w=Math.max(sp.duration_ms/win*100,.4),l=sp.start_ms/win*100;
  return sp.missing?`<span class="gap" style="left:${l}%;width:${w}%"></span><b class="miss" style="left:${l+w+1}%">${sp.label}</b>`
                   :`<i style="left:${l}%;width:${w}%"></i><b style="left:${Math.min(l+w+1,55)}%">${sp.label}${sp.duration_ms<100?' · '+sp.duration_ms+' ms':''}</b>`}
+/* An event's time, at the grain a card can show.
+   The hub records ISO-8601 with microseconds; the mock recorded "10:26:08".
+   Both arrive here, and a card that printed the first raw would push the event
+   type off the edge. */
+function eventClock(at){
+ const text=String(at||'');
+ return text.includes('T')?text.slice(11,19):text;
+}
+
+/* The newest trace, or the honest absence of one.
+   `empty` means NERVIS answered and has recorded nothing — a fact, and the
+   card says so rather than drawing an invented waterfall over it. §11.2 forbids
+   synthesizing a span as fact, and a card is not exempt from that because it
+   is small. */
+function overviewTraceCard(tr,mockBar){
+ if(tr.empty)
+  return `<div class="card wide live"><h3>Trace <span class="chip">none recorded</span></h3>
+   <small class="mono dim">no trace has been recorded yet. A trace needs a <b>traceparent</b> on an inbound request, and NERVIS never manufactures one — a trace containing a single service is a fact about nothing. <b>RAVIS and SIRVIS do not publish events yet</b> (their Stage 7 milestones), so a cross-service waterfall needs those first.</small></div>`;
+ /* Two span shapes reach this card and they are not interchangeable. The hub
+    publishes `label`, `is_point`, `events` and an absolute `started`; the mock
+    predates all of that and carries `service` and `start_ms`. Drawing one with
+    the other's geometry is how a bar ends up at left 0, full width, with
+    nothing thrown to say so. */
+ const rows=tr.live?liveSpanRows(tr):(tr.spans||[]).map(sp=>`<div class="wf"><span>${escapeHtml(sp.service||'')}</span><div class="track">${mockBar(sp)}</div></div>`).join('');
+ return `<div class="card wide${tr.live?' live':''}"><h3>Trace ${escapeHtml(String(tr.trace_id||'').slice(0,16))} <span class="chip">cross-service</span></h3>
+   ${rows}
+   <small class="mono dim">a missing span is drawn as missing, and one event is drawn as a moment rather than a zero-length bar. A gap invented as a duration would be worse than a hole.</small></div>`;
+}
+
+function liveSpanRows(tr){
+ const win=tr.window_ms||0;
+ const at=sp=>tr.started!=null&&sp.started!=null?(sp.started-tr.started)*1000:0;
+ return (tr.spans||[]).map(sp=>`<div class="trace-step" style="align-items:center">
+   <b style="min-width:88px">${escapeHtml(sp.label||'')}</b>
+   <span style="flex:1;position:relative;height:16px">${waterfallBar(sp,win?at(sp)/win*100:0,win)}</span>
+   <span class="mono dim" style="min-width:96px;text-align:right">${sp.is_point?'one moment':(sp.duration_ms+' ms')}</span></div>`).join('');
+}
+
+
 async function nervis(){
  if(state.view==='Chat')return chatView();
  if(state.view==='Events')return eventsView();
@@ -2539,12 +2622,21 @@ async function nervis(){
  const live=svc.items.filter(x=>['healthy','degraded'].includes(x.state)).length;
  const bar=sp=>spanBar(sp,tr.window_ms);
  $('#content').innerHTML=kpis([['Requests / min','128','↗ 12%','ravis'],['Latency p50','0.42s','healthy','ravis'],
-   ['Local',usage.local_pct+'%','of today','ravis'],['Services',`${live} / ${svc.items.length}`,'reachable','nervis']])
+   ['Local',usage.local_pct+'%','of today','ravis'],
+   ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',true]])
  +`<div class="card wide live"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
-  <div class="card narrow"><h3>Ecosystem map</h3><div class="map"><svg><line x1="50%" y1="50%" x2="50%" y2="12%"/><line x1="50%" y1="50%" x2="15%" y2="82%"/><line x1="50%" y1="50%" x2="85%" y2="82%"/><line x1="50%" y1="50%" x2="87%" y2="12%"/></svg><div class="hub">NERVIS</div><div class="node">RAVIS</div><div class="node">SIRVIS</div><div class="node">CLARVIS</div><div class="node">LM Studio</div></div></div>
+  <!-- Read from the registry, like the Ecosystem map tab it is a smaller
+       version of. It was five fixed nodes at fixed positions — RAVIS, SIRVIS,
+       CLARVIS, LM Studio — drawn identically whatever the registry said, which
+       is why this card carried a PROTOTYPE badge while the tab beside it was
+       live. Ollama never appeared at all, and a node stayed green for a service
+       that had been down for an hour. -->
+  <div class="card narrow live"><h3>Ecosystem map</h3>
+   ${topologyMap(ecosystemNodes(svc),210)}
+   <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
   <div class="card wide live"><h3>Clarvis instances</h3>
    ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
@@ -2561,10 +2653,8 @@ async function nervis(){
    ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
-  <div class="card narrow"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${e.occurred_at}</time><span class="mono">${e.event_type}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.</small></div>
-  <div class="card wide"><h3>Trace ${tr.trace_id} <span class="chip">cross-service</span></h3>
-   ${tr.spans.map(sp=>`<div class="wf"><span>${sp.service}</span><div class="track">${bar(sp)}</div></div>`).join('')}
-   <small class="mono dim">the missing span is drawn as missing. SIRVIS answered the lookup but its collector dropped the span, and a gap invented as a duration would be worse than a hole.</small></div>
+  <div class="card narrow${ev.live?' live':''}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
+  ${overviewTraceCard(tr,bar)}
   <div class="card narrow"><h3>Diagnostics</h3>
    <div class="trace-step"><b>fact</b><span>RAVIS reported ${usage.routing_p50_ms} ms</span></div>
    <div class="trace-step"><b>observation</b><span>NERVIS timed 4.0 ms</span></div>
@@ -2815,22 +2905,17 @@ addEventListener('resize',()=>{if(document.querySelector('.card.chat'))sizeChat(
    is deliberately no RAVIS→SIRVIS edge here: NERVIS observes peers, it does not
    watch them talk to each other, and drawing a link it cannot measure would be
    the same class of lie as filling in a missing span. */
-async function mapView(){
- heading('Ecosystem map','Every node is a registry entry. Every edge is a connection NERVIS itself holds.');
- const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
- /* From the rows, which carry their own state since three of them are read
-    live, rather than from `SERVICES` — the fallback map has no row for a
-    service that publishes no MEP surface. */
- const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
+/* The ring of nodes this ecosystem draws, shared by the Overview card and the
+   Ecosystem map tab.
+   It was built here and hard-coded there: the Overview card was five fixed
+   `<div class="node">` elements — RAVIS, SIRVIS, CLARVIS, LM Studio — drawn at
+   fixed positions regardless of what the registry said, which is why that card
+   carried a PROTOTYPE badge while the tab beside it was live. A diagram that
+   ignores the registry is not a smaller version of one that reads it. */
+function ecosystemNodes(svc){
  /* Nodes sit on a circle so the count can change without a layout rewrite. The
-    inline position beats the .node:nth-of-type rules the Overview map relies on. */
+    inline position beats the `.node:nth-of-type` rules a fixed map relies on. */
  const pos=(i,n)=>{const a=(-90+i*360/n)*Math.PI/180;return{x:50+Math.cos(a)*33,y:50+Math.sin(a)*32}};
- /* NERVIS is the hub, so it does not also get a spoke. §5.1 puts NERVIS in its
-    own registry — a control plane that skipped its own entry would be the one
-    row nobody could check — and drawing every entry put two boxes labelled
-    NERVIS on the diagram, one at the centre and one on the ring.
-
-    `ok` from the row's own state, like every other reader of this list. */
  /* **LM Studio and Ollama are one node.** They are interchangeable local
     runtimes serving the same purpose, and this diagram answers "can NERVIS
     reach a local model", not "which of two ports is listening" — that question
@@ -2847,16 +2932,38 @@ async function mapView(){
  const bundled=local.length?[{
    key:'local', label:'Local models',
    state:up.length?'healthy':'unreachable',
-   detail:up.length
-     ? `${up.map(s=>s.label).join(' and ')} answering`
-     : missing.length
-       ? missing.map(s=>s.label).join(' and ')+' unreachable'
-       : 'no local runtime is configured or answering',
+   detail:localDetail(up,missing),
    publishes_mep:false, capabilities:{}, age:0,
  }]:[];
+ /* NERVIS is the hub, so it does not also get a spoke. §5.1 puts NERVIS in its
+    own registry — a control plane that skipped its own entry would be the one
+    row nobody could check — and drawing every entry put two boxes labelled
+    NERVIS on the diagram, one at the centre and one on the ring. */
  const ring=[...svc.items.filter(s=>!['nervis','lmstudio','ollama'].includes(s.key)), ...bundled];
- const pts=ring.map((s,i)=>({...s,...pos(i,ring.length),
+ return ring.map((s,i)=>({...s,...pos(i,ring.length),
    ok:['healthy','degraded'].includes(s.state)}));
+}
+
+function localDetail(up,missing){
+ if(up.length)return `${up.map(s=>s.label).join(' and ')} answering`;
+ if(missing.length)return missing.map(s=>s.label).join(' and ')+' unreachable';
+ return 'no local runtime is configured or answering';
+}
+
+/* The topology itself, at whatever height the card it sits in can spare. */
+function topologyMap(pts,height){
+ return `<div class="map" style="height:${height}px">
+    <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
+    <div class="hub">NERVIS</div>
+    ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${escapeHtml(n.label)}</b></div>`).join('')}
+   </div>`;
+}
+
+async function mapView(){
+ heading('Ecosystem map','Every node is a registry entry. Every edge is a connection NERVIS itself holds.');
+ const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
+ const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
+ const pts=ecosystemNodes(svc);
  $('#content').innerHTML=kpis([
    ['Registered',String(svc.items.length),'one row per identity','nervis'],
    ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis'],
@@ -2917,7 +3024,13 @@ async function routeDecisions(){
 /* One span's bar, or its moment.
    **A point, not a bar.** One event is a recorded moment; giving it width would
    be the invented duration §11.2 forbids. */
-function spanBar(sp,offsetPct,win){
+/* Renamed from `spanBar`, which already existed at the top of this file taking
+   `(sp, win)` and drawing the Overview card's bars. Two top-level declarations
+   with one name means the later one wins silently — so splitting `tracesView`
+   quietly repointed the Overview at a three-argument function it was calling
+   with two, and its bars rendered at left 0, full width, with no error. Nothing
+   threw, so `render_check` passed it. */
+function waterfallBar(sp,offsetPct,win){
  if(sp.is_point)
   return `<i style="position:absolute;left:${win?Math.min(offsetPct,99):0}%;width:3px;height:16px;background:var(--accent);border-radius:2px"></i>`;
  return `<i style="position:absolute;left:${win?offsetPct:0}%;width:${win?Math.max(sp.duration_ms/win*100,1):100}%;height:16px;background:rgba(var(--rgb),.5);border-radius:3px"></i>`;
@@ -2939,7 +3052,7 @@ function traceWaterfall(traces,shown){
  const body=shown
   ?`${shown.spans.map(sp=>`<div class="trace-step" style="align-items:center">
      <b style="min-width:88px">${escapeHtml(sp.label)}</b>
-     <span style="flex:1;position:relative;height:16px">${spanBar(sp,pct(sp),win)}</span>
+     <span style="flex:1;position:relative;height:16px">${waterfallBar(sp,pct(sp),win)}</span>
      <span class="mono dim" style="min-width:104px;text-align:right">${sp.is_point?'one moment':(sp.duration_ms+' ms')} · ${sp.events} ev</span></div>`).join('')}
    ${(shown.warnings||[]).map(w=>`<div class="trace-step"><b style="color:#ffb648">gap</b><span>${escapeHtml(w)}</span></div>`).join('')}`
   :'<small class="mono dim">that trace is no longer recorded.</small>';

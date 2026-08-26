@@ -150,6 +150,39 @@ function walk(node, parent) {
 
 walk(tree, null);
 
+/* Two top-level `function foo` declarations with one name.
+ *
+ * JavaScript takes the later one, silently, and this is a five-thousand-line
+ * script in one scope — so a new helper can repoint every existing caller of a
+ * name at a function with a different signature and nothing throws. That is not
+ * hypothetical: splitting `tracesView` introduced a second `spanBar`, and the
+ * Overview card went on calling it with two of its three arguments. Its bars
+ * rendered at left 0, full width, with no error and no failing check.
+ *
+ * Cheap to catch here because the tree is already parsed, and it belongs with
+ * the complexity gate because both are the same failure: a file large enough
+ * that nobody can hold all of it, checked by a person who assumed they could.
+ */
+const declaredAt = new Map();
+for (const node of tree.body) {
+  if (node.type !== "FunctionDeclaration" || !node.id) continue;
+  const line = node.loc.start.line + before;
+  if (declaredAt.has(node.id.name)) declaredAt.get(node.id.name).push(line);
+  else declaredAt.set(node.id.name, [line]);
+}
+const clashes = [...declaredAt].filter(([, lines]) => lines.length > 1);
+if (clashes.length) {
+  console.error(`${clashes.length} function name(s) declared more than once at the top level:\n`);
+  for (const [name, lines] of clashes) {
+    console.error(`  • ${name} — index.html:${lines.join(", index.html:")}`);
+  }
+  console.error(
+    "\nJavaScript keeps the last one and says nothing. Every existing caller of" +
+    "\nthe name is now calling the new function, whatever its signature is."
+  );
+  process.exit(1);
+}
+
 const over = found.filter((f) => f.complexity > LIMIT).sort((a, b) => b.complexity - a.complexity);
 const buckets = new Map();
 for (const f of found) {
