@@ -63,6 +63,7 @@ from ravis.transparent import (
     TransparentUpstream,
     merged_candidates,
     merged_residency,
+    remote_models,
     resolve,
 )
 from ravis.upstream import Upstream, forwardable_headers
@@ -496,6 +497,11 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # list is the authority, so a direct address to one is not checked
         # against the local upstream's — see `_direct`.
         foreign_providers=frozenset(getattr(request.app.state, "translating", {})),
+        # Which candidates would leave this machine. `ravis/local` and
+        # `ravis/private` are refusals rather than preferences, so this has to
+        # reach the engine — it had no way to know, and answered `ravis/local`
+        # with an OpenRouter model.
+        remote_models=remote_models(transparents),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.

@@ -29,7 +29,12 @@ from ravis.providers.ollama import OllamaAdapter
 from ravis.registry import ModelRegistry
 from ravis.runtime.residency import Residency, ResidencySnapshot
 from ravis.upstream import Upstream
-from ravis.upstreams import UpstreamSpec, api_root_for, upstream_specs
+from ravis.upstreams import (
+    UpstreamSpec,
+    api_root_for,
+    is_local_address,
+    upstream_specs,
+)
 
 # Which adapter discovers which kind of upstream. All three speak the OpenAI
 # protocol, so this changes what RAVIS can *learn*, never how it reaches the
@@ -259,6 +264,28 @@ def merged_residency(transparents: dict[str, TransparentUpstream]) -> ResidencyS
         if not snapshot.known and snapshot.detail:
             details.append(f"{candidate.name}: {snapshot.detail}")
     return ResidencySnapshot(states=states, known=known, detail="; ".join(details))
+
+
+def remote_models(transparents: dict[str, TransparentUpstream]) -> frozenset[str]:
+    """Every model id served by an upstream that is not on this machine.
+
+    The set `ravis/local` and `ravis/private` are enforced against. Computed from
+    the upstreams themselves rather than declared per model, because the fact
+    being asserted is about *where the request goes*, and that is a property of
+    the upstream and nothing else — a model id tells you nothing about it.
+
+    Unfiltered on purpose. A model excluded by a provider's filter is not a
+    candidate anyway, so including it here costs nothing, while remembering to
+    apply the filter in two places is a way for them to disagree — and the
+    direction this one would fail in is a remote model missing from the set and
+    therefore admitted to `ravis/local`.
+    """
+    return frozenset(
+        model
+        for built in transparents.values()
+        if not is_local_address(built.spec.base_url)
+        for model in built.registry.model_ids()
+    )
 
 
 async def merged_candidates(

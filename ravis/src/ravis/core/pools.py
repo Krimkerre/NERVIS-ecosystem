@@ -37,8 +37,18 @@ class PoolRequirements:
 
     required: frozenset[Capability] = frozenset()
     minimum_context: int = 0
+    # Where a member is allowed to run: `any`, `local`, or `remote`.
+    #
+    # **This existed only as prose until now.** `ravis/local` described itself as
+    # "never leaves this machine" and `ravis/private` as "cloud providers are
+    # excluded", and nothing enforced either — the routing engine receives a flat
+    # table of model names with no record of which upstream they came from, so it
+    # could not have enforced them. With four API providers configured, a request
+    # to `ravis/local` was answered by an OpenRouter model. The prompt left the
+    # machine, to a third party, from the one pool that promised it would not.
+    locality: str = "any"
 
-    def unmet_by(self, known: ModelCapabilities) -> list[str]:
+    def unmet_by(self, known: ModelCapabilities, *, remote: bool = False) -> list[str]:
         """Every reason this model cannot be a member, in readable form.
 
         Returns *all* reasons rather than the first, because §9.7 requires a
@@ -52,6 +62,10 @@ class PoolRequirements:
         if self.minimum_context and not known.meets_context(self.minimum_context):
             found = known.context_window if known.context_window is not None else "unknown"
             reasons.append(f"context {found} < required {self.minimum_context}")
+        if self.locality == "local" and remote:
+            reasons.append("served by a remote provider, and this pool never leaves this machine")
+        if self.locality == "remote" and not remote:
+            reasons.append("runs on this machine, and this pool is cloud providers only")
         return reasons
 
 
@@ -72,7 +86,11 @@ class VirtualModelPool:
     requirements: PoolRequirements = field(default_factory=PoolRequirements)
     prefer: tuple[str, ...] = ()
 
-    def eligible(self, candidates: dict[str, ModelCapabilities]) -> list[str]:
+    def eligible(
+        self,
+        candidates: dict[str, ModelCapabilities],
+        remote: frozenset[str] = frozenset(),
+    ) -> list[str]:
         """The models that satisfy every requirement, in declared-preference order.
 
         Ordering here considers the pool's own intent only. Runtime facts —
@@ -82,7 +100,7 @@ class VirtualModelPool:
         """
         members = [
             model for model, known in candidates.items()
-            if not self.requirements.unmet_by(known)
+            if not self.requirements.unmet_by(known, remote=model in remote)
         ]
         return sorted(members, key=lambda model: (self.preference_rank(model), *size_rank(model)))
 
@@ -188,16 +206,29 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/local",
         label="Local Only",
         description="Never leaves this machine",
+        requirements=PoolRequirements(locality="local"),
     ),
     VirtualModelPool(
         pool_id="ravis/api",
         label="API Only",
         description="Cloud providers only",
+        requirements=PoolRequirements(locality="remote"),
     ),
     VirtualModelPool(
         pool_id="ravis/private",
         label="Private",
         description="Strictest privacy level; cloud providers are excluded",
+        # The same constraint as `ravis/local`, and that is worth stating rather
+        # than hiding. §5 requires both pools and never says how they differ; the
+        # two descriptions were written to fill that silence and ended up saying
+        # nearly the same thing. They express different *intents* — `local` is
+        # about placement, `private` about disclosure — which coincide exactly as
+        # long as the only non-loopback option is a third party's API. They stop
+        # coinciding the moment a self-hosted box on the LAN is an upstream:
+        # that is not local, and whether it is private is the operator's call.
+        # Until that exists, giving `private` a fabricated extra constraint would
+        # be inventing a distinction rather than implementing one.
+        requirements=PoolRequirements(locality="local"),
     ),
     VirtualModelPool(
         pool_id="ravis/coding",

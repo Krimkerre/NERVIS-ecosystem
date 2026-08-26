@@ -19,9 +19,11 @@ segment mean something on Path A.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 # The name a singular configuration gets. Deployments that set
 # `RAVIS_UPSTREAM_BASE_URL` and nothing else have exactly one upstream and no
@@ -57,6 +59,35 @@ KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
     "openai": ("https://api.openai.com", "/v1"),
     "openrouter": ("https://openrouter.ai/api", "/v1"),
 }
+
+
+def is_local_address(base_url: str) -> bool:
+    """Whether requests to this upstream stay on this machine.
+
+    **Read from the address, not from a list of kinds.** A list would be wrong
+    the first time somebody runs a new local runtime or points `generic` at a
+    LAN box, and being wrong here is not a routing inconvenience — `ravis/local`
+    promises "never leaves this machine" and `ravis/private` promises cloud
+    providers are excluded. A hostname RAVIS has not heard of must not inherit
+    that promise by default.
+
+    Loopback and link-local only. A private LAN address is deliberately **not**
+    local: 192.168.1.50 is somebody else's computer, and "did not leave my
+    network" is a different promise from "did not leave my machine" — the one
+    these pools make is the second.
+
+    Fails closed. An address that cannot be parsed is remote, because the cost
+    of guessing wrong in that direction is a pool refusing to route, and in the
+    other direction it is a prompt leaving the machine that was promised it
+    would not.
+    """
+    host = urlsplit(base_url).hostname or ""
+    if host in {"localhost", "localhost."}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def default_base_url(kind: str) -> str:

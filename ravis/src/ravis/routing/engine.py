@@ -69,6 +69,7 @@ class RoutingEngine:
         request: NormalizedRequest | None = None,
         unavailable: Mapping[str, str] | None = None,
         foreign_providers: frozenset[str] = frozenset(),
+        remote_models: frozenset[str] = frozenset(),
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -98,6 +99,7 @@ class RoutingEngine:
                 memory or MemoryReading(),
                 requirements,
                 unavailable or {},
+                remote_models,
             )
 
         target = direct_target(requested)
@@ -166,6 +168,7 @@ class RoutingEngine:
         memory: MemoryReading,
         requirements: RequestRequirements,
         unavailable: Mapping[str, str],
+        remote: frozenset[str] = frozenset(),
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -181,8 +184,8 @@ class RoutingEngine:
             requirements=_all_requirements(pool, requirements),
             unverified=unverified_notes(requirements, candidates),
         )
-        decision.excluded = _exclusions(pool, candidates, requirements, unavailable)
-        eligible = _rank(pool, candidates, residency, memory, requirements, unavailable)
+        decision.excluded = _exclusions(pool, candidates, requirements, unavailable, remote)
+        eligible = _rank(pool, candidates, residency, memory, requirements, unavailable, remote)
 
         if not eligible:
             # §5.2: a pool with no satisfying candidate is *unavailable*. Never
@@ -293,6 +296,7 @@ def _exclusions(
     candidates: dict[str, ModelCapabilities],
     requirements: RequestRequirements,
     unavailable: Mapping[str, str],
+    remote: frozenset[str] = frozenset(),
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
@@ -306,7 +310,7 @@ def _exclusions(
     """
     excluded = []
     for model in sorted(candidates):
-        reasons = pool.requirements.unmet_by(candidates[model])
+        reasons = pool.requirements.unmet_by(candidates[model], remote=model in remote)
         reasons += unmet_by(requirements, candidates[model])
         refused = model in unavailable
         if refused:
@@ -325,6 +329,7 @@ def _rank(
     memory: MemoryReading,
     requirements: RequestRequirements,
     unavailable: Mapping[str, str],
+    remote: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -341,7 +346,7 @@ def _rank(
     """
     members = [
         model for model, known in candidates.items()
-        if not pool.requirements.unmet_by(known)
+        if not pool.requirements.unmet_by(known, remote=model in remote)
         and not unmet_by(requirements, known)
         and model not in unavailable
     ]
