@@ -71,6 +71,7 @@ class RoutingEngine:
         foreign_providers: frozenset[str] = frozenset(),
         remote_models: frozenset[str] = frozenset(),
         chosen: tuple[str, ...] = (),
+        observed_ttft_ms: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -102,6 +103,7 @@ class RoutingEngine:
                 unavailable or {},
                 remote_models,
                 chosen,
+                observed_ttft_ms or {},
             )
 
         target = direct_target(requested)
@@ -172,6 +174,7 @@ class RoutingEngine:
         unavailable: Mapping[str, str],
         remote: frozenset[str] = frozenset(),
         chosen: tuple[str, ...] = (),
+        observed: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -197,7 +200,8 @@ class RoutingEngine:
             pool, candidates, requirements, unavailable, remote, effective, by_default
         )
         eligible = _rank(
-            pool, candidates, residency, memory, requirements, unavailable, remote, effective
+            pool, candidates, residency, memory, requirements, unavailable, remote,
+            effective, observed or {},
         )
 
         if not eligible:
@@ -354,6 +358,7 @@ def _rank(
     unavailable: Mapping[str, str],
     remote: frozenset[str] = frozenset(),
     chosen: tuple[str, ...] = (),
+    observed: Mapping[str, float] | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -398,6 +403,8 @@ def _rank(
         # Heterogeneous because the last component is the model name — the
         # total, reproducible order §9.7's determinism gate requires.
         terms: list[float | str] = []
+        if pool.prefer_fast:
+            terms.append(_speed_rank(model, observed or {}))
         if pool.prefer_cheap:
             terms.append(_price_rank(candidates.get(model)))
         if pool.prefer_local:
@@ -470,6 +477,27 @@ _REMOTE_REACH = 1.5
 # say least about themselves. Sorting unknown last is the fail-closed direction:
 # a model whose cost nobody stated is not chosen *for* its cost.
 _UNPRICED = float("inf")
+
+
+# Where an unmeasured model sorts in a speed-ranked pool: with the middle, not
+# at the back.
+#
+# Every model starts unmeasured, and RAVIS only measures a model by routing to
+# it. Sorting unmeasured last would close the loop: never chosen, never
+# measured, never chosen. Neutral lets an untimed candidate still win on the
+# terms below — the pool's declared preference, its size tier, reach — and get
+# its first samples, after which it ranks on what it actually did.
+_UNMEASURED_MS = 1_000.0
+
+
+def _speed_rank(model: str, observed: Mapping[str, float]) -> float:
+    """Median time-to-first-token, for models with enough samples to mean it.
+
+    `Observations.ttft_for_ranking` has already dropped anything below the
+    sample floor, so a model missing here is one RAVIS has not timed enough —
+    not one that was slow.
+    """
+    return observed.get(model, _UNMEASURED_MS)
 
 
 def _price_rank(known: ModelCapabilities | None) -> float:

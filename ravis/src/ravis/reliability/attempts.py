@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ravis.observations import Observations
 from ravis.reliability.failures import FailureClass, HealthScope
 from ravis.reliability.health import HealthRegistry
 
@@ -99,6 +100,10 @@ class AttemptChain:
     # point the adapter supplies the name" — and then M8 shipped without it.
     provider: str | Callable[[str], str]
     budget: RetryBudget = field(default_factory=RetryBudget)
+    # Where a successful attempt's timings are written down so they outlive the
+    # process. Optional so that every test constructing a chain keeps working
+    # and so a deployment can turn the record off by not supplying one.
+    observations: Observations | None = None
 
     _queue: list[str] = field(default_factory=list, init=False)
     _retry: str | None = field(default=None, init=False)
@@ -177,6 +182,16 @@ class AttemptChain:
         """
         self.health.of(HealthScope.MODEL, target).succeeded(started_at, ttft)
         self.health.of(HealthScope.PROVIDER, self.provider_for(target)).succeeded(started_at, ttft)
+        # The same numbers, written somewhere they survive a restart. The
+        # registry's windows are in memory, which is why an audit of the routing
+        # path found four samples across six hundred models and concluded the
+        # coverage was too thin to rank on — it was thin because it kept
+        # starting over. In memory here too; `flush` is on a timer.
+        if self.observations is not None:
+            elapsed_ms = (self.health.clock() - started_at) * 1000
+            self.observations.record(
+                target, elapsed_ms, ttft * 1000 if ttft is not None else None
+            )
         self._attempts.append(Attempt(model=target, outcome="succeeded"))
         self._last_class = None
 

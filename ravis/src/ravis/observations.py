@@ -1,0 +1,198 @@
+"""What RAVIS has actually observed of a model, kept across restarts.
+
+**The measurement was already happening.** Every request records its total
+latency and every streamed one records time-to-first-token, into
+`HealthRegistry`. §13.3 even names the resulting evidence kind —
+`OBSERVED_BY_RAVIS`, "a measurement, but not one taken under controlled
+conditions" — and nothing produced it, because the registry is in memory and a
+restart discarded every sample. An audit of the routing path found the samples
+and concluded coverage was too thin to rank on: four records against six hundred
+models. It was thin because it kept starting over.
+
+This is the same numbers, written down. No new instrumentation, no probe
+traffic, no requests nobody asked for: a model gets measured by being used, and
+the coverage that matters is the coverage of models this deployment actually
+routes to.
+
+**What it is not.** SIRVIS measures a local model under controlled conditions —
+fixed prompt, warm runtime, repetitions, a recorded method. This is a rolling
+window over whatever real traffic happened to look like, so a model that
+answered three long prompts and one short one has a median that reflects the
+prompts as much as the model. That is why the sample count travels with every
+figure and why the two evidence kinds stay separate: one is a benchmark, the
+other is experience.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import statistics
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from ravis.credentials import config_directory
+
+# How many samples of each measure to keep per model.
+#
+# A window rather than a running mean, so a provider that got slower shows it
+# within a bounded number of requests instead of being averaged against its own
+# history forever. Sixty is roughly an afternoon of use for a model in regular
+# rotation and small enough that the whole file stays a few hundred kilobytes.
+WINDOW = 60
+
+# Below this, a figure is reported but never ranked on.
+#
+# Two samples of a network call is not a measurement of anything; it is two
+# numbers. The floor is deliberately low rather than statistically respectable
+# because the alternative to a weak measurement here is *no* measurement, and
+# five real observations of a model beat the substring heuristics they replace.
+# `confident` is what routing asks; `samples` is what a screen shows, so nobody
+# has to infer the difference.
+MINIMUM_SAMPLES = 5
+
+
+@dataclass
+class ModelObservations:
+    """One model's rolling windows."""
+
+    latency_ms: list[float] = field(default_factory=list)
+    ttft_ms: list[float] = field(default_factory=list)
+
+    def record(self, latency_ms: float | None, ttft_ms: float | None) -> None:
+        for window, value in ((self.latency_ms, latency_ms), (self.ttft_ms, ttft_ms)):
+            if value is None or value < 0:
+                continue
+            window.append(value)
+            del window[:-WINDOW]
+
+    @property
+    def median_latency_ms(self) -> float | None:
+        return statistics.median(self.latency_ms) if self.latency_ms else None
+
+    @property
+    def median_ttft_ms(self) -> float | None:
+        return statistics.median(self.ttft_ms) if self.ttft_ms else None
+
+    @property
+    def samples(self) -> int:
+        """The count a reader should judge the medians by.
+
+        The larger of the two windows rather than their sum: they measure the
+        same requests, and adding them would double a number somebody is using
+        to decide whether to believe the one beside it.
+        """
+        return max(len(self.latency_ms), len(self.ttft_ms))
+
+    @property
+    def confident(self) -> bool:
+        return self.samples >= MINIMUM_SAMPLES
+
+    def as_dict(self) -> dict[str, Any]:
+        """Never a rounded figure without the count that earned it."""
+        return {
+            "median_latency_ms": self.median_latency_ms,
+            "median_ttft_ms": self.median_ttft_ms,
+            "samples": self.samples,
+            "confident": self.confident,
+            # §13.3's name for exactly this: measured, but not under controlled
+            # conditions. SIRVIS's benchmark evidence is the other kind.
+            "provenance": "OBSERVED_BY_RAVIS",
+        }
+
+
+@dataclass
+class Observations:
+    """Every model RAVIS has timed, persisted as ordinary configuration.
+
+    Beside `providers.json` and `pools.json`: nothing here is secret, and a file
+    a person can read and delete is the right shape for a cache of measurements
+    they may want to reset after changing hardware or a provider plan.
+    """
+
+    path: Path
+    _models: dict[str, ModelObservations] = field(default_factory=dict)
+    _dirty: bool = False
+
+    @staticmethod
+    def default(environment: dict[str, str] | None = None) -> Observations:
+        store = Observations(config_directory(environment) / "observations.json")
+        store.load()
+        return store
+
+    def load(self) -> None:
+        """Read the file, or start empty.
+
+        A malformed file yields no observations rather than raising. Losing a
+        cache of timings is a mild inconvenience; refusing to start a gateway
+        over one is not a trade anybody would choose.
+        """
+        try:
+            with self.path.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            return
+        if not isinstance(payload, dict):
+            return
+        for model, record in payload.items():
+            if isinstance(record, dict):
+                self._models[str(model)] = ModelObservations(
+                    latency_ms=_floats(record.get("latency_ms")),
+                    ttft_ms=_floats(record.get("ttft_ms")),
+                )
+
+    def record(self, model: str, latency_ms: float | None, ttft_ms: float | None) -> None:
+        """Fold one request's timings in. Cheap and in memory; `flush` writes."""
+        if latency_ms is None and ttft_ms is None:
+            return
+        self._models.setdefault(model, ModelObservations()).record(latency_ms, ttft_ms)
+        self._dirty = True
+
+    def of(self, model: str) -> ModelObservations:
+        return self._models.get(model) or ModelObservations()
+
+    def all(self) -> dict[str, ModelObservations]:
+        return dict(self._models)
+
+    def ttft_for_ranking(self) -> dict[str, float]:
+        """Median TTFT per model, for the models with enough samples to mean it.
+
+        Only the confident ones. A model with two samples is absent from this
+        map rather than present with a shaky number, so a caller cannot use one
+        without having decided what to do about the other case.
+        """
+        return {
+            model: observed.median_ttft_ms
+            for model, observed in self._models.items()
+            if observed.confident and observed.median_ttft_ms is not None
+        }
+
+    def flush(self) -> None:
+        """Write, if anything changed.
+
+        Called on a timer and at shutdown rather than per request: a gateway
+        that fsyncs on the hot path has traded the latency it is trying to
+        measure for the record of it.
+        """
+        if not self._dirty:
+            return
+        payload = {
+            model: {"latency_ms": observed.latency_ms, "ttft_ms": observed.ttft_ms}
+            for model, observed in self._models.items()
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = self.path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=1, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, self.path)
+        self._dirty = False
+
+
+def _floats(value: object) -> list[float]:
+    """Samples out of whatever the file held, dropping anything that is not one."""
+    if not isinstance(value, list):
+        return []
+    kept = [float(item) for item in value if isinstance(item, (int, float)) and item >= 0]
+    return kept[-WINDOW:]

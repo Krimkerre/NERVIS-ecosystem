@@ -100,6 +100,15 @@ class VirtualModelPool:
     # applying only where a pool actually declared what it wants.
     prefer_local: bool = False
     prefer_cheap: bool = False
+    # §9.2's "prefer fast", ranked on what RAVIS has actually timed.
+    #
+    # Only on models with enough samples to mean it — see `MINIMUM_SAMPLES`.
+    # Everything else ranks *neutral*, deliberately, and this is the one place
+    # the treatment differs from price. An unpriced model sorts last because a
+    # price exists and the provider chose not to publish it. An unmeasured model
+    # has simply never been called here, and sorting it last would be a trap
+    # that closes: never chosen, so never measured, so never chosen.
+    prefer_fast: bool = False
     # Which size tier this pool takes by default: `small`, `mid`, `large`.
     #
     # **A declared default, not a measurement, and the difference is the whole
@@ -321,6 +330,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         description="Lowest latency, accepting weaker answers",
         prefer=("1.7b", "2b", "3b", "mini", "tiny"),
         default_tier="small",
+        prefer_fast=True,
     ),
     VirtualModelPool(
         pool_id="ravis/performance",

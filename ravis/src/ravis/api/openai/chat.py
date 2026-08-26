@@ -264,6 +264,12 @@ def _chosen(request: Request, requested: str) -> tuple[str, ...]:
     return tuple(membership.for_pool(requested))
 
 
+def _observed(request: Request) -> dict[str, float]:
+    """Median TTFT per model, for the models measured often enough to mean it."""
+    store = getattr(request.app.state, "observations", None)
+    return store.ttft_for_ranking() if store is not None else {}
+
+
 def _record_path(call: _Call, path: str) -> None:
     """Note which of §6's two paths ran, on the record a diagnostic reads."""
     if call.recorded is not None:
@@ -518,6 +524,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # An operator's narrowing of this pool, if they made one. Read per
         # request for the same reason the provider toggles are.
         chosen=_chosen(request, payload.get("model") or ""),
+        # What RAVIS has timed, for the pools that rank on speed. Only models
+        # past the sample floor appear here — see `Observations`.
+        observed_ttft_ms=_observed(request),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.
@@ -552,6 +561,7 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
         health=request.app.state.health,
         provider=_provider_of(request),
         budget=request.app.state.retry_budget,
+        observations=getattr(request.app.state, "observations", None),
     )
     chain.load(decision.selected or "", decision.fallbacks)
     return chain

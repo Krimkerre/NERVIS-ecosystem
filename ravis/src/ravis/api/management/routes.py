@@ -38,6 +38,7 @@ from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
 from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.observations import MINIMUM_SAMPLES
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry
@@ -453,6 +454,36 @@ async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[
         transparents, getattr(request.app.state, "evidence", None)
     )
     return candidates, remote_models(transparents)
+
+
+@router.get("/observations")
+async def read_observations(request: Request) -> dict[str, Any]:
+    """What RAVIS has actually timed, per model, with the sample count.
+
+    **Never a figure without the count that earned it.** A median of two network
+    calls is two numbers, and a screen that shows it beside a median of sixty
+    without saying which is which invites a decision the data cannot support.
+    `confident` is what routing asks; `samples` is what a reader judges by.
+
+    §13.3 calls this evidence kind `OBSERVED_BY_RAVIS` — measured, but not under
+    controlled conditions. SIRVIS's benchmarks are the other kind: fixed prompt,
+    warm runtime, recorded method. This is a rolling window over whatever real
+    traffic looked like, so a model that answered three long prompts has a
+    median reflecting the prompts as much as the model.
+    """
+    store = getattr(request.app.state, "observations", None)
+    if store is None:
+        return {"items": [], "minimum_samples": MINIMUM_SAMPLES}
+    return {
+        "items": [
+            {"model_id": model, **observed.as_dict()}
+            for model, observed in sorted(store.all().items())
+        ],
+        "minimum_samples": MINIMUM_SAMPLES,
+        # How many are measured well enough to be ranked on, which is the number
+        # that says whether this is doing anything yet.
+        "confident_total": sum(1 for o in store.all().values() if o.confident),
+    }
 
 
 @router.get("/policies")

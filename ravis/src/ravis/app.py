@@ -47,6 +47,7 @@ from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
 from ravis.model_filter import ModelFilters
+from ravis.observations import Observations
 from ravis.pool_membership import PoolMembership
 from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
@@ -116,14 +117,41 @@ def _lifespan(settings: Settings) -> Any:
         evidence_refresher = asyncio.create_task(
             _refresh_evidence_periodically(api, settings.models_cache_ttl_seconds)
         )
+        recorder = asyncio.create_task(_flush_observations_periodically(api))
         try:
             yield
         finally:
             refresher.cancel()
             evidence_refresher.cancel()
+            recorder.cancel()
+            # Written on the way out as well as on the timer, so a clean restart
+            # keeps the samples taken since the last flush rather than the ones
+            # that happened to fall on a tick.
+            api.state.observations.flush()
             await api.state.upstream_client.aclose()
 
     return lifespan
+
+
+# How often observed timings are written to disk.
+#
+# Not per request: a gateway that fsyncs on the hot path has traded away the
+# latency it is measuring for the record of it. Not per hour either — the point
+# of persisting is surviving a restart, and a window that wide loses most of
+# what it was collecting whenever RAVIS is restarted, which during development
+# is constantly.
+OBSERVATION_FLUSH_SECONDS = 30.0
+
+
+async def _flush_observations_periodically(api: FastAPI) -> None:
+    """Write the observation windows down, on a timer.
+
+    Cancellation at shutdown is the normal end, and the `finally` in the
+    lifespan does the last write — so this deliberately does not catch it.
+    """
+    while True:
+        await asyncio.sleep(OBSERVATION_FLUSH_SECONDS)
+        api.state.observations.flush()
 
 
 def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
@@ -152,6 +180,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Read per request like the two above, so a change in a picker takes effect
     # on the next request rather than the next restart.
     api.state.pool_membership = PoolMembership.default()
+    # What RAVIS has actually observed of each model, loaded from the last run.
+    # The timings were always collected; `HealthRegistry` just held them in
+    # memory, so every restart threw away the evidence and left the coverage
+    # permanently too thin to route on.
+    api.state.observations = Observations.default()
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.
