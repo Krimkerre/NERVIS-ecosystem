@@ -4877,6 +4877,78 @@ three surviving anywhere in the API; two windows listed separately; a duplicate
 id while live refused; RAVIS refused; the enrollment secret unable to renew an
 instance; one instance's token unable to delete another's.
 
+## The dashboard's complexity, and the number that was wrong
+
+The JavaScript gate was set at 30 when it was introduced, on the reasoning that
+a ratchet at the worst survivor stops anything new being worse. The mechanism is
+right and the number was not: 30 sits deep in the band conventionally read as
+high risk, and thirty independent paths through one function is more than any
+test suite realistically covers. Asked whether that was good, the answer is no.
+
+The distribution was never the problem — 96% of functions were already under 10.
+Four outliers were.
+
+| | before | after | how |
+|---|---|---|---|
+| `runtimeSet` | 30 | 11 | accessors defined once instead of at twenty reads |
+| `sendChat` | 30 | 7 | the frame loop extracted as a pure function |
+| `BUILD.render` | 28 | 5 | split by section |
+| `tracesView` | 25 | 4 | split by card |
+| `ravisDiagnostics` | 18 | 6 | split by card |
+| `draw`, `mikuMode` | 15 | <10 | the gate applies to decorative code too |
+| the whole file | — | — | `dash()` and `warnUnless()` replaced 78 inline fallbacks |
+
+The ratchet is 13 now and the target is 10. The Python packages hold 8 and this
+still does not, for a reason that is measured rather than assumed: about a fifth
+of this file's decision points are control flow, and most of the rest are `||`,
+`??` and `?:` shaping optional fields inside template literals. Forcing 8 would
+pressure a reader toward hiding optional-field handling rather than writing it
+out — worse code that scores better. The two sweeps are the honest version of
+that fix: name the pattern once, and the branch genuinely stops existing at the
+call site.
+
+### The check that had to exist first
+
+Refactoring untested code is how untested code becomes broken code, and
+`render_check.js` makes every `fetch` reject — so it exercises the **mock** path
+of every live reader and none of the shaping, which is exactly where the
+complexity was. `runtimeSet` reached 30 with not one of its branches ever
+executed by a check.
+
+`tools/shaping_check.js` runs the readers against recorded payloads and fails if
+the shaped output moves. It is a **characterisation test**: it asserts the output
+is unchanged, not that it is right. That is what a complexity refactor needs, and
+it is worth being clear it is nothing more — a bug frozen into the golden file
+stays frozen, and only a person reading a diff will catch it.
+
+It caught three things before the refactor finished.
+
+**A live bug, from the sparse fixture.** Every `||` in a reader is a claim about
+a field the service might not send, so the fixture with every optional field
+absent is the only thing that proves those defaults do what their author
+believed. Co-residency read `complete ? 'resident together' : 'FAILED — ' +
+reason`, so a matrix that had simply not recorded the field rendered **"FAILED —
+undefined"** — an unknown printed as a confident failure, which is the one thing
+every honesty rule in these specifications forbids. It is three states now.
+
+**A flaw in the shim itself.** Pinning `BUILD.render` produced markup with every
+escaped value empty: `textContent` and `innerHTML` were unrelated plain
+properties on the element stub, and `escapeHtml` sets one and reads the other, so
+it returned `""` for every value on the page. `render_check` never noticed,
+because a screen that renders entirely blank still renders. A shim that silently
+answers `""` to the most-used function in the file is worse than one that throws.
+
+**My own sweep.** The first `dash()` regex rewrote the helper into
+`return dash(value)` and dropped the receivers off four method chains. Nine
+screens failed on the next run. Without the two checks that would have been a
+quiet corruption of forty-three call sites.
+
+**Verified live, 2026-08-26**, in a browser against NERVIS, RAVIS and SIRVIS all
+running: all 34 screens render, `buildRow` draws eleven real models with their
+measured chips intact (the two granite builds still read 8/8 and 1/8), and the
+M8a instances card still shows a registered Bridge with no workspace path
+anywhere in the page or the API.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

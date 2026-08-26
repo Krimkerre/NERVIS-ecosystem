@@ -230,6 +230,8 @@ swapping a mock for a real endpoint;
 ```bash
 python3 nervis/tools/check.py
 node nervis/tools/render_check.js
+node nervis/tools/complexity_check.js
+node nervis/tools/shaping_check.js
 ```
 
 **One rule outranks every screen on this page: it must render with nothing
@@ -244,6 +246,28 @@ dashboard with SIRVIS switched off.
 It proves a screen **assembles**, and nothing more: not that the markup is
 valid, not that anything is laid out, not that a click works. That is the cheap
 half of the check and the half that keeps failing.
+
+**And it makes every `fetch` reject**, which is the state it exists to test and
+also its blind spot: it exercises the *mock* path of every live reader and none
+of the shaping. That is where the complexity actually was — `API.sirvis.
+runtimeSet` reached cyclomatic complexity 30 with not one of its branches ever
+executed by a check.
+
+`shaping_check.js` covers that half. It runs the readers against recorded
+payloads and fails if the shaped output moves — a **characterisation test**, so
+it asserts the output is unchanged rather than right. The fixture that matters
+most is the sparse one: every `||` in a reader is a claim about a field the
+service might not send, and the sparse payload is the only thing that proves
+those defaults do what their author believed. It found a live bug on its first
+run — an unrecorded co-residency field rendering as "FAILED — undefined".
+
+`complexity_check.js` holds the file at a **ratchet of 13**, lowered whenever
+the worst survivor comes down; the target is 10. The Python packages hold 8 and
+this does not, because about a fifth of this file's decision points are control
+flow and most of the rest are optional-field fallbacks inside template literals
+— forcing 8 would pressure a reader toward hiding that handling rather than
+writing it out. Naming the pattern once (`dash()`, `warnUnless()`) is the honest
+version of that fix, and it removed 78 branches.
 
 ## Running it against a live RAVIS
 
