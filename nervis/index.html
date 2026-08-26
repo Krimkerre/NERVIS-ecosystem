@@ -95,6 +95,22 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    that is not built, and deleting them would lose that. Hovering restores them
    to readable: the point is "do not trust this number", not "you may not look".
    `.card.live` is the opt-out for a screen where only some cards are real. */
+.model-picker{border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:9px;margin:6px 0 2px;
+  background:rgba(255,255,255,.025)}
+.picker-head{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.picker-search{flex:1 1 180px;min-width:140px;background:rgba(255,255,255,.04);color:inherit;
+  border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 7px;font-family:inherit}
+/* Bounded and scrollable, because this list is four hundred rows for OpenRouter
+   and a panel that grows to fit pushes every card below it off the screen. */
+.picker-list{max-height:270px;overflow-y:auto;display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:1px 10px;
+  border-top:1px solid rgba(255,255,255,.07);padding-top:7px}
+.picker-item{display:flex;align-items:center;gap:6px;padding:2px 3px;border-radius:4px;
+  font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}
+.picker-item:hover{background:rgba(255,255,255,.05)}
+.picker-item input{accent-color:var(--accent);flex:none}
+.picker-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker-empty{padding:10px;opacity:.55;font:11px/1.5 ui-monospace,monospace}
 .card.prototype-card{opacity:.4;filter:saturate(.25);border-style:dashed}
 .card.prototype-card:hover{opacity:.82;filter:saturate(.6)}
 #content[data-wip] .card:not(.live){opacity:.4;filter:saturate(.25);border-style:dashed}
@@ -4369,14 +4385,27 @@ async function ravisProviders(){
      <span class="mono" style="opacity:.8">${models(x)}</span>
      <button class="btn${x.enabled?' primary':''}" onclick="PROVIDERS.toggle('${escapeHtml(x.name)}',${x.enabled?'false':'true'})">${x.enabled?'On':'Off'}</button>
     </div>
-    <div class="table-row" id="mf-${escapeHtml(x.name)}" style="display:none;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;opacity:.9">
+    <div id="mf-${escapeHtml(x.name)}" class="model-picker" style="display:none">
+     <div class="picker-head">
+      <input class="picker-search mono" placeholder="filter this list\u2026"
+        oninput="PROVIDERS.search('${escapeHtml(x.name)}',this.value)">
+      <span class="mono dim" id="mfc-${escapeHtml(x.name)}">loading\u2026</span>
+      <button class="btn" onclick="PROVIDERS.checkAll('${escapeHtml(x.name)}',true)">All</button>
+      <button class="btn" onclick="PROVIDERS.checkAll('${escapeHtml(x.name)}',false)">None</button>
+      <button class="btn primary" onclick="PROVIDERS.applyPicked('${escapeHtml(x.name)}')">Apply</button>
+     </div>
+     <div class="picker-list" id="mfl-${escapeHtml(x.name)}"></div>
+     <small class="mono dim">ticking models writes an <b>include</b> list of exact ids. That is a snapshot: a model this provider adds tomorrow arrives <b>unticked</b>, because an explicit list cannot know about it. Tick everything and the filter is cleared instead of listing all ${x.models?x.models.catalogue_total:''} ids — which keeps future models included, and is why "all" and "none of them filtered" are stored as the same thing.
+      <a href="#" onclick="PROVIDERS.patterns('${escapeHtml(x.name)}');return false">Use patterns instead</a> for a rule that keeps matching as the catalogue changes.</small>
+    </div>
+    <div class="table-row" id="mfp-${escapeHtml(x.name)}" style="display:none;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;opacity:.9">
      <span class="mono dim">include</span>
-     <span><input id="mfi-${escapeHtml(x.name)}" class="mono" placeholder="anthropic/*, openai/gpt-4*   —   empty means all"
+     <span><input id="mfi-${escapeHtml(x.name)}" class="mono" placeholder="anthropic/*, openai/gpt-4*   \u2014   empty means all"
        value="${escapeHtml(((x.models||{}).filter||{}).include?.join(', ')||'')}"
        style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
      <button class="btn primary" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}')">Apply</button>
      <span class="mono dim">exclude</span>
-     <span><input id="mfe-${escapeHtml(x.name)}" class="mono" placeholder="*-preview*, *:free   —   exclude wins over include"
+     <span><input id="mfe-${escapeHtml(x.name)}" class="mono" placeholder="*-preview*, *:free   \u2014   exclude wins over include"
        value="${escapeHtml(((x.models||{}).filter||{}).exclude?.join(', ')||'')}"
        style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
      <button class="btn" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}',true)">Clear</button>
@@ -4643,10 +4672,123 @@ async function ravisCredentials(){
 }
 
 const PROVIDERS={
+ /* One provider's catalogue while its picker is open, keyed by provider.
+    Held here rather than read back off the checkboxes: a search narrows what is
+    *rendered*, and a selection made before searching has to survive the list
+    being rebuilt. Reading the DOM would silently drop every tick that scrolled
+    out of the filter. */
+ picked:{},
+
  editFilter(name){
-  const row=document.getElementById('mf-'+name);
-  if(row)row.style.display=row.style.display==='none'?'grid':'none';
+  const panel=document.getElementById('mf-'+name);
+  if(!panel)return;
+  const opening=panel.style.display==='none';
+  panel.style.display=opening?'block':'none';
+  document.getElementById('mfp-'+name).style.display='none';
+  if(opening)this.load(name);
  },
+
+ patterns(name){
+  /* Patterns and ticks edit the same filter, so only one is shown at a time —
+     two views of one value, both editable, is how a screen writes back the one
+     nobody touched. */
+  document.getElementById('mf-'+name).style.display='none';
+  document.getElementById('mfp-'+name).style.display='grid';
+ },
+
+ /* The whole catalogue, paged until it is exhausted.
+    Every page, not a sample: a checkbox list that omits a model is one the
+    operator cannot see and cannot select, and RAVIS caps its *sample* endpoint
+    precisely so a truncated list is never mistaken for the answer. */
+ async load(name){
+  const list=document.getElementById('mfl-'+name);
+  list.innerHTML='<div class="picker-empty">reading the catalogue\u2026</div>';
+  const items=[];
+  let offset=0;
+  try{
+   while(offset!==null){
+    const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)
+      +'/catalogue?offset='+offset+'&limit=500',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok){list.innerHTML=`<div class="picker-empty">RAVIS refused: HTTP ${r.status}</div>`;return}
+    const page=await r.json();
+    items.push(...(page.items||[]));
+    offset=page.next_offset;
+   }
+  }catch(e){
+   list.innerHTML='<div class="picker-empty">RAVIS is not reachable.</div>';return;
+  }
+  if(!items.length){
+   list.innerHTML='<div class="picker-empty">this provider publishes no catalogue yet \u2014 it may need a credential, or its first refresh.</div>';
+  }
+  this.picked[name]={all:items.map(i=>i.id),on:new Set(items.filter(i=>i.selected).map(i=>i.id)),q:''};
+  this.render(name);
+ },
+
+ render(name){
+  const st=this.picked[name];
+  if(!st)return;
+  const list=document.getElementById('mfl-'+name);
+  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  list.innerHTML=shown.length
+   ?shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}">
+     <input type="checkbox"${st.on.has(id)?' checked':''}
+       onchange="PROVIDERS.tick('${escapeHtml(name)}','${escapeHtml(id).replace(/'/g,"&#39;")}',this.checked)">
+     <span>${escapeHtml(id)}</span></label>`).join('')
+   :'<div class="picker-empty">nothing matches that.</div>';
+  const count=document.getElementById('mfc-'+name);
+  /* Says what is selected out of the whole catalogue, never out of what the
+     search happens to show — the second number is the one an operator is about
+     to act on, and reporting the visible subset would make "all" mean two
+     different things depending on the search box. */
+  count.textContent=`${st.on.size} of ${st.all.length} selected`
+    +(st.q?` \u00b7 ${shown.length} shown`:'');
+ },
+
+ tick(name,id,on){
+  const st=this.picked[name];
+  if(!st)return;
+  if(on)st.on.add(id); else st.on.delete(id);
+  document.getElementById('mfc-'+name).textContent=
+    `${st.on.size} of ${st.all.length} selected`+(st.q?` \u00b7 ${(st.q?st.all.filter(m=>m.toLowerCase().includes(st.q)):st.all).length} shown`:'');
+ },
+
+ search(name,q){
+  const st=this.picked[name];
+  if(!st)return;
+  st.q=(q||'').trim().toLowerCase();
+  this.render(name);
+ },
+
+ /* Acts on what the search shows, which is the only reading that makes sense
+    of "All" next to a filtered list — otherwise typing `gemini` then clicking
+    All would tick four hundred unrelated models. */
+ checkAll(name,on){
+  const st=this.picked[name];
+  if(!st)return;
+  const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
+  for(const id of shown){if(on)st.on.add(id); else st.on.delete(id)}
+  this.render(name);
+ },
+
+ async applyPicked(name){
+  const st=this.picked[name];
+  if(!st)return;
+  /* **Everything ticked is stored as no filter, not as a list of every id.**
+     The two select the same models today and diverge tomorrow: a provider that
+     adds a model would have it excluded by the explicit list and included by
+     the empty one, and "I ticked everything" plainly means the second. */
+  const all=st.on.size===st.all.length;
+  const body={include:all?[]:[...st.on],exclude:[]};
+  if(!all&&!st.on.size&&!confirm('Nothing is ticked. That leaves this provider with no models at all. Continue?'))return;
+  try{
+   const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/models',
+    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+   if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
+  }catch(e){alert('RAVIS is not reachable.');return}
+  delete this.picked[name];
+  ravisProviders();
+ },
+
  async applyFilter(name,clear){
   const split=v=>(v||'').split(',').map(s=>s.trim()).filter(Boolean);
   const body=clear?{include:[],exclude:[]}:{

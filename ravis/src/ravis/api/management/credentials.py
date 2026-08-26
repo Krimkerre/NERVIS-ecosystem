@@ -270,6 +270,62 @@ async def read_model_filter(name: str, request: Request) -> dict[str, Any]:
     }
 
 
+# How many ids one catalogue page carries. Larger than `SAMPLE_LIMIT` because
+# this endpoint answers a different question: `sample` shows an operator what a
+# pattern *did*, and is capped so a truncated list can never be mistaken for the
+# result — while this one exists to enumerate a catalogue exhaustively, and says
+# so by carrying `total` and a cursor on every page.
+CATALOGUE_PAGE = 250
+CATALOGUE_MAX_PAGE = 1000
+
+
+@router.get("/{name}/catalogue")
+async def read_catalogue(name: str, request: Request) -> dict[str, Any]:
+    """Every model this provider publishes, a page at a time, with what is selected.
+
+    The filter screen offers a list to tick through, and a list to tick through
+    has to be the whole list. `read_model_filter` deliberately caps what it
+    returns; capping here would mean a model the operator cannot see and cannot
+    select, which is a worse failure than a long response.
+
+    `selected` is computed from the live filter rather than sent back by the
+    page, so a filter changed in another tab shows up on the next open instead
+    of being silently overwritten by a stale checkbox.
+    """
+    catalogue = await _catalogue(request, name)
+    filters: ModelFilters = request.app.state.model_filters
+    model_filter = filters.for_provider(name)
+    selected = set(model_filter.apply(catalogue))
+
+    offset = max(0, _int(request.query_params.get("offset"), 0))
+    limit = min(CATALOGUE_MAX_PAGE, max(1, _int(request.query_params.get("limit"), CATALOGUE_PAGE)))
+    page = catalogue[offset : offset + limit]
+    return {
+        "name": name,
+        "items": [{"id": model, "selected": model in selected} for model in page],
+        "total": len(catalogue),
+        "offset": offset,
+        "limit": limit,
+        # Absent rather than equal to `total` when the listing is done, so a
+        # client loops on "is there a next page" instead of on arithmetic.
+        "next_offset": offset + limit if offset + limit < len(catalogue) else None,
+        "filtered": not model_filter.is_empty,
+        "filter": model_filter.as_dict(),
+    }
+
+
+def _int(raw: str | None, fallback: int) -> int:
+    """A query parameter as a number, or the fallback. Never a 422.
+
+    A malformed cursor should restart the listing, not refuse it: the operator
+    did not type it, a client did, and the recoverable answer is the useful one.
+    """
+    try:
+        return int(raw) if raw is not None else fallback
+    except ValueError:
+        return fallback
+
+
 @router.put("/{name}/models")
 async def set_model_filter(name: str, body: FilterInput, request: Request) -> Any:
     """Replace one provider's filter, and report what it now selects."""
