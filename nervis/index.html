@@ -109,7 +109,9 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
   font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}
 .picker-item:hover{background:rgba(255,255,255,.05)}
 .picker-item input{accent-color:var(--accent);flex:none}
-.picker-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.picker-item em{flex:none;font-style:normal;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+  opacity:.5;border:1px solid rgba(255,255,255,.14);border-radius:3px;padding:0 4px}
 .pick-group{padding:9px 3px 3px;display:flex;flex-direction:column;gap:1px}
 .pick-group b{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.09em;
   text-transform:uppercase;color:var(--accent);opacity:.85}
@@ -151,12 +153,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .top-status .dot[data-state="warn"]{background:#ffb648;box-shadow:0 0 8px #ffb648}
 .top-status .dot[data-state="bad"]{background:#ff5c6a;box-shadow:0 0 8px #ff5c6a}
 /* fault injection: the degradation gate should be walkable by clicking */
-.fault-controls{position:fixed;right:14px;bottom:12px;z-index:60;display:flex;gap:6px;align-items:center}
-.fault-controls b{font:9px/1 monospace;text-transform:uppercase;letter-spacing:.09em;color:#5d6b7e;margin-right:2px}
-.fault-controls button{background:rgba(6,20,29,.9);border:1px solid #1b4050;border-radius:2px;color:#8494a5;padding:6px 9px;cursor:pointer;font:9px/1 monospace;text-transform:uppercase;letter-spacing:.06em}.fault-controls button:hover{color:var(--hud);border-color:var(--hud)}
-.fault-controls button[data-state="degraded"]{color:#ffb648;border-color:rgba(255,182,72,.4)}
-.fault-controls button[data-state="unreachable"]{color:#ff5c6a;border-color:rgba(255,92,106,.4)}
-@media(max-width:620px){.fault-controls{display:none}}
 
 /* ── EMBEDDED EDITOR SEAM ────────────────────────────────────────────────
    code-server is a separate document in its own frame — that boundary is a
@@ -268,7 +264,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app.zen .body{grid-template-columns:minmax(0,1fr)}
 .app.zen .page-head{display:none}
 .app.zen .main{padding:10px}
-body.zen body.zen .fault-controls{display:none}
 
 /* Focus mode hides the dashboard header, and with it the shared avatar slot — so
    the chat panel takes him back, exactly as standalone VS Code renders him. One
@@ -558,10 +553,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
 @media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
 </style></head>
-<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div></div><div class="fault-controls" aria-label="Simulate service absence">
-  <b>Simulate</b>
-  <button data-svc="ravis">RAVIS</button><button data-svc="sirvis">SIRVIS</button><button data-svc="clarvis">BRIDGE</button>
-</div><div id="corrupt" aria-hidden="true"><i class="scan"></i><i class="tear t1"></i><i class="tear t2"></i><i class="tear t3"></i><i class="blk b1"></i><i class="blk b2"></i><i class="blk b3"></i><i class="flash"></i></div>
+<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div></div><div id="corrupt" aria-hidden="true"><i class="scan"></i><i class="tear t1"></i><i class="tear t2"></i><i class="tear t3"></i><i class="blk b1"></i><i class="blk b2"></i><i class="blk b3"></i><i class="flash"></i></div>
 <div class="toast" id="toast"></div>
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
@@ -616,7 +608,6 @@ const REASON={
  stale:'last response older than the detection interval',
  incompatible:'unsupported protocol major', unauthorized:'authentication rejected',
  stopped:'not running', discovering:'negotiating capabilities'};
-const CYCLE=['healthy','degraded','unreachable'];
 /* Purpose-drawn icons, one per destination. Unicode had no honest mark for
    "runtime sets" or "providers", and a rail of near-identical geometry is not
    navigation. 16px grid, stroked in currentColor so the accent follows the app.
@@ -4296,9 +4287,30 @@ const POOLEDIT={
    }
    this.state[key]={all:(d.items||[]).map(i=>i.id),
      remote:new Set((d.items||[]).filter(i=>i.remote).map(i=>i.id)),
-     on:new Set((d.items||[]).filter(i=>i.selected).map(i=>i.id)),q:''};
+     tier:Object.fromEntries((d.items||[]).map(i=>[i.id,i.tier||''])),
+     on:new Set((d.items||[]).filter(i=>i.selected).map(i=>i.id)),
+     narrowed:d.narrowed, defaultTier:d.default_tier||'', q:''};
+   this.explain(key,d);
    this.render(key);
   }catch(e){list.innerHTML='<div class="picker-empty">RAVIS is not reachable.</div>'}
+ },
+
+ /* What this pool is currently choosing among, and where that came from.
+    Three states, not two: an operator's selection, the pool's own default tier,
+    or everything. "Narrowed or not" could not tell the middle case from the
+    last, and the middle is the one that needs explaining. */
+ explain(key,d){
+  const note=document.getElementById('pmn-'+key);
+  if(!note)return;
+  if(d.narrowed){
+   note.innerHTML=`using <b>your selection</b> of ${d.chosen_total} model(s). Tick everything to hand the choice back to the pool.`;
+   return;
+  }
+  if(!d.default_tier){
+   note.innerHTML='using <b>every eligible model</b>. This pool declares no default tier.';
+   return;
+  }
+  note.innerHTML=`using this pool\u2019s default <b>${escapeHtml(d.default_tier)}</b> tier \u2014 ${d.chosen_total} of ${d.total} eligible. Size is read from the parameter count in a name, or from the vendor\u2019s own tier word where there is none: <b>haiku / sonnet / opus</b> is the clearest case. That is <b>product tiering, not a latency measurement</b> \u2014 no cloud provider publishes one. Tick differently and your selection replaces the default outright.`;
  },
 
  render(key){
@@ -4306,10 +4318,10 @@ const POOLEDIT={
   if(!st)return;
   const list=document.getElementById('pml-'+key);
   const shown=st.q?st.all.filter(id=>id.toLowerCase().includes(st.q)):st.all;
-  if(shown.length)list.innerHTML=shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}">
+  if(shown.length)list.innerHTML=shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}${st.tier[id]?' \u00b7 '+st.tier[id]:''}">
     <input type="checkbox"${st.on.has(id)?' checked':''}
       onchange="POOLEDIT.tick('${escapeHtml(key)}','${escapeHtml(id).replace(/'/g,'&#39;')}',this.checked)">
-    <span>${escapeHtml(id)}</span></label>`).join('');
+    <span>${escapeHtml(id)}</span>${st.tier[id]?`<em>${escapeHtml(st.tier[id])}</em>`:''}</label>`).join('');
   else if(st.all.length)list.innerHTML='<div class="picker-empty">nothing matches that.</div>';
   this.count(key);
  },
@@ -4382,6 +4394,7 @@ function poolRow(x,inv){
     <button class="btn primary" onclick="POOLEDIT.apply('${escapeHtml(key)}')">Apply</button>
    </div>
    <div class="picker-list" id="pml-${escapeHtml(key)}"></div>
+   <small class="mono dim" id="pmn-${escapeHtml(key)}"></small>
    <small class="mono dim">only models that already satisfy this pool\u2019s invariants are listed, and only those can be ticked \u2014 a selection is a <b>narrowing</b>, never a widening. <b>ravis/local</b> promises the request never leaves this machine, and a promise somebody can tick away in a picker is not a promise. Tick everything and the narrowing is cleared rather than stored, so models added later still qualify on their own.</small>
   </div>`;
 }
@@ -5873,14 +5886,14 @@ function warnUnless(ok){return ok?'':' warn'}
 function warnIf(bad){return bad?' warn':''}
 
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-/* Cycling a service through healthy → degraded → unreachable is the whole point:
-   the rule is that removing a dependency changes only the UI that depends on it,
-   and that is only checkable if it can be removed. */
-$$('.fault-controls button').forEach(b=>{const k=b.dataset.svc;
- const paint=()=>{const st=SERVICES[k].state;b.dataset.state=st==='healthy'?'':st;
-  b.title=`${SERVICES[k].label}: ${st}${REASON[st]?' — '+REASON[st]:''}`};
- b.onclick=()=>{const i=CYCLE.indexOf(SERVICES[k].state);SERVICES[k].state=CYCLE[(i+1)%CYCLE.length];
-  paint();render();notify(`${SERVICES[k].label} → ${SERVICES[k].state}`)};paint()});
+/* The Simulate dock is gone. It cycled `SERVICES[k].state` by hand so that a
+   screen could be seen with a dependency missing, back when nothing was running
+   and `SERVICES` was the only source of a state. Every screen that mattered now
+   reads a live registry, and the honest way to see one without SIRVIS is to
+   stop SIRVIS — which also exercises the timeouts, the fallbacks and the empty
+   catalogue that a flipped enum never did.
+
+   `SERVICES` survives as the from-disk fallback and nothing writes to it. */
 /* Focus is template-side because it must be: the dashboard's own chrome is not
    reachable from inside the editor's document. The real build pairs this with
    workbench.action.toggleZenMode over the Bridge, using the same closed enum as

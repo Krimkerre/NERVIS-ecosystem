@@ -26,6 +26,7 @@ from ravis.model_filter import ModelFilter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.providers.lmstudio import LmStudioAdapter
 from ravis.providers.ollama import OllamaAdapter
+from ravis.providers.openrouter import OpenRouterAdapter
 from ravis.registry import ModelRegistry
 from ravis.runtime.residency import Residency, ResidencySnapshot
 from ravis.upstream import Upstream
@@ -41,6 +42,7 @@ from ravis.upstreams import (
 # upstream — §6's forwarding path is identical whichever comes back.
 KINDS: dict[str, type[GenericOpenAiAdapter]] = {
     "lmstudio": LmStudioAdapter,
+    "openrouter": OpenRouterAdapter,
     "ollama": OllamaAdapter,
     "generic": GenericOpenAiAdapter,
 }

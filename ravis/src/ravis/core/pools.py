@@ -85,6 +85,21 @@ class VirtualModelPool:
     description: str
     requirements: PoolRequirements = field(default_factory=PoolRequirements)
     prefer: tuple[str, ...] = ()
+    # Which size tier this pool takes by default: `small`, `mid`, `large`.
+    #
+    # **A declared default, not a measurement, and the difference is the whole
+    # justification.** `ravis/fast` with no default admits every model that
+    # satisfies its invariants — six hundred once four API providers are
+    # configured — which is technically correct and useless: the pool means
+    # "answer quickly", and nothing in a bare `/v1/models` listing says how
+    # quickly anything answers. SIRVIS measures that for local models and there
+    # is no equivalent for a cloud one.
+    #
+    # What *is* knowable is size, and size is the axis these three pools differ
+    # on: small ones answer sooner, large ones answer better. See `size_tier`
+    # for how it is read. Empty means every eligible model, which is what every
+    # other pool wants.
+    default_tier: str = ""
     # Whether a picker should offer this pool.
     #
     # The ID stays addressable either way — §5 requires it and a client may name
@@ -111,6 +126,22 @@ class VirtualModelPool:
             if not self.requirements.unmet_by(known, remote=model in remote)
         ]
         return sorted(members, key=lambda model: (self.preference_rank(model), *size_rank(model)))
+
+    def default_membership(self, candidates: list[str]) -> tuple[str, ...]:
+        """The curated members present in this catalogue, or everything.
+
+        Returns all candidates when the pool declares no default, so a pool
+        without one behaves exactly as it always has. Returns all of them again
+        when the default matches nothing present — a curated list that happens
+        to name no installed model must not empty the pool, because the operator
+        did not choose that and an empty pool refuses every request.
+        """
+        if not self.default_tier:
+            return tuple(candidates)
+        matched = tuple(
+            model for model in candidates if size_tier(model) == self.default_tier
+        )
+        return matched or tuple(candidates)
 
     def preference_rank(self, model: str) -> int:
         """How well a model matches this pool's declared preference, lowest best.
@@ -155,6 +186,81 @@ def parameter_scale(model: str) -> float | None:
     return float(matches[-1]) if matches else None
 
 
+# Where each tier ends, in billions of parameters.
+#
+# Round numbers rather than derived ones, because there is nothing to derive
+# them from: these are the shoulders of the distribution as vendors actually
+# ship it — 7-8B is the small tier everybody has, 70B+ is the flagship tier, and
+# the teens-to-thirties sit between. A boundary being approximate is fine for a
+# *default* somebody can overrule and would not be fine for a constraint.
+SMALL_CEILING_B = 8.0
+MID_CEILING_B = 34.0
+
+# Each vendor's own word for a tier, for the models whose names carry no size.
+#
+# Vendors are reliable about this because they price on it. Anthropic's
+# haiku/sonnet/opus is the clearest case and maps exactly onto the three pools;
+# the rest follow the same shape. It is product tiering read as product
+# tiering — a much weaker claim than measuring latency, and a much stronger one
+# than guessing from a substring nobody chose deliberately.
+#
+# **Ordered, small first, because a modifier narrows a family.** `gpt-5-mini` is
+# small even though `gpt-5` is large, and longest-match got that backwards.
+TIER_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("small", ("haiku", "mini", "nano", "flash", "lite", "tiny", "instant", "small")),
+    ("large", ("opus", "ultra", "max", "large", "pro", "gpt-4", "gpt-5", "o1", "o3")),
+    ("mid", ("sonnet", "medium", "gpt-4o", "gpt-4.1")),
+)
+
+# Models that are not on this axis at all.
+#
+# `text-embedding-3-large` is not a large chat model; it is not a chat model.
+# Sweeping it into `ravis/performance` on the strength of the word "large" would
+# answer a conversation with an embedding endpoint — and the failure would look
+# like the model being broken rather than like the pool being wrong.
+NOT_CHAT = (
+    "embedding", "embed", "whisper", "tts", "dall-e", "moderation",
+    "rerank", "guard", "transcribe", "image", "video", "voice",
+)
+
+
+def _has_word(model: str, word: str) -> bool:
+    """Whether `word` appears in `model` as its own token.
+
+    Bounded on both sides, because plain substring matching finds `mini` inside
+    **ge**mini* and files every Gemini model as small. Model ids separate their
+    parts with hyphens, slashes, dots and underscores, so anything alphanumeric
+    on either side means the match landed inside a longer word.
+    """
+    return re.search(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", model) is not None
+
+
+def size_tier(model: str) -> str | None:
+    """`small`, `mid`, `large`, or None when the name says none of them.
+
+    **Parameter count first, vendor word second.** A count is the more specific
+    signal and it is the one that decides how fast the thing answers — including
+    for mixture-of-experts names, where `parameter_scale` deliberately reads the
+    *active* count rather than the total, so a 30B-A3B lands in `small` because
+    that is how it behaves.
+
+    None rather than a guess when a name carries neither, and None outright for
+    anything that is not a chat model.
+    """
+    lowered = model.lower()
+    if any(marker in lowered for marker in NOT_CHAT):
+        return None
+    scale = parameter_scale(model)
+    if scale is not None:
+        if scale <= SMALL_CEILING_B:
+            return "small"
+        return "mid" if scale <= MID_CEILING_B else "large"
+    for tier, words in TIER_WORDS:
+        if any(_has_word(lowered, word) for word in words):
+            return tier
+    return None
+
+
 def size_rank(model: str) -> tuple[int, float, str]:
     """The tiebreak between candidates a pool considers equal: smaller first.
 
@@ -192,18 +298,21 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/balanced",
         label="Balanced",
         description="A reasonable middle between speed, cost and quality",
+        default_tier="mid",
     ),
     VirtualModelPool(
         pool_id="ravis/fast",
         label="Speed",
         description="Lowest latency, accepting weaker answers",
         prefer=("1.7b", "2b", "3b", "mini", "tiny"),
+        default_tier="small",
     ),
     VirtualModelPool(
         pool_id="ravis/performance",
         label="Performance",
         description="Best available answer, accepting latency and cost",
         prefer=("70b", "32b", "30b", "27b", "14b"),
+        default_tier="large",
     ),
     VirtualModelPool(
         pool_id="ravis/cheap",

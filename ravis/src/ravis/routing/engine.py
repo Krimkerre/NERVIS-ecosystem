@@ -187,11 +187,17 @@ class RoutingEngine:
             requirements=_all_requirements(pool, requirements),
             unverified=unverified_notes(requirements, candidates),
         )
+        # An operator's selection wins outright; the pool's own default applies
+        # only when they have made none. Resolved here rather than by the caller
+        # because the default is expressed over *this* catalogue — "the small
+        # ones" means nothing until you know what is present.
+        effective = chosen or pool.default_membership(sorted(candidates))
+        by_default = not chosen
         decision.excluded = _exclusions(
-            pool, candidates, requirements, unavailable, remote, chosen
+            pool, candidates, requirements, unavailable, remote, effective, by_default
         )
         eligible = _rank(
-            pool, candidates, residency, memory, requirements, unavailable, remote, chosen
+            pool, candidates, residency, memory, requirements, unavailable, remote, effective
         )
 
         if not eligible:
@@ -305,6 +311,7 @@ def _exclusions(
     unavailable: Mapping[str, str],
     remote: frozenset[str] = frozenset(),
     chosen: tuple[str, ...] = (),
+    by_default: bool = False,
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
@@ -320,7 +327,13 @@ def _exclusions(
     for model in sorted(candidates):
         reasons = pool.requirements.unmet_by(candidates[model], remote=model in remote)
         if chosen and model not in chosen:
-            reasons.append("not among the models chosen for this pool")
+            # Worded differently for the two cases on purpose: one is fixed by
+            # ticking a box and the other by understanding what the pool is for.
+            reasons.append(
+                f"outside this pool's default {pool.default_tier} tier — tick it to include it"
+                if by_default
+                else "not among the models chosen for this pool"
+            )
         reasons += unmet_by(requirements, candidates[model])
         refused = model in unavailable
         if refused:

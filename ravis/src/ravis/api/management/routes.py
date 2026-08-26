@@ -33,7 +33,7 @@ from pydantic import BaseModel
 
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
-from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID
+from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
@@ -62,12 +62,24 @@ def _listing(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def _candidates(request: Request) -> dict[str, Any]:
-    """Capabilities for every model the upstream currently offers."""
+    """Capabilities for every model **every** upstream currently offers.
+
+    This read one upstream — `state.adapter`, the first declared — so the Pools
+    screen counted twenty members while the pool itself was choosing among six
+    hundred. Two numbers on one screen disagreeing about the same pool is worse
+    than either being wrong: it makes the reader distrust both, and the one that
+    was right looked broken.
+
+    Falls back to the single adapter when nothing is declared plurally, which is
+    what every deployment written before M8 is.
+    """
+    transparents = getattr(request.app.state, "transparents", {})
+    evidence = getattr(request.app.state, "evidence", None)
+    if transparents:
+        return await merged_candidates(transparents, evidence)
     adapter = request.app.state.adapter
     registry = request.app.state.model_registry
-    return await candidates_with_evidence(
-        adapter, registry.model_ids(), getattr(request.app.state, "evidence", None)
-    )
+    return await candidates_with_evidence(adapter, registry.model_ids(), evidence)
 
 
 @router.get("/health")
@@ -102,6 +114,12 @@ async def read_health(request: Request) -> dict[str, Any]:
     }
 
 
+def _members(pool: Any, eligible: list[str], membership: Any) -> list[str]:
+    """What this pool is choosing among right now."""
+    stored = tuple(membership.for_pool(pool.pool_id)) if membership is not None else ()
+    return list(stored or pool.default_membership(eligible))
+
+
 @router.get("/pools")
 async def read_pools(request: Request) -> dict[str, Any]:
     """Every pool, its declared requirements, and its *derived* membership.
@@ -112,10 +130,12 @@ async def read_pools(request: Request) -> dict[str, Any]:
     satisfies shows as unavailable rather than silently routing somewhere close.
     """
     candidates = await _candidates(request)
+    remote = remote_models(getattr(request.app.state, "transparents", {}))
+    membership = getattr(request.app.state, "pool_membership", None)
     residency = request.app.state.model_registry.residency
     items = []
     for pool in DEFAULT_POOLS:
-        eligible = pool.eligible(candidates)
+        eligible = pool.eligible(candidates, remote)
         items.append(
             {
                 "pool_id": pool.pool_id,
@@ -127,8 +147,15 @@ async def read_pools(request: Request) -> dict[str, Any]:
                     ),
                     "minimum_context": pool.requirements.minimum_context,
                 },
-                "members": eligible,
-                "member_count": len(eligible),
+                # What the pool would actually choose among: its invariants,
+                # then an operator's selection or its own default tier. The
+                # count on a dashboard has to be the count the router uses, or
+                # it is describing a different pool than the one that answers.
+                "members": _members(pool, eligible, membership),
+                "member_count": len(_members(pool, eligible, membership)),
+                "eligible_count": len(eligible),
+                "default_tier": pool.default_tier,
+                "listed": pool.listed,
                 # A pool nothing satisfies is unavailable, not empty-and-fine.
                 "available": bool(eligible),
                 "loaded_members": [
@@ -346,18 +373,27 @@ async def read_pool_members(pool_key: str, request: Request) -> Any:
         )
     candidates, remote = await _pool_candidates(request)
     eligible = pool.eligible(candidates, remote)
-    chosen = set(request.app.state.pool_membership.for_pool(pool_id))
+    stored = tuple(request.app.state.pool_membership.for_pool(pool_id))
+    # What the pool would use right now: the operator's selection if they made
+    # one, otherwise its own default tier over what is actually present.
+    chosen = set(stored or pool.default_membership(eligible))
     return {
         "pool_id": pool_id,
         "label": pool.label,
         "locality": pool.requirements.locality,
         "items": [
-            {"id": model, "selected": not chosen or model in chosen,
-             "remote": model in remote}
+            {"id": model, "selected": model in chosen, "remote": model in remote,
+             "tier": size_tier(model)}
             for model in eligible
         ],
         "total": len(eligible),
-        "narrowed": bool(chosen),
+        "chosen_total": len(chosen),
+        # Three states, not two. A pool can be using an operator's selection, or
+        # its own default tier, or everything — and "narrowed" alone could not
+        # tell the middle case from the last, which is the one a picker most
+        # needs to explain.
+        "narrowed": bool(stored),
+        "default_tier": pool.default_tier,
         "catalogue_total": len(candidates),
     }
 
