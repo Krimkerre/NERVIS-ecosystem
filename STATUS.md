@@ -25,22 +25,22 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1046 tests, no network, no live service
+.venv/bin/pytest                      # part of 1064 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 17 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 147 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 160 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1046 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1064 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4678,6 +4678,96 @@ else's fact.
 `nervis.event_hub@1` is **available**, and that is about the hub rather than the
 ecosystem's traffic. Whether peers publish is theirs to declare, which is
 exactly why their silence does not degrade this.
+
+## All three services were storing a trace id that could not correlate
+
+Found while starting M7, and it defeated §11.2 entirely:
+
+```python
+request.state.trace_id = request.headers.get("traceparent", "")
+```
+
+The **whole header**, in RAVIS, SIRVIS and NERVIS — the same line, three times,
+wrong three times. `traceparent`'s third field is a **per-span parent id**, so
+two spans in one trace carry two different headers and matching on the string
+finds neither. §11.2's entire premise is that events from different services
+join on this value.
+
+Parsed in `ecosystem_protocol` rather than fixed three times. That is the
+third-copy trigger I named when the refactor question came up: two copies is
+coincidence, three is a pattern.
+
+An all-zero trace or parent id is refused rather than propagated, because a zero
+id would join every malformed trace into one. An unknown *version* keeps its
+trace id — the specification says a receiver must not reject a higher version
+outright, and refusing would make NERVIS the reason a newer client's traces
+vanished.
+
+**RAVIS's route decisions carried no trace id at all.** They do now, which is
+what lets a route be placed beside the events either side of it.
+
+## NERVIS M7 — the waterfall, and the bars it refuses to draw
+
+§11.2 says it twice in one section: *mark missing spans and clock skew — never
+synthesize a span as fact.* That is the only rule that changes the code's shape,
+because a waterfall is a drawing of durations and a drawing is exactly where an
+invented number stops looking invented. A bar is a bar whether it was measured
+or guessed.
+
+**One event is a point, not a zero-length bar.** A single event sets `started`
+and `ended` to the same moment, so the arithmetic gives `0.0` — which draws a
+zero-width bar reading *"this took no time"* rather than *"this was one recorded
+moment"*. Keyed on the number of events, because that is the evidence: two bound
+an interval, one does not.
+
+**A service that recorded nothing gets no bar.** A hole is the finding, not
+something to fill.
+
+**Clock skew is reported, never corrected.** Straightening a waterfall deletes
+the only evidence that two clocks disagree, and a timeline that visibly cannot
+be straightened is the one that makes somebody go and look.
+
+**An unparseable timestamp does not become "now"** — that would place a span at
+the moment somebody opened the screen, which is the most confidently wrong a
+timeline can be.
+
+### A gap that explains itself
+
+RAVIS does not publish events until M18b, so a chat turn traces as one lane. But
+RAVIS *does* record `trace_id` on every route decision, which makes "RAVIS
+handled this request" a **recorded fact** NERVIS can read:
+
+```text
+NERVIS   one moment
+gap: RAVIS routed this request — decision 518acf34583e, selected
+     deepseek-r1-distill-qwen-1.5b — and published no events, so it has no lane.
+```
+
+Still a warning and never a span. A decision record is evidence that something
+happened, not evidence of *when it started and stopped*; drawing a bar from it
+would invent the two timestamps the rule exists to protect.
+
+`nervis.traces@1` is `degraded` and says the missing half is other people's.
+
+### Two gates earned their keep
+
+**The complexity gate fired on `send`**, at 9 against a limit of 8, when the
+traced-span emit went in. That function was measured sitting *exactly* on 8 two
+days ago, with the note that M11 or M16 would be what tipped it. M7 got there
+first. Extracted, and back under.
+
+**The render check caught a screen I broke while adding the waterfall.** A
+`str.replace` matched the same early-return pattern in `ravisCredentials` as in
+`tracesView`, so the credentials screen referenced a variable that does not
+exist there:
+
+```text
+1 of 34 screens failed to render:
+  • ravis/Credentials: traces is not defined
+```
+
+That is exactly the class the check exists for — a screen nobody was looking at,
+broken by an edit to a different screen.
 
 ## Starting the thing
 

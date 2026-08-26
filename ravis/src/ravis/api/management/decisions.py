@@ -39,6 +39,11 @@ class RecordedDecision:
     application_id: str
     decision: RouteDecision
     request_id: str = ""
+    # The trace this decision belongs to. Recorded so §11.2's waterfall can put
+    # a route beside the events either side of it — a decision that says why a
+    # model was chosen but not which request it belonged to is a fact with no
+    # neighbours.
+    trace_id: str = ""
     # What actually happened when the decision was executed: the targets tried,
     # in order, and how each one ended (§10's fallback chain). Written after the
     # response completes, which for a stream is long after the decision was
@@ -79,6 +84,7 @@ class RecordedDecision:
                 "decided_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.decided_at)),
                 "application_id": self.application_id,
                 "request_id": self.request_id,
+                "trace_id": self.trace_id,
                 "execution": self.attempts,
                 "execution_path": self.execution_path or None,
             }
@@ -94,7 +100,8 @@ class DecisionLog:
     _entries: deque[RecordedDecision] = field(default_factory=deque)
 
     def record(
-        self, decision: RouteDecision, application_id: str, request_id: str
+        self, decision: RouteDecision, application_id: str, request_id: str,
+        trace_id: str = "",
     ) -> RecordedDecision:
         """Store a decision and return it with its assigned identity.
 
@@ -111,6 +118,7 @@ class DecisionLog:
             application_id=application_id,
             decision=decision,
             request_id=request_id,
+            trace_id=trace_id,
         )
         self._entries.appendleft(recorded)
         return recorded

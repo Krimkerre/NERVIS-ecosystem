@@ -276,6 +276,7 @@ async def _read_peer(service: str, surface: str, request: Request) -> dict[str, 
         service=service,
         params=parameters,
         request_id=getattr(request.state, "request_id", ""),
+        trace_id=getattr(request.state, "trace_id", ""),
     )
     return result.as_dict()
 

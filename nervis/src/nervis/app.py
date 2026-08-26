@@ -21,12 +21,12 @@ import time
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
-from ecosystem_protocol import new_request_id
+from ecosystem_protocol import new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis.api import chat_router, events_router
+from nervis.api import chat_router, events_router, traces_router
 from nervis.api import router as api_router
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, nervis_surface
@@ -56,6 +56,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(api_router)
     api.include_router(chat_router)
     api.include_router(events_router)
+    api.include_router(traces_router)
     register_dashboard(api)
     return api
 
@@ -128,7 +129,15 @@ def _register_correlation(api: FastAPI) -> None:
     @api.middleware("http")
     async def correlate(request: Request, call_next: NextCall) -> Any:
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
-        request.state.trace_id = request.headers.get("traceparent", "")
+        # The **trace id**, not the whole header. §11.2 joins events from
+        # different services on this value, and `traceparent`'s third field is a
+        # per-span parent id — so two spans in one trace carry two different
+        # headers and matching on the string finds neither. Parsed in the shared
+        # package, because all three services had the same line and all three
+        # had it wrong.
+        request.state.trace_id = trace_id_from(
+            request.headers.get("traceparent", "")
+        )
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response

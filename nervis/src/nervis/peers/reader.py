@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 import httpx
+from ecosystem_protocol import new_traceparent
 
 from nervis.negotiation import Availability, Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -89,6 +90,7 @@ async def read(
     service: str = "",
     params: Mapping[str, Any] | None = None,
     request_id: str = "",
+    trace_id: str = "",
 ) -> PeerRead:
     """One negotiated read of one peer surface.
 
@@ -109,7 +111,14 @@ async def read(
         )
 
     assert entry is not None  # `may_attempt` is false without one
-    headers = {"x-request-id": request_id} if request_id else {}
+    headers: dict[str, str] = {}
+    if request_id:
+        headers["x-request-id"] = request_id
+    if trace_id:
+        # A *new* span within the same trace, not the caller's header forwarded.
+        # Forwarding makes the receiver's parent the sender's parent — every
+        # service becomes a sibling and §11.2's waterfall has no shape.
+        headers["traceparent"] = new_traceparent(trace_id)
     try:
         response = await client.request(
             surface.method,

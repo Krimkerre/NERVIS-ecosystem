@@ -13,7 +13,7 @@ migrates the database for real rather than checking a path, prints every
 capability with the milestone attached to it, and names where its peers would be
 without contacting them.
 
-## The service (M0 – M6)
+## The service (M0 – M7)
 
 Package, FastAPI, settings, SQLite with forward-only migrations, structured
 logging, the web shell, `nervis serve` / `nervis doctor`, and NERVIS's own
@@ -130,8 +130,21 @@ anyone else's: §3.1 has NERVIS implementing *and* consuming the MEP, and a hub
 whose own events took a private path would be the one producer nobody could
 validate.
 
+**M7** adds `/api/v1/traces` — §11.2's correlation and waterfall, assembled from
+the hub and nothing else. The rule that shapes it is stated twice in that
+section: **never synthesize a span as fact.** One event is drawn as a *moment*,
+not a zero-length bar; a service that recorded nothing gets **no bar at all**;
+clock skew is reported and never corrected, because straightening a waterfall
+deletes the only evidence two clocks disagree.
+
+A missing lane explains itself where NERVIS can do so honestly: RAVIS records
+`trace_id` on every route decision, so *"RAVIS routed this and published no
+events"* is a recorded fact rather than an inference — and it stays a **warning,
+never a span**, because a decision proves something happened, not when it
+started and stopped.
+
 `/api/v1` has `health`, `settings`, `system`, `services`, `ravis`, `sirvis`,
-`chat` and `events`.
+`chat`, `events` and `traces`.
 §14's other three paths arrive with the milestones that own them, because a stub
 returning plausible data is §4.1's prohibition one layer up.
 

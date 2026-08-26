@@ -533,6 +533,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         decision,
         application_id=identity.application_id if identity else "anonymous",
         request_id=getattr(request.state, "request_id", ""),
+        trace_id=getattr(request.state, "trace_id", ""),
     )
     request.state.route_decision = decision
     request.state.decision_id = recorded.decision_id

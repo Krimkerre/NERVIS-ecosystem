@@ -2732,24 +2732,68 @@ async function mapView(){
    Correlation only. NERVIS joins spans by trace id across four services and owns
    none of them, so the honest failure mode is a hole: `missing` is carried in the
    list, counted in the KPI and drawn as a dashed gap in the waterfall. */
+/* Which trace the waterfall is showing. Null means the newest. */
+let TRACE_SHOWN=null;
+function showTrace(id){TRACE_SHOWN=id;render()}
+
 async function tracesView(){
- heading('Traces','What RAVIS decided for each request, and what it tried.');
+ heading('Traces','One request across services — as recorded, with the holes marked.');
+ /* **The waterfall since M7.** Assembled by NERVIS from the event hub and
+    nothing else: §11.1 makes the hub operational telemetry rather than the
+    system of record, so a trace here is what was *recorded*, not what happened,
+    and where those differ the difference is reported rather than filled in. */
+ let traces={items:[]},shown=null;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/traces?limit=500',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok)traces=await r.json();
+  const pick=TRACE_SHOWN||((traces.items[0]||{}).trace_id);
+  if(pick){
+   const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick),
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(t.ok)shown=await t.json();
+  }
+ }catch(e){}
+
  let payload=null;
  try{
-  const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit=25',
-    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  if(r.ok)payload=await r.json();
+  const read=await ravisRead('routes',{limit:25});
+  if(read.available)payload=read.data;
  }catch(e){payload=null}
 
+ /* Built before the early returns below, so a trace still renders when RAVIS
+    is not answering — the hub is NERVIS's own and does not need a peer. */
+ const waterfall=(()=>{
+  if(!traces.items.length)return `<div class="card full"><h3>Trace waterfall</h3>${cell(`
+    <small class="mono dim">no trace has been recorded. A trace needs a <b>traceparent</b> on an inbound request — NERVIS creates a span when it has one and never manufactures one when it does not, because a trace containing a single service is a fact about nothing. <b>RAVIS and SIRVIS do not publish events yet</b> (their Stage 7 milestones), so a cross-service waterfall needs those first.</small>`,'nervis')}</div>`;
+  const win=(shown&&shown.window_ms)||0;
+  const at=sp=>shown.started!=null&&sp.started!=null?(sp.started-shown.started)*1000:0;
+  return `<div class="card full live"><h3>Trace waterfall <span class="chip mono">${escapeHtml((shown&&shown.trace_id||'').slice(0,16))}</span></h3>${cell(`
+   <div class="filter-row">${traces.items.slice(0,6).map(t=>`<button class="mode-chip${shown&&t.trace_id===shown.trace_id?' on':''}" onclick="showTrace('${escapeHtml(t.trace_id)}')">${escapeHtml(t.trace_id.slice(0,8))} · ${t.services.join('+')}</button>`).join('')}</div>
+   ${shown?`${shown.spans.map(sp=>`<div class="trace-step" style="align-items:center">
+     <b style="min-width:88px">${escapeHtml(sp.label)}</b>
+     <span style="flex:1;position:relative;height:16px">
+      ${sp.is_point
+        /* A point, not a bar. One event is a recorded moment; giving it width
+           would be the invented duration §11.2 forbids. */
+        ? `<i style="position:absolute;left:${win?Math.min(at(sp)/win*100,99):0}%;width:3px;height:16px;background:var(--accent);border-radius:2px"></i>`
+        : `<i style="position:absolute;left:${win?at(sp)/win*100:0}%;width:${win?Math.max(sp.duration_ms/win*100,1):100}%;height:16px;background:rgba(var(--rgb),.5);border-radius:3px"></i>`}
+     </span>
+     <span class="mono dim" style="min-width:104px;text-align:right">${sp.is_point?'one moment':(sp.duration_ms+' ms')} · ${sp.events} ev</span></div>`).join('')}
+   ${(shown.warnings||[]).map(w=>`<div class="trace-step"><b style="color:#ffb648">gap</b><span>${escapeHtml(w)}</span></div>`).join('')}`
+    :'<small class="mono dim">that trace is no longer recorded.</small>'}
+   <small class="mono dim">a span is <b>the interval a service's events cover</b>, which is a weaker claim than a real start/end pair and is said so here because the difference matters when reading a waterfall. <b>One event is drawn as a moment</b>, not a zero-length bar. A service that recorded nothing gets <b>no bar at all</b> — §11.2 forbids synthesizing a span as fact, and a hole in the record is the finding rather than something to fill. Clock skew is reported and never corrected: a straightened waterfall deletes the only evidence two clocks disagree.</small>`,'nervis')}</div>`;
+ })();
+
  if(!payload){
-  $('#content').innerHTML=`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
+  $('#content').innerHTML=waterfall+`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/route-decisions</span></div>
    <small class="mono dim">no remembered traces to fall back on, deliberately. A trace describes one request that actually happened; a transcribed one would describe a request nobody made.</small>`,'ravis')}</div>`;
   return;}
 
  const items=payload.items||[];
  if(!items.length){
-  $('#content').innerHTML=`<div class="card full"><h3>Nothing has routed yet</h3>${cell(`
+  $('#content').innerHTML=waterfall+`<div class="card full"><h3>Nothing has routed yet</h3>${cell(`
    <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
    <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
   return;}
@@ -2760,7 +2804,7 @@ async function tracesView(){
  const outcomeOf=d=>{const a=attemptsOf(d);return a.length?a[a.length-1].outcome:(d.selected?'routed':'no_route');};
  const latest=items[0];
 
- $('#content').innerHTML=kpis([
+ $('#content').innerHTML=waterfall+kpis([
    ['Decisions',String(items.length),'kept in memory, not persisted','ravis'],
    ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis'],
    ['Pools',String(new Set(items.map(d=>d.pool||'—')).size),'distinct pools addressed','ravis'],

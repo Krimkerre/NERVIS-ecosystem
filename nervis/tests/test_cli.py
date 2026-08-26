@@ -43,7 +43,14 @@ def test_doctor_prints_every_capability_with_its_reason(monkeypatch, tmp_path, c
     printed = capsys.readouterr().out
 
     assert "nervis.event_hub@1" in printed
-    assert "the event hub" in printed or "M6" in printed
+    # The reason, whatever it currently is — the assertion used to name M6 and
+    # broke the moment the hub shipped and stopped citing a future milestone.
+    # What matters is that every entry carries a reason, not which words it uses.
+    assert all(
+        line.split(None, 2)[2].strip()
+        for line in printed.splitlines()
+        if line.strip().startswith(("available", "unavailable", "degraded"))
+    )
 
 
 def test_doctor_names_its_peers_without_contacting_them(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001

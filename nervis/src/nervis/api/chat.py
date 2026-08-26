@@ -25,6 +25,7 @@ import uuid
 from typing import Any, AsyncIterator
 
 import httpx
+from ecosystem_protocol import new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
@@ -146,8 +147,12 @@ async def send(request: Request) -> Any:
     if body.get("system"):
         payload["messages"].insert(0, {"role": "system", "content": str(body["system"])})
 
+    trace_id = getattr(request.state, "trace_id", "")
+    _note_turn(request, conversation_id, profile, request_id, trace_id)
     return StreamingResponse(
-        _relay(request, entry, payload, conversation_id, profile, request_id),
+        _relay(
+            request, entry, payload, conversation_id, profile, request_id, trace_id,
+        ),
         media_type="text/event-stream",
         headers={
             "cache-control": "no-store",
@@ -164,6 +169,7 @@ async def _relay(
     conversation_id: str,
     profile: str,
     request_id: str,
+    trace_id: str = "",
 ) -> AsyncIterator[bytes]:
     """Forward RAVIS's frames unchanged while keeping what they said."""
     database = request.app.state.database
@@ -187,7 +193,7 @@ async def _relay(
             "POST",
             entry.declaration.base_url + "/v1/chat/completions",
             json=payload,
-            headers={"content-type": "application/json", "x-request-id": request_id},
+            headers=_forwarded(request_id, trace_id),
             timeout=CHAT_TIMEOUT_SECONDS,
         ) as response:
             if response.status_code >= 400:
@@ -289,3 +295,45 @@ async def _json_body(request: Request) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise InvalidConfigurationError("body must be a JSON object")
     return body
+
+
+def _forwarded(request_id: str, trace_id: str) -> dict[str, str]:
+    """The context headers one turn carries to RAVIS (§4.3).
+
+    `traceparent` is a **new span in the same trace**, not the incoming header
+    forwarded: forwarding would make RAVIS's parent NERVIS's parent, and §11.2's
+    waterfall would draw two siblings where there is a call.
+    """
+    headers = {"content-type": "application/json", "x-request-id": request_id}
+    if trace_id:
+        headers["traceparent"] = new_traceparent(trace_id)
+    return headers
+
+
+def _note_turn(
+    request: Request, conversation_id: str, profile: str, request_id: str, trace_id: str
+) -> None:
+    """NERVIS's own span in this trace.
+
+    Without it a chat turn draws one lane — RAVIS's — and §11.2's waterfall
+    exists to show the *call*, not the callee alone.
+
+    **Only when there is a trace.** An untraced turn does not manufacture one: a
+    trace containing a single service is a fact about nothing, and filling the
+    index with them would make the real ones harder to find.
+
+    Extracted because adding it inline pushed `send` past the complexity gate —
+    which is the gate working. It was measured sitting exactly on 8 two days
+    ago, with the note that M11 or M16 would be what tipped it. This got there
+    first.
+    """
+    hub = getattr(request.app.state, "hub", None)
+    if hub is None or not trace_id:
+        return
+    hub.emit(
+        "nervis.chat.turn_started",
+        subject={"type": "conversation", "id": conversation_id},
+        data={"profile": profile, "conversation_id": conversation_id},
+        trace_id=trace_id,
+        request_id=request_id,
+    )

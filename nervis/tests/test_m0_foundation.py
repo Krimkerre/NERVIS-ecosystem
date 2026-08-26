@@ -137,7 +137,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.registry": "available",               # M2
         "nervis.dashboard": "degraded",               # shell at M0, data at M1/M2
         "nervis.event_hub": "available",              # M6
-        "nervis.traces": "unavailable",               # M7
+        "nervis.traces": "degraded",                  # M7; peers publish at Stage 7
         "nervis.ravis_chat": "degraded",              # M4, titles await RAVIS M16
         "nervis.sirvis_views": "degraded",            # M5a; jobs await SIRVIS M14
         "nervis.clarvis_visibility": "unavailable",   # M8

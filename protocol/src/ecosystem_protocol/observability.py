@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import uuid
 from typing import Any
@@ -95,3 +96,47 @@ def redact(values: dict[str, Any]) -> dict[str, Any]:
         key: ("[redacted]" if key.lower() in REDACTED_KEYS else value)
         for key, value in values.items()
     }
+
+
+# W3C `traceparent`: version-traceid-parentid-flags, all lowercase hex.
+# https://www.w3.org/TR/trace-context/
+_TRACEPARENT = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
+
+
+def trace_id_from(traceparent: str) -> str:
+    """The 32-hex trace id inside a `traceparent`, or "" if there is not one.
+
+    **All three services stored the whole header as `trace_id`**, which cannot
+    correlate anything: the header's third field is a *per-span* parent id, so
+    two spans in one trace carry two different headers and matching on the
+    string finds neither. §11.2's entire premise is that events from different
+    services join on this value.
+
+    An all-zero trace id or parent id is invalid per the specification and is
+    refused rather than propagated — a zero id would join every malformed trace
+    into one, which is worse than having none.
+
+    Unknown versions are accepted for their trace id. The spec says a receiver
+    must not reject a higher version outright, and the first two fields are
+    fixed for every version defined so far; refusing them would make NERVIS the
+    reason a newer client's traces vanished.
+    """
+    match = _TRACEPARENT.match((traceparent or "").strip().lower())
+    if not match:
+        return ""
+    _, trace_id, parent_id, _ = match.groups()
+    if trace_id == "0" * 32 or parent_id == "0" * 16:
+        return ""
+    return trace_id
+
+
+def new_traceparent(trace_id: str = "", span_id: str = "") -> str:
+    """A `traceparent` to send onward, continuing a trace or starting one.
+
+    Generated rather than forwarded unchanged, because forwarding makes the
+    receiver's parent the sender's parent — every service ends up a sibling and
+    the waterfall §11.2 asks for has no shape.
+    """
+    trace = trace_id if len(trace_id) == 32 else uuid.uuid4().hex
+    span = span_id if len(span_id) == 16 else uuid.uuid4().hex[:16]
+    return f"00-{trace}-{span}-01"

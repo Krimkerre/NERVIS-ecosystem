@@ -12,7 +12,7 @@ import logging
 import uuid
 from typing import Any, Awaitable, Callable
 
-from ecosystem_protocol import new_request_id
+from ecosystem_protocol import new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -151,7 +151,15 @@ def _register_correlation(api: FastAPI) -> None:
     @api.middleware("http")
     async def correlate(request: Request, call_next: NextCall) -> Any:
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
-        request.state.trace_id = request.headers.get("traceparent", "")
+        # The **trace id**, not the whole header. §11.2 joins events from
+        # different services on this value, and `traceparent`'s third field is a
+        # per-span parent id — so two spans in one trace carry two different
+        # headers and matching on the string finds neither. Parsed in the shared
+        # package, because all three services had the same line and all three
+        # had it wrong.
+        request.state.trace_id = trace_id_from(
+            request.headers.get("traceparent", "")
+        )
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response

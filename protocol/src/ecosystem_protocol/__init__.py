@@ -22,7 +22,9 @@ from ecosystem_protocol.observability import (
     JsonLineFormatter,
     configure_logging,
     new_request_id,
+    new_traceparent,
     redact,
+    trace_id_from,
 )
 from ecosystem_protocol.routes import router
 from ecosystem_protocol.surface import EcosystemSurface
@@ -47,6 +49,8 @@ __all__ = [
     "capability_snapshot",
     "configure_logging",
     "new_request_id",
+    "new_traceparent",
+    "trace_id_from",
     "is_supported_protocol",
     "redact",
     "router",

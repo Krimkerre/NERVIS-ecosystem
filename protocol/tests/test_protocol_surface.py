@@ -20,7 +20,9 @@ from ecosystem_protocol import (
     EcosystemSurface,
     capability_snapshot,
     is_supported_protocol,
+    new_traceparent,
     router,
+    trace_id_from,
 )
 
 DECLARED = {
@@ -186,3 +188,49 @@ def test_a_shorthand_that_disagrees_with_its_version_is_refused() -> None:
     """
     with pytest.raises(ValueError, match="declares major 1 but version 2.1.0"):
         capability_snapshot(1, {"drift@1": Capability(version="2.1.0", state=AVAILABLE)})
+
+
+def test_a_traceparent_yields_its_trace_id_not_the_whole_header() -> None:
+    """All three services stored the raw header, which cannot correlate.
+
+    The third field is a *per-span* parent id, so two spans in one trace carry
+    two different headers and matching on the string finds neither — while
+    §11.2's whole premise is that events from different services join on this
+    value.
+    """
+    assert trace_id_from("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01") == (
+        "4bf92f3577b34da6a3ce929d0e0e4736"
+    )
+
+
+def test_an_all_zero_id_is_refused_rather_than_propagated() -> None:
+    """A zero id would join every malformed trace into one, which is worse than
+    having none. The specification calls both fields invalid at zero."""
+    assert trace_id_from(f"00-{'0' * 32}-00f067aa0ba902b7-01") == ""
+    assert trace_id_from(f"00-4bf92f3577b34da6a3ce929d0e0e4736-{'0' * 16}-01") == ""
+
+
+def test_anything_unparseable_yields_nothing_rather_than_raising() -> None:
+    for header in ("", "   ", "not-a-header", "00-short-00f067aa0ba902b7-01", "00-x-y-z"):
+        assert trace_id_from(header) == ""
+
+
+def test_a_newer_version_keeps_its_trace_id() -> None:
+    """The specification says a receiver must not reject a higher version
+    outright, and the first two fields are fixed for every version defined so
+    far. Refusing them would make this the reason a newer client's traces
+    vanished."""
+    assert trace_id_from("99-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01") == (
+        "4bf92f3577b34da6a3ce929d0e0e4736"
+    )
+
+
+def test_a_traceparent_sent_onward_continues_the_trace_with_a_new_span() -> None:
+    """Forwarding the header unchanged makes the receiver's parent the sender's
+    parent — every service becomes a sibling and the waterfall has no shape."""
+    incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+    onward = new_traceparent(trace_id_from(incoming))
+
+    assert trace_id_from(onward) == trace_id_from(incoming)
+    assert onward != incoming

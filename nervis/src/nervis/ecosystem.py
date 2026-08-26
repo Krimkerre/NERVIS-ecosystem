@@ -58,10 +58,17 @@ DECLARED: dict[str, Capability] = {
         state=AVAILABLE,
         reason="§11.1's hub: envelope, ingestion, retention, filters, SSE with replay",
     ),
+    # Degraded, and the missing half is other people's. §11.2's correlation,
+    # waterfall, gap marking and skew reporting all work — on the events the hub
+    # holds. Today that is NERVIS's own spans plus anything posted to it, because
+    # RAVIS and SIRVIS advertise `events@1` as unavailable until their Stage 7
+    # milestones. A trace is therefore usually one lane, and the view says so
+    # rather than drawing bars for services that recorded nothing.
     "nervis.traces@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="trace correlation lands at M7, on top of M6's event hub",
+        state=DEGRADED,
+        reason="§11.2's correlation, waterfall and gap marking are served; "
+        "cross-service traces need RAVIS M18b and SIRVIS M21 to publish events",
     ),
     # Degraded rather than available, and the gap is one named thing. §7 lists
     # conversation titles as a RAVIS *background call* carrying §9.6.1's marker;

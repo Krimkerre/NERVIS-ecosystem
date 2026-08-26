@@ -180,6 +180,8 @@ class Hub:
         severity: str = "info",
         data: Mapping[str, Any] | None = None,
         subject: Mapping[str, Any] | None = None,
+        trace_id: str = "",
+        request_id: str = "",
     ) -> Rejected | dict[str, Any]:
         """NERVIS's own event, in the same envelope everyone else's arrives in.
 
@@ -195,6 +197,11 @@ class Hub:
             "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "source": {"service_type": "nervis"},
             "subject": dict(subject or {}),
+            # Without these a NERVIS event joins no trace, and §11.2's waterfall
+            # draws the callee's lane alone — which is the one shape it exists
+            # to improve on.
+            "trace_id": trace_id,
+            "request_id": request_id,
             "severity": severity,
             "data": dict(data or {}),
             "privacy": {"classification": "operational", "redactions": []},
