@@ -12,6 +12,7 @@ serves a given model.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ import httpx
 
 from ravis.config import Settings, resolved_capabilities
 from ravis.core.pools import DEFAULT_POOLS, direct_provider
+from ravis.credentials import CredentialStore, credential_for
 from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.model_filter import ModelFilter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
@@ -27,7 +29,7 @@ from ravis.providers.ollama import OllamaAdapter
 from ravis.registry import ModelRegistry
 from ravis.runtime.residency import Residency, ResidencySnapshot
 from ravis.upstream import Upstream
-from ravis.upstreams import UpstreamSpec, upstream_specs
+from ravis.upstreams import UpstreamSpec, api_root_for, upstream_specs
 
 # Which adapter discovers which kind of upstream. All three speak the OpenAI
 # protocol, so this changes what RAVIS can *learn*, never how it reaches the
@@ -54,16 +56,30 @@ class TransparentUpstream:
 
 
 def build_transparents(
-    settings: Settings, client: httpx.AsyncClient
+    settings: Settings,
+    client: httpx.AsyncClient,
+    credentials: CredentialStore | None = None,
 ) -> dict[str, TransparentUpstream]:
     """Everything declared, built, keyed by name and in declaration order.
 
     Ordinary dicts preserve insertion order, and that order is load-bearing —
     it decides which upstream wins when two serve the same model id.
+
+    `credentials` is optional so that the many tests constructing upstreams
+    directly keep working, and because an upstream on loopback needs no key at
+    all — LM Studio and Ollama are the ordinary case here and neither
+    authenticates.
     """
     built: dict[str, TransparentUpstream] = {}
     for spec in upstream_specs(settings):
-        upstream = Upstream(base_url=spec.base_url, api_key=spec.api_key)
+        upstream = Upstream(
+            base_url=spec.base_url,
+            api_key=spec.api_key,
+            api_root=api_root_for(spec.kind),
+            # A closure rather than a value, so a key typed into the Credentials
+            # screen reaches the next request instead of the next restart.
+            credential=_resolver(spec, credentials),
+        )
         built[spec.name] = TransparentUpstream(
             spec=spec,
             upstream=upstream,
@@ -75,6 +91,36 @@ def build_transparents(
             ),
         )
     return built
+
+
+def _resolver(
+    spec: UpstreamSpec, credentials: CredentialStore | None
+) -> Callable[[], str] | None:
+    """How this upstream finds its credential, each time it needs one."""
+    if credentials is None:
+        return None
+    return lambda: _key_for(spec, credentials)
+
+
+def _key_for(spec: UpstreamSpec, credentials: CredentialStore | None) -> str:
+    """This upstream's credential, from the store if one was typed in.
+
+    **Looked up by name and then by kind.** The name is first because it is what
+    a deployment chose and the more specific of the two — two Google upstreams
+    on different keys is a real arrangement, and only the name distinguishes
+    them. The kind is the fallback so that the ordinary case works without
+    anybody being told a rule: the Credentials screen seeds a row called
+    `google`, and an upstream of kind `google` finds it whatever it was named.
+
+    Falls back to the key written in the declaration itself, which is how every
+    deployment predating this supplied one.
+    """
+    if credentials is None:
+        return spec.api_key
+    return credential_for(
+        credentials, spec.name,
+        credential_for(credentials, spec.kind, spec.api_key),
+    )
 
 
 def adapter_for(

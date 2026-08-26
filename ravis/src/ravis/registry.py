@@ -159,10 +159,9 @@ class ModelRegistry:
 
     async def _fetch(self) -> list[dict[str, Any]]:
         """Read the upstream catalogue and normalise only what must be."""
-        headers = (
-            {"authorization": f"Bearer {self._upstream.api_key}"} if self._upstream.api_key else {}
-        )
-        response = await self._client.get(self._upstream.url_for("/v1/models"), headers=headers)
+        key = self._upstream.key()
+        headers = {"authorization": f"Bearer {key}"} if key else {}
+        response = await self._client.get(self._upstream.api_url("/models"), headers=headers)
         response.raise_for_status()
         payload = response.json()
         entries = payload.get("data", []) if isinstance(payload, dict) else []

@@ -4608,8 +4608,14 @@ async function ravisCredentials(){
  const loose=items.filter(i=>i.configured&&!i.file_is_private);
  const label={file:'stored by RAVIS',keychain:'macOS Keychain',environment:'environment variable',absent:'not set'};
 
+ /* The provider's own name for itself, from RAVIS, falling back to the id.
+    The id stays `google` because it is a wire value — it keys the credential
+    file, it is half of `RAVIS_GOOGLE_API_KEY`, and it is a path segment in
+    `ravis/<provider>/<model>`. "Google AI Studio" is what a person should read:
+    it names the surface these keys come from, as opposed to Vertex AI, which is
+    the same models behind a service account and a different credential shape. */
  const row=i=>`<div class="table-row" style="grid-template-columns:1.1fr auto 1.6fr auto auto;align-items:center;gap:8px">
-   <span class="mono"><b>${escapeHtml(i.name)}</b></span>
+   <span class="mono"><b>${escapeHtml(i.label||i.name)}</b>${i.routable===false?' <span class="chip warn" title="no adapter or upstream is declared for this provider">unroutable</span>':''}</span>
    <span class="mono" style="opacity:.75">${i.configured?'&#9679; '+label[i.source]:'&#9675; not set'}</span>
    <span><input id="cred-${escapeHtml(i.name)}" type="password" autocomplete="off"
      placeholder="${i.configured?'replace the stored key\u2026':'paste the API key\u2026'}"
@@ -4621,6 +4627,7 @@ async function ravisCredentials(){
  $('#content').innerHTML=`
   <div class="card full"><h3>Provider keys</h3>${cell(`
    ${items.map(row).join('')}
+   ${items.some(i=>i.routable===false)?`<small class="mono dim" style="display:block;margin-top:6px"><b>Unroutable</b> means the key would be stored and never sent: no adapter and no declared upstream carries that provider. Until M10 connected the store, <b>every</b> row was unroutable — a key typed here was written to a 0600 file, reported as configured, and read by nothing. Declare an upstream with that <span class="mono">kind</span> to make one reachable.</small>`:''}
    <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>`,'ravis')}</div>
 
   ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`

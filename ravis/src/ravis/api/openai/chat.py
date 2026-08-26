@@ -217,7 +217,7 @@ def _destination_for(
         built = resolve(transparents, model, filters) if transparents else None
         upstream = built.upstream if built else fallback
         return (
-            upstream.url_for("/v1/chat/completions"),
+            upstream.api_url("/chat/completions"),
             forwardable_headers(incoming, upstream),
         )
 

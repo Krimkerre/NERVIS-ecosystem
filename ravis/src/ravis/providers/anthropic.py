@@ -271,7 +271,7 @@ class AnthropicAdapter:
         if self._upstream.api_key:
             # `x-api-key`, not `authorization: Bearer`. The two are not
             # interchangeable on this API.
-            headers["x-api-key"] = self._upstream.api_key
+            headers["x-api-key"] = self._upstream.key()
         return headers
 
 

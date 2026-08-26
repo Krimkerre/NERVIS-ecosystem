@@ -328,6 +328,33 @@ class CredentialStore:
         return completed.stdout.strip() or None
 
 
+def credential_for(store: CredentialStore, name: str, configured: str = "") -> str:
+    """The credential a request path should actually use.
+
+    **The store existed and nothing asked it.** M10 built `resolve()`, the file,
+    the Keychain read and the precedence order — and then every adapter went on
+    reading its own settings field, so a key typed into the Credentials screen
+    was written, reported as configured, and never sent to anything. The screen
+    was not wrong about having stored it; it was wrong by implication about what
+    storing it would do.
+
+    `configured` is the settings field that used to be the only source, and it
+    is the *fallback* rather than the winner: the store's own order already puts
+    the environment last, so a deployment that supplies `RAVIS_ANTHROPIC_API_KEY`
+    keeps working unchanged, and an operator who then types a key into the
+    screen gets the one they just typed. The most recent explicit action wins,
+    which is the same rule the store already documents for file-over-environment.
+
+    Returns the raw string because that is what an adapter puts in a header, and
+    this is the boundary where a `Secret` is deliberately opened. Every call is
+    a `reveal()` a reviewer can grep for.
+    """
+    secret = store.resolve(name)
+    if secret:
+        return secret.reveal()
+    return configured
+
+
 def _default_env_var(name: str) -> str:
     """The environment variable a credential falls back to.
 

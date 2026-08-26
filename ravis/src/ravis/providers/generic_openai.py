@@ -83,7 +83,7 @@ class GenericOpenAiAdapter:
         started = time.monotonic()
         try:
             response = await self._client.get(
-                self._upstream.url_for("/v1/models"), headers=self._headers()
+                self._upstream.api_url("/models"), headers=self._headers()
             )
             response.raise_for_status()
         except httpx.HTTPError as failure:
@@ -96,7 +96,7 @@ class GenericOpenAiAdapter:
             return []
         try:
             response = await self._client.get(
-                self._upstream.url_for("/v1/models"), headers=self._headers()
+                self._upstream.api_url("/models"), headers=self._headers()
             )
             response.raise_for_status()
             payload = response.json()
@@ -136,6 +136,7 @@ class GenericOpenAiAdapter:
 
     def _headers(self) -> dict[str, str]:
         """RAVIS's own credential for the upstream — never a caller's."""
-        if not self._upstream.api_key:
+        key = self._upstream.key()
+        if not key:
             return {}
-        return {"authorization": f"Bearer {self._upstream.api_key}"}
+        return {"authorization": f"Bearer {key}"}

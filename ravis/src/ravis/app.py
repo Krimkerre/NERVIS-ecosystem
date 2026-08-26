@@ -41,7 +41,7 @@ from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
-from ravis.credentials import CredentialStore
+from ravis.credentials import CredentialStore, credential_for
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
@@ -150,7 +150,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.
-    api.state.transparents = build_transparents(settings, api.state.upstream_client)
+    api.state.transparents = build_transparents(
+        settings, api.state.upstream_client, api.state.credentials
+    )
     # The first declared upstream, still reachable under the names everything
     # written before plurality uses. Not a shim to be removed later: a single
     # upstream is the common deployment, and "the one to use when nothing more
@@ -184,7 +186,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Registered here rather than discovered, for the reason §3 gives about
     # provider clients: which providers exist is configuration, and a table
     # assembled by probing would make startup depend on the network.
-    api.state.translating = _translating_adapters(settings, api.state.upstream_client)
+    api.state.translating = _translating_adapters(
+        settings, api.state.upstream_client, api.state.credentials
+    )
     # SIRVIS's evidence, cached with a staleness policy (§13.3). Absent until
     # a base URL is configured, and RAVIS routes without it — §13.4 makes the
     # source optional and the degradation visible rather than silent.
@@ -303,7 +307,7 @@ def _register_error_handling(api: FastAPI) -> None:
 
 
 def _translating_adapters(
-    settings: Settings, client: httpx.AsyncClient
+    settings: Settings, client: httpx.AsyncClient, credentials: CredentialStore
 ) -> dict[str, TranslatingAdapter]:
     """The providers whose upstream does not speak the external protocol (§6).
 
@@ -316,10 +320,24 @@ def _translating_adapters(
     startup depend on reaching every provider in it.
     """
     adapters: dict[str, TranslatingAdapter] = {}
-    if settings.anthropic_api_key:
+    # From the store, falling back to the settings field that used to be the
+    # only source. This read `settings.anthropic_api_key` alone, so a key typed
+    # into the Credentials screen was written to a 0600 file, reported as
+    # configured, and never reached a request — the screen was not wrong about
+    # having stored it, only about what storing it would do.
+    anthropic_key = credential_for(credentials, "anthropic", settings.anthropic_api_key)
+    if anthropic_key:
         adapters["anthropic"] = AnthropicAdapter(
             upstream=Upstream(
-                base_url=settings.anthropic_base_url, api_key=settings.anthropic_api_key
+                base_url=settings.anthropic_base_url,
+                api_key=settings.anthropic_api_key,
+                # Re-read per request, like every transparent upstream. Whether
+                # the adapter *exists* is still decided at startup — a provider
+                # with no credential at all has nothing to register — so a first
+                # Anthropic key does need a restart. Replacing one does not.
+                credential=lambda: credential_for(
+                    credentials, "anthropic", settings.anthropic_api_key
+                ),
             ),
             client=client,
             max_output_tokens=settings.anthropic_max_output_tokens,

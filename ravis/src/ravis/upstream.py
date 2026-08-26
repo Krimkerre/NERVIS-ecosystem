@@ -12,7 +12,8 @@ So this module moves bytes. It does not interpret them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -38,6 +39,33 @@ class Upstream:
 
     base_url: str
     api_key: str
+    # Where this upstream's OpenAI-shaped API lives under `base_url`.
+    #
+    # `/v1` for OpenAI itself and for everything that copied it, which is why it
+    # was hardcoded at four call sites until a provider disagreed. Google's
+    # OpenAI-compatible surface is at `/v1beta/openai`, so its chat endpoint is
+    # `/v1beta/openai/chat/completions` with no `/v1` anywhere — a difference
+    # that is one string rather than an adapter.
+    #
+    # Deliberately not applied by `url_for`, which stays literal: Ollama reads
+    # `/api/show` and LM Studio its own native paths, and silently versioning
+    # those would break the two upstreams this project actually runs on.
+    api_root: str = "/v1"
+    # Where to look the credential up, each time one is needed.
+    #
+    # **Resolved per request rather than at startup**, which is the difference
+    # between a settings screen that works and one that lies. Credentials were
+    # read once while building this object, so a key typed into the Credentials
+    # screen did nothing until RAVIS was restarted — and nothing on the screen
+    # said so. `ProviderState` already set the precedent for the enable toggle,
+    # for the same reason: *"a toggle takes effect on the next request instead
+    # of the next restart"*.
+    #
+    # A lookup is a small file read. If that ever shows up in a latency profile
+    # the fix is a cache with an invalidation hook, not a startup snapshot.
+    credential: Callable[[], str] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     @property
     def is_configured(self) -> bool:
@@ -49,9 +77,33 @@ class Upstream:
         """
         return bool(self.base_url)
 
+    def key(self) -> str:
+        """The credential to authenticate with, as of right now.
+
+        Falls back to `api_key` — the value written into the declaration, which
+        is how every deployment predating the credential store supplies one.
+        """
+        if self.credential is not None:
+            resolved = self.credential()
+            if resolved:
+                return resolved
+        return self.api_key
+
     def url_for(self, path: str) -> str:
-        """Join the base to an endpoint path without doubling the separator."""
+        """Join the base to an endpoint path without doubling the separator.
+
+        Literal. A native path (`/api/show`) reaches the upstream as written.
+        """
         return f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
+
+    def api_url(self, path: str) -> str:
+        """An OpenAI-shaped endpoint, under whatever root this upstream uses.
+
+        Callers pass `/models` and `/chat/completions` — the path *within* the
+        API — rather than `/v1/models`, so a provider that roots its API
+        somewhere else needs no branch anywhere.
+        """
+        return self.url_for(f"{self.api_root.rstrip('/')}/{path.lstrip('/')}")
 
 
 def upstream_from(settings: Settings) -> Upstream:
@@ -74,7 +126,7 @@ def forwardable_headers(incoming: dict[str, str], upstream: Upstream) -> dict[st
         if name.lower() not in HOP_BY_HOP_HEADERS and name.lower() != "authorization"
     }
     if upstream.api_key:
-        forwarded["authorization"] = f"Bearer {upstream.api_key}"
+        forwarded["authorization"] = f"Bearer {upstream.key()}"
     return forwarded
 
 

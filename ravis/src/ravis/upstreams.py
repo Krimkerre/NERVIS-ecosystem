@@ -29,6 +29,43 @@ from typing import Any
 # supplied rather than making the name optional everywhere it is read.
 DEFAULT_NAME = "default"
 
+# Where a hosted provider's OpenAI-compatible surface lives: the address, and
+# the root its endpoints hang off.
+#
+# **This is the whole of what "supporting Google" turned out to require.** The
+# expected shape was a `GoogleAdapter` translating between Gemini's native
+# protocol and OpenAI's, the way `anthropic.py` does — several hundred lines and
+# a wire format to keep up with. Google publishes an OpenAI-compatible surface
+# instead, so the difference from any other upstream is two strings: its API
+# roots at `/v1beta/openai` rather than `/v1`, which is why `Upstream.api_root`
+# exists at all.
+#
+# OpenRouter is here for the same reason it is in `KNOWN_PROVIDERS`: the
+# Credentials screen has always offered a row for it, and a credential slot that
+# cannot route is a screen making a promise the service does not keep.
+#
+# A local runtime is deliberately absent. LM Studio and Ollama are wherever the
+# operator started them, and guessing a port is how a dashboard reports the
+# wrong machine as healthy.
+KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
+    "google": ("https://generativelanguage.googleapis.com", "/v1beta/openai"),
+    "openrouter": ("https://openrouter.ai/api", "/v1"),
+}
+
+
+def default_base_url(kind: str) -> str:
+    """The address a hosted kind knows about itself, or empty."""
+    return KIND_ENDPOINTS.get(kind.strip().lower(), ("", ""))[0]
+
+
+def api_root_for(kind: str) -> str:
+    """Where this kind roots its OpenAI-shaped endpoints.
+
+    `/v1` unless the provider says otherwise, because that is what OpenAI chose
+    and what everything that copied OpenAI copied.
+    """
+    return KIND_ENDPOINTS.get(kind.strip().lower(), ("", "/v1"))[1]
+
 
 @dataclass(frozen=True)
 class UpstreamSpec:
@@ -119,11 +156,18 @@ def _spec_from(entry: Any, index: int) -> UpstreamSpec:
     if not isinstance(entry, dict):
         raise UpstreamConfigurationError(f"entry {index} is not an object")
     name = str(entry.get("name") or "").strip()
-    base_url = str(entry.get("base_url") or "").strip()
+    kind = str(entry.get("kind") or "generic").strip()
+    # A hosted provider knows its own address, so declaring one should not mean
+    # copying a URL out of documentation — that is a string nobody can verify by
+    # reading it, and getting it subtly wrong produces a 404 that looks like an
+    # outage. A local runtime has no such default and still must be told.
+    base_url = str(entry.get("base_url") or "").strip() or default_base_url(kind)
     if not name:
         raise UpstreamConfigurationError(f"entry {index} has no name")
     if not base_url:
-        raise UpstreamConfigurationError(f"upstream {name!r} has no base_url")
+        raise UpstreamConfigurationError(
+            f"upstream {name!r} has no base_url, and kind {kind!r} has no default"
+        )
     if "/" in name:
         # A name with a slash in it would split `ravis/<name>/<model>` into more
         # segments than the address has, so the upstream could be declared and
@@ -133,5 +177,5 @@ def _spec_from(entry: Any, index: int) -> UpstreamSpec:
         name=name,
         base_url=base_url,
         api_key=str(entry.get("api_key") or ""),
-        kind=str(entry.get("kind") or "generic"),
+        kind=kind,
     )

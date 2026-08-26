@@ -42,6 +42,22 @@ router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 # the only row that matters when someone is trying to add one.
 KNOWN_PROVIDERS = ("anthropic", "google", "openrouter")
 
+# What to call each provider on a screen.
+#
+# **The id stays `google` and only the label changes.** The id is a wire value:
+# it keys the credential file, it is half the environment variable name
+# (`RAVIS_GOOGLE_API_KEY`), and it is a path segment in `ravis/<provider>/<model>`.
+# Renaming it would orphan every credential already stored and break every
+# address already written down, to fix something only a person reads. "Google AI
+# Studio" is the accurate name because that is the surface these keys come from
+# — as opposed to Vertex AI, which is the same models behind a service account
+# and a different credential shape entirely.
+PROVIDER_LABELS = {
+    "anthropic": "Anthropic",
+    "google": "Google AI Studio",
+    "openrouter": "OpenRouter",
+}
+
 # How many matched ids a filter preview returns. The screen needs enough to see
 # that a pattern did what was meant, not the whole of a 417-model catalogue —
 # and `matched_total` is reported separately so this cap is never mistaken for
@@ -112,11 +128,41 @@ async def list_credentials(request: Request) -> dict[str, Any]:
     """
     store = _store(request)
     known = set(store.known()) | set(KNOWN_PROVIDERS)
+    routable = _routable(request)
     return {
-        "items": [store.status(name).as_dict() for name in sorted(known)],
+        "items": [
+            {
+                **store.status(name).as_dict(),
+                "label": PROVIDER_LABELS.get(name, name),
+                # Whether anything can *use* this credential.
+                #
+                # A screen that accepts a key for a provider RAVIS cannot reach
+                # is a screen making a promise the service does not keep, and
+                # this row is the difference between "not configured" and
+                # "configured and going nowhere". §4.1's advertise-when rule
+                # applied to a settings page.
+                "routable": name in routable,
+            }
+            for name in sorted(known)
+        ],
         "next_cursor": None,
         "snapshot_revision": 1,
     }
+
+
+def _routable(request: Request) -> set[str]:
+    """Providers a request could actually be sent to.
+
+    Two ways to be reachable: a translating adapter for a provider whose wire
+    protocol is its own, or a transparent upstream declared with that name or
+    kind. Both are read from live application state rather than from a list, so
+    this cannot drift from what routing will actually do.
+    """
+    translating = set(getattr(request.app.state, "translating", {}))
+    transparents = getattr(request.app.state, "transparents", {})
+    declared = {name for name in transparents}
+    declared |= {t.spec.kind.strip().lower() for t in transparents.values()}
+    return translating | declared
 
 
 @router.put("/credentials/{name}")
