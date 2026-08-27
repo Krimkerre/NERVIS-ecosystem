@@ -85,6 +85,23 @@ router = APIRouter(prefix="/api/v1", tags=["sirvis"])
 SNAPSHOT_REVISION = 1
 
 
+# What a collection says about the runtime it was read from.
+#
+# Present as a constant rather than built per call so the two shapes cannot
+# drift into saying different things about the same condition.
+_RUNTIME_PRESENT = {"available": True, "detail": ""}
+
+
+def _runtime_absent(failure: Exception) -> dict[str, Any]:
+    """The runtime's state when it could not be reached, with the reason.
+
+    The reason is the connection failure verbatim. It names a host and a path
+    and nothing a person typed, which is what makes it safe to publish and
+    useful enough to act on.
+    """
+    return {"available": False, "detail": str(failure)}
+
+
 def _listing(items: list[dict[str, Any]]) -> dict[str, Any]:
     """§4.2's list envelope. `next_cursor` is null until a collection is unbounded."""
     return {"items": items, "next_cursor": None, "snapshot_revision": SNAPSHOT_REVISION}
@@ -223,10 +240,32 @@ async def read_models(request: Request, runtime_key: str | None = None) -> dict[
     Nothing here falls back to a nearest match, because a fuzzy hit would be a
     guess wearing an identity's clothes — and RAVIS would route on it.
     """
-    inventory = await _inventory(request)
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError as failure:
+        # §11 lists "LM Studio unavailable" first among the conditions to expect
+        # and handle, and this endpoint answered a 500 — which is not handling
+        # it. Every other caller of `_inventory` already degrades; these two
+        # were the exceptions, and they are the two a dashboard opens with.
+        #
+        # **Empty is not the whole answer.** "The runtime is not running" and
+        # "nothing is installed" are different facts and this collection cannot
+        # tell them apart on its own, so the runtime's state travels beside the
+        # items rather than being inferred from their absence. Additive: a
+        # consumer reading `items` is unaffected.
+        if runtime_key is not None:
+            # The identity lookup RAVIS uses. It must not answer "no such build"
+            # when nothing could be asked — that is the 404-versus-502
+            # distinction again, and this is the caller that would act on it by
+            # dropping a model from its catalogue.
+            raise RuntimeUnreachableError(
+                f"the runtime could not be asked about {runtime_key!r}: {failure}",
+                runtime_key=runtime_key,
+            ) from failure
+        return _listing([]) | {"runtime": _runtime_absent(failure)}
     if runtime_key is None:
         return _listing([_describe(inventory, model.runtime_key) for model in
-                         inventory.installed.values()])
+                         inventory.installed.values()]) | {"runtime": _RUNTIME_PRESENT}
 
     found = inventory.by_runtime_key(runtime_key)
     if found is None:
@@ -239,8 +278,20 @@ async def read_models(request: Request, runtime_key: str | None = None) -> dict[
 
 @router.get("/models/{local_model_id}")
 async def read_model(request: Request, local_model_id: str) -> dict[str, Any]:
-    """One installed build, with its variant, its family and any live instances."""
-    inventory = await _inventory(request)
+    """One installed build, with its variant, its family and any live instances.
+
+    An unreachable runtime is a **502, never a 404**. A 404 here would claim the
+    build does not exist, and what is actually true is that nothing could be
+    asked — a caller told "no such model" deletes it from a list, and a caller
+    told "the runtime is down" waits.
+    """
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError as failure:
+        raise RuntimeUnreachableError(
+            f"the runtime could not be asked about {local_model_id!r}: {failure}",
+            local_model_id=local_model_id,
+        ) from failure
     for model in inventory.installed.values():
         if model.local_model_id == local_model_id:
             return _describe(inventory, model.runtime_key) | {

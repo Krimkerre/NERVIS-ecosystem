@@ -3799,6 +3799,10 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    API.sirvis.runtimeSet(),API.sirvis.runs(),API.sirvis.machine()]);
  /* Loaded builds first, then the rest in catalogue order. What is resident now is
     the thing a reader is looking for, and it is two rows out of eleven. */
+ /* Whether SIRVIS answered, computed once. Four inline ternaries asking the
+    same question put this function over the complexity gate, which is the gate
+    doing its job: the condition is one fact about the screen, not four. */
+ const fromSirvis=SOURCE.sirvis==='live'?' live':'';
  const builds=[...mdl.items].sort((a,b)=>(a.state==='stopped')-(b.state==='stopped'));
  const loaded=builds.filter(m=>m.state!=='stopped');
  const resident=loaded.reduce((n,m)=>n+(m.resident_gb||0),0);
@@ -3846,7 +3850,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
      :`The bars are flat because this endpoint carries no throughput: SIRVIS files measurements against evidence records rather than against a build, so a rate belongs to a run under a named configuration and not to a name in a catalogue. The <b>Results</b> screen has them.`}</small>`,'sirvis')}</div>
   <div class="card narrow live" id="buildPanel"><h3>Selected build</h3>${cell(`
    <small class="mono dim">click a build on the left. This panel reads <b>GET /api/v1/models/{id}</b> and its measurements from <b>GET /api/v1/evidence?variant=…</b> — both live.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>${rn.suite}@${rn.version}</h3>${cell(`
+  <div class="card narrow${fromSirvis}"><h3>${rn.suite}@${rn.version}</h3>${cell(`
    <div class="trace-step"><b>target</b><span>${rn.target.split(' · ')[0]}</span></div>
    <div class="trace-step"><b>generating</b><span>${rn.generation_tok_s.median} tok/s</span></div>
    <div class="trace-step"><b>effective</b><span>${rn.effective_tok_s.median==null?'— not derivable from the envelope':rn.effective_tok_s.median+' tok/s'}</span></div>
@@ -3854,7 +3858,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    <div class="trace-step"><b>warmups</b><span>${rn.warmups} discarded</span></div>
    <div class="trace-step"><b>control</b><span>${rn.control?`${rn.control.generation_tok_s} tok/s · ${rn.control.drift_pct}% drift`:'none — a control brackets a sweep, not a run'}</span></div>
    <small class="mono dim">median of ${rn.samples}, loaded alone with <b>--parallel ${rn.parallel}</b>. ${rn.control?`The control is the same build re-run the same evening: it came back within ${rn.control.drift_pct}%, which is what makes anything measured later that day comparable at all on a fanless machine.`:`No control: one brackets a sweep rather than a run, and this engine records runs. The sweep that produced these bracketed itself and its two ends came back <b>26% apart</b> — which is the figure this card would otherwise be silently missing on a fanless machine.`}</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Runtime set · ${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
+  <div class="card wide${fromSirvis}"><h3>Runtime set · ${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
    <div class="table-row head five"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Follow-up</span></div>
    ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
     /* The same absences the Runtime sets screen renders, on this screen's own
@@ -3862,9 +3866,9 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
        a chip here — found by loading a model and looking at the dashboard. */
     return `<div class="table-row five"><span>${m.role}</span><span>${m.family}</span><span class="mono">${n(m.first_token_alone_s,'s')} · ${n(m.alone_tok_s,' tok/s')}</span><span class="mono">${n(m.first_token_concurrent_s,'s')}</span><span class="chip${m.follow_up_concurrent==null?'':m.follow_up_concurrent==='used-result'?'':' warn'}">${m.follow_up_concurrent==null?'—':m.follow_up_concurrent}</span></div>`}).join('')}
    <small class="mono dim">${rs.finding}.${rs.combined_peak_gb==null?' Peak memory is not on this record — M10 added those rows after the only run that exists, so the figures are in that run\'s telemetry.':` Combined peak ${rs.combined_peak_gb} GB with ${rs.swap_gb} swap — memory was never the problem, and nothing in either build's solo record predicts the column on the right.`}</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
+  <div class="card narrow${fromSirvis}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
    +`<small class="mono dim">the measurement was clean; the result was not. Validity says the run can be trusted, not that the combination is a good idea.</small>`,'sirvis')}</div>
-  <div class="card full"><h3>Recent benchmark evidence</h3>${cell(`
+  <div class="card full${fromSirvis}"><h3>Recent benchmark evidence</h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>First token</span><span>Rate</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
    <small class="mono dim">no score column, on purpose: code correctness came back 6/6 for every build in the run including the 1.8 GB one, so averaging it into a composite would manufacture a difference the measurements did not find. What varied is here.</small>`,'sirvis')}</div>`}
@@ -4041,18 +4045,18 @@ async function sirvisBenchmarks(){
    ['Succeeded',String(by('succeeded')),'complete run sets','sirvis'],
    ['Partial',String(by('partial')),'kept, never discarded','sirvis'],
    ['Failed',String(by('failed')),'no result written','sirvis']])
- +`<div class="card full"><h3>Queue</h3>${cell(`
+ +`<div class="card full${j.source==='live'?' live':''}"><h3>Queue</h3>${cell(`
    <div class="table-row head six"><span>Job</span><span>Suite</span><span>Target</span><span>Submitted</span><span>State</span><span>Progress</span></div>
    ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${warnUnless(x.state==='succeeded'||x.state==='running')}">${x.state}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div>`}<small class="mono" style="opacity:.55">${x.detail||(x.progress==null?'ran to completion':'—')}</small></span></div>`).join('')}
    <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>State versus detail</h3>${cell(`
+  <div class="card wide${j.source==='live'?' live':''}"><h3>State versus detail</h3>${cell(`
    <div class="table-row head"><span>Contract state</span><span>Jobs</span><span style="grid-column:3/-1">What a consumer may rely on</span></div>
    <div class="table-row"><span class="mono">running</span><span>${by('running')}</span><span style="grid-column:3/-1;opacity:.75">work is in progress; no result exists yet</span></div>
    <div class="table-row"><span class="mono">succeeded</span><span>${by('succeeded')}</span><span style="grid-column:3/-1;opacity:.75">a complete result set was written and is scoreable</span></div>
    <div class="table-row"><span class="mono">partial</span><span>${by('partial')}</span><span style="grid-column:3/-1;opacity:.75">fewer runs than requested; the result exists and says so</span></div>
    <div class="table-row"><span class="mono">failed</span><span>${by('failed')}</span><span style="grid-column:3/-1;opacity:.75">no result — the reason is in detail, never inferred from silence</span></div>
    <small class="mono dim">the internal phase (<b>${(j.items.find(x=>x.detail)||{}).detail||'none carried by these runs'}</b>) rides in <b>detail</b> and may change without a contract change. Switching on it is how a consumer breaks on a SIRVIS release that promised nothing.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Partial result</h3>${cell(partial?`
+  <div class="card narrow${j.source==='live'?' live':''}"><h3>Partial result</h3>${cell(partial?`
    <div class="trace-step"><b>job</b><span>${partial.job_id}</span></div>
    <div class="trace-step"><b>suite</b><span>${partial.suite}</span></div>
    <div class="trace-step"><b>reached</b><span>${partial.progress==null?'—':Math.round(partial.progress*100)+'%'}</span></div>
@@ -4938,7 +4942,7 @@ async function ravisPolicies(){
    ['Hard',String(hard.length),'eliminate candidates','ravis'],
    ['Soft',String(p.items.length-hard.length),'bias the ranking only','ravis'],
    ['Enabled',String(p.items.filter(x=>x.enabled).length),'a disabled rule is not evaluated','ravis']])
- +`<div class="card full"><h3>Evaluation order</h3>${cell(`
+ +`<div class="card full${p.live?' live':''}"><h3>Evaluation order</h3>${cell(`
    <div class="table-row head six"><span>Id</span><span style="grid-column:2/4">When</span><span style="grid-column:4/6">Then</span><span>Kind</span></div>
    ${p.items.map(x=>`<div class="table-row six"><span class="mono">${x.policy_id}</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(x.when)}</span><span style="grid-column:4/6">${x.then}</span><span class="chip${warnUnless(x.kind==='hard')}">${x.kind}</span></div>`).join('')}
    <small class="mono dim">order matters: <b>${p.items[1].policy_id}</b> removes every cloud provider before anything is scored, so a cheaper or faster cloud model is not out-ranked — it is never a candidate. A soft policy such as <b>${p.items.find(x=>x.kind==='soft').policy_id}</b> can only move a candidate down the list.</small>`,'ravis')}</div>
@@ -6181,11 +6185,29 @@ const PROTOTYPE={
          /* System is no longer listed: its KPI strip, machine card and runtime
             list all read SIRVIS's /api/v1/system and /api/v1/runtimes. The one
             card still inventing anything is `Conditions`, marked below. */},
- /* The service dashboards are the worst of it and were the last to be caught:
-    SIRVIS's renders from nine sources of which two are live, RAVIS's from four
-    of which one is. A landing screen full of confident invented numbers is the
-    most misleading page in the build, because it is the first one anyone sees. */
+ /* The service dashboards were the worst of it: SIRVIS's rendered from nine
+    sources of which two were live. Seven are live now — everything except the
+    catalogue and the download queue, neither of which SIRVIS publishes an
+    endpoint for at all. A landing screen full of confident invented numbers is
+    the most misleading page in the build, because it is the first one anyone
+    sees, so the ones that remain are the ones with nothing behind them.
+
+    `Benchmarks` stays listed for the same reason as RAVIS's Routes: it reads
+    the run history live and falls back to a transcription when SIRVIS is not
+    answering, and that fallback must not render unlabelled. Its cards carry
+    `.live` when the read succeeded. */
  sirvis:{'Dashboard':1,'Discover':1,'Benchmarks':1,'Downloads':1},
+ /* Every one of these stays listed, and Routes and Policies are why the flag
+    is per *card* rather than per screen.
+
+    Both read live and both keep a transcription for the case where RAVIS is not
+    answering — Routes has no decision records to show on a fresh start, and
+    Policies would otherwise render four invented rules. Taking them off this
+    list would leave that fallback rendering **unlabelled**, which is the one
+    outcome worse than a faded card: invented data at full contrast.
+
+    So the banner stays and `.live` does the work. A live read shows at full
+    contrast, the fallback fades, and neither has to be predicted here. */
  ravis:{'Dashboard':1,'Routes':1,'Providers':1,'Policies':1,'Evidence':1,
         'Logs':1,'Diagnostics':1,'Settings':1},
  clarvis:{'*':1}};
