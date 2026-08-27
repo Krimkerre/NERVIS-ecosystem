@@ -5044,6 +5044,17 @@ in front of her rather than as a faculty she has, because cross-session recall i
 the facts-are-never-the-joke clause is carried across, because it survives every persona change
 here.
 
+**Her bubbles and yours are tinted apart.** Hers keeps the teal-into-pink gradient the character
+is built from; yours is the same turquoise family with the pink removed and the whole thing cooled
+and deepened. One palette, and still an answer to *who said this* from the colour alone.
+
+**The picker names what is in force.** Nothing tracked which preset was applied, so the dropdown
+reset to the placeholder on every paint — which also meant the delete link, which read the
+dropdown's value, never had anything to delete. `chat.preset` records it, the option is marked
+selected, and Delete is a button beside Save rather than a link buried in the help text. NERVIS is
+what an installation that has chosen nothing reads as: the seeded settings already hold that
+preset's values, so naming it is a readout rather than a claim.
+
 **She talks first when nobody else does.** Three remarks per silence at widening intervals — two
 minutes, four, seven — and then nothing until the user says something. The browser owns the
 timing, because it is the only side that knows the tab is visible and the composer has been

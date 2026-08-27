@@ -376,11 +376,18 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-miku] .card{border-color:#1c5a58}
 .app[data-miku] #pageTitle{color:#7ffbec;text-shadow:0 0 18px rgba(57,197,187,.45)}
 /* The transcript itself, so the mode is visible where the conversation is and
-   not only in the chrome around it. */
+   not only in the chrome around it.
+
+   **Two tints, and the difference carries the pink.** Hers keeps the teal-into-
+   pink gradient the character is built from; yours is the same turquoise family
+   with the pink taken out and the whole thing cooled and deepened. Both read as
+   one palette — which is the point of a theme — while still answering "who said
+   this" at a glance, from the colour alone and before any label is read. */
 .app[data-miku] .bubble{border-color:#2b8f8a;
- background:linear-gradient(135deg,rgba(57,197,187,.13),rgba(255,95,162,.07))}
+ background:linear-gradient(135deg,rgba(57,197,187,.14),rgba(255,95,162,.08))}
 .app[data-miku] .bubble b{color:#6ff6e8}
-.app[data-miku] .bubble.user{border-color:#1c5a58}
+.app[data-miku] .bubble.user{border-color:#2f7d86;
+ background:linear-gradient(105deg,rgba(27,125,120,.30),rgba(10,58,68,.16))}
 .bubble.typing:after{content:"▌";color:var(--accent);animation:caretBlink .7s steps(1) infinite}
 @keyframes caretBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
 /* The same caret, on the chat reply that is still arriving. Reused rather than
@@ -5776,7 +5783,7 @@ const CHAT_STORE={
    browser: a name is a fact about the person, not about the tab they happen to
    have open, and it should survive a different browser on the same machine. */
 const USER={
- name:'', system:'', brief:true, mode:'', memory:'session', memorySkipsCurrent:true,
+ name:'', system:'', brief:true, mode:'', preset:'cp_nervis', memory:'session', memorySkipsCurrent:true,
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -5793,6 +5800,10 @@ const USER={
       and `!== false` is what distinguishes "never set" from "turned off". */
    this.brief=items['chat.brief']!==false;
    this.mode=String(items['chat.mode']||'');
+   /* NERVIS unless something else was chosen. The seeded settings already
+      hold that preset's values, so naming it here is a readout rather than
+      a claim — the dropdown shows what is actually in force. */
+   this.preset=items['chat.preset']===undefined?'cp_nervis':String(items['chat.preset']||'');
    this.memory=items['chat.memory']==='all'?'all':'session';
    this.memorySkipsCurrent=items['chat.memory_skips_current']!==false;
   }catch(e){}
@@ -5806,6 +5817,7 @@ const USER={
  /* Presentation only: the avatar and the accent. Sends nothing, routes
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
+ setPreset(id){this.preset=id;this.write('chat.preset',id)},
  setMemory(scope){this.memory=scope;this.write('chat.memory',scope);render()},
  setMemorySkips(on){this.memorySkipsCurrent=on;this.write('chat.memory_skips_current',on)},
  /* Written on `change` rather than `input`: a PUT per keystroke would be a
@@ -5877,6 +5889,7 @@ const PRESETS={
      from Miku has to put the face back, and a preset that carries no mode
      is saying *the ordinary one* rather than *leave whatever was there*. */
   USER.setMode(found.params.mode||'');
+  USER.setPreset(id);
   notify('Applied '+found.name);
   /* The voice is NERVIS's, so switching it is a write rather than an
      assignment. Quiet, because the notify above already said what happened —
@@ -5895,13 +5908,21 @@ const PRESETS={
   if(existing)existing.params=this.capture();
   else this.items.push({id:'cp_'+Math.random().toString(36).slice(2,8),name,params:this.capture()});
   await USER.write('chat.presets',this.items);
+  USER.setPreset((existing||this.items[this.items.length-1]).id);
   notify(existing?'Replaced '+name:'Saved '+name);
   render();
  },
 
  async remove(id){
+  const gone=this.items.find(p=>p.id===id);
+  if(!gone)return notify('Pick one to delete first');
   this.items=this.items.filter(p=>p.id!==id);
   await USER.write('chat.presets',this.items);
+  /* The selection cannot survive the thing it names. Falls back to whatever is
+     left rather than to nothing, so the picker never names a preset that is
+     gone while the settings underneath still hold its values. */
+  if(USER.preset===id)USER.setPreset(this.items.length?this.items[0].id:'');
+  notify('Deleted '+gone.name);
   render();
  }
 };
@@ -6236,8 +6257,8 @@ function paramsPane(){
     <label style="grid-column:1/-1">Preset
      <select id="cpPreset" style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
        onchange="PRESETS.apply(this.value)">
-      <option value="">— everything below, unsaved —</option>
-      ${PRESETS.items.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
+      <option value=""${USER.preset?'':' selected'}>— everything below, unsaved —</option>
+      ${PRESETS.items.map(p=>`<option value="${escapeHtml(p.id)}"${p.id===USER.preset?' selected':''}>${escapeHtml(p.name)}</option>`).join('')}
      </select>
      <!-- On its own row. The drawer is about 230px wide, and a select, a text
           field and a button abreast in that space pushed the button off the
@@ -6245,8 +6266,9 @@ function paramsPane(){
      <span style="display:flex;gap:6px;align-items:center;margin-top:6px">
       <input id="cpPresetName" placeholder="name it" style="flex:1;min-width:0">
       <button class="btn primary" onclick="PRESETS.save()">Save</button>
+      <button class="btn" onclick="PRESETS.remove(USER.preset)"${USER.preset?'':' disabled style="opacity:.45;cursor:not-allowed"'} title="delete the preset selected above">Delete</button>
      </span>
-     <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a preset holds everything on this panel <b>the pool and the voice</b> — the model, the persona, the sampling and what it sounds like, because that combination is what a mode actually is. <b>Applying one replaces what is in these fields</b>, the system prompt included — save yours under a name first if you have been editing it. Saving under an existing name replaces that one.${PRESETS.items.length?` <a href="#" onclick="PRESETS.remove(document.getElementById('cpPreset').value);return false" style="color:inherit;opacity:.7">delete the selected one</a>`:''}</small></label>
+     <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a preset holds everything on this panel <b>the pool and the voice</b> — the model, the persona, the sampling and what it sounds like, because that combination is what a mode actually is. <b>Applying one replaces what is in these fields</b>, the system prompt included — save yours under a name first if you have been editing it. Saving under an existing name replaces that one.</small></label>
     <label style="grid-column:1/-1">Your name
      <input id="cpName" placeholder="what NERVIS should call you"
        value="${escapeHtml(USER.name)}"
