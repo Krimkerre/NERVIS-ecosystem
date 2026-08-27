@@ -5024,6 +5024,70 @@ last is a trap that closes.
 milliseconds and dollars. Models within a quarter-second count as equally quick —
 a claim the data supports at that resolution — and the cheaper of them wins.
 
+### The chat screen lost three things and gained two
+
+The pool chips are gone from above the transcript. Thirteen of them duplicated a picker that
+already existed in the Model drawer, could not represent a *pinned* model at all — pinning is two
+slashes deep and no chip stands for one — and cost a second call to `/api/v1/profiles` on every
+paint. One place to choose it. The Model, Parameters, History and Voice buttons moved into that
+freed line, in flow rather than floating: the absolute strip had needed a hand-widened
+`padding-right` every time a button was added.
+
+**Miku mode is deleted** — the scene, the glitch overlay, the avatar and its embed. The typing
+caret survives, renamed off the feature it outlived.
+
+**Memory has a scope**, and it is an egress decision the screen states rather than a convenience
+it performs quietly. `This conversation only` is the default and is what NERVIS has always sent;
+`All conversations on this machine` additionally hands the model a bounded digest — five
+conversations, six turns each, four thousand characters, newest first. Bounded twice because
+either bound alone fails: a per-conversation cap still lets fifty threads fill a context window,
+and a total cap alone spends everything on one rambling one. The current conversation is left out
+by default, since its turns already travel as ordinary messages and including it would send the
+same text twice.
+
+The honest part is the warning next to it: a conversation held with a local model has never left
+this machine, and recalling it into a turn a cloud model answers sends it. That is the same shape
+of leak §18.2 spends its length on for the voice — chosen deliberately here, per installation,
+rather than happening by default. **It is not yet gated the way the voice is**, and that asymmetry
+is recorded rather than hidden.
+
+**Two bugs the testing found.** A preset only wrote the keys it carried, so switching from Code
+to NERVIS left Code's temperature of 0.2 behind — invisible on the screen it came from, and
+enough to make a mode unreproducible. A preset is a whole state now. And the shipped persona
+listed illustrative readings — *"a model nobody has called in a week"* — which two models in a row
+read as current fact and repeated back as data. The examples are gone and the persona now says
+outright that it is shown no readings except the ones in the conversation.
+
+### CI had been red for four commits, and none of it was what it looked like
+
+**Two enrollment secrets were committed at M8a and had been in the history since.**
+`nervis/:memory:.enrollment` and `nervis/nervis.enrollment` are `0600` on the machine that
+generated them; git does not carry that bit, so a checkout gives them `644` and NERVIS refuses to
+read a world-readable secret — correctly, and its own message says *treat the old one as
+disclosed*. Every CI test that builds an app failed on it. The refusal was right twice over: the
+file should not have been readable, and the first of the two should never have existed at all —
+it was named by `with_suffix` on the literal string `":memory:"`, so every test run wrote a
+secret into the source tree. An in-memory database keeps nothing between runs and now gets a
+secret that keeps nothing either.
+
+**The `undefined` check was failing on the code that fixed the bug it guards.** It banned the
+substring anywhere in `index.html`, which also matched `!== undefined` — the ordinary way to ask
+whether an optional field was supplied — and the comments describing the very failure it exists
+to catch. Comments and comparisons come out before the search now.
+
+Neither of those was visible from a green-looking local run, because `grep -Eo '[0-9]+ passed'`
+matches `240 passed` inside `1 failed, 240 passed`. That is how a broken test was reported here
+as all-green, and it is worth writing down as the thing that actually went wrong.
+
+**A conformance case was failing locally and passing in CI**, which is the inversion of the usual
+complaint and a worse sign. `ravis conformance clarvis` builds the real application, and the real
+application reads `~/.config/ravis/pools.json` — so the Pools screen narrowing `ravis/clarvis-chat`
+to nine real model ids meant the fixture's `chat-only-model` was no longer in the pool, and the
+suite reported on a UI click made days earlier rather than on the build. CI has no such file and
+saw nothing. The harness now points the membership store at a path that does not exist, which is
+the state a fresh install is in and the one the suite means to certify. This is the same class of
+bug as the missing `XDG_CONFIG_HOME` isolation found earlier this session, in a second tool.
+
 ### Voice, and the gate that was the actual work
 
 NERVIS speaks. **NERVIS → Voice** takes a Fish Audio key, keeps named voices, and reads chat

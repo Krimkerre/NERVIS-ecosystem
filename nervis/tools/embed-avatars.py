@@ -11,10 +11,9 @@ Run after editing any avatar:  python3 tools/embed-avatars.py
 import base64, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Order matters only for readability; "miku" is the easter-egg avatar and is
-# embedded the same way as the four app avatars. Leaving it out of this list
-# would silently drop it from index.html the next time this runs.
-APPS = ["miku", "nervis", "sirvis", "ravis", "clarvis"]
+# Order matters only for readability. Leaving one out of this list would
+# silently drop it from index.html the next time this runs.
+APPS = ["nervis", "sirvis", "ravis", "clarvis"]
 
 def main() -> int:
     index = ROOT / "index.html"

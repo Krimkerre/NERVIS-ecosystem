@@ -58,12 +58,36 @@ def secret_path(database_path: str) -> Path:
     return Path(database_path).expanduser().resolve().with_suffix(".enrollment")
 
 
+def is_ephemeral(database_path: str) -> bool:
+    """Whether this database keeps nothing between runs.
+
+    Both spellings, because `resolved_path` rewrites a bare `":memory:"` into
+    the shared-cache URI form and either can arrive here depending on which
+    layer asks.
+    """
+    return database_path == ":memory:" or "mode=memory" in database_path
+
+
 def load_or_create(database_path: str) -> str:
     """The enrollment secret, generated on first run.
 
     Created rather than configured. A secret with a default value is not one,
     and a secret an operator must invent is one that ends up as `changeme`.
+
+    **An in-memory database gets a secret that is also in memory.** It used to
+    get a file, named by `with_suffix` on the literal string `":memory:"` — so
+    every test run wrote `:memory:.enrollment` into the source tree, and one of
+    them was eventually committed. Git does not carry the `0600` that made it
+    safe, so CI checked it out at `644` and every test that builds an app
+    failed on this module's own world-readable refusal. The refusal was right
+    both times: the file should not have existed, and it should not have been
+    readable.
+
+    A database that keeps nothing between runs has nothing for a persisted
+    secret to authenticate against, so there is nothing to persist.
     """
+    if is_ephemeral(database_path):
+        return secrets.token_urlsafe(SECRET_BYTES)
     path = secret_path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=DIRECTORY_MODE)
     if path.exists():

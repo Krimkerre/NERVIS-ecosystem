@@ -141,7 +141,7 @@ jobs:
       - name: prototype checks
         run: python3 tools/check.py
         working-directory: nervis
-      # Renders all 34 screens with nothing running, in a DOM shim, and fails if
+      # Renders every screen with nothing running, in a DOM shim, and fails if
       # one throws. That invariant — the page opens from disk with no services
       # up — was checked by a person opening a browser, which caught four
       # screen-blanking crashes in one week and missed a fifth: SIRVIS's

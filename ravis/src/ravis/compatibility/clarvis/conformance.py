@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterator
 
 import httpx
@@ -29,6 +31,7 @@ from ravis.app import create_app
 from ravis.compatibility.clarvis import fixtures
 from ravis.compatibility.clarvis.contract import ReadStream, read_stream
 from ravis.config import Settings
+from ravis.pool_membership import PoolMembership
 from ravis.reliability import AttemptChain, HealthRegistry
 
 # Two models, both declaring tool support, for the Stage 3 scenarios. Tools are
@@ -163,6 +166,21 @@ def _app_against(upstream: _FixtureUpstream, capabilities: dict[str, dict[str, s
     app = create_app(settings)
     app.app.state.upstream_client = httpx.AsyncClient(transport=upstream.transport())
     app.app.state.model_registry.use_client(app.app.state.upstream_client)
+    # **Against the declared pools, not this operator's narrowed ones.**
+    #
+    # `PoolMembership.default()` reads `~/.config/ravis/pools.json`, which the
+    # Pools screen writes whenever somebody ticks a model. A conformance suite
+    # that reads it certifies *this installation* rather than the build — and it
+    # duly went red on a machine where `ravis/clarvis-chat` had been narrowed to
+    # nine real model ids, none of them the fixture's, so the pool resolved to
+    # nothing and the verdict was about a UI click made days earlier.
+    #
+    # Pointed at a path that does not exist rather than at `None`: the store
+    # already treats an unreadable file as "no narrowing", which is exactly the
+    # state a fresh install is in and the one this suite means to test.
+    app.app.state.pool_membership = PoolMembership(
+        path=Path(tempfile.gettempdir()) / "ravis-conformance-no-such-pools.json"
+    )
     return app
 
 

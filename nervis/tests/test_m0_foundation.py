@@ -287,7 +287,13 @@ def test_storing_null_is_different_from_storing_nothing(settings: Settings) -> N
 
     assert stored.status_code == 200
     assert missing.status_code == 422
-    assert client.get("/api/v1/settings").json()["items"] == {"telemetry": None}
+    # This key, not the whole table. Asserting the table's exact contents tied a
+    # test about one endpoint's *body shape* to everything any other feature
+    # might seed into settings — and it duly broke when chat seeded a persona,
+    # for a reason that had nothing to do with what it was testing.
+    items = client.get("/api/v1/settings").json()["items"]
+    assert "telemetry" in items
+    assert items["telemetry"] is None
 
 
 def test_a_refusal_uses_the_published_envelope(settings: Settings) -> None:

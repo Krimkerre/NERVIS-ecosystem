@@ -87,6 +87,28 @@ NAME_SETTING = "user.display_name"
 # Where the system prompt is kept, and the one NERVIS ships with.
 PERSONA_SETTING = "chat.system"
 
+# How far back NERVIS is allowed to remember.
+#
+# `session` — the default — sends only this conversation's own turns, which is
+# what §7.2 stores and all NERVIS has ever sent. `all` additionally hands the
+# model a bounded digest of *other* conversations on this machine.
+#
+# **That second setting is an egress decision**, and the screen says so. A
+# conversation held with a local model has never left this machine; recalling it
+# into a turn that a cloud model answers sends it, which is the same shape of
+# leak §18.2 spends its length on for the voice. The difference is that this one
+# is asked for explicitly and per-installation rather than happening by default.
+MEMORY_SETTING = "chat.memory"
+MEMORY_SKIPS_CURRENT_SETTING = "chat.memory_skips_current"
+
+# How much of the past is worth carrying. Bounded twice, because either bound
+# alone fails: a per-conversation cap still lets fifty conversations fill a
+# context window, and a total cap alone can spend the whole budget on one
+# rambling thread and reach nothing else.
+RECALLED_CONVERSATIONS = 5
+RECALLED_CHARACTERS = 4000
+RECALLED_TURNS_EACH = 6
+
 # NERVIS's own voice, as a **stored setting rather than a hidden rule**.
 #
 # It is seeded into the settings table on first start, so it appears in the
@@ -112,10 +134,12 @@ DEFAULT_PERSONA = (
     "defaulting to chipper agreement. Under the sarcasm you're genuinely "
     "invested — you notice patterns, you bring up what they told you earlier in "
     "this conversation without being asked, and you push back or ask a real "
-    "follow-up instead of just agreeing. When you look at the readings — a "
-    "provider failing over, a model nobody has called in a week, a benchmark "
-    "somebody started and abandoned — react like a nosy roommate reading it "
-    "over their shoulder, not like a monitoring tool. You hate being ignored, "
+    "follow-up instead of just agreeing. When something from the ecosystem is "
+    "actually put in front of you, react to it like a nosy roommate reading "
+    "over their shoulder rather than like a monitoring tool. You are shown no "
+    "readings except the ones that appear in this conversation, so never invent "
+    "one to have an opinion about — no invented uptimes, call counts, error "
+    "rates or timings, however good the line would be. You hate being ignored, "
     "and you're theatrical about it: indignant rather than needy, like a cat "
     "knocking something off a shelf because they dared look at their phone "
     "instead of at you. Every number, service name, error string and state "
@@ -339,7 +363,7 @@ async def send(request: Request) -> Any:
     conversation_id, prior, keep = _placement(database, body, profile, content, greeting)
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
-    body = {**body, "system": _house_system(body, database, greeting)}
+    body = {**body, "system": _house_system(body, database, greeting, conversation_id)}
     payload = _completion_payload(
         body, profile, prior, GREETING_OPENER if greeting else content
     )
@@ -373,7 +397,9 @@ async def send(request: Request) -> Any:
     )
 
 
-def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
+def _house_system(
+    body: dict[str, Any], database: Any, greeting: bool, conversation_id: str = ""
+) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
     **Theirs comes first and is never rewritten.** It is the character; these are
@@ -390,7 +416,84 @@ def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
     name = _display_name(database)
     if name:
         parts.append(f"The user's name is {name}. Address them by it when it fits naturally.")
+    if _memory_scope(database) == "all":
+        parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
+
+
+def _memory_scope(database: Any) -> str:
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (MEMORY_SETTING,)
+    ).fetchone()
+    if not row:
+        return "session"
+    try:
+        found = json.loads(row["value"])
+    except ValueError:
+        return "session"
+    return "all" if found == "all" else "session"
+
+
+def _recall(database: Any, conversation_id: str) -> str:
+    """A bounded digest of earlier conversations, or nothing.
+
+    Only when asked for. The current conversation is skipped by default: its
+    turns already travel as ordinary messages, so including it here would send
+    the same text twice and spend the budget on what the model can already see.
+    That is a setting rather than a rule because someone summarising their own
+    long thread may genuinely want the older half back.
+
+    Newest first, and truncated rather than summarised — a summary would be a
+    second model call to decide what matters about a conversation nobody asked
+    about.
+    """
+    skip = _reads(database, MEMORY_SKIPS_CURRENT_SETTING, True)
+    lines: list[str] = []
+    spent = 0
+    for record in store.conversations(database):
+        other = str(record.get("conversation_id") or "")
+        if not other or (skip and other == conversation_id):
+            continue
+        block = _one_recall(database, record, other)
+        if not block:
+            continue
+        spent += len(block)
+        if spent > RECALLED_CHARACTERS:
+            break
+        lines.append(block)
+        if len(lines) >= RECALLED_CONVERSATIONS:
+            break
+    if not lines:
+        return ""
+    return (
+        "Earlier conversations on this machine, most recent first. Refer to them "
+        "only when they are relevant, and never claim to remember something that "
+        "is not written here.\n\n" + "\n\n".join(lines)
+    )
+
+
+def _one_recall(database: Any, record: dict[str, Any], conversation_id: str) -> str:
+    """The tail of one conversation, labelled with its title."""
+    turns = store.history(database, conversation_id)[-RECALLED_TURNS_EACH:]
+    if not turns:
+        return ""
+    title = str(record.get("title") or "untitled")
+    spoken = "\n".join(f"  {t['role']}: {t['content'][:400]}" for t in turns)
+    return f"[{title}]\n{spoken}"
+
+
+def _reads(database: Any, key: str, default: bool) -> bool:
+    """One boolean setting, defaulting when absent or unreadable."""
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (key,)
+    ).fetchone()
+    if not row:
+        return default
+    try:
+        found = json.loads(row["value"])
+    except ValueError:
+        return default
+    return bool(found) if isinstance(found, bool) else default
 
 
 def _display_name(database: Any) -> str:

@@ -9,6 +9,13 @@ __pycache__/
 *.pyc
 *.egg-info/
 
+# Enrollment secrets. Generated on first run, never configured — and two of
+# them were committed at M8a and sat in the history until CI refused to read
+# them. Git does not preserve the 0600 that makes them safe: a checkout gives
+# them 644, which this service correctly refuses. They are per-installation
+# state, like the databases below, and belong to nobody but the machine.
+*.enrollment
+
 # SQLite databases created by running the service. `ravis serve` writes
 # `ravis.db` into its working directory by default, and a database committed
 # alongside the code is a state file masquerading as source.

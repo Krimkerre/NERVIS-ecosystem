@@ -54,8 +54,23 @@ for ch in style:
 if depth > 0:
     fail.append(f"{depth} unclosed CSS brace(s)")
 
-if "undefined" in html:
-    fail.append("the literal string 'undefined' appears in index.html")
+# 3. "undefined" reaching the DOM. The failure is a template reading a field the
+#    API stopped returning, so the *rendered* string says `undefined` — as the
+#    Overview's `LOCAL undefined%` did for months, reading `local_pct` from a
+#    payload that publishes `local_share`.
+#
+#    **A bare substring search is not that check.** It also matched `!==
+#    undefined`, which is the ordinary way to ask whether an optional field was
+#    supplied, and it matched prose in the comments describing this very bug —
+#    so the check failed on the code that fixed it and on the note explaining
+#    why. Comments and comparisons come out first; whatever `undefined` is left
+#    is one somebody is about to concatenate into a string.
+_prose = re.sub(r"/\*.*?\*/", "", html, flags=re.DOTALL)
+_prose = re.sub(r"(?m)^\s*//.*$", "", _prose)
+_code = re.sub(r"[!=]==\s*undefined", "", _prose)
+if "undefined" in _code:
+    fail.append("the literal string 'undefined' appears in index.html "
+                "outside a comment and outside an `=== undefined` comparison")
 
 # 4. a duplicate key in the API object is legal JavaScript: the LAST one wins and
 #    the earlier ones are discarded in silence. A region edit produced exactly
