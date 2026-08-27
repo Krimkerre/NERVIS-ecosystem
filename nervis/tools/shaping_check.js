@@ -22,7 +22,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { loadPage } = require("./page_context.js");
-const { CASES, CHAT_STREAMS, BUILDS } = require("./shaping_fixtures.js");
+const { CASES, CHAT_STREAMS, BUILDS, RAVIS_READS } = require("./shaping_fixtures.js");
 
 const GOLDEN = path.join(__dirname, "shaping_golden.json");
 
@@ -89,8 +89,83 @@ function replayChat(exported) {
   return replayed;
 }
 
+/* Each RAVIS reader, against the payload RAVIS really returns.
+ *
+ * The live branch of a live-first reader is the half `render_check` structurally
+ * cannot reach, and it is where the mock's vocabulary and the service's diverge.
+ * One reader per page, because a reader that fails should not be able to hide
+ * behind another's stubbed fetch.
+ */
+async function readRavis() {
+  const shaped = {};
+  for (const read of RAVIS_READS) {
+    const { exported } = loadPage({
+      fetchImpl: (url) =>
+        url.includes(read.path)
+          ? Promise.resolve({ ok: true, json: () => Promise.resolve(read.body) })
+          : Promise.reject(new TypeError("fetch failed")),
+    });
+    shaped[read.name] = await read.call(exported.API);
+    exported.stopPolling?.();
+  }
+  return shaped;
+}
+
+/* Render the screens that read those payloads, with the payloads present.
+ *
+ * This is the check that would have caught the bug that prompted all of it. The
+ * *reader* mapped the live provider payload perfectly; the *screen* then read
+ * `x.auth.scheme`, a field only the mock carries, and threw the first time a
+ * provider actually answered. `render_check` cannot see it — it makes every
+ * fetch reject, so every screen it renders takes the mock branch.
+ *
+ * A screen is asserted to *assemble*, nothing more, which is the same claim
+ * `render_check` makes and the same class of failure: a `TypeError` while
+ * building a template string blanks the whole screen.
+ */
+async function renderLive() {
+  const serving = Object.fromEntries(RAVIS_READS.map((r) => [r.path, r.body]));
+  const failures = [];
+  const rendered = {};
+
+  for (const view of ["Providers", "Routes"]) {
+    const { exported } = loadPage({
+      fetchImpl: (url) => {
+        const hit = Object.keys(serving).find((path) => url.includes(path));
+        return hit
+          ? Promise.resolve({ ok: true, json: () => Promise.resolve(serving[hit]) })
+          // Everything else absent, which is a real state: a deployment with
+          // one service up and another down renders exactly this mixture.
+          : Promise.reject(new TypeError("fetch failed"));
+      },
+    });
+    exported.state.app = "ravis";
+    exported.state.view = view;
+    try {
+      await exported.ravis();
+      rendered[view] = "assembled";
+    } catch (failure) {
+      failures.push(`ravis/${view}: ${failure.message}`);
+    }
+    exported.stopPolling?.();
+  }
+
+  if (failures.length) {
+    console.error("a screen threw while rendering live data:\n");
+    for (const line of failures) console.error(`  • ${line}`);
+    console.error(
+      "\nThis is the half `render_check` cannot reach: it rejects every fetch," +
+      "\nso it only ever exercises the mock branch of a live-first reader."
+    );
+    process.exit(1);
+  }
+  return rendered;
+}
+
 async function main() {
   const shaped = await shapeAll();
+  shaped["ravis reads"] = await readRavis();
+  shaped["live screens"] = await renderLive();
   const { exported } = loadPage();
   shaped["chat streams"] = replayChat(exported);
   shaped["build panels"] = Object.fromEntries(BUILDS.map(

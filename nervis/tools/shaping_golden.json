@@ -449,6 +449,180 @@
       "finding": "memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB"
     }
   },
+  "ravis reads": {
+    "providers": {
+      "live": true,
+      "items": [
+        {
+          "provider_id": "lmstudio",
+          "label": "lmstudio",
+          "kind": "local",
+          "protocol": "OPENAI_TRANSPARENT",
+          "base_url": "http://127.0.0.1:1234",
+          "credential": "not required",
+          "breaker": "CLOSED",
+          "error_rate": 0,
+          "p50_ms": 31,
+          "enabled": true,
+          "models": 20,
+          "requests": 4,
+          "note": "20 model(s) listed"
+        },
+        {
+          "provider_id": "openrouter",
+          "label": "openrouter",
+          "kind": "cloud",
+          "protocol": "OPENAI_TRANSPARENT",
+          "base_url": "https://openrouter.ai/api",
+          "credential": "file",
+          "breaker": null,
+          "error_rate": null,
+          "p50_ms": 988,
+          "enabled": true,
+          "models": 417,
+          "requests": 0,
+          "note": "417 model(s) listed"
+        },
+        {
+          "provider_id": "anthropic",
+          "label": "anthropic",
+          "kind": "cloud",
+          "protocol": "TRANSLATED_NATIVE",
+          "base_url": "",
+          "credential": "file",
+          "breaker": "OPEN",
+          "error_rate": 0.75,
+          "p50_ms": null,
+          "enabled": true,
+          "models": null,
+          "requests": 8,
+          "note": "catalogue: HTTP 503"
+        }
+      ]
+    },
+    "decisions": {
+      "items": [
+        {
+          "decision_id": "9b3d0cd81850aa",
+          "requested": "ravis/balanced",
+          "pool": "ravis/balanced",
+          "selected": "google/gemma-4-31b-it:free",
+          "fallbacks": [
+            "nvidia/nemotron-3-super-120b-a12b:free",
+            "prism-ml/bonsai-27b"
+          ],
+          "reason": "first eligible candidate in stable order.",
+          "requirements": [
+            "none"
+          ],
+          "unverified": [],
+          "considered": [
+            "a/one",
+            "a/two",
+            "b/three"
+          ],
+          "excluded": [
+            {
+              "model": "a/two",
+              "reasons": [
+                "outside this pool's default mid tier — tick it to include it"
+              ]
+            },
+            {
+              "model": "b/three",
+              "reasons": [
+                "outside this pool's default mid tier — tick it to include it"
+              ]
+            }
+          ],
+          "execution": {
+            "provider": "openrouter",
+            "attempts": [
+              {
+                "model": "google/gemma-4-31b-it:free",
+                "outcome": "rate_limit",
+                "detail": "HTTP 429"
+              },
+              {
+                "model": "nvidia/nemotron-3-super-120b-a12b:free",
+                "outcome": "succeeded",
+                "detail": ""
+              }
+            ],
+            "stopped_because": "",
+            "budget_unenforced": []
+          },
+          "execution_path": "TRANSPARENT_OPENAI",
+          "decided_at": "2026-08-27T00:14:02Z",
+          "application_id": "anonymous",
+          "request_id": "req_1",
+          "trace_id": ""
+        },
+        {
+          "decision_id": "no-route-01",
+          "requested": "ravis/local",
+          "pool": "ravis/local",
+          "selected": null,
+          "fallbacks": [],
+          "reason": "no candidate satisfies ravis/local",
+          "requirements": [],
+          "unverified": [],
+          "considered": [
+            "a/one"
+          ],
+          "excluded": [
+            {
+              "model": "a/one",
+              "reasons": [
+                "served by a remote provider, and this pool never leaves this machine"
+              ]
+            }
+          ],
+          "execution": {
+            "provider": "",
+            "attempts": [],
+            "stopped_because": "",
+            "budget_unenforced": []
+          },
+          "execution_path": "TRANSPARENT_OPENAI",
+          "decided_at": "2026-08-27T00:13:00Z",
+          "application_id": "anonymous",
+          "request_id": "req_2",
+          "trace_id": ""
+        }
+      ],
+      "live": true
+    },
+    "observations": {
+      "items": [
+        {
+          "model_id": "gpt-4o-mini",
+          "median_latency_ms": 565,
+          "median_ttft_ms": 484,
+          "samples": 14,
+          "confident": true,
+          "last_seen": 1,
+          "provenance": "OBSERVED_BY_RAVIS"
+        },
+        {
+          "model_id": "claude-haiku-4-5",
+          "median_latency_ms": 900,
+          "median_ttft_ms": null,
+          "samples": 1,
+          "confident": false,
+          "last_seen": 1,
+          "provenance": "OBSERVED_BY_RAVIS"
+        }
+      ],
+      "minimum_samples": 5,
+      "confident_total": 1,
+      "live": true
+    }
+  },
+  "live screens": {
+    "Providers": "assembled",
+    "Routes": "assembled"
+  },
   "chat streams": {
     "ordinary reply": {
       "acc": {

@@ -231,4 +231,109 @@ const BUILDS = [
   },
 ];
 
-module.exports = { CASES, CHAT_STREAMS, BUILDS };
+/* RAVIS management payloads, for the readers that only run when a service
+ * answers.
+ *
+ * **`render_check` cannot see these.** It makes every `fetch` reject, which is
+ * the state it exists to test — and which means it exercises the *mock* branch
+ * of every live-first reader and never the live one. A reader that breaks only
+ * when real data arrives is invisible to it, and one did: the Providers screen
+ * read `x.auth.scheme` on a live payload that carries no `auth` at all, and
+ * threw the first time a provider actually answered.
+ *
+ * Each fixture is the shape RAVIS really returns, trimmed. The fields that
+ * matter are the ones the live payload does *not* have, because those are what
+ * the mock taught the screens to expect.
+ */
+const RAVIS_PROVIDERS = {
+  items: [
+    {
+      name: "lmstudio", base_url: "http://127.0.0.1:1234", local: true,
+      enabled: true, credential_configured: false, credential_source: "absent",
+      protocol_mode: "OPENAI_TRANSPARENT", reachable: true, latency_ms: 31.4,
+      catalogue_size: 20, catalogue_error: "", catalogue_refreshed: 1.0,
+      // Called, so it has a record.
+      breaker: "CLOSED", error_rate: 0.0, requests: 4, consecutive_failures: 0,
+    },
+    {
+      name: "openrouter", base_url: "https://openrouter.ai/api", local: false,
+      enabled: true, credential_configured: true, credential_source: "file",
+      protocol_mode: "OPENAI_TRANSPARENT", reachable: true, latency_ms: 988.0,
+      catalogue_size: 417, catalogue_error: "", catalogue_refreshed: 1.0,
+      // Never called: null rather than a clean bill of health.
+      breaker: null, error_rate: null, requests: 0, consecutive_failures: 0,
+    },
+    {
+      name: "anthropic", base_url: "", local: false, enabled: true,
+      credential_configured: true, credential_source: "file",
+      protocol_mode: "TRANSLATED_NATIVE", reachable: false,
+      detail: "not answering", latency_ms: null, catalogue_size: null,
+      catalogue_error: "HTTP 503", breaker: "OPEN", error_rate: 0.75,
+      requests: 8, consecutive_failures: 3,
+    },
+  ],
+};
+
+/* One decision record, with the fields the Routes screen renders and the ones
+   it used to invent. There is no `score`, no per-candidate `ttft_s` and no
+   `timings_ms` — RAVIS publishes none of them. */
+const RAVIS_DECISIONS = {
+  items: [
+    {
+      decision_id: "9b3d0cd81850aa", requested: "ravis/balanced",
+      pool: "ravis/balanced", selected: "google/gemma-4-31b-it:free",
+      fallbacks: ["nvidia/nemotron-3-super-120b-a12b:free", "prism-ml/bonsai-27b"],
+      reason: "first eligible candidate in stable order.",
+      requirements: ["none"], unverified: [],
+      considered: ["a/one", "a/two", "b/three"],
+      excluded: [
+        { model: "a/two", reasons: ["outside this pool's default mid tier — tick it to include it"] },
+        { model: "b/three", reasons: ["outside this pool's default mid tier — tick it to include it"] },
+      ],
+      execution: {
+        provider: "openrouter",
+        attempts: [
+          { model: "google/gemma-4-31b-it:free", outcome: "rate_limit", detail: "HTTP 429" },
+          { model: "nvidia/nemotron-3-super-120b-a12b:free", outcome: "succeeded", detail: "" },
+        ],
+        stopped_because: "", budget_unenforced: [],
+      },
+      execution_path: "TRANSPARENT_OPENAI",
+      decided_at: "2026-08-27T00:14:02Z", application_id: "anonymous",
+      request_id: "req_1", trace_id: "",
+    },
+    {
+      decision_id: "no-route-01", requested: "ravis/local", pool: "ravis/local",
+      selected: null, fallbacks: [], reason: "no candidate satisfies ravis/local",
+      requirements: [], unverified: [], considered: ["a/one"],
+      excluded: [{ model: "a/one", reasons: ["served by a remote provider, and this pool never leaves this machine"] }],
+      execution: { provider: "", attempts: [], stopped_because: "", budget_unenforced: [] },
+      execution_path: "TRANSPARENT_OPENAI", decided_at: "2026-08-27T00:13:00Z",
+      application_id: "anonymous", request_id: "req_2", trace_id: "",
+    },
+  ],
+};
+
+/* Measured timings, including one below the sample floor — the case a screen
+   must show and never rank on. */
+const RAVIS_OBSERVATIONS = {
+  items: [
+    { model_id: "gpt-4o-mini", median_latency_ms: 565.0, median_ttft_ms: 484.0,
+      samples: 14, confident: true, last_seen: 1.0, provenance: "OBSERVED_BY_RAVIS" },
+    { model_id: "claude-haiku-4-5", median_latency_ms: 900.0, median_ttft_ms: null,
+      samples: 1, confident: false, last_seen: 1.0, provenance: "OBSERVED_BY_RAVIS" },
+  ],
+  minimum_samples: 5,
+  confident_total: 1,
+};
+
+const RAVIS_READS = [
+  { name: "providers", path: "/api/v1/providers", body: RAVIS_PROVIDERS,
+    call: (api) => api.ravis.providers() },
+  { name: "decisions", path: "/api/v1/route-decisions", body: RAVIS_DECISIONS,
+    call: (api) => api.ravis.decisions(25) },
+  { name: "observations", path: "/api/v1/observations", body: RAVIS_OBSERVATIONS,
+    call: (api) => api.ravis.observations() },
+];
+
+module.exports = { CASES, CHAT_STREAMS, BUILDS, RAVIS_READS };
