@@ -5024,6 +5024,39 @@ last is a trap that closes.
 milliseconds and dollars. Models within a quarter-second count as equally quick —
 a claim the data supports at that resolution — and the cheaper of them wins.
 
+### Confirmed by using it, 2026-08-27
+
+The design arguments above were made before there was data to test them. A
+session with LM Studio started mid-run tested three of them at once, and it is
+worth recording because two would have been indefensible if they had gone the
+other way.
+
+**The rolling window, against a running mean.** The first two requests to
+`deepseek-r1-distill-qwen-1.5b` measured a median of **9,584 ms**. That was real
+— 1.89 GB coming off disk — and it was not the model's speed. Six warm requests
+later the same model measured **181 ms TTFT, 196 ms latency** at n=8. A running
+mean would have carried the cold start forever and kept the model out of
+`ravis/fast` permanently.
+
+**The sample floor.** At n=2 that 9.6-second median was visible on the Evidence
+screen and ranked on nothing. Had it ranked, RAVIS would have concluded the
+local model was hopeless on the strength of one disk read, stopped routing to
+it, and therefore never re-measured it — the closing trap the floor and the
+neutral-when-unmeasured rule were written to prevent, arriving on the very first
+model to be measured.
+
+**And the payoff.** `ravis/fast` now selects the local model over `gpt-4o-mini`,
+181 ms against 484 ms, on evidence RAVIS gathered itself from ordinary traffic.
+Not a preference flag and not a vendor's product tier: a measurement, of two
+models, taken here. `local_share` went from 0% of 3 executed to **75% of 12**.
+
+**One limitation the run exposed.** TTFT is recorded only for *streamed*
+responses, so a model answered only non-streaming accumulates latency samples
+and stays unrankable for speed however many it has. That is correct — TTFT of a
+non-streamed response is not a measurement anyone took — but it means
+`prefer_fast` sees a model only once something has streamed from it, which is
+not obvious from the sample count alone.
+
 ### What is not claimed
 
 No latency figure is fabricated for a model nobody has called. No quality score
