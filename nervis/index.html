@@ -106,6 +106,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .model-picker{border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:9px;margin:6px 0 2px;
   background:rgba(255,255,255,.025)}
 .picker-head{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.price-row{display:flex;gap:10px;align-items:center;margin:0 0 8px;flex-wrap:wrap}
+.price-row label{display:flex;align-items:center;gap:7px;flex:1 1 220px;min-width:180px;
+  font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
+.price-row input[type=range]{flex:1;accent-color:var(--accent);min-width:110px}
 .picker-search{flex:1 1 180px;min-width:140px;background:rgba(255,255,255,.04);color:inherit;
   border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 7px;font-family:inherit}
 /* Bounded and scrollable, because this list is four hundred rows for OpenRouter
@@ -2005,6 +2009,20 @@ const API={
      Null rather than a mock when RAVIS is not answering: a verdict is a claim
      about *this* deployment's evidence, and a transcribed one would assert that
      a build was admitted or refused on measurements nobody made here. */
+  /* GET /api/v1/observations — what RAVIS has timed of each model, from real
+     traffic rather than a benchmark. §13.3 calls this OBSERVED_BY_RAVIS: a
+     measurement, but not one taken under controlled conditions. Every figure
+     carries the sample count that earned it, because a median of two network
+     calls is two numbers. */
+  async observations(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/observations',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{...d,live:true}}
+   }catch(e){}
+   return{items:[],minimum_samples:5,confident_total:0,live:false};
+  },
+
   async evidenceVerdicts(){
    try{const r=await fetch(BASE.ravis+'/api/v1/evidence',{signal:AbortSignal.timeout(2000)});
        return r.ok?await r.json():null}
@@ -4340,11 +4358,53 @@ const POOLEDIT={
    this.state[key]={all:(d.items||[]).map(i=>i.id),
      remote:new Set((d.items||[]).filter(i=>i.remote).map(i=>i.id)),
      tier:Object.fromEntries((d.items||[]).map(i=>[i.id,i.tier||''])),
+     price:Object.fromEntries((d.items||[]).map(i=>[i.id,i.price_per_million])),
      on:new Set((d.items||[]).filter(i=>i.selected).map(i=>i.id)),
-     narrowed:d.narrowed, defaultTier:d.default_tier||'', q:''};
+     narrowed:d.narrowed, defaultTier:d.default_tier||'', q:'', ceiling:null};
    this.explain(key,d);
    this.render(key);
   }catch(e){list.innerHTML='<div class="picker-empty">RAVIS is not reachable.</div>'}
+ },
+
+ /* The prices present in this pool's candidates, ascending, deduplicated.
+    The slider steps through *these* rather than across a linear dollar range,
+    because the distribution is nothing like linear: hundreds of models sit at
+    exactly zero and a handful cost ninety dollars a million, so a linear slider
+    spends nine tenths of its travel in empty space and cannot separate the
+    cheap end at all. Stepping through the actual values gives every position
+    something to select. */
+ priceSteps(key){
+  const st=this.state[key];
+  if(!st)return[];
+  const known=st.all.map(id=>st.price[id]).filter(p=>typeof p==='number');
+  return [...new Set(known)].sort((a,b)=>a-b);
+ },
+
+ setCeiling(key,percent){
+  const st=this.state[key];
+  const steps=this.priceSteps(key);
+  if(!st||!steps.length)return;
+  const index=Math.round((Number(percent)/100)*(steps.length-1));
+  /* The top of the slider means *no ceiling*, not "the most expensive model" —
+     those differ the moment a pricier model appears, and only one of them is
+     what someone dragging to the far right meant. */
+  st.ceiling=Number(percent)>=100?null:steps[index];
+  this.render(key);
+ },
+
+ /* Tick everything at or under the ceiling, and untick the rest.
+    A separate button rather than something the slider does on its own: moving a
+    slider is exploring, and a control that rewrote a selection on every pixel
+    of travel would destroy a hand-made one before its owner let go. */
+ tickWithinPrice(key){
+  const st=this.state[key];
+  if(!st)return;
+  for(const id of st.all){
+   const price=st.price[id];
+   const within=typeof price==='number' && (st.ceiling===null || price<=st.ceiling);
+   if(within)st.on.add(id); else st.on.delete(id);
+  }
+  this.render(key);
  },
 
  /* What this pool is currently choosing among, and where that came from.
@@ -4368,12 +4428,13 @@ const POOLEDIT={
  render(key){
   const st=this.state[key];
   if(!st)return;
+  this.paintPrice(key);
   const list=document.getElementById('pml-'+key);
   const shown=this.matching(key);
   if(shown.length)list.innerHTML=shown.map(id=>`<label class="picker-item" title="${escapeHtml(id)}${st.tier[id]?' \u00b7 '+st.tier[id]:''}">
     <input type="checkbox"${st.on.has(id)?' checked':''}
       onchange="POOLEDIT.tick('${escapeHtml(key)}','${escapeHtml(id).replace(/'/g,'&#39;')}',this.checked)">
-    <span>${escapeHtml(id)}</span>${st.tier[id]?`<em>${escapeHtml(st.tier[id])}</em>`:''}</label>`).join('');
+    <span>${escapeHtml(id)}</span>${typeof st.price[id]==='number'?`<em title="per million tokens, prompt plus completion">${st.price[id]===0?'free':'$'+st.price[id].toFixed(2)}</em>`:''}${st.tier[id]?`<em>${escapeHtml(st.tier[id])}</em>`:''}</label>`).join('');
   else if(st.all.length)list.innerHTML='<div class="picker-empty">nothing matches that.</div>';
   this.count(key);
  },
@@ -4393,6 +4454,25 @@ const POOLEDIT={
    const placement=st.remote.has(id)?'remote cloud api':'local on-machine';
    return (placement+' '+(st.tier[id]||'')).includes(st.q);
   });
+ },
+
+ paintPrice(key){
+  const st=this.state[key];
+  const row=document.getElementById('pmp-'+key);
+  if(!st||!row)return;
+  const steps=this.priceSteps(key);
+  /* Hidden where no candidate carries a price. OpenAI, Google and Anthropic
+     publish none, so a pool of only those models would show a slider that
+     could not move anything — a control that does nothing is worse than an
+     absent one. */
+  row.style.display=steps.length>1?'flex':'none';
+  if(steps.length<2)return;
+  const within=st.all.filter(id=>typeof st.price[id]==='number'
+    &&(st.ceiling===null||st.price[id]<=st.ceiling)).length;
+  const unpriced=st.all.filter(id=>typeof st.price[id]!=='number').length;
+  document.getElementById('pmv-'+key).textContent=
+    (st.ceiling===null?'any price':'≤ $'+st.ceiling.toFixed(2)+' / M tokens')
+    +` · ${within} model(s)`+(unpriced?` · ${unpriced} unpriced`:'');
  },
 
  count(key){
@@ -4461,6 +4541,13 @@ function poolRow(x,inv){
     <button class="btn" onclick="POOLEDIT.checkAll('${escapeHtml(key)}',true)">All</button>
     <button class="btn" onclick="POOLEDIT.checkAll('${escapeHtml(key)}',false)">None</button>
     <button class="btn primary" onclick="POOLEDIT.apply('${escapeHtml(key)}')">Apply</button>
+   </div>
+   <div class="price-row" id="pmp-${escapeHtml(key)}" style="display:none">
+    <label>Max price
+     <input type="range" id="pms-${escapeHtml(key)}" min="0" max="100" value="100"
+       oninput="POOLEDIT.setCeiling('${escapeHtml(key)}',this.value)"></label>
+    <span class="mono dim" id="pmv-${escapeHtml(key)}"></span>
+    <button class="btn" onclick="POOLEDIT.tickWithinPrice('${escapeHtml(key)}')">Tick these</button>
    </div>
    <div class="picker-list" id="pml-${escapeHtml(key)}"></div>
    <small class="mono dim" id="pmn-${escapeHtml(key)}"></small>
@@ -4657,8 +4744,8 @@ async function ravisPolicies(){
    §13.4 optionality made visible rather than asserted. */
 async function ravisEvidence(){
  heading('Evidence','What the ranking is standing on, and which service owns each part of it.');
- const [ev,req,usage,verdicts]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
-   API.ravis.usage(),API.ravis.evidenceVerdicts()]);
+ const [ev,req,usage,verdicts,obs]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
+   API.ravis.usage(),API.ravis.evidenceVerdicts(),API.ravis.observations()]);
  /* RAVIS's own provenance enum, and the mapping it applies on the way in. It never
     upgrades a value: SIRVIS's PARTIALLY_MEASURED arrives as ESTIMATED, not MEASURED. */
  const MAP=[['MEASURED_BY_SIRVIS','MEASURED','repeated benchmark runs on this machine, with spread and sample count'],
@@ -4667,11 +4754,16 @@ async function ravisEvidence(){
             ['ESTIMATED','ESTIMATED','interpolated from a neighbouring build — never promoted by being reused'],
             ['UNKNOWN','UNKNOWN','no evidence. Distinct from a bad score, and it stays distinct']];
  const measured=ev.items.filter(e=>e.evidence_type==='MEASURED').length;
- const observed=req.items.filter(r=>r.ttft_s!==null).length;
+ /* Read from RAVIS's own store rather than counted off a mocked request log.
+    This is the one evidence kind RAVIS produces itself, and until the store
+    existed the number beside it was invented. */
+ const observed=obs.live?obs.items.length:req.items.filter(r=>r.ttft_s!==null).length;
  $('#content').innerHTML=kpis([
    ['From SIRVIS',String(ev.items.length),'evidence records consumed','sirvis'],
    ['Measured',String(measured),'runs on this machine · n=3','sirvis'],
-   ['Observed by RAVIS',String(observed),'live TTFT from real traffic','ravis'],
+   ['Observed by RAVIS',String(observed),
+     obs.live?`${obs.confident_total} with enough samples to rank on`:'live TTFT from real traffic',
+     'ravis',obs.live],
    ['Routing p50',usage.routing_p50_ms+' ms','decision cost, cached evidence','ravis']])
  +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
@@ -4681,6 +4773,16 @@ async function ravisEvidence(){
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
    <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>`,'sirvis')}</div>
+  ${obs.live?`<div class="card full live"><h3>What RAVIS has timed itself <span class="chip">OBSERVED_BY_RAVIS</span></h3>${cell(`
+   ${obs.items.length?`<div class="table-row head five"><span>Model</span><span>Median TTFT</span><span>Median latency</span><span>Samples</span><span>Rankable</span></div>
+   ${[...obs.items].sort((a,b)=>b.samples-a.samples).map(o=>`<div class="table-row five">
+     <span class="mono">${escapeHtml(o.model_id)}</span>
+     <span class="mono">${o.median_ttft_ms==null?'—':Math.round(o.median_ttft_ms)+' ms'}</span>
+     <span class="mono">${o.median_latency_ms==null?'—':Math.round(o.median_latency_ms)+' ms'}</span>
+     <span class="mono">${o.samples}</span>
+     <span class="chip${warnUnless(o.confident)}">${o.confident?'yes':'below '+obs.minimum_samples}</span></div>`).join('')}`
+   :'<div class="trace-step"><b>timed so far</b><span>nothing — a model is measured by being used, and none has been yet</span></div>'}
+   <small class="mono dim">no probe traffic and no benchmark: these are the timings of <b>real requests</b>, kept across restarts. A median below <b>${obs.minimum_samples}</b> samples is shown and never ranked on — two network calls are two numbers, not a measurement. This is §13.3's <b>OBSERVED_BY_RAVIS</b>, which is deliberately a different kind from SIRVIS's benchmarks: those run a fixed prompt against a warm runtime with a recorded method, while these reflect whatever traffic actually looked like. One is a benchmark, the other is experience. Entries are pruned when a provider stops offering the model, or after thirty days unused.</small>`,'ravis')}</div>`:''}
   <div class="card wide"><h3>Provenance mapping</h3>${cell(`
    <div class="table-row head"><span>Arrives as</span><span>RAVIS records</span><span style="grid-column:3/-1">What it means downstream</span></div>
    ${MAP.map(([a,b,why])=>`<div class="table-row"><span class="mono">${a}</span><span>${prov(b)}</span><span style="grid-column:3/-1;opacity:.75">${why}</span></div>`).join('')}

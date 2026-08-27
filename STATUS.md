@@ -4949,6 +4949,89 @@ measured chips intact (the two granite builds still read 8/8 and 1/8), and the
 M8a instances card still shows a registered Bridge with no workspace path
 anywhere in the page or the API.
 
+## RAVIS becomes a switchboard, 2026-08-26/27
+
+Four API providers were configured in one session — OpenAI, Google AI Studio,
+Anthropic and OpenRouter — against twenty local models on LM Studio. Six hundred
+and twenty-six models behind one gateway. Almost everything below was found by
+using it rather than by reading it.
+
+### What was broken and nobody knew
+
+**`ravis/local` was not local.** "Never leaves this machine" was a `description`
+field with nothing behind it. The routing engine receives a flat table of model
+names with no record of which upstream produced them, so it could not have
+enforced the promise even in principle. Observed live: a request to `ravis/local`
+answered by an OpenRouter model. `ravis/private` did the same. With only a local
+runtime configured the pools were accidentally correct, and adding API providers
+is what made the gap reachable.
+
+**The credential store was write-only.** M10 built the 0600 file, the Keychain
+read, the precedence order and a `Secret` that refuses to print itself — and no
+caller. A key typed into the Credentials screen was stored, reported as
+configured, and sent to nothing.
+
+**The same guard was wrong in four places.** `if upstream.api_key:` decides
+whether to authenticate, and that field holds only what a *declaration* wrote —
+empty for exactly the providers the store exists to serve. Three were fixed and
+each remaining one surfaced identically: a live call where the provider listed
+its models and then refused every request. The field is `declared_key` now, so
+reading it where `key()` was meant is a type error rather than a 401 an hour
+later.
+
+**The fallback chain gave up on the wrong signal.** An open *provider* circuit
+cleared the whole queue, abandoning candidates on other providers — so one
+breaker made a gateway whose entire job is having somewhere else to go answer
+502 with its alternatives unspent.
+
+**A pool could not reach a translating provider.** `merged_candidates` walks
+transparent upstreams, so Anthropic was invisible to every pool. What was missing
+was not a lookup but a *map*: nothing knew which provider served a translated
+model, so adding the models alone would have forwarded an Anthropic id down the
+transparent path.
+
+**Nothing published `OBSERVED_BY_RAVIS`.** §13.3 names the evidence kind. Every
+request already recorded latency and every streamed one TTFT — into a registry
+that lives in memory, so each restart discarded the lot. An audit found four
+samples across six hundred models and concluded coverage was too thin to rank
+on. It was thin because it kept starting over.
+
+### What routing switches on now
+
+Locality is a pool requirement, read from the upstream's *address* rather than a
+list of provider names — a list is wrong the first time somebody runs a new local
+runtime, and an unrecognised host must not inherit the promise. Loopback only: a
+LAN box is somebody else's computer.
+
+§9.2's soft column reads *"prefer local · prefer fast · prefer cheap · prefer
+already loaded"*. Only the last existed. Price comes from OpenRouter's published
+per-token rates and from the honest `0.0` a local runtime bills; unpriced sorts
+**last**, because reading absence as free would hand every cheap route to
+whichever provider says least about itself.
+
+Reach replaced warmth. `Residency.UNKNOWN` ranked equal to `COLD`, and every
+cloud model is UNKNOWN — so RAVIS believed calling an API and loading a 70B model
+off disk cost about the same. A hosted model now sits between WARM and COLD,
+which is fact rather than estimate: it needs no load, and a cold local model
+does.
+
+Speed ranks on measured TTFT, and only above a sample floor. **Unmeasured sorts
+neutral, not last** — the one asymmetry against price, and it matters: every
+model starts unmeasured and RAVIS only measures by routing, so sorting unmeasured
+last is a trap that closes.
+
+`ravis/balanced` uses both without inventing an exchange rate between
+milliseconds and dollars. Models within a quarter-second count as equally quick —
+a claim the data supports at that resolution — and the cheaper of them wins.
+
+### What is not claimed
+
+No latency figure is fabricated for a model nobody has called. No quality score
+exists for any cloud model, because none is published and none is measurable
+here. Google's free tier is real and cannot be derived: it is a quota on an
+account, not a property of a model. Size tiers are read from vendors' own product
+naming and are labelled a **default an operator overrules**, never a measurement.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

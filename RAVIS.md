@@ -538,6 +538,22 @@ closed** when required.
 |---|---|
 | local only · API only · provider prohibited · privacy level · tools required · vision required · minimum context · maximum request cost · data residency · credential availability · pool capability invariant | prefer local · prefer fast · prefer cheap · prefer already loaded · prefer SIRVIS-tested · prefer provider X · energy · evidence confidence · warm state |
 
+
+**Implementation note, 2026-08-27.** Of the soft column, `prefer already loaded`
+has worked since M5 (residency). `prefer local`, `prefer cheap` and `prefer fast`
+were prose until now and are implemented as *opt-in per pool* — an unconditional
+term becomes the entire ordering for every pool that declares nothing.
+
+`prefer cheap` reads OpenRouter's published per-token pricing and the `0.0` a
+local runtime bills; a model whose price nobody published sorts **last** rather
+than free. `prefer fast` reads RAVIS's own `OBSERVED_BY_RAVIS` timings and only
+above a sample floor — an unmeasured model sorts *neutral*, because RAVIS only
+measures a model by routing to it and sorting unmeasured last is a trap that
+closes.
+
+`prefer SIRVIS-tested`, `prefer provider X`, `energy` and `evidence confidence`
+remain unimplemented.
+
 If cloud fallback would violate a local-only or privacy policy, return a structured **no-route**
 error rather than routing around it.
 
