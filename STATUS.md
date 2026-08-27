@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1275 tests, no network, no live service
+.venv/bin/pytest                      # part of 1281 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1275 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1281 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5023,6 +5023,42 @@ last is a trap that closes.
 `ravis/balanced` uses both without inventing an exchange rate between
 milliseconds and dollars. Models within a quarter-second count as equally quick —
 a claim the data supports at that resolution — and the cheaper of them wins.
+
+### Miku, back as a persona rather than an easter egg
+
+She was a button labelled AGI at the end of the pool row — a thing that is "presentation only"
+sitting among thirteen things that route — and she was deleted with the scene behind her. She is
+back as one of the chat presets, which is what she should always have been: selectable like the
+others, carrying a persona, an avatar and an accent colour.
+
+`mode` is presentation and nothing else. It routes nothing, sends nothing and records nothing.
+`data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
+remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
+*leave whatever was there*, which is what puts NERVIS's face back when you switch away.
+
+**Three things in the supplied text were adapted, and the reason is the same each time.** She is
+told she is shown no screen — NERVIS reads telemetry, not pixels, and a persona that claims to
+see one invents what is on it, which is precisely what happened when the NERVIS persona listed
+example readings and two models in a row repeated them back as fact. Memory is phrased as what is
+in front of her rather than as a faculty she has, because cross-session recall is a setting. And
+the facts-are-never-the-joke clause is carried across, because it survives every persona change
+here.
+
+**She talks first when nobody else does.** Three remarks per silence at widening intervals — two
+minutes, four, seven — and then nothing until the user says something. The browser owns the
+timing, because it is the only side that knows the tab is visible and the composer has been
+quiet; NERVIS owns the words, so a page cannot put a line in her mouth. Hidden tabs are skipped:
+nudging a window nobody is looking at spends a completion to talk to a screensaver.
+
+The flavours escalate, and the one that objects to being ignored cannot come first because it
+refers to the two that went unanswered. The middle one recalls an earlier conversation, and is
+offered **only when there is something it is allowed to recall** — a nudge is not a reason to
+override the memory scope, which is an egress decision. Where recall is off she asks instead,
+which is the honest version of "remembers things" on an installation nobody has asked to
+remember any.
+
+A nudge reads the conversation and is stored nowhere. The first version sent no history at all
+and asked her to follow up on something earlier, which she could not see.
 
 ### The chat screen lost three things and gained two
 

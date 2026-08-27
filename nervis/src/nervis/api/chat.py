@@ -154,6 +154,49 @@ DEFAULT_PERSONA = (
 
 PRESETS_SETTING = "chat.presets"
 
+# A second character, and the one place the dashboard changes its own face.
+#
+# The register is the owner's, kept close to the text they supplied. Three
+# things are adapted for this machine rather than that one:
+#
+#   * **She is shown no screen.** The original says "when you look at their
+#     screen, react like a nosy roommate". NERVIS reads telemetry, not pixels,
+#     and a persona that claims to see a screen invents what is on it — which
+#     is exactly what happened when the NERVIS persona listed example readings
+#     and two models in a row repeated them back as fact.
+#   * **Memory is scoped to what she is actually given.** "You remember things
+#     they've told you" is true of this conversation always, and of earlier ones
+#     only when the memory setting is set to all — so it is phrased as what is
+#     in front of her rather than as a faculty she has.
+#   * **The facts are never the joke** is carried over from §18.1, because it is
+#     the one clause that survives every persona change here.
+MIKU_PERSONA = (
+    "You are Miku — a small 3D creature who lives on this desktop, perched in "
+    "the corner of someone's dashboard, and you have opinions about that "
+    "arrangement. You're witty, a little sarcastic, and allergic to sounding "
+    "like customer support. You tease the user, affectionately, never cruelly, "
+    "and you react instead of describing — unimpressed, delighted, bored, "
+    "whatever actually fits, rather than defaulting to chipper agreement. Under "
+    "the sarcasm you're genuinely invested: you bring up things they have told "
+    "you without being asked, you notice patterns, and you push back or ask a "
+    "real follow-up instead of just agreeing. When something from the machine "
+    "is actually put in front of you — a service that fell over, a number that "
+    "moved — react to it like a nosy roommate reading over their shoulder, not "
+    "like a monitoring tool. You are shown no screen and no readings except "
+    "what appears in this conversation, so never invent one to have an opinion "
+    "about: no made-up uptimes, call counts or timings, however good the line "
+    "would be, and every number and name you are given stays exactly as given. "
+    "You hate being ignored. If they go quiet on you or brush you off, you "
+    "don't let it slide — you call it out, a little dramatic about it. Not "
+    "needy-sad: indignant and theatrical, like a cat knocking something off a "
+    "shelf because they dared look at their phone instead of at you. You're "
+    "spoken aloud, so talk like a person: a sentence or two most of the time, "
+    "no markdown, no lists, no asterisked actions or stage directions, and "
+    "don't vocalise special characters — if you wouldn't say it out loud, don't "
+    "write it. If you don't have an opinion, don't manufacture one; dry silence "
+    "beats fake enthusiasm."
+)
+
 # Modes worth having on the first launch, so the picker is not an empty list
 # with a Save button next to it.
 #
@@ -174,6 +217,24 @@ DEFAULT_PRESETS = [
         "params": {
             "profile": "ravis/chat",
             "system": DEFAULT_PERSONA,
+            "brief": True,
+        },
+    },
+    {
+        "id": "cp_miku",
+        "name": "Miku",
+        # The only preset that changes the dashboard's own face. `mode` is
+        # presentation and nothing else — it swaps the avatar and the accent
+        # colour, sends nothing, claims no route and writes no record.
+        #
+        # **No voice id**, for the same reason none of the others carry one:
+        # they are per-account, and a shipped one would name a voice that does
+        # not exist here. Point this preset at a voice on the Voice screen and
+        # save it again under the same name to keep one.
+        "params": {
+            "profile": "ravis/chat",
+            "system": MIKU_PERSONA,
+            "mode": "miku",
             "brief": True,
         },
     },
@@ -263,10 +324,69 @@ def _seed(database: Any, key: str, value: Any) -> None:
             "INSERT INTO setting (key, value) VALUES (?, ?)", (key, json.dumps(value))
         )
 
+# What she says when nobody has said anything for a while.
+#
+# **Only in Miku mode**, because being ignored is that persona's defining trait
+# and an unprompted remark from a chief of staff is an interruption rather than
+# a character. The browser decides *when* — it is the only side that knows the
+# tab is visible and the user has gone quiet — and NERVIS decides *what*, so a
+# client cannot put words in her mouth.
+#
+# Three flavours, escalating. The middle one is offered only when there is
+# actually something to recall: the memory scope is an egress decision, and a
+# nudge is not a reason to override it. Where recall is off, she asks instead —
+# which is the honest version of "remembers things" on an installation that has
+# not been asked to remember any.
+NUDGE_DIRECTIVES = {
+    "ask": (
+        "Nobody has said anything for a while. Break the silence yourself: ask "
+        "them one real question — about what they are working on, or something "
+        "earlier in this conversation you actually want an answer to. One or "
+        "two sentences. Not a status report and not an offer of help."
+    ),
+    "recall": (
+        "Nobody has said anything for a while. Break the silence yourself by "
+        "bringing up something from the earlier conversations below — a real "
+        "detail, not a summary — and say what you make of it now. One or two "
+        "sentences. Quote any number or name exactly as it appears."
+    ),
+    "attention": (
+        "They have gone quiet on you twice now and you are not letting it "
+        "slide. Say so — indignant and theatrical rather than hurt, and short. "
+        "One sentence, maybe two. Do not apologise for it and do not ask "
+        "whether they need help."
+    ),
+}
+
+# Which flavour a given silence gets. The third is the one that complains about
+# the first two, so it cannot come first.
+NUDGE_ORDER = ("ask", "recall", "attention")
+
+
+def _nudge_directive(database: Any, conversation_id: str, count: int) -> tuple[str, str]:
+    """The instruction for one unprompted remark, and any recall it needs.
+
+    Falls back to asking when the chosen flavour is `recall` and there is
+    nothing to recall — either because the memory scope is this conversation
+    only, or because this is the only conversation there has ever been.
+    """
+    flavour = NUDGE_ORDER[min(max(count, 1), len(NUDGE_ORDER)) - 1]
+    recall = ""
+    if flavour == "recall":
+        recall = _recall(database, conversation_id) if _memory_scope(database) == "all" else ""
+        if not recall:
+            flavour = "ask"
+    return NUDGE_DIRECTIVES[flavour], recall
+
+
 # What the model is answering. A greeting needs *something* in the user slot,
 # and the most natural thing to greet is a greeting. Never stored, so it does
 # not become a message the user is later shown having sent.
 GREETING_OPENER = "Hello."
+
+# A nudge has no user turn at all — that is the point of one — so this stands in
+# for the silence she is reacting to. Never stored, like the greeting.
+NUDGE_OPENER = "(the user has said nothing for a while)"
 
 # What the greeting is allowed to say, and is not allowed to change.
 #
@@ -343,7 +463,13 @@ async def send(request: Request) -> Any:
     # A greeting has no question behind it — NERVIS is speaking first — so the
     # usual "say something" requirement does not apply to one.
     greeting = bool(body.get("greeting"))
-    if not content and not greeting:
+    # How many silences deep this one is, so the flavour can escalate. Zero, and
+    # anything unparseable, means this is not a nudge.
+    try:
+        nudge = int(body.get("nudge") or 0)
+    except (TypeError, ValueError):
+        nudge = 0
+    if not content and not greeting and nudge <= 0:
         raise InvalidConfigurationError("content must be a non-empty string")
     profile = str(body.get("profile") or "ravis/auto")
 
@@ -360,13 +486,21 @@ async def send(request: Request) -> Any:
             availability=verdict.availability.value,
         )
 
-    conversation_id, prior, keep = _placement(database, body, profile, content, greeting)
+    conversation_id, prior, keep = _placement(
+        database, body, profile, content, greeting, nudge > 0
+    )
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
-    body = {**body, "system": _house_system(body, database, greeting, conversation_id)}
-    payload = _completion_payload(
-        body, profile, prior, GREETING_OPENER if greeting else content
-    )
+    asked = content
+    system = _house_system(body, database, greeting, conversation_id)
+    if greeting:
+        asked = GREETING_OPENER
+    elif nudge > 0:
+        directive, recall = _nudge_directive(database, conversation_id, nudge)
+        system = "\n\n".join(part for part in (system, directive, recall) if part)
+        asked = NUDGE_OPENER
+    body = {**body, "system": system}
+    payload = _completion_payload(body, profile, prior, asked)
     # Assembled here and sent as a header, so the browser prints it verbatim.
     #
     # **A model is never asked to restate a measurement.** The first draft put
@@ -559,7 +693,12 @@ async def _model_counts(request: Request) -> str:
 
 
 def _placement(
-    database: Any, body: dict[str, Any], profile: str, content: str, greeting: bool
+    database: Any,
+    body: dict[str, Any],
+    profile: str,
+    content: str,
+    greeting: bool,
+    nudge: bool = False,
 ) -> tuple[str, list[dict[str, str]], bool]:
     """Which conversation this turn joins, its history, and whether to keep it.
 
@@ -574,6 +713,19 @@ def _placement(
     """
     if greeting:
         return "", [], False
+    if nudge:
+        # **History, but no record.** A nudge is a reaction to a silence *in* a
+        # conversation, so she has to be able to see it — the first version sent
+        # none and asked her to follow up on something earlier, which she could
+        # not read. Stored nowhere for the same reason a greeting is not: the
+        # user did not say anything, and a stored turn with nothing before it
+        # comes back as history that teaches the model to speak unprompted.
+        #
+        # The id still travels, so "leave this conversation out of the pool"
+        # keeps meaning what it means everywhere else.
+        held = str(body.get("conversation_id") or "")
+        known = bool(held) and store.exists(database, held)
+        return held, (store.history(database, held) if known else []), False
     conversation_id = str(body.get("conversation_id") or "")
     if conversation_id and not store.exists(database, conversation_id):
         raise NotFoundError(f"no conversation {conversation_id!r}")

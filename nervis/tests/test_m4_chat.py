@@ -606,3 +606,119 @@ def test_deleting_the_shipped_presets_leaves_them_deleted() -> None:
     second = TestClient(create_app(settings))
 
     assert second.get("/api/v1/settings").json()["items"]["chat.presets"] == []
+
+
+def test_the_miku_preset_changes_the_face_and_nothing_else() -> None:
+    """`mode` is presentation: an avatar and an accent colour. It routes
+    nothing, sends nothing and records nothing — the same category as the Focus
+    toggle, and the reason the old AGI button did not belong in a row of pools.
+    """
+    presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
+    miku = next(p for p in presets if p["id"] == "cp_miku")
+
+    assert miku["params"]["mode"] == "miku"
+    assert miku["params"]["profile"] == "ravis/chat"
+    assert "You are Miku" in miku["params"]["system"]
+    # No shipped voice id, for the same reason as every other preset.
+    assert not miku["params"].get("voice_profile")
+
+
+def test_only_the_miku_preset_carries_a_mode() -> None:
+    """Every other preset leaves `mode` unset, and the picker reads an absent
+    mode as *the ordinary one* rather than as *leave whatever was there* — so
+    switching away from her puts the face back."""
+    presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
+
+    with_mode = [p["id"] for p in presets if p["params"].get("mode")]
+    assert with_mode == ["cp_miku"]
+
+
+def test_she_is_told_she_cannot_see_the_screen() -> None:
+    """The supplied text says "when you look at their screen". NERVIS reads
+    telemetry, not pixels, and a persona that claims to see a screen invents
+    what is on it — which is what happened when the NERVIS persona listed
+    example readings and two models repeated them back as fact."""
+    presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
+    miku = next(p for p in presets if p["id"] == "cp_miku")["params"]["system"]
+
+    assert "shown no screen and no readings" in miku
+    assert "never invent one" in miku
+    # And the one clause that survives every persona change here.
+    assert "stays exactly as given" in miku
+
+
+def test_a_nudge_sees_the_conversation_and_is_stored_nowhere() -> None:
+    """She is reacting to a silence *in* a conversation, so she has to be able
+    to read it — the first version sent no history and asked her to follow up on
+    something earlier, which she could not see. Kept nowhere for the same reason
+    a greeting is not: a stored turn with nothing before it comes back as
+    history that teaches the model to speak unprompted."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Still there?"))))
+
+    client = an_api(frames("sure"))
+    started = turn(client, "here is a thing I said")
+    conversation = started.headers["x-conversation-id"]
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = client.post(
+        "/api/v1/chat", json={"nudge": 1, "conversation_id": conversation}
+    )
+
+    assert answered.status_code == 200
+    roles = [m["role"] for m in sent[0]["messages"]]
+    assert "here is a thing I said" in json.dumps(sent[0]["messages"])
+    assert roles[0] == "system"
+    # Nothing was written: the conversation still holds only the real turn pair.
+    kept = client.get(f"/api/v1/chat/conversations/{conversation}").json()["items"]
+    assert [m["role"] for m in kept] == ["user", "assistant"]
+
+
+def test_the_third_silence_is_the_one_that_complains() -> None:
+    """The flavour that objects to being ignored cannot come first — it refers
+    to the two that went unanswered."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("hm"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    for count in (1, 3):
+        client.post("/api/v1/chat", json={"nudge": count})
+
+    assert "ask them one real question" in sent[0]["messages"][0]["content"]
+    assert "not letting it slide" in sent[1]["messages"][0]["content"]
+
+
+def test_a_nudge_does_not_override_the_memory_scope() -> None:
+    """The recall flavour asks instead when there is nothing it is allowed to
+    recall. A nudge is not a reason to send earlier conversations that the
+    memory setting says stay put — that setting is an egress decision."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("hm"))))
+
+    client = an_api(frames("sure"))
+    turn(client, "something from before")
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    # Memory is left at its default of this-conversation-only.
+    client.post("/api/v1/chat", json={"nudge": 2})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "Earlier conversations on this machine" not in system
+    assert "ask them one real question" in system
