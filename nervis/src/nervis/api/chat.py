@@ -99,7 +99,17 @@ PERSONA_SETTING = "chat.system"
 # leak §18.2 spends its length on for the voice. The difference is that this one
 # is asked for explicitly and per-installation rather than happening by default.
 MEMORY_SETTING = "chat.memory"
-MEMORY_SKIPS_CURRENT_SETTING = "chat.memory_skips_current"
+
+# Conversations Miku is not allowed to go through, by id.
+#
+# **Per conversation, and permanent.** This replaces a global "skip the one I am
+# in", which was really de-duplication wearing a privacy label: the current
+# conversation's turns already travel as ordinary messages, so including it in
+# the digest only ever sent the same text twice. That de-duplication is now an
+# unconditional rule with no setting, and the switch means what somebody reading
+# it assumes it means — *keep this conversation out of the pool*, still true
+# tomorrow, from whichever other conversation is asking.
+MEMORY_EXCLUDED_SETTING = "chat.memory_excluded"
 
 # How much of the past is worth carrying. Bounded twice, because either bound
 # alone fails: a per-conversation cap still lets fifty conversations fill a
@@ -363,7 +373,9 @@ NUDGE_DIRECTIVES = {
 NUDGE_ORDER = ("ask", "recall", "attention")
 
 
-def _nudge_directive(database: Any, conversation_id: str, count: int) -> tuple[str, str]:
+def _nudge_directive(
+    database: Any, conversation_id: str, count: int, screen: str = ""
+) -> tuple[str, str]:
     """The instruction for one unprompted remark, and any recall it needs.
 
     Falls back to asking when the chosen flavour is `recall` and there is
@@ -376,7 +388,17 @@ def _nudge_directive(database: Any, conversation_id: str, count: int) -> tuple[s
         recall = _recall(database, conversation_id) if _memory_scope(database) == "all" else ""
         if not recall:
             flavour = "ask"
-    return NUDGE_DIRECTIVES[flavour], recall
+    directive = NUDGE_DIRECTIVES[flavour]
+    if screen:
+        # The screen's *name*, never anything on it. She can be nosy about where
+        # you have been sitting without inventing what it says — which is the
+        # same line the persona itself draws.
+        directive += (
+            f" They are looking at the {screen} screen right now, and have been "
+            "for a while; you may be nosy about that, but you cannot see "
+            "anything on it, so do not describe or invent its contents."
+        )
+    return directive, recall
 
 
 # What the model is answering. A greeting needs *something* in the user slot,
@@ -496,7 +518,9 @@ async def send(request: Request) -> Any:
     if greeting:
         asked = GREETING_OPENER
     elif nudge > 0:
-        directive, recall = _nudge_directive(database, conversation_id, nudge)
+        directive, recall = _nudge_directive(
+            database, conversation_id, nudge, str(body.get("screen") or "")
+        )
         system = "\n\n".join(part for part in (system, directive, recall) if part)
         asked = NUDGE_OPENER
     body = {**body, "system": system}
@@ -571,22 +595,26 @@ def _memory_scope(database: Any) -> str:
 def _recall(database: Any, conversation_id: str) -> str:
     """A bounded digest of earlier conversations, or nothing.
 
-    Only when asked for. The current conversation is skipped by default: its
-    turns already travel as ordinary messages, so including it here would send
-    the same text twice and spend the budget on what the model can already see.
-    That is a setting rather than a rule because someone summarising their own
-    long thread may genuinely want the older half back.
+    Only when asked for, and never over a conversation somebody has barred.
+
+    The conversation being *had* is always skipped, with no setting: its turns
+    already travel as ordinary messages, so including it here would send the
+    same text twice and spend the budget on what the model can already see.
+
+    Anything in `chat.memory_excluded` is skipped too, and that one is a
+    decision rather than an optimisation — it is how a conversation stays out of
+    the pool for good, from whichever other conversation is asking.
 
     Newest first, and truncated rather than summarised — a summary would be a
     second model call to decide what matters about a conversation nobody asked
     about.
     """
-    skip = _reads(database, MEMORY_SKIPS_CURRENT_SETTING, True)
+    barred = _excluded(database) | {conversation_id}
     lines: list[str] = []
     spent = 0
     for record in store.conversations(database):
         other = str(record.get("conversation_id") or "")
-        if not other or (skip and other == conversation_id):
+        if not other or other in barred:
             continue
         block = _one_recall(database, record, other)
         if not block:
@@ -616,18 +644,25 @@ def _one_recall(database: Any, record: dict[str, Any], conversation_id: str) -> 
     return f"[{title}]\n{spoken}"
 
 
-def _reads(database: Any, key: str, default: bool) -> bool:
-    """One boolean setting, defaulting when absent or unreadable."""
+def _excluded(database: Any) -> set[str]:
+    """Conversation ids barred from the pool. Empty when absent or unreadable.
+
+    Failing to *empty* rather than to everything is deliberate and is the less
+    obvious direction: a store that cannot be read should not silently bar every
+    conversation, because that turns a corrupt setting into "recall quietly
+    stopped working" — which nobody reports. A conversation somebody meant to
+    bar is visibly still listed on the screen that bars it.
+    """
     row = database.connection.execute(
-        "SELECT value FROM setting WHERE key = ?", (key,)
+        "SELECT value FROM setting WHERE key = ?", (MEMORY_EXCLUDED_SETTING,)
     ).fetchone()
     if not row:
-        return default
+        return set()
     try:
         found = json.loads(row["value"])
     except ValueError:
-        return default
-    return bool(found) if isinstance(found, bool) else default
+        return set()
+    return {str(one) for one in found} if isinstance(found, list) else set()
 
 
 def _display_name(database: Any) -> str:

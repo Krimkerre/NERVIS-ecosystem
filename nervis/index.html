@@ -2640,27 +2640,30 @@ function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))stat
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
    lets this one speak for it — see CLARVIS_BRIDGE below. */
-/* Whether the Miku persona is showing *right now*.
+/* Two questions, deliberately separate, because they have different answers.
 
-   **The mode is a chat persona, not a skin for the dashboard.** It used to be
-   applied wherever it was set, so opening Diagnostics or Evidence turned the
-   instrumentation turquoise and put her face above a table of error rates —
-   which is a costume on a measuring instrument. It is scoped to the screen the
-   conversation is on: the setting still persists, and the rest of NERVIS looks
-   like NERVIS. */
-function inMikuMode(){
- return USER.mode==='miku'&&state.app==='nervis'&&state.view==='Chat';
-}
+   **Is she the one talking?** Anywhere in NERVIS. That is what the idle timer
+   and the reply label ask, and it is why she can notice you have wandered off
+   to Diagnostics and say so — the nosiness is behaviour, and behaviour does not
+   stop at a screen boundary.
 
-/* Which avatar a screen shows. Normally the app's own; the Miku persona is the
-   one thing that replaces NERVIS's, on the one screen she lives on. */
-function avatarFor(app){return app==='nervis'&&inMikuMode()?'miku':app}
+   **Is the dashboard wearing her colours?** Only on the chat screen. She is a
+   chat agent, and a persona has no business recolouring a table of error rates:
+   turquoise instrumentation with her face above the error column is a costume
+   on a measuring instrument. The setting persists either way — leaving the
+   screen and coming back restores the look without re-choosing anything. */
+function inMikuMode(){return USER.mode==='miku'&&state.app==='nervis'}
+function mikuChrome(){return inMikuMode()&&state.view==='Chat'}
+
+/* Which avatar a screen shows. Normally the app's own; hers replaces NERVIS's
+   on the screen she is a face for. */
+function avatarFor(app){return app==='nervis'&&mikuChrome()?'miku':app}
 function applyMode(){
  const app=document.querySelector('.app');
  if(!app)return;
  /* Set on every paint and removed otherwise, so leaving the screen undoes it
     without anything having to remember that it should. */
- if(inMikuMode())app.dataset.miku='on'; else delete app.dataset.miku;
+ if(mikuChrome())app.dataset.miku='on'; else delete app.dataset.miku;
 }
 function avatar(){return avatarFrame(avatarFor(state.app),'top-avatar');if(state.app==='nervis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><path class="coreline" d="M100 24V176M24 100H176" opacity=".18"/><path class="data flow" d="M100 100L100 32M100 100L41 139M100 100L159 139"/><circle class="sat" cx="100" cy="32" r="7"/><circle class="sat" cx="41" cy="139" r="7"/><circle class="sat" cx="159" cy="139" r="7"/><polygon class="coreline" points="100,72 124,86 124,114 100,128 76,114 76,86"/><circle class="fill" cx="100" cy="100" r="9"/><circle cx="100" cy="100" r="3" fill="var(--cyan)"/></svg>`;
 if(state.app==='sirvis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="96" r="91"/><circle class="tick" cx="100" cy="96" r="85"/><circle class="coreline" cx="100" cy="88" r="51"/><rect class="coreline" x="76" y="64" width="48" height="48" rx="7"/><path class="data" d="M84 64V55M100 64V55M116 64V55M76 80H67M124 80H133M76 96H67M124 96H133"/><rect class="fill" x="94" y="82" width="12" height="12" rx="2"/><path class="data" d="M47 137V162H153"/><circle class="fill" cx="61" cy="151" r="3"/><circle class="fill" cx="84" cy="143" r="3"/><circle class="fill" cx="107" cy="147" r="3"/><circle class="fill" cx="130" cy="139" r="3"/></svg>`;
@@ -2982,7 +2985,8 @@ function scrollChatToEnd(force){
  if(force||chatFollowing(box))box.scrollTop=box.scrollHeight;
 }
 
-async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.','<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>');
+async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.',
+  '<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>'+privateButton());
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
     not inherit a Clarvis workspace, tools, gates, session or agent role — and every
     profile offered here comes from RAVIS's own list, because inventing one is exactly
@@ -3024,7 +3028,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${m.pending?'':''}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>NERVIS</b><br>${escapeHtml(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}</div>`).join('')}
+        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b><br>${escapeHtml(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}</div>`).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${CHAT_SESSION.busy?'■':'➤'}</button></div>
  </div>`;
@@ -5804,33 +5808,43 @@ const CHAT_STORE={
    Kept by NERVIS through §14's key/value settings store rather than in this
    browser: a name is a fact about the person, not about the tab they happen to
    have open, and it should survive a different browser on the same machine. */
+/* Coercions, one per shape, so `load` below is a list of assignments rather
+   than a list of guards. It crossed the complexity ratchet at nine settings —
+   the ratchet pointing at a function whose every line was `typeof` written out
+   longhand. */
+const asText=v=>typeof v==='string'?v:'';
+const asList=v=>Array.isArray(v)?v:[];
+const asMap=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+/* Absent means the default. `!== false` is what distinguishes "never set" from
+   "turned off", which the settings store keeps apart on purpose. */
+const asFlag=(v,fallback)=>v===undefined?fallback:v!==false;
+
 const USER={
- name:'', system:'', brief:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false, memory:'session', memorySkipsCurrent:true,
+ name:'', system:'', brief:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false,
+ excluded:[], memory:'session',
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
    if(!r.ok)return;
    const items=(await r.json()).items||{};
-   this.name=String(items['user.display_name']||'');
+   this.name=asText(items['user.display_name']);
    /* NERVIS's own voice, seeded by the service on first start and editable
       here. Held on USER rather than only on CHAT_SESSION because the session
       is per-tab and this is not: a system prompt that vanished on reload is
       the complaint that produced all of this. */
-   this.system=String(items['chat.system']||'');
-   PRESETS.items=Array.isArray(items['chat.presets'])?items['chat.presets']:[];
-   /* Absent means on. A house style nobody has opted out of is the default,
-      and `!== false` is what distinguishes "never set" from "turned off". */
-   this.brief=items['chat.brief']!==false;
-   this.mode=String(items['chat.mode']||'');
-   /* NERVIS unless something else was chosen. The seeded settings already
-      hold that preset's values, so naming it here is a readout rather than
-      a claim — the dropdown shows what is actually in force. */
-   this.preset=items['chat.preset']===undefined?'cp_nervis':String(items['chat.preset']||'');
-   this.params=items['chat.params']&&typeof items['chat.params']==='object'?items['chat.params']:{};
+   this.system=asText(items['chat.system']);
+   PRESETS.items=asList(items['chat.presets']);
+   this.brief=asFlag(items['chat.brief'],true);
+   this.mode=asText(items['chat.mode']);
+   /* NERVIS unless something else was chosen. The seeded settings already hold
+      that preset's values, so naming it is a readout rather than a claim. */
+   this.preset=items['chat.preset']===undefined?'cp_nervis':asText(items['chat.preset']);
+   this.params=asMap(items['chat.params']);
+   this.excluded=asList(items['chat.memory_excluded']);
    this.memory=items['chat.memory']==='all'?'all':'session';
-   this.memorySkipsCurrent=items['chat.memory_skips_current']!==false;
   }catch(e){}
  },
+
  async write(key,value){
   try{await fetch(BASE.nervis+'/api/v1/settings/'+encodeURIComponent(key),{method:'PUT',
     headers:{'content-type':'application/json'},body:JSON.stringify({value})})}catch(e){}
@@ -5841,6 +5855,7 @@ const USER={
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
  setPreset(id){this.preset=id;this.write('chat.preset',id)},
+ setExcluded(list){this.excluded=list;this.write('chat.memory_excluded',list)},
  /* The sampling fields, on blur rather than per keystroke. Everything else
     on this panel already outlived the tab; these did not, so a temperature
     somebody set was gone on the next reload with nothing to say it had
@@ -5853,7 +5868,6 @@ const USER={
   this.write('chat.params',taken);
  },
  setMemory(scope){this.memory=scope;this.write('chat.memory',scope);render()},
- setMemorySkips(on){this.memorySkipsCurrent=on;this.write('chat.memory_skips_current',on)},
  /* Written on `change` rather than `input`: a PUT per keystroke would be a
     request storm for a textarea somebody is composing a paragraph in. */
  setSystem(value){this.system=value;this.write('chat.system',value)}
@@ -5966,6 +5980,55 @@ const PRESETS={
  }
 };
 
+/* Whether this conversation is kept out of the pool Miku reads from.
+
+   **Held locally until the conversation exists.** A conversation has no id
+   until its first turn is stored, and the moment you most want to mark one
+   private is *before* you have typed the thing you did not want remembered —
+   so the intent is kept on the session and written the instant an id arrives.
+
+   Reading falls back to the stored list, so reopening a barred conversation
+   shows it barred rather than showing the default and quietly re-including it. */
+/* Who is speaking, for the label above a reply.
+
+   Stamped onto the message when it arrives rather than read at paint time, so a
+   conversation held with her still says Miku when it is reopened in the
+   ordinary mode. Messages from before this existed, and any restored from the
+   browser's copy, fall back to whichever mode is on — which is the best that
+   can be said about a reply nobody recorded a speaker for. */
+function speakerName(){return inMikuMode()?'Miku':'NERVIS'}
+
+function conversationIsPrivate(){
+ if(CHAT_SESSION.private!==null)return CHAT_SESSION.private;
+ const id=CHAT_SESSION.remote_id;
+ return Boolean(id&&USER.excluded.includes(id));
+}
+
+function togglePrivate(){
+ CHAT_SESSION.private=!conversationIsPrivate();
+ persistPrivate();
+ render();
+}
+
+/* Writes the decision once there is something to key it on. Called again after
+   the first reply, which is when an id first exists. */
+function persistPrivate(){
+ const id=CHAT_SESSION.remote_id;
+ if(!id||CHAT_SESSION.private===null)return;
+ const barred=new Set(USER.excluded);
+ if(CHAT_SESSION.private)barred.add(id); else barred.delete(id);
+ USER.setExcluded([...barred]);
+}
+
+/* The control, beside New chat, because that is where a conversation is decided
+   about rather than three clicks into a settings drawer. */
+function privateButton(){
+ const off=conversationIsPrivate();
+ return `<button class="btn" onclick="togglePrivate()"${off?' style="border-color:#ffb648;color:#ffb648"':''}
+   title="${off?'Kept out of the pool Miku reads from — she will not go through this conversation later'
+              :'This conversation can be recalled in later ones. Click to keep it out.'}">${off?'&#128274; Private':'Private'}</button>`;
+}
+
 /* The pool this browser last chose, across reloads.
 
    Its own key rather than a field on the conversation: the preference is about
@@ -6029,6 +6092,11 @@ const CHAT_SESSION={
     changes what has happened, not what is sent. Reset by "New chat", because a
     new conversation is a new opening. */
  greeted:false,
+ /* Whether this conversation is kept out of the pool Miku reads from. `null`
+    is *undecided* — distinct from false, which is somebody having looked at the
+    button and left it off. Not `undefined`: that is the literal the template
+    check bans, because a rendered one is how a missing field announces itself. */
+ private:null,
  busy:false};
 
 const CHAT_SESSIONS={
@@ -6042,6 +6110,7 @@ const CHAT_SESSIONS={
    created_at:new Date().toISOString(),
    title:'New conversation',
    greeted:false,
+   private:null,
    system:USER.system,
    profile:PROFILE_STORE.read(),
    messages:[]});
@@ -6343,10 +6412,7 @@ function paramsPane(){
       <option value="session"${USER.memory==='session'?' selected':''}>This conversation only</option>
       <option value="all"${USER.memory==='all'?' selected':''}>All conversations on this machine</option>
      </select></label>
-    ${USER.memory==='all'?`<label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.memorySkipsCurrent?' checked':''}
-      onchange="USER.setMemorySkips(this.checked)"> Leave this conversation out of the pool
-      <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">its turns already travel as ordinary messages, so including it here sends the same text twice and spends the budget on what the model can already see. Turn it off when you want the older half of a long thread back after it has scrolled out.</small></label>
-    <small class="mono dim" style="grid-column:1/-1;margin:-2px 0 2px">recall is bounded: the last <b>${'5'}</b> conversations, six turns each, about four thousand characters in total, newest first. <b>It is also an egress decision.</b> A conversation you held with a local model has never left this machine, and recalling it into a turn a cloud model answers sends it — the same shape of leak §18.2 spends its length on for the voice, chosen deliberately here rather than happening by default.</small>`:''}
+    ${USER.memory==='all'?`<small class="mono dim" style="grid-column:1/-1;margin:-2px 0 2px">recall is bounded: the last <b>5</b> conversations, six turns each, about four thousand characters in total, newest first — and never the one you are in, whose turns already travel as ordinary messages. A conversation marked <b>Private</b>, with the button beside <b>New chat</b>, stays out of the pool for good. <b>It is also an egress decision.</b> A conversation you held with a local model has never left this machine, and recalling it into a turn a cloud model answers sends it — the same shape of leak §18.2 spends its length on for the voice, chosen deliberately here rather than happening by default.</small>`:''}
     <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.brief?' checked':''}
       onchange="USER.setBrief(this.checked)"> Keep replies short — about two or three sentences
       <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">a switch rather than a silent rule: a question that needs a list, a walkthrough or code still gets one.</small></label>
@@ -6550,7 +6616,7 @@ async function* sseFrames(body){
    model spent its whole budget on reasoning", which is a confident diagnosis of
    something that did not happen. */
 function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
- const base={role:'assistant',served,request_id:requestId};
+ const base={role:'assistant',served,request_id:requestId,speaker:speakerName()};
  if(failed)return{...base,text:failed};
  if(aborted)return{...base,interrupted:true,
    /* What the reader saw, kept, and labelled stopped rather than finished.
@@ -6629,7 +6695,7 @@ async function streamReply(stop,extra){
  const acc={reply:'',requestId:'',served:'',
    conversationId:CHAT_SESSION.remote_id||'',reasoning:0,failed:'',aborted:false};
  const node=()=>document.getElementById('streaming');
- const paint=()=>{const el=node();if(el)el.innerHTML='<b>NERVIS</b><br>'+escapeHtml(acc.reply)+
+ const paint=()=>{const el=node();if(el)el.innerHTML='<b>'+escapeHtml(speakerName())+'</b><br>'+escapeHtml(acc.reply)+
    pendingTail(acc.reply);scrollChatToEnd()};
  try{
   const r=await fetch(BASE.nervis+'/api/v1/chat',{
@@ -6688,6 +6754,9 @@ async function sendChat(){
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
  CHAT_SESSION.remote_id=outcome.conversationId;
+ /* The id arrives with the first reply, which is the first moment a decision
+    made before typing has somewhere to be written. */
+ persistPrivate();
  CHAT_SESSION.messages.pop();
  const reply=replyMessage(outcome);
  CHAT_SESSION.messages.push(reply);
@@ -6736,7 +6805,11 @@ const IDLE={
  restart(){
   clearTimeout(this.timer);
   this.timer=null;
-  if(USER.mode!=='miku'||state.view!=='Chat'||state.app!=='nervis')return;
+  /* Anywhere in NERVIS, not only the chat screen. Being ignored *while you are
+     visibly doing something else* is the case the character is about, and the
+     remark still arrives: it lands in the transcript, and it is spoken aloud if
+     the voice is on — which is how you notice one from another screen. */
+  if(!inMikuMode())return;
   const wait=this.STEPS[this.count];
   if(wait===undefined)return;
   this.timer=setTimeout(()=>this.fire(),wait);
@@ -6751,7 +6824,7 @@ const IDLE={
   this.timer=null;
   /* Re-checked at fire time, not only when armed: a mode change, a tab switch
      or a reply in flight can all happen inside a four-minute wait. */
-  if(USER.mode!=='miku'||state.view!=='Chat'||CHAT_SESSION.busy)return;
+  if(!inMikuMode()||CHAT_SESSION.busy)return;
   if(document.hidden)return this.restart();
   this.count++;
   await nudge(this.count);
@@ -6769,16 +6842,21 @@ async function nudge(count){
  await render();
  const stop=new AbortController();
  CHAT_SESSION.abort=stop;
- const outcome=await streamReply(stop,{nudge:count,conversation_id:CHAT_SESSION.remote_id||''});
+ /* Where you actually are, which is the whole of "nosy". She is told the
+    screen's *name* and nothing on it — read off `state`, never off the numbers
+    — so she can remark that you have been staring at Diagnostics without
+    inventing what it says. */
+ const outcome=await streamReply(stop,
+   {nudge:count,screen:state.view,conversation_id:CHAT_SESSION.remote_id||''});
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
  CHAT_SESSION.messages.pop();
  chatMood(null);
  /* A nudge that fails leaves no trace. Nobody asked for it, so an error bubble
     in its place is worse than the silence it was trying to break. */
- if(outcome.failed||outcome.aborted||!outcome.reply)return render();
+ if(outcome.failed||outcome.aborted||!outcome.reply){if(state.view==='Chat')render();return}
  CHAT_SESSION.messages.push(replyMessage(outcome));
- render();
+ if(state.view==='Chat')render();
  SPEECH.say(outcome.reply,outcome.served);
 }
 
@@ -7137,7 +7215,7 @@ async function repaint(){
  window.scrollTo(0,y);
 }
 
-async function render(){if(state.view!=='Chat'||state.app!=='nervis')IDLE.stop();applyTheme();applyMode();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
+async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
  if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1281 tests, no network, no live service
+.venv/bin/pytest                      # part of 1285 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1281 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1285 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5031,11 +5031,26 @@ sitting among thirteen things that route — and she was deleted with the scene 
 back as one of the chat presets, which is what she should always have been: selectable like the
 others, carrying a persona, an avatar and an accent colour.
 
-`mode` is presentation and nothing else. It routes nothing, sends nothing and records nothing, and
-it is **scoped to the screen the conversation is on**. It was applied wherever it was set, so
-opening Diagnostics or Evidence turned the instrumentation turquoise and put her face above a
-table of error rates — a costume on a measuring instrument. The setting still persists; the rest
-of NERVIS still looks like NERVIS.
+`mode` is presentation and nothing else: it routes nothing, sends nothing and records nothing.
+
+**Two questions, and they turned out to have different answers.** *Is she the one talking?* —
+anywhere in NERVIS. *Is the dashboard wearing her colours?* — only on the chat screen. They were
+one question for a while, which is how the theme ended up following you onto Diagnostics: a
+persona has no business recolouring a table of error rates, and turquoise instrumentation with
+her face above the error column is a costume on a measuring instrument.
+
+The nosiness is behaviour, and behaviour does not stop at a screen boundary. She stays armed
+wherever you are, notices you have wandered off, and says so — audibly, if the voice is on, which
+is how you hear one from another screen. What does not follow you is the paint.
+
+Her replies are labelled **Miku**, stamped onto the message when it arrives rather than read at
+paint time, so a conversation held with her still says so when it is reopened in the ordinary
+mode.
+
+**She can see which screen you are on, and nothing on it.** A nudge carries the screen's *name*,
+read off the view state and never off the numbers, so she can be nosy about you having stared at
+Diagnostics for ten minutes without inventing what it says — the same line the persona itself
+draws.
 `data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
@@ -5099,6 +5114,20 @@ freed line, in flow rather than floating: the absolute strip had needed a hand-w
 
 **Miku mode is deleted** — the scene, the glitch overlay, the avatar and its embed. The typing
 caret survives, renamed off the feature it outlived.
+
+**A conversation can be kept out of the pool for good**, with a Private button beside New chat —
+next to where a conversation is decided about, rather than three clicks into a settings drawer.
+It replaced a global "skip the one I am in", which was de-duplication wearing a privacy label: the
+current conversation's turns already travel as ordinary messages, so including it in the digest
+only ever sent the same text twice. That de-duplication is now an unconditional rule with no
+setting, and the switch means what a reader assumes it means — *keep this one out*, still true
+tomorrow, from whichever other conversation is asking.
+
+The decision is held on the session until the conversation has an id and written the instant one
+arrives, because the moment you most want to mark a conversation private is **before** you have
+typed the thing you did not want remembered. An unreadable exclusion list bars nothing rather than
+everything: a corrupt setting that silently stopped all recall is a fault nobody reports, while a
+conversation somebody meant to bar is visibly still listed on the screen that bars it.
 
 **Memory has a scope**, and it is an egress decision the screen states rather than a convenience
 it performs quietly. `This conversation only` is the default and is what NERVIS has always sent;

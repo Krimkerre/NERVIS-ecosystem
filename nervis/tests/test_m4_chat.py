@@ -722,3 +722,109 @@ def test_a_nudge_does_not_override_the_memory_scope() -> None:
     system = sent[0]["messages"][0]["content"]
     assert "Earlier conversations on this machine" not in system
     assert "ask them one real question" in system
+
+
+def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
+    """The switch beside New chat, and the thing it actually guarantees.
+
+    It replaced a global "skip the one I am in", which was de-duplication
+    wearing a privacy label — the current conversation's turns already travel as
+    messages, so including it in the digest only ever sent the same text twice.
+    This one is a standing decision about a named conversation, still true
+    tomorrow, from whichever other conversation is asking.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api(frames("sure"))
+    secret = turn(client, "the thing I did not want remembered")
+    barred = secret.headers["x-conversation-id"]
+    ordinary = turn(client, "something unremarkable").headers["x-conversation-id"]
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    # With nothing barred, both earlier conversations are recallable.
+    client.post("/api/v1/chat", json={"content": "hello"})
+    before = sent[-1]["messages"][0]["content"]
+    assert "did not want remembered" in before
+    assert "something unremarkable" in before
+
+    client.put("/api/v1/settings/chat.memory_excluded", json={"value": [barred]})
+    client.post("/api/v1/chat", json={"content": "hello again"})
+    after = sent[-1]["messages"][0]["content"]
+
+    assert "did not want remembered" not in after
+    # And only that one: barring is per conversation, not a switch for recall.
+    assert "something unremarkable" in after
+    assert ordinary != barred
+
+
+def test_the_conversation_being_had_is_never_recalled_into_itself() -> None:
+    """No setting, because there is no reading of it that helps: those turns
+    already travel as ordinary messages, so the digest would send them twice."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api(frames("sure"))
+    held = turn(client, "a line only in this conversation").headers["x-conversation-id"]
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"content": "more", "conversation_id": held})
+
+    system = sent[-1]["messages"][0]["content"]
+    assert "Earlier conversations on this machine" not in system
+
+
+def test_an_unreadable_exclusion_list_does_not_bar_everything() -> None:
+    """Failing to *empty* rather than to everything. A corrupt setting that
+    silently stopped all recall is a fault nobody reports; a conversation
+    somebody meant to bar is visibly still listed on the screen that bars it."""
+    client = an_api(frames("sure"))
+    turn(client, "recallable")
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
+    client.put("/api/v1/settings/chat.memory_excluded", json={"value": "not a list"})
+
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+    client.post("/api/v1/chat", json={"content": "hello"})
+
+    assert "recallable" in sent[-1]["messages"][0]["content"]
+
+
+def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
+    """The whole of "nosy", and the line it must not cross: she can remark that
+    you have been staring at Diagnostics without inventing what it says."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"nudge": 1, "screen": "Diagnostics"})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "Diagnostics screen" in system
+    assert "cannot see anything on it" in system
