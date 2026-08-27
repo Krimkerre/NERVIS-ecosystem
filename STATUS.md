@@ -5048,6 +5048,19 @@ here.
 is built from; yours is the same turquoise family with the pink removed and the whole thing cooled
 and deepened. One palette, and still an answer to *who said this* from the colour alone.
 
+**The whole panel now outlives the tab.** The persona, the name, the memory scope and the mode
+were already settings; the sampling fields were not — a temperature somebody set was gone on the
+next reload with nothing to say it had been. They are written on blur, captured from the session
+rather than read off the inputs so a value that arrived from a preset is saved on the same path as
+a typed one, and hydrated **once per page load rather than once per paint**: this runs after every
+message, and re-applying the stored copy each time would overwrite whatever is being typed, since
+the input updates the session on every keystroke and the stored copy only catches up on blur.
+
+**And the voice is chosen there too**, on the panel where the rest of a mode lives — the same
+selected voice the Voice screen writes, because there is one, not a per-screen one. Choosing a
+mode and then leaving the conversation to change what it sounds like was the seam a preset exists
+to close.
+
 **The picker names what is in force.** Nothing tracked which preset was applied, so the dropdown
 reset to the placeholder on every paint — which also meant the delete link, which read the
 dropdown's value, never had anything to delete. `chat.preset` records it, the option is marked

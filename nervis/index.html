@@ -3049,10 +3049,21 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
     on the one screen where it is most visible. */
  IDLE.restart();
  USER.load().then(()=>{
-  /* Only into a conversation nobody has typed into. Assigning unconditionally
-     would overwrite a prompt somebody is editing on the very next paint, and
-     reopening an old conversation restores that conversation's own. */
-  if(!CHAT_SESSION.messages.length&&!CHAT_SESSION.system)CHAT_SESSION.system=USER.system;
+  /* **Once per page load, not once per paint.** This runs after every message,
+     and re-applying the stored values each time would overwrite whatever is
+     being typed right now — the input updates the session on every keystroke
+     and the stored copy only catches up on blur. */
+  if(!USER.hydrated){
+   USER.hydrated=true;
+   /* Only into a conversation nobody has typed into: reopening an old one
+      restores that conversation's own parameters. */
+   if(!CHAT_SESSION.messages.length){
+    if(!CHAT_SESSION.system)CHAT_SESSION.system=USER.system;
+    for(const key of samplingKeys())
+     if(USER.params[key]!==undefined&&!CHAT_SESSION[key])CHAT_SESSION[key]=USER.params[key];
+   }
+   render();
+  }
   maybeGreet();
  });}
 
@@ -5783,7 +5794,7 @@ const CHAT_STORE={
    browser: a name is a fact about the person, not about the tab they happen to
    have open, and it should survive a different browser on the same machine. */
 const USER={
- name:'', system:'', brief:true, mode:'', preset:'cp_nervis', memory:'session', memorySkipsCurrent:true,
+ name:'', system:'', brief:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false, memory:'session', memorySkipsCurrent:true,
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -5804,6 +5815,7 @@ const USER={
       hold that preset's values, so naming it here is a readout rather than
       a claim — the dropdown shows what is actually in force. */
    this.preset=items['chat.preset']===undefined?'cp_nervis':String(items['chat.preset']||'');
+   this.params=items['chat.params']&&typeof items['chat.params']==='object'?items['chat.params']:{};
    this.memory=items['chat.memory']==='all'?'all':'session';
    this.memorySkipsCurrent=items['chat.memory_skips_current']!==false;
   }catch(e){}
@@ -5818,6 +5830,17 @@ const USER={
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
  setPreset(id){this.preset=id;this.write('chat.preset',id)},
+ /* The sampling fields, on blur rather than per keystroke. Everything else
+    on this panel already outlived the tab; these did not, so a temperature
+    somebody set was gone on the next reload with nothing to say it had
+    been. Captured from the session rather than read off the inputs, so a
+    value set by applying a preset is saved on the same path as a typed one. */
+ saveParams(){
+  const taken={};
+  for(const key of samplingKeys())taken[key]=CHAT_SESSION[key];
+  this.params=taken;
+  this.write('chat.params',taken);
+ },
  setMemory(scope){this.memory=scope;this.write('chat.memory',scope);render()},
  setMemorySkips(on){this.memorySkipsCurrent=on;this.write('chat.memory_skips_current',on)},
  /* Written on `change` rather than `input`: a PUT per keystroke would be a
@@ -5832,6 +5855,10 @@ const USER={
    four endpoints and a router for that would be more machinery than the thing
    it stores. The voice profiles earned a table because they are joined against
    a credential and a selection; these are not. */
+/* The generation parameters, as opposed to the pool and the persona — which are
+   kept under their own keys because they are chosen in their own controls. */
+function samplingKeys(){return PRESETS.keys().filter(k=>k!=='profile'&&k!=='system')}
+
 const PRESETS={
  items:[],
 
@@ -5890,6 +5917,7 @@ const PRESETS={
      is saying *the ordinary one* rather than *leave whatever was there*. */
   USER.setMode(found.params.mode||'');
   USER.setPreset(id);
+  USER.saveParams();
   notify('Applied '+found.name);
   /* The voice is NERVIS's, so switching it is a write rather than an
      assignment. Quiet, because the notify above already said what happened —
@@ -6249,6 +6277,30 @@ function historyPane(){
       :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
     }
 
+/* Which voice reads the replies, on the panel where the rest of a mode lives.
+
+   The same setting the Voice screen writes — there is one selected voice, not a
+   per-screen one — and it is here because it is half of what a preset restores.
+   Choosing a mode and then having to leave the conversation to change what it
+   sounds like is the seam a preset exists to close.
+
+   Absent entirely when no key is configured: a picker over an empty list is a
+   control that cannot do anything, and the Voice screen is where a key gets
+   entered. */
+function voicePickerRow(){
+ const set=SPEECH.settings;
+ if(!set||!set.credential||!set.credential.configured)return '';
+ const saved=set.profiles||[];
+ if(!saved.length)return `<small class="mono dim" style="grid-column:1/-1">a key is configured but no voice is named yet — add one on <a href="#" onclick="state.view='Voice';render();return false" style="color:inherit"><b>Voice</b></a>.</small>`;
+ return `<label style="grid-column:1/-1">Voice
+   <select style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
+     onchange="VOICE.flag('selected_profile',this.value)">
+    <option value=""${set.selected_profile?'':' selected'}>— the browser's own voice —</option>
+    ${saved.map(v=>`<option value="${escapeHtml(v.profile_id)}"${v.profile_id===set.selected_profile?' selected':''}>${escapeHtml(v.name)} · ${escapeHtml(v.engine)}</option>`).join('')}
+   </select>
+   <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">travels in a preset, so a mode carries what it sounds like. A local model's reply is read by the browser whichever voice is chosen here — that is §18.2 and not a setting.</small></label>`;
+}
+
 /* Everything that shapes a reply: the preset, who you are, how long it should
    be, how far back it may remember, and the sampling underneath. */
 function paramsPane(){
@@ -6269,6 +6321,7 @@ function paramsPane(){
       <button class="btn" onclick="PRESETS.remove(USER.preset)"${USER.preset?'':' disabled style="opacity:.45;cursor:not-allowed"'} title="delete the preset selected above">Delete</button>
      </span>
      <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a preset holds everything on this panel <b>the pool and the voice</b> — the model, the persona, the sampling and what it sounds like, because that combination is what a mode actually is. <b>Applying one replaces what is in these fields</b>, the system prompt included — save yours under a name first if you have been editing it. Saving under an existing name replaces that one.</small></label>
+    ${voicePickerRow()}
     <label style="grid-column:1/-1">Your name
      <input id="cpName" placeholder="what NERVIS should call you"
        value="${escapeHtml(USER.name)}"
@@ -6294,15 +6347,15 @@ function paramsPane(){
     <label>Temperature
      <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
        value="${escapeHtml(String(CHAT_SESSION.temperature))}"
-       oninput="CHAT_SESSION.temperature=this.value"></label>
+       oninput="CHAT_SESSION.temperature=this.value" onchange="USER.saveParams()"></label>
     <label>Max tokens
      <input id="cpMax" class="mono" inputmode="numeric" placeholder="model default"
        value="${escapeHtml(String(CHAT_SESSION.max_tokens))}"
-       oninput="CHAT_SESSION.max_tokens=this.value"></label>
+       oninput="CHAT_SESSION.max_tokens=this.value" onchange="USER.saveParams()"></label>
     <label>Top&nbsp;p
      <input id="cpTopP" class="mono" inputmode="decimal" placeholder="model default"
        value="${escapeHtml(String(CHAT_SESSION.top_p))}"
-       oninput="CHAT_SESSION.top_p=this.value"></label>
+       oninput="CHAT_SESSION.top_p=this.value" onchange="USER.saveParams()"></label>
    </div>
    <label class="adv-toggle"><input type="checkbox"${CHAT_SESSION.advanced?' checked':''}
      onchange="CHAT_SESSION.advanced=this.checked;render()"> Advanced sampling</label>
@@ -6310,11 +6363,11 @@ function paramsPane(){
     ${ADVANCED_PARAMS.map(p=>`<label>${p.label}
      <input class="mono" inputmode="${p.mode||'decimal'}" placeholder="${escapeHtml(p.hint)}"
        value="${escapeHtml(String(CHAT_SESSION[p.key]))}"
-       oninput="CHAT_SESSION['${p.key}']=this.value" title="${escapeHtml(p.help)}"></label>`).join('')}
+       oninput="CHAT_SESSION['${p.key}']=this.value" onchange="USER.saveParams()" title="${escapeHtml(p.help)}"></label>`).join('')}
     <label style="grid-column:1/-1">Stop sequences
      <input class="mono" placeholder="comma separated — empty sends none"
        value="${escapeHtml(String(CHAT_SESSION.stop))}"
-       oninput="CHAT_SESSION.stop=this.value"></label>
+       oninput="CHAT_SESSION.stop=this.value" onchange="USER.saveParams()"></label>
    </div>
    <small class="mono dim">these are the knobs <b>LM Studio</b> exposes, and they travel to any provider RAVIS reaches <b>transparently</b> — every local runtime, OpenAI, Google and OpenRouter — where the upstream itself decides whether it understands each one. <b>Anthropic is the exception</b>: it is reached through a translating adapter that normalises a request to a fixed shape, so the sampling knobs are dropped there rather than refused. A parameter that works on one provider and quietly does nothing on another is worth knowing about before you spend an afternoon on it.</small>`:''}
    <small class="mono dim">an empty field is <b>not sent at all</b>, so the model and runtime apply their own defaults — filling one in with a common value like 0.7 would be this page inventing a choice nobody made.</small>`;
