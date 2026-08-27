@@ -71,21 +71,32 @@ function differences(before, after, trail = "") {
 
 /* Replay a recorded stream through the frame handler and settle it into the
    message the transcript would show. No model, no network, no service. */
+/* A message with its clock replaced by a marker.
+ *
+ * The *presence* of `at` is behaviour worth pinning — dropping the field would
+ * still fail this check — but its value is the current time, and a golden file
+ * containing one fails on every run and teaches everybody to pass --update
+ * without reading the diff, which is the one habit that makes a characterisation
+ * test worthless. */
+function withoutTheClock(message) {
+  return message.at ? { ...message, at: "<when>" } : message;
+}
+
 function replayChat(exported) {
   const replayed = {};
   for (const stream of CHAT_STREAMS) {
     const acc = { reply: "", requestId: "req_1", served: "", conversationId: "",
                   reasoning: 0, failed: "", aborted: false };
     for (const item of stream.frames) exported.absorbFrame(item, acc, null);
-    replayed[stream.name] = { acc, message: exported.replyMessage(acc) };
+    replayed[stream.name] = { acc, message: withoutTheClock(exported.replyMessage(acc)) };
   }
   /* And the two ways a stream ends without frames at all. */
   const stopped = { reply: "half a sen", requestId: "", served: "", conversationId: "",
                     reasoning: 0, ...exported.transportFailure({ name: "AbortError" }) };
   const dropped = { reply: "", requestId: "", served: "", conversationId: "", reasoning: 0,
                     ...exported.transportFailure({ name: "TypeError", message: "load failed" }) };
-  replayed["stopped by the reader"] = { acc: stopped, message: exported.replyMessage(stopped) };
-  replayed["connection dropped"] = { acc: dropped, message: exported.replyMessage(dropped) };
+  replayed["stopped by the reader"] = { acc: stopped, message: withoutTheClock(exported.replyMessage(stopped)) };
+  replayed["connection dropped"] = { acc: dropped, message: withoutTheClock(exported.replyMessage(dropped)) };
   return replayed;
 }
 

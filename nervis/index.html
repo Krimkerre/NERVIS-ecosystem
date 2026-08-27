@@ -519,6 +519,11 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
    rather than glance at. `details` brings toggle, focus and Escape with it and
    needs no outside-click handler. */
 .bubble{position:relative}
+/* Right-aligned and quiet: a timestamp is for glancing at, not for reading. On
+   the assistant's bubble it sits beside the name; on the user's it floats to the
+   far edge, where the eye is already going. */
+.stamp{float:right;font-size:9px;opacity:.4;margin-left:10px;letter-spacing:.05em}
+.bubble b+.stamp{float:none;margin-left:8px}
 .route-info{position:absolute;top:6px;right:8px}
 .route-info>summary{list-style:none;cursor:pointer;width:15px;height:15px;border-radius:50%;
   border:1px solid rgba(var(--rgb),.45);color:rgba(var(--rgb),.85);font:600 10px/13px ui-monospace,monospace;
@@ -3025,10 +3030,10 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   ${chatDrawerMarkup()}
   <div class="messages" id="messages">
    ${conv.messages.map(m=>m.role==='user'
-     ?`<div class="bubble user">${escapeHtml(m.text)}</div>`
+     ?`<div class="bubble user">${escapeHtml(m.text)}${stampOf(m)}</div>`
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${m.pending?'':''}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b><br>${escapeHtml(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}</div>`).join('')}
+        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}<br>${escapeHtml(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}</div>`).join('')}
   </div>
   <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${CHAT_SESSION.busy?'■':'➤'}</button></div>
  </div>`;
@@ -5998,6 +6003,27 @@ const PRESETS={
    can be said about a reply nobody recorded a speaker for. */
 function speakerName(){return inMikuMode()?'Miku':'NERVIS'}
 
+/* When a turn happened, in the zone of whoever is reading it.
+
+   Stored as an ISO instant and formatted at paint time rather than stored
+   formatted: the same conversation opened on a machine in another zone should
+   read in that zone, and a string frozen at 22:41 cannot do that.
+
+   Missing on anything from before this existed, and on messages restored from
+   the browser's copy — those render without one rather than with a guess, for
+   the same reason a decision record carries no cost estimate. */
+function stampOf(m){
+ if(!m.at)return '';
+ const when=new Date(m.at);
+ if(isNaN(when))return '';
+ /* 24-hour, and explicitly so rather than by locale: `hour12` follows the
+    browser's locale otherwise, which would print the same conversation as
+    23:35 on one machine and 11:35 PM on another. The zone still follows the
+    reader, because that part genuinely is theirs. */
+ const clock={hour:'2-digit',minute:'2-digit',hour12:false};
+ return `<span class="mono dim stamp" title="${escapeHtml(when.toLocaleString([],{dateStyle:'medium',timeStyle:'medium',hour12:false}))}">${escapeHtml(when.toLocaleTimeString([],clock))}</span>`;
+}
+
 function conversationIsPrivate(){
  if(CHAT_SESSION.private!==null)return CHAT_SESSION.private;
  const id=CHAT_SESSION.remote_id;
@@ -6616,7 +6642,8 @@ async function* sseFrames(body){
    model spent its whole budget on reasoning", which is a confident diagnosis of
    something that did not happen. */
 function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
- const base={role:'assistant',served,request_id:requestId,speaker:speakerName()};
+ const base={role:'assistant',served,request_id:requestId,speaker:speakerName(),
+   at:new Date().toISOString()};
  if(failed)return{...base,text:failed};
  if(aborted)return{...base,interrupted:true,
    /* What the reader saw, kept, and labelled stopped rather than finished.
@@ -6678,7 +6705,7 @@ function transportFailure(e){
 /* The user's turn and the placeholder the stream paints into. */
 function stageTurn(text){
  CHAT_SESSION.busy=true;
- CHAT_SESSION.messages.push({role:'user',text});
+ CHAT_SESSION.messages.push({role:'user',text,at:new Date().toISOString()});
  if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
  CHAT_SESSION.messages.push({role:'assistant',text:'',pending:true});
 }

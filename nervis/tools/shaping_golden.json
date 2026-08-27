@@ -639,6 +639,7 @@
         "served": "qwen2.5-coder-7b",
         "request_id": "req_1",
         "speaker": "NERVIS",
+        "at": "<when>",
         "text": "Hello, world"
       }
     },
@@ -657,6 +658,7 @@
         "served": "",
         "request_id": "req_1",
         "speaker": "NERVIS",
+        "at": "<when>",
         "reasoningOnly": true,
         "text": "No answer. The model spent its whole budget on reasoning (2 frames) and stopped before producing any. Raise Max tokens."
       }
@@ -676,6 +678,7 @@
         "served": "",
         "request_id": "req_1",
         "speaker": "NERVIS",
+        "at": "<when>",
         "text": "no upstream available"
       }
     },
@@ -694,6 +697,7 @@
         "served": "",
         "request_id": "req_1",
         "speaker": "NERVIS",
+        "at": "<when>",
         "text": "RAVIS refused mid-stream"
       }
     },
@@ -712,6 +716,7 @@
         "served": "",
         "request_id": "req_1",
         "speaker": "NERVIS",
+        "at": "<when>",
         "text": "survived"
       }
     },
@@ -730,6 +735,7 @@
         "served": "",
         "request_id": "",
         "speaker": "NERVIS",
+        "at": "<when>",
         "interrupted": true,
         "text": "half a sen\n\n— stopped —"
       }
@@ -749,6 +755,7 @@
         "served": "",
         "request_id": "",
         "speaker": "NERVIS",
+        "at": "<when>",
         "text": "NERVIS is not reachable: load failed"
       }
     }

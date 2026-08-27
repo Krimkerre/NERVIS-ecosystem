@@ -317,7 +317,10 @@ def test_a_system_prompt_is_sent_first_when_asked_for() -> None:
 
     turn(client, "hi", system="Be terse.")
 
-    assert sent[0]["messages"][0] == {"role": "system", "content": "Be terse."}
+    system = sent[0]["messages"][0]
+    assert system["role"] == "system"
+    # Theirs comes first and is untouched; NERVIS's own additions follow it.
+    assert system["content"].startswith("Be terse.")
 
 
 def test_nothing_here_carries_a_clarvis_session_or_a_tool() -> None:
@@ -834,15 +837,114 @@ def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
 @pytest.mark.parametrize("persona", ["cp_nervis", "cp_miku"])
 def test_neither_persona_may_invent_a_stretch_of_time(persona: str) -> None:
     """She opened a nudge with "you said that an hour ago". Nothing had told her
-    how long it had been, and a conversation carries no clock.
+    how long it had been.
 
-    An invented duration reads exactly like a measured one, which is the whole
-    reason the rule exists — it was written as "no invented timings" and a model
-    read that as being about latency numbers.
+    The rule was written as "no invented timings", which a model read as being
+    about latency numbers. It is not a ban on knowing the time — NERVIS hands
+    over the clock and the quiet gap, both measured — it is a ban on feeling
+    one. An invented duration reads exactly like a measured one, which is the
+    whole reason the distinction is worth the words.
     """
     presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
     system = next(p for p in presets if p["id"] == persona)["params"]["system"]
 
-    assert "cannot see a clock" in system or "no clock" in system
-    assert "how long they have been gone" in system
-    assert "how long anything took" in system
+    assert "told the current time and how long they have been quiet" in system
+    assert "not yours to invent" in system
+
+
+def test_the_model_is_handed_a_clock_rather_than_forbidden_one() -> None:
+    """The fix for "how long have I been away" is to answer it.
+
+    The personas forbid inventing a duration because a conversation carries no
+    clock in it. Loosening that rule would have let every stretch of time back
+    in; handing over two measured ones instead keeps the rule and answers the
+    question.
+
+    It rides with a persona rather than arriving on its own: a request that
+    configures nothing still sends no system message, because §7 makes NERVIS a
+    plain client and a gateway that prepends a line to every request is not one.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "The current local time is" in system
+    # The zone is named, because a bare time is ambiguous on any machine.
+    assert "UTC+" in system or "UTC-" in system
+    assert "not yours to invent" in system
+
+
+def test_the_quiet_gap_is_measured_from_stored_turns() -> None:
+    """A gap NERVIS computed from two timestamps is a reading. A gap a model
+    felt is not — which is the distinction the whole rule turns on."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api(frames("sure"))
+    held = turn(client, "first thing").headers["x-conversation-id"]
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "They said something less than a minute ago." in system
+
+
+def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
+    """Nothing to measure from, so nothing is said about it — rather than
+    "0 minutes", which reads as a measurement of a silence that never
+    happened."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"greeting": True})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "The current local time is" in system
+    assert "last said something" not in system
+
+
+def test_the_greeting_does_not_read_the_clock_out() -> None:
+    """She opened with "it's 23:35 on Thursday 27 August 2026", which is the
+    clock being recited rather than used — and the screen stamps every turn
+    with the time anyway. She is told it so she can answer about it later."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Evening."))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"greeting": True})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "Do not say the time or the date" in system
+    # And it is still *given* to her, which is the distinction.
+    assert "The current local time is" in system

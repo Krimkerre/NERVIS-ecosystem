@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1291 tests, no network, no live service
+.venv/bin/pytest                      # part of 1295 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1291 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1295 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5055,12 +5055,36 @@ draws.
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
 
+**Turns carry a timestamp, and the model carries a clock.** The transcript shows the time of each
+turn in 24-hour form, in the reader's own zone — stored as an instant and formatted at paint time,
+so the same conversation opened elsewhere reads in that zone rather than in a string frozen at
+23:35. `hour12` is set explicitly rather than left to the locale, which would print one machine's
+23:35 as another's 11:35 PM.
+
+The model is handed the current local time and **how long the user has been quiet**, both
+measured — the second computed from two stored timestamps rather than felt. That is the answer to
+the duration problem below: the fix for *how long have I been away* is to answer it, not to forbid
+the question. Asked exactly that, she now replies that she knows the last message was under a
+minute ago and cannot say more without being told when they left, which is both halves of the rule
+working at once.
+
+The greeting is told not to read it out. She opened with *"it's 23:35 on Thursday 27 August 2026"*,
+which is the clock being recited rather than used — and every turn is stamped with the time on
+screen anyway. She is given it so she can answer about it later, which is a different thing.
+
+It rides with a persona rather than arriving on its own. A request that configures nothing still
+sends no system message: §7 makes NERVIS a plain client of RAVIS's published API, and a gateway
+that prepends a line to every request is not one. The nudge is the exception, because an
+unprompted remark about a silence is the one place the gap is load-bearing — and was the one place
+that would otherwise have had no clock.
+
 **The facts rule now covers durations, and that took a live failure to find.** It was written as
 *no invented timings*, which a model read as being about latency numbers — and then opened a nudge
 with *"you said that an hour ago"*. Nothing had told her how long it had been, and a conversation
 carries no clock. An invented stretch of time reads exactly like a measured one, which is the
-whole reason the rule exists, so both personas now say outright that there is no clock either:
-never how long somebody has been gone, when something happened, or how long anything took.
+whole reason the rule exists, so both personas now draw the line at *inventing* rather than at knowing: the
+time and the quiet gap are measurements they may state, and every other stretch of time is not
+theirs to make up.
 
 **And emoji are stripped before speech.** Both personas already say not to write anything you
 would not say out loud; a model put a smiley on the end of a sentence anyway. An instruction is a
