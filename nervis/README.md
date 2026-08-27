@@ -183,6 +183,18 @@ inventing another component's API. `peers/clarvis.py` declares the surfaces §6.
 names, all reads — §6.7's limits are enforced by there being no write surface to
 use, and a test fails the suite if one appears.
 
+The **Routes** screen reads RAVIS's own decision records
+(`/api/v1/route-decisions`) rather than a transcription. What it shows is
+shaped by what RAVIS actually publishes, which is not what the mock invented:
+there is no per-candidate score, no per-candidate time-to-first-token and no
+phase breakdown of the routing time. Ranking on quality is RAVIS M13 and
+nothing instruments the decision in phases, so a live screen shows the funnel
+and the *reasons* instead of a bar chart of numbers nobody measured.
+
+Exclusions are grouped by reason, never listed per model. A pool with six
+hundred candidates excludes most of them, and the reason is the finding — the
+card that rendered one row each was forty thousand characters nobody read.
+
 `/api/v1` has `health`, `settings`, `system`, `services`, `registry/instances`,
 `ravis`, `sirvis`, `chat`, `events` and `traces`.
 §14's other three paths arrive with the milestones that own them, because a stub

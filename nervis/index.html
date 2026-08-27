@@ -1836,6 +1836,18 @@ const API={
      LM Studio reports no tool_use for either — which is the whole argument for
      capability probes over model names: they are the strongest coding builds
      installed here and they still cannot serve a role that needs tools. */
+  /* GET /api/v1/route-decisions — the records RAVIS keeps of its own choices.
+     Newest first, held in memory only: §17's storage model does not list route
+     decisions, so a restart loses them and that is the intended trade. */
+  async decisions(limit){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit='+(limit||25),
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();if((d.items||[]).length)return{items:d.items,live:true}}
+   }catch(e){}
+   return{items:[],live:false};
+  },
+
   async routeDecision(id){
    /* Every reply records the decision that produced it, so the inspector is a lookup
       rather than a re-derivation. An unknown id is an error in the real build. */
@@ -4282,10 +4294,104 @@ function noRouteNote(req){
  const refusals=req.items.filter(r=>r.result==='NO_ROUTE').length;
  return refusals?`${refusals} of these were refused. `:'None of these were refused. ';
 }
+/* The Routes screen, from RAVIS's own decision records.
+ *
+ * What the live record carries and the mock invented are different sets, and
+ * the difference is the point of wiring it: there is no per-candidate `score`,
+ * no per-candidate `ttft_s` and no phase breakdown of the routing time. RAVIS
+ * publishes none of those — ranking on quality is M13, and nothing instruments
+ * the decision in phases — so a live screen shows the funnel and the reasons
+ * instead of a bar chart of numbers nobody measured.
+ *
+ * What it gains is the half that matters during an incident: **why each
+ * candidate was excluded**, in RAVIS's own words.
+ */
+function exclusionSummary(excluded){
+ /* Grouped by reason, never listed. A pool with six hundred candidates excludes
+    five hundred and eighty of them, and the card that used to render one row
+    each was forty thousand characters nobody read. The reason is the finding;
+    the model list behind it is a detail. */
+ const byReason={};
+ for(const e of excluded||[]){
+  for(const reason of (e.reasons||['unstated'])){
+   (byReason[reason]=byReason[reason]||[]).push(e.model);
+  }
+ }
+ return Object.entries(byReason).sort((a,b)=>b[1].length-a[1].length);
+}
+
+function decisionCard(d){
+ const reqs=(d.requirements||[]).filter(r=>r&&r!=='none');
+ return `<div class="card wide live"><h3>${escapeHtml(d.pool||d.requested||'')} · decision ${escapeHtml((d.decision_id||'').slice(0,12))}</h3>${cell(`
+   <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(dash(d.requested))}</span></div>
+   <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(d.selected||'no route')}</span></div>
+   <div class="trace-step"><b>path</b><span class="mono">${escapeHtml(dash(d.execution_path))}</span></div>
+   ${reqs.length?`<div class="trace-step"><b>required</b><span class="mono">${reqs.map(escapeHtml).join(' · ')}</span></div>`
+     :'<div class="trace-step"><b>required</b><span style="opacity:.7">nothing — the request carried no hard constraint</span></div>'}
+   <small class="mono dim">${escapeHtml(d.reason||'')}</small>`,'ravis')}</div>`;
+}
+
+function funnelCard(d){
+ const groups=exclusionSummary(d.excluded);
+ const considered=(d.considered||[]).length;
+ const eligible=considered-(d.excluded||[]).length;
+ return `<div class="card wide live"><h3>Constraint funnel <span class="chip">${eligible} of ${considered} survived</span></h3>${cell(`
+   ${groups.length?`<div class="table-row head"><span>Removed because</span><span>Count</span><span style="grid-column:3/-1">For example</span></div>
+   ${groups.map(([reason,models])=>`<div class="table-row">
+     <span style="opacity:.85">${escapeHtml(reason)}</span>
+     <span class="mono">${models.length}</span>
+     <span class="mono" style="grid-column:3/-1;opacity:.6">${escapeHtml(models.slice(0,3).join(', '))}${models.length>3?' …':''}</span></div>`).join('')}`
+   :'<div class="trace-step"><b>excluded</b><span>none — every candidate satisfied this pool</span></div>'}
+   <small class="mono dim">grouped by reason rather than listed per model: a pool with six hundred candidates excludes most of them, and the reason is the finding. These are <b>hard</b> constraints — a candidate removed here never reached ranking, so none of them has an ordering to show. <b>There is no per-candidate score.</b> RAVIS publishes none: ranking on quality is M13, and inventing one to fill this column is exactly what §9.4 rules out.</small>`,'ravis')}</div>`;
+}
+
+function attemptsCard(d){
+ const attempts=(d.execution||{}).attempts||[];
+ const stopped=(d.execution||{}).stopped_because;
+ return `<div class="card narrow live"><h3>Fallback chain</h3>${cell(`
+   <div class="trace-step"><b>primary</b><span class="mono">${escapeHtml(d.selected||'—')}</span></div>
+   ${(d.fallbacks||[]).map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span class="mono">${escapeHtml(f)}</span></div>`).join('')}
+   ${attempts.length?`<div class="trace-step" style="margin-top:6px"><b>attempted</b><span></span></div>
+   ${attempts.map((a,i)=>`<div class="trace-step"><b>${i+1}</b><span class="mono">${escapeHtml(a.model)} → <span class="chip${warnUnless(a.outcome==='succeeded')}">${escapeHtml(a.outcome)}</span>${a.detail?' · '+escapeHtml(a.detail):''}</span></div>`).join('')}`:''}
+   ${stopped?`<div class="trace-step"><b>stopped</b><span style="opacity:.75">${escapeHtml(stopped)}</span></div>`:''}
+   <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed one. The attempts below are what actually happened, which is not always the chain above.</small>`,'ravis')}</div>`;
+}
+
+function recentDecisionsCard(items){
+ return `<div class="card full live"><h3>Recent decisions</h3>${cell(`
+   <div class="table-row head five"><span>At</span><span>Requested</span><span>Selected</span><span>Path</span><span>Outcome</span></div>
+   ${items.map(d=>`<div class="table-row five">
+     <span class="mono">${escapeHtml(clockOf(d.decided_at))}</span>
+     <span class="mono">${escapeHtml(dash(d.requested))}</span>
+     <span class="mono">${escapeHtml(d.selected||'no route')}</span>
+     <span class="mono" style="opacity:.75">${escapeHtml(dash(d.execution_path))}</span>
+     <span class="chip${warnUnless(outcomeOf({selected:d.selected,execution:d.execution})==='succeeded'||Boolean(d.selected))}">${escapeHtml(outcomeOf({selected:d.selected,execution:d.execution}))}</span></div>`).join('')}
+   <small class="mono dim">held in memory only — §17 does not list route decisions as stored state, so a restart loses them and that is the intended trade. <b>NO_ROUTE is a first-class result</b>: it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it.</small>`,'ravis')}</div>`;
+}
+
+function liveRoutesScreen(decisions,prof){
+ const newest=decisions[0];
+ const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default)||prof.items[0];
+ const considered=(newest.considered||[]).length;
+ const eligible=considered-(newest.excluded||[]).length;
+ $('#content').innerHTML=kpis([
+   ['Profile',active?active.label:'—',active?active.profile_id:'','ravis',true],
+   ['Candidates',`${considered} → ${eligible}`,'after hard constraints','ravis',true],
+   ['Decisions kept',String(decisions.length),'in memory, not persisted','ravis',true],
+   ['Path',dash(newest.execution_path),'transparent vs translated','ravis',true]])
+ +decisionCard(newest)+funnelCard(newest)+attemptsCard(newest)+recentDecisionsCard(decisions);
+}
+
 async function ravisRoutes(){
  heading('Routes','One decision record: requirements, the constraint funnel, the ranking, and what it cost to decide.',
   control('Simulate request','reroute',' primary'));
- const [rd,req,prof]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),API.ravis.profiles()]);
+ const [live,prof]=await Promise.all([API.ravis.decisions(25),API.ravis.profiles()]);
+ /* The live record when RAVIS has one, and the transcription otherwise. Not a
+    blend: the mock carries per-candidate scores and a phase breakdown that
+    RAVIS does not publish, so mixing them would put invented numbers beside
+    measured ones on the same screen. */
+ if(live.live)return liveRoutesScreen(live.items,prof);
+ const [rd,req]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests()]);
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  const considered=rd.eligible.length+rd.excluded.length;
  const phases=Object.entries(rd.timings_ms).filter(([k])=>k!=='total');

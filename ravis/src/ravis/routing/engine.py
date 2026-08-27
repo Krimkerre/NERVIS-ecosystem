@@ -338,8 +338,7 @@ def _exclusions(
             # Worded differently for the two cases on purpose: one is fixed by
             # ticking a box and the other by understanding what the pool is for.
             reasons.append(
-                f"outside this pool's default {pool.default_tier} tier — tick it to include it"
-                if by_default
+                _default_exclusion(pool) if by_default
                 else "not among the models chosen for this pool"
             )
         reasons += unmet_by(requirements, candidates[model])
@@ -436,6 +435,35 @@ def _rank(
         return (*lead, *size_rank(model))
 
     return sorted(members, key=key)
+
+
+def _default_exclusion(pool: VirtualModelPool) -> str:
+    """Why a pool's own default left this candidate out.
+
+    Named rather than generic, because the two defaults are fixed differently. A
+    tier exclusion is corrected by ticking the model; a price exclusion usually
+    means the model is not free and the pool is the free one, which is a
+    different conversation.
+
+    The first version interpolated `default_tier` unconditionally and produced
+    "outside this pool's default  tier" — two spaces and no tier — for every
+    price-filtered pool, because `ravis/cheap` has no tier at all.
+    """
+    if pool.default_tier and pool.max_price_per_million is not None:
+        return (
+            f"outside this pool's default {pool.default_tier} tier, or above its "
+            f"${pool.max_price_per_million:g} per-million ceiling — tick it to include it"
+        )
+    if pool.default_tier:
+        return f"outside this pool's default {pool.default_tier} tier — tick it to include it"
+    if pool.max_price_per_million is not None:
+        ceiling = pool.max_price_per_million
+        return (
+            "costs more than nothing per token, and this pool is the free one"
+            if ceiling == 0
+            else f"above this pool's ${ceiling:g} per-million ceiling"
+        ) + " — tick it to include it"
+    return "not among this pool's default members — tick it to include it"
 
 
 def _reach_rank(
