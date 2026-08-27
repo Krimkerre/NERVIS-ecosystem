@@ -2640,16 +2640,27 @@ function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))stat
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
    lets this one speak for it — see CLARVIS_BRIDGE below. */
+/* Whether the Miku persona is showing *right now*.
+
+   **The mode is a chat persona, not a skin for the dashboard.** It used to be
+   applied wherever it was set, so opening Diagnostics or Evidence turned the
+   instrumentation turquoise and put her face above a table of error rates —
+   which is a costume on a measuring instrument. It is scoped to the screen the
+   conversation is on: the setting still persists, and the rest of NERVIS looks
+   like NERVIS. */
+function inMikuMode(){
+ return USER.mode==='miku'&&state.app==='nervis'&&state.view==='Chat';
+}
+
 /* Which avatar a screen shows. Normally the app's own; the Miku persona is the
-   one thing that replaces NERVIS's, and only NERVIS's — the RAVIS and SIRVIS
-   tabs keep their own faces whatever the chat is set to. */
-function avatarFor(app){return app==='nervis'&&USER.mode==='miku'?'miku':app}
+   one thing that replaces NERVIS's, on the one screen she lives on. */
+function avatarFor(app){return app==='nervis'&&inMikuMode()?'miku':app}
 function applyMode(){
  const app=document.querySelector('.app');
  if(!app)return;
- /* Set from the stored mode on every paint and removed otherwise, so nothing
-    has to remember to undo it. */
- if(USER.mode==='miku')app.dataset.miku='on'; else delete app.dataset.miku;
+ /* Set on every paint and removed otherwise, so leaving the screen undoes it
+    without anything having to remember that it should. */
+ if(inMikuMode())app.dataset.miku='on'; else delete app.dataset.miku;
 }
 function avatar(){return avatarFrame(avatarFor(state.app),'top-avatar');if(state.app==='nervis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><path class="coreline" d="M100 24V176M24 100H176" opacity=".18"/><path class="data flow" d="M100 100L100 32M100 100L41 139M100 100L159 139"/><circle class="sat" cx="100" cy="32" r="7"/><circle class="sat" cx="41" cy="139" r="7"/><circle class="sat" cx="159" cy="139" r="7"/><polygon class="coreline" points="100,72 124,86 124,114 100,128 76,114 76,86"/><circle class="fill" cx="100" cy="100" r="9"/><circle cx="100" cy="100" r="3" fill="var(--cyan)"/></svg>`;
 if(state.app==='sirvis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="96" r="91"/><circle class="tick" cx="100" cy="96" r="85"/><circle class="coreline" cx="100" cy="88" r="51"/><rect class="coreline" x="76" y="64" width="48" height="48" rx="7"/><path class="data" d="M84 64V55M100 64V55M116 64V55M76 80H67M124 80H133M76 96H67M124 96H133"/><rect class="fill" x="94" y="82" width="12" height="12" rx="2"/><path class="data" d="M47 137V162H153"/><circle class="fill" cx="61" cy="151" r="3"/><circle class="fill" cx="84" cy="143" r="3"/><circle class="fill" cx="107" cy="147" r="3"/><circle class="fill" cx="130" cy="139" r="3"/></svg>`;

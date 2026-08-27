@@ -5031,7 +5031,11 @@ sitting among thirteen things that route — and she was deleted with the scene 
 back as one of the chat presets, which is what she should always have been: selectable like the
 others, carrying a persona, an avatar and an accent colour.
 
-`mode` is presentation and nothing else. It routes nothing, sends nothing and records nothing.
+`mode` is presentation and nothing else. It routes nothing, sends nothing and records nothing, and
+it is **scoped to the screen the conversation is on**. It was applied wherever it was set, so
+opening Diagnostics or Evidence turned the instrumentation turquoise and put her face above a
+table of error rates — a costume on a measuring instrument. The setting still persists; the rest
+of NERVIS still looks like NERVIS.
 `data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
