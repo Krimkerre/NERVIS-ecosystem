@@ -539,6 +539,13 @@ closed** when required.
 | local only · API only · provider prohibited · privacy level · tools required · vision required · minimum context · maximum request cost · data residency · credential availability · pool capability invariant | prefer local · prefer fast · prefer cheap · prefer already loaded · prefer SIRVIS-tested · prefer provider X · energy · evidence confidence · warm state |
 
 
+**Endpoint note, 2026-08-27.** `GET /api/v1/providers` now carries `breaker`,
+`error_rate`, `requests` and `consecutive_failures` per provider, read from the
+§10 registry **without creating a record**. A provider nobody has called reports
+`null` for the first two rather than `CLOSED` and `0%`: acquiring a clean
+history by being listed would turn "unknown" into "healthy", which is the one
+reading a reliability surface must never produce.
+
 **Implementation note, 2026-08-27.** Of the soft column, `prefer already loaded`
 has worked since M5 (residency). `prefer local`, `prefer cheap` and `prefer fast`
 were prose until now and are implemented as *opt-in per pool* — an unconditional

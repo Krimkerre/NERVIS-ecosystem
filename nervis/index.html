@@ -1957,7 +1957,45 @@ const API={
      while this file was written. Ollama is installed and its daemon is not
      listening. The four cloud entries are staged — the endpoints, protocols and
      auth schemes are real, the health numbers and credential presence are not. */
-  async providers(){return{items:[
+  /* GET /api/v1/providers — every declared upstream with its live health.
+     Mapped onto the shape these screens already read rather than rewriting
+     them: the field names below are this page's vocabulary and RAVIS's are its
+     own, and one adapter is cheaper than four screens learning a second one.
+
+     `breaker` and `error_rate` are **null when a provider has never been
+     called**, which RAVIS reports deliberately — a provider nobody has tried is
+     not a healthy one, and rendering CLOSED/0% for it would be a verdict
+     nothing earned. The wiring fields (`chat_path`, `auth`) are not published
+     at all; they stay absent rather than invented, and the card that shows them
+     stays prototype until they are. */
+  async providers(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/providers',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){
+     const d=await r.json();
+     if((d.items||[]).length){
+      SOURCE.ravis='live';
+      return{live:true,items:d.items.map(x=>({
+       provider_id:x.name, label:x.name, kind:x.local?'local':'cloud',
+       protocol:x.protocol_mode||'OPENAI_TRANSPARENT',
+       base_url:x.base_url||'',
+       credential:x.credential_configured?x.credential_source:'not required',
+       breaker:x.breaker, error_rate:x.error_rate,
+       p50_ms:x.latency_ms==null?null:Math.round(x.latency_ms),
+       enabled:x.enabled!==false, models:x.catalogue_size,
+       requests:x.requests||0,
+       note:x.catalogue_error?`catalogue: ${x.catalogue_error}`
+         :x.reachable===false?(x.detail||'not answering')
+         :`${x.catalogue_size==null?'no':x.catalogue_size} model(s) listed`,
+      }))};
+     }
+    }
+   }catch(e){}
+   return this._providersMock();
+  },
+
+  async _providersMock(){return{items:[
    {provider_id:'lmstudio',label:'LM Studio',kind:'local',protocol:'OPENAI_TRANSPARENT',
     base_url:'http://127.0.0.1:1234/v1',chat_path:'/chat/completions',models_path:'/models',
     auth:{scheme:'none',header:null,secret_ref:null},
@@ -4801,13 +4839,13 @@ async function ravisProviders(){
    ['Local',`${local.filter(x=>x.enabled).length} / ${local.length}`,'answering on this machine','ravis'],
    ['Breakers open',String(breakers.length),breakers.length?breakers.map(b=>b.label).join(', '):'all closed','ravis'],
    ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis']])
- +`<div class="card full"><h3>Health</h3>${cell(`
+ +`<div class="card full${p.live?' live':''}"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
-   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${x.breaker}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
    <small class="mono dim">${p.items.map(x=>`<b>${x.label}</b> — ${x.note}`).join('<br>')}</small>`,'ravis')}</div>
   <div class="card full"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
    <div class="table-row head six"><span>Provider</span><span style="grid-column:2/4">Origin</span><span>Chat path</span><span>Auth</span><span>Secret</span></div>
-   ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path)}</span><span class="mono">${x.auth.scheme}${x.auth.header?' · '+x.auth.header:''}</span><span class="mono" style="opacity:.7">${dash(x.auth.secret_ref)}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path||'not published')}</span><span class="mono">${x.auth?escapeHtml(x.auth.scheme)+(x.auth.header?' · '+escapeHtml(x.auth.header):''):'not published'}</span><span class="mono" style="opacity:.7">${x.auth?escapeHtml(dash(x.auth.secret_ref)):'—'}</span></div>`).join('')}
    <small class="mono dim">this is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Protocol mode</h3>${cell(`
    <div class="table-row head"><span>Mode</span><span>Providers</span><span style="grid-column:3/-1">What RAVIS does to the request</span></div>

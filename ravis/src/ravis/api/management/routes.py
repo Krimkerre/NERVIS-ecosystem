@@ -41,7 +41,7 @@ from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.observations import MINIMUM_SAMPLES
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
-from ravis.reliability import HealthRegistry
+from ravis.reliability import HealthRegistry, HealthScope
 from ravis.transparent import (
     merged_candidates,
     remote_models,
@@ -239,6 +239,7 @@ async def read_providers(request: Request) -> dict[str, Any]:
     """
     state: ProviderState = request.app.state.provider_state
     credentials: CredentialStore = request.app.state.credentials
+    health: HealthRegistry = request.app.state.health
     disabled = state.disabled()
 
     entries = _provider_entries(request)
@@ -262,6 +263,14 @@ async def read_providers(request: Request) -> dict[str, Any]:
             # what Anthropic is.
             "local": is_local_address(base_url),
             "enabled": name not in disabled,
+            # §10's circuit and the failure rate behind it.
+            #
+            # Read without creating a record: a provider nobody has called must
+            # not acquire a CLOSED breaker and a clean history purely by being
+            # listed, because that reads as "healthy" and is really "unknown".
+            # Both are `None` in that case, and a screen showing them can say
+            # "not probed" instead of implying a verdict.
+            **_reliability(health, name),
             "credential_configured": status.configured,
             "credential_source": status.source.value,
             # Why this provider's catalogue is the size it is. `last_error` has
@@ -311,6 +320,20 @@ def _provider_entries(request: Request) -> list[tuple[str, Any, str]]:
     for name, adapter in getattr(request.app.state, "translating", {}).items():
         entries.append((name, adapter, getattr(adapter, "base_url", "")))
     return entries
+
+
+def _reliability(health: HealthRegistry, name: str) -> dict[str, Any]:
+    """One provider's circuit state and error rate, or nulls if never called."""
+    known = health.known(HealthScope.PROVIDER, name)
+    if known is None:
+        return {"breaker": None, "error_rate": None, "requests": 0,
+                "consecutive_failures": 0}
+    return {
+        "breaker": known.state.value,
+        "error_rate": known.error_rate,
+        "requests": known.requests,
+        "consecutive_failures": known.consecutive_failures,
+    }
 
 
 async def _probe(adapter: Any) -> dict[str, Any]:

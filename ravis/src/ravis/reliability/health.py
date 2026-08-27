@@ -202,6 +202,23 @@ class TargetHealth:
         """
         self.stream_interruptions += 1
 
+    @property
+    def error_rate(self) -> float | None:
+        """Failures as a fraction of attempts, or None when nothing was tried.
+
+        `None` rather than `0.0`, which is the same distinction this file keeps
+        everywhere else: a provider nobody has called and a provider that has
+        never failed are not the same claim, and a dashboard reporting a
+        confident zero for the first is repeating a lie it was handed.
+
+        Counted from the failure classes rather than as `requests - successes`,
+        because an attempt in flight is neither yet — and subtracting would
+        report a momentary failure every time somebody looked mid-request.
+        """
+        if not self.requests:
+            return None
+        return sum(self.failures_by_class.values()) / self.requests
+
     def as_dict(self) -> dict[str, Any]:
         """Diagnostics only: counts and states, never a URL or a credential."""
         return {
@@ -213,6 +230,7 @@ class TargetHealth:
             "failures": dict(self.failures_by_class),
             "stream_interruptions": self.stream_interruptions,
             "consecutive_failures": self.consecutive_failures,
+            "error_rate": self.error_rate,
             "mean_ttft_seconds": _mean(self.ttft_samples),
             "mean_latency_seconds": _mean(self.latency_samples),
         }
@@ -257,6 +275,16 @@ class HealthRegistry:
                 clock=self.clock,
             )
         return self._targets[key]
+
+    def known(self, scope: HealthScope, target: str) -> TargetHealth | None:
+        """The health record for one target, or None if it has never had one.
+
+        The counterpart to `of`, which creates on first sight. A *listing* must
+        not conjure records for every provider it names — a provider nobody has
+        called would acquire a CLOSED breaker and a clean history purely by
+        being displayed, which reads as "healthy" and is really "unknown".
+        """
+        return self._targets.get((scope, target))
 
     def record(self, failure_class: FailureClass, target: str, provider: str,
                started_at: float) -> None:
