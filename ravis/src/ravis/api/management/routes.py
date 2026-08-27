@@ -322,6 +322,29 @@ def _provider_entries(request: Request) -> list[tuple[str, Any, str]]:
     return entries
 
 
+def _local_share(request: Request, recent: list[Any]) -> tuple[int, int]:
+    """How many executed decisions ran on this machine, and how many ran at all.
+
+    Read from the provider each decision actually used, against the same
+    `is_local_address` test `ravis/local` is enforced with — so the figure on a
+    dashboard and the promise in a pool cannot disagree about what "local"
+    means.
+    """
+    transparents = getattr(request.app.state, "transparents", {})
+    local_names = {
+        name for name, built in transparents.items()
+        if is_local_address(built.spec.base_url)
+    }
+    local = executed = 0
+    for entry in recent:
+        provider = (entry.attempts or {}).get("provider")
+        if not provider:
+            continue
+        executed += 1
+        local += provider in local_names
+    return local, executed
+
+
 def _reliability(health: HealthRegistry, name: str) -> dict[str, Any]:
     """One provider's circuit state and error rate, or nulls if never called."""
     known = health.known(HealthScope.PROVIDER, name)
@@ -606,10 +629,20 @@ async def read_usage(request: Request) -> dict[str, Any]:
     """
     log: DecisionLog = request.app.state.decision_log
     recent = log.recent(log.capacity)
+    local, executed = _local_share(request, recent)
     return {
         "decisions_recorded": len(recent),
         "routed": sum(1 for entry in recent if entry.decision.routed),
         "no_route": sum(1 for entry in recent if not entry.decision.routed),
+        # How much of the traffic stayed on this machine.
+        #
+        # Counted from the decisions that actually *ran*, not from those merely
+        # recorded: a decision mid-stream has no provider yet, and folding it in
+        # as "not local" would report a dip every time somebody was reading a
+        # long answer. `None` when nothing has executed, because a share of zero
+        # requests is not zero percent.
+        "local_share": None if not executed else local / executed,
+        "executed": executed,
         "spend_today": None,
         "spend_currency": None,
         "cost_available": False,

@@ -2252,7 +2252,20 @@ const API={
 
   /* GET /api/v1/usage — counted by RAVIS from its own traffic, which is why the
      local share is an observation rather than a setting. */
-  async usage(){return{spend_today_eur:0.42,budget_used_pct:1,local_pct:88,routing_p50_ms:3.1,
+  /* GET /api/v1/usage — what RAVIS has actually done, and what it cannot say.
+     The counts are real. Cost is `null` and says why: the engine is M15, and
+     §14 forbids presenting an estimate as an invoice — "€0.00" would be a
+     confident lie where a blank is a true statement about what is known. */
+  async usage(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/usage',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{...d,live:true}}
+   }catch(e){}
+   return this._usageMock();
+  },
+
+  async _usageMock(){return{spend_today_eur:0.42,budget_used_pct:1,local_pct:88,routing_p50_ms:3.1,
    pools:{total:6,clarvis:2}}}
  },
 
@@ -4298,10 +4311,52 @@ async function systemView(){
    knows about, and it is cleared by any render that follows a commit or cancel. */
 let ARMED=null;
 function armProfile(id){ARMED=ARMED===id?null:id;render()}
+/* The RAVIS dashboard from RAVIS's own records.
+ *
+ * Four figures, and only two of them are knowable — which is the whole reason
+ * this screen is written out rather than left to the transcription. The
+ * transcription reported a routing P50 of 3.1 ms, 88% local and €0.42 spent
+ * today, all invented, on the first page anybody opens.
+ *
+ * `local_share` is counted from the provider each decision actually used,
+ * against the same `is_local_address` test `ravis/local` is enforced with, so
+ * the number here and the promise in that pool cannot disagree.
+ *
+ * Routing time and spend stay absent. Nothing instruments the decision, and the
+ * cost engine is M15 — RAVIS says so itself in `cost_detail`, and repeating its
+ * sentence is better than inventing a figure to fill the tile.
+ */
+function liveRavisDashboard(decisions, usage, prof){
+ const active=prof.items.find(x=>x.default)||prof.items[0];
+ const share=usage.local_share;
+ $('#content').innerHTML=kpis([
+   ['Active profile',active?active.label:'—',
+     active?`${active.profile_id} · rev ${active.revision}`:'','ravis',true],
+   ['Decisions',`${usage.routed} / ${usage.decisions_recorded}`,
+     usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
+   ['Local',share==null?'—':Math.round(share*100)+'%',
+     share==null?'nothing has executed yet':`of ${usage.executed} executed`,'ravis',true],
+   /* Rendered as unknown rather than omitted. A missing tile reads as a page
+      that forgot; a tile saying "not measured" is the answer. */
+   ['Spend',usage.cost_available?'—':'not measured',
+     usage.cost_detail||'the cost engine lands at M15','ravis',true]])
+ +(decisions.length
+   ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
+     +recentDecisionsCard(decisions.slice(0,8))
+   : `<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
+   <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
+   <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`);
+}
+
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
- const [rd,req,usage,prof]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests(),
+ const [decisions,usage,prof]=await Promise.all([API.ravis.decisions(25),
    API.ravis.usage(),API.ravis.profiles()]);
+ /* Live when RAVIS answers at all — the counts are real even before anything
+    has routed, and "nothing has routed yet" is a better first screen than four
+    invented figures. */
+ if(usage.live)return liveRavisDashboard(decisions.items,usage,prof);
+ const [rd,req]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests()]);
  const active=prof.items.find(x=>x.default);
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  $('#content').innerHTML=kpis([['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`],
@@ -6224,13 +6279,28 @@ function markPrototype(){
  const map=PROTOTYPE[state.app]||{};
  const box=$('#content');
  if(!box)return;
- if(map[state.view]||map['*']){
+ /* Listed *and* actually showing something invented.
+
+    The map is a per-screen guess made ahead of time; whether a card is backed
+    is decided per render, by whether its reader reached a service. A screen
+    whose cards all came back live has nothing faded, and a banner reading
+    "faded cards on this screen render invented data" beside no faded card is
+    noise that teaches a reader to ignore the banner — which is the one thing it
+    cannot afford to become.
+
+    So the list decides whether to *look*, and the cards decide whether anything
+    is said. A screen that goes fully live drops the label on its own, and gets
+    it back the moment a service stops answering, without anybody remembering to
+    edit the map either way. */
+ const invented=box.querySelectorAll('.card:not(.live)').length;
+ if((map[state.view]||map['*'])&&invented){
   box.setAttribute('data-wip','');
   /* Prepended here rather than by each view, so a screen added later inherits
      the label instead of being forgotten. */
   if(!box.querySelector('.wip-note'))box.insertAdjacentHTML('afterbegin',prototypeNote());
  }else{
   box.removeAttribute('data-wip');
+  box.querySelector('.wip-note')?.remove();
  }
 }
 
