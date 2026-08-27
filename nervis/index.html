@@ -5959,6 +5959,10 @@ const PRESETS={
      model *and* a voice, and a preset that restored two of the three would be
      the one nobody trusts. */
   taken.voice_profile=(SPEECH.settings||{}).selected_profile||'';
+  /* Length belongs to the mode too. "Just the facts" that still runs six
+     paragraphs is not the mode it says it is, and "Deep think" capped at two
+     sentences is the house limit quietly defeating the preset. */
+  taken.brief=USER.brief;
   return taken;
  },
 
@@ -5972,6 +5976,7 @@ const PRESETS={
    if(key in found.params)CHAT_SESSION[key]=found.params[key];
   if(found.params.profile)PROFILE_STORE.write(found.params.profile);
   if(found.params.system!==undefined)USER.setSystem(found.params.system);
+  if(found.params.brief!==undefined)USER.setBrief(found.params.brief);
   notify('Applied '+found.name);
   /* The voice is NERVIS's, so switching it is a write rather than an
      assignment. Quiet, because the notify above already said what happened —
@@ -6315,13 +6320,16 @@ function chatDrawerMarkup(){
     })():`
    <div class="param-grid">
     <label style="grid-column:1/-1">Preset
-     <span style="display:flex;gap:6px;align-items:center">
-      <select id="cpPreset" style="flex:1;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
-        onchange="PRESETS.apply(this.value)">
-       <option value="">— everything below, unsaved —</option>
-       ${PRESETS.items.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
-      </select>
-      <input id="cpPresetName" placeholder="name it" style="width:110px">
+     <select id="cpPreset" style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
+       onchange="PRESETS.apply(this.value)">
+      <option value="">— everything below, unsaved —</option>
+      ${PRESETS.items.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
+     </select>
+     <!-- On its own row. The drawer is about 230px wide, and a select, a text
+          field and a button abreast in that space pushed the button off the
+          edge — a control you cannot reach is worse than one that wraps. -->
+     <span style="display:flex;gap:6px;align-items:center;margin-top:6px">
+      <input id="cpPresetName" placeholder="name it" style="flex:1;min-width:0">
       <button class="btn primary" onclick="PRESETS.save()">Save</button>
      </span>
      <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a preset holds everything on this panel <b>the pool and the voice</b> — the model, the persona, the sampling and what it sounds like, because that combination is what a mode actually is. Saving under an existing name replaces it.${PRESETS.items.length?` <a href="#" onclick="PRESETS.remove(document.getElementById('cpPreset').value);return false" style="color:inherit;opacity:.7">delete the selected one</a>`:''}</small></label>

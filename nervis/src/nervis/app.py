@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse
 
 from nervis.api import chat_router, events_router, instances_router, traces_router, voice_router
 from nervis.api import router as api_router
-from nervis.api.chat import seed_persona
+from nervis.api.chat import seed_chat_defaults
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, advertise_voice, nervis_surface
 from nervis.enrollment import load_or_create
@@ -86,8 +86,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # misspelling of the name for as long as the cache stayed cold.
     api.state.voice_locality = None
 
-    # NERVIS's own voice, as an editable setting rather than a hidden rule.
-    seed_persona(api.state.database)
+    # NERVIS's own voice and its starting presets, as editable settings rather
+    # than hidden rules.
+    seed_chat_defaults(api.state.database)
 
     # Read from the database rather than generated per process. §4.1 requires
     # `machine_id` to be stable per installation and `service_id` to be a stable

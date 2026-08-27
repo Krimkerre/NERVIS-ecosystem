@@ -570,3 +570,39 @@ def _shared_db() -> Any:
     directory = tempfile.mkdtemp()
     _SHARED.append(directory)
     return Path(directory) / "nervis.db"
+
+
+def test_the_preset_picker_is_not_an_empty_list_on_first_launch() -> None:
+    """A picker with nothing in it and a Save button next to it teaches nobody
+    what a preset is for."""
+    client = an_api()
+
+    presets = client.get("/api/v1/settings").json()["items"]["chat.presets"]
+
+    names = [p["name"] for p in presets]
+    assert "NERVIS" in names
+    assert len(presets) >= 4
+    # Every one is a whole mode: a pool and a manner at minimum.
+    assert all(p["params"].get("profile") and p["params"].get("system") for p in presets)
+
+
+def test_no_shipped_preset_names_a_voice_that_may_not_exist() -> None:
+    """Voice ids are per-installation and per-account. A shipped one would point
+    at nothing here, and empty means *leave the voice alone* — which is the only
+    honest default for a machine whose voices this code has never seen."""
+    client = an_api()
+
+    presets = client.get("/api/v1/settings").json()["items"]["chat.presets"]
+
+    assert not any(p["params"].get("voice_profile") for p in presets)
+
+
+def test_deleting_the_shipped_presets_leaves_them_deleted() -> None:
+    """Same rule as the persona: absent and empty are different states."""
+    database = _shared_db()
+    settings = Settings(database_path=str(database), _env_file=None)  # type: ignore[call-arg]
+    TestClient(create_app(settings)).put("/api/v1/settings/chat.presets", json={"value": []})
+
+    second = TestClient(create_app(settings))
+
+    assert second.get("/api/v1/settings").json()["items"]["chat.presets"] == []

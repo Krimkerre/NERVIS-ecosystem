@@ -128,24 +128,115 @@ DEFAULT_PERSONA = (
 )
 
 
-def seed_persona(database: Any) -> None:
-    """Put NERVIS's own voice in the settings table, once.
+PRESETS_SETTING = "chat.presets"
 
-    **Only when the key is absent**, never when it is present and empty. Those
-    are different states and the settings store keeps them apart on purpose: an
-    empty string is somebody having deliberately cleared the persona, and
-    re-seeding over that would be the setting refusing to stay set — which is
-    the complaint that produced this in the first place.
+# Modes worth having on the first launch, so the picker is not an empty list
+# with a Save button next to it.
+#
+# **Each is a whole mode**, which is the argument for presets existing at all: a
+# pool, a manner, the sampling and the length together. What none of them carry
+# is a `voice_profile` — voice ids are per-installation and per-account, so a
+# shipped one would name something that does not exist here. Empty means *leave
+# the voice alone*, which is the only honest default.
+#
+# Numbers are strings because the form holds strings: an empty box means the
+# parameter is not sent at all, and `0` and `""` have to stay distinguishable.
+DEFAULT_PRESETS = [
+    {
+        "id": "cp_nervis",
+        "name": "NERVIS",
+        # The way back. Once somebody has been through the other four, the most
+        # useful preset in the list is the one that undoes them.
+        "params": {
+            "profile": "ravis/chat",
+            "system": DEFAULT_PERSONA,
+            "brief": True,
+        },
+    },
+    {
+        "id": "cp_facts",
+        "name": "Just the facts",
+        "params": {
+            "profile": "ravis/chat",
+            "system": (
+                "Answer the question and stop. No persona, no preamble, and no "
+                "closing offer of further help. Where you are unsure, say which "
+                "part rather than hedging the whole answer."
+            ),
+            "temperature": "0.2",
+            "brief": True,
+        },
+    },
+    {
+        "id": "cp_think",
+        "name": "Deep think",
+        "params": {
+            "profile": "ravis/reasoning",
+            "system": (
+                "Work the problem through before answering. Show the reasoning "
+                "that carries the conclusion and leave out the reasoning that "
+                "does not. Say plainly when a step is a guess."
+            ),
+            "max_tokens": "4000",
+            # Length is the point of this one, so the house limit comes off.
+            "brief": False,
+        },
+    },
+    {
+        "id": "cp_local",
+        "name": "Off the record",
+        "params": {
+            "profile": "ravis/local",
+            "system": (
+                "You are NERVIS, running entirely on this machine — nothing in "
+                "this conversation leaves it. Same dry, teasing manner as "
+                "always, and no less honest for it: a model this size is "
+                "wrong more often, so say when you are unsure instead of "
+                "guessing confidently."
+            ),
+            "brief": True,
+        },
+    },
+    {
+        "id": "cp_code",
+        "name": "Code",
+        "params": {
+            "profile": "ravis/coding",
+            "system": (
+                "You are helping with code. Lead with the change rather than "
+                "the explanation, name files and symbols exactly, and say when "
+                "something is a guess rather than something you can see."
+            ),
+            "temperature": "0.2",
+            # A two-sentence cap on a code answer truncates the answer.
+            "brief": False,
+        },
+    },
+]
+
+
+def seed_chat_defaults(database: Any) -> None:
+    """Put NERVIS's own voice and its starting presets in the settings table.
+
+    **Only where the key is absent**, never where it is present and empty or
+    empty-listed. Those are different states and the settings store keeps them
+    apart on purpose: an empty value is somebody having deliberately cleared it,
+    and re-seeding over that would be the setting refusing to stay set — which
+    is the complaint that produced all of this in the first place.
     """
+    _seed(database, PERSONA_SETTING, DEFAULT_PERSONA)
+    _seed(database, PRESETS_SETTING, DEFAULT_PRESETS)
+
+
+def _seed(database: Any, key: str, value: Any) -> None:
     row = database.connection.execute(
-        "SELECT 1 FROM setting WHERE key = ?", (PERSONA_SETTING,)
+        "SELECT 1 FROM setting WHERE key = ?", (key,)
     ).fetchone()
     if row:
         return
     with database.connection as connection:
         connection.execute(
-            "INSERT INTO setting (key, value) VALUES (?, ?)",
-            (PERSONA_SETTING, json.dumps(DEFAULT_PERSONA)),
+            "INSERT INTO setting (key, value) VALUES (?, ?)", (key, json.dumps(value))
         )
 
 # What the model is answering. A greeting needs *something* in the user slot,

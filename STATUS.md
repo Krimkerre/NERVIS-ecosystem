@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1272 tests, no network, no live service
+.venv/bin/pytest                      # part of 1275 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1272 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1275 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5117,8 +5117,13 @@ It supersedes §18.1's split for chat, which is recorded there rather than left 
 code. Two clauses survive intact and are restated inside the persona itself: the facts are never
 the joke, and the teasing is never at the user's expense.
 
-**Chat parameters save as named presets**, held in the settings store as one value rather than in
-a table with four endpoints — a preset is a handful of short strings and there are never many.
+**Chat parameters save as named presets**, and five ship seeded — NERVIS, Just the facts, Deep
+think, Off the record, Code — so the picker is not an empty list with a Save button beside it.
+None of them names a voice: voice ids are per-installation and per-account, so a shipped one
+would point at nothing, and empty means *leave the voice alone*, which is the only honest default
+for a machine whose voices this code has never seen.
+
+They are held in the settings store as one value rather than in a table with four endpoints — a preset is a handful of short strings and there are never many.
 A preset carries the pool, the persona, the sampling *and* the selected voice, because that
 combination is what a mode actually is: "the butler" is a model, a manner and a sound, and one
 that restored two of the three is the one nobody trusts. The captured key list is built from
