@@ -2151,7 +2151,31 @@ const API={
           evidence:b.measured&&b.measured.tools?'MEASURED_BY_SIRVIS':'PROVIDER_METADATA'}}))}},
 
   /* GET /api/v1/policies — conditions and actions, in evaluation order. */
-  async policies(){return{items:[
+  /* GET /api/v1/policies — §9.6's IF/THEN rules.
+     Empty until the policy engine lands at RAVIS M16, and RAVIS says so in that
+     endpoint's own words: "empty is the honest answer: no policy is currently
+     in force, so a dashboard should show none rather than an invented default
+     that would misrepresent what RAVIS is doing."
+
+     This page was that invented default. Four plausible rules — deny cloud on
+     LOCAL_ONLY, deny provider openai for Clarvis — none of which RAVIS
+     evaluates, on a screen headed "Conditions and actions, in evaluation
+     order". A reader would have concluded their traffic was governed by rules
+     that do not exist, which is worse than showing nothing.
+
+     The transcription is kept for the from-disk case, where the whole page is
+     labelled prototype and the rules read as a design sketch rather than as a
+     claim about a running service. */
+  async policies(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/policies',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{items:d.items||[],live:true}}
+   }catch(e){}
+   return this._policiesMock();
+  },
+
+  async _policiesMock(){return{items:[
    {policy_id:'pl_01',when:'application == Clarvis AND model == ravis/clarvis-agent',then:'require tools',kind:'hard',enabled:true},
    {policy_id:'pl_02',when:'conversation.privacy == LOCAL_ONLY',then:'deny all cloud providers',kind:'hard',enabled:true},
    {policy_id:'pl_03',when:'budget.month_used > 90%',then:'strong cost penalty',kind:'soft',enabled:true},
@@ -4859,9 +4883,55 @@ async function ravisProviders(){
 /* Policies — conditions and actions in evaluation order. Hard policies eliminate,
    soft policies bias the ranking; showing them in one list without that column
    would make a preference look like a guarantee. */
+/* What governs a route when no policy engine exists, which is today.
+   Not a placeholder: these are enforced on every request, by the pool
+   invariants and the routing engine rather than by a rule table. Somebody
+   asking "what decides where my request goes" deserves this answer rather than
+   an empty list. */
+function noPoliciesScreen(){
+ const HARD=[
+  ['pool invariants','a capability, a minimum context or a locality the pool requires','core/pools.py'],
+  ['locality','ravis/local and ravis/private never leave this machine','PoolRequirements.locality'],
+  ['request requirements','tools or images in the request itself demand a model that handles them','routing/requirements.py'],
+  ['open circuit','§10 routes away from a provider that is failing','reliability/health.py'],
+  ['operator selection','the models ticked for this pool, which narrows and never widens','pool_membership.py'],
+ ];
+ const SOFT=[
+  ['prefer already loaded','a resident model needs no load','residency'],
+  ['prefer local','placement, where the pool asks for it','prefer_local'],
+  ['prefer cheap','published price per million; unpriced sorts last','prefer_cheap'],
+  ['prefer fast','measured time-to-first-token, above a sample floor','prefer_fast'],
+  ['size tiebreak','among candidates a pool considers equal, the smaller','size_rank'],
+ ];
+ const rows=(list,kind)=>list.map(([name,effect,where])=>`<div class="table-row">
+   <span class="mono">${escapeHtml(name)}</span>
+   <span style="grid-column:2/4;opacity:.85">${escapeHtml(effect)}</span>
+   <span class="mono" style="opacity:.55">${escapeHtml(where)}</span>
+   <span class="chip${kind==='hard'?' warn':''}">${kind}</span></div>`).join('');
+ $('#content').innerHTML=kpis([
+   ['Policies','0','none are in force','ravis',true],
+   ['Hard constraints',String(HARD.length),'eliminate a candidate','ravis',true],
+   ['Soft preferences',String(SOFT.length),'reorder, never eliminate','ravis',true],
+   ['Policy engine','M16','not built','ravis',true]])
+ +`<div class="card full live"><h3>No policy is in force</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/policies</span></div>
+   <div class="trace-step"><b>returned</b><span>an empty list</span></div>
+   <small class="mono dim">and that is the answer rather than a gap in this page. §9.6's <b>IF … THEN</b> rules arrive with the policy engine at <b>M16</b>. Until then RAVIS evaluates none, and a screen showing plausible-looking rules would tell a reader their traffic is governed by conditions that do not exist — which is worse than showing nothing. What <i>does</i> govern a route is below, and it is enforced on every request.</small>`,'ravis')}</div>
+  <div class="card full live"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(`
+   <div class="table-row head"><span>Rule</span><span style="grid-column:2/4">Effect</span><span>Where</span><span>Kind</span></div>
+   ${rows(HARD,'hard')}${rows(SOFT,'soft')}
+   <small class="mono dim">a <b>hard</b> constraint eliminates a candidate and a <b>soft</b> preference only reorders the survivors — §9.2's split, and the reason a pool with no eligible member returns <b>NO_ROUTE</b> rather than the nearest thing available. The soft column is ordered as the engine applies it, and only the preferences a pool actually declares are consulted: an unconditional term would become the whole ranking for every pool that declares nothing.</small>`,'ravis')}</div>`;
+}
+
 async function ravisPolicies(){
  heading('Policies','Conditions and actions, in evaluation order. Hard policies eliminate; soft policies only rank.');
  const p=await API.ravis.policies();
+ /* RAVIS answering with nothing is a *fact*, not an empty screen to fill. The
+    engine that would evaluate policies is M16 and is not built, so the honest
+    render is a statement to that effect — and the constraint table below it,
+    which is real: §9.2's hard/soft split is enforced today by pool invariants
+    and the routing engine, and that is what actually governs a request. */
+ if(p.live&&!p.items.length)return noPoliciesScreen();
  const hard=p.items.filter(x=>x.kind==='hard');
  $('#content').innerHTML=kpis([
    ['Policies',String(p.items.length),'evaluated in order','ravis'],
