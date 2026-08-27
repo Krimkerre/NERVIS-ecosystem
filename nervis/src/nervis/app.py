@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 
 from nervis.api import chat_router, events_router, instances_router, traces_router, voice_router
 from nervis.api import router as api_router
+from nervis.api.chat import seed_persona
 from nervis.config import Settings
 from nervis.ecosystem import BUILD_VERSION, advertise_voice, nervis_surface
 from nervis.enrollment import load_or_create
@@ -72,12 +73,6 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
 
-    # Read from the database rather than generated per process. §4.1 requires
-    # `machine_id` to be stable per installation and `service_id` to be a stable
-    # configured identity; a `uuid4()` here would give a peer a different answer
-    # after every restart, which is precisely what makes correlation impossible.
-    # `instance_id` is the one that changes per process, and the protocol
-    # package generates that itself.
     # §18.2's voice credential. A file in the user's config directory rather
     # than a row in the database above: `nervis.db` is created in the working
     # directory with whatever mode the umask allows, which is fine for
@@ -91,6 +86,15 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # misspelling of the name for as long as the cache stayed cold.
     api.state.voice_locality = None
 
+    # NERVIS's own voice, as an editable setting rather than a hidden rule.
+    seed_persona(api.state.database)
+
+    # Read from the database rather than generated per process. §4.1 requires
+    # `machine_id` to be stable per installation and `service_id` to be a stable
+    # configured identity; a `uuid4()` here would give a peer a different answer
+    # after every restart, which is precisely what makes correlation impossible.
+    # `instance_id` is the one that changes per process, and the protocol
+    # package generates that itself.
     service_id, machine_id = installation_identity(api.state.database)
     api.state.service_id = service_id
     api.state.machine_id = machine_id

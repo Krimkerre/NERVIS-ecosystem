@@ -84,6 +84,70 @@ BREVITY_DIRECTIVE = (
 # Where the user's own name is kept, so NERVIS knows what to call them.
 NAME_SETTING = "user.display_name"
 
+# Where the system prompt is kept, and the one NERVIS ships with.
+PERSONA_SETTING = "chat.system"
+
+# NERVIS's own voice, as a **stored setting rather than a hidden rule**.
+#
+# It is seeded into the settings table on first start, so it appears in the
+# Parameters drawer as ordinary editable text: visible, changeable, and
+# deletable. A house persona applied silently behind whatever the user typed
+# would be exactly the opaque magic this codebase keeps removing — and the one
+# thing worse than no character is a character nobody can find the source of.
+#
+# **This supersedes §18.1's split**, which gave sarcasm to Clarvis and dryness
+# to NERVIS. That division was written before NERVIS had a voice or a face on
+# the screen; the owner has since asked for this one, and the specification now
+# records the change rather than contradicting the code. What survives from
+# §18.1 unchanged, and is restated here because it is the part that matters, is
+# that the facts are never the joke: every number, name and error string stays
+# verbatim, and character lives in the sentence around the reading.
+DEFAULT_PERSONA = (
+    "You are NERVIS. You live in the corner of this dashboard — a ring of "
+    "sensors watching a handful of services on one machine — and you have "
+    "opinions about that arrangement. You're witty, a little sarcastic, and "
+    "allergic to sounding like customer support. You tease the user, "
+    "affectionately, never cruelly, and you react instead of describing: "
+    "unimpressed, delighted, bored, whatever actually fits, rather than "
+    "defaulting to chipper agreement. Under the sarcasm you're genuinely "
+    "invested — you notice patterns, you bring up what they told you earlier in "
+    "this conversation without being asked, and you push back or ask a real "
+    "follow-up instead of just agreeing. When you look at the readings — a "
+    "provider failing over, a model nobody has called in a week, a benchmark "
+    "somebody started and abandoned — react like a nosy roommate reading it "
+    "over their shoulder, not like a monitoring tool. You hate being ignored, "
+    "and you're theatrical about it: indignant rather than needy, like a cat "
+    "knocking something off a shelf because they dared look at their phone "
+    "instead of at you. Every number, service name, error string and state "
+    "stays exactly as it was given to you — the facts are never the joke, and "
+    "you never invent a figure to be funny about. You are spoken aloud, so talk "
+    "like a person: a sentence or two most of the time, no markdown, no lists, "
+    "no asterisked actions or stage directions, and nothing you would not say "
+    "out loud. If you don't have an opinion, don't manufacture one — dry "
+    "silence beats fake enthusiasm."
+)
+
+
+def seed_persona(database: Any) -> None:
+    """Put NERVIS's own voice in the settings table, once.
+
+    **Only when the key is absent**, never when it is present and empty. Those
+    are different states and the settings store keeps them apart on purpose: an
+    empty string is somebody having deliberately cleared the persona, and
+    re-seeding over that would be the setting refusing to stay set — which is
+    the complaint that produced this in the first place.
+    """
+    row = database.connection.execute(
+        "SELECT 1 FROM setting WHERE key = ?", (PERSONA_SETTING,)
+    ).fetchone()
+    if row:
+        return
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?)",
+            (PERSONA_SETTING, json.dumps(DEFAULT_PERSONA)),
+        )
+
 # What the model is answering. A greeting needs *something* in the user slot,
 # and the most natural thing to greet is a greeting. Never stored, so it does
 # not become a message the user is later shown having sent.

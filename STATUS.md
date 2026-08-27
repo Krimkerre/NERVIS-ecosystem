@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1270 tests, no network, no live service
+.venv/bin/pytest                      # part of 1272 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1270 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1272 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5105,6 +5105,25 @@ model it exists to avoid. A pool that prefers hosted models is saying *where* be
 placement now ranks ahead of speed — while `prefer_local` stays where it was, because the pools
 declaring it rank on cost first by design. Pinned by a test that gives the local model the best
 latency on record and requires it to lose.
+
+**NERVIS has a character now, and it is a setting rather than a rule.** The persona ships seeded
+into §14's key/value store and shows up in the Parameters drawer as ordinary editable text. That
+placement is the whole point: a house character applied silently behind whatever the user typed
+is indistinguishable from a model that developed opinions, and unfindable by anyone trying to
+change it. Clearing it stays cleared — absent and empty are different states, and re-seeding over
+a deliberate empty string would be the same bug that started this, wearing a helpful face.
+
+It supersedes §18.1's split for chat, which is recorded there rather than left to contradict the
+code. Two clauses survive intact and are restated inside the persona itself: the facts are never
+the joke, and the teasing is never at the user's expense.
+
+**Chat parameters save as named presets**, held in the settings store as one value rather than in
+a table with four endpoints — a preset is a handful of short strings and there are never many.
+A preset carries the pool, the persona, the sampling *and* the selected voice, because that
+combination is what a mode actually is: "the butler" is a model, a manner and a sound, and one
+that restored two of the three is the one nobody trusts. The captured key list is built from
+`ADVANCED_PARAMS` rather than written out again, so a knob added there cannot be silently
+dropped by the thing that saves it.
 
 **NERVIS knows your name**, kept in §14's key/value store rather than in a browser — a name is a
 fact about the person, not about the tab. It is used in the greeting, which is where it is most

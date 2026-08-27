@@ -3061,7 +3061,13 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  /* Awaited before the greeting, because the greeting is where the name is
     first used — loading it afterwards would greet a stranger exactly once,
     on the one screen where it is most visible. */
- USER.load().then(maybeGreet);}
+ USER.load().then(()=>{
+  /* Only into a conversation nobody has typed into. Assigning unconditionally
+     would overwrite a prompt somebody is editing on the very next paint, and
+     reopening an old conversation restores that conversation's own. */
+  if(!CHAT_SESSION.messages.length&&!CHAT_SESSION.system)CHAT_SESSION.system=USER.system;
+  maybeGreet();
+ });}
 
 /* Measured rather than guessed: the card's distance from the top of the
    viewport depends on the heading, which wraps differently at narrow widths.
@@ -5896,13 +5902,19 @@ const CHAT_STORE={
    browser: a name is a fact about the person, not about the tab they happen to
    have open, and it should survive a different browser on the same machine. */
 const USER={
- name:'', brief:true,
+ name:'', system:'', brief:true,
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
    if(!r.ok)return;
    const items=(await r.json()).items||{};
    this.name=String(items['user.display_name']||'');
+   /* NERVIS's own voice, seeded by the service on first start and editable
+      here. Held on USER rather than only on CHAT_SESSION because the session
+      is per-tab and this is not: a system prompt that vanished on reload is
+      the complaint that produced all of this. */
+   this.system=String(items['chat.system']||'');
+   PRESETS.items=Array.isArray(items['chat.presets'])?items['chat.presets']:[];
    /* Absent means on. A house style nobody has opted out of is the default,
       and `!== false` is what distinguishes "never set" from "turned off". */
    this.brief=items['chat.brief']!==false;
@@ -5913,7 +5925,80 @@ const USER={
     headers:{'content-type':'application/json'},body:JSON.stringify({value})})}catch(e){}
  },
  setName(value){this.name=value;this.write('user.display_name',value)},
- setBrief(on){this.brief=on;this.write('chat.brief',on)}
+ setBrief(on){this.brief=on;this.write('chat.brief',on)},
+ /* Written on `change` rather than `input`: a PUT per keystroke would be a
+    request storm for a textarea somebody is composing a paragraph in. */
+ setSystem(value){this.system=value;this.write('chat.system',value)}
+};
+
+/* Named sets of chat parameters.
+
+   **Kept in §14's settings store as one value, not in a table of their own.**
+   A preset is a handful of short strings and there are never many; a migration,
+   four endpoints and a router for that would be more machinery than the thing
+   it stores. The voice profiles earned a table because they are joined against
+   a credential and a selection; these are not. */
+const PRESETS={
+ items:[],
+
+ /* Built from `ADVANCED_PARAMS` rather than listed twice, so a knob added there
+    is captured here automatically. The alternative is the bug that list already
+    exists to prevent: a parameter that works in the form, travels in the
+    request, and is silently dropped by the thing that saves it. */
+ keys(){
+  return ['profile','system','temperature','max_tokens','top_p',
+    ...ADVANCED_PARAMS.map(p=>p.key),'stop'];
+ },
+
+ capture(){
+  const taken={};
+  for(const key of this.keys())taken[key]=CHAT_SESSION[key];
+  /* The voice, which lives on NERVIS rather than on the session — so it is
+     read from the loaded settings instead of from `CHAT_SESSION`. A mode is
+     what it sounds like as much as what it says: "the butler" is a persona, a
+     model *and* a voice, and a preset that restored two of the three would be
+     the one nobody trusts. */
+  taken.voice_profile=(SPEECH.settings||{}).selected_profile||'';
+  return taken;
+ },
+
+ apply(id){
+  const found=this.items.find(p=>p.id===id);
+  if(!found)return;
+  /* Only the keys a preset owns. `Object.assign` with the whole stored object
+     would let an old preset carrying a stale field write it back onto the
+     session — including `messages`, if one were ever saved with it. */
+  for(const key of this.keys())
+   if(key in found.params)CHAT_SESSION[key]=found.params[key];
+  if(found.params.profile)PROFILE_STORE.write(found.params.profile);
+  if(found.params.system!==undefined)USER.setSystem(found.params.system);
+  notify('Applied '+found.name);
+  /* The voice is NERVIS's, so switching it is a write rather than an
+     assignment. Quiet, because the notify above already said what happened —
+     and awaited only to the extent that the re-render below picks it up. */
+  if(found.params.voice_profile)
+   VOICE.flag('selected_profile',found.params.voice_profile,true).then(render);
+  render();
+ },
+
+ async save(){
+  const name=fieldValue('cpPresetName');
+  if(!name)return notify('Name it first');
+  /* Same name replaces, rather than accumulating three "default"s that differ
+     in ways nobody can see from the list. */
+  const existing=this.items.find(p=>p.name.toLowerCase()===name.toLowerCase());
+  if(existing)existing.params=this.capture();
+  else this.items.push({id:'cp_'+Math.random().toString(36).slice(2,8),name,params:this.capture()});
+  await USER.write('chat.presets',this.items);
+  notify(existing?'Replaced '+name:'Saved '+name);
+  render();
+ },
+
+ async remove(id){
+  this.items=this.items.filter(p=>p.id!==id);
+  await USER.write('chat.presets',this.items);
+  render();
+ }
 };
 
 /* The pool this browser last chose, across reloads.
@@ -5992,6 +6077,7 @@ const CHAT_SESSIONS={
    created_at:new Date().toISOString(),
    title:'New conversation',
    greeted:false,
+   system:USER.system,
    profile:PROFILE_STORE.read(),
    messages:[]});
   render();
@@ -6228,6 +6314,17 @@ function chatDrawerMarkup(){
       :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
     })():`
    <div class="param-grid">
+    <label style="grid-column:1/-1">Preset
+     <span style="display:flex;gap:6px;align-items:center">
+      <select id="cpPreset" style="flex:1;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
+        onchange="PRESETS.apply(this.value)">
+       <option value="">— everything below, unsaved —</option>
+       ${PRESETS.items.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
+      </select>
+      <input id="cpPresetName" placeholder="name it" style="width:110px">
+      <button class="btn primary" onclick="PRESETS.save()">Save</button>
+     </span>
+     <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a preset holds everything on this panel <b>the pool and the voice</b> — the model, the persona, the sampling and what it sounds like, because that combination is what a mode actually is. Saving under an existing name replaces it.${PRESETS.items.length?` <a href="#" onclick="PRESETS.remove(document.getElementById('cpPreset').value);return false" style="color:inherit;opacity:.7">delete the selected one</a>`:''}</small></label>
     <label style="grid-column:1/-1">Your name
      <input id="cpName" placeholder="what NERVIS should call you"
        value="${escapeHtml(USER.name)}"
@@ -6237,7 +6334,9 @@ function chatDrawerMarkup(){
       <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">a switch rather than a silent rule: a question that needs a list, a walkthrough or code still gets one.</small></label>
     <label>System prompt
      <textarea id="cpSystem" rows="3" placeholder="empty — no system message is sent"
-       oninput="CHAT_SESSION.system=this.value">${escapeHtml(CHAT_SESSION.system)}</textarea></label>
+       oninput="CHAT_SESSION.system=this.value"
+       onchange="USER.setSystem(this.value)">${escapeHtml(CHAT_SESSION.system)}</textarea>
+     <small class="mono dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">NERVIS ships with its own, seeded on first start and yours to rewrite. Clearing it stays cleared — it is not put back on the next launch.</small></label>
     <label>Temperature
      <input id="cpTemp" class="mono" inputmode="decimal" placeholder="model default"
        value="${escapeHtml(String(CHAT_SESSION.temperature))}"

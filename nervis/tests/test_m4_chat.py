@@ -529,3 +529,44 @@ def test_nervis_is_told_what_to_call_you() -> None:
     turn(client, "hello")
 
     assert "The user's name is Mathias" in sent[0]["messages"][0]["content"]
+
+
+def test_nervis_ships_with_a_voice_you_can_read_and_change() -> None:
+    """A house persona applied silently behind whatever the user typed would be
+    exactly the opaque magic this codebase keeps removing. It is seeded into the
+    settings table instead, so it is ordinary editable text on the screen."""
+    client = an_api()
+
+    stored = client.get("/api/v1/settings").json()["items"]["chat.system"]
+
+    assert "You are NERVIS" in stored
+    assert "the facts are never the joke" in stored
+    # And it is spoken, so it must not generate anything unspeakable.
+    assert "no markdown, no lists" in stored
+
+
+def test_clearing_the_persona_stays_cleared() -> None:
+    """The complaint that produced all of this was a setting that did not
+    survive. Re-seeding over a deliberate empty string would be the same bug
+    wearing a helpful face — absent and empty are different states, and §14's
+    store keeps them apart on purpose."""
+    settings = Settings(database_path=str(_shared_db()), _env_file=None)  # type: ignore[call-arg]
+    first = TestClient(create_app(settings))
+    first.put("/api/v1/settings/chat.system", json={"value": ""})
+
+    second = TestClient(create_app(settings))
+
+    assert second.get("/api/v1/settings").json()["items"]["chat.system"] == ""
+
+
+_SHARED: list[Any] = []
+
+
+def _shared_db() -> Any:
+    """A database file two apps can open in turn, to model a restart."""
+    import tempfile
+    from pathlib import Path
+
+    directory = tempfile.mkdtemp()
+    _SHARED.append(directory)
+    return Path(directory) / "nervis.db"
