@@ -17,6 +17,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from nervis import chat as store
@@ -641,7 +642,7 @@ def test_she_is_told_she_cannot_see_the_screen() -> None:
     presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
     miku = next(p for p in presets if p["id"] == "cp_miku")["params"]["system"]
 
-    assert "shown no screen and no readings" in miku
+    assert "shown no screen, no readings and no clock" in miku
     assert "never invent one" in miku
     # And the one clause that survives every persona change here.
     assert "stays exactly as given" in miku
@@ -828,3 +829,20 @@ def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
     system = sent[0]["messages"][0]["content"]
     assert "Diagnostics screen" in system
     assert "cannot see anything on it" in system
+
+
+@pytest.mark.parametrize("persona", ["cp_nervis", "cp_miku"])
+def test_neither_persona_may_invent_a_stretch_of_time(persona: str) -> None:
+    """She opened a nudge with "you said that an hour ago". Nothing had told her
+    how long it had been, and a conversation carries no clock.
+
+    An invented duration reads exactly like a measured one, which is the whole
+    reason the rule exists — it was written as "no invented timings" and a model
+    read that as being about latency numbers.
+    """
+    presets = an_api().get("/api/v1/settings").json()["items"]["chat.presets"]
+    system = next(p for p in presets if p["id"] == persona)["params"]["system"]
+
+    assert "cannot see a clock" in system or "no clock" in system
+    assert "how long they have been gone" in system
+    assert "how long anything took" in system

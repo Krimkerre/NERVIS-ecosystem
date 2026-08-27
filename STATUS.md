@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1285 tests, no network, no live service
+.venv/bin/pytest                      # part of 1291 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1285 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1291 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5054,6 +5054,19 @@ draws.
 `data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
+
+**The facts rule now covers durations, and that took a live failure to find.** It was written as
+*no invented timings*, which a model read as being about latency numbers — and then opened a nudge
+with *"you said that an hour ago"*. Nothing had told her how long it had been, and a conversation
+carries no clock. An invented stretch of time reads exactly like a measured one, which is the
+whole reason the rule exists, so both personas now say outright that there is no clock either:
+never how long somebody has been gone, when something happened, or how long anything took.
+
+**And emoji are stripped before speech.** Both personas already say not to write anything you
+would not say out loud; a model put a smiley on the end of a sentence anyway. An instruction is a
+request, and `speakable` is the enforcement — what a voice does with one is provider-specific
+(silence, a pause, or the character's name read out) and none of those is what the sentence meant.
+The transcript keeps it.
 
 **Three things in the supplied text were adapted, and the reason is the same each time.** She is
 told she is shown no screen — NERVIS reads telemetry, not pixels, and a persona that claims to

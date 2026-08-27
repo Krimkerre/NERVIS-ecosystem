@@ -689,3 +689,25 @@ def test_trimming_off_reads_the_wall_of_text() -> None:
 
     assert spoken not in voice.WALL_OF_TEXT_LINES
     assert len(spoken) > voice.WALL_OF_TEXT_CHARACTERS
+
+
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        ("Let me know when you emerge. 😄", "Let me know when you emerge."),
+        ("Nice work 🎉🎉 on that fix.", "Nice work on that fix."),
+        ("Shipped ✅ and green.", "Shipped and green."),
+        # Ordinary punctuation and accents are not pictographs.
+        ("Naïve — but it works: 42%.", "Naïve — but it works: 42%."),
+    ],
+)
+def test_emoji_are_not_read_aloud(written: str, expected: str) -> None:
+    """Both personas already say not to write anything you would not say out
+    loud, and a model put a smiley on the end of a sentence anyway. An
+    instruction is a request; this is the enforcement.
+
+    What a voice does with one is provider-specific — silence, a pause, or the
+    character's name read out — and none of those is what the sentence meant.
+    The transcript keeps it either way.
+    """
+    assert voice.speakable(written) == expected

@@ -382,6 +382,16 @@ _INLINE_CODE = re.compile(r"`[^`]*`")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _HEADING_OR_QUOTE = re.compile(r"^\s{0,3}[#>]+\s*", re.MULTILINE)
 _BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
+# Emoji and the other pictographs. Both personas already say not to write
+# anything you would not say out loud, and a model put a 😄 on the end of a
+# sentence anyway — an instruction is a request and this is the enforcement.
+#
+# What a voice does with one is undefined and provider-specific: silence, a
+# pause, or the character's name read out. None of those is what the sentence
+# meant, and the transcript keeps the emoji either way.
+_PICTOGRAPHS = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\uFE0F\u2B00-\u2BFF]"
+)
 _WHITESPACE = re.compile(r"[ \t]+")
 _BLANK_LINES = re.compile(r" *\n[\n ]*")
 
@@ -400,6 +410,7 @@ def speakable(text: str, limit: int = MAX_SPOKEN_CHARACTERS) -> str:
     spoken = _STAGE_DIRECTION.sub(" ", spoken)
     # Any unpaired asterisk the span rule left behind, plus markdown emphasis.
     spoken = spoken.replace("*", "").replace("_", " ")
+    spoken = _PICTOGRAPHS.sub("", spoken)
     spoken = _HEADING_OR_QUOTE.sub("", spoken)
     spoken = _BULLET.sub("", spoken)
     spoken = _BLANK_LINES.sub("\n", _WHITESPACE.sub(" ", spoken)).strip()
