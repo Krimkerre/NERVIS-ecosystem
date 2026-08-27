@@ -305,7 +305,7 @@ def test_the_pool_listing_agrees_with_what_the_router_would_pick() -> None:
 def test_an_unrecognised_ravis_name_is_refused_rather_than_forwarded() -> None:
     """Found by fat-fingering a pool ID against a running gateway.
 
-    `ravis/chat` is not a pool, and has no second slash so it is not a direct
+    `ravis/talk` is not a pool, and has no second slash so it is not a direct
     address either. It used to fall through to the plain-model-name path and get
     forwarded verbatim — and LM Studio answered with whatever happened to be
     loaded. The request *succeeded*, with no pool, no capability filtering, no
@@ -313,9 +313,14 @@ def test_an_unrecognised_ravis_name_is_refused_rather_than_forwarded() -> None:
 
     §5.3's "an explicit request outranks inference" does not cover this, because
     `ravis/` is RAVIS's own namespace: no upstream serves a model called
-    `ravis/chat`, so a name in it that RAVIS does not know is a typo.
+    `ravis/talk`, so a name in it that RAVIS does not know is a typo.
+
+    **The example used to be `ravis/chat`, until that became a real pool.** A
+    test whose invalid input turns valid stops testing anything and starts
+    failing, which is the good failure mode — the alternative is one that keeps
+    passing against a name nobody checks.
     """
-    decision = RoutingEngine().select("ravis/chat", {"qwen3-4b": _model("qwen3-4b")})
+    decision = RoutingEngine().select("ravis/talk", {"qwen3-4b": _model("qwen3-4b")})
 
     assert decision.routed is False
     assert "ravis/clarvis-chat" in decision.reason

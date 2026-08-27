@@ -100,6 +100,16 @@ class VirtualModelPool:
     # preference, which is most of them — the same trap `size_rank` avoids by
     # applying only where a pool actually declared what it wants.
     prefer_local: bool = False
+    # The mirror of the above, and not the same as `locality="remote"`.
+    #
+    # `locality` is a hard constraint: it removes local models from the pool
+    # entirely, so a pool that declares it has nowhere to go when every provider
+    # is down. This is a *soft* preference — a hosted model is chosen first and
+    # the machine's own remains eligible underneath it, which is what "prefer
+    # the API, fall back to local" actually means. Conversation is the case that
+    # wants it: the small model that wins on cheap-and-already-loaded is a poor
+    # thing to talk to, and no model at all is worse.
+    prefer_remote: bool = False
     prefer_cheap: bool = False
     # §9.2's "prefer fast", ranked on what RAVIS has actually timed.
     #
@@ -366,6 +376,26 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/auto",
         label="Auto",
         description="Let RAVIS decide, with no constraint beyond what the request needs",
+    ),
+    VirtualModelPool(
+        pool_id="ravis/chat",
+        label="Chat",
+        description="Conversation: a hosted model first, this machine's own underneath it",
+        # Ordinary conversation is the one workload where §9.2's soft
+        # preferences point the wrong way. "Prefer local, prefer cheap, prefer
+        # already loaded" selects whatever small thing is resident — which is
+        # the right answer for a classification call and a poor one for talking
+        # to. Preferred rather than required, so a machine with no reachable
+        # provider still answers instead of refusing.
+        prefer_remote=True,
+        # And among the hosted ones, whichever RAVIS has actually timed.
+        #
+        # Without this the pool ranks six hundred remote models on nothing and
+        # settles them alphabetically, which is how an obscure build wins a
+        # conversation. Measured models sort ahead; unmeasured ones stay neutral
+        # rather than last, because last is the trap that closes — never chosen,
+        # so never measured, so never chosen.
+        prefer_fast=True,
     ),
     VirtualModelPool(
         pool_id="ravis/balanced",

@@ -123,6 +123,30 @@
   #bars rect { fill: var(--cyan); rx: 1.5; transform-origin: center 158px;
                filter: drop-shadow(0 0 5px rgba(52,230,242,.7)); }
 
+  /* ═══ speaking ═══ the core moves with the voice ═══
+
+     `--pulse` is set by the host from the playing audio's amplitude, so this is
+     the one animation here that is not on a timer: it is the waveform. At rest
+     it is 0 and everything below collapses to its ordinary size, which is why
+     no separate "not speaking" rule is needed. */
+  :root { --pulse: 0; }
+  .state-speaking #coreGlow { opacity: calc(.22 + var(--pulse) * .55); }
+  .state-speaking #coreDot  { transform: scale(calc(1 + var(--pulse) * .85));
+                              transform-origin: 100px 100px; animation-duration: .7s; }
+  .state-speaking #hexInner { animation-duration: 1.1s; }
+  .state-speaking #ringB    { stroke-opacity: calc(.35 + var(--pulse) * .5); }
+  .state-speaking .link     { stroke-opacity: calc(.35 + var(--pulse) * .5);
+                              animation: flow 1.1s linear infinite; }
+  .state-speaking #bars     { opacity: 1; }
+  /* Each bar takes a different share of the level, so the group reads as a
+     waveform rather than as one block growing and shrinking together. */
+  .state-speaking #bars rect { transform: scaleY(calc(.35 + var(--pulse) * 1.5)); }
+  .state-speaking #bars rect:nth-child(2n)   { transform: scaleY(calc(.3 + var(--pulse) * 2.1)); }
+  .state-speaking #bars rect:nth-child(3n)   { transform: scaleY(calc(.4 + var(--pulse) * 1.2)); }
+  @media (prefers-reduced-motion: reduce) {
+    .state-speaking #coreDot, .state-speaking #bars rect { transform: none; }
+  }
+
   /* ═══ nominal ═══ everything slow, nothing to report */
 
   /* ═══ scanning ═══ radar sweeps, peers answer in turn */
@@ -343,12 +367,20 @@ const STATES = {
   degraded:  { peers: { C:'ok', R:'degraded', S:'ok' },
                status: 'RAVIS degraded · <b>Anthropic error rate 37%</b> · traffic diverted to fallback' },
   critical:  { peers: { C:'ok', R:'down', S:'ok' },
-               status: 'RAVIS unreachable · chat unavailable · <b>SIRVIS and Clarvis operational</b>' }
+               status: 'RAVIS unreachable · chat unavailable · <b>SIRVIS and Clarvis operational</b>' },
+  /* NERVIS is talking. Distinct from `routing`, which is traffic passing
+     through: this one is driven by real playback amplitude from the host, so
+     the core moves with the voice rather than on a timer. */
+  speaking:  { peers: { C:'ok', R:'ok', S:'ok' },
+               status: 'Speaking · <b>voice synthesis</b> · playback drives this animation' }
 };
 
 function setState(name) {
-  const s = STATES[name];
-  svg.setAttribute('class', 'core state-' + name);
+  /* An unrecognised name used to throw on the next line and leave the avatar
+     frozen in whatever state it was already in — silently, because the host
+     calls this inside a try/catch. Falling back to nominal keeps it moving. */
+  const s = STATES[name] || STATES.nominal;
+  svg.setAttribute('class', 'core state-' + (STATES[name] ? name : 'nominal'));
 
   for (const [id, health] of Object.entries(s.peers)) {
     const sat = document.getElementById('sat' + id);
@@ -362,6 +394,19 @@ function setState(name) {
   document.querySelectorAll('.controls button').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.state === name)));
 }
+
+/**
+ * How loud the voice is right now, 0..1, from the host's audio analyser.
+ *
+ * Exposed as a function rather than read from anywhere, because this frame has
+ * no access to the audio: the parent owns the element, the AudioContext and the
+ * animation frame, and hands over one number. Everything it drives is CSS, so a
+ * host that never calls this simply gets the resting look.
+ */
+window.setPulse = function (level) {
+  const clamped = Math.max(0, Math.min(1, Number(level) || 0));
+  document.documentElement.style.setProperty('--pulse', clamped.toFixed(3));
+};
 
 document.querySelectorAll('.controls button')
   .forEach(b => b.addEventListener('click', () => setState(b.dataset.state)));

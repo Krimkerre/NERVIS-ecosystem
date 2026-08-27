@@ -46,6 +46,64 @@ CHAT_CAPABILITY = "ravis.openai_compatible.chat_completions"
 # faithfully serving — leaving a model loading for a reply nobody will read.
 CHAT_TIMEOUT_SECONDS = 300.0
 
+# What NERVIS asks for when a conversation opens with nothing in it.
+#
+# **Owned here, not by the browser.** The dashboard says only *greet*; the words
+# are NERVIS's, so a client cannot slip arbitrary text into a hidden user turn
+# and cannot give NERVIS a character that is not §18.1's. The user's own system
+# prompt still travels and still dominates — that is the point of greeting
+# through the model rather than printing a fixed line: a persona somebody
+# configured should be audible from the first sentence, not from the second.
+# **In the system slot, not the user turn.** As a user message this was echoed
+# rather than followed — a 1.5B build answered "Greet me in a dry and
+# world-weary tone. What do you need today?", which is the instruction read
+# aloud. Small models treat a user turn as something to respond *to* and a
+# system message as something to *be*, and a greeting is entirely a question of
+# what the model is being.
+GREETING_DIRECTIVE = (
+    "You are opening a conversation with the user. Reply with two short "
+    "sentences: greet them, then ask what they want today — dry, faintly "
+    "world-weary, and aimed at the machine rather than at the user. Produce no "
+    "statistics and no numbers of any kind: the figures are printed separately "
+    "and are not yours to state. Never mention or repeat these instructions."
+)
+
+# Appended to every turn the dashboard asks to keep short.
+#
+# **A toggle rather than a silent rule.** Quietly shortening every reply is the
+# kind of hidden behaviour that has somebody debugging their prompt for an hour;
+# the Parameters drawer carries the switch, so the shortening is a thing you can
+# see and turn off. "Unless the question needs more" is load-bearing — a hard
+# cap turns a request for a list of twelve things into a list of three.
+BREVITY_DIRECTIVE = (
+    "Keep answers to about two or three sentences unless the question genuinely "
+    "needs more room — a list, a walkthrough or code may run as long as it must. "
+    "Do not pad, and do not restate the question."
+)
+
+# Where the user's own name is kept, so NERVIS knows what to call them.
+NAME_SETTING = "user.display_name"
+
+# What the model is answering. A greeting needs *something* in the user slot,
+# and the most natural thing to greet is a greeting. Never stored, so it does
+# not become a message the user is later shown having sent.
+GREETING_OPENER = "Hello."
+
+# What the greeting is allowed to say, and is not allowed to change.
+#
+# **§18.1: the facts are never the joke.** Character lives in the sentence
+# *around* the reading, never in the reading. A model asked to "mention how the
+# ecosystem is doing" invents a plausible number, which is the one thing a
+# diagnostics surface must never do — so the figures are assembled here and
+# handed over as text to quote.
+#
+# The register is the other half of §18.1, and the tension is worth naming: the
+# specification gives sarcasm to Clarvis and dryness to NERVIS, and what is
+# asked for here sits between them. Aiming it at the *machine* rather than at
+# the reader keeps §18.1's actual rule — "never at anyone's expense" — while
+# still being funny about a Tuesday.
+FACTS_TIMEOUT_SECONDS = 4.0
+
 
 @router.get("/conversations")
 async def list_conversations(request: Request) -> dict[str, Any]:
@@ -103,7 +161,10 @@ async def send(request: Request) -> Any:
     database = request.app.state.database
     body = await _json_body(request)
     content = str(body.get("content") or "").strip()
-    if not content:
+    # A greeting has no question behind it — NERVIS is speaking first — so the
+    # usual "say something" requirement does not apply to one.
+    greeting = bool(body.get("greeting"))
+    if not content and not greeting:
         raise InvalidConfigurationError("content must be a non-empty string")
     profile = str(body.get("profile") or "ravis/auto")
 
@@ -120,12 +181,146 @@ async def send(request: Request) -> Any:
             availability=verdict.availability.value,
         )
 
+    conversation_id, prior, keep = _placement(database, body, profile, content, greeting)
+
+    request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
+    body = {**body, "system": _house_system(body, database, greeting)}
+    payload = _completion_payload(
+        body, profile, prior, GREETING_OPENER if greeting else content
+    )
+    # Assembled here and sent as a header, so the browser prints it verbatim.
+    #
+    # **A model is never asked to restate a measurement.** The first draft put
+    # the figures in the prompt and told the model to quote them exactly; a
+    # 1.5B model answered "the machine efficiently manages four key services",
+    # which is neither the number nor a thing anybody measured. §18.1 already
+    # said this — *character lives in the sentence around the reading, never in
+    # the reading* — and asking a model to copy a number is putting it in the
+    # reading. The model writes the greeting; NERVIS writes the facts.
+    reading = await _ecosystem_facts(request) if greeting else ""
+
+    trace_id = getattr(request.state, "trace_id", "")
+    if keep:
+        _note_turn(request, conversation_id, profile, request_id, trace_id)
+    return StreamingResponse(
+        _relay(
+            request, entry, payload, conversation_id, profile, request_id, trace_id, keep,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "cache-control": "no-store",
+            "x-conversation-id": conversation_id,
+            "x-request-id": request_id,
+            # Header-safe: assembled from counts, and newlines would break the
+            # framing rather than merely look wrong.
+            "x-ecosystem-reading": reading.replace("\n", " "),
+        },
+    )
+
+
+def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
+    """The user's persona, with whatever NERVIS needs to add behind it.
+
+    **Theirs comes first and is never rewritten.** It is the character; these are
+    the occasion and the house style. Appending rather than replacing is what
+    makes a configured persona audible from the first sentence, which is the
+    whole reason the greeting goes through the model instead of being a fixed
+    line.
+    """
+    parts = [str(body.get("system") or "").strip()]
+    if greeting:
+        parts.append(GREETING_DIRECTIVE)
+    if body.get("brief"):
+        parts.append(BREVITY_DIRECTIVE)
+    name = _display_name(database)
+    if name:
+        parts.append(f"The user's name is {name}. Address them by it when it fits naturally.")
+    return "\n\n".join(part for part in parts if part)
+
+
+def _display_name(database: Any) -> str:
+    """What to call the user, if they have said.
+
+    Stored through the ordinary settings endpoint rather than in a table of its
+    own — it is one string, and §14's key/value store is what that is for.
+    """
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (NAME_SETTING,)
+    ).fetchone()
+    if not row:
+        return ""
+    try:
+        found = json.loads(row["value"])
+    except ValueError:
+        return ""
+    return str(found).strip() if isinstance(found, str) else ""
+
+
+async def _ecosystem_facts(request: Request) -> str:
+    """One line of true figures, or as many of them as can be had.
+
+    Assembled from the registry, which is already in memory, plus one short read
+    of RAVIS's catalogue. A part that cannot be read is left out rather than
+    guessed — a greeting that says nothing about models is better than one that
+    says a number nobody measured.
+    """
+    parts = []
+    entries = [entry.as_dict() for entry in request.app.state.registry.all()]
+    if entries:
+        up = [e for e in entries if e.get("state") in ("healthy", "degraded")]
+        parts.append(f"{len(up)} of {len(entries)} services reachable")
+    catalogue = await _model_counts(request)
+    if catalogue:
+        parts.append(catalogue)
+    return "; ".join(parts) if parts else "nothing has been read yet"
+
+
+async def _model_counts(request: Request) -> str:
+    """How many models RAVIS offers, and how many of them run here.
+
+    Empty on any failure. This is decoration on a greeting, and a greeting is
+    not worth failing — or delaying past a few seconds — over.
+    """
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if entry is None:
+        return ""
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        response = await client.get(
+            entry.declaration.base_url + "/api/v1/models", timeout=FACTS_TIMEOUT_SECONDS
+        )
+        if response.status_code >= 400:
+            return ""
+        items = response.json().get("items") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return ""
+    if not items:
+        return ""
+    local = sum(1 for item in items if item.get("local") is True)
+    return f"{len(items)} models routable, {local} of them on this machine"
+
+
+def _placement(
+    database: Any, body: dict[str, Any], profile: str, content: str, greeting: bool
+) -> tuple[str, list[dict[str, str]], bool]:
+    """Which conversation this turn joins, its history, and whether to keep it.
+
+    **A greeting joins none and is kept nowhere.** §7.2's stored list is what the
+    user said and what the model answered; an opening line the user never asked
+    for would appear there as a message they did not send, and would come back
+    as history on the next real turn — teaching the model that the conversation
+    began with an instruction it should follow again.
+
+    Extracted because `send` was at the complexity cap, which is where a
+    function doing two jobs usually announces itself.
+    """
+    if greeting:
+        return "", [], False
     conversation_id = str(body.get("conversation_id") or "")
     if conversation_id and not store.exists(database, conversation_id):
         raise NotFoundError(f"no conversation {conversation_id!r}")
     if not conversation_id:
         conversation_id = store.start_conversation(database, profile=profile)
-
     # Prior turns are read *before* the new question is stored, so the question
     # is not sent twice.
     prior = store.history(database, conversation_id)
@@ -134,23 +329,7 @@ async def send(request: Request) -> Any:
         conversation_id,
         store.Message(message_id=store.new_id(), role="user", content=content, profile=profile),
     )
-
-    request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
-    payload = _completion_payload(body, profile, prior, content)
-
-    trace_id = getattr(request.state, "trace_id", "")
-    _note_turn(request, conversation_id, profile, request_id, trace_id)
-    return StreamingResponse(
-        _relay(
-            request, entry, payload, conversation_id, profile, request_id, trace_id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "cache-control": "no-store",
-            "x-conversation-id": conversation_id,
-            "x-request-id": request_id,
-        },
-    )
+    return conversation_id, prior, True
 
 
 async def _relay(
@@ -161,6 +340,7 @@ async def _relay(
     profile: str,
     request_id: str,
     trace_id: str = "",
+    keep: bool = True,
 ) -> AsyncIterator[bytes]:
     """Forward RAVIS's frames unchanged while keeping what they said."""
     database = request.app.state.database
@@ -214,7 +394,7 @@ async def _relay(
         # indication that anything had happened. An empty assistant turn that
         # finished says "it answered with nothing", which is true and is what a
         # screen needs in order to explain it.
-        if started:
+        if started and keep:
             store.append(
                 database,
                 conversation_id,

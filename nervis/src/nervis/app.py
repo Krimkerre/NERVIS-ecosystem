@@ -26,10 +26,10 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis.api import chat_router, events_router, instances_router, traces_router
+from nervis.api import chat_router, events_router, instances_router, traces_router, voice_router
 from nervis.api import router as api_router
 from nervis.config import Settings
-from nervis.ecosystem import BUILD_VERSION, nervis_surface
+from nervis.ecosystem import BUILD_VERSION, advertise_voice, nervis_surface
 from nervis.enrollment import load_or_create
 from nervis.errors import NervisError, to_response
 from nervis.events import Hub
@@ -37,6 +37,8 @@ from nervis.instances import Instances
 from nervis.probes import probe
 from nervis.registry import Registry, admissible, declared_services
 from nervis.storage import installation_identity, prepare_database
+from nervis.voice import VoiceCredential
+from nervis.voice import config_directory as voice_config_directory
 from nervis.web import register_dashboard
 
 NextCall = Callable[[Request], Awaitable[Any]]
@@ -60,6 +62,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(events_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(voice_router)
     register_dashboard(api)
     return api
 
@@ -75,6 +78,19 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # after every restart, which is precisely what makes correlation impossible.
     # `instance_id` is the one that changes per process, and the protocol
     # package generates that itself.
+    # §18.2's voice credential. A file in the user's config directory rather
+    # than a row in the database above: `nervis.db` is created in the working
+    # directory with whatever mode the umask allows, which is fine for
+    # configuration and wrong for a secret. The voice *profiles* are in the
+    # database, because those are configuration and not secrets.
+    api.state.voice_credential = VoiceCredential(
+        voice_config_directory() / "voice-credential.json"
+    )
+    # Which models RAVIS says are remote, cached by the speak endpoint. Seeded
+    # so the attribute always exists: `getattr` with a default would hide a
+    # misspelling of the name for as long as the cache stayed cold.
+    api.state.voice_locality = None
+
     service_id, machine_id = installation_identity(api.state.database)
     api.state.service_id = service_id
     api.state.machine_id = machine_id
@@ -84,6 +100,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         machine_id=machine_id,
         database=api.state.database,
     )
+    # §18.2: advertised only when configured. Read once here and kept current by
+    # the credential endpoints, so the answer never needs a restart to be true.
+    advertise_voice(api.state.ecosystem, api.state.voice_credential.configured())
 
     # §5.1's registry, built from configuration alone. A declaration whose
     # endpoint fails the SSRF guard is dropped and recorded rather than raised:

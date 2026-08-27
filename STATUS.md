@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1214 tests, no network, no live service
+.venv/bin/pytest                      # part of 1270 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1214 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1270 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5023,6 +5023,134 @@ last is a trap that closes.
 `ravis/balanced` uses both without inventing an exchange rate between
 milliseconds and dollars. Models within a quarter-second count as equally quick —
 a claim the data supports at that resolution — and the cheaper of them wins.
+
+### Voice, and the gate that was the actual work
+
+NERVIS speaks. **NERVIS → Voice** takes a Fish Audio key, keeps named voices, and reads chat
+replies aloud; §18.2 had specified all of this and deferred it until "the privacy gate above is
+implemented and tested", which is the part worth writing down.
+
+**Speech is an egress path.** §18.2: *failing closed on the route and open on the voice is still
+a leak.* A reply a local model produced never left the machine, and sending it to Fish Audio to
+be read would send it after all — undoing the routing decision with the speaker. So synthesis is
+permitted only for text NERVIS can **positively confirm** already left: the browser states which
+model answered, NERVIS asks RAVIS which models are remote, and everything it cannot confirm
+falls back to the browser's own `speechSynthesis` — free, offline, and it sends nothing.
+
+That inverted the obvious check. "Is this local?" fails open on every model nobody has heard of;
+"is this confirmed remote?" fails closed. It also needed one new field on RAVIS's
+`/api/v1/models` — `local`, and **tri-state**, because a `None` that reads as `false` opens the
+gate on every model against any RAVIS built before the field existed.
+
+**The credential is NERVIS's, not RAVIS's**, which looked wrong until three sources agreed:
+§18.2 says voice credentials live in NERVIS's own storage, RAVIS.md §5.0.1 already reserves
+`tts` and `audio` as substrings RAVIS ids must avoid, and the gate depends on a fact NERVIS holds
+and RAVIS would have to be told. RAVIS → Credentials carries a card saying where it went, since
+that is where somebody looks first.
+
+**What the sibling project's voice stack was worth.** Clarvis has shipped Fish Audio for
+milestones, and reading it first prevented four bugs rather than one: the engine id is an HTTP
+*header* and Fish answers an unrecognised one with the account default instead of an error, so
+getting it backwards is the wrong voice and no message; the listing endpoint is `/model` with no
+`/v1` while synthesis is `/v1/tts`; the id in that listing arrives as `_id`, and reading `id`
+yields blank rows rather than an error; and utterances must be serialised, because a second
+`speechSynthesis.speak` chops the first off mid-sentence.
+
+**Two things it did not have.** A reasoning model emits `<think>` inside `content` rather than in
+`reasoning_content`, so the whole chain of thought would have been read aloud — caught on the
+first greeting ever generated, on this machine, live. And the spend cap here is keyed on the
+**local** date; Clarvis keys on UTC and pins the resulting 02:00 CEST rollover as a documented
+wart, which is not worth inheriting on a personal dashboard.
+
+**NERVIS greets you when the chat opens**, through the model, so a system prompt somebody
+configured is audible from the first sentence instead of the second. It opens with how the machine is
+doing, and **the figures never pass through the model** — NERVIS sends them as a header the page
+prints verbatim.
+
+That was the second design, and the first one is worth recording because it looked right. It put
+the reading in the prompt and told the model to quote it exactly; a 1.5B build answered *"the
+machine efficiently manages four key services"*, which is neither the number nor anything anybody
+measured. §18.1 had already said so — *character lives in the sentence around the reading, never
+in the reading* — and asking a model to copy a number is putting it in the reading. A model may
+not restate a measurement, however plainly it is told to.
+
+The directive moved too, from the user turn into the **system** slot, after the same small model
+replied *"Greet me in a dry and world-weary tone. What do you need today?"* — the instruction read
+aloud. A small model treats a user turn as something to respond to and a system message as
+something to be, and a greeting is entirely a question of what the model is being. A configured
+persona stays in front of it, untouched, which is what makes one audible from the first sentence.
+
+The register sits between the two §18.1 describes — it gives sarcasm to Clarvis and dryness to
+NERVIS — resolved by aiming it at the *machine* rather than at the reader, which is §18.1's
+actual rule. How funny it lands scales with the model and the figures do not: the 1.5B manages
+"Hello. What do you need today?" and Haiku manages "Well, here we are again. What can the machine
+do for you today?", above the same exact reading.
+
+**Chat remembers which pool you chose**, in its own `localStorage` key, surviving both a reload
+and a new conversation.
+
+And it starts on a new one. `ravis/chat` prefers a **hosted** model and keeps this machine's own
+underneath it, because ordinary conversation is the one workload where §9.2's soft preferences
+point the wrong way: *local, cheap, already loaded* selects whatever small thing is resident,
+which is the right answer for a classification call and a poor one for talking to. Preferred, not
+required — a hard `locality="remote"` would remove local models from the pool and leave a machine
+with every provider down refusing to answer at all.
+
+**That needed a new ranking term, and the term order is where it went wrong.** `prefer_remote`
+first read as symmetric with `prefer_local`, so it was appended in the same place — after
+`prefer_fast`. The pool then picked the resident 1.5B model, because that model genuinely *is*
+the quickest thing on this machine: 181 ms to first token against gpt-4o-mini's 484 ms, measured
+here this afternoon. Every term was working exactly as documented, and the pool selected the one
+model it exists to avoid. A pool that prefers hosted models is saying *where* before *which*, so
+placement now ranks ahead of speed — while `prefer_local` stays where it was, because the pools
+declaring it rank on cost first by design. Pinned by a test that gives the local model the best
+latency on record and requires it to lose.
+
+**NERVIS knows your name**, kept in §14's key/value store rather than in a browser — a name is a
+fact about the person, not about the tab. It is used in the greeting, which is where it is most
+visible.
+
+**Replies are short by default**, at about two or three sentences, behind a switch in the
+Parameters drawer rather than a silent rule: quietly shortening every answer is how somebody
+spends an hour debugging their prompt. "Unless the question needs more" is load-bearing — a hard
+cap turns a request for twelve things into a list of three.
+
+**And a long reply is announced rather than read.** Past about 110 words the voice says "Wall of
+text incoming. It is on screen." instead of spending three quarters of a minute on it. That beats
+truncating, which reads a fragment and stops — sounding like a fault, and leaving the listener
+unsure whether they missed the answer that is in front of them. The line varies, chosen by length
+rather than at random, because a voice that says something different on a re-read sounds like a
+different answer. The instruction is NERVIS's
+own — the browser sends a flag, not words — and the greeting is stored nowhere: §7.2's list is
+what the user said and what the model answered, and an opening line stored there would come back
+as history and teach the model to follow it again. Verified live: fifteen conversations before,
+fifteen after.
+
+**The avatar moves with the conversation** — thinking, answering, speaking — and while a cloud
+voice is playing its waveform is driven by the audio's real amplitude through an `AnalyserNode`,
+not by a timer. The browser fallback deliberately does *not* claim the speaking state: there is
+no amplitude to read there, and a waveform of nothing is §9.4's prohibited guess drawn in pixels.
+
+**And two more that only a real key could find.** The first Fish request answered `400`, and the
+refusal said nothing but `400` — because the handler logged the status and threw the body away,
+on the reasoning that a credential must never travel. The body describes the *request*: the key
+goes in a header nobody echoes back. With it surfaced, Fish named the fault in one line —
+`reference_id must be 1..=128 chars of [A-Za-z0-9_-]` — and the stored id turned out to end in a
+slash, copied from a fish.audio address exactly as this screen's own help text advises. A pasted
+URL is now the expected input rather than a mistake.
+
+The second was worse and was visible in the same response: the selected profile's id was the
+literal string `new`. Creating went through `PUT /profiles/new`, `new` is a perfectly good id, and
+so every voice anybody added was stored under it and replaced the one before — a list that could
+never grow past one entry, presenting as a save that failed rather than as a save that succeeded
+and destroyed something. Creation is `POST /profiles` now, with the id generated where the ids
+are.
+
+**Two bugs found on the way.** `scrollChatToEnd(true)` had been sitting inside `topologyMap`
+after a `return`, so the transcript had never scrolled to a finished reply — the mid-stream call
+kept up while text arrived and the final repaint undid it. And `nervis()` was a chain of eight
+`if`s that went over the complexity ratchet the moment a ninth screen was added, with the ratchet
+pointing at a dispatch table written out longhand.
 
 ### Confirmed by using it, 2026-08-27
 

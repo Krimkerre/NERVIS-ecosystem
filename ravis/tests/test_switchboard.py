@@ -295,3 +295,62 @@ def test_every_other_terminal_class_keeps_its_policy_even_from_a_pool() -> None:
     chain.failed("first", 0.0, FailureClass.INVALID_REQUEST, "bad body")
 
     assert chain.next_target() is None
+
+
+# ── Conversation, where the soft preferences point the wrong way ─────────────
+
+
+def test_the_chat_pool_reaches_for_a_hosted_model_first() -> None:
+    """§9.2's preferences — local, cheap, already loaded — are right for a
+    classification call and wrong for talking to.
+
+    Ordinary conversation is the one workload where the small resident model
+    that wins on every default is the worst answer available.
+    """
+    assert selected("ravis/chat") in {PAID, FREE_CLOUD}
+
+
+def test_the_chat_pool_still_falls_back_to_this_machine() -> None:
+    """Preferred, not required — the difference from `locality="remote"`.
+
+    A hard constraint removes local models from the pool, so a machine with
+    every provider down would refuse to answer at all. A soft preference leaves
+    them underneath, which is what "prefer the API, fall back to local" means.
+    """
+    decision = RoutingEngine().select("ravis/chat", CANDIDATES, remote_models=REMOTE)
+
+    # Still a candidate. `considered` lists the eligible set alphabetically
+    # rather than by rank, so this reads eligibility and nothing more —
+    # absent from it would mean excluded from the pool outright, which is what
+    # a hard `locality` constraint would do.
+    assert LOCAL in decision.considered
+    # Ranked below the hosted ones, which is the preference doing its work.
+    assert decision.selected != LOCAL
+
+    # And with nothing hosted reachable, the local model is simply the answer.
+    only_local = {LOCAL: CANDIDATES[LOCAL]}
+    assert RoutingEngine().select(
+        "ravis/chat", only_local, remote_models=frozenset()
+    ).selected == LOCAL
+
+
+def test_a_faster_local_model_does_not_win_the_chat_pool() -> None:
+    """The ordering trap, pinned.
+
+    `prefer_fast` ranks on measured latency, and the resident small model is
+    genuinely the fastest thing on the machine — 181 ms against gpt-4o-mini's
+    484 ms, measured here. Rank speed before placement and it wins the pool that
+    exists to keep it out of conversations, while every term is working exactly
+    as documented.
+    """
+    decision = RoutingEngine().select(
+        "ravis/chat",
+        CANDIDATES,
+        remote_models=REMOTE,
+        # The local model, measured as by far the quickest to first token.
+        observed_ttft_ms={LOCAL: 181.0, PAID: 900.0, FREE_CLOUD: 700.0},
+    )
+
+    assert decision.selected != LOCAL
+    # And speed still orders the hosted ones among themselves.
+    assert decision.selected == FREE_CLOUD

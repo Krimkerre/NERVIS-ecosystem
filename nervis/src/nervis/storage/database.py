@@ -170,6 +170,27 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        6,
+        "named voice profiles for spoken output, per NERVIS.md §18.2",
+        # Profiles, not the credential. The Fish Audio key lives in a `0600`
+        # file in the user's config directory (`nervis.voice`), because this
+        # database is created in the working directory with whatever mode the
+        # umask allows — fine for configuration, wrong for a secret.
+        #
+        # `speed` is Fish's `prosody.speed` and is per voice rather than global:
+        # the right speed is a property of the voice, not of the listener.
+        """
+        CREATE TABLE IF NOT EXISTS voice_profile (
+            profile_id TEXT PRIMARY KEY,
+            name       TEXT NOT NULL,
+            voice_id   TEXT NOT NULL,
+            engine     TEXT NOT NULL DEFAULT 's2.1-pro-free',
+            speed      REAL NOT NULL DEFAULT 1.0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """,
+    ),
 ]
 
 

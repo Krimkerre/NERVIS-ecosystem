@@ -190,7 +190,18 @@ async def read_models(request: Request) -> dict[str, Any]:
     believed because a catalogue said so, and a dashboard that flattens them
     hides the disagreement that matters.
     """
-    candidates = await _candidates(request)
+    # Both the candidate set and *which of them leave the machine*. NERVIS's
+    # spoken output needs the second (NERVIS.md §18.2: a reply a privacy
+    # constraint kept on-device must not then be read aloud by a cloud service),
+    # and it is the same `is_local_address` question `ravis/local` is enforced
+    # with — so a screen, the router and the voice cannot disagree about it.
+    candidates, placed = await _pool_candidates(request)
+    remote: frozenset[str] | None = placed
+    if not candidates:
+        # A pre-M8 single-adapter deployment declares no addresses to compute a
+        # remote set from. Reported as unknown rather than guessed, and a reader
+        # that must fail closed — the voice gate — treats unknown as local.
+        candidates, remote = await _candidates(request), None
     residency = request.app.state.model_registry.residency
     items = []
     for model, known in sorted(candidates.items()):
@@ -198,6 +209,10 @@ async def read_models(request: Request) -> dict[str, Any]:
             {
                 "model_id": model,
                 "residency": residency.state_of(model).value,
+                # None where it could not be determined. Three states, because
+                # "not known to be remote" and "known to be local" are the same
+                # answer only to a reader that is already failing closed.
+                "local": None if remote is None else model not in remote,
                 "context_window": known.context_window,
                 "capabilities": {
                     capability.value: {

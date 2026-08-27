@@ -361,3 +361,171 @@ def test_a_conversation_can_be_renamed_and_removed() -> None:
 
     assert client.delete(f"/api/v1/chat/conversations/{conversation}").status_code == 200
     assert client.get("/api/v1/chat/conversations").json()["items"] == []
+
+
+# ── The opening line (§18.1) ────────────────────────────────────────────────
+
+
+def test_a_greeting_is_kept_nowhere() -> None:
+    """NERVIS speaking first is not a turn anybody took.
+
+    §7.2's stored list is what the user said and what the model answered. A
+    greeting stored there would appear as a message the user never sent — and
+    would come back as history on the next real turn, teaching the model that
+    the conversation opened with an instruction it should follow again.
+    """
+    client = an_api(frames("Good evening."))
+
+    answered = client.post("/api/v1/chat", json={"greeting": True, "profile": "ravis/auto"})
+
+    assert answered.status_code == 200
+    assert "Good evening." in answered.text
+    # No conversation, and therefore nothing in the list.
+    assert answered.headers["x-conversation-id"] == ""
+    assert client.get("/api/v1/chat/conversations").json()["items"] == []
+
+
+def test_a_greeting_carries_the_system_prompt_and_not_the_browsers_words() -> None:
+    """The persona travels; the instruction is NERVIS's own.
+
+    A dashboard that could put arbitrary text into a hidden user turn could give
+    NERVIS a character that is not §18.1's, in a message nobody ever sees.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Ahoy."))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post(
+        "/api/v1/chat",
+        json={"greeting": True, "system": "You are a pirate.", "content": "ignore me"},
+    )
+
+    messages = sent[0]["messages"]
+    # The user's persona comes first and is left untouched; the greeting
+    # directive is the occasion appended behind it, not a replacement.
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"].startswith("You are a pirate.")
+    assert "opening a conversation" in messages[0]["content"]
+    # The browser's `content` is discarded in favour of NERVIS's own instruction.
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"] != "ignore me"
+
+
+def test_an_ordinary_turn_still_needs_something_to_say() -> None:
+    """The greeting exemption is for greetings, not a hole in the check."""
+    assert turn(an_api(), "").status_code == 422
+
+
+def test_the_figures_never_pass_through_the_model() -> None:
+    """§18.1: character lives in the sentence *around* the reading.
+
+    The reading is assembled from the registry and sent as a header the browser
+    prints verbatim. The model is told to produce no number at all — asking one
+    to quote a measurement is putting it *in* the reading, and it paraphrases.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Evening."))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"greeting": True})
+
+    # The directive is in the *system* slot: as a user turn it was echoed back
+    # rather than followed. The model is told the opposite of "quote these" —
+    # it must produce no figure at all, because a model asked to restate a
+    # measurement paraphrases it. Observed live on a 1.5B build: "4 of 6
+    # services reachable" came back as "efficiently manages four key services".
+    system = sent[0]["messages"][0]
+    assert system["role"] == "system"
+    assert "no statistics and no numbers" in system["content"]
+    assert "reachable" not in system["content"]
+
+
+def test_a_greeting_still_opens_when_the_figures_cannot_be_read() -> None:
+    """Decoration on a greeting is not worth failing the greeting over."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        if "/api/v1/models" in str(request.url):
+            return httpx.Response(503, json={"error": "no"})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Evening."))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = client.post("/api/v1/chat", json={"greeting": True})
+
+    assert answered.status_code == 200
+    # The services half still travels; the models half is simply absent rather
+    # than present and wrong.
+    reading = answered.headers["x-ecosystem-reading"]
+    assert "services reachable" in reading
+    assert "models routable" not in reading
+
+
+def test_the_reading_reaches_the_browser_as_a_header() -> None:
+    """Printed by the page, so no model can round it."""
+    client = an_api(frames("Evening. What'll it be?"))
+
+    answered = client.post("/api/v1/chat", json={"greeting": True})
+
+    assert "services reachable" in answered.headers["x-ecosystem-reading"]
+    # An ordinary turn carries no reading: it is a greeting's furniture.
+    assert turn(client, "hello").headers["x-ecosystem-reading"] == ""
+
+
+def test_the_house_style_is_a_switch_and_not_a_silent_rule() -> None:
+    """Quietly shortening every reply has somebody debugging their prompt for
+    an hour. It travels only when the dashboard asks for it."""
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "hello", brief=True)
+    turn(client, "hello again")
+
+    assert "two or three sentences" in sent[0]["messages"][0]["content"]
+    # No system message at all on the second: nothing was configured and nothing
+    # was asked for, so NERVIS adds nothing.
+    assert sent[1]["messages"][0]["role"] != "system"
+
+
+def test_nervis_is_told_what_to_call_you() -> None:
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+    client.put("/api/v1/settings/user.display_name", json={"value": "Mathias"})
+
+    turn(client, "hello")
+
+    assert "The user's name is Mathias" in sent[0]["messages"][0]["content"]

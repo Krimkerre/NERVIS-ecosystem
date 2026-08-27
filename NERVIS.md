@@ -110,6 +110,7 @@ nervis.dashboard@1         nervis.clarvis_visibility@1
 nervis.event_hub@1         nervis.diagnostics@1
 nervis.traces@1            nervis.supervision@1        only for explicitly configured owned services
 nervis.ravis_chat@1        nervis.code_server_proxy@1  only after security/compatibility gates pass
+                           nervis.voice@1              only when a voice credential is configured (§18.2)
 ```
 
 ---
@@ -776,13 +777,30 @@ the text off the machine. So:
   synthesis is not permitted — fall back to local system TTS, or stay silent and say so.
 - A reply that a privacy constraint kept on-device must not then be read aloud by a cloud
   service. **Failing closed on the route and open on the voice is still a leak.**
-- Voice credentials live in NERVIS's own secure storage, are never sent to peers, and never
-  appear in events, traces or diagnostic packets.
+- Voice credentials live in NERVIS's own secure storage — `~/.config/nervis/voice-credential.json`,
+  mode `0600`, written atomically and read back by no endpoint — are never sent to peers, and
+  never appear in events, traces or diagnostic packets. Deliberately *not* RAVIS's credential
+  store: RAVIS.md §5.0.1 already reserves `tts` and `audio` as substrings its ids must avoid, and
+  the gate above depends on a fact NERVIS holds and RAVIS would have to be told.
 - Voice is an optional capability (`nervis.voice@1`), advertised only when configured, and
   never a dependency of any other surface. Mute is honoured immediately and persists.
 
-**Not MVP.** Character lands first as text; synthesis follows once the privacy gate above is
-implemented and tested.
+**Built, and the gate is the part that was actually hard.** Synthesis lives on **NERVIS →
+Voice**: the Fish Audio key is entered there, written to `~/.config/nervis/voice-credential.json`
+at mode `0600`, and returned by no endpoint. Voices are named and chosen there too, because a
+`reference_id` is thirty-two hex characters and says nothing about how one sounds.
+
+The privacy gate is enforced by NERVIS rather than by the page. The browser states which model
+produced a reply; NERVIS asks RAVIS which models are reached over the network and permits cloud
+synthesis only for text it can *positively confirm* already left the machine. Anything else —
+a local model, a model RAVIS does not place, a RAVIS that cannot be reached — falls back to the
+browser's own `speechSynthesis`, which is free, offline and sends nothing. That required one new
+field on RAVIS's `/api/v1/models` (`local`, tri-state), because "not known to be remote" and
+"known to be local" are the same answer only to a reader already failing closed.
+
+Three refusals are reported distinctly on purpose: *this ran here*, *RAVIS does not say where
+this runs*, and *the day's Fish request cap is spent*. They reach the same outcome and would send
+somebody looking in three different places.
 
 ---
 

@@ -31,7 +31,7 @@ def test_doctor_migrates_rather_than_inspecting_a_path(monkeypatch, tmp_path, ca
 
     main(["doctor"])
 
-    assert "migrated to version 5" in capsys.readouterr().out
+    assert "migrated to version 6" in capsys.readouterr().out
 
 
 def test_doctor_prints_every_capability_with_its_reason(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001

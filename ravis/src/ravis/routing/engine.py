@@ -406,6 +406,15 @@ def _rank(
         # Heterogeneous because the last component is the model name — the
         # total, reproducible order §9.7's determinism gate requires.
         terms: list[float | str] = []
+        # **`prefer_remote` ranks before speed, and `prefer_local` after it.**
+        # The asymmetry is deliberate and was found live. A pool that prefers
+        # hosted models is saying *where* first and *which* second: put speed
+        # ahead of it and the resident 1.5B model — measured at 181 ms against
+        # gpt-4o-mini's 484 ms — wins the conversation the pool exists to keep
+        # away from it. `prefer_local` has no such problem, because the pools
+        # that declare it are ranking on cost first by design.
+        if pool.prefer_remote:
+            terms.append(0.0 if model in remote else 1.0)
         if pool.prefer_fast:
             terms.append(_speed_rank(model, observed or {}, pool.speed_bucket_ms))
         if pool.prefer_cheap:

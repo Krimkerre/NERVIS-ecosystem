@@ -115,6 +115,19 @@ DECLARED: dict[str, Capability] = {
     # The other conditional one, and the condition is the point: §3.1 says
     # *"only after security/compatibility gates pass"*. M13 is a spike whose
     # exit may be that this is never built.
+    # The third condition-gated capability, and §18.2 states the condition
+    # outright: voice is *"advertised only when configured"*. So the declared
+    # state is not a milestone marker like most of the entries above — it is a
+    # live reading of whether this installation holds a Fish Audio key, flipped
+    # by `advertise_voice` when one is entered or removed. A peer that
+    # negotiates this and gets `available` may ask NERVIS to speak; one that
+    # sees `unavailable` knows the machine has no voice rather than guessing
+    # from a failed call.
+    "nervis.voice@1": Capability(
+        version="1.0.0",
+        state=UNAVAILABLE,
+        reason="no voice credential is configured",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,
@@ -145,6 +158,31 @@ def nervis_surface(service_id: str, machine_id: str, database: object) -> Ecosys
         service_id=service_id,
         machine_id=machine_id,
         build_version=BUILD_VERSION,
-        declared=DECLARED,
+        declared=dict(DECLARED),
         checks={"database": database_answers},
     )
+
+
+def advertise_voice(surface: EcosystemSurface, configured: bool) -> None:
+    """Turn `nervis.voice@1` on or off, per §18.2's "only when configured".
+
+    Mutates this surface's own copy of the declaration rather than the module's,
+    and bumps `revision` so a peer that caches capabilities can tell the answer
+    changed. Called at startup and again whenever the credential is entered or
+    removed, so the advertisement matches the machine without a restart —
+    a capability that needs one is a capability that lies for as long as the
+    process lives.
+    """
+    declared = surface.declared
+    if not isinstance(declared, dict):  # pragma: no cover - constructed as a dict
+        return
+    declared["nervis.voice@1"] = Capability(
+        version="1.0.0",
+        state=AVAILABLE if configured else UNAVAILABLE,
+        reason=(
+            "a Fish Audio credential is configured and NERVIS can speak"
+            if configured
+            else "no voice credential is configured"
+        ),
+    )
+    surface.revision += 1

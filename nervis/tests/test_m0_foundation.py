@@ -144,6 +144,10 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.diagnostics": "unavailable",          # M12, M17
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
+        # §18.2's condition, not a milestone: unavailable on an installation
+        # with no voice credential, and flipped to available the moment one is
+        # entered. This suite configures none, so this is the unconfigured case.
+        "nervis.voice": "unavailable",
     }
     # Every entry says why, available or not: "not yet, because M6" tells a peer
     # when to look again and a bare refusal tells it nothing.
@@ -151,7 +155,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
 
 
 def test_every_capability_the_specification_names_is_published(settings: Settings) -> None:
-    """§3.1 prints ten names. Inventing one advertises a contract nobody seeks.
+    """§3.1 prints eleven names. Inventing one advertises a contract nobody seeks.
 
     SIRVIS shipped seven invented names, two of which matched its own
     specification by coincidence, and it went unnoticed for eleven milestones.
@@ -170,6 +174,11 @@ def test_every_capability_the_specification_names_is_published(settings: Setting
         "nervis.diagnostics",
         "nervis.supervision",
         "nervis.code_server_proxy",
+        # §18.2's optional one. It was named there and missing from §3.1's block
+        # until voice was built, which is the same drift this test exists to
+        # catch — caught in the specification's own two halves rather than
+        # between the specification and the code.
+        "nervis.voice",
     }
 
 
