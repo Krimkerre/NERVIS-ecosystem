@@ -2078,7 +2078,16 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. What remains is the stage's *exit*: every tile capability-driven, unavailable operations disabled with a stated reason, and the prototype ceasing to be one. RAVIS's half is items 1 and 3 |
+| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **Two of the four exit criteria are now met** — see below — and what remains is the render layer: §25's rebuild, and tiles gated per *capability* rather than per service |
+
+**Stage 6's exit, one criterion at a time.** The runbook asks for four things:
+
+| Criterion | State |
+|---|---|
+| Every tile and control is capability-driven | **Controls: done.** `/api/v1/services` publishes fifteen operations, each naming its capability, whether it is usable and why not — and the page stored that list in `OPERATIONS` and never read it, while `capable()` was defined and never called under a comment claiming it "makes control gating real rather than a promise". Both are wired now: a control the owning service cannot serve is disabled in the service's own words, and re-enables itself when the service changes its mind. **Tiles: not done** — `cell()` still gates on whether the service is *reachable*, not on the capability the tile needs |
+| Unavailable operations disabled with a stated reason | **Done**, and the reason now names which side is missing. A service refusing the capability and a dashboard with nothing wired to call are different problems for different people, and saying "not built" about an endpoint would go stale the moment the service ships it |
+| A NERVIS restart loses no owned product state | **Done**, verified by restarting it: conversations, settings, voice profiles and the stored credential all survived, and the event sequence continued rather than resetting |
+| A product restart is reflected without manual refresh | **Done.** The registry poll repaints on a state transition, and again when the screen it drew fell back on a service that is now healthy — bounded at three attempts, because the first repaint after a service returns can still land before it is serving |
 | 2 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that

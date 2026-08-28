@@ -669,6 +669,26 @@ const usable=k=>['healthy','degraded'].includes((SERVICES[k]||{}).state);
    rather than deleted because it is the shape M2 needs and one line is a cheaper
    marker than a paragraph in a plan — but it is a promise, not a mechanism. */
 const capable=(k,id)=>usable(k)&&(SERVICES[k].caps||[]).includes(id);
+
+/* Attributes that disable a control the owning service cannot currently serve.
+ 
+   **`capable` was defined and never called.** The comment above it claimed it
+   "makes control gating real rather than a promise", and nothing invoked it --
+   so every acting control rendered enabled whatever the service said, and a
+   withdrawn capability surfaced as a failure at click time rather than a
+   disabled button with a reason. That is Stage 6's exit read backwards.
+ 
+   `control()` covers the buttons declared as operations. This covers the ones
+   that act directly: loading a model, releasing a lease, switching a provider
+   off. Same rule, stated the same way, so a reader sees one behaviour. */
+function gated(service,capability){
+ if(capable(service,capability))return '';
+ const known=SERVICES[service]||{label:service,state:'unknown'};
+ const why=usable(service)
+   ?`${known.label} does not currently offer ${capability}`
+   :`${known.label} is ${known.state}`;
+ return ` disabled title="${escapeHtml(why)}" style="opacity:.45;cursor:not-allowed"`;
+}
 /* A tile renders its value only if the service that owns it can answer.
    Otherwise it names the service and the reason — so an empty panel can
    never be mistaken for a measured zero. */
@@ -2817,10 +2837,56 @@ const UNBUILT={
  reroute:'POST /api/v1/route-tests · no endpoint',
  diagnose:'POST /api/v1/diagnostics · no endpoint'};
 
+/* Which declared operation governs a control, where one does.
+ 
+   **NERVIS publishes this and nothing read it.** `/api/v1/services` carries
+   fifteen operations, each naming its owning service, the capability it needs,
+   whether it is usable right now and why not — §5.2's requirement that a
+   control cannot exist without having answered those questions. The page stored
+   the list in `OPERATIONS` and never looked at it again, and `capable()` was
+   defined and never called, under a comment claiming it "makes control gating
+   real rather than a promise". Stage 6's exit is that every control is
+   capability-driven; it was driven by a hand-written map in the browser.
+ 
+   Mapped only where an operation genuinely governs the control. `reroute` and
+   `refreshEvidence` have no declared operation -- claiming a *read* operation
+   governs a write would be the same overstatement in a new place -- and
+   `loadModel` and `clearEventFilters` touch no service at all. Those stay with
+   `UNBUILT`, which answers a different question: not "the service says no" but
+   "there is nothing to call". */
+const CONTROL_OPERATION={
+ runBenchmark:'sirvis.jobs',
+ activateProfile:'ravis.management',
+ setProvider:'ravis.management',
+};
+
+function operationFor(action){
+ const key=CONTROL_OPERATION[action];
+ return key?OPERATIONS.find(op=>op.key===key)||null:null;
+}
+
 /* A button for an operation that exists, or a disabled one that names what it
    is waiting for. Never a button that looks live and is not. */
 function control(label,action,extra){
- const missing=UNBUILT[action];
+ /* The owning service's own answer leads. A capability it reports unavailable
+    disables the control in the words the service used, and re-enables it when
+    the service changes its mind -- which is what "capability-driven" has to
+    mean if it is to survive the next milestone shipping. `UNBUILT` is the
+    fallback for an action no operation covers. */
+ const op=operationFor(action);
+ const refused=op&&!op.usable
+   ?(op.reason||`${op.service} reports ${op.capability} as ${op.availability}`):'';
+ /* **Which side is missing, said separately.** A control can be unavailable
+    because the service refuses it or because this page has nothing to call, and
+    those need different work from different people. When the capability is
+    usable and no handler exists, saying "not built" about the *endpoint* would
+    be wrong the moment the service ships it -- the same staleness the audit
+    spent a day removing -- so the reason names the dashboard instead. */
+ const wired=typeof DEMO_API[action]==='function'||typeof window[action]==='function';
+ const unwired=wired?'':(op&&op.usable
+   ?`${op.service.toUpperCase()} offers this; the dashboard has no control wired to it yet`
+   :(UNBUILT[action]||'no control is wired to this yet'));
+ const missing=refused||unwired;
  /* `DEMO_API.x()` or a page-local `x()`, whichever exists. This always emitted
     the first, so "Clear filters" on the Events screen — whose handler is an
     ordinary top-level function — rendered as a live button that threw a
@@ -4410,7 +4476,7 @@ async function sirvisRuntime(){
     <span><input id="rtCtx" class="mono" placeholder="8192" style="width:88px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
     <span><select id="rtPolicy" class="mono" style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"><option value="wait">wait</option><option value="reject">reject</option><option value="preempt">preempt</option></select></span>
     <span><input id="rtLease" class="mono" placeholder="3600" style="width:78px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
-    <span style="grid-column:5/-1"><button class="btn primary"${armed} onclick="RUNTIME.load()">Load</button></span></div>
+    <span style="grid-column:5/-1"><button class="btn primary"${armed}${gated('sirvis','sirvis.runtime.control')} onclick="RUNTIME.load()">Load</button></span></div>
    <small class="mono dim">a load is minutes of work and gigabytes of memory, so the four things that decide what it costs are all here rather than defaulted out of sight. <b>Policy</b> is §9's conflict rule and <b>preempt</b> is never implicit — it is offered because the API takes it, and it still cannot take a model another client holds. The lease is what recovers this model if this tab closes without releasing it.</small>
    ${explains('what authorises a load',`
    <div class="trace-step"><b>reads</b><span>open on loopback</span></div>
@@ -5849,7 +5915,7 @@ async function ravisProviders(){
      <span class="mono" style="opacity:.75">${x.credential_configured?escapeHtml(x.credential_source):'not set'}</span>
      <span>${health(x)}</span>
      <span class="mono" style="opacity:.8">${models(x)}</span>
-     <button class="btn${x.enabled?' primary':''}" onclick="PROVIDERS.toggle('${escapeHtml(x.name)}',${x.enabled?'false':'true'})">${x.enabled?'On':'Off'}</button>
+     <button class="btn${x.enabled?' primary':''}"${gated('ravis','ravis.management')} onclick="PROVIDERS.toggle('${escapeHtml(x.name)}',${x.enabled?'false':'true'})">${x.enabled?'On':'Off'}</button>
     </div>
     <div id="mf-${escapeHtml(x.name)}" class="model-picker" style="display:none">
      <div class="picker-head">
