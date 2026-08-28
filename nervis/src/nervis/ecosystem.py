@@ -134,10 +134,23 @@ DECLARED: dict[str, Capability] = {
         reason="§9's read surfaces are served with provenance intact; "
         "launching and streaming a benchmark waits for SIRVIS M14's job queue",
     ),
+    # Degraded, not unavailable, and the distinction is the whole point of
+    # publishing a reason. M8a shipped the receiving half: a Bridge registers
+    # with a port and token it generated, two extension hosts stay separate,
+    # leases expire, and nothing that could resolve a gate exists. What is
+    # missing is M8b -- reading status, mode and gate state from a *running*
+    # Bridge -- and that is blocked on Clarvis building the Bridge at all,
+    # which §1 forbids inventing.
+    #
+    # This said "lands at M8" for as long as M8a has been shipped, so a peer
+    # asking whether it could register was told no by a service that would
+    # have accepted the registration.
     "nervis.clarvis_visibility@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="the Clarvis Bridge integration lands at M8",
+        state=DEGRADED,
+        reason="M8a's registration is served -- per-extension-host instances, "
+        "leases, redaction; reading a running Bridge's status and gate state "
+        "is M8b, blocked on Clarvis building the Bridge",
     ),
     "nervis.diagnostics@1": Capability(
         version="1.0.0",

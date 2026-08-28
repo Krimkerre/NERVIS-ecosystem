@@ -140,7 +140,10 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.traces": "degraded",                  # M7; peers publish at Stage 7
         "nervis.ravis_chat": "degraded",              # M4, titles await RAVIS M16
         "nervis.sirvis_views": "degraded",            # M5a; jobs await SIRVIS M14
-        "nervis.clarvis_visibility": "unavailable",   # M8
+        # M8a's registration is served; M8b needs a Bridge to exist. This read
+        # "unavailable" here for as long as M8a had been shipped -- the test
+        # was written beside the declaration and locked in its mistake.
+        "nervis.clarvis_visibility": "degraded",
         "nervis.diagnostics": "unavailable",          # M12, M17
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
