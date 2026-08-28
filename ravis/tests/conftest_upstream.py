@@ -76,10 +76,18 @@ class RecordingUpstream:
 
     @staticmethod
     def _completion() -> dict[str, Any]:
+        """A non-streamed completion, with the `usage` a real upstream returns.
+
+        It had no `usage` key at all, which is not a shape any OpenAI-compatible
+        server produces -- and that omission is why no test could catch the
+        transparent non-streaming path recording no usage. A fixture that cannot
+        carry the field cannot fail when the field is dropped.
+        """
         return {
             "id": "chatcmpl-1",
             "object": "chat.completion",
             "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello"}}],
+            "usage": {"prompt_tokens": 15, "completion_tokens": 7, "total_tokens": 22},
         }
 
 

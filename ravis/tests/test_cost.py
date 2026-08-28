@@ -466,3 +466,65 @@ def test_a_missing_count_on_a_free_component_still_costs() -> None:
 
     assert state is CostState.ESTIMATED
     assert abs(cost - 3_000 / PER_MILLION) < 1e-12
+
+
+def test_a_non_streamed_transparent_call_is_written_to_the_ledger() -> None:
+    """§14's ledger has to see the ordinary completion, not just the streamed one.
+
+    `note_usage` is reached from three of the four success points: translated
+    non-streaming, transparent streaming, translated streaming. The fourth --
+    an ordinary transparent completion with `stream` omitted -- returned the
+    upstream's response with its own `usage` object sitting in the body and
+    discarded it. Every such call was invisible: absent from `/api/v1/usage`,
+    absent from the spend the budget bands enforce, absent from the per-call
+    table on the dashboard.
+
+    Nothing caught it because the shared upstream fixture returned a completion
+    body with no `usage` key at all -- a shape no OpenAI-compatible server
+    produces. A fixture that cannot carry the field cannot fail when the field
+    is dropped.
+
+    The streamed call is asserted beside it deliberately: identical model,
+    identical tokens. Only the contrast shows that the path, not the pricing,
+    was the difference.
+    """
+    from tests.conftest_upstream import RecordingUpstream
+    from tests.test_transparent_proxy import _app_with
+
+    client, _ = _app_with(RecordingUpstream())
+    with client:
+        ledger = client.app.app.state.usage_ledger
+        client.app.app.state.prices.state("qwen2.5-coder-7b", Price(input_per_million=0.3,
+                                                                output_per_million=0.3))
+
+        streamed = client.post(
+            "/v1/chat/completions",
+            json={"model": "qwen2.5-coder-7b", "stream": True,
+                  "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert streamed.status_code == 200
+        after_stream = len(ledger.recent(500))
+
+        plain = client.post(
+            "/v1/chat/completions",
+            json={"model": "qwen2.5-coder-7b",
+                  "messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert plain.status_code == 200
+        assert plain.json()["usage"]["prompt_tokens"] == 15, (
+            "the upstream reported usage, so RAVIS had it in hand"
+        )
+
+    records = ledger.recent(500)
+    assert len(records) == after_stream + 1, (
+        "a non-streamed completion must leave a usage record, exactly as the "
+        "streamed one does"
+    )
+    # `recent()` returns newest first, so the non-streamed call is at the head.
+    written = records[0]
+    assert written.usage is not None, "the upstream's counts, not a guess"
+    assert written.usage.input_tokens == 15
+    assert written.usage.output_tokens == 7
+    assert written.cost_state is not CostState.UNKNOWN, (
+        "both priced components are known, so this call can be costed"
+    )

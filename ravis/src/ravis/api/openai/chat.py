@@ -797,6 +797,24 @@ def _usage_in(chunk: bytes) -> Usage | None:
     return None
 
 
+def _usage_in_body(content: bytes) -> Usage | None:
+    """The token counts in a non-streamed completion body, if it carries any.
+
+    The sibling of `_usage_in`, for the path that has no frames. Reads the bytes
+    that are about to be forwarded unchanged and returns them to RAVIS's own
+    shape; §6's byte-for-byte guarantee is untouched because nothing here
+    rewrites or re-frames the response.
+    """
+    if b'"usage"' not in content:
+        return None
+    try:
+        body = json.loads(content)
+    except ValueError:
+        return None
+    reported = body.get("usage") if isinstance(body, dict) else None
+    return _usage_from(reported) if isinstance(reported, dict) else None
+
+
 def _usage_from(reported: dict[str, Any]) -> Usage:
     """One provider's usage object in RAVIS's own shape.
 
@@ -1024,6 +1042,20 @@ async def _forward_and_return(call: _Call) -> Response:
             misleading = failure_class is not None
         if failure_class is None:
             call.chain.succeeded(model, started)
+            # **The fourth success point, and the one that recorded nothing.**
+            # `note_usage` is called from the two streaming paths and from
+            # translated non-streaming; transparent non-streaming -- an ordinary
+            # completion with `stream` omitted -- returned here with the
+            # upstream's own `usage` object sitting in the body it was about to
+            # forward, and discarded it. Every such call was invisible to §14's
+            # ledger: absent from `/api/v1/usage`, absent from the spend the
+            # budget bands enforce, and absent from the per-call table. The
+            # mirror image of the M15 Path B bug, on the path nothing covered.
+            call.note_usage(
+                model,
+                _usage_in_body(upstream_response.content),
+                (call.chain.now() - started) * 1000,
+            )
             call.finish()
             return _passthrough(upstream_response)
         last = upstream_response
