@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1302 tests, no network, no live service
+.venv/bin/pytest                      # part of 1304 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1302 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1304 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5046,6 +5046,31 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+**Models a provider lists and then refuses are hidden from the picker.** A deprecated id stays in
+OpenAI's `GET /v1/models` after it stops working, so it stayed pickable and every attempt came
+back 404 — which RAVIS already records as `MODEL_UNAVAILABLE`, per model, with the same machinery
+that opens its circuit.
+
+That record is the signal, and it is the only honest one available. There is no `deprecated` flag
+on any provider's listing: OpenAI publishes deprecations as an HTML page, so the alternative was a
+hardcoded table that covers one vendor, goes stale unnoticed, and dresses *a web page said so* as
+knowledge. The observed refusal covers every provider, needs no network, is wrong only until the
+next attempt, and reads identically for a model the account simply has no access to — which is
+correct, because both answer the question a picker is asking.
+
+**Tri-state, and `null` is not health.** Never called reports `null`, for the same reason a
+provider nobody has probed reports a breaker of `null` rather than CLOSED; a model that has
+answered reports `false`, so a provider recovering is visible rather than permanent. The picker
+hides only `true`.
+
+**Counted, not merely dropped.** The row reads *"125 model(s) pass its filter · 1 hidden, this
+provider answered 404 for them"*. A picker showing fewer models than the provider publishes, with
+no explanation, is one nobody can debug.
+
+Found the guard wrong on the first run: it gated on `requests`, and a model that has only ever
+failed has no completed request to its name — so it reported "never called" for exactly the models
+it exists to find.
 
 **A second one is left standing, deliberately.** Every `gpt-5` model rejects `max_tokens` and
 wants `max_completion_tokens`. Translating it would mean the transparent path stops forwarding the

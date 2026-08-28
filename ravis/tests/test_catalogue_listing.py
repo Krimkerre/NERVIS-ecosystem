@@ -194,3 +194,48 @@ def test_a_credential_for_a_provider_with_no_upstream_reports_no_catalogue() -> 
 
     assert saved["catalogue_total"] is None
     client.__exit__(None, None, None)
+
+
+# ── Models a provider lists and then refuses (§9.4) ──────────────────────────
+
+
+def test_a_listed_model_the_provider_refuses_is_marked_unavailable() -> None:
+    """What a deprecated id looks like from here.
+
+    OpenAI kept `gpt-5-chat-latest` in `GET /v1/models` after deprecating it, so
+    it stayed pickable and every attempt came back 404 — which RAVIS records as
+    `MODEL_UNAVAILABLE`. That record is the only honest signal available: there
+    is no `deprecated` flag on any provider's listing, and the alternative was a
+    hardcoded table covering one vendor that goes stale unnoticed.
+
+    It reads the same for a model the account simply has no access to, which is
+    correct — both answer the question a picker is asking, which is *can I use
+    this*.
+    """
+    from ravis.reliability.failures import FailureClass
+
+    client = a_client(["works", "gone"])
+    inner = client.app.app  # type: ignore[attr-defined]
+    inner.state.health.record(FailureClass.MODEL_UNAVAILABLE, "gone", "demo", 0.0)
+
+    items = {i["id"]: i for i in client.get("/api/v1/providers/demo/catalogue").json()["items"]}
+
+    assert items["gone"]["unavailable"] is True
+    # Never called is *not* a claim of health — the same reason a provider
+    # nobody has probed reports a breaker of `null` rather than CLOSED.
+    assert items["works"]["unavailable"] is None
+
+
+def test_a_model_that_has_answered_is_not_marked_unavailable() -> None:
+    """The middle state, which is the one that keeps this from being a
+    one-way door: a model that works reports `False`, so a provider recovering
+    is visible rather than permanent."""
+    from ravis.reliability.failures import HealthScope
+
+    client = a_client(["works"])
+    inner = client.app.app  # type: ignore[attr-defined]
+    inner.state.health.of(HealthScope.MODEL, "works").succeeded(0.0)
+
+    items = {i["id"]: i for i in client.get("/api/v1/providers/demo/catalogue").json()["items"]}
+
+    assert items["works"]["unavailable"] is False

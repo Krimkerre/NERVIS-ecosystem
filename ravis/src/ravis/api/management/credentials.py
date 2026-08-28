@@ -34,6 +34,8 @@ from pydantic import BaseModel
 from ravis.credentials import CredentialStore
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
+from ravis.reliability.failures import FailureClass, HealthScope
+from ravis.reliability.health import HealthRegistry
 
 router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 
@@ -331,13 +333,17 @@ async def read_catalogue(name: str, request: Request) -> dict[str, Any]:
     filters: ModelFilters = request.app.state.model_filters
     model_filter = filters.for_provider(name)
     selected = set(model_filter.apply(catalogue))
+    unusable = _unavailability(request)
 
     offset = max(0, _int(request.query_params.get("offset"), 0))
     limit = min(CATALOGUE_MAX_PAGE, max(1, _int(request.query_params.get("limit"), CATALOGUE_PAGE)))
     page = catalogue[offset : offset + limit]
     return {
         "name": name,
-        "items": [{"id": model, "selected": model in selected} for model in page],
+        "items": [
+            {"id": model, "selected": model in selected, "unavailable": unusable(model)}
+            for model in page
+        ],
         "total": len(catalogue),
         "offset": offset,
         "limit": limit,
@@ -347,6 +353,40 @@ async def read_catalogue(name: str, request: Request) -> dict[str, Any]:
         "filtered": not model_filter.is_empty,
         "filter": model_filter.as_dict(),
     }
+
+
+def _unavailability(request: Request) -> Any:
+    """A reader for "has this provider told us the model does not exist?".
+
+    **Measured, and only measured.** `MODEL_UNAVAILABLE` is what RAVIS records
+    when a provider answers 404 for a model it lists — which is what a
+    deprecated id looks like from here, and equally what an id the account has
+    no access to looks like. Both mean *you cannot use this*, which is the
+    question a picker is asking.
+
+    There is no other honest source. OpenAI publishes deprecations as an HTML
+    page and marks nothing on `GET /v1/models`, so the alternative was a
+    hardcoded list that covers one provider, goes stale unnoticed, and dresses
+    "a web page said so" as knowledge. This covers every provider, needs no
+    network, and is wrong only until the next attempt.
+
+    Three states. `None` means never called — which is not a claim of health,
+    for the same reason a provider nobody has probed shows a breaker of `null`
+    rather than CLOSED.
+    """
+    health: HealthRegistry = request.app.state.health
+
+    def of(model: str) -> bool | None:
+        known = health.known(HealthScope.MODEL, model)
+        # The *record* is the evidence, not the request count. A model that has
+        # only ever failed has no completed request to its name — `failed` does
+        # not increment one — so gating on `requests` reported "never called"
+        # for exactly the models this exists to find.
+        if known is None:
+            return None
+        return known.failures_by_class.get(FailureClass.MODEL_UNAVAILABLE.value, 0) > 0
+
+    return of
 
 
 def _int(raw: str | None, fallback: int) -> int:

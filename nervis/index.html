@@ -6252,6 +6252,24 @@ function healthChip(d){
  * reach a model two providers both serve. Anthropic's models are on Anthropic
  * and on OpenRouter, and those are different routes with different prices.
  */
+/* One provider's row in the picker. Split out of `MODELPICK.load`, which
+   crossed the complexity ratchet the moment the hidden-model count added a
+   third thing to say in its hint — the ratchet pointing at a loop that was
+   also a formatter. */
+function providerGroup(provider,found){
+ const withheld=found.hidden
+   ? ` · ${found.hidden} hidden, this provider answered 404 for them`:'';
+ return {
+  name:provider.label||provider.name,
+  local:Boolean(provider.local),
+  hint:provider.local
+    ? `on this machine · ${found.ids.length} model(s) · nothing leaves the machine and nothing is billed${withheld}`
+    : `pinned to this provider · ${found.ids.length} model(s) pass its filter${withheld}`,
+  items:found.ids.map(id=>({id:`ravis/${provider.name}/${id}`,label:id,
+    note:provider.local?'local':''})),
+ };
+}
+
 const MODELPICK={
  /* Pools and per-provider models, once per open. Not cached across opens: a
     provider keyed or filtered in another tab should show up, and this list is
@@ -6286,14 +6304,9 @@ const MODELPICK={
   const usable=(providers.items||[]).filter(
     c=>c.enabled!==false&&(c.local||c.credential_configured));
   for(const provider of usable){
-   const ids=await this.catalogue(provider.name);
-   if(!ids.length)continue;
-   groups.push({name:provider.label||provider.name, local:Boolean(provider.local),
-     hint:provider.local
-       ? `on this machine · ${ids.length} model(s) · nothing leaves the machine and nothing is billed`
-       : `pinned to this provider · ${ids.length} model(s) pass its filter`,
-     items:ids.map(id=>({id:`ravis/${provider.name}/${id}`,label:id,
-       note:provider.local?'local':''}))});
+   const found=await this.catalogue(provider.name);
+   if(!found.ids.length)continue;
+   groups.push(providerGroup(provider,found));
   }
   this.state={groups,q:''};
   this.render();
@@ -6304,18 +6317,30 @@ const MODELPICK={
     the Providers picker is: a list that omits a model is one nobody can pick. */
  async catalogue(name){
   const ids=[];
+  /* Models this provider lists and has then refused as non-existent. Counted
+     rather than merely dropped: a picker that silently shows fewer models than
+     the provider publishes is one nobody can debug, and "3 hidden" with the
+     reason attached is the difference between a filter and a mystery. */
+  let hidden=0;
   let offset=0;
   try{
    while(offset!==null){
     const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)
       +'/catalogue?offset='+offset+'&limit=500',{signal:AbortSignal.timeout(8000)});
-    if(!r.ok)return ids;
+    if(!r.ok)return {ids,hidden};
     const page=await r.json();
-    ids.push(...(page.items||[]).filter(i=>i.selected).map(i=>i.id));
+    for(const item of page.items||[]){
+     if(!item.selected)continue;
+     /* `=== true` and not truthiness: the field is tri-state, and `null` means
+        RAVIS has never called this model — which is not a claim that it works,
+        and equally not grounds for hiding it. */
+     if(item.unavailable===true){hidden++;continue}
+     ids.push(item.id);
+    }
     offset=page.next_offset;
    }
   }catch(e){}
-  return ids;
+  return {ids,hidden};
  },
 
  render(){
