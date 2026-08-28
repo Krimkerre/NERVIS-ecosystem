@@ -3064,6 +3064,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  /* Re-read every paint rather than once: mute has to be honoured immediately,
     and settings changed on the Voice screen must bite here without a reload. */
  SPEECH.load();
+ readHeld();
  /* Awaited before the greeting, because the greeting is where the name is
     first used — loading it afterwards would greet a stranger exactly once,
     on the one screen where it is most visible. */
@@ -5835,6 +5836,12 @@ const CHAT_STORE={
   const list=this.read().filter(c=>c.conversation_id!==session.id);
   list.unshift({
    conversation_id:session.id,
+   /* **NERVIS's own id for the same conversation.** Without it this list could
+      name a conversation only in the browser's terms, so deleting one removed
+      the local copy and left NERVIS holding every message — which is not what
+      anybody pressing Delete believes they are doing, and with cross-session
+      memory on it left "deleted" conversations still readable by the next one. */
+   remote_id:session.remote_id||'',
    title:session.title,
    created_at:session.created_at,
    updated_at:new Date().toISOString(),
@@ -6168,6 +6175,42 @@ const CHAT_SESSION={
  private:null,
  busy:false};
 
+/* What NERVIS itself is holding, as opposed to what this browser remembers. */
+const HELD={count:0,ids:[]};
+
+async function readHeld(){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat/conversations',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok)return;
+  const items=(await r.json()).items||[];
+  HELD.count=items.length;
+  HELD.ids=items.map(c=>c.conversation_id);
+ }catch(e){}
+}
+
+/* Everything NERVIS holds, gone. Deliberately separate from the per-row
+   Delete: this is the one that clears what the browser never knew about. */
+async function forgetEverythingHeld(){
+ if(!armed('held:all',`This deletes all ${HELD.count} conversations from NERVIS itself`))return;
+ for(const id of [...HELD.ids])await forgetOnNervis(id);
+ await readHeld();
+ notify(`NERVIS now holds ${HELD.count}`);
+ render();
+}
+
+/* Remove one conversation from NERVIS's own store. True when it is gone.
+   A 404 counts as gone: something else already deleted it, and reporting a
+   failure for a conversation that no longer exists would leave a row nobody
+   can clear. */
+async function forgetOnNervis(id){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat/conversations/'+encodeURIComponent(id),
+    {method:'DELETE'});
+  return r.ok||r.status===404;
+ }catch(e){return false}
+}
+
 const CHAT_SESSIONS={
  start(){
   /* The current conversation is saved before it is replaced. A "New chat"
@@ -6204,8 +6247,14 @@ const CHAT_SESSIONS={
    profile:p.profile||'ravis/auto'});
   render();
  },
- remove(id){
-  if(!armed('conversation:'+id,'This conversation is not stored anywhere else'))return;
+ async remove(id){
+  if(!armed('conversation:'+id,'This deletes it from NERVIS as well as from this browser'))return;
+  /* NERVIS first, because it is the copy that outlives the browser and the one
+     cross-session memory reads. If it fails the local entry stays too, so the
+     row remains on screen to try again rather than vanishing while the real
+     copy survives. */
+  const held=(CHAT_STORE.read().find(c=>c.conversation_id===id)||{}).remote_id;
+  if(held&&!await forgetOnNervis(held))return notify('NERVIS would not delete it — the browser copy is kept');
   CHAT_STORE.remove(id);
   if(CHAT_SESSION.id===id)Object.assign(CHAT_SESSION,{
     id:'cv_'+Math.random().toString(36).slice(2,6),
@@ -6442,14 +6491,37 @@ function chatDrawerMarkup(){
 }
 /* Conversations kept in this browser, and the way back into one. */
 function historyPane(){
-     const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
-     return saved.length?`${saved.map(c=>`<div class="trace-step" style="align-items:flex-start">
-        <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
-        <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
-        <button class="btn"${ARMED_ACTION==='conversation:'+c.conversation_id?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'} onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">${ARMED_ACTION==='conversation:'+c.conversation_id?'Confirm':'Delete'}</button></span></div>`).join('')}
-      <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 keeps conversations local by default.</small>`
-      :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
-    }
+ const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
+ return heldRow()+(saved.length?`${saved.map(historyRow).join('')}
+   <small class="mono dim">this list is what <b>this browser</b> remembers. The conversations themselves are stored by <b>NERVIS</b>, on this machine — §7.2 keeps them local to the machine, which is not the same as local to the tab, and another browser keeps a different list of the same conversations. <b>Delete removes both copies.</b></small>`
+  :`<small class="mono dim">this browser lists no other conversation. That is not the same as none existing: the conversations are stored by <b>NERVIS</b>, and a different browser keeps a different list of them.</small>`);
+}
+
+function historyRow(c){
+ const armedHere=ARMED_ACTION==='conversation:'+c.conversation_id;
+ return `<div class="trace-step" style="align-items:flex-start">
+   <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
+   <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
+   <button class="btn"${armedHere?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'} onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">${armedHere?'Confirm':'Delete'}</button></span></div>`;
+}
+
+/* What NERVIS holds beyond what this browser can name.
+
+   The two drifted for as long as Delete removed only the local copy, and the
+   gap was invisible: this list is built from `localStorage`, so a conversation
+   NERVIS still held appeared nowhere at all. Shown only when the numbers
+   disagree, because a store nobody can see is a store nobody can empty — and
+   with cross-session memory on, those are conversations still readable by the
+   next one. */
+function heldRow(){
+ const listed=CHAT_STORE.read().length;
+ if(HELD.count<=listed)return '';
+ const armedHere=ARMED_ACTION==='held:all';
+ return `<div class="trace-step" style="align-items:flex-start">
+   <b style="min-width:0">NERVIS holds ${HELD.count}</b>
+   <span class="mono dim">more than this browser lists — from another browser, or deleted here while Delete still left NERVIS's copy behind
+   <button class="btn"${armedHere?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'} onclick="forgetEverythingHeld()">${armedHere?`Confirm — delete all ${HELD.count}`:`Forget all ${HELD.count}`}</button></span></div>`;
+}
 
 /* Which voice reads the replies, on the panel where the rest of a mode lives.
 

@@ -5047,6 +5047,30 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### Delete deleted half of it
+
+Deleting a conversation removed the browser's copy and left NERVIS holding every message. The
+history list is built from `localStorage`, so the surviving copy appeared nowhere at all — and the
+pane said, in as many words, that conversations were *"stored in this browser only — not on the
+machine and not in any service"*, which was never true. NERVIS has stored them since M4.
+
+Reported by somebody who cleared their history and was told the machine still had forty-one of
+them.
+
+**The browser could not have deleted them even if it had tried.** `CHAT_STORE` keyed on the
+session's local id and never recorded NERVIS's, so a stored entry had no way to name the
+conversation it mirrored. The remote id is kept now, and Delete removes NERVIS's copy *first* —
+if that fails the local row stays, so the conversation remains on screen to retry rather than
+vanishing while the real copy survives. A 404 counts as success: something else already deleted
+it, and reporting failure for a conversation that no longer exists leaves a row nobody can clear.
+
+**With cross-session memory on, this was a privacy bug rather than an untidiness.** A conversation
+somebody deleted was still in the pool the next one recalls from — deleted in the only place they
+could see, and still being read.
+
+The pane now shows what NERVIS holds whenever it exceeds what the browser lists, with a Forget-all
+beside it, because a store nobody can see is a store nobody can empty.
+
 **`confirm()` was silently disabled and every destructive control was dead.** Delete in the
 conversation list did nothing — because Chrome offers *"prevent this page from creating additional
 dialogs"* after a couple of prompts, and once that is ticked `confirm()` returns `false` with no
