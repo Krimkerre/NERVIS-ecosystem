@@ -366,3 +366,61 @@ def test_the_specs_repetition_count_reaches_the_trials() -> None:
     reliability = asyncio.run(run_tool_trials(runtime, "m", repetitions=3))
 
     assert reliability.total == len(TOOL_PROMPTS) * 3 == 24
+
+
+def test_a_run_below_the_coverage_minimum_is_unknown_not_a_pass() -> None:
+    """§13.1 states the threshold on three axes and the code compared one.
+
+    "`tool_call_pass_rate` >= 0.95 over >= 8 distinct prompt phrasings x >= 3
+    repetitions each", and the section closes: "A run that covers fewer
+    phrasings or fewer repetitions than the minimum yields `UNKNOWN`, never a
+    pass."
+
+    `TrialRate` records both axes and the evidence endpoint returns them;
+    nothing read either. A build measured at one repetition per phrasing -- a
+    third of the required evidence -- was declared agent-capable on a perfect
+    rate, and this machine's corpus holds exactly such a record.
+
+    UNKNOWN rather than UNSUPPORTED: too little evidence is not evidence of
+    failure, and `eligible()` fails closed on any state that is not SUPPORTED.
+    """
+    from sirvis.api.routes import _capability_states
+
+    def record(key: str, phrasings: int, repetitions: int) -> dict[str, object]:
+        return {
+            "runtime_key": key,
+            "metrics": {
+                "tool_call_well_formed": {
+                    "passed": 24, "total": 24, "rate": 1.0,
+                    "phrasings": phrasings, "repetitions": repetitions,
+                }
+            },
+        }
+
+    states = _capability_states([
+        record("covered", 8, 3),
+        record("too-few-repetitions", 8, 1),
+        record("too-few-phrasings", 4, 3),
+    ])
+
+    assert states["covered:tool_use"] == "SUPPORTED", "meets all three axes"
+    assert states["too-few-repetitions:tool_use"] == "UNKNOWN", (
+        "a perfect rate over one repetition each is not a pass"
+    )
+    assert states["too-few-phrasings:tool_use"] == "UNKNOWN"
+
+
+def test_a_missing_coverage_axis_is_unknown_rather_than_assumed() -> None:
+    """An older record that predates the two fields must not be read as covered.
+
+    Absence and zero are different, and the direction that matters is the one
+    that would let an unmeasured build through.
+    """
+    from sirvis.api.routes import _capability_states
+
+    states = _capability_states([{
+        "runtime_key": "no-coverage-fields",
+        "metrics": {"tool_call_well_formed": {"passed": 24, "total": 24, "rate": 1.0}},
+    }])
+
+    assert states["no-coverage-fields:tool_use"] == "UNKNOWN"

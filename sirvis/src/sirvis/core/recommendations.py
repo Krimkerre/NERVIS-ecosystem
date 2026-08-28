@@ -53,6 +53,20 @@ ALGORITHM_VERSION = "sirvis.recommend.v1"
 # the two drifting apart in silence, each correct against its own copy.
 TOOL_CALL_PASS_RATE = 0.95
 
+# §13.1's other two axes, and the ones that were never read. The threshold is
+# stated on three axes -- `tool_call_pass_rate >= 0.95 over >= 8 distinct prompt
+# phrasings x >= 3 repetitions each` -- and the section closes: "A run that
+# covers fewer phrasings or fewer repetitions than the minimum yields UNKNOWN,
+# never a pass."
+#
+# Only the rate was compared. `TrialRate` records `phrasings` and `repetitions`
+# faithfully and the evidence endpoint returns them; nothing in the service read
+# either. The corpus on this machine holds two records at one repetition per
+# phrasing -- a third of the required evidence -- and one of them has a 1.00
+# pass rate, so it was being declared agent-capable outright.
+MIN_PHRASINGS = 8
+MIN_REPETITIONS = 3
+
 # §14.2's fit tiers. `UNKNOWN` is first-class and, on this machine, the usual
 # answer — nothing records an installed size, so the estimator has no weights to
 # add up. Stated here rather than discovered: the tiers exist and the input does
@@ -197,21 +211,47 @@ def axis_values(
     they were evaluated in.
     """
     values: dict[str, dict[str, float]] = {}
-    for record in records:
+    # **Newest first, by the record's own timestamp, and merged per axis.**
+    #
+    # This built a fresh dict per record and did `values[key] = found`, so the
+    # last record processed for a build won outright: every earlier one was
+    # discarded rather than aggregated, and a measure present only in an earlier
+    # record was dropped entirely. Records arrive newest-first from
+    # `query_evidence` (`created_at DESC`), which made the *surviving* record
+    # the oldest run for each build -- a build re-benchmarked after a fix was
+    # still scored on its first-ever measurement.
+    #
+    # `recommend()` promises "the same records in any order produce the same
+    # answer", and the docstring above warns that normalising one candidate at a
+    # time "would make a score depend on the order they were evaluated in". The
+    # loop underneath both claims did exactly that. Ordering here is explicit --
+    # by `measured_at`, then `evidence_id` to break ties -- so it no longer
+    # depends on how the caller happened to hand them over.
+    #
+    # Newest-wins per axis rather than a median across runs: a re-benchmark
+    # after a change is a correction, not another sample of the same thing, and
+    # §12.2 already keys evidence so that a different configuration is a
+    # different identity. `setdefault` keeps an older run's measure for an axis
+    # the newest one does not carry.
+    newest_first = sorted(
+        records,
+        key=lambda r: (str(r.get("measured_at") or ""), str(r.get("evidence_id") or "")),
+        reverse=True,
+    )
+    for record in newest_first:
         key = _runtime_key(record)
         if not key:
             continue
-        found: dict[str, float] = {}
+        found = values.setdefault(key, {})
         rate = _rate(record, "tool_call_well_formed")
         if rate is not None:
-            found["tool_use"] = rate
+            found.setdefault("tool_use", rate)
         throughput = _median(record, "generation_tokens_per_second")
         if throughput is not None:
-            found["throughput"] = throughput
+            found.setdefault("throughput", throughput)
         window = contexts.get(key)
         if window:
-            found["context"] = float(window)
-        values[key] = found
+            found.setdefault("context", float(window))
     return values
 
 

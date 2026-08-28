@@ -50,6 +50,7 @@ from sirvis.benchmarks.engine import (
     RUNTIME_KEY,
     GenerationRuntime,
     Repetition,
+    _effective_configuration,
     _evidence,
     _inventory,
     _measure,
@@ -203,6 +204,18 @@ class MultiModelOutcome:
     # stops the alone measurements being read as a working combination.
     co_residency_failure: str | None = None
     load_seconds: dict[str, float] = field(default_factory=dict)
+    # role → the configuration that role's model is **actually** resident under,
+    # read from the runtime once every member is loaded.
+    #
+    # §12.2 keys evidence on the configuration a number was produced under, not
+    # the one that was asked for. The view below stamped
+    # `spec.per_role[0].load` -- the *first* member's *requested* config -- onto
+    # every member's record, so in a set whose members differ in context length
+    # (§10's own example is chat@16384 with agent@32768) the second member's
+    # evidence was filed under the first member's window. A RAVIS query for the
+    # agent build at 32768 then matched nothing, and two runs that differed only
+    # in the second member's context collided on one identity.
+    effective_by_role: dict[str, dict[str, Any]] = field(default_factory=dict)
     # §11.8's thermal reading, per condition. A degradation percentage is a
     # comparison between two conditions, so a reading taken once for the whole
     # run cannot say which of the two was measured warm.
@@ -340,6 +353,14 @@ async def _execute(
     lease = await _load_together(spec, resources, sampler, directory, outcome)
     if lease is None:
         return
+    # Per member, and only now: this is the first moment every member is
+    # resident together, which is the state the co-resident numbers are measured
+    # in. `_effective_configuration` returns {} for a model the runtime does not
+    # report as loaded, which keeps "not known" distinct from "matched".
+    resident = await runtime.list_loaded_models()
+    outcome.effective_by_role = {
+        member.role: _effective_configuration(member, resident) for member in spec.per_role
+    }
 
     try:
         for mode in spec.modes:
@@ -803,7 +824,7 @@ def _result_for(
     disagreeing with itself.
     """
     condition = MODE_SEQUENTIAL if not outcome.co_residency_failure else MODE_ALONE
-    shim = _OutcomeView(member, outcome, condition, spec)
+    shim = _OutcomeView(member, outcome, condition)
     record = _evidence(
         _spec_with_condition(member, spec, condition), _resolve(inventory, member.model_key),
         cast(Any, shim), machine,
@@ -868,7 +889,6 @@ class _OutcomeView:
 
     def __init__(
         self, member: ExperimentSpec, outcome: MultiModelOutcome, condition: str,
-        spec: MultiModelSpec,
     ) -> None:
         measured = outcome.repetitions_for(member.role, condition)
         # Re-phased to `measured` because that is the only phase `_evidence`
@@ -881,7 +901,8 @@ class _OutcomeView:
         self.telemetry = outcome.telemetry
         self.thinking_suppression: str | None = None
         self.suppressions_tried: list[str] = []
-        self.effective_configuration = dict(spec.per_role[0].load)
+        # This role's own, not the first member's. See `effective_by_role`.
+        self.effective_configuration = dict(outcome.effective_by_role.get(member.role, {}))
         self.thermal_before: str | None = None
         self.thermal_after: str | None = None
         # M13's trials do not run under a multi-model experiment: the tool-call

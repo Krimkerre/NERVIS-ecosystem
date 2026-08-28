@@ -493,3 +493,60 @@ def test_an_unknown_profile_is_refused() -> None:
 
     assert response.status_code == 422
     assert "unknown profile" in response.text
+
+
+def test_a_rebenchmarked_build_is_scored_on_its_newest_run() -> None:
+    """`values[key] = found` let the last record processed win outright.
+
+    Records arrive newest-first from the store (`created_at DESC`), so the
+    surviving record was the *oldest* run for each build: a build re-measured
+    after a fix went on being scored on its first-ever measurement. The
+    assignment also replaced rather than merged, so a measure carried only by an
+    older record was discarded rather than kept.
+    """
+    old = evidence(throughput=40.0, ref="sirvis://evidence/ev_old/res_1")
+    old["measured_at"] = "2026-08-01 10:00:00"
+    old["evidence_id"] = "ev_old"
+    new = evidence(throughput=60.0, ref="sirvis://evidence/ev_new/res_1")
+    new["measured_at"] = "2026-08-24 19:52:06"
+    new["evidence_id"] = "ev_new"
+
+    values = axis_values([new, old], CONTEXTS)
+
+    assert values[GGUF]["throughput"] == 60.0, "the newest measurement, not the first"
+
+
+def test_the_same_records_in_any_order_produce_the_same_values() -> None:
+    """`recommend()` promises exactly this, and the loop underneath broke it.
+
+    Ordering is now explicit -- by `measured_at`, then `evidence_id` to break
+    ties -- rather than inherited from however the caller handed them over.
+    """
+    old = evidence(throughput=40.0, ref="sirvis://evidence/ev_old/res_1")
+    old["measured_at"], old["evidence_id"] = "2026-08-01 10:00:00", "ev_old"
+    new = evidence(throughput=60.0, ref="sirvis://evidence/ev_new/res_1")
+    new["measured_at"], new["evidence_id"] = "2026-08-24 19:52:06", "ev_new"
+
+    assert axis_values([new, old], CONTEXTS) == axis_values([old, new], CONTEXTS)
+
+
+def test_a_measure_only_an_older_run_carries_is_kept() -> None:
+    """Replacement dropped it; merging keeps it.
+
+    A newer run that did not exercise the tool suite must not erase the tool
+    rate an earlier one measured -- that would turn a narrower re-run into a
+    silent loss of evidence.
+    """
+    old = evidence(throughput=40.0)
+    old["measured_at"], old["evidence_id"] = "2026-08-01 10:00:00", "ev_old"
+    newer = {
+        "role": "clarvis-agent", "runtime_key": GGUF,
+        "evidence_ref": "sirvis://evidence/ev_new/res_1",
+        "measured_at": "2026-08-24 19:52:06", "evidence_id": "ev_new",
+        "metrics": {"generation_tokens_per_second": {"median": 61.0, "unit": "tokens/second"}},
+    }
+
+    values = axis_values([newer, old], CONTEXTS)
+
+    assert values[GGUF]["throughput"] == 61.0, "newest wins where it measured"
+    assert "tool_use" in values[GGUF], "and the older run's tool rate survives"

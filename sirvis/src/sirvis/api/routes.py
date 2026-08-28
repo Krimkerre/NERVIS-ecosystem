@@ -29,6 +29,8 @@ from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
 from sirvis.core.recommendations import (
     DEFAULT_PROFILE,
+    MIN_PHRASINGS,
+    MIN_REPETITIONS,
     MODE_FAST,
     MODE_VERIFIED,
     TOOL_CALL_PASS_RATE,
@@ -686,6 +688,27 @@ def _capability_states(records: list[dict[str, Any]]) -> dict[str, str]:
         if not isinstance(rate, dict) or not key or not rate.get("total"):
             continue
         passed, total = rate["passed"], rate["total"]
+        # **All three of §13.1's axes, not just the rate.** The threshold is a
+        # rate *over* a minimum number of phrasings and repetitions, and the
+        # section is explicit that a run covering fewer of either "yields
+        # UNKNOWN, never a pass". Only the rate was compared, so a build
+        # measured at one repetition per phrasing -- a third of the evidence --
+        # could be declared agent-capable, and one in this corpus was.
+        #
+        # UNKNOWN rather than UNSUPPORTED, because too little evidence is not
+        # evidence of failure. `eligible()` fails closed on anything that is not
+        # SUPPORTED and prints the state as its reason, so an under-covered run
+        # excludes the build and says why.
+        phrasings, repetitions = rate.get("phrasings"), rate.get("repetitions")
+        covered = (
+            isinstance(phrasings, int)
+            and isinstance(repetitions, int)
+            and phrasings >= MIN_PHRASINGS
+            and repetitions >= MIN_REPETITIONS
+        )
+        if not covered:
+            states[f"{key}:tool_use"] = "UNKNOWN"
+            continue
         states[f"{key}:tool_use"] = (
             "SUPPORTED" if passed / total >= TOOL_CALL_PASS_RATE else "UNSUPPORTED"
         )

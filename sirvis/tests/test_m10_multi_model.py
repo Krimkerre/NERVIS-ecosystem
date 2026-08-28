@@ -607,3 +607,67 @@ def test_a_run_at_one_thermal_state_is_not_flagged(tmp_path: Any) -> None:
     outcome, _ = run(a_spec(), FakeRuntime(), tmp_path, thermal=lambda: "nominal")
 
     assert not any("thermal state changed" in note for note in outcome.warnings)
+
+
+def test_each_member_files_its_evidence_under_its_own_configuration() -> None:
+    """§12.2 keys evidence on the configuration a number was produced under.
+
+    The view stamped `spec.per_role[0].load` -- the *first* member's *requested*
+    configuration -- onto every member's record. In a set whose members differ
+    in context length, which is §10's own example (chat at 16384 with agent at
+    32768), the agent's evidence was filed under the chat member's window. RAVIS
+    asking for that build at 32768 matched nothing, and two runs differing only
+    in the second member's context collided on one identity.
+
+    Requested is also not the same question as effective: `_effective_configuration`
+    reads what the runtime actually loaded, and returns {} rather than falling
+    back to the request when the model is not resident.
+    """
+    from sirvis.benchmarks.multi import MultiModelOutcome, _OutcomeView
+    from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, GenerationConfig
+
+    def member(role: str, window: int) -> ExperimentSpec:
+        return ExperimentSpec(
+            suite_id="perf", suite_version="1", model_key=f"{role}-build",
+            tests=(BenchmarkTest(id="t1", version="1", prompt="hi",
+                                 generation=GenerationConfig(max_tokens=8)),),
+            load={"context_length": window}, warmups=0, repetitions=1, role=role,
+        )
+
+    outcome = MultiModelOutcome(
+        experiment_id="e", run_id="r", state=RunState.SUCCEEDED, detail="",
+        results_path="", load_order=["chat", "agent"],
+    )
+    outcome.effective_by_role = {
+        "chat": {"context_length": 16384},
+        "agent": {"context_length": 32768},
+    }
+
+    chat = _OutcomeView(member("chat", 16384), outcome, "concurrent")
+    agent = _OutcomeView(member("agent", 32768), outcome, "concurrent")
+
+    assert chat.effective_configuration == {"context_length": 16384}
+    assert agent.effective_configuration == {"context_length": 32768}, (
+        "the agent's own window, not the first member's"
+    )
+
+
+def test_a_member_the_runtime_did_not_report_carries_no_configuration() -> None:
+    """Empty rather than the requested value, which is what the single-model
+    engine does: an identity that silently fell back to the request would claim
+    knowledge the run does not have."""
+    from sirvis.benchmarks.multi import MultiModelOutcome, _OutcomeView
+    from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, GenerationConfig
+
+    spec = ExperimentSpec(
+        suite_id="perf", suite_version="1", model_key="agent-build",
+        tests=(BenchmarkTest(id="t1", version="1", prompt="hi",
+                             generation=GenerationConfig(max_tokens=8)),),
+        load={"context_length": 32768}, warmups=0, repetitions=1, role="agent",
+    )
+    outcome = MultiModelOutcome(
+        experiment_id="e", run_id="r", state=RunState.SUCCEEDED, detail="",
+        results_path="", load_order=["agent"],
+    )
+
+    assert _OutcomeView(spec, outcome, "concurrent").effective_configuration == {}
