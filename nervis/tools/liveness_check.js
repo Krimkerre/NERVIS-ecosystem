@@ -27,8 +27,14 @@ const path = require("path");
 const FILE = path.join(__dirname, "..", "index.html");
 
 /* The ceiling. Lower it when cards are wired; never raise it without saying
- * why in the commit message. */
-const CEILING = 55;
+ * why in the commit message.
+ *
+ * 55 → 56 for the Trace waterfall's read-failed card. It is static because
+ * there is nothing live to express: it renders precisely when the trace index
+ * did *not* answer, so a liveness class on it would be claiming a source it
+ * does not have. That is the "genuinely static — an empty state" case this
+ * check's own message names, and the count moves because the card is new. */
+const CEILING = 56;
 
 const source = fs.readFileSync(FILE, "utf8");
 

@@ -198,6 +198,13 @@ jobs:
       - name: every screen is addressable
         run: node tools/routing_check.js
         working-directory: nervis
+      # A refused read, a broken service, an absent one, a body that is not
+      # JSON and an adapter that threw are five different things to do next.
+      # `live()` reported them as one, and the binding holding the answer was
+      # never read.
+      - name: request outcomes stay distinct
+        run: node tools/outcome_check.js
+        working-directory: nervis
 
   nervis:
     name: nervis — lint, types, tests

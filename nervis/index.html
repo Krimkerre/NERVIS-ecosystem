@@ -863,8 +863,51 @@ function capabilitiesKnown(src,need){
  return Boolean(need)&&REGISTRY_AT>0&&Array.isArray(advertised)&&advertised.length>0;
 }
 
+/* What the last read of this service actually did, as a sentence, or '' when
+   it did the ordinary thing.
+
+   §25.2's line is "service-level absence is handled; request-level is not", and
+   this is the request level arriving on screen. A service that is up and
+   *refusing* is the case worth separating hardest: it is reachable, so every
+   reachability test says it is fine, and the read still produced nothing. Told
+   that RAVIS is unreachable, somebody checks a port; told that RAVIS refused
+   the read, they check a credential.
+
+   `unreadable` is ours, not theirs, and says so — the service answered and this
+   page could not parse what it sent. Blaming the peer for a defect in the
+   dashboard sends the one person who could fix it to the wrong repository. */
+function readFailure(src){
+ const outcome=OUTCOME[src];
+ if(!outcome||outcome.kind==='answered')return '';
+ if(outcome.kind==='refused')
+  return `${SERVICES[src]?SERVICES[src].label:src} refused this read (HTTP ${outcome.status}) — it is running, so this is a credential rather than an outage`;
+ if(outcome.kind==='unreadable')
+  return `${SERVICES[src]?SERVICES[src].label:src} answered, and this dashboard could not read the answer — ${outcome.detail}`;
+ if(outcome.kind==='failed')
+  return `${SERVICES[src]?SERVICES[src].label:src} answered HTTP ${outcome.status}`;
+ if(outcome.kind==='malformed')
+  return `${SERVICES[src]?SERVICES[src].label:src} answered with something that was not JSON`;
+ if(outcome.kind==='slow')return outcome.detail;
+ return '';
+}
+
+/* The refusal block, or ''. Its own function because `cell` sits on the
+   complexity ratchet and this is two branches; the ratchet is doing its job
+   when it makes a case like this move rather than accumulate. */
+function refusedCell(src){
+ if(!OUTCOME[src]||OUTCOME[src].kind!=='refused')return '';
+ const label=SERVICES[src]?SERVICES[src].label:src;
+ return `<div class="absent" data-state="unauthorized"><b>${escapeHtml(label)} refused this read</b><span>${escapeHtml(readFailure(src))}</span></div>`;
+}
+
 function cell(body,src){
  if(!src)return body;
+ /* A refusal outranks the capability gate below, because it is the more
+    specific answer: the surface is advertised and the read of it was turned
+    down. Reaching the gate would report "has withdrawn this surface", which is
+    a claim about the peer's capability list rather than about what happened. */
+ const refused=refusedCell(src);
+ if(refused)return refused;
  const need=requiredCapability(src);
  /* **Only gate on a capability once the registry has actually answered.**
  
@@ -1035,6 +1078,27 @@ function syncPanelAvatar(){
    than leaving the reader to guess whether a number is real. */
 const SOURCE={};
 const LIVE_TIMEOUT_MS=1500;
+/* The deadline every *read* carries, said once.
+ *
+ * A refused connection fails instantly; a filtered port hangs forever, and four
+ * reads had no deadline at all — two of them awaited inside a `Promise.all`
+ * before their screen painted, so the screen did not paint. `live()` has always
+ * had one; these are the calls written by hand around it.
+ *
+ * **A function, not a constant, and that distinction is the whole of it.**
+ * `AbortSignal.timeout` starts counting when it is *created*. A shared object
+ * built once at load would expire a second and a half into the session and then
+ * abort every read for as long as the tab stayed open — a page that worked when
+ * you opened it and quietly stopped fetching, which is the most expensive shape
+ * of bug this file collects.
+ *
+ * **Reads only, and mutations deliberately not.** Aborting a fetch stops this
+ * page listening; it does not stop the server doing the thing. A deadline on a
+ * PUT turns "slow" into "nobody knows whether that applied", which is a worse
+ * place to leave somebody than a spinner — this dashboard loads models and
+ * writes credentials. The mutations keep waiting, on purpose.
+ */
+function readDeadline(){return{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)}}
 /* What NERVIS's registry last published beside the entries: §5.2's negotiated
    operations, and any endpoint its SSRF guard refused. Empty until a live read
    fills them, so a screen must treat empty as "not read" rather than "none". */
@@ -1211,7 +1275,54 @@ async function peerRead(service,surface,params,method){
 const ravisRead=(surface,params)=>peerRead('ravis',surface,params);
 const sirvisRead=(surface,params,method)=>peerRead('sirvis',surface,params,method);
 
+/* Why the last read of each service ended the way it did.
+   Keyed by service, like `SOURCE`, and written by the same helper — a screen
+   that wants to say *what* went wrong now has something to read, where before
+   the answer existed for one line inside a `catch` and was dropped.
+
+   §25.2 puts it as "service-level absence is handled; request-level is not",
+   and this is the whole of the gap: `live()` distinguished five different
+   failures and reported one. A refusal, a timeout, a 500, a body that is not
+   JSON and an adapter that threw are five different things to do next, and
+   they all rendered as the transcription with no badge change. */
+const OUTCOME={};
+
+/* What went wrong, in the words a reader can act on.
+
+   The status is kept because 401 and 503 send somebody to different places, and
+   the *kind* is kept separately because "the service refused this" and "the
+   service is not there" must never collapse — that collapse is why a refused
+   read has always looked exactly like an outage on this page. */
+function classifyFailure(failure,status){
+ if(status===401||status===403)
+  return{kind:'refused',status,detail:'this read was refused: HTTP '+status};
+ if(status)
+  return{kind:'failed',status,detail:'the service answered HTTP '+status};
+ if(failure&&failure.name==='AbortError')
+  return{kind:'slow',status:0,
+    detail:`no answer within ${LIVE_TIMEOUT_MS} ms`};
+ /* By name, not by `instanceof`. A `SyntaxError` raised in another realm — an
+    iframe, or the check harness's own context — is not an instance of *this*
+    realm's `SyntaxError`, so the test read a malformed body as an unreachable
+    service. The `AbortError` line above already tests by name; this one did
+    not, and the inconsistency was the bug. */
+ if(failure&&failure.name==='SyntaxError')
+  return{kind:'malformed',status:0,detail:'the answer was not JSON'};
+ return{kind:'unreachable',status:0,detail:'the service did not answer'};
+}
+
 async function live(service,path,mock,adapt){
+ /* The status, carried out of the block that knows it. Throwing
+    `new Error('HTTP '+response.status)` and re-reading the number out of a
+    message is how the distinction was lost in the first place.
+
+    Two variables rather than one, because they answer different questions.
+    `status` is what the service said, and is kept for a successful read too.
+    `refusedWith` is set *only* when the status is itself the failure — a 200
+    whose body is not JSON has a status of 200, and a single variable made that
+    case classify as "the service answered HTTP 200", which is true and useless.
+    Found by `outcome_check` on its first run. */
+ let status=0,refusedWith=0;
  try{
   /* A refused connection fails instantly; a filtered port hangs forever. The
      timeout is what stops the second case turning into a blank screen. */
@@ -1220,14 +1331,30 @@ async function live(service,path,mock,adapt){
   let payload;
   try{
    const response=await fetch(BASE[service]+path,{signal:stop.signal});
-   if(!response.ok)throw new Error('HTTP '+response.status);
+   status=response.status;
+   if(!response.ok){refusedWith=response.status;throw new Error('HTTP '+response.status)}
    payload=await response.json();
   }finally{clearTimeout(timer)}
-  const adapted=await adapt(payload);
+  /* **Outside the fetch's try, deliberately.** The adapter used to run inside
+     it, so a field this page reads that a service stopped publishing threw and
+     was reported as the service being unreachable — a defect in the dashboard,
+     displayed as a fault in something else. It is now its own outcome, and the
+     service is still recorded as having answered, because it did. */
+  let adapted;
+  try{
+   adapted=await adapt(payload);
+  }catch(shaping){
+   SOURCE[service]='mock';
+   OUTCOME[service]={kind:'unreadable',status,
+     detail:'the answer arrived but this page could not read it: '+shaping.message};
+   return withSource(await mock(),false);
+  }
   SOURCE[service]='live';
+  OUTCOME[service]={kind:'answered',status,detail:''};
   return withSource(adapted,true);
  }catch(failure){
   SOURCE[service]='mock';
+  OUTCOME[service]=classifyFailure(failure,refusedWith);
   /* Awaited, because several mocks are `async` methods. Without this the flag
      was set on the *Promise* — `withSource` saw an object, tagged it, and the
      await handed back the resolved value with no flag on it at all. Every
@@ -3193,6 +3320,13 @@ if(state.app==='sirvis')return `<svg class="avatar" viewBox="0 0 200 200"><circl
 if(state.app==='ravis')return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><path class="coreline" d="M39 62H81M39 100H81M39 138H81M119 100H165"/><circle class="sat" cx="35" cy="62" r="7"/><circle class="sat" cx="35" cy="100" r="7"/><circle class="sat" cx="35" cy="138" r="7"/><polygon class="coreline" points="100,70 126,85 126,115 100,130 74,115 74,85"/><path class="data flow" d="M42 100H75M126 100H159"/><circle class="fill" cx="100" cy="100" r="8"/><path d="M94 100l5 5 10-12" fill="none" stroke="#ffc861" stroke-width="3"/></svg>`;
 return `<svg class="avatar" viewBox="0 0 200 200"><circle class="chrome" cx="100" cy="100" r="91"/><circle class="tick" cx="100" cy="100" r="85"/><g style="animation:bob 4s ease-in-out infinite;transform-origin:100px 100px"><rect x="43" y="48" width="114" height="94" rx="31" fill="#182231" stroke="var(--cyan)" stroke-width="2"/><path d="M100 48V34" stroke="#40516a" stroke-width="3"/><circle cx="100" cy="29" r="5" fill="var(--cyan)"/><rect x="63" y="78" width="27" height="21" rx="10" fill="#060b10"/><rect x="110" y="78" width="27" height="21" rx="10" fill="#060b10"/><circle cx="77" cy="89" r="7" fill="var(--cyan)"/><circle cx="124" cy="89" r="7" fill="var(--cyan)"/><circle cx="124" cy="89" r="20" fill="none" stroke="var(--cyan)"/><path d="M86 119q14 5 28 0" fill="none" stroke="var(--cyan)" stroke-width="4" stroke-linecap="round"/><path d="M100 151L79 142V160zM100 151l21-9v18z" fill="var(--cyan)"/></g></svg>`}
 function setAvatarState(s){const frames=$$('iframe[data-avatar]');const actionMap={nervis:{active:'routing',warn:'degraded',bad:'critical'},sirvis:{active:'measuring',warn:'thermal',bad:'thermal'},ravis:{active:'selected',warn:'fallback',bad:'blocked'},clarvis:{active:'talking',warn:'judging',bad:'surprised'}};frames.forEach(frame=>{const desired=s?(actionMap[frame.dataset.avatar]||{})[s]:desiredAvatarState(frame.dataset.avatar,state.view);try{frame.contentWindow.setState(desired)}catch(e){}})}
+/* The status bar's one-word summary per observer-side state. Deliberately not
+   `REASON`, which is a sentence for a card; this has to fit a bar that already
+   carries three other clauses. */
+const STATUS_WORD={unreachable:'unreachable',unauthorized:'refusing reads',
+ incompatible:'speaking another protocol version',stale:'answering with stale data',
+ stopped:'stopped',unknown:'in an unknown state'};
+
 function globalStatus(){
  /* The registry when it has been read, the fallback map otherwise.
 
@@ -3220,7 +3354,13 @@ function globalStatus(){
  const age=REGISTRY_AT?Math.round((Date.now()-REGISTRY_AT)/1000):null;
  const old_=age!=null&&age>POLL_MS/1000*2?` · as of ${age}s ago`
            :REGISTRY_AT?'':' · registry not read';
- if(bad.length){el.textContent=`${bad.map(v=>v.label).join(', ')} unreachable · other surfaces operational${old_}`;dot.dataset.state='bad'}
+ /* Each row in the words of its own state, rather than all of them in the
+    word "unreachable". `unauthorized`, `incompatible`, `stale` and `stopped`
+    were all printed as unreachable, which sends a reader to the network when
+    the problem is a credential, a protocol version or a clock — and a peer that
+    refused a read is emphatically *there*. `REASON` already spells all five and
+    was already on the page; this bar just was not reading it. */
+ if(bad.length){el.textContent=`${bad.map(v=>`${v.label} ${STATUS_WORD[v.state]||v.state}`).join(', ')} · other surfaces operational${old_}`;dot.dataset.state='bad'}
  else if(deg.length){el.textContent=`${deg.map(v=>v.label).join(', ')} degraded${old_}`;dot.dataset.state='warn'}
  else{el.textContent='All systems operational'+old_;dot.dataset.state='ok'}}
 function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pageSubtitle').textContent=sub;$('#pageActions').innerHTML=actions}
@@ -3581,7 +3721,15 @@ async function eventsView(){
      <span class="mono">${escapeHtml(e.event_type||'')}</span>
      <span><span class="chip${sev(e.severity)}">${escapeHtml(e.severity||'info')}</span></span>
      <span style="opacity:.8">${escapeHtml(JSON.stringify(e.data||{}).slice(0,90))}</span></div>`).join('')}`
-    :`<small class="mono dim">no event matches. The hub is running — <b>seq ${escapeHtml(feed.latest_sequence)}</b> events have passed through it — so this is a filter, not an outage.</small>`}
+    :(feedLive
+      ?`<small class="mono dim">no event matches. The hub is running — <b>seq ${escapeHtml(feed.latest_sequence)}</b> events have passed through it — so this is a filter, not an outage.</small>`
+      /* The same empty list, from a read that failed. `feed` is seeded as
+         `{items:[],latest_sequence:0}` and the failure is swallowed above, so
+         this branch used to state — as a positive fact, to somebody trying to
+         work out why they can see nothing — that the hub is running and that
+         seq 0 events had passed through it. Both halves were made up. The
+         reader tracks whether it answered; this sentence just did not ask. */
+      :`<small class="mono dim">the event feed could not be read, so this is empty because nothing was fetched — not because nothing has happened. <b>NERVIS /api/v1/events</b> did not answer.</small>`)}
    <small class="mono dim">read from <b>NERVIS /api/v1/events</b>. Ordering is guaranteed only <b>within one source stream</b> (§4.4), so this list is arrival order across producers and not a global sequence of what happened. <b>occurred_at</b> is the producer's clock and <b>_received_at</b> is NERVIS's; both are kept, because §11.2 requires clock skew to be visible rather than smoothed away.</small>`,'nervis')}</div>
 
   <!-- Live when either peer answered its own /ecosystem/capabilities. Neither
@@ -4145,7 +4293,7 @@ const VOICE={
  },
 
  async test(){
-  const r=await fetch(BASE.nervis+'/api/v1/voice/catalogue');
+  const r=await fetch(BASE.nervis+'/api/v1/voice/catalogue',readDeadline());
   if(!r.ok){
    this.catalogue=null;
    this.note={head:'key rejected',body:await refusalMessage(r)};
@@ -4339,18 +4487,27 @@ function clockOf(t){return dash(String(t||'').slice(11,19))}
    Both reads in one place, and a failure of either yields "nothing recorded"
    rather than a broken screen — the hub is NERVIS's own, so this must render
    whether or not any peer is answering. */
+/* `answered` travels with the traces, because an empty list means two opposite
+   things and the screen below prints one of them as a fact.
+
+   "No trace has been recorded" is a statement about NERVIS having seen no
+   inbound `traceparent`. This function produced `{items:[]}` for a non-2xx and
+   for any throw as well, so a read that never landed rendered as that sentence
+   — telling a reader that the thing they came to look at does not exist, when
+   what actually happened is that nobody asked. */
 async function readTraces(){
  const empty={items:[]};
  try{
   const r=await fetch(BASE.nervis+'/api/v1/traces?limit=500',
     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  const traces=r.ok?await r.json():empty;
+  if(!r.ok)return{traces:empty,shown:null,answered:false};
+  const traces=await r.json();
   const pick=TRACE_SHOWN||((traces.items[0]||{}).trace_id);
-  if(!pick)return{traces,shown:null};
+  if(!pick)return{traces,shown:null,answered:true};
   const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick),
     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  return{traces,shown:t.ok?await t.json():null};
- }catch(e){return{traces:empty,shown:null}}
+  return{traces,shown:t.ok?await t.json():null,answered:true};
+ }catch(e){return{traces:empty,shown:null,answered:false}}
 }
 
 async function routeDecisions(){
@@ -4379,7 +4536,12 @@ function waterfallBar(sp,offsetPct,win){
    and where those differ the difference is reported rather than filled in.
 
    Split out of `tracesView`, which measured cyclomatic complexity 25. */
-function traceWaterfall(traces,shown){
+function traceWaterfall(traces,shown,answered=true){
+ /* A read that never landed is not a machine with no traces. Saying "no
+    trace has been recorded" to somebody whose request simply failed tells
+    them the thing they came to look at does not exist. */
+ if(!answered)return `<div class="card full"><h3>Trace waterfall</h3>${cell(`
+   <small class="mono dim">the trace index could not be read, so this is empty because nothing was fetched — not because nothing has been traced. <b>NERVIS /api/v1/traces</b> did not answer.</small>`,'nervis')}</div>`;
  if(!traces.items.length)return `<div class="card full"><h3>Trace waterfall</h3>${cell(`
    <small class="mono dim">no trace has been recorded. A trace needs a <b>traceparent</b> on an inbound request — NERVIS creates a span when it has one and never manufactures one when it does not, because a trace containing a single service is a fact about nothing. <b>RAVIS and SIRVIS do not publish events yet</b> (their Stage 7 milestones), so a cross-service waterfall needs those first.</small>`,'nervis')}</div>`;
  const win=(shown&&shown.window_ms)||0;
@@ -4452,11 +4614,11 @@ function crossServiceCard(){
 
 async function tracesView(){
  heading('Traces','One request across services — as recorded, with the holes marked.');
- const {traces,shown}=await readTraces();
+ const {traces,shown,answered}=await readTraces();
  const payload=await routeDecisions();
  /* Built before the early returns below, so a trace still renders when RAVIS
     is not answering — the hub is NERVIS's own and does not need a peer. */
- const waterfall=traceWaterfall(traces,shown);
+ const waterfall=traceWaterfall(traces,shown,answered);
 
  if(!payload){
   $('#content').innerHTML=waterfall+`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
@@ -4746,7 +4908,7 @@ const BUILD={
       and adding a NERVIS route for it to save one cross-origin call would be
       inventing a surface the specification does not list. Its failure is
       already tolerated below. */
-   fetch(BASE.sirvis+'/api/v1/models/'+encodeURIComponent(localId)).then(r=>r.ok?r.json():null).catch(()=>null),
+   fetch(BASE.sirvis+'/api/v1/models/'+encodeURIComponent(localId),readDeadline()).then(r=>r.ok?r.json():null).catch(()=>null),
    variantId?sirvisRead('evidence',{limit:200,variant:variantId}).then(x=>({ok:x.available,json:()=>x.data}))
      .then(r=>r.ok?r.json():null).catch(()=>null):Promise.resolve(null),
    sirvisRead('residency').then(x=>x.available?x.data:null)]);
@@ -6090,7 +6252,7 @@ async function ravisProviders(){
     list. Its failure is already tolerated per provider. */
  if(liveRows)await Promise.all(liveRows.map(async x=>{
   try{
-   const f=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(x.name)+'/models');
+   const f=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(x.name)+'/models',readDeadline());
    if(f.ok)x.models=await f.json();
   }catch(e){}
  }));
@@ -6572,7 +6734,7 @@ async function ravisCredentials(){
  heading('Credentials','Provider keys. Entered here, stored by RAVIS, never read back.');
  let payload=null;
  try{
-  const r=await fetch(BASE.ravis+'/api/v1/providers/credentials');
+  const r=await fetch(BASE.ravis+'/api/v1/providers/credentials',readDeadline());
   if(r.ok)payload=await r.json();
  }catch(e){payload=null}
 

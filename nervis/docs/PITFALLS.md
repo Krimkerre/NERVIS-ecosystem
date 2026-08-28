@@ -402,6 +402,12 @@ Since this list was written, eight of them became automated:
   it exists for is `Run & debug`: an unencoded `&` ends the fragment and the
   address quietly names a different screen, which is a router that looks
   entirely correct from outside. **Runs in CI.**
+- **`node tools/outcome_check.js`** drives `live()` through a refusal, a 503, an
+  absent service, a body that is not JSON, a hung port and an adapter that
+  threw, and requires six distinct answers plus `answered`. It caught two of its
+  own subjects on the first run: a 200 with a bad body classified as "the
+  service answered HTTP 200", and a cross-realm `instanceof SyntaxError` that
+  read a malformed body as an unreachable service. **Runs in CI.**
 
 The last one exists because the defect it hunts was found **eight times in one
 day, every time by a person looking at the screen**. Providers had seven of
@@ -455,6 +461,7 @@ node tools/liveness_check.js                        # the hardcoded-card ratchet
 node tools/shaping_check.js                         # adapters shape payloads as before
 node tools/injection_check.js                       # provider data cannot write markup
 node tools/routing_check.js                         # every screen is addressable
+node tools/outcome_check.js                         # a refusal is not an outage
 node tools/empty_world_check.js                     # screens survive live-but-empty services
 python3 tools/embed-avatars.py && git diff --stat    # avatars round-trip byte-identical
 ```
