@@ -364,6 +364,11 @@ async def _translated_completion(
         call.finish()
         return _chain_exhausted(call.chain)
     call.chain.succeeded(model, started)
+    # §14, Path B. The transparent path reads a usage frame off the wire; here
+    # the adapter has already normalised it, so the count is simply on the
+    # answer — and forgetting to record it was how Anthropic and Google, the
+    # two providers a price file most exists for, produced no usage at all.
+    call.note_usage(model, answer.usage, (call.chain.now() - started) * 1000)
     call.finish()
     return JSONResponse(completion(answer, model=model, completion_id=completion_id))
 
@@ -389,7 +394,8 @@ def _adapter_failure(failure: Exception) -> FailureClass:
 
 
 async def _translated_frames(
-    events: AsyncGenerator[NormalizedStreamEvent, None], model: str, completion_id: str
+    events: AsyncGenerator[NormalizedStreamEvent, None], model: str, completion_id: str,
+    note: Callable[[Usage | None], None] | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """The serializer's pieces, driven one event at a time.
 
@@ -400,11 +406,21 @@ async def _translated_frames(
     """
     yield opening_frame(model=model, completion_id=completion_id)
     started: set[int] = set()
+    reported: Usage | None = None
     async for event in events:
+        # **The latest reading wins, not the first.** Gemini reports
+        # `usageMetadata` on every frame with the counts growing, so `or` kept
+        # the earliest — which has a prompt count and no completion count yet,
+        # and produced a record reading `out=None` and a cost that understated
+        # the call. A provider that reports once at the end is unaffected.
+        if event.usage is not None:
+            reported = event.usage
         frame = frame_for(event, started, model=model, completion_id=completion_id)
         if frame is not None:
             yield frame
     yield DONE
+    if note is not None:
+        note(reported)
 
 
 class _Call:
@@ -713,6 +729,15 @@ def _usage_writer(
     provider_of = _provider_of(request)
     prices = getattr(request.app.state, "prices", None)
     pool = decision.pool_id or ""
+    # **Which provider actually served it**, which `_provider_of` cannot answer
+    # for a translated call: it resolves the *selected* model, and a translated
+    # provider's models never appear in a transparent upstream's catalogue — so
+    # `claude-haiku-4-5` fell through to whichever transparent upstream was
+    # declared first and every Path B call was attributed to `openai`. Found by
+    # reading three records that named one provider for three providers.
+    translating = getattr(request.app.state, "translating", {})
+    addressed = direct_provider(decision.requested or "")
+    owner = addressed if addressed in translating else None
 
     def note(model: str, usage: Usage | None, latency_ms: float | None) -> None:
         if ledger is None:
@@ -722,7 +747,7 @@ def _usage_writer(
         ledger.record(
             UsageRecord(
                 model=model,
-                provider=provider_of(model),
+                provider=owner or provider_of(model),
                 application_id=application,
                 usage=usage,
                 cost=amount,
@@ -1166,7 +1191,12 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
                 # §14's token counts, read on the way past. The chunk is yielded
                 # unchanged on the next line, so §6's byte-for-byte guarantee is
                 # untouched — this looks, and never rewrites.
-                reported = _usage_in(chunk) or reported
+                #
+                # Latest wins, for the reason the translated path documents: a
+                # provider that reports usage on every frame reports it growing.
+                seen = _usage_in(chunk)
+                if seen is not None:
+                    reported = seen
                 yield chunk
     except httpx.HTTPError as failure:
         yield _stream_failed(call, model, started, failure, committed)
@@ -1388,7 +1418,12 @@ async def _translated_relay(
     committed = False
     try:
         async with aclosing(adapter.stream(request)) as events:
-            async for frame in _translated_frames(events, model, completion_id):
+            # §14: recorded when the stream ends, and only from here, so a
+            # translated call is counted exactly once like a transparent one.
+            def _note(reported: Usage | None) -> None:
+                call.note_usage(model, reported, (call.chain.now() - started) * 1000)
+
+            async for frame in _translated_frames(events, model, completion_id, _note):
                 if not committed:
                     committed = True
                     call.chain.succeeded(model, started, ttft=call.chain.now() - started)

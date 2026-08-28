@@ -115,6 +115,18 @@ def estimate(price: Price | None, usage: Usage | None) -> tuple[float | None, Co
         return usage.reported_cost, CostState.REPORTED
     if price is None or usage is None:
         return None, CostState.UNKNOWN
+    # **Every priced component must be known, not merely one of them.** Gemini
+    # sometimes reports `usageMetadata` with a prompt count and no completion
+    # count, and charging for the half that arrived produced a figure labelled
+    # ESTIMATED that silently *understated* the call — which is the direction
+    # that matters, because a budget reads an understatement as room left.
+    #
+    # A component priced at zero is exempt: a free model's missing output count
+    # cannot change what it cost.
+    if usage.input_tokens is None and price.input_per_million:
+        return None, CostState.UNKNOWN
+    if usage.output_tokens is None and price.output_per_million:
+        return None, CostState.UNKNOWN
     if usage.input_tokens is None and usage.output_tokens is None:
         return None, CostState.UNKNOWN
 

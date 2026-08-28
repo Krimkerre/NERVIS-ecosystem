@@ -93,7 +93,11 @@ def test_cached_input_falls_back_to_the_ordinary_rate() -> None:
     """A provider that reports cached tokens without pricing them separately is
     charging them as ordinary input, and guessing a discount would understate
     a bill somebody eventually pays."""
-    cost, _ = estimate(A_PRICE, Usage(input_tokens=1000, cached_input_tokens=800))
+    # `output_tokens=0` rather than absent: a missing output count now makes the
+    # whole cost UNKNOWN, since charging for half a call understates it.
+    cost, _ = estimate(
+        A_PRICE, Usage(input_tokens=1000, cached_input_tokens=800, output_tokens=0)
+    )
 
     assert abs(cost - 1000 * 3.0 / PER_MILLION) < 1e-12
 
@@ -437,3 +441,28 @@ def test_a_price_must_be_numeric_and_not_negative(tmp_path) -> None:  # noqa: AN
         except PriceConfigurationError:
             continue
         raise AssertionError(f"accepted a bad price entry: {entry}")
+
+
+def test_a_half_reported_call_is_unknown_rather_than_understated() -> None:
+    """Gemini sometimes reports a prompt count and no completion count.
+
+    Charging for the half that arrived produced a figure labelled ESTIMATED
+    that understated the call — and a budget reads an understatement as room
+    left, which is the direction that actually costs somebody money. Found by
+    comparing a ledger row against the frame RAVIS had just emitted.
+    """
+    partial = Usage(input_tokens=4, output_tokens=None)
+
+    assert estimate(A_PRICE, partial) == (None, CostState.UNKNOWN)
+
+
+def test_a_missing_count_on_a_free_component_still_costs() -> None:
+    """A component priced at zero cannot change the total, so its absence is
+    not a reason to refuse an answer — a local model reporting only its prompt
+    count still cost nothing."""
+    free_output = Price(input_per_million=3.0, output_per_million=0.0)
+
+    cost, state = estimate(free_output, Usage(input_tokens=1_000, output_tokens=None))
+
+    assert state is CostState.ESTIMATED
+    assert abs(cost - 3_000 / PER_MILLION) < 1e-12

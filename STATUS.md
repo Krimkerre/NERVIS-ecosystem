@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1431 tests, no network, no live service
+.venv/bin/pytest                      # part of 1433 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1431 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1433 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5092,6 +5092,47 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### Pricing the paid providers, and three faults it uncovered
+
+A `prices.json` now states the current published rates for OpenAI, Anthropic
+and Google — 29 models, read off the providers' own pricing pages rather than
+recalled, because the catalogues carry builds newer than any training data and
+a guessed rate silently mis-costs every budget it touches. Cache-read rates are
+included where a provider publishes one.
+
+Two figures are recorded as simplifications rather than left implicit. Gemini
+Pro prices in tiers by context size — $2/MTok up to 200k and $4 above it — and
+`Price` holds one rate, so the file states the standard tier; a long-context
+Pro call is understated until `Price` learns about tiers. And Anthropic's
+1-hour cache-write rate has no field at all; only the cache *read* rate does.
+
+**Wiring it up found that Path B recorded nothing.** The usage tap was on the
+transparent stream only, so Anthropic and Google — the two providers this file
+most exists for — produced no usage record at all. Both translated paths now
+record, streaming and non-streaming.
+
+**Every translated call was attributed to the wrong provider.** The record
+resolved its provider from the *selected* model, and a translated provider's
+models never appear in a transparent upstream's catalogue, so
+`claude-haiku-4-5` fell through to whichever transparent upstream was declared
+first: three records naming `openai` for three different providers. It reads
+the addressed provider now.
+
+**And a half-reported call was being understated.** `reported = usage or …`
+kept the *first* usage seen, and Gemini reports `usageMetadata` on every frame
+with the counts growing — so the earliest, incomplete reading won. Fixing that
+exposed the larger fault underneath: Gemini sometimes reports a prompt count
+and no completion count at all, and the engine charged for the half that
+arrived and labelled the result ESTIMATED. A cost computed from half a call is
+not an estimate of that call, and a budget reads an understatement as room
+left. Every priced component must now be known, or the cost is UNKNOWN — with
+components priced at zero exempt, since a free model's missing output count
+cannot change what it cost.
+
+Verified across all three providers on one gateway: OpenAI and Anthropic priced
+and attributed correctly, Gemini's half-reported call counted as unpriced —
+*"2 of 3 call(s) priced"* — rather than quietly costing less than it did.
 
 ### Which providers can actually be costed
 
