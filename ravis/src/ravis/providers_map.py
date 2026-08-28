@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ravis.config import Settings
+from ravis.credentials import CredentialStore
 from ravis.model_filter import ModelFilters
 from ravis.provider_state import ProviderState
 from ravis.upstreams import UpstreamConfigurationError, UpstreamSpec, upstream_specs
@@ -31,6 +32,15 @@ from ravis.upstreams import UpstreamConfigurationError, UpstreamSpec, upstream_s
 # What the provider column holds when a rule routes a model nowhere. Not an
 # empty string: a blank cell reads as missing data, and this is a decision.
 NO_ROUTE = "— no route —"
+
+# Every provider §6 reaches by translation rather than by forwarding, paired
+# with the settings field that used to be its only credential source. Adding a
+# translated provider means adding it here too, which is the point of the list
+# existing: the previous version could not be extended without being rewritten.
+TRANSLATING_PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("anthropic", "anthropic_api_key"),
+    ("google", "google_api_key"),
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +66,7 @@ def resolve_provider_map(
     *,
     filters: ModelFilters | None = None,
     state: ProviderState | None = None,
+    credentials: CredentialStore | None = None,
 ) -> list[ProviderResolution]:
     """Every routing rule this configuration declares, in the order applied.
 
@@ -74,7 +85,7 @@ def resolve_provider_map(
     """
     filters = filters or ModelFilters.default()
     state = state or ProviderState()
-    rows = _translating_rows(settings, state)
+    rows = _translating_rows(settings, state, credentials)
     try:
         specs = upstream_specs(settings)
     except UpstreamConfigurationError as failure:
@@ -84,20 +95,56 @@ def resolve_provider_map(
     return rows
 
 
-def _translating_rows(settings: Settings, state: ProviderState) -> list[ProviderResolution]:
-    """Path B providers, reachable only by direct address (§6).
+def _translating_rows(
+    settings: Settings,
+    state: ProviderState,
+    credentials: CredentialStore | None,
+) -> list[ProviderResolution]:
+    """Path B providers, addressed as `ravis/<provider>/<model>` (§6).
 
-    A translating provider is not a pool candidate — `chat.py` reaches one
-    solely through the `ravis/<provider>/<model>` form — so the row is written
-    as that address rather than as a bare pattern it would never match.
+    **A table rather than one hand-written provider.** This named Anthropic
+    literally, so when M7 put Gemini on the same path the row for it was simply
+    absent and `doctor` showed nothing for an address that routes perfectly
+    well — the diagnostic disagreeing with the router about what exists.
+
+    **Where the credential comes from is part of the answer.** The gate read the
+    settings field alone, so a key typed into the Credentials screen — which is
+    where M10 puts it, in a 0600 file — produced no row either. The store is
+    consulted here in the same order `credential_for` uses on the request path,
+    because a diagnostic that disagrees with the request path is worse than no
+    diagnostic at all. Reading a local file is not contacting an upstream, so
+    the module's own rule still holds.
     """
-    if not settings.anthropic_api_key:
-        return []
-    if not state.is_enabled("anthropic"):
-        return [ProviderResolution("ravis/anthropic/*", NO_ROUTE, "disabled in providers.json")]
-    return [
-        ProviderResolution("ravis/anthropic/*", "anthropic (translated)", "RAVIS_ANTHROPIC_API_KEY")
-    ]
+    rows: list[ProviderResolution] = []
+    for name, field in TRANSLATING_PROVIDERS:
+        decided_by = _credential_origin(name, getattr(settings, field, ""), credentials)
+        if decided_by is None:
+            continue
+        address = f"ravis/{name}/*"
+        if not state.is_enabled(name):
+            rows.append(ProviderResolution(address, NO_ROUTE, "disabled in providers.json"))
+        else:
+            rows.append(ProviderResolution(address, f"{name} (translated)", decided_by))
+    return rows
+
+
+def _credential_origin(
+    name: str, declared: str, credentials: CredentialStore | None
+) -> str | None:
+    """Which setting supplies this provider's key, or None if nothing does.
+
+    Mirrors `credential_for`: the store wins, the settings field is the
+    fallback. Naming the *source* rather than a fixed environment variable is
+    the point of the column — "credential store (file)" and
+    "RAVIS_GOOGLE_API_KEY" send an operator to two different places.
+    """
+    if credentials is not None:
+        status = credentials.status(name)
+        if status.configured:
+            return f"credential store ({status.source.value})"
+    if declared:
+        return f"RAVIS_{name.upper()}_API_KEY"
+    return None
 
 
 def _upstream_rows(

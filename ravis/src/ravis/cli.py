@@ -18,6 +18,7 @@ from typing import Sequence
 from ecosystem_protocol import configure_logging
 
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
+from ravis.credentials import CredentialStore
 from ravis.providers_map import resolve_provider_map
 
 EXIT_OK = 0
@@ -107,7 +108,16 @@ def _print_provider_map(settings: Settings) -> None:
     choose", it is "why", and a table that answers only the first sends you
     reading configuration files to reconstruct the second.
     """
-    entries = resolve_provider_map(settings)
+    # The same store the request path reads, so `doctor` and the router cannot
+    # disagree about whether a provider has a credential. Built here rather than
+    # passed in because this is a CLI command with no application to borrow one
+    # from — and reading a local 0600 file contacts no upstream.
+    entries = resolve_provider_map(
+        settings,
+        credentials=CredentialStore(
+            allow_environment=settings.credentials_allow_environment
+        ),
+    )
     print("\nresolved model → provider (no upstream was contacted)")
     if not entries:
         print("  none configured — set RAVIS_UPSTREAM_BASE_URL or RAVIS_UPSTREAMS")

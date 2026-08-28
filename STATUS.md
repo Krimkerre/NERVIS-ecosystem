@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1322 tests, no network, no live service
+.venv/bin/pytest                      # part of 1325 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1322 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1325 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5089,6 +5089,28 @@ stream, not about one frame.
 A second one was cheaper and duller: Gemini names already begin `models/`, so paths built from a
 name dropped the `/v1beta` segment and 404'd — which reads exactly like a deprecated model, and
 would have been diagnosed as one without the log.
+
+### What `doctor` did not know about Path B
+
+Found by leaving `google` declared in `RAVIS_UPSTREAMS` after M7 and checking
+what the diagnostics then said. Two faults, both in the same table.
+
+The rows for translated providers named Anthropic **literally**, so M7 adding
+Gemini to Path B did not add a row for it: `ravis/google/*` routes perfectly
+well and the one diagnostic whose whole job is to say what routes where showed
+nothing for it. It is a list now, so adding a translated provider means adding
+it to the list rather than rewriting the function.
+
+The gate was also the settings field alone — and nobody configures it that way.
+M10 put credentials in a 0600 file behind the Credentials screen, so a key
+typed in where the product asks for it produced **no row at all** for either
+provider. On this machine `doctor` listed neither Anthropic nor Google while
+both were configured and both were routing. The store is consulted here in the
+same order `credential_for` uses on the request path, because a diagnostic that
+disagrees with the request path is worse than not having one.
+
+Reading a local file is not contacting an upstream, so M0's "without contacting
+any upstream" still holds.
 
 ### Delete deleted half of it
 

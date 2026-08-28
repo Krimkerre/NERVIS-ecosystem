@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from ravis.config import Settings
+from ravis.credentials import CredentialFile, CredentialStore
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
 from ravis.providers_map import NO_ROUTE, resolve_provider_map
@@ -108,6 +109,86 @@ def test_a_translating_provider_is_shown_only_as_a_direct_address(configuration)
     assert rows == [
         ("ravis/anthropic/*", "anthropic (translated)", "RAVIS_ANTHROPIC_API_KEY")
     ]
+
+
+def test_every_translated_provider_gets_a_row_not_just_the_first_one(configuration) -> None:  # noqa: ANN001
+    """M7 added Gemini to Path B and this table did not hear about it.
+
+    The rows named Anthropic literally, so `ravis/google/*` — an address that
+    routes perfectly well — was absent from the one diagnostic whose job is to
+    say what routes where.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        anthropic_api_key="sk-not-a-real-key",
+        google_api_key="not-a-real-key",
+    )
+
+    rows = _map(settings, configuration)
+
+    assert rows == [
+        ("ravis/anthropic/*", "anthropic (translated)", "RAVIS_ANTHROPIC_API_KEY"),
+        ("ravis/google/*", "google (translated)", "RAVIS_GOOGLE_API_KEY"),
+    ]
+
+
+def test_a_key_from_the_credential_store_still_produces_a_row(
+    configuration,  # noqa: ANN001
+    tmp_path: Path,
+) -> None:
+    """The screen stores it in a file; the table only looked at the settings.
+
+    So a provider configured the way M10 intends people configure it had no row
+    at all, and `doctor` reported nothing where the router had a working route.
+    The source is named rather than assumed, because "credential store" and an
+    environment variable send an operator to two different places.
+    """
+    store = CredentialStore(
+        allow_environment=False,
+        keychain=False,
+        file=CredentialFile(tmp_path / "credentials.json"),
+    )
+    store.store("google", "not-a-real-key")
+    filters, state = configuration
+
+    rows = [
+        (row.model, row.provider, row.decided_by)
+        for row in resolve_provider_map(
+            Settings(database_path=":memory:"),
+            filters=filters,
+            state=state,
+            credentials=store,
+        )
+    ]
+
+    assert rows == [("ravis/google/*", "google (translated)", "credential store (file)")]
+
+
+def test_a_disabled_translated_provider_says_so_whatever_supplied_its_key(
+    configuration,  # noqa: ANN001
+    tmp_path: Path,
+) -> None:
+    """Disabling has to win over a credential from either source."""
+    store = CredentialStore(
+        allow_environment=False,
+        keychain=False,
+        file=CredentialFile(tmp_path / "credentials.json"),
+    )
+    store.store("google", "not-a-real-key")
+    filters, state = configuration
+    state.set_enabled("google", False)
+
+    rows = [
+        (row.model, row.provider, row.decided_by)
+        for row in resolve_provider_map(
+            Settings(database_path=":memory:"),
+            filters=filters,
+            state=state,
+            credentials=store,
+        )
+    ]
+
+    assert rows == [("ravis/google/*", NO_ROUTE, "disabled in providers.json")]
 
 
 def test_a_malformed_declaration_is_reported_rather_than_raised(configuration) -> None:  # noqa: ANN001
