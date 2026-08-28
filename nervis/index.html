@@ -843,6 +843,29 @@ let REGISTRY_ROWS=[];
    of implying it is current. 0 means never. */
 let REGISTRY_AT=0;
 
+/* Which peers were reachable last time we looked, as one comparable string, and
+   whether that changed on the most recent read.
+
+   **A screen rendered while a service was still starting stayed wrong until you
+   clicked something.** Opening the dashboard as the ecosystem comes up is the
+   ordinary case -- the launcher opens the browser the moment the ports answer --
+   and Pools rendered its from-disk fallback, then kept it: six invented pools
+   against a RAVIS that was by then serving fourteen. Nothing was stale in the
+   data; the screen simply never asked again.
+
+   `LIVE_VIEWS` already repaints four screens on every poll, which is right for a
+   feed and wrong as a general answer: rebuilding every screen every eight
+   seconds costs a reader their scroll position, their open disclosures and
+   their half-typed input for no new information. A *transition* is the thing
+   worth re-rendering for, and it is cheap to detect. */
+let REGISTRY_SIGNATURE='';
+let REGISTRY_CHANGED=false;
+/* Which services the screen currently on display actually fell back on, and how
+   many times we have tried to recover it under this registry state. */
+let RENDERED_MOCK=[];
+let RECOVER_TRIES=0;
+const RECOVER_LIMIT=3;
+
 /* One place that writes what a registry body means, because two callers need
    it: the Overview's own read, and the poll that keeps the status bar true on
    screens that never read the registry at all. */
@@ -868,6 +891,51 @@ function absorbRegistry(d){
  REGISTRY_ROWS=d.items.map(e=>({label:e.label,state:e.state,
    quiet:e.awaiting_first_contact===true}));
  REGISTRY_AT=Date.now();
+ /* Sorted, so the order the registry happens to return does not read as a
+    change. The first read only records the signature: the page has just
+    rendered against it, so there is nothing to correct. */
+ const signature=d.items.map(e=>`${e.key}:${e.state}`).sort().join('|');
+ REGISTRY_CHANGED=REGISTRY_SIGNATURE!==''&&signature!==REGISTRY_SIGNATURE;
+ REGISTRY_SIGNATURE=signature;
+}
+
+/* Whether the reader is in the middle of typing something.
+
+   A re-render replaces `#content`, which takes the focused element with it —
+   and with it the caret, the selection and anything typed but not yet
+   submitted. The Discover search box and the chat composer are both in that
+   category, and both are places a reader may sit for a while. A service coming
+   up is worth a repaint; it is not worth eating a sentence. The next poll will
+   catch it, because the signature only clears once a repaint actually runs. */
+/* Whether this page is showing transcribed data for a service that is up.
+
+   A transition is not the only way a screen ends up wrong. A read can simply
+   fail while the service is fine -- a timeout, a rate limit, a restart caught
+   mid-request -- and `live()` falls back to the transcription and records
+   `SOURCE[service] = 'mock'`. Nothing retried, so the screen kept the fallback
+   until the reader clicked something. That is what produced six invented pools
+   against a RAVIS serving fourteen, with the registry saying RAVIS was healthy
+   the whole time.
+ 
+   **Read from what the screen drew, not from `SOURCE` directly.** `SOURCE` is
+   global and any later fetch overwrites it -- the status bar's own reads set
+   `ravis` back to `live` while the screen in front of the reader was still
+   showing six transcribed pools. `RENDERED_MOCK` is recorded at the end of a
+   render and describes that render, which is the thing being corrected.
+
+   Bounded at three attempts per registry state: a service that has just come up
+   may not answer the first read after it, so one attempt is too few, and a read
+   that will never succeed should not rebuild the screen under the reader's
+   cursor every eight seconds forever. */
+function recoverable(){
+ return RENDERED_MOCK.some(key=>['healthy','degraded'].includes((SERVICES[key]||{}).state));
+}
+
+function editing(){
+ const el=document&&document.activeElement;
+ if(!el)return false;
+ if(el.isContentEditable===true)return true;
+ return ['input','textarea','select'].includes(String(el.tagName||'').toLowerCase());
 }
 
 /* ── One negotiated read of a RAVIS surface, through NERVIS (M3, §8) ────────
@@ -8089,8 +8157,18 @@ async function pollRegistry(){
  }
  globalStatus();
  const live=(LIVE_VIEWS[state.app]||[]).includes(state.view);
- /* Not while a popover is open: a rebuild would close it under the cursor. */
- if(live&&!document.querySelector('.route-pop'))await repaint();
+ /* Not while a popover is open: a rebuild would close it under the cursor.
+    Not while somebody is typing, for the same reason one level up. */
+ if(document.querySelector('.route-pop')||editing())return;
+ if(REGISTRY_CHANGED)RECOVER_TRIES=0;
+ const recover=recoverable()&&RECOVER_TRIES<RECOVER_LIMIT;
+ if(!live&&!REGISTRY_CHANGED&&!recover)return;
+ /* Cleared only once the repaint is actually happening, so a transition that
+    arrives while a popover is open or a field is focused is repainted at the
+    next poll rather than dropped. */
+ REGISTRY_CHANGED=false;
+ if(recover)RECOVER_TRIES+=1;
+ await repaint();
 }
 
 async function repaint(){
@@ -8102,7 +8180,11 @@ async function repaint(){
 
 async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
- if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
+ if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();
+ /* What this render fell back on, for `recoverable()`. Taken here because it
+    describes the screen now on display; `SOURCE` keeps changing after it. */
+ RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');
+ markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar
     immediately so it is never blank; this one corrects it with whatever the
     screen just learned. Cheap — it reads variables and writes two nodes. */
