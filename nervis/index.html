@@ -566,7 +566,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Voice','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
- ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
+ ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
@@ -2141,22 +2141,46 @@ const API={
           effective:toolsWork(b),
           evidence:b.measured&&b.measured.tools?'MEASURED_BY_SIRVIS':'PROVIDER_METADATA'}}))}},
 
-  /* GET /api/v1/policies — conditions and actions, in evaluation order. */
-  /* GET /api/v1/policies — §9.6's IF/THEN rules.
-     Empty until the policy engine lands at RAVIS M16, and RAVIS says so in that
-     endpoint's own words: "empty is the honest answer: no policy is currently
-     in force, so a dashboard should show none rather than an invented default
-     that would misrepresent what RAVIS is doing."
+  /* GET /api/v1/policies — what governs a route, per application (§9.6).
 
-     This page was that invented default. Four plausible rules — deny cloud on
-     LOCAL_ONLY, deny provider openai for Clarvis — none of which RAVIS
-     evaluates, on a screen headed "Conditions and actions, in evaluation
-     order". A reader would have concluded their traffic was governed by rules
-     that do not exist, which is worse than showing nothing.
+     **RAVIS M16 landed and changed this payload, and this page did not notice.**
+     It returns `{application_id, constraints[]}` — the constraints an operator
+     configured for one application — and this reader still expected the
+     `{policy_id, when, then, kind}` shape the mock invented. Every field would
+     have rendered `undefined`, and two lines below dereferenced `items[1]` and
+     `find(kind==="soft")`, so a deployment with a policy configured would have
+     thrown rather than displayed one. Masked only because nothing is configured
+     on this machine yet, which is the worst way for a screen to be right.
 
-     The transcription is kept for the from-disk case, where the whole page is
-     labelled prototype and the rules read as a design sketch rather than as a
-     claim about a running service. */
+     Empty still means no policy is configured, and that stays a fact worth
+     stating rather than an empty table to fill. */
+  /* GET /api/v1/sessions — §12.1's routing sessions.
+
+     Scoped by RAVIS to the *asking* application, which is why this list is
+     short and why it should be: two applications may use the same session ID
+     and must never see each other's. NERVIS reads it unauthenticated, so what
+     comes back is the `anonymous` application's own — its own chat turns, once
+     a client credential is configured, and nothing belonging to Clarvis.
+
+     No prompt or response is carried here. A session records what it *routed
+     to*, never what was said (§12.1). */
+  async sessions(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/sessions',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{items:d.items||[],live:true}}
+   }catch(e){}
+   return this._sessionsMock();
+  },
+
+  async _sessionsMock(){const now=Date.now()/1000;return{items:[
+   {session_id:'clarvis-agent-01',application_id:'clarvis',pool:'ravis/clarvis-agent',
+    model:'gpt-4o',provider:'openai',pool_revision:'0e475b406ac3',profile:'ravis/clarvis-agent',
+    cache_state:null,created_at:now-5400,last_activity:now-120,requests:34},
+   {session_id:'nervis-chat-7',application_id:'nervis',pool:'ravis/auto',
+    model:'qwen3-30b-a3b-mlx',provider:'lmstudio',pool_revision:'873c26169d66',
+    profile:'ravis/auto',cache_state:null,created_at:now-900,last_activity:now-60,requests:6}]}},
+
   async policies(){
    try{
     const r=await fetch(BASE.ravis+'/api/v1/policies',
@@ -2166,12 +2190,14 @@ const API={
    return this._policiesMock();
   },
 
+  /* The from-disk shape, matching what RAVIS actually returns rather than the
+     IF/THEN sketch this used to invent. Two applications with different
+     postures, because one row cannot show that policy is *per application* —
+     which is the whole point of it being keyed to an identity. */
   async _policiesMock(){return{items:[
-   {policy_id:'pl_01',when:'application == Clarvis AND model == ravis/clarvis-agent',then:'require tools',kind:'hard',enabled:true},
-   {policy_id:'pl_02',when:'conversation.privacy == LOCAL_ONLY',then:'deny all cloud providers',kind:'hard',enabled:true},
-   {policy_id:'pl_03',when:'budget.month_used > 90%',then:'strong cost penalty',kind:'soft',enabled:true},
-   {policy_id:'pl_04',when:'application == Clarvis',then:'deny provider openai',kind:'hard',enabled:true},
-   {policy_id:'pl_05',when:'request.context > model.context',then:'route to larger context, never truncate',kind:'hard',enabled:true}]}},
+   {application_id:'*',constraints:['privacy level LOCAL_PREFERRED']},
+   {application_id:'clarvis',constraints:['providers denied: openai','models excluded: *-preview*']},
+   {application_id:'nervis',constraints:['privacy level LOCAL_ONLY']}]}},
 
   /* POST /api/v1/route-tests, and `ravis conformance clarvis` on the CLI. A release
      claiming Clarvis compatibility must pass every one of these. */
@@ -4195,7 +4221,7 @@ const RUNTIME={
 
 const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
-const RAVIS_VIEWS={'Routes':ravisRoutes,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
+const RAVIS_VIEWS={'Routes':ravisRoutes,'Sessions':ravisSessions,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
  'Policies':ravisPolicies,'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
@@ -5361,15 +5387,25 @@ async function ravisProviders(){
    invariants and the routing engine rather than by a rule table. Somebody
    asking "what decides where my request goes" deserves this answer rather than
    an empty list. */
-function noPoliciesScreen(){
+/* §9.2's hard/soft split, rendered for both policy screens.
+
+   Shared because both need it and neither owns it: a hard constraint eliminates
+   a candidate, a soft preference only reorders the survivors, and showing them
+   in one list without that column would make a preference look like a
+   guarantee. Duplicating the table would let the two screens drift into
+   describing the router differently. */
+function constraintTable(){
  const HARD=[
   ['pool invariants','a capability, a minimum context or a locality the pool requires','core/pools.py'],
   ['locality','ravis/local and ravis/private never leave this machine','PoolRequirements.locality'],
   ['request requirements','tools or images in the request itself demand a model that handles them','routing/requirements.py'],
+  ['application policy','§9.6\u2019s privacy level, provider allow/deny and model exclusions','policy.py'],
   ['open circuit','§10 routes away from a provider that is failing','reliability/health.py'],
   ['operator selection','the models ticked for this pool, which narrows and never widens','pool_membership.py'],
  ];
  const SOFT=[
+  ['session affinity','§12.1 keeps a conversation on the model it started with','sessions.py'],
+  ['load amortisation','§12.2 declines a model load when sessions are measurably short','LOAD_AMORTISES_AFTER_REQUESTS'],
   ['prefer already loaded','a resident model needs no load','residency'],
   ['prefer local','placement, where the pool asks for it','prefer_local'],
   ['prefer cheap','published price per million; unpriced sorts last','prefer_cheap'],
@@ -5381,19 +5417,61 @@ function noPoliciesScreen(){
    <span style="grid-column:2/4;opacity:.85">${escapeHtml(effect)}</span>
    <span class="mono" style="opacity:.55">${escapeHtml(where)}</span>
    <span class="chip${kind==='hard'?' warn':''}">${kind}</span></div>`).join('');
+ return `<div class="table-row head"><span>Rule</span><span style="grid-column:2/4">Effect</span><span>Where</span><span>Kind</span></div>
+   ${rows(HARD,'hard')}${rows(SOFT,'soft')}
+   <small class="mono dim">a <b>hard</b> constraint eliminates a candidate and a <b>soft</b> preference only reorders the survivors — §9.2's split, and the reason a pool with no eligible member returns <b>NO_ROUTE</b> rather than the nearest thing available. Only the preferences a pool actually declares are consulted: an unconditional term would become the whole ranking for every pool that declares nothing.</small>`;
+}
+
+function noPoliciesScreen(){
  $('#content').innerHTML=kpis([
-   ['Policies','0','none are in force','ravis',true],
-   ['Hard constraints',String(HARD.length),'eliminate a candidate','ravis',true],
-   ['Soft preferences',String(SOFT.length),'reorder, never eliminate','ravis',true],
-   ['Policy engine','M16','not built','ravis',true]])
- +`<div class="card full live"><h3>No policy is in force</h3>${cell(`
+   ['Applications','0','none have a policy configured','ravis',true],
+   ['Default','none','nothing is restricted','ravis',true],
+   ['Enforcement','hard','applied before ranking, never as a score','ravis',true],
+   ['Engine','M16','shipped','ravis',true]])
+ +`<div class="card full live"><h3>No policy is configured</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/policies</span></div>
    <div class="trace-step"><b>returned</b><span>an empty list</span></div>
-   <small class="mono dim">and that is the answer rather than a gap in this page. §9.6's <b>IF … THEN</b> rules arrive with the policy engine at <b>M16</b>. Until then RAVIS evaluates none, and a screen showing plausible-looking rules would tell a reader their traffic is governed by conditions that do not exist — which is worse than showing nothing. What <i>does</i> govern a route is below, and it is enforced on every request.</small>`,'ravis')}</div>
-  <div class="card full live"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(`
-   <div class="table-row head"><span>Rule</span><span style="grid-column:2/4">Effect</span><span>Where</span><span>Kind</span></div>
-   ${rows(HARD,'hard')}${rows(SOFT,'soft')}
-   <small class="mono dim">a <b>hard</b> constraint eliminates a candidate and a <b>soft</b> preference only reorders the survivors — §9.2's split, and the reason a pool with no eligible member returns <b>NO_ROUTE</b> rather than the nearest thing available. The soft column is ordered as the engine applies it, and only the preferences a pool actually declares are consulted: an unconditional term would become the whole ranking for every pool that declares nothing.</small>`,'ravis')}</div>`;
+   <small class="mono dim">and that is now a statement about <i>configuration</i> rather than about the engine. The policy engine shipped at <b>M16</b>: privacy levels, provider allow and deny lists, model exclusions and §9.6.1's background-call class, every one of them a hard constraint applied before ranking. An empty list means an operator has written no <b>policies.json</b>, so every application routes unrestricted — this page said "not built" for a while after that stopped being true, which is the same defect as a capability advertising a limit that has been lifted. What <i>does</i> govern a route regardless is below, and it is enforced on every request.</small>`,'ravis')}</div>
+  <div class="card full live"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`;
+}
+
+/* Sessions — §12.1's correlation, and the one screen where isolation is visible.
+
+   A session answers "what has this conversation been using", which is why the
+   model, provider and pool revision are the columns rather than anything about
+   the conversation itself. There is nothing about the conversation itself to
+   show: §12.1 stores no prompt and no response, and this page cannot leak what
+   RAVIS never held.
+
+   `requests` is not decoration. It is what §12.2's load-versus-don't tradeoff
+   reads — an application whose sessions are measurably short does not get a
+   model load paid for it — so a reader wondering why a strong model was passed
+   over can see the number that decided it. */
+async function ravisSessions(){
+ heading('Sessions','What each conversation has been routed to, and how long it has run.');
+ const s=await API.ravis.sessions();
+ const now=Date.now()/1000;
+ const ago=t=>{const d=Math.max(0,now-(t||0));
+   return d<90?`${Math.round(d)}s ago`:d<5400?`${Math.round(d/60)}m ago`:`${Math.round(d/3600)}h ago`};
+ const counts=s.items.map(x=>x.requests||0).sort((a,b)=>a-b);
+ const median=counts.length?counts[Math.floor(counts.length/2)]:0;
+ $('#content').innerHTML=kpis([
+   ['Sessions',String(s.items.length),'visible to this caller','ravis'],
+   ['Median length',counts.length?String(median):'—','requests per session','ravis'],
+   ['Load tradeoff',counts.length?(median>=8?'loads allowed':'loads declined'):'unknown',
+    '§12.2, from measured history','ravis'],
+   ['Content stored','none','§12.1: no prompts, no responses','ravis',true]])
+ +`<div class="card full${s.live?' live':''}"><h3>Routing sessions</h3>${cell(`
+   <div class="table-row head six"><span>Session</span><span>Application</span><span>Pool</span><span style="grid-column:4/6">Model</span><span>Requests</span></div>
+   ${s.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.session_id)}</span><span class="mono" style="opacity:.8">${escapeHtml(x.application_id)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.pool||'—')}</span><span class="mono" style="grid-column:4/6">${escapeHtml(x.model||'—')}<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider||'—')}</span></span><span>${x.requests||0}<span class="dim" style="opacity:.6"> · ${escapeHtml(ago(x.last_activity))}</span></span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no sessions yet — a client supplies one with the <b>X-Session-ID</b> header</span></div>'}
+   <small class="mono dim">RAVIS scopes this list to the <b>asking application</b>, so this is what NERVIS can see and not the machine's every session. Two applications may use the identical session ID and get two separate sessions — §12.1 requires that they never merge, and the stored key is an identity rather than a display name, which is what makes it structural instead of a rule somebody has to remember.</small>`,'ravis')}</div>
+  <div class="card wide"><h3>What a session pins</h3>${cell(`
+   ${s.items.slice(0,3).map(x=>`<div class="trace-step"><b>${escapeHtml(x.session_id)}</b><span class="mono">${escapeHtml(x.pool||'—')} @ ${escapeHtml(x.pool_revision||'—')}</span></div>`).join('')||'<div class="trace-step"><b>—</b><span>nothing to pin yet</span></div>'}
+   <small class="mono dim">§5.4: every session records the <b>pool revision</b> it used, so a consumer can tell that a pool's definition changed underneath a conversation already in progress. The revision is derived from the pool's behaviour and not from its wording — rewording a description keeps it.</small>`,'ravis')}</div>
+  <div class="card narrow"><h3>Two windows</h3>${cell(`
+   <div class="trace-step"><b>affinity</b><span>1 hour idle</span></div>
+   <div class="trace-step"><b>retention</b><span>7 days idle</span></div>
+   <small class="mono dim">deliberately different. A stale session stops <i>steering</i> routing after the first window and stays <i>readable</i> until the second: collapsing them would mean either routing on yesterday's choice or losing the correlation somebody is here to read.</small>`,'ravis')}</div>`;
 }
 
 async function ravisPolicies(){
@@ -5405,25 +5483,22 @@ async function ravisPolicies(){
     which is real: §9.2's hard/soft split is enforced today by pool invariants
     and the routing engine, and that is what actually governs a request. */
  if(p.live&&!p.items.length)return noPoliciesScreen();
- const hard=p.items.filter(x=>x.kind==='hard');
+ /* One row per application, plus `*` for the default that governs anything
+    unlisted. The constraint strings are RAVIS's own words, rendered rather than
+    re-derived: this page reproducing the policy vocabulary is how the two drift
+    into disagreeing about what a level means. */
+ const governed=p.items.filter(x=>x.application_id!=='*').length;
  $('#content').innerHTML=kpis([
-   ['Policies',String(p.items.length),'evaluated in order','ravis'],
-   ['Hard',String(hard.length),'eliminate candidates','ravis'],
-   ['Soft',String(p.items.length-hard.length),'bias the ranking only','ravis'],
-   ['Enabled',String(p.items.filter(x=>x.enabled).length),'a disabled rule is not evaluated','ravis']])
- +`<div class="card full${p.live?' live':''}"><h3>Evaluation order</h3>${cell(`
-   <div class="table-row head six"><span>Id</span><span style="grid-column:2/4">When</span><span style="grid-column:4/6">Then</span><span>Kind</span></div>
-   ${p.items.map(x=>`<div class="table-row six"><span class="mono">${x.policy_id}</span><span class="mono" style="grid-column:2/4;opacity:.8">${escapeHtml(x.when)}</span><span style="grid-column:4/6">${x.then}</span><span class="chip${warnUnless(x.kind==='hard')}">${x.kind}</span></div>`).join('')}
-   <small class="mono dim">order matters: <b>${p.items[1].policy_id}</b> removes every cloud provider before anything is scored, so a cheaper or faster cloud model is not out-ranked — it is never a candidate. A soft policy such as <b>${p.items.find(x=>x.kind==='soft').policy_id}</b> can only move a candidate down the list.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Hard versus soft</h3>${cell(`
-   <div class="table-row head"><span>Kind</span><span>Count</span><span style="grid-column:3/-1">Guarantee to a caller</span></div>
-   <div class="table-row"><span class="chip">hard</span><span>${hard.length}</span><span style="grid-column:3/-1;opacity:.75">will never be violated: if nothing satisfies them the result is NO_ROUTE</span></div>
-   <div class="table-row"><span class="chip warn">soft</span><span>${p.items.length-hard.length}</span><span style="grid-column:3/-1;opacity:.75">changes the ordering; a strong preference is still not a promise</span></div>
-   <small class="mono dim">this column is the difference between "prefer local" and "local only". Both are legitimate; presenting the first as the second is how a privacy setting becomes untrue without anyone editing it.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Context policy</h3>${cell(`
-   <div class="trace-step"><b>when</b><span>request > model context</span></div>
-   <div class="trace-step"><b>then</b><span>${p.items.find(x=>x.policy_id==='pl_05').then}</span></div>
-   <small class="mono dim">truncation is the silent failure this rule exists to prevent. A shortened prompt still produces a fluent answer, which is exactly why nobody notices — so the request moves to a larger context or it does not run.</small>`,'ravis')}</div>`}
+   ['Applications',String(governed),'have a policy of their own','ravis'],
+   ['Default',p.items.some(x=>x.application_id==='*')?'set':'none',
+    'governs everything unlisted','ravis'],
+   ['Enforcement','hard','applied before ranking, never as a score','ravis',true],
+   ['Engine','M16','shipped','ravis',true]])
+ +`<div class="card full${p.live?' live':''}"><h3>Policy in force</h3>${cell(`
+   <div class="table-row head"><span>Application</span><span style="grid-column:2/-1">Constraints</span></div>
+   ${p.items.map(x=>`<div class="table-row"><span class="mono">${escapeHtml(x.application_id)}</span><span style="grid-column:2/-1;opacity:.85">${(x.constraints||[]).map(escapeHtml).join(' · ')||'—'}</span></div>`).join('')}
+   <small class="mono dim"><b>*</b> is the default: an application with no row of its own is governed by it. Every constraint here is <b>hard</b> — §14 rule 14 says a privacy constraint can never be overridden by score, so these remove candidates before anything is ranked rather than penalising them inside it. <b>LOCAL_PREFERRED</b> is the one level that ranks instead of excluding, and it says so.</small>`,'ravis')}</div>
+  <div class="card full"><h3>What else decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`}
 
 /* Evidence — what RAVIS is scoring on, and who owns it. The table is SIRVIS's
    data rendered on a RAVIS page, so it is cell()'d to sirvis: cycle SIRVIS off

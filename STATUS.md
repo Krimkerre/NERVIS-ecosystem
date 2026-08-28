@@ -5062,6 +5062,41 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### The UI audit: two milestones that stopped at the endpoint
+
+Asked whether everything built so far reaches a screen. Mostly — Google's
+native adapter shows on Providers, pool revisions on Pools, §12.2's tradeoff in
+the route inspector's reason, and titles in chat. Two did not.
+
+**M11 had no screen at all.** `/api/v1/sessions` and `/api/v1/sessions/{id}`
+were serving and nothing read them, while NERVIS.md M3 lists *sessions* in the
+RAVIS integration it is supposed to cover. There is a Sessions screen now, and
+the columns are chosen to answer the question a session exists to answer: what
+this conversation has been routed to, which pool revision it pinned, and how
+many requests it has made — that last one because it is the number §12.2's
+tradeoff reads, so a reader wondering why a strong model was passed over can
+see what decided it.
+
+**M16 was wired to the endpoint and would have crashed on it.** M16 changed the
+payload to `{application_id, constraints[]}` and the page still expected the
+`{policy_id, when, then, kind}` shape its own mock had invented. Every field
+would have rendered `undefined`, and two lines dereferenced `items[1]` and
+`find(kind === "soft")` — so a deployment with a policy configured would have
+thrown rather than shown one. It was masked because nothing is configured on
+this machine, which is the worst way for a screen to be right: the bug was
+waiting for the first person to write a `policies.json`.
+
+Its empty state also still read *"Policy engine M16 — not built"*. Same defect
+as the two capabilities the earlier audit caught, in a third place: a screen
+citing a limit that had been lifted. Empty now means no policy is *configured*,
+which is a statement about this machine rather than about the engine.
+
+**And the new screen was briefly invisible to its own gate.** Adding it to
+`RAVIS_VIEWS` made it callable and left it out of the sidebar, and
+`render_check.js` walks the nav rather than the view table — so the count
+stayed at 35 and the screen was neither reachable nor tested. The gate was
+right and the wiring was half-done; 36 now.
+
 ### M14 completed — and the estimate had to come from history
 
 §12.2 states the tradeoff with an example: a stronger model that takes fourteen
