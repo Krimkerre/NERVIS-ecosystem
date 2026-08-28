@@ -627,3 +627,49 @@ def test_evidence_is_requested_for_every_upstream_not_just_the_first() -> None:
     assert asked == [["first-upstream-build", "second-upstream-build"]], (
         "both upstreams' builds, sorted so two refreshes can be compared"
     )
+
+
+def test_ravis_can_read_sirvis_reasoning_share() -> None:
+    """SIRVIS M22b's exit: RAVIS M16's tiebreak can read the measurement.
+
+    `ravis/auto` breaks a tie on smallest-build-is-cheapest, which selects a
+    reasoning distill that spends most of a small budget thinking. RAVIS cannot
+    know that from advertised metadata, so M22b measures it per build and files
+    it as evidence. This asserts the wire between the two: the metric survives
+    SIRVIS's serialisation and arrives in the record RAVIS holds, named and
+    with its provenance intact.
+
+    Asserted here rather than only in SIRVIS because a measurement that reaches
+    the producer's own record and not the consumer's is a milestone that looks
+    finished from one side.
+    """
+    from ravis.evidence.sirvis import _read_record
+
+    # The shape SIRVIS actually serialises, through RAVIS's own reader.
+    record = _read_record(
+        {
+            "evidence_id": "ev_1",
+            "sirvis_version": "0.14.0",
+            "machine_id": "m1",
+            "role": "clarvis-chat",
+            "evidence_type": "MEASURED",
+            "samples": 3,
+            "target": {"variant": "var_mlx", "model_family": "qwen3-1.7b",
+                       "runtime": "mlx", "runtime_config": {"context_length": 8192}},
+            "suite": {"id": "performance-basic", "version": "1"},
+            "metrics": {
+                "reasoning_token_share": {
+                    "unit": "fraction", "direction": "lower", "samples": 3,
+                    "median": 0.8, "provenance": {"kind": "MEASURED"},
+                }
+            },
+        },
+        {"var_mlx": "qwen3-1.7b@mlx"},
+    )
+
+    assert record is not None
+    share = record.metrics.get("reasoning_token_share")
+
+    assert share is not None, "the tiebreak needs this metric by name"
+    assert share["median"] == 0.8
+    assert share["direction"] == "lower", "less budget lost to thinking is better"

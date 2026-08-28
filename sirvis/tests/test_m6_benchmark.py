@@ -678,3 +678,57 @@ def test_a_machine_already_swapping_is_not_blamed_on_the_run() -> None:
         ]
 
     assert _swap_warnings(_Outcome()) == []  # type: ignore[arg-type]
+
+
+def test_a_thinking_build_is_distinguishable_from_a_quiet_one_by_evidence() -> None:
+    """M22b's exit: from evidence rather than from the model's name.
+
+    `ravis/auto` breaks a tie on smallest-build-is-cheapest, which on this
+    machine picks a reasoning distill that spends most of a small `max_tokens`
+    budget thinking and emits little content. No runtime advertises that --
+    LM Studio publishes `type`, `arch` and `quantization` and nothing about
+    reasoning -- so RAVIS needs a measurement, and a guess from the name is
+    what §12.2 exists to stop.
+
+    The zero matters as much as the non-zero. A build that reports its tokens
+    and shows every one of them as content spent nothing thinking, and that is
+    the fact which makes it distinguishable rather than merely unmeasured.
+    """
+    from sirvis.benchmarks.engine import Repetition
+
+    def rep(**fields: object) -> Repetition:
+        return Repetition(index=0, phase="measured", test_id="t1", total_seconds=1.0,
+                          content="answer", **fields)  # type: ignore[arg-type]
+
+    thinker = rep(completion_tokens=80, reasoning_tokens=64, chunk_count=16)
+    quiet = rep(completion_tokens=80, chunk_count=80)
+
+    assert thinker.reasoning_share == 0.8
+    assert quiet.reasoning_share == 0.0
+    assert thinker.reasoning_share > quiet.reasoning_share
+
+
+def test_a_runtime_that_counts_nothing_yields_no_share_rather_than_zero() -> None:
+    """Absence and zero are different claims, and only one of them is safe.
+
+    A zero would tell RAVIS the build spends nothing on thinking, which is
+    exactly the tiebreak input -- asserting it from a runtime that reported no
+    tokens at all would be the invented measurement this engine exists to avoid.
+    """
+    from sirvis.benchmarks.engine import Repetition
+
+    silent = Repetition(index=0, phase="measured", test_id="t1", total_seconds=1.0,
+                        content="answer", chunk_count=12)
+
+    assert silent.reasoning_share is None
+
+
+async def test_the_share_reaches_the_evidence_record(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """And it has to arrive as a metric RAVIS can read, not stay in the engine."""
+    outcome, _ = await _run(FakeRuntime(), results_root=tmp_path)
+
+    share = outcome.record.measurements.get("reasoning_token_share")
+
+    assert share is not None, "M22b's measurement must reach the record"
+    assert share.unit == "fraction"
+    assert share.direction == "lower", "less of the budget lost to thinking is better"

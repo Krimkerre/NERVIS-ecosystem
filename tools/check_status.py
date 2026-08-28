@@ -87,7 +87,7 @@ def _counted_in(package: Path) -> int:
     # `-q` is in addopts, so pytest prints a per-file tally rather than a
     # total. Summing those is more robust than fighting the quiet flag, and it
     # fails loudly if the format changes rather than silently passing.
-    per_file = re.findall(r"^\S+: (\d+)$", result.stdout, re.M)
+    per_file = re.findall(r"^\S+: (\d+)$", result.stdout, re.MULTILINE)
     return sum(int(count) for count in per_file) if per_file else -1
 
 
@@ -222,18 +222,35 @@ _NAMED = re.compile(r"\*\*([^*]*?\b%s\b[^*]*?)\*\*(\s*\*\([^)]*\)\*)?")
 
 
 def _is_declared_split(milestone: str, done_section: str, next_section: str) -> bool:
-    """Whether one side of the repeat names itself a split."""
+    """Whether *every* row in Next that names this milestone declares the split.
+
+    **Row-wise, not section-wide, and the difference is the whole check.** This
+    scanned both sections and returned True on the first marker it found
+    anywhere — so once one row legitimately declared a split, every other repeat
+    of that milestone was excused, including an undisclosed one. The self-test
+    caught it the moment a real split was declared for M16: it injects a bare
+    `**M16**` into Next and expects a failure, and got none, because a genuine
+    "remaining half of RAVIS M16" two rows below was answering for it.
+
+    The Next row is the one claiming work remains, so it is the row that has to
+    say which part. A marker on the Done side alone excuses nothing.
+    """
+    del done_section  # The claim being checked is made in Next.
     bare = re.escape(milestone.split()[-1])
     pattern = re.compile(_NAMED.pattern % bare)
-    for section in (done_section, next_section):
-        for line in section.splitlines():
-            if not line.lstrip().startswith("|"):
-                continue
-            for name, qualifier in pattern.findall(line):
-                span = (name + " " + (qualifier or "")).lower()
-                if any(marker in span for marker in SPLIT_MARKERS):
-                    return True
-    return False
+    naming = [
+        line for line in next_section.splitlines()
+        if line.lstrip().startswith("|") and pattern.search(line)
+    ]
+    if not naming:
+        return False
+    return all(
+        any(
+            any(marker in (name + " " + (qualifier or "")).lower() for marker in SPLIT_MARKERS)
+            for name, qualifier in pattern.findall(line)
+        )
+        for line in naming
+    )
 
 
 # A milestone id as it is actually written in this file: bolded, and almost
@@ -377,10 +394,19 @@ def self_test() -> list[str]:
     if invented:
         problems.append(f"self-test: bold prose was read as a milestone claim: {invented}")
 
-    # A declared split must not be reported: it is a recorded decision.
-    if not _is_declared_split("M14", text.split("### Next")[0],
-                              text.split("### Next")[1].split("### After that")[0]):
-        problems.append("self-test: M14's declared split should be tolerated")
+    # A declared split must not be reported: it is a recorded decision. Both
+    # halves are exercised against a written-out example rather than against
+    # whatever STATUS.md happens to contain — the live document was the fixture
+    # until M14 finished and left the Next table, at which point the test
+    # asserted something no longer present and failed for the one reason a gate
+    # must not: the project moving forward correctly.
+    split_done = "### Done\n| 1 | **M14** *(observation half)* | done |\n"
+    if not _is_declared_split(
+        "M14", split_done, "### Next\n| 1 | **The rest of M14** | later |\n"
+    ):
+        problems.append("self-test: a declared split should be tolerated")
+    if _is_declared_split("M14", split_done, "### Next\n| 1 | **M14** | later |\n"):
+        problems.append("self-test: an undisclosed repeat should not be tolerated")
     return problems
 
 

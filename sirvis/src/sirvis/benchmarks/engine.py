@@ -91,6 +91,10 @@ METHOD_TTFT = "stream.time_to_first_token.v1"
 METHOD_THROUGHPUT = "stream.generation_tokens_per_second.v1"
 METHOD_LATENCY = "stream.total_latency.v1"
 METHOD_LOAD = "resource_manager.load_time.v1"
+# M22b. Named as its own method because the two ways of arriving at the number
+# are not interchangeable: an exact `reasoning_tokens` from the runtime, or the
+# gap between the token count and the content chunks. The provenance says which.
+METHOD_REASONING = "stream.reasoning_token_share.v1"
 
 # How much of a runtime's reported output must have shown up as content before
 # that count is believed to describe the content stream.
@@ -215,6 +219,29 @@ class Repetition:
         if self.chunk_count >= self.completion_tokens * CONTENT_TOKEN_AGREEMENT:
             return 0
         return self.completion_tokens - self.chunk_count
+
+    @property
+    def reasoning_share(self) -> float | None:
+        """The fraction of this completion spent thinking before answering.
+
+        **M22b, and the reason it is a measurement rather than a flag.**
+        `ravis/auto` breaks a tie on smallest-build-is-cheapest, which on this
+        machine selects a reasoning distill that spends most of a small
+        `max_tokens` budget on reasoning tokens and emits little or no content.
+        RAVIS cannot know that from advertised metadata -- LM Studio's
+        `/api/v0/models` publishes `type`, `arch` and `quantization` and nothing
+        about reasoning -- and a guess from the model's name is exactly what
+        §12.2 exists to stop.
+
+        Zero is a real answer here, not an absence: a build that reports its
+        tokens and shows every one of them as content spent nothing thinking,
+        and that is the fact which makes it distinguishable from one that did.
+        `None` is the genuine unknown -- a runtime that reported no token count
+        at all, from which no share can be computed.
+        """
+        if not self.completion_tokens:
+            return None
+        return min(self.hidden_tokens / self.completion_tokens, 1.0)
 
     @property
     def content_tokens(self) -> int | None:
@@ -776,6 +803,25 @@ def _evidence(
          kind=EvidenceKind.ESTIMATED if estimated else EvidenceKind.MEASURED,
          notes="derived from stream chunk count; the runtime reported no token usage"
          if estimated else None)
+    # M22b. Lower is better: it is the share of the budget that never reached
+    # the answer. `MEASURED` only when every repetition carried the runtime's own
+    # reasoning figure -- where the share rests on the chunk-count inference for
+    # any of them, §12.1's lattice takes the weaker word for the whole metric.
+    # Exact for a repetition the runtime broke down itself, and equally exact
+    # for one that reported its tokens and showed every one of them as content:
+    # that is a measured zero, not a guess. Inferred only where the share rests
+    # on the gap between the count and the chunks -- the same line
+    # `generation_tokens_per_second` draws two statements above.
+    counted = all(
+        r.reasoning_tokens is not None
+        or (r.token_source == "reported" and r.hidden_tokens == 0)
+        for r in measured
+    )
+    _add(measurements, "reasoning_token_share", [r.reasoning_share for r in measured],
+         unit="fraction", direction="lower", method=METHOD_REASONING,
+         kind=EvidenceKind.MEASURED if counted else EvidenceKind.ESTIMATED,
+         notes=None if counted
+         else "inferred from the gap between reported tokens and content chunks")
     load = [r.total_seconds for r in outcome.repetitions if r.phase == "load"]
     _add(measurements, "load_time_seconds", list(load), unit="seconds",
          direction="lower", method=METHOD_LOAD)
