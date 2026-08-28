@@ -33,10 +33,13 @@
  *     downloaded. Badging the whole card live would claim the catalogue is a
  *     live read of what exists to download, which it is not.
  *
- *   • *A read that timed out in one pass.* `LIVE_TIMEOUT_MS` is 1500, and a
- *     service that answers in the dark pass and times out in the lit one
- *     changes the card's body without changing what it should claim. RAVIS's
- *     Providers card moves in and out of this list on a busy machine.
+ *   • *A read that timed out under this check's own load.* `LIVE_TIMEOUT_MS`
+ *     is 1500, and this renders seventy screens against three services in a
+ *     few seconds — far heavier than a person on one screen at a time. RAVIS's
+ *     Providers card reports here on a busy machine, and rendering that one
+ *     screen on its own emits `card full live`, correctly. Findings must
+ *     survive a second lit pass, which removes the ones that move run to run
+ *     but not one whose read is starved for the whole run.
  *
  * A card reporting the *same* body in both passes is invisible to this check
  * either way — if a mock happens to match live output exactly, nothing here
@@ -112,7 +115,8 @@ async function renderAll(fetchImpl) {
      NERVIS read down its fallback path and made this check report NERVIS's own
      cards as understating. Resolved against the same origin the shim claims. */
   const ORIGIN = "http://127.0.0.1:8790";
-  const lit = await renderAll((url, opts) => fetch(new URL(url, ORIGIN), opts));
+  const liveFetch = (url, opts) => fetch(new URL(url, ORIGIN), opts);
+  const lit = await renderAll(liveFetch);
 
   /* **Read something, or say you read nothing.** The first version of this
      file captured no markup at all — the page writes through `querySelector`
@@ -127,16 +131,34 @@ async function renderAll(fetchImpl) {
     process.exit(1);
   }
 
-  const understating = [], overstating = [];
-  for (const [screen, cards] of lit) {
-    const before = dark.get(screen) || new Map();
-    for (const [title, now] of cards) {
-      const then = before.get(title);
-      if (then && then.body !== now.body && !now.live) {
-        understating.push(`${screen} :: ${title}`);
+  /* Findings, then the same question asked a second time.
+
+     This check renders seventy screens against three services in a few seconds,
+     which is far heavier than a person clicking through one screen at a time.
+     `LIVE_TIMEOUT_MS` is 1500, so a read that answers in one pass can time out
+     in the next — and a card fed by that read then differs between passes for a
+     reason that is not a defect. Three cards moved in and out of the list
+     across consecutive runs on this machine.
+
+     So a finding has to survive twice. A tool that reports two or three
+     phantoms every run teaches people to skim it, which costs more than the
+     findings are worth. */
+  const suspect = (litRun) => {
+    const found = [];
+    for (const [screen, cards] of litRun) {
+      const before = dark.get(screen) || new Map();
+      for (const [title, now] of cards) {
+        const then = before.get(title);
+        if (then && then.body !== now.body && !now.live) found.push(`${screen} :: ${title}`);
       }
     }
-  }
+    return found;
+  };
+  const first = suspect(lit);
+  const confirmed = first.length ? new Set(suspect(await renderAll(liveFetch))) : new Set();
+  const understating = first.filter((f) => confirmed.has(f));
+  const transient = first.filter((f) => !confirmed.has(f));
+  const overstating = [];
   for (const [screen, cards] of dark) {
     for (const [title, card] of cards) if (card.live) overstating.push(`${screen} :: ${title}`);
   }
@@ -145,6 +167,11 @@ async function renderAll(fetchImpl) {
   if (understating.length) {
     console.log(`\n${understating.length} card(s) render service data under a PROTOTYPE badge:`);
     for (const c of understating) console.log(`  • ${c}`);
+  }
+  if (transient.length) {
+    console.log(`\n${transient.length} card(s) differed in one pass only — a read that timed out,`);
+    console.log("not a badge fault:");
+    for (const c of transient) console.log(`  • ${c}`);
   }
   if (overstating.length) {
     console.log(`\n${overstating.length} card(s) claim a live read with nothing running:`);
