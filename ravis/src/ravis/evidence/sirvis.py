@@ -63,6 +63,19 @@ MIN_REPETITIONS = 3
 
 # The metric names SIRVIS publishes for M13's trials.
 RATE_TOOL_CALLS = "tool_call_well_formed"
+
+# §11.4's reasoning share, filed by SIRVIS M22b: the fraction of a build's
+# output that is thinking rather than answer. Named here rather than spelled
+# inline for the same reason as the rate above — the wire name is a contract
+# with another service, and a typo in one reads as "never measured" rather than
+# as an error.
+MEASUREMENT_REASONING_SHARE = "reasoning_token_share"
+
+# SIRVIS's per-measurement provenance vocabulary, which is **not** RAVIS's
+# `EvidenceProvenance` below. That enum records where a number reached RAVIS
+# from; this string is SIRVIS's own statement about how the number was arrived
+# at, and §12.1's lattice puts three weaker levels under it.
+SIRVIS_MEASURED = "MEASURED"
 RATE_FOLLOWUP = "tool_followup_used_result"
 
 # How long a measurement is believed. Generous, because evidence about a build
@@ -175,6 +188,39 @@ class EvidenceRecord:
         if not isinstance(passed, int) or not isinstance(total, int) or total <= 0:
             return None
         return passed, total
+
+    def measured_share(self, name: str) -> float | None:
+        """One measurement's headline, but only when it was actually measured.
+
+        None for anything weaker, which is the same distinction `rate` draws one
+        method up: "nobody established this" and "this is 0.0" are different
+        claims, and only the second is about the model.
+
+        **Provenance is checked per measurement, not per record.** §13.3 forbids
+        upgrading it, and this is where that rule earns its keep: a reasoning
+        share arrives as `ESTIMATED` whenever the runtime hid its token counts,
+        and SIRVIS files both kinds in the same record beside measurements that
+        are fully counted. Ranking on an estimate would be exactly §9.4's
+        invented measurement — an estimate is a good enough reason to *tell*
+        somebody a build thinks a lot, and not a good enough reason to move a
+        route without saying why.
+
+        `direction` is verified rather than assumed. It exists so a consumer can
+        sort two numbers it did not produce, and reading a higher-is-better
+        quantity as though lower were better inverts a ranking with nothing
+        visible going wrong — the failure §11.7 added the field to prevent.
+        """
+        body = self.metrics.get(name)
+        if not isinstance(body, Mapping):
+            return None
+        provenance = body.get("provenance")
+        kind = provenance.get("kind") if isinstance(provenance, Mapping) else None
+        if kind != SIRVIS_MEASURED or body.get("direction") != "lower":
+            return None
+        median = body.get("median")
+        if not isinstance(median, (int, float)) or isinstance(median, bool):
+            return None
+        return float(median)
 
     def as_dict(self) -> dict[str, Any]:
         """The shape a route explanation carries (§9.7 — no internal addresses)."""
@@ -371,6 +417,27 @@ class EvidenceStore:
             )
             return None
         return record
+
+    def reasoning_share(self, runtime_key: str) -> float | None:
+        """How much of this build's output is thinking rather than answer.
+
+        A *fit* fact and not a quality one, which is the whole reason RAVIS is
+        allowed to rank on it at all. §13.1's prohibition is on reducing SIRVIS
+        results to `model -> score`; this reduces nothing and compares nothing
+        across builds on merit. It answers one narrow question — of a finite
+        output budget, how much does this build historically spend before it
+        starts answering — and `routing.engine` uses it only where that question
+        is live.
+
+        Goes through `record_for`, so the staleness window and the source
+        degradation it performs apply here exactly as they do to capability
+        claims. A measurement that has aged out establishes nothing, whether it
+        was going to admit a build or order one.
+        """
+        record = self.record_for(runtime_key)
+        if record is None:
+            return None
+        return record.measured_share(MEASUREMENT_REASONING_SHARE)
 
     def claims_for(self, runtime_key: str) -> list[CapabilityClaim]:
         """What this build's evidence establishes, as capability claims.

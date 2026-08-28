@@ -138,12 +138,24 @@ def test_the_explanation_separates_eligibility_from_ranking() -> None:
 
     The claim is now conditional on what actually applied, which is why this
     asserts the *unpriced* case here and the two applied cases below.
+
+    **And then a third time, to the evidence half of the same sentence.** M16's
+    reasoning tiebreak made "evidence decides eligibility rather than order"
+    false — a measured reasoning share now orders candidates when the request
+    caps its output — and this test asserted that string too, so once again the
+    check on the sentence was holding the sentence wrong. What is asserted now
+    is the claim that survived rather than the wording that did not: nothing
+    ranks an admitted build above another *on quality*. The pool here sets no
+    output ceiling, so this is the did-not-order case, and
+    `test_reasoning_tiebreak.py` asserts the other one.
     """
     candidates = {"a": _model("a")}
 
     decision = RoutingEngine().select("ravis/clarvis-chat", candidates)
 
-    assert "Evidence decides eligibility rather than order" in decision.reason
+    assert "Evidence admits and excludes builds" in decision.reason
+    assert "did not order these" in decision.reason
+    assert "rather than on quality" in decision.reason
     assert "nothing ranks one admitted build above another" in decision.reason
     assert "did not order this pool" in decision.reason, (
         "clarvis-chat has no price ceiling and does not prefer cheap"

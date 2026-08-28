@@ -78,6 +78,7 @@ class RoutingEngine:
         policy_refusals: Mapping[str, list[str]] | None = None,
         sticky: str = "",
         expected_session_requests: int | None = None,
+        reasoning_share: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -110,6 +111,12 @@ class RoutingEngine:
         forbids: the explanation lines, and `LOCAL_PREFERRED`, which is the one
         rung of the ladder that ranks instead of excluding.
 
+        `reasoning_share` is SIRVIS's measurement of how much of each build's
+        output is thinking rather than answer, passed in for the same reason
+        `observed_ttft_ms` is: it comes from a service this class does not talk
+        to. It only ever breaks a tie, and only when the request set an output
+        ceiling for the thinking to eat into — see `_reasoning_rank`.
+
         `sticky` is the model this session last used (§12.1). A preference and
         never a constraint: it orders candidates that already passed every hard
         filter, so a session can steer a choice among models the caller was
@@ -135,6 +142,7 @@ class RoutingEngine:
                 refusals,
                 sticky,
                 expected_session_requests,
+                reasoning_share,
             )
 
         target = direct_target(requested)
@@ -238,6 +246,7 @@ class RoutingEngine:
         refusals: Mapping[str, list[str]] | None = None,
         sticky: str = "",
         expected_session_requests: int | None = None,
+        reasoning: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -274,7 +283,7 @@ class RoutingEngine:
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
-            expected_session_requests,
+            expected_session_requests, reasoning,
         )
 
         if not eligible:
@@ -298,6 +307,7 @@ class RoutingEngine:
             pool, eligible, residency, memory, expected_session_requests,
             _load_would_not_amortise(expected_session_requests, memory),
             policy.prefers_cheap,
+            _reasoning_note(eligible, reasoning or {}, requirements.output_budget),
         )
         return decision
 
@@ -441,6 +451,7 @@ def _rank(
     policy: RoutingPolicy | None = None,
     sticky: str = "",
     expected_session_requests: int | None = None,
+    reasoning: Mapping[str, float] | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -556,9 +567,27 @@ def _rank(
         # Pools that say nothing fall back to alphabetical order, which is
         # meaningless — and meaningless is the honest state until M13, because
         # it is at least not systematically biased towards whatever is smallest.
+        # **The reasoning tiebreak (M16), ahead of size and applied to every
+        # pool.** Both halves of that sentence are deliberate.
+        #
+        # Ahead of size, because it is the better version of the same idea. Size
+        # is a proxy — "smaller is cheaper to run" — and the measured share is
+        # the thing itself: how much of the budget this build has actually been
+        # observed to spend before it starts answering. Where both have an
+        # opinion, the measurement should win.
+        #
+        # Applied even to a pool that declared nothing, which is exactly where
+        # size is *not*, and the difference is what the paragraph above is
+        # about. Size became the whole ranking for those pools and biased them
+        # towards the smallest thing installed; this cannot, because it is
+        # silent unless the request set a ceiling *and* SIRVIS measured this
+        # build spending it on thinking. `ravis/auto` declares no preference at
+        # all, so gating this the way size is gated would leave the one pool
+        # M16 named ranking alphabetically — which is where the defect lives.
+        thinking = _reasoning_rank(model, reasoning, requirements.output_budget)
         if not pool.prefer:
-            return (*lead, 1, 0.0, model)
-        return (*lead, *size_rank(model))
+            return (*lead, thinking, 1, 0.0, model)
+        return (*lead, thinking, *size_rank(model))
 
     return sorted(members, key=key)
 
@@ -650,6 +679,75 @@ def _preference_terms(
     if pool.prefer_local:
         terms.append(0.0 if model not in remote else 1.0)
     return terms
+
+
+def _reasoning_rank(
+    model: str, reasoning: Mapping[str, float] | None, budget: int | None
+) -> float:
+    """How much of a capped answer this build has been measured to spend thinking.
+
+    **The thing being ranked is fit, not quality.** RAVIS is not saying a model
+    that reasons is a worse model — §13.1 forbids reducing evidence to a score
+    and this reduces nothing. It is saying something narrower and entirely
+    mechanical: `max_tokens` is one budget shared between thinking and
+    answering, so a build measured to spend two thirds of it thinking returns a
+    third of the answer the caller asked for, and can return none at all. That
+    is the failure this exists to prevent, and it is visible from outside as a
+    reply that arrives empty rather than as a routing decision.
+
+    **Silent in three situations, each for its own reason.**
+
+    No budget: an uncapped request has nothing for thinking to crowd out. It
+    still costs latency and tokens, but those are the pool's business — a pool
+    that ranks on speed or price already says so, and inventing the preference
+    for pools that did not would be the invisible policy §9.4 forbids.
+
+    No measurement: 0.0, the same value a build measured never to think gets.
+    Not last, which would penalise every build SIRVIS has not reached — most of
+    the catalogue — and turn absence into a verdict, the confusion §12.1 exists
+    to keep apart. A tie here simply falls through to whatever ranked next.
+
+    An estimate: also 0.0, decided one layer down in `measured_share`. A share
+    inferred from a runtime that hid its token counts is not established, and
+    §9.1 fails closed on what is not established.
+
+    So the term is dormant except where a request set a ceiling *and* SIRVIS
+    counted the tokens, which is precisely the case M16 named.
+    """
+    if not budget or not reasoning:
+        return 0.0
+    return reasoning.get(model, 0.0)
+
+
+def _reasoning_note(
+    eligible: list[str], reasoning: Mapping[str, float], budget: int | None
+) -> str:
+    """Say so when a measured reasoning share moved a candidate down.
+
+    Only when it *changed* something. A note on every capped request would say
+    "nothing thought too much" thousands of times and train a reader to skip the
+    line that matters, and §9.7 asks an explanation to separate what decided a
+    route from what merely applied to it.
+
+    The arithmetic is shown rather than the fraction alone, because "0.68" is a
+    number and "leaves about 20 of your 64 tokens for the answer" is the reason.
+    """
+    if not budget or not eligible:
+        return ""
+    demoted = [
+        (model, reasoning[model])
+        for model in eligible[1:]
+        if reasoning.get(model, 0.0) > reasoning.get(eligible[0], 0.0)
+    ]
+    if not demoted:
+        return ""
+    model, share = max(demoted, key=lambda item: item[1])
+    return (
+        f"{model} ranked lower because SIRVIS measured it spending {share:.0%} of its "
+        f"output on reasoning, which at max_tokens={budget} leaves about "
+        f"{int(budget * (1 - share))} tokens for the answer itself — a tiebreak on "
+        f"what fits the budget, not on quality"
+    )
 
 
 def _reach_rank(
@@ -812,6 +910,7 @@ def _selection_reason(
     expected_session_requests: int | None = None,
     short_session: bool = False,
     budget_leans_cheap: bool = False,
+    reasoning_note: str = "",
 ) -> str:
     """Say honestly why the winner won.
 
@@ -852,6 +951,10 @@ def _selection_reason(
             "models were preferred over the pool's usual ordering"
         )
 
+    # Before the size note, in the order the two tiebreaks are consulted. They
+    # are usually both silent, and when both speak the reader should see the
+    # measured one first — size only broke what the measurement left tied.
+    parts.append(reasoning_note)
     parts.append(_size_note(pool, eligible, residency, memory))
     others = len(eligible) - 1
     tail = f"; {others} other eligible candidate(s) ranked lower" if others else ""
@@ -869,11 +972,19 @@ def _selection_reason(
     # cheap one or a budget band leans that way. So it is said conditionally,
     # from the two facts actually in scope, rather than asserted.
     cost = _cost_note(pool, budget_leans_cheap)
+    # **And a third time, in the sentence that documents the first two.** This
+    # said "evidence decides eligibility rather than order" unconditionally,
+    # which M16's reasoning tiebreak makes false: a measured reasoning share now
+    # orders candidates when the request caps its output. The claim worth
+    # keeping is the narrower one that was always the point — nothing ranks one
+    # admitted build above another on *quality* — so that half is stated
+    # unconditionally and the half that changed is stated from what happened.
+    orders = "and it ordered them here" if reasoning_note else "though it did not order these"
     return (
         f"{'. '.join(part for part in parts if part)}. "
-        f"Evidence decides eligibility rather than order — a build is admitted or "
-        f"excluded on it, and nothing ranks one admitted build above another on "
-        f"quality. {cost}, and health is used to exclude "
+        f"Evidence admits and excludes builds, {orders}; where it does order, it is on "
+        f"what fits the request rather than on quality, and nothing ranks one admitted "
+        f"build above another on how good it is. {cost}, and health is used to exclude "
         f"rather than to rank{tail}"
     )
 

@@ -732,3 +732,26 @@ async def test_the_share_reaches_the_evidence_record(tmp_path) -> None:  # type:
     assert share is not None, "M22b's measurement must reach the record"
     assert share.unit == "fraction"
     assert share.direction == "lower", "less of the budget lost to thinking is better"
+
+
+async def test_the_published_share_carries_what_a_consumer_ranks_on(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The wire half of the contract, pinned from this side of it.
+
+    RAVIS M16 ranks on this measurement and reads exactly three fields out of
+    it: `median` for the value, `direction` to know which way to sort, and
+    `provenance.kind` to refuse anything weaker than a count. RAVIS does not
+    depend on this package and cannot assert the shape it is sent — so the
+    check has to live here, where the shape is decided.
+
+    Naming the three fields is the point. A rename that keeps the measurement
+    working locally would leave the consumer silently reading `None`, which
+    reads as "never measured" rather than as a break — and the whole design of
+    that consumer is to stay quiet when nothing was measured.
+    """
+    outcome, _ = await _run(FakeRuntime(), results_root=tmp_path)
+
+    published = outcome.record.measurements["reasoning_token_share"].as_dict()
+
+    assert isinstance(published["median"], float)
+    assert published["direction"] == "lower"
+    assert published["provenance"]["kind"] in ("MEASURED", "ESTIMATED")

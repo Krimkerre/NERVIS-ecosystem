@@ -32,7 +32,7 @@ import logging
 import time
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, AsyncGenerator, Callable, Sequence
 
 import httpx
 from fastapi import APIRouter, Request
@@ -295,6 +295,21 @@ def _observed(request: Request) -> dict[str, float]:
     """Median TTFT per model, for the models measured often enough to mean it."""
     store = getattr(request.app.state, "observations", None)
     return store.ttft_for_ranking() if store is not None else {}
+
+
+def _reasoning_shares(request: Request, models: Sequence[str]) -> dict[str, float]:
+    """SIRVIS's measured reasoning share per candidate, for the ones it has one.
+
+    Only the models this pass is actually considering, and only the shares that
+    were counted rather than inferred — `EvidenceStore.reasoning_share` drops
+    the rest, along with anything past the staleness window. A build with no
+    entry here is not ranked down; see `_reasoning_rank`.
+    """
+    store = getattr(request.app.state, "evidence", None)
+    if store is None:
+        return {}
+    shares = {model: store.reasoning_share(model) for model in models}
+    return {model: share for model, share in shares.items() if share is not None}
 
 
 def _record_path(call: _Call, path: str) -> None:
@@ -618,6 +633,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # What RAVIS has timed, for the pools that rank on speed. Only models
         # past the sample floor appear here — see `Observations`.
         observed_ttft_ms=_observed(request),
+        # §11.4's reasoning share, which breaks a tie only when this request
+        # capped its output — a build that spends the budget thinking returns
+        # less answer, or none. Dormant otherwise; see `_reasoning_rank`.
+        reasoning_share=_reasoning_shares(request, list(candidates)),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.

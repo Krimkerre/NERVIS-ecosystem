@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1481 tests, no network, no live service
+.venv/bin/pytest                      # part of 1498 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1481 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1498 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -107,7 +107,7 @@ into the order work actually happens.
 | 29 | **RAVIS M8** | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 | 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
 | 31 | **RAVIS M7** | Provider expansion. OpenRouter stays transparent, which is the measurement rather than the assumption. **Gemini moved to §6's translated path** after its OpenAI-compatible endpoint was measured reporting `finish_reason: stop` on a streamed tool call and omitting the tool-call index — both things Clarvis's agent role reads. A native Gemini adapter now makes the two providers indistinguishable on every surface §6 names, and `ravis conformance clarvis` stayed `PASS` throughout. Four judgement calls and two live-found bugs, settled below |
-| 32 | **RAVIS M16** *(policy; the reasoning tiebreak is the remaining half)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. Settled below |
+| 32 | **RAVIS M16** *(both halves)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. The reasoning tiebreak, held back for want of a measurement, landed once SIRVIS M22b filed one. Settled below |
 | 33 | **RAVIS M11** | Sessions. §12.1's `RoutingSession` persisted, sticky routing as a preference that leads the ranking, expiry and retention as two separate windows, and isolation keyed to the application rather than to a name — which is the one thing §12.1 says outright must never merge. `ravis.sessions@1` moves off `unavailable`. **Verified live**, and the fourth request found a defect the first three hid. Settled below |
 | 34 | **RAVIS M14** *(complete)* | The load-versus-don't tradeoff, and with it Stage 5's last open item. Expected session length is **measured from an application's own history** rather than predicted, because affinity settles a conversation on its model at the first request — when the current session's count is 1 and says nothing. Unknown routes exactly as before. **Verified live in both directions.** Settled below |
 | 36 | **SIRVIS M22b** | Reasoning-token overhead as evidence. How much of a completion a build spends thinking before it answers, measured per build and filed as `reasoning_token_share` — because no runtime advertises it: LM Studio publishes `type`, `arch` and `quantization` and nothing about reasoning, and a guess from the model's name is what §12.2 exists to stop. The engine already counted the tokens per repetition; what was missing was turning them into evidence a consumer can read. **A measured zero is the point as much as a non-zero**: a build that reports its tokens and shows every one as content spent nothing thinking, which is the fact that makes it distinguishable rather than merely unmeasured, while a runtime that counted nothing yields no share at all. Asserted from both ends — the metric reaches SIRVIS's record, and RAVIS's own reader parses it off the wire |
@@ -2089,14 +2089,13 @@ doing it early rather than last: a queue view counts states, and a log does not.
 | Unavailable operations disabled with a stated reason | **Done**, and the reason now names which side is missing. A service refusing the capability and a dashboard with nothing wired to call are different problems for different people, and saying "not built" about an endpoint would go stale the moment the service ships it |
 | A NERVIS restart loses no owned product state | **Done**, verified by restarting it: conversations, settings, voice profiles and the stored credential all survived, and the event sequence continued rather than resetting |
 | A product restart is reflected without manual refresh | **Done.** The registry poll repaints on a state transition, and again when the screen it drew fell back on a service that is now healthy — bounded at three attempts, because the first repaint after a service returns can still land before it is serving |
-| 2 | **The remaining half of RAVIS M16** *(the reasoning tiebreak)* | The one piece recorded as unbuilt rather than quietly dropped. It was blocked on a measurement, and SIRVIS M22b now files one: `ravis/auto` can break its tie on `reasoning_token_share` instead of on smallest-build-is-cheapest, which on this machine picks the build that spends its budget thinking |
 
 ### After that
 
 **Stage 5 is complete.** All five of the runbook's exit criteria for it are
 met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —
-has shipped. M16's reasoning tiebreak is the one piece recorded as unbuilt
-rather than quietly dropped; it is blocked on SIRVIS M22b.
+has shipped, M16 now including the reasoning tiebreak it had been carrying as
+its one unbuilt piece.
 
 **NERVIS's milestones now have a table.** They had none: every row of the Done
 table above belongs to RAVIS or SIRVIS, and eight NERVIS milestones plus the
@@ -5865,6 +5864,85 @@ SIRVIS M22b's measurement rather than a name-pattern guess. M22b is scheduled
 and unbuilt, so the tiebreak has no evidence to read and guessing from a model's
 name is the thing the milestone explicitly rules out. It is listed in Next
 rather than quietly dropped.
+
+### M16's second half — the tiebreak that knows what thinking costs
+
+The half held back at M16 was a tiebreak that understood reasoning overhead. It
+was blocked on a measurement rather than on a decision, and SIRVIS M22b filed
+one: `reasoning_token_share`, the fraction of a build's output that is thinking
+rather than answer.
+
+**The defect is not that reasoning models are worse.** It is that `max_tokens`
+is one budget shared between thinking and answering. A build measured to spend
+68% of its output reasoning returns a third of the answer the caller paid for,
+and at a small ceiling it returns none — which arrives as *the model returned an
+empty message*, with nothing anywhere saying a routing decision produced it.
+That is the shape of failure this repository keeps finding: not a crash, a
+plausible wrong answer with a confident surface.
+
+So the term ranks **fit, not quality**, and the distinction is what makes it
+allowed at all. §13.1 forbids reducing evidence to `model → score`; this reduces
+nothing and compares no build's merit against another's. It answers one
+mechanical question — of a finite budget, how much does this build historically
+spend before it starts answering — and it is consulted only where that question
+is live.
+
+**Where it sits, and the two places it must not.** It is the last thing before
+the size tiebreak, so it can only order candidates that everything declared has
+already tied on. It is deliberately *behind* `_preference_terms`, because that
+list contains `LOCAL_PREFERRED` — the one privacy rung that ranks instead of
+excluding, and therefore the only one a ranking term could out-vote. §14's rule
+14 says a privacy constraint is never overridden by score, and a reasoning
+measurement moving a request off-device would be exactly that. The test for it
+is built to catch the inversion rather than to agree with the code: the local
+build is the thinker *and* sorts second, so both the alphabet and the tiebreak
+point off-device, and a control asserts the fixture really does move without the
+privacy level.
+
+**It is not gated the way size is, and that is the point.** Size applies only to
+pools that declared a preference, because for a pool that declared nothing it
+stopped being a tiebreak and became the entire ranking — that is what made eight
+of thirteen pools select the smallest thing installed. This cannot do that,
+because it is silent unless the request set a ceiling *and* SIRVIS counted the
+tokens. Gating it the same way would have excluded `ravis/auto`, which declares
+no preference at all and is the one pool M16 named.
+
+**Silent in four situations, each for its own reason.** No output ceiling:
+nothing is being crowded out, and inventing a latency preference for pools that
+did not ask for one is the invisible policy §9.4 forbids. No measurement: 0.0,
+the same value as a build measured never to think — not last, which would demote
+most of the catalogue and turn absence into a verdict. An `ESTIMATED` share,
+which M22b files whenever the runtime hid its token counts: also nothing, since
+§9.1 fails closed on what is not established and §13.3 forbids upgrading
+provenance. And a measurement past the staleness window, because it goes through
+`record_for` like every capability claim does.
+
+**Two contracts, pinned from both ends, because neither package imports the
+other.** RAVIS reads three fields — `median`, `direction`, `provenance.kind` —
+and a rename of any of them would leave it silently reading `None`, which its own
+design reads as "never measured" rather than as a break. RAVIS's tests assert it
+reads them; SIRVIS's assert it publishes them. `direction` is verified rather
+than assumed, because reading a higher-is-better quantity as lower-is-better
+inverts a ranking with nothing visible going wrong.
+
+**And the explanation sentence was wrong for the third time.** It said "evidence
+decides eligibility rather than order", which this milestone makes false — the
+same sentence had already outlived "no benchmark evidence is available yet" past
+M13 and "no cost data is available yet" past M15, and the comment documenting
+both of those sat directly above the clause that was about to repeat it. Twice
+the test asserting the string had held the string wrong. It now states the claim
+that survives — nothing ranks an admitted build above another *on quality* —
+unconditionally, and says whether evidence ordered *these* candidates from what
+actually happened. When it does order, the route explanation shows the
+arithmetic rather than the fraction: `68% of its output on reasoning, which at
+max_tokens=64 leaves about 20 tokens for the answer itself`.
+
+**What is not yet verified live.** The unit and contract tests pass, and the
+reader was checked against SIRVIS's own serializer rather than against an
+assumption about its shape. But every evidence record on this machine predates
+M22b, so none carries a `reasoning_token_share` — the term is correctly dormant
+against real data, and confirming it fires end to end needs a fresh benchmark
+run, which loads models.
 
 ### RAVIS M7 — and the measurement that chose the path
 

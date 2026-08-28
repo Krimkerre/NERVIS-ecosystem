@@ -48,6 +48,15 @@ class RequestRequirements:
     required: set[Capability] = field(default_factory=set)
     estimated_context_tokens: int = 0
     reasons: dict[Capability, str] = field(default_factory=dict)
+    # What the client capped its answer at, or None when it capped nothing.
+    #
+    # Not a requirement and never excludes anything — it is carried here because
+    # it is a fact about *this request* that ranking needs, and this is the
+    # object that already crosses into the engine. `None` and a large number are
+    # different states: an uncapped request cannot have its answer crowded out
+    # by a build that thinks at length, so the reasoning tiebreak stays dormant
+    # rather than guessing a ceiling nobody asked for.
+    output_budget: int | None = None
 
     def describe(self) -> list[str]:
         """The requirements, in the words a route explanation will show."""
@@ -93,6 +102,10 @@ def analyse(request: NormalizedRequest) -> RequestRequirements:
         _require(requirements, Capability.STREAMING, "the request asks for a stream")
 
     requirements.estimated_context_tokens = _estimate_context(request)
+    # Copied rather than derived. §12 forbids silently truncating context, and
+    # the output ceiling is the same kind of promise pointing the other way: the
+    # number the client set is the number ranking reasons about.
+    requirements.output_budget = request.max_output_tokens
     return requirements
 
 
