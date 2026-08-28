@@ -640,6 +640,11 @@ let ROUTE_NOTE='';
    describes — and there were nine of them, each one a place to forget. */
 function go(app,view,{replace=false}={}){
  const target=resolveRoute({app,view});
+ /* A draft belongs to the screen it was typed on. Carrying it across a
+    navigation would put a half-typed provider name into the next screen's field
+    with the same id, and would resurrect it long after the reader had moved on.
+    A repaint keeps it; leaving does not. */
+ if(target.app!==state.app||target.view!==state.view)TOUCHED.clear();
  state.app=target.app;state.view=target.view;
  ROUTE_NOTE=target.note;
  const url=location.pathname+location.search+hashFor(state.app,state.view);
@@ -663,6 +668,8 @@ function go(app,view,{replace=false}={}){
 function routeChanged(){
  const target=resolveRoute(routeFromHash());
  if(target.app===state.app&&target.view===state.view&&!target.note)return;
+ /* Same rule as `go`: a draft belongs to the screen it was typed on. */
+ if(target.app!==state.app||target.view!==state.view)TOUCHED.clear();
  state.app=target.app;state.view=target.view;ROUTE_NOTE=target.note;
  /* Correct the address *here*, before rendering, and this is load-bearing
     rather than tidiness. An address that stays wrong is re-resolved by the next
@@ -3465,7 +3472,14 @@ const money=(amount,currency)=>{
  return symbol+amount.toFixed(2);
 };
 
-const explains=(summary,body)=>`<details class="explains"><summary>${summary}</summary><div>${body}</div></details>`;
+/* An id derived from the summary, so an opened explanation survives a repaint.
+   These carry no `open` attribute and nothing anywhere reads one back, so every
+   registry transition, recovery attempt and streamed event closed whatever the
+   reader had opened to read — twenty of them across fifteen screens, two on the
+   Events screen, which is the one the stream repaints most.
+   Derived rather than passed, because the summary is already unique per screen
+   and threading an id through twenty call sites is twenty chances to reuse one. */
+const explains=(summary,body)=>`<details class="explains" id="${domId('x',summary)}"><summary>${summary}</summary><div>${body}</div></details>`;
 
 /* A row of headline figures. `[label, value, subtitle, service, live?]`.
 
@@ -6168,7 +6182,7 @@ const POOLEDIT={
 function poolRow(x,inv){
  const key=x.pool_id.replace(/^ravis\//,'');
  return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${jsAttr(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${escapeHtml(x.pool_id)}</a>${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${escapeHtml(inv(x.requires))}</span><span>${escapeHtml(x.members)}</span><span class="chip${warnUnless(x.available)}">${escapeHtml(x.available?'yes':'no')}</span><span style="opacity:.7">${escapeHtml(dash(x.reason))}</span></div>
-  <div id="${domId('pm',key)}" class="model-picker" style="display:none">
+  <div id="${domId('pm',key)}" class="model-picker" data-keep-open style="display:none">
    <div class="picker-head">
     <input class="picker-search mono" placeholder="filter this pool\u2019s candidates\u2026"
       oninput="POOLEDIT.search('${jsAttr(key)}',this.value)">
@@ -8646,14 +8660,100 @@ async function pollRegistry(){
  await repaint();
 }
 
-async function repaint(){
- /* Re-render the current screen without losing where the reader was. */
- const y=window.scrollY;
- await render();
- window.scrollTo(0,y);
+/* ── WHAT SURVIVES A RE-RENDER ─────────────────────────────────────────────
+   §25.2: "Each view replaces the whole content region. Correct for a static
+   prototype; wrong once an event stream drives it, because every event would
+   rebuild the DOM and discard scroll position, focus, selection and any open
+   control."
+
+   That is now the ordinary case rather than a future one: the registry poll
+   repaints on a transition, the recovery path repaints up to three more times,
+   and the event stream repaints the Events screen whenever the hub says
+   something. Meanwhile the things a reader is in the middle of live only in the
+   DOM — the RAVIS Credentials fields carry no `value=` and no backing state, so
+   a pasted API key exists nowhere else until Save is pressed, and any repaint
+   between the paste and the press throws it away.
+
+   **Preserve and restore rather than diff.** A keyed reconciler is the right
+   answer for a framework and the wrong one to graft onto eight thousand lines
+   of template literals: every view would have to be rewritten to describe its
+   own identity before a single screen worked. This keeps the full re-render —
+   which is simple, and which every screen already assumes — and makes the
+   interaction survive it. It is bounded, it needed no view rewritten, and it
+   covers the four things §25.2 actually lists.
+
+   **Only what the reader touched.** Restoring every field would fight the
+   screen: a form that was just saved and cleared would be un-cleared on the
+   next repaint. A field is remembered from the moment somebody types in it and
+   forgotten when they leave the screen, so a repaint cannot undo a save and
+   navigating away cannot resurrect a draft. */
+const TOUCHED=new Map();
+addEventListener('input',event=>{
+ const el=event.target;
+ if(el&&el.id)TOUCHED.set(el.id,el.type==='checkbox'?el.checked:el.value);
+},true);
+
+/* What the reader is in the middle of, as plain values.
+   Read before the content region is replaced; every handle is an id, because an
+   element reference does not survive the thing this exists to survive. */
+function captureInteraction(){
+ const active=document.activeElement;
+ return{
+  y:window.scrollY,
+  focus:active&&active.id?active.id:'',
+  start:active&&active.selectionStart!=null?active.selectionStart:null,
+  end:active&&active.selectionEnd!=null?active.selectionEnd:null,
+  /* Disclosures, by id. `<details class="explains">` appears at twenty call
+     sites across fifteen screens and none of them carries `open`, so every
+     repaint closed whatever the reader had opened to read. */
+  open:$$('details[id]').filter(d=>d.open).map(d=>d.id),
+  /* Panels whose openness is a style rather than an attribute — the pool
+     picker keeps its state in `panel.style.display`, and `poolRow` re-emits it
+     with a hardcoded `display:none`. */
+  shown:$$('[id][data-keep-open]').filter(el=>el.style.display!=='none').map(el=>el.id),
+  scroll:$$('[id]').filter(el=>el.scrollTop>0).map(el=>[el.id,el.scrollTop]),
+ };
 }
 
-async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();globalStatus();nav();$('#avatarSlot').innerHTML=avatar();
+/* The caret, not just the element. Focus alone puts the cursor at the end, so a
+   repaint while somebody is editing the middle of a value jumps them to the end
+   — the kind of small wrongness that makes a page feel broken without ever
+   being reportable as a bug. */
+function restoreFocus(was){
+ const el=was.focus?document.getElementById(was.focus):null;
+ if(!el||typeof el.focus!=='function')return;
+ el.focus();
+ if(was.start==null||typeof el.setSelectionRange!=='function')return;
+ try{el.setSelectionRange(was.start,was.end)}catch(e){/* not a text input */}
+}
+
+/* Values the reader typed, put back into the fields they were typed into. */
+function restoreTyping(){
+ for(const [id,value] of TOUCHED){
+  const el=document.getElementById(id);
+  if(!el)continue;
+  if(el.type==='checkbox')el.checked=value;else el.value=value;
+ }
+}
+
+function restoreInteraction(was){
+ restoreTyping();
+ for(const id of was.open){const el=document.getElementById(id);if(el)el.open=true}
+ for(const id of was.shown){const el=document.getElementById(id);if(el)el.style.display=''}
+ for(const [id,top] of was.scroll){const el=document.getElementById(id);if(el)el.scrollTop=top}
+ restoreFocus(was);
+ window.scrollTo(0,was.y);
+}
+
+async function repaint(){
+ /* Re-render the current screen without losing where the reader was, or what
+    they had open, typed, scrolled or selected. */
+ const was=captureInteraction();
+ await render();
+ restoreInteraction(was);
+}
+
+async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();globalStatus();nav();mountAvatar();
  if(state.app==='nervis')await nervis();if(state.app==='sirvis')await sirvis();
  if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();
  /* What this render fell back on, for `recoverable()`. Taken here because it
@@ -8675,6 +8775,21 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
     immediately so it is never blank; this one corrects it with whatever the
     screen just learned. Cheap — it reads variables and writes two nodes. */
  globalStatus();syncPanelAvatar()}
+/* The avatar, written only when it changes.
+   `render()` rewrote this on every one of its fifty call sites, and the markup
+   is an `<iframe>` whose `srcdoc` is a base64 blob between twenty-six and sixty
+   thousand characters — so every repaint tore down a document and built another
+   one, identical to the one it replaced. The mount-only-if-different guard
+   already existed for the Clarvis panel's copy of the same avatar; this is that
+   guard, for the one in the page header. */
+let AVATAR_MOUNTED='';
+function mountAvatar(){
+ const wanted=inMikuMode()?'miku:'+state.app:state.app;
+ if(wanted===AVATAR_MOUNTED)return;
+ AVATAR_MOUNTED=wanted;
+ $('#avatarSlot').innerHTML=avatar();
+}
+
 /* Place an opened routing popover, and keep only one open.
 
    `<details>` supplies the toggle, the keyboard handling and Escape; what it
