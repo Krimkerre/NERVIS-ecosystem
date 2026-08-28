@@ -1347,7 +1347,12 @@ const API={
      const rec=sirvisEvidence(result);
      if(seen.has(rec.evidence_id))continue;
      seen.add(rec.evidence_id);items.push(rec)}
-    return{source:'live',items}}
+    /* `live` as well as `source`. These three adapters predate the flag and
+       still speak the older idiom, which is exactly the drift that produced
+       ten ways of asking one question — a card reading `.live` here got
+       `undefined` and faded a live read. `source` is kept because several
+       cards already read it and it carries more than a boolean. */
+    return{source:'live',live:true,items}}
    const builds=lmstudioBuilds().filter(b=>b.measured);
    const rec=(b,role)=>({
     evidence_type:'MEASURED',role,
@@ -1401,7 +1406,7 @@ const API={
        beats a plausible number nobody measured. */
     const med=n=>(e.metrics||{})[n]?Math.round(e.metrics[n].median*100)/100:null;
 
-    return{source:'live',suite:(e.suite||{}).id,version:(e.suite||{}).version,
+    return{source:'live',live:true,suite:(e.suite||{}).id,version:(e.suite||{}).version,
      role:e.role,target:e.target_key,samples:e.samples,
      generation_tok_s:{median:med('generation_tokens_per_second')},
      first_token_s:{median:med('time_to_first_token_seconds')},
@@ -1440,7 +1445,7 @@ const API={
       back here put four invented jobs on the queue of a working service whose
       real answer was "none". The screen counts with `filter` and `find`, so an
       empty list renders as an empty queue rather than throwing. */
-   if(live)return{source:'live',items:live.items.map(r=>{
+   if(live)return{source:'live',live:true,items:live.items.map(r=>{
     const e=(r.results||[])[0]||{},s=e.suite||{};
     return{job_id:r.run_id,state:r.state,detail:r.detail||null,
      suite:s.id?s.id+'@'+s.version:'—',target:dash(e.target_key),
