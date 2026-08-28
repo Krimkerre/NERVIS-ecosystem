@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NERVIS Ecosystem — Audit &amp; Refactor Report</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  @page { @bottom-right { content: counter(page); } }
+
+  :root {
+    --ink: #16181d;
+    --muted: #5b6270;
+    --line: #d9dde5;
+    --accent: #1f5fa8;
+    --bad: #a8321f;
+    --good: #1d6b45;
+    --wash: #f4f6f9;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0; color: var(--ink);
+    font: 10.5pt/1.55 "Charter", "Georgia", "Iowan Old Style", serif;
+  }
+  h1, h2, h3, .label, .stat-n, .kicker, table, .note-h {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  /* ---------- cover ---------- */
+  .cover { height: 247mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover-top { padding-top: 26mm; }
+  .kicker { font-size: 9pt; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 30pt; line-height: 1.12; margin: 10px 0 0; letter-spacing: -.01em; }
+  .sub { font-size: 13pt; color: var(--muted); margin-top: 14px; max-width: 135mm; line-height: 1.45; }
+  .cover-meta { border-top: 2px solid var(--ink); padding-top: 10px; font-size: 9.5pt; color: var(--muted);
+                display: flex; justify-content: space-between; }
+
+  /* ---------- structure ---------- */
+  .page-break { break-before: page; }
+  h2 { font-size: 15pt; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 8px; }
+  .h2-rule { border-bottom: 2px solid var(--ink); margin-bottom: 14px; padding-bottom: 8px; }
+  h3 { font-size: 11.5pt; margin: 18px 0 4px; }
+  p { margin: 0 0 9px; orphans: 2; widows: 2; }
+  .lede { font-size: 11.5pt; color: #2c3038; }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  /* ---------- stats ---------- */
+  .stats { display: flex; gap: 8px; margin: 16px 0 20px; }
+  .stat { flex: 1; background: var(--wash); border-radius: 5px; padding: 11px 12px; }
+  .stat-n { font-size: 21pt; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+  .stat-l { font-size: 8.5pt; color: var(--muted); margin-top: 5px; line-height: 1.35; }
+
+  /* ---------- finding blocks ---------- */
+  .finding { break-inside: avoid; margin: 0 0 15px; padding-left: 13px; border-left: 3px solid var(--line); }
+  .finding.sev-high { border-left-color: var(--bad); }
+  .finding .label { font-size: 8pt; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .finding h3 { margin: 3px 0 5px; font-size: 11.5pt; }
+  .fixed { color: var(--good); font-weight: 700; }
+  .plain { color: var(--muted); font-style: italic; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 10px 0 16px; }
+  th { text-align: left; font-size: 8pt; letter-spacing: .08em; text-transform: uppercase;
+       color: var(--muted); border-bottom: 1.5px solid var(--ink); padding: 6px 8px 5px; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .arrow { color: var(--muted); padding: 0 3px; }
+  .was { color: var(--bad); font-weight: 700; }
+  .now { color: var(--good); font-weight: 700; }
+
+  .callout { background: var(--wash); border-radius: 5px; padding: 12px 14px; margin: 14px 0; break-inside: avoid; }
+  .callout .note-h { font-size: 8.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
+                     font-weight: 700; margin-bottom: 5px; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  ul { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 5px; }
+  .foot { margin-top: 22px; padding-top: 9px; border-top: 1px solid var(--line);
+          font-size: 8.5pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="cover">
+  <div class="cover-top">
+    <div class="kicker">Audit &amp; Refactor Report</div>
+    <h1>What was quietly broken,<br>and what we did about it</h1>
+    <p class="sub">A full review of the NERVIS ecosystem — the system that routes your AI
+    requests, measures which models are any good, and shows you what happened. Written to be
+    readable without knowing the code.</p>
+  </div>
+  <div>
+    <div class="callout">
+      <div class="note-h">The short version</div>
+      <p>The project had a habit of <strong>telling you things that were not true</strong> — a screen
+      saying "no data" while data existed, a button that looked ready and did nothing, a bill that
+      left calls out. Not one of these was caught by its own tests, because the tests were passing
+      the entire time.</p>
+      <p>We audited all four parts of the system against what they <em>actually did</em> when
+      running, found <strong>63 confirmed problems</strong>, and fixed every one — including a
+      security hole that would have let a stranger change your provider keys.</p>
+    </div>
+    <div class="cover-meta">
+      <span>NERVIS · RAVIS · SIRVIS · Dashboard</span>
+      <span>33 changes · 62 files · 1,477 tests passing</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 1 ============ -->
+<section class="page-break">
+  <div class="h2-rule"><h2><span class="num">1</span>Why we did this</h2></div>
+
+  <p class="lede">You said it plainly: <em>"I keep seeing cards that should work, but don't — not
+  exactly confidence inspiring about the whole project, no?"</em></p>
+
+  <p>That was the right question, and the honest answer turned out to be worse than the symptom.
+  Over one day, the same defect had been found <strong>eight separate times</strong> — always by you
+  or me looking at a screen, never by the project's own checks. Each time it was fixed as a one-off.
+  Eight one-offs is not bad luck; it is a signal that something underneath is wrong.</p>
+
+  <p>So instead of fixing a ninth, we audited the whole system. Not by reading the code and
+  trusting it, but by <strong>running it and comparing what it claimed with what it did</strong>.
+  Eight independent reviews ran in parallel, each covering a different area. Every problem one of
+  them raised was then handed to a second reviewer whose job was to <em>disprove</em> it — findings
+  that could not be verified were thrown out.</p>
+
+  <h3>Why the tests did not catch any of this</h3>
+  <p>This is the uncomfortable part, and it is worth understanding because it explains the whole
+  report. The project has around 1,400 automated tests and they were <strong>all passing</strong>
+  throughout — before the audit and after it.</p>
+  <p>Tests only check what somebody thought to check. Several here were written at the same moment
+  as the code they test, so they recorded what the code <em>did</em> rather than what it was
+  <em>supposed to do</em>. When the code was wrong, the test locked the mistake in place and went
+  green forever. A few examples we found:</p>
+  <ul>
+    <li>A test literally named <em>"ingestion answers 202"</em> that checked for the number
+    <strong>200</strong> — the wrong answer, asserted as correct.</li>
+    <li>A test proving a part of the system "accepts no changes" that only tried one kind of
+    change. The kind it did not try had been shipping for weeks.</li>
+    <li>A stored "expected result" file containing a <strong>completely invented</strong>
+    measurement — for the case that means "nothing was measured".</li>
+  </ul>
+  <p>Passing tests were never evidence for this class of problem. Running the real thing was.</p>
+</section>
+
+<!-- ============ 2 ============ -->
+<section class="page-break">
+  <div class="h2-rule"><h2><span class="num">2</span>What the audit found</h2></div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-n">63</div><div class="stat-l">problems confirmed<br>after double-checking</div></div>
+    <div class="stat"><div class="stat-n">22</div><div class="stat-l">serious enough to<br>mislead or cost money</div></div>
+    <div class="stat"><div class="stat-n">1</div><div class="stat-l">security hole<br>(now closed)</div></div>
+    <div class="stat"><div class="stat-n">63</div><div class="stat-l">fixed<br>— all of them</div></div>
+  </div>
+
+  <p>The problems fell into a few recognisable shapes. Almost none were "the code crashes"; nearly
+  all were <strong>the system saying something untrue about itself</strong>.</p>
+
+  <table>
+    <thead><tr><th style="width:31%">Shape of problem</th><th>What it looked like to you</th><th class="n" style="width:9%">Count</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Mislabelled data</strong></td><td>Real, live numbers shown greyed-out as
+        "placeholder" — or invented placeholder numbers shown as if they were real.</td><td class="n">14</td></tr>
+      <tr><td><strong>Descriptions that expired</strong></td><td>Text explaining that a feature
+        "isn't built yet" — for features that had been working for weeks.</td><td class="n">13</td></tr>
+      <tr><td><strong>Tests that could not fail</strong></td><td>Checks that appeared to guard
+        something but tested the wrong thing, or nothing at all.</td><td class="n">10</td></tr>
+      <tr><td><strong>"Empty" read as "broken"</strong></td><td>A service answering "I have nothing
+        yet" treated as "the service is down" — and replaced with made-up data.</td><td class="n">5</td></tr>
+      <tr><td><strong>Wrong answers</strong></td><td>Money miscounted, models sorted into the wrong
+        groups, records filed under the wrong labels.</td><td class="n">11</td></tr>
+      <tr><td><strong>Things that did nothing</strong></td><td>Buttons that looked ready and threw
+        an error on click; a guard that never guarded.</td><td class="n">10</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="note-h">The single most important finding</div>
+    <p>Those eight repeated "cards that should work" were <strong>not eight mistakes</strong>. They
+    were one.</p>
+    <p>Every screen fetches data through one shared piece of code. That code <em>knew</em> whether
+    the service had answered — and then threw that knowledge away before handing the data on. So
+    every screen had to guess, and each one guessed differently. Ten different guessing methods had
+    grown up around the gap, and <strong>68 screens gave up guessing entirely</strong> and hardcoded
+    an answer.</p>
+    <p>Making that one function pass along the answer it already had fixed the whole class.</p>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section class="page-break">
+  <div class="h2-rule"><h2><span class="num">3</span>The problems that mattered most</h2></div>
+
+  <div class="finding sev-high">
+    <div class="label">Security · fixed</div>
+    <h3>A stranger could have changed your provider keys</h3>
+    <p>The system has a rule: if it is reachable from outside this machine, an unidentified caller
+    must not be allowed to change stored API keys. The code for that rule existed and read well.</p>
+    <p>It asked the caller a question the caller had no way of answering — the equivalent of
+    checking for a field on a form that the form does not have. A missing answer was treated as
+    <em>"fine, go ahead"</em>. The guard never once refused anybody.</p>
+    <p class="plain">In practice: on a machine exposed to a network, anyone who could reach it could
+    add, delete or redirect the keys that pay for your AI usage.</p>
+    <p><span class="fixed">Fixed.</span> The check now asks a question that exists, and asks it in a
+    way that raises an error if anyone renames it. We also swept the whole codebase for the same
+    pattern — no others.</p>
+  </div>
+
+  <div class="finding sev-high">
+    <div class="label">Wrong answers · fixed</div>
+    <h3>Cloud models were being labelled as running on your own machine</h3>
+    <p>Two of the routing groups exist entirely to answer "where does this request go?" — one for
+    models on your machine, one for models in the cloud. The screen had them <strong>exactly
+    backwards</strong>: it listed 49 cloud models (Anthropic's and Google's) as local, and showed
+    the cloud group as empty.</p>
+    <p>Worse, the group named <strong>private</strong> — the one whose entire promise is that
+    nothing leaves your computer — was listing Anthropic and Google as its members.</p>
+    <p class="plain">The same system already answered this correctly elsewhere. One service was
+    giving two opposite answers about the same list, depending on which part you asked.</p>
+    <p><span class="fixed">Fixed</span>, and confirmed against the running system: the cloud group
+    now holds the cloud models, and the local and private groups correctly show empty when no local
+    model is running.</p>
+  </div>
+
+  <div class="finding sev-high">
+    <div class="label">Money · fixed</div>
+    <h3>Ordinary requests were never counted toward what you spend</h3>
+    <p>There are four ways a request can complete. Three of them recorded what the call cost. The
+    fourth — the plainest, most common kind — received the provider's own token counts, forwarded
+    them to you, and <strong>threw the copy away</strong> without recording anything.</p>
+    <p class="plain">Those calls were invisible: absent from your usage totals, absent from the
+    per-call table, and — most importantly — absent from the budget limits that are supposed to stop
+    spending.</p>
+    <p>No test caught it because the fake provider used in testing returned a response with the
+    cost information <strong>missing entirely</strong> — a shape no real provider produces. A test
+    fixture that cannot carry the field cannot notice when the field is dropped.</p>
+    <p><span class="fixed">Fixed</span>, and the fake now returns what a real provider returns.</p>
+  </div>
+
+  <div class="finding sev-high">
+    <div class="label">Money · fixed</div>
+    <h3>Anthropic calls using cached text were billed as if the new text were free</h3>
+    <p>Providers report token usage in different formats. Most give a total with the cached portion
+    listed inside it. Anthropic reports the two <em>separately</em>. Our code assumed everyone used
+    the first format and subtracted the cached amount from the total.</p>
+    <p>For Anthropic that subtracted something that was never added. A request with 20 new words
+    against 5,000 cached ones came out as <strong>zero new words</strong> — priced as free.</p>
+    <p class="plain">Always in the same direction: <em>under</em>-counting. A budget reads an
+    undercount as money still available.</p>
+    <p><span class="fixed">Fixed</span>, and the assumption that was never written down anywhere is
+    now written down.</p>
+  </div>
+
+  <div class="finding sev-high">
+    <div class="label">Misleading display · fixed</div>
+    <h3>"No trace has been recorded yet" — on a system with recorded traces</h3>
+    <p>A trace is the record of one request's journey. The screen that lists them asked for "the
+    most recent" — and the code underneath handed back <strong>the oldest</strong> ones it had ever
+    stored. Past a certain point, everything recent became invisible.</p>
+    <p>The same fault hit the event feed: the "Recent events" panel showed the four <em>oldest</em>
+    events in the system, which never change. Nothing from that day was reachable.</p>
+    <div class="callout" style="margin:9px 0 4px">
+      <div class="note-h">Worth admitting</div>
+      <p>My first fix for this was wrong. I made it read the newest <em>events</em> instead of the
+      newest <em>traces</em> — so after a restart, when recent activity was all routine background
+      chatter, it reported <strong>zero traces</strong> while three existed. I had moved the problem
+      from one end to the other and nearly called it done. The live system caught me within minutes
+      of restarting it.</p>
+    </div>
+    <p><span class="fixed">Fixed properly</span>: it now asks for the most recent traces, not the
+    most recent events. Verified live — three traces, newest first.</p>
+  </div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section class="page-break">
+  <div class="h2-rule"><h2><span class="num">4</span>Things that looked like they worked</h2></div>
+
+  <div class="finding">
+    <div class="label">Dead controls · fixed</div>
+    <h3>Two buttons that did nothing at all</h3>
+    <p>The benchmark screen's main button — the big one, the primary action — called a function that
+    <strong>does not exist</strong>. Clicking produced an error invisible to you: no message, no
+    reaction, nothing. "Clear filters" had the same fault for a different reason.</p>
+    <p>There is a helper here whose entire purpose is to prevent this: it makes either a working
+    button or a visibly greyed-out one explaining what it waits for. Both had been written
+    <em>around</em> it.</p>
+    <p><span class="fixed">Fixed</span>, and there is now an automatic check that refuses any button
+    pointing at a function that does not exist. It found the second button — I had only been looking
+    for the first.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">Dead controls · fixed</div>
+    <h3>A "Release" button that could never release</h3>
+    <p>When you release a model holding memory, and that slot holds more than one, the system asks
+    you to confirm. The confirmation referred to a value that does not exist, so it failed
+    <strong>before the question could appear</strong>. No dialogue, no action, no error.</p>
+    <p class="plain">It only failed in the multi-model case — which is the exact case the
+    confirmation was written for. The single-model path worked, so the button looked fine.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">Fresh install · fixed</div>
+    <h3>Six screens went completely blank for a brand-new user</h3>
+    <p>Three states have to work: nothing running, everything running, and — the one nobody had
+    tested — <strong>everything running but empty</strong>, which is exactly what a new user sees
+    on day one. In that state six of the 35 screens crashed and rendered nothing at all. Not an
+    empty table — a blank page.</p>
+    
+    <p><span class="fixed">Fixed</span>, and this is now an automatic check. It immediately caught a
+    mistake <em>I</em> had made an hour earlier in the same session.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">Honesty of measurements · fixed</div>
+    <h3>Benchmarks that blamed the model for the computer's problems</h3>
+    <p>When testing whether a model can use tools correctly, any crash of the underlying software —
+    a disconnect, a timeout, the model host falling over — was recorded as <strong>"the model
+    refused to use the tool"</strong>. That verdict is stored as a <em>measurement</em>, and the
+    router reads it to decide whether a model is good enough for coding work.</p>
+    <p class="plain">A model could be disqualified because your computer hiccuped.</p>
+    <p><span class="fixed">Fixed.</span> A crashed run is now recorded as a crashed run, and produces
+    no score at all rather than a bad one.</p>
+  </div>
+
+  <div class="finding">
+    <div class="label">Honesty of measurements · fixed</div>
+    <h3>Benchmarks taken on a struggling machine were marked "valid"</h3>
+    <p>This laptop loses roughly <strong>48% of its speed</strong> when hot, so the system flags
+    measurements taken under heat. It only noticed heat that <em>changed</em> during a run — so a
+    test that was hot from beginning to end had one consistent reading, nothing was flagged, and the
+    results were published as clean.</p>
+    <p>Same for memory: the system recorded whether it ran out of memory at four points during every
+    benchmark and never once looked at those readings. A benchmark that spent its time waiting on
+    the hard disk was published as a clean speed measurement. <span class="fixed">Both are now
+    flagged.</span></p>
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section>
+  <div class="h2-rule" style="margin-top:26px"><h2><span class="num">5</span>The labels on your screens</h2></div>
+
+  <p class="lede">This is where the audit started, and the numbers moved furthest.</p>
+
+  <p>Every panel on the dashboard is meant to show whether its numbers are <strong>real</strong>
+  (read live from a running service) or a <strong>placeholder</strong> (an example, shown greyed out
+  and marked). Getting that label wrong is worse than showing nothing: you either dismiss real
+  information as fake, or trust invented information.</p>
+
+  <table>
+    <thead><tr><th>Measure</th><th class="n">Before</th><th class="n">After</th></tr></thead>
+    <tbody>
+      <tr><td>Panels physically unable to report whether their data is real</td>
+          <td class="n was">88</td><td class="n now">55</td></tr>
+      <tr><td>Panels showing <strong>real</strong> data labelled as placeholder</td>
+          <td class="n was">17</td><td class="n now">1 <span class="plain">(explained below)</span></td></tr>
+      <tr><td>Panels showing <strong>made-up</strong> data labelled as real</td>
+          <td class="n was">14</td><td class="n now">0</td></tr>
+    </tbody>
+  </table>
+
+  <p>The one remaining is honest and understood: a screen listing downloadable models mixes a stored
+  catalogue (a fixed list) with one live figure (your free disk space). Labelling the whole panel
+  either way would be wrong, so it stays as it is, documented.</p>
+
+  <p>The 55 panels that still cannot report are not bugs — they are things like empty states,
+  reference tables and explanations, where there is no data to be real or fake. Forcing them to
+  claim otherwise would be the same dishonesty pointed the other way.</p>
+
+  <h3>Two examples of what this looked like</h3>
+  <ul>
+    <li><strong>"Evidence in the ranking"</strong> displayed 32 rows of genuine benchmark results
+    from your own machine — greyed out, marked as an example. The information needed to label it
+    correctly had been sitting unused in the data since the day it was written.</li>
+    <li><strong>The system information screen</strong> showed a made-up computer — a fictional
+    machine ID, invented memory figures — labelled as <em>"sampled now"</em>.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="note-h">The checker was itself half-blind</div>
+    <p>I built a tool to catch these: it draws every screen twice, once with the services off and
+    once with them on, and compares. It found a lot — but it silently skipped any panel whose title
+    contains live data (like "Machine mc_7a1f"), because the title differed between the two runs and
+    it could not match them up.</p>
+    <p>Those were exactly the panels most worth checking. Once fixed, <strong>six more</strong>
+    mislabelled panels appeared immediately.</p>
+  </div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section>
+  <div class="h2-rule" style="margin-top:26px"><h2><span class="num">6</span>What now stops this coming back</h2></div>
+
+  <p class="lede">Fixing 63 problems is worth less than making the 64th impossible to ship. Most of
+  the work went here.</p>
+
+  <table>
+    <thead><tr><th style="width:30%">New automatic check</th><th>What it refuses to let through</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Honesty check</strong></td><td>Draws all 35 screens twice — services off, then
+        on — and compares every label against where the data actually came from. Findings must
+        survive a second run to be reported, so it does not cry wolf.</td></tr>
+      <tr><td><strong>Fresh-install check</strong></td><td>Draws all 35 screens against services that
+        are running but hold nothing — the day-one experience. Six screens used to crash here.</td></tr>
+      <tr><td><strong>Label ratchet</strong></td><td>Counts panels that cannot report where their
+        data came from. The number may go down and may never go up.</td></tr>
+      <tr><td><strong>Dead-control check</strong></td><td>Refuses any button pointing at a function
+        that does not exist. Found one I had missed.</td></tr>
+      <tr><td><strong>Syntax trap check</strong></td><td>Catches a specific mistake that broke the
+        dashboard four times in one day while I was writing these fixes.</td></tr>
+    </tbody>
+  </table>
+
+  <p>Beyond the checks, three fixes were made at the <strong>source</strong> rather than the symptom,
+  which is what stops a family of bugs rather than one bug:</p>
+  <ul>
+    <li>The shared data-fetching function now passes along whether the service answered — closing
+    the gap that produced eight identical bugs.</li>
+    <li>A panel builder that <strong>refuses to build</strong> a panel that has not stated whether
+    its data is real. Forgetting is now a build failure, not a wrong label.</li>
+    <li>Names for things that were previously typed out by hand in several places, where a typo
+    silently disabled a safety check.</li>
+  </ul>
+
+  <h3>And the tests</h3>
+  <p>We added tests for the code the existing suite was walking past — including the function that
+  every streamed price depends on, which had been running <strong>three of its twenty-six lines</strong>
+  and never once reached the part that reads the numbers. Every fix in this report was verified the
+  same way: <strong>break it again on purpose</strong>, confirm the new test fails, then restore the
+  fix and confirm it passes. A test that has never failed has not been shown to work.</p>
+</section>
+
+<!-- ============ 7 ============ -->
+<section class="page-break">
+  <div class="h2-rule"><h2><span class="num">7</span>Honest notes</h2></div>
+
+  <p class="lede">Things that went wrong during the work itself. They belong in the report because
+  they are the same kinds of mistake it is about.</p>
+
+  <h3>I broke your provider list</h3>
+  <p>Partway through, OpenRouter disappeared from your providers. That was me: restarting the
+  services from a terminal that did not have your provider list configured. Your key was never lost
+  — but the restart brought the system up <strong>healthy, authenticated, and quietly smaller</strong>,
+  and nothing said a word about it.</p>
+  <p>That is a genuine design gap, not just my mistake: the system remembers your <em>key</em> and
+  whether a provider is switched on, but not <em>which providers exist</em>. The launcher now warns
+  you when it finds a stored key for a provider it is not starting, and prints the exact line to
+  fix it.</p>
+
+  <h3>My first fix for the traces screen was wrong</h3>
+  <p>Described in section 3. I moved a problem from one end to the other and would have reported it
+  fixed. Restarting the real system caught it in under a minute — which is the whole argument of
+  this report in miniature.</p>
+
+  <h3>One of my own tests could not fail</h3>
+  <p>I wrote a test to prove a search bug was fixed. It picked which record to look for in advance,
+  that record happened to sort first, and so it <strong>passed against the very bug it was written
+  for</strong>. Exactly the fault the audit had just found in three other tests. It now chooses its
+  target after the data exists, so it cannot be satisfied by luck.</p>
+
+  <h3>Twenty minutes lost to a stale cache</h3>
+  <p>After deliberately re-breaking something to prove a test caught it, Python's cached copy of the
+  old code outlived the restore. I spent twenty minutes proving a file was correct while the
+  computer was running the previous version of it.</p>
+
+  <div class="callout">
+    <div class="note-h">Where this leaves things</div>
+    <p>All 63 confirmed findings are fixed. 1,477 automated tests pass, every quality check is
+    green, and the fixes that could be confirmed against the running system were.</p>
+    <p>The thing I would not claim is that the system is now correct. What changed is the
+    <em>basis</em> for saying so: before this, "the tests pass" was the evidence, and that evidence
+    had been wrong for a long time without anybody noticing. Now several classes of untruth are
+    caught mechanically, and the rest were checked against a system that was actually running.</p>
+  </div>
+
+  <div class="foot">
+    NERVIS ecosystem audit · 33 changes across 62 files · every finding verified by an independent
+    reviewer whose task was to disprove it · every fix verified by reintroducing the fault.
+  </div>
+</section>
+
+</body>
+</html>
