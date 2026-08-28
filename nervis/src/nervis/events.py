@@ -288,6 +288,42 @@ class Hub:
         found = [self._view(row) for row in rows]
         return found[::-1] if latest else found
 
+    def events_of_recent_traces(self, limit: int = 25) -> list[dict[str, Any]]:
+        """Every event belonging to the `limit` most recent traces.
+
+        **The traces index needs a limit on *traces*, and only had one on
+        events.** It called `query(limit=500)`, which bounds the event scan, so
+        the number of traces returned depended on how many events happened to
+        fall in that window: oldest-first it reported the oldest traces and
+        called them newest, and newest-first it reported none at all whenever
+        the last 500 events carried no `trace_id` -- which is the ordinary state
+        after a restart, when the recent window is all registry transitions.
+        Both spellings produce the Overview's "no trace has been recorded yet"
+        on a hub that holds traces, which is the false absence that card exists
+        to avoid.
+
+        Two statements, because one cannot express it: which traces are most
+        recent, then every event belonging to them. A trace whose events
+        straddle the window is returned whole, which `summarise` needs to count
+        its services and find its start.
+        """
+        newest = self._database.connection.execute(
+            "SELECT trace_id, MAX(sequence) AS last FROM event "
+            "WHERE trace_id IS NOT NULL AND trace_id != '' "
+            "GROUP BY trace_id ORDER BY last DESC LIMIT ?",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+        wanted = [row["trace_id"] for row in newest]
+        if not wanted:
+            return []
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._database.connection.execute(
+            f"SELECT sequence, envelope, received_at FROM event "  # noqa: S608 - names are literals
+            f"WHERE trace_id IN ({placeholders}) ORDER BY sequence",
+            wanted,
+        )
+        return [self._view(row) for row in rows]
+
     def quarantined(self, limit: int = 50) -> list[dict[str, Any]]:
         """What was refused and why — the diagnostic §11.1 asks quarantine for."""
         rows = self._database.connection.execute(

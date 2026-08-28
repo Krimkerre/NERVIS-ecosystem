@@ -29,11 +29,14 @@ async def list_traces(request: Request) -> dict[str, Any]:
     twice.
     """
     limit = request.query_params.get("limit")
-    # `latest=True`, or this reads the *oldest* 500 events and calls the result
-    # "newest first". The limit is on the event scan, not on traces, so once the
-    # hub passes it every recent trace becomes invisible and the Overview card
-    # reports "no trace has been recorded yet" while the hub holds several.
-    events = request.app.state.hub.query(limit=_int(limit, 500), latest=True)
+    # **The limit is on traces, not on the event scan.** This passed `limit`
+    # straight to `query`, which bounds events: oldest-first it summarised the
+    # oldest events the hub had ever kept and called the result newest-first,
+    # and newest-first it found nothing whenever the recent window happened to
+    # carry no `trace_id` -- the ordinary state after a restart. Either way the
+    # Overview reported "no trace has been recorded yet" on a hub holding
+    # traces, which is exactly the false absence that card exists to avoid.
+    events = request.app.state.hub.events_of_recent_traces(_int(limit, 25))
     return {"items": summarise(events)}
 
 

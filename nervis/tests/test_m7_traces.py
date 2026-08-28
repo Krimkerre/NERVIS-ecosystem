@@ -232,6 +232,13 @@ def test_a_recent_trace_survives_a_hub_bigger_than_the_scan_limit() -> None:
     The limit is set small here rather than posting 500 events: the defect is
     the ordering, and a test that needs half a thousand rows to show it would
     be slow enough that nobody runs it.
+
+    The first fix for this only moved the false absence to the other end --
+    reading the newest N *events* reports no traces at all whenever the recent
+    window happens to carry none, which is the ordinary state after a restart
+    when every recent event is a registry transition. The limit has to bound
+    traces; `test_a_trace_older_than_the_recent_events_is_still_listed` below is
+    the half that catches that.
     """
     client = an_api()
     for n in range(12):
@@ -250,4 +257,28 @@ def test_a_recent_trace_survives_a_hub_bigger_than_the_scan_limit() -> None:
 
     assert any(item["trace_id"] == "the-newest-trace" for item in listed), (
         "a trace recorded a moment ago must appear before twelve older ones"
+    )
+
+
+def test_a_trace_older_than_the_recent_events_is_still_listed() -> None:
+    """A quiet period must not erase the traces before it.
+
+    Bounding the *event* scan rather than the trace count meant the answer
+    depended on what had happened lately: after a restart the recent window is
+    all registry transitions carrying no `trace_id`, so the index reported no
+    traces while the hub held them, and the Overview printed "no trace has been
+    recorded yet" -- the false absence that card exists to avoid, produced by
+    the fix for the same false absence at the other end.
+    """
+    client = an_api()
+    client.post("/api/v1/events", json=event(
+        "ravis", "2026-08-22T12:00:00Z", event_id="traced", trace_id="an-old-trace"))
+    for n in range(40):
+        client.post("/api/v1/events", json=event(
+            "nervis", "2026-08-22T12:00:05Z", event_id=f"untraced-{n}", trace_id=""))
+
+    listed = client.get("/api/v1/traces?limit=10").json()["items"]
+
+    assert [item["trace_id"] for item in listed] == ["an-old-trace"], (
+        "forty untraced events after it do not make the trace disappear"
     )
