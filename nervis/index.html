@@ -2083,6 +2083,11 @@ const API={
    catch(e){return null}},
 
   async pools(){return live('ravis','/api/v1/pools',this._poolsMock,payload=>({
+   /* `live` on the adapted object, as `providers()` already returns. `live()`
+      sets SOURCE and hands back whatever `adapt` produced, so a caller holding
+      only the result could not tell whether RAVIS answered — which left the
+      unavailable-pools card badged prototype while rendering a live pool. */
+   live:true,
    items:payload.items.map(x=>({
     pool_id:x.pool_id,
     requires:x.requirements,
@@ -2802,6 +2807,35 @@ function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pag
    numbers. A live value labelled invented is the same defect as an invented one
    labelled live, and slightly worse: it teaches a reader to distrust the part
    that is true. */
+/* Every card on every screen, built one way.
+
+   **This exists because one defect was found eight times in a day**, always by
+   somebody looking at the screen rather than by a check: a card rendering live
+   data from a running service under a PROTOTYPE badge. Providers had seven of
+   them. The Sessions screen shipped with six, hours after the first batch was
+   fixed. "Evidence in the ranking" showed thirty-two live rows faded out.
+
+   The cause was structural. Liveness was opt-in per card and expressed ten
+   different ways — `fromSirvis`, `p.live`, `ev.source`, `j.source`, `tr.live`,
+   `spend.live`, `s.live`, `ev.live`, `live`, `real` — so every new card was a
+   fresh chance to forget, among ten idioms to forget between. Eighty-eight
+   cards hardcoded their class and *could not* report liveness at all.
+
+   **`live` is required, and omitting it throws.** Not a default, because the
+   safe-looking default is what produced the bug: `false` understates a live
+   card and `true` would claim a mock. A card that has not decided is a card
+   nobody has thought about, and `render_check.js` renders all thirty-five
+   screens, so a miss fails the build rather than reaching a reader. A static
+   card passes `live: false` — a decision, written down.
+
+   `service` scopes the body to the peer that owns it, which is what makes a
+   card fade when that service goes away (see `cell`). */
+const card = ({size = 'full', title, chip = '', service, live}, body) => {
+ if (live === undefined) throw new Error(`card "${title}" did not say whether its data is live`);
+ const head = chip ? `${title} <span class="chip">${chip}</span>` : title;
+ return `<div class="card ${size}${live ? ' live' : ''}"><h3>${head}</h3>${cell(body, service)}</div>`;
+};
+
 /* An explanation folded into the thing it explains.
 
    Several screens carried a whole card whose only job was to describe a column
@@ -4739,7 +4773,9 @@ async function sirvisResults(){
     carrying('tool_calls').length?'clean in every attempt':'no suite here measures tool calls yet','sirvis'],
    ['Code',carrying('code').length?`${carrying('code').filter(e=>consistent(e,'code')).length} / ${carrying('code').length}`:'—',
     carrying('code').length?'6 of 6 — no variance at all':'accuracy suites are M18','sirvis']])
- +`<div class="card full"><h3>Generation rate</h3>${cell(`
+ /* `ev.source`, for the reason the Evidence screen documents: the fetch has
+     always reported whether SIRVIS answered and the card never read it. */
+ +`<div class="card full${ev.source==='live'?' live':''}"><h3>Generation rate</h3>${cell(`
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100)}%" title="${e.target.family} · ${e.metrics.generation_tok_s} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${e.target.family} · no visible output"></i>`).join('')}</div>
    <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
    ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${dash(e.metrics.effective_tok_s)}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${dash(e.metrics.follow_up)}</span></div>`).join('')}
@@ -5765,7 +5801,13 @@ async function ravisEvidence(){
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
    ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${warnUnless(v.state==='SUPPORTED')}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
    <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${(verdicts.source.threshold.tool_call_pass_rate*100)}%</b> over <b>${verdicts.source.threshold.phrasings}</b> phrasings × <b>${verdicts.source.threshold.repetitions_each}</b> repetitions.</small>`,'ravis')}</div>`:'')
- +`<div class="card full"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
+ /* **`ev.source` says whether SIRVIS answered, and this card ignored it.** It
+    was hardcoded `card full`, so thirty-two rows read live off SIRVIS's own
+    benchmark runs sat under a PROTOTYPE badge — the badge erring quietly in
+    the understating direction again, one level above the KPI tiles where the
+    same default was fixed. The fetch has reported `source: 'live'` since it
+    was written; nothing read it. */
+ +`<div class="card full${ev.source==='live'?' live':''}"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
    <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>
@@ -5805,11 +5847,11 @@ async function ravisLogs(){
    ['No-route',String(req.items.filter(r=>r.result!=='OK').length),'failed closed, recorded','ravis'],
    ['Events published',String(mine.length),`${warn} warning`,'nervis'],
    ['Payload capture','off','no prompt or completion is stored','ravis']])
- +`<div class="card full"><h3>Request log</h3>${cell(`
+ +`<div class="card full${SOURCE.ravis==='live'?' live':''}"><h3>Request log</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
    ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${dash(r.model)}</span><span class="mono">${dash(r.execution_path)}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${r.result}</span></div>`).join('')}
    <small class="mono dim">every row is a decision id away from its full record — pool, requirements, candidates, exclusions and timings. What no row leads to is the text of the request, because it was never written down.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Events published by RAVIS</h3>${cell(`
+  <div class="card wide${SOURCE.nervis==='live'?' live':''}"><h3>Events published by RAVIS</h3>${cell(`
    <div class="table-row head five"><span>Time</span><span>Type</span><span>Version</span><span>Trace</span><span>Severity</span></div>
    ${mine.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.event_version}</span><span class="mono">${dash(e.trace_id)}</span><span class="chip${warnIf(e.severity==='warning')}">${e.severity}</span></div>`).join('')}
    <small class="mono dim">these are the frames RAVIS handed the hub, carrying identifiers and result classes only. Export failing never blocks a route: telemetry is downstream of serving the request, and a collector outage must not become a routing outage.</small>
@@ -7537,22 +7579,22 @@ function conformanceCard(cf){
    <small class="mono dim">these are not unit tests of RAVIS — they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
 }
 
-function providerHealthCard(pr,breakers){
+function providerHealthCard(pr,breakers,live=false){
  const note=breakers.length
   ? `<b>${breakers[0].label}</b> is at ${breakers[0].breaker}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`
   : 'Every breaker closed and every enabled provider answering.';
- return `<div class="card wide"><h3>Provider health</h3>${cell(`
+ return `<div class="card wide${live?' live':''}"><h3>Provider health</h3>${cell(`
    <div class="table-row head five"><span>Provider</span><span>Breaker</span><span>Error rate</span><span>p50</span><span>Enabled</span></div>
    ${pr.items.map(x=>`<div class="table-row five"><span>${x.label}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${x.breaker}</span><span>${Math.round(x.error_rate*100)}%</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span><span class="chip${warnUnless(x.enabled)}">${x.enabled?'yes':'no'}</span></div>`).join('')}
    <small class="mono dim">${note}</small>`,'ravis')}</div>`;
 }
 
-function unavailablePoolsCard(down){
+function unavailablePoolsCard(down,live=false){
  const body=down.length
   ? down.map(x=>`<div class="trace-step"><b>${x.pool_id}</b><span>${x.reason||'no member satisfies its invariants'}</span></div>`).join('')
     +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
   : `<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`;
- return `<div class="card narrow"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
+ return `<div class="card narrow${live?' live':''}"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
 }
 
 async function ravisDiagnostics(){
@@ -7562,15 +7604,21 @@ async function ravisDiagnostics(){
    API.ravis.conformance(),API.ravis.providers(),API.ravis.pools(),
    ravisHealth(),serviceDiagnostics('ravis')]);
  const passed=cf.checks.filter(([,ok])=>ok).length;
- const breakers=pr.items.filter(x=>x.breaker!=='CLOSED');
+ /* Second home of a bug fixed once on the Providers screen: `!== 'CLOSED'`
+    sweeps up every provider RAVIS has never called, so this counted four open
+    breakers while three of the four were answering. An open breaker is a
+    verdict §10 reached; never probed is the absence of one. */
+ const breakers=pr.items.filter(x=>x.breaker==='OPEN'||x.breaker==='HALF_OPEN');
+ const unprobed=pr.items.filter(x=>x.breaker==null).length;
  const down=pl.items.filter(x=>!x.available);
 
  $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+kpis([
    ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis',false],
    ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis',false],
-   ['Breakers',String(breakers.length),breakers.length?'not closed':'all closed','ravis'],
+   ['Breakers',String(breakers.length),
+     breakers.length?'open or recovering':unprobed?`none open · ${unprobed} never called`:'all closed','ravis'],
    ['Pools down',String(down.length),down.length?down[0].pool_id:'none','ravis']])
- +conformanceCard(cf)+providerHealthCard(pr,breakers)+unavailablePoolsCard(down);
+ +conformanceCard(cf)+providerHealthCard(pr,breakers,pr.live)+unavailablePoolsCard(down,pl.live);
 }
 
 /* ── EDITOR_PREVIEW ────────────────────────────────────────────────────────
