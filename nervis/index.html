@@ -1399,7 +1399,12 @@ const API={
       So this maps runs onto the job record rather than inventing an endpoint,
       and the screen says which it is looking at. */
    const live=await liveSirvis('/api/v1/benchmark-runs?limit=25');
-   if(live&&live.items.length)return{source:'live',items:live.items.map(r=>{
+   /* Answered-with-nothing is live, the last of three fetches that read it as
+      absent. A SIRVIS that has run no benchmarks yet is answering, and falling
+      back here put four invented jobs on the queue of a working service whose
+      real answer was "none". The screen counts with `filter` and `find`, so an
+      empty list renders as an empty queue rather than throwing. */
+   if(live)return{source:'live',items:live.items.map(r=>{
     const e=(r.results||[])[0]||{},s=e.suite||{};
     return{job_id:r.run_id,state:r.state,detail:r.detail||null,
      suite:s.id?s.id+'@'+s.version:'—',target:dash(e.target_key),
@@ -3064,12 +3069,12 @@ async function diagnosticsView(){
  $('#content').innerHTML=liveCard+`<div class="card wide"><h3>Source priority</h3>
    <div class="table-row head five"><span>Service</span><span>1 · structured event</span><span>2 · management API</span><span>3 · service log</span><span>4 · raw log</span></div>
    ${d.sources.map(x=>`<div class="table-row five"><span>${x.service}</span><span>${tick(x.structured)}</span><span>${tick(x.management_api)}</span><span>${tick(x.service_log)}</span><span>${tick(x.raw_log)}</span></div>`).join('')}
-   <small class="mono dim">never parse a text log when structured data already exists. Clarvis has no management API by design — the Bridge is read-only status, and its log is a gated last resort.</small></div>
-  <div class="card narrow"><h3>Claim types</h3>
-   <div class="trace-step"><b>fact</b><span>RAVIS reported 3.1 ms</span></div>
-   <div class="trace-step"><b>observation</b><span>NERVIS timed 4.0 ms</span></div>
-   <div class="trace-step"><b>inference</b><span>0.9 ms is transport</span></div>
-   <small class="mono dim">three different kinds of claim, three different levels of confidence, never added together.</small></div>
+   <small class="mono dim">never parse a text log when structured data already exists. Clarvis has no management API by design — the Bridge is read-only status, and its log is a gated last resort.</small>
+   ${explains('the three kinds of claim, and why they are never added together',`
+    <div class="trace-step"><b>fact</b><span>RAVIS reported 3.1 ms</span></div>
+    <div class="trace-step"><b>observation</b><span>NERVIS timed 4.0 ms</span></div>
+    <div class="trace-step"><b>inference</b><span>0.9 ms is transport</span></div>
+    <small class="mono dim">three different kinds of claim and three different levels of confidence. Summing them would present the weakest as though it carried the authority of the strongest.</small>`)}</div>
   <div class="card wide"><h3>Log adapters</h3>
    <div class="table-row head"><span>Source</span><span>Path</span><span>Gate</span><span>Note</span></div>
    ${d.sources.filter(x=>x.adapter).map(x=>`<div class="table-row"><span>${x.service}</span><span class="mono">${x.adapter.path}</span><span class="chip${warnIf(x.adapter.gated)}">${x.adapter.gated?'approval required':'open'}</span><span style="opacity:.7">${x.adapter.note}</span></div>`).join('')}
@@ -4079,7 +4084,20 @@ async function sirvisRuntime(){
     <span><select id="rtPolicy" class="mono" style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"><option value="wait">wait</option><option value="reject">reject</option><option value="preempt">preempt</option></select></span>
     <span><input id="rtLease" class="mono" placeholder="3600" style="width:78px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px"></span>
     <span style="grid-column:5/-1"><button class="btn primary"${armed} onclick="RUNTIME.load()">Load</button></span></div>
-   <small class="mono dim">a load is minutes of work and gigabytes of memory, so the four things that decide what it costs are all here rather than defaulted out of sight. <b>Policy</b> is §9's conflict rule and <b>preempt</b> is never implicit — it is offered because the API takes it, and it still cannot take a model another client holds. The lease is what recovers this model if this tab closes without releasing it.</small>`,'sirvis')}</div>
+   <small class="mono dim">a load is minutes of work and gigabytes of memory, so the four things that decide what it costs are all here rather than defaulted out of sight. <b>Policy</b> is §9's conflict rule and <b>preempt</b> is never implicit — it is offered because the API takes it, and it still cannot take a model another client holds. The lease is what recovers this model if this tab closes without releasing it.</small>
+   ${explains('what authorises a load',`
+   <div class="trace-step"><b>reads</b><span>open on loopback</span></div>
+   <div class="trace-step"><b>mutations</b><span>${RUNTIME_TOKEN?'<span class="chip">token set</span>':'<span class="chip warn">runtime scope required</span>'}</span></div>
+   <input id="rtToken" type="password" placeholder="paste a runtime-scoped token" style="width:100%;margin-top:8px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit">
+   <button class="btn" style="margin-top:8px" onclick="RUNTIME.setToken()">${RUNTIME_TOKEN?'Replace':'Use'} token</button>
+   <div style="margin-top:10px;padding:8px 10px;border:1px dashed #1e3a44;border-radius:3px">
+    <div class="mono dim" style="font-size:9px;letter-spacing:.1em;margin-bottom:5px">WHERE THIS COMES FROM</div>
+    <small class="mono dim" style="display:block;margin-bottom:7px">${RUNTIME_TOKEN?'<b>The start launcher already handed this tab a token.</b> Nothing to do — it was minted on first start, kept at mode 0600 beside the logs, and passed in the URL fragment, which is never sent to any server and is erased from the address bar before the first render.':'<b>No token in this tab.</b> Opening the dashboard through the start launcher supplies one automatically. The command below is the fallback if you opened this page some other way.'}</small>
+    <small class="mono dim" style="display:block;margin-bottom:7px">loading a model spends gigabytes and can <b>evict a model another client is holding</b> — §4.5 requires a scope on every mutation even on loopback, because loopback is not a boundary against another local process. Reads need no token, deliberately: Clarvis probes <b>/v1/models</b> with a 2 s timeout and reads any 401 as <b>provider offline</b>. The origin check is separate and does not replace this — a browser sends your credentials automatically, so it cannot tell your click from a page you happened to visit.</small>
+    <code class="mono" style="display:block;font-size:10px;color:#9fd8e8;word-break:break-all">cd sirvis &amp;&amp; ../ravis/.venv/bin/sirvis token --mint dashboard --scopes "read runtime"</code>
+    <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
+   </div>
+   <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`)}`,'sirvis')}</div>
   <div class="card full"><h3>Resident now</h3>${cell(
    held.length?`
    <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
@@ -4094,19 +4112,7 @@ async function sirvisRuntime(){
    <small class="mono dim">a lease is how SIRVIS recovers from a client that died without saying it had finished, which is indistinguishable from one that is merely slow. Renewing is the heartbeat; releasing is the polite version of the same outcome.</small>`
    :`<div class="trace-step"><b>leases</b><span>none outstanding</span></div>
    <small class="mono dim">nothing holds a claim on this runtime right now.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Authorisation</h3>${cell(`
-   <div class="trace-step"><b>reads</b><span>open on loopback</span></div>
-   <div class="trace-step"><b>mutations</b><span>${RUNTIME_TOKEN?'<span class="chip">token set</span>':'<span class="chip warn">runtime scope required</span>'}</span></div>
-   <input id="rtToken" type="password" placeholder="paste a runtime-scoped token" style="width:100%;margin-top:8px;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit">
-   <button class="btn" style="margin-top:8px" onclick="RUNTIME.setToken()">${RUNTIME_TOKEN?'Replace':'Use'} token</button>
-   <div style="margin-top:10px;padding:8px 10px;border:1px dashed #1e3a44;border-radius:3px">
-    <div class="mono dim" style="font-size:9px;letter-spacing:.1em;margin-bottom:5px">WHERE THIS COMES FROM</div>
-    <small class="mono dim" style="display:block;margin-bottom:7px">${RUNTIME_TOKEN?'<b>The start launcher already handed this tab a token.</b> Nothing to do — it was minted on first start, kept at mode 0600 beside the logs, and passed in the URL fragment, which is never sent to any server and is erased from the address bar before the first render.':'<b>No token in this tab.</b> Opening the dashboard through the start launcher supplies one automatically. The command below is the fallback if you opened this page some other way.'}</small>
-    <small class="mono dim" style="display:block;margin-bottom:7px">loading a model spends gigabytes and can <b>evict a model another client is holding</b> — §4.5 requires a scope on every mutation even on loopback, because loopback is not a boundary against another local process. Reads need no token, deliberately: Clarvis probes <b>/v1/models</b> with a 2 s timeout and reads any 401 as <b>provider offline</b>. The origin check is separate and does not replace this — a browser sends your credentials automatically, so it cannot tell your click from a page you happened to visit.</small>
-    <code class="mono" style="display:block;font-size:10px;color:#9fd8e8;word-break:break-all">cd sirvis &amp;&amp; ../ravis/.venv/bin/sirvis token --mint dashboard --scopes "read runtime"</code>
-    <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
-   </div>
-   <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`,'sirvis')}</div>
+  
   ${foreignInstancesCard(foreign)}`;
  const box=$('#rtToken');if(box)box.value=RUNTIME_TOKEN;}
 
@@ -4445,21 +4451,23 @@ async function sirvisModels(){
    ${m.items.map(x=>buildRow(x,ctx)).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`identity is the whole row: this machine has <b>granite-4.0-h-tiny</b> twice, once GGUF and once MLX, and they are different subjects with different evidence. Both capability columns are absent because SIRVIS's inventory publishes neither — it does not republish the runtime's advertised flags, and measurements are filed against evidence records rather than against a build. Two absences rather than two zeros: nobody has asked these builds to call a tool yet, which is <b>M13</b>.`
-     :`the two capability columns disagree about ${m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.`}</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Evidence identity</h3>${cell(`
+     :`the two capability columns disagree about ${m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.`}</small>
+   ${explains('what identifies a build, and why a name will not do',`
    <div class="trace-step"><b>family</b><span>${first?first.family:'—'}</span></div>
    <div class="trace-step"><b>build · variant</b><span>${first&&dash(first.variant)}</span></div>
    <div class="trace-step"><b>runtime</b><span>${first&&dash(first.runtime)}</span></div>
    <div class="trace-step"><b>runtime config</b><span>${first?ctx(first.runtime_config):'—'}</span></div>
    <div class="trace-step"><b>machine</b><span>${dash(mc.model)} · ${mc.machine_id}</span></div>
    <div class="trace-step"><b>role</b><span>set by the benchmark suite, not the model</span></div>
-   <small class="mono dim">this chain is the key every benchmark result is filed under. Collapse any link of it and you get <b>model → score</b>, which is the one shape SIRVIS is not allowed to publish.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Memory</h3>${cell(`
+   <small class="mono dim">this chain is the key every benchmark result is filed under. Collapse any link of it and you get <b>model → score</b>, which is the one shape SIRVIS is not allowed to publish.</small>`)}
+   ${explains('what a build costs in memory',`
    <div class="trace-step"><b>resident</b><span>${resident.toFixed(1)} GB</span></div>
    <div class="bar"><i style="--w:${Math.round(resident/mc.memory_gb*100)}%"></i></div>
    <div class="trace-step"><b>available</b><span>${mc.available_gb} GB</span></div>
    <div class="trace-step"><b>swap</b><span>${mc.swap_gb} GB</span></div>
-   <small class="mono dim">${mc.system_baseline_gb==null?'<b>the at-rest baseline is not detected.</b> It is this machine with an or':`the ${mc.system_baseline_gb} GB baseline is this machine with an or`}dinary working set open — editor, browser, LM Studio — before any model loaded, so the usable budget is ${mc.model_budget_gb==null?'<b>not detected</b> — the at-rest figure was measured by hand and nothing computes it, so this page will not guess at it':`about ${mc.model_budget_gb} GB rather than ${mc.memory_gb}`}. Whether two builds fit together is still a measurement and not this subtraction — see Runtime sets.</small>`,'sirvis')}</div>`}
+   <small class="mono dim">${mc.system_baseline_gb==null?'<b>the at-rest baseline is not detected.</b> It is this machine with an or':`the ${mc.system_baseline_gb} GB baseline is this machine with an or`}dinary working set open — editor, browser, LM Studio — before any model loaded, so the usable budget is ${mc.model_budget_gb==null?'<b>not detected</b> — the at-rest figure was measured by hand and nothing computes it, so this page will not guess at it':`about ${mc.model_budget_gb} GB rather than ${mc.memory_gb}`}. Whether two builds fit together is still a measurement and not this subtraction — see Runtime sets.</small>`)}`,'sirvis')}</div>
+  
+  `}
 
 /* Discover — the model browser. SIRVIS.md §8 splits Models into Installed /
    Discover / Downloads, and this is the middle one: search a remote catalog,
@@ -4510,14 +4518,15 @@ async function sirvisDiscover(){
     <span data-filter="installed">${chip('installed','all','Any state')}${chip('installed','no','Not installed')}${chip('installed','yes','Installed')}</span></div>
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · quant</span><span>Params · tools</span><span>Size</span><span>Disk after</span><span>Action</span></div>
    <div id="discoverRows">${discoverRows(cat.items,free)}</div>
-   <small class="mono dim">the disk check runs before the job is queued: ${free} GB free, and each row says what would be left. A build that does not fit cannot be started — SIRVIS never auto-deletes a model to make room for another one.<br>the tools column reads two different ways on purpose: an installed build shows <b>calls made / attempted</b> from a real run, and a catalogue entry shows <b>claims</b>, which is the publisher's word and nothing more. On this machine those two disagree about four builds, so the distinction is not pedantry.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>What the catalog does not tell you</h3>${cell(`
+   <small class="mono dim">the disk check runs before the job is queued: ${free} GB free, and each row says what would be left. A build that does not fit cannot be started — SIRVIS never auto-deletes a model to make room for another one.<br>the tools column reads two different ways on purpose: an installed build shows <b>calls made / attempted</b> from a real run, and a catalogue entry shows <b>claims</b>, which is the publisher's word and nothing more. On this machine those two disagree about four builds, so the distinction is not pedantry.</small>
+   ${explains('what a catalogue entry cannot tell you',`
    <div class="table-row head"><span>Question</span><span style="grid-column:2/-1">Answered by</span></div>
    <div class="table-row"><span>Will it download?</span><span style="grid-column:2/-1;opacity:.75">this page — size against ${free} GB of free disk</span></div>
    <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${mc.memory_gb} GB of memory on ${mc.model||mc.chip||'this machine'}</span></div>
    <div class="table-row"><span>Will it be any good at your work?</span><span style="grid-column:2/-1;opacity:.75">a benchmark run, per role — nothing on this page predicts it</span></div>
    <div class="table-row"><span>Will it run alongside your other model?</span><span style="grid-column:2/-1;opacity:.75">a Runtime set measurement, which is a separate subject again</span></div>
-   <small class="mono dim">file size is a fact about the disk, not about the machine. Parameter count and quantization are the two numbers most often used to guess the other three answers, and guessing them is exactly what SIRVIS exists to stop.</small>`,'sirvis')}</div>
+   <small class="mono dim">file size is a fact about the disk, not about the machine. Parameter count and quantization are the two numbers most often used to guess the other three answers, and guessing them is exactly what SIRVIS exists to stop.</small>`)}`,'sirvis')}</div>
+  
   <div class="card narrow"><h3>Sources</h3>${cell([...new Set(cat.items.map(x=>x.source))].map(s=>`
    <div class="trace-step"><b>${s}</b><span>${cat.items.filter(x=>x.source===s).length} entries</span></div>`).join('')
    +`<small class="mono dim">the catalog provider is a field, not an assumption: LM Studio's index first, others later. A build's source travels with it into the evidence record, because the same family from two publishers is not guaranteed to be the same weights.</small>`,'sirvis')}</div>`;
@@ -4549,14 +4558,15 @@ async function sirvisBenchmarks(){
  +`<div class="card full${j.source==='live'?' live':''}"><h3>Queue</h3>${cell(`
    <div class="table-row head six"><span>Job</span><span>Suite</span><span>Target</span><span>Submitted</span><span>State</span><span>Progress</span></div>
    ${j.items.map(x=>`<div class="table-row six"><span class="mono">${x.job_id}</span><span class="mono">${x.suite}</span><span>${x.target}</span><span class="mono">${x.submitted}</span><span class="chip${warnUnless(x.state==='succeeded'||x.state==='running')}">${x.state}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${Math.round(x.progress*100)}%"></i></div>`}<small class="mono" style="opacity:.55">${x.detail||(x.progress==null?'ran to completion':'—')}</small></span></div>`).join('')}
-   <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>`,'sirvis')}</div>
-  <div class="card wide${j.source==='live'?' live':''}"><h3>State versus detail</h3>${cell(`
+   <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>
+   ${explains('how a state differs from the detail beside it',`
    <div class="table-row head"><span>Contract state</span><span>Jobs</span><span style="grid-column:3/-1">What a consumer may rely on</span></div>
    <div class="table-row"><span class="mono">running</span><span>${by('running')}</span><span style="grid-column:3/-1;opacity:.75">work is in progress; no result exists yet</span></div>
    <div class="table-row"><span class="mono">succeeded</span><span>${by('succeeded')}</span><span style="grid-column:3/-1;opacity:.75">a complete result set was written and is scoreable</span></div>
    <div class="table-row"><span class="mono">partial</span><span>${by('partial')}</span><span style="grid-column:3/-1;opacity:.75">fewer runs than requested; the result exists and says so</span></div>
    <div class="table-row"><span class="mono">failed</span><span>${by('failed')}</span><span style="grid-column:3/-1;opacity:.75">no result — the reason is in detail, never inferred from silence</span></div>
-   <small class="mono dim">the internal phase (<b>${(j.items.find(x=>x.detail)||{}).detail||'none carried by these runs'}</b>) rides in <b>detail</b> and may change without a contract change. Switching on it is how a consumer breaks on a SIRVIS release that promised nothing.</small>`,'sirvis')}</div>
+   <small class="mono dim">the internal phase (<b>${(j.items.find(x=>x.detail)||{}).detail||'none carried by these runs'}</b>) rides in <b>detail</b> and may change without a contract change. Switching on it is how a consumer breaks on a SIRVIS release that promised nothing.</small>`)}`,'sirvis')}</div>
+  
   <div class="card narrow${j.source==='live'?' live':''}"><h3>Partial result</h3>${cell(partial?`
    <div class="trace-step"><b>job</b><span>${partial.job_id}</span></div>
    <div class="trace-step"><b>suite</b><span>${partial.suite}</span></div>
@@ -4596,7 +4606,15 @@ async function sirvisRuntimeSets(){
     return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${warnIf(bad)}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`the follow-up column is the interesting half of this screen and it has no source yet: nothing has asked these builds to call a tool while a second model is resident. <b>TrialRate</b> exists on the evidence record and is constructed nowhere — that is <b>M13</b>. Peak memory is absent for a different reason: M10's matrix carries it, but the rows were added after the only run that exists, so this run's figures are in its telemetry rather than on this record.`
-     :`holding two builds costs almost nothing up to ${heaviest?heaviest.peak_gb:'—'} GB resident, and every pairing still clears the deadlines — the first-token penalty is a few hundred milliseconds. That is the finding that makes a two-model setup worth having, and it is the boring half. The interesting half is the follow-up column.`}</small>`,'sirvis')}</div>
+     :`holding two builds costs almost nothing up to ${heaviest?heaviest.peak_gb:'—'} GB resident, and every pairing still clears the deadlines — the first-token penalty is a few hundred milliseconds. That is the finding that makes a two-model setup worth having, and it is the boring half. The interesting half is the follow-up column.`}</small>
+   ${explains('why a pair is measured as a pair',`
+   <div class="trace-step"><b>predicted from members</b><span>fits · both clear every deadline</span></div>
+   <div class="trace-step"><b>measured as a pair</b><span>fits · both clear every deadline</span></div>
+   <div class="trace-step"><b>predicted from members</b><span>recovers from a failed tool call</span></div>
+   <div class="trace-step"><b>measured as a pair</b><span>${SOURCE.sirvis==='live'?'not measured — no tool-call trial yet (M13)':'stops calling the tool'}</span></div>
+   <small class="mono dim">${SOURCE.sirvis==='live'
+     ?`measured on this machine: co-residency cost almost nothing and concurrency cost a third to a half of throughput, which no single-model run predicts. The behaviour half of that argument is still unmeasured here — it needs the tool-call trial M13 brings — so this card currently makes the memory case and only half the case it was built for.`
+     :`the memory prediction was right and the behaviour prediction was wrong, which is the case against benchmarking members and inferring the set. The same build failed differently in each pairing — <b>no-call</b> at ${rs.pairs[1]?rs.pairs[1].peak_gb:'—'} GB and <b>gave-up</b> at ${rs.pairs[4]?rs.pairs[4].peak_gb:'—'} GB — so it is not one repeatable fault with a single cause either.`}</small>`)}`,'sirvis')}</div>
   <div class="card wide"><h3>${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
    <div class="table-row head six"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Concurrent</span><span>Follow-up</span></div>
    ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
@@ -4606,14 +4624,7 @@ async function sirvisRuntimeSets(){
      :`Sustained rate under contention was not measured for this pair, so <b>concurrent_tok_s</b> is null rather than carrying the solo figure — which would have read as "no degradation found" when nothing looked.`}</small>`,'sirvis')}</div>
   <div class="card narrow"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
    +`<small class="mono dim">the measurement is valid and the combination is a bad idea. Those are different statements, kept in different fields — validity says the run can be trusted, and the finding above says what it found.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Why the pair is its own subject</h3>${cell(`
-   <div class="trace-step"><b>predicted from members</b><span>fits · both clear every deadline</span></div>
-   <div class="trace-step"><b>measured as a pair</b><span>fits · both clear every deadline</span></div>
-   <div class="trace-step"><b>predicted from members</b><span>recovers from a failed tool call</span></div>
-   <div class="trace-step"><b>measured as a pair</b><span>${SOURCE.sirvis==='live'?'not measured — no tool-call trial yet (M13)':'stops calling the tool'}</span></div>
-   <small class="mono dim">${SOURCE.sirvis==='live'
-     ?`measured on this machine: co-residency cost almost nothing and concurrency cost a third to a half of throughput, which no single-model run predicts. The behaviour half of that argument is still unmeasured here — it needs the tool-call trial M13 brings — so this card currently makes the memory case and only half the case it was built for.`
-     :`the memory prediction was right and the behaviour prediction was wrong, which is the case against benchmarking members and inferring the set. The same build failed differently in each pairing — <b>no-call</b> at ${rs.pairs[1]?rs.pairs[1].peak_gb:'—'} GB and <b>gave-up</b> at ${rs.pairs[4]?rs.pairs[4].peak_gb:'—'} GB — so it is not one repeatable fault with a single cause either.`}</small>`,'sirvis')}</div>`}
+  `}
 
 /* Results — what the suite actually found, which includes what it failed to find.
    Two of the four accuracy measures did not discriminate at all, and saying so is
@@ -4666,18 +4677,20 @@ async function sirvisResults(){
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100)}%" title="${e.target.family} · ${e.metrics.generation_tok_s} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${e.target.family} · no visible output"></i>`).join('')}</div>
    <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
    ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${dash(e.metrics.effective_tok_s)}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${dash(e.metrics.follow_up)}</span></div>`).join('')}
-   <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. Here the two are within about 5% everywhere, which is itself the finding — none of these front-load. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Rate falls off with size, steeply</h3>${cell(`
-   <div class="table-row head"><span>Build</span><span>Size</span><span>Rate</span><span>Accuracy</span></div>
-   <div class="table-row"><span>qwen2.5-coder-7b-instruct</span><span class="mono">4.3 GB</span><span class="mono">29.5 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
-   <div class="table-row"><span>qwen2.5-coder-14b-instruct-mlx</span><span class="mono">8.3 GB</span><span class="mono">9.6 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
-   <small class="mono dim">the same family, twice the weights, identical on every accuracy measure in this document and three times slower. That comparison is invisible on time-to-first-token — 0.22 s against 0.62 s — because first token measures how quickly a build <i>starts</i>, not how quickly it finishes. On a long answer this is four seconds against twelve.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>What the run detail retains</h3>${cell(`
+   <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. Here the two are within about 5% everywhere, which is itself the finding — none of these front-load. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.</small>
+   ${explains('what a run detail keeps',`
    <div class="trace-step"><b>samples</b><span>${rn.samples} · median reported</span></div>
    <div class="trace-step"><b>warmups</b><span>${rn.warmups} · discarded</span></div>
    <div class="trace-step"><b>parallel</b><span>${rn.parallel}</span></div>
    <div class="trace-step"><b>raw takes</b><span>${rn.raw_runs}</span></div>
-   <small class="mono dim">${rn.source==='live'?`the takes are kept beside the run at <b>${rn.raw_runs}</b> — this card names them rather than drawing bars it would have to fetch. <b>No control re-measurement:</b> a control is a property of a sweep, not of one run, and this engine records runs. Today's sweep bracketed itself with one and the two ends came back 26% apart, which is the number this card would otherwise be quietly missing.`:`the individual takes exist in the harness output and are not in this snapshot, so this card says that rather than drawing three bars it does not have. The control re-run — ${rn.control.generation_tok_s} tok/s against ${rn.generation_tok_s.median}, ${rn.control.drift_pct}% apart — is the retained evidence that the later rows are comparable with the earlier ones.`}</small>`,'sirvis')}</div>
+   <small class="mono dim">${rn.source==='live'?`the takes are kept beside the run at <b>${rn.raw_runs}</b> — this card names them rather than drawing bars it would have to fetch. <b>No control re-measurement:</b> a control is a property of a sweep, not of one run, and this engine records runs. Today's sweep bracketed itself with one and the two ends came back 26% apart, which is the number this card would otherwise be quietly missing.`:`the individual takes exist in the harness output and are not in this snapshot, so this card says that rather than drawing three bars it does not have. The control re-run — ${rn.control.generation_tok_s} tok/s against ${rn.generation_tok_s.median}, ${rn.control.drift_pct}% apart — is the retained evidence that the later rows are comparable with the earlier ones.`}</small>`)}
+   ${explains('how rate falls off with size',`
+   <div class="table-row head"><span>Build</span><span>Size</span><span>Rate</span><span>Accuracy</span></div>
+   <div class="table-row"><span>qwen2.5-coder-7b-instruct</span><span class="mono">4.3 GB</span><span class="mono">29.5 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
+   <div class="table-row"><span>qwen2.5-coder-14b-instruct-mlx</span><span class="mono">8.3 GB</span><span class="mono">9.6 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
+   <small class="mono dim">the same family, twice the weights, identical on every accuracy measure in this document and three times slower. That comparison is invisible on time-to-first-token — 0.22 s against 0.62 s — because first token measures how quickly a build <i>starts</i>, not how quickly it finishes. On a long answer this is four seconds against twelve.</small>`)}`,'sirvis')}</div>
+  
+  
   <div class="card full"><h3>What the automated scoring missed</h3>${cell(`
    <div class="table-row head"><span>Build</span><span style="grid-column:2/-1">Not caught by the grounding check</span></div>
    ${caveats.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;opacity:.75">${e.caveat}</span></div>`).join('')}
@@ -4701,15 +4714,16 @@ async function sirvisRecommendations(){
    <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,x.samples?'n='+x.samples:'')}</span>
     <small>${x.role} · fit ${x.fit} ${x.headroom_gb==null?'':` · ${x.headroom_gb} GB headroom`}<br>${x.why}</small></div>`).join('')}</div>
    ${r.uncertainty&&r.uncertainty.length?`<div style="margin-top:10px">${r.uncertainty.map(u=>`<div class="trace-step"><b>uncertainty</b><span>${escapeHtml(u)}</span></div>`).join('')}</div>`:''}${r.proposed&&r.proposed.length?`<div>${r.proposed.map(u=>`<div class="trace-step"><b>would raise coverage</b><span class="mono">${escapeHtml(u)}</span></div>`).join('')}</div>`:''}
-   <small class="mono dim">no score column here either. The ranking is an argument made from measurements — rate, first token, tool reliability, recovery behaviour — and the argument is written out per row so it can be disagreed with. A single number would be easier to sort and impossible to check.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
-   <div class="lane excluded"><b>${x.target}</b><span>—</span><small>${x.why}</small></div>`).join('')}</div>
-   <small class="mono dim">two of these are exclusions by <b>measurement</b>, which is the kind this machine produced most usefully: one build advertises tool support and loses seven calls in eight, and another is correct alone and abandons the tool with a second model resident. Neither is visible in a capability record, a parameter count or a file size.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Uncertainty</h3>${cell(`
+   <small class="mono dim">no score column here either. The ranking is an argument made from measurements — rate, first token, tool reliability, recovery behaviour — and the argument is written out per row so it can be disagreed with. A single number would be easier to sort and impossible to check.</small>
+   ${explains('how certain a ranking is',`
    <div class="trace-step"><b>mode</b><span>${r.mode}</span></div>
    <div class="trace-step"><b>algorithm</b><span>v${r.algorithm_version}</span></div>
    <div class="trace-step"><b>expires</b><span>${r.expires_in_min} min</span></div>
-   <small class="mono dim">${(r.uncertainty||[]).length?escapeHtml((r.uncertainty||[]).join(' · ')):'nothing was flagged as uncertain'}.</small>`,'sirvis')}</div>
+   <small class="mono dim">${(r.uncertainty||[]).length?escapeHtml((r.uncertainty||[]).join(' · ')):'nothing was flagged as uncertain'}.</small>`)}`,'sirvis')}</div>
+  <div class="card wide"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
+   <div class="lane excluded"><b>${x.target}</b><span>—</span><small>${x.why}</small></div>`).join('')}</div>
+   <small class="mono dim">two of these are exclusions by <b>measurement</b>, which is the kind this machine produced most usefully: one build advertises tool support and loses seven calls in eight, and another is correct alone and abandons the tool with a second model resident. Neither is visible in a capability record, a parameter count or a file size.</small>`,'sirvis')}</div>
+  
   <div class="card wide"><h3>What the deadlines are</h3>${cell(`
    <div class="table-row head"><span>Caller</span><span>Does</span><span style="grid-column:3/-1">Deadline</span></div>
    ${CLARVIS_DEADLINES.map(([name,does,s])=>`<div class="table-row"><span class="mono">${name}</span><span style="opacity:.75">${does}</span><span style="grid-column:3/-1" class="mono">${s}s</span></div>`).join('')}
@@ -4732,17 +4746,19 @@ async function sirvisDownloads(){
  +`<div class="card full"><h3>Jobs</h3>${cell(`
    <div class="table-row head five"><span>Variant</span><span>Status</span><span>Transferred</span><span style="grid-column:4/-1">Progress</span></div>
    ${d.items.map(x=>`<div class="table-row five"><span>${x.variant}</span><span class="chip${warnUnless(x.status==='completed'||x.status==='already_present')}">${x.status}</span><span class="mono">${x.bytes} / ${x.total} GB</span><span style="grid-column:4/-1"><div class="bar" style="margin:0"><i style="--w:${pct(x)}%"></i></div><small class="mono" style="opacity:.55">${x.error||pct(x)+'%'}</small></span></div>`).join('')}
-   <small class="mono dim"><b>already_present</b> is its own status, not a completed download: nothing was transferred, and reporting it as complete would make the disk figure above unexplainable.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Failure detail</h3>${cell(`
-   <div class="trace-step"><b>variant</b><span>${failed.variant}</span></div>
-   <div class="trace-step"><b>transferred</b><span>${failed.bytes} of ${failed.total} GB</span></div>
-   <div class="trace-step"><b>error</b><span>${failed.error}</span></div>
-   <small class="mono dim">the file downloaded and then did not fit — with ${d.disk_free_gb} GB free the next attempt fails the same way, so the honest report is the specific condition rather than "download failed". Retrying it is a user's decision with the numbers in front of them.</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Persistence</h3>${cell(`
+   <small class="mono dim"><b>already_present</b> is its own status, not a completed download: nothing was transferred, and reporting it as complete would make the disk figure above unexplainable.</small>
+   ${explains('what survives a reload, and what a failure records',`
    <div class="trace-step"><b>owner</b><span>SIRVIS, not the browser</span></div>
    <div class="trace-step"><b>on reload</b><span>jobs continue</span></div>
    <div class="trace-step"><b>on cancel</b><span>idempotent</span></div>
-   <small class="mono dim">a download is a job in the service with an id, not a fetch in this tab. That is the difference between a progress bar and a progress <i>report</i>.</small>`,'sirvis')}</div>`}
+   <small class="mono dim">a download is a job in the service with an id, not a fetch in this tab. That is the difference between a progress bar and a progress <i>report</i>.</small>`)}
+   ${explains('what a failed download records',`
+   <div class="trace-step"><b>variant</b><span>${failed.variant}</span></div>
+   <div class="trace-step"><b>transferred</b><span>${failed.bytes} of ${failed.total} GB</span></div>
+   <div class="trace-step"><b>error</b><span>${failed.error}</span></div>
+   <small class="mono dim">the file downloaded and then did not fit — with ${d.disk_free_gb} GB free the next attempt fails the same way, so the honest report is the specific condition rather than "download failed". Retrying it is a user's decision with the numbers in front of them.</small>`)}`,'sirvis')}</div>
+  
+  `}
 
 /* System — the machine snapshot every result is pinned to. Without it a benchmark
    number is unattributable: the same build on the same runtime measures
@@ -5643,7 +5659,17 @@ async function ravisEvidence(){
  +`<div class="card full"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
-   <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>`,'sirvis')}</div>
+   <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>
+   ${explains('how SIRVIS provenance maps onto RAVIS\'s',`
+   <div class="table-row head"><span>Arrives as</span><span>RAVIS records</span><span style="grid-column:3/-1">What it means downstream</span></div>
+   ${MAP.map(([a,b,why])=>`<div class="table-row"><span class="mono">${a}</span><span>${prov(b)}</span><span style="grid-column:3/-1;opacity:.75">${why}</span></div>`).join('')}
+   <small class="mono dim">the mapping only ever holds or lowers confidence. Nothing in this table turns an estimate into a measurement, including caching it, re-serving it, or a second service repeating it back.</small>`)}
+   ${explains('what routing does when SIRVIS is absent',`
+   <div class="trace-step"><b>evidence source</b><span>${usable('sirvis')?'SIRVIS · measured':'provider metadata and RAVIS observations'}</span></div>
+   <div class="trace-step"><b>hard constraints</b><span>still enforced</span></div>
+   <div class="trace-step"><b>degradation</b><span>${usable('sirvis')?'none':'labelled on every affected route'}</span></div>
+   <div class="trace-step"><b>scores</b><span>never fabricated</span></div>
+   <small class="mono dim">${usable('sirvis')?'SIRVIS is answering, so local candidates rank on measured evidence. Cycle it off on the SIMULATE strip: routing continues on provider metadata and RAVIS’s own observations, the table above goes absent rather than stale, and the constraints do not move.':'SIRVIS is '+SERVICES.sirvis.state+'. Routing continues — the ranking now rests on provider metadata and RAVIS’s own production observations, and says so. What it does not do is keep serving the last measured scores as though they were current.'}</small>`)}`,'sirvis')}</div>
   ${obs.live?`<div class="card full live"><h3>What RAVIS has timed itself <span class="chip">OBSERVED_BY_RAVIS</span></h3>${cell(`
    ${obs.items.length?`<div class="table-row head five"><span>Model</span><span>Median TTFT</span><span>Median latency</span><span>Samples</span><span>Rankable</span></div>
    ${[...obs.items].sort((a,b)=>b.samples-a.samples).map(o=>`<div class="table-row five">
@@ -5654,16 +5680,8 @@ async function ravisEvidence(){
      <span class="chip${warnUnless(o.confident)}">${o.confident?'yes':'below '+obs.minimum_samples}</span></div>`).join('')}`
    :'<div class="trace-step"><b>timed so far</b><span>nothing — a model is measured by being used, and none has been yet</span></div>'}
    <small class="mono dim">no probe traffic and no benchmark: these are the timings of <b>real requests</b>, kept across restarts. A median below <b>${obs.minimum_samples}</b> samples is shown and never ranked on — two network calls are two numbers, not a measurement. This is §13.3's <b>OBSERVED_BY_RAVIS</b>, which is deliberately a different kind from SIRVIS's benchmarks: those run a fixed prompt against a warm runtime with a recorded method, while these reflect whatever traffic actually looked like. One is a benchmark, the other is experience. Entries are pruned when a provider stops offering the model, or after thirty days unused.</small>`,'ravis')}</div>`:''}
-  <div class="card wide"><h3>Provenance mapping</h3>${cell(`
-   <div class="table-row head"><span>Arrives as</span><span>RAVIS records</span><span style="grid-column:3/-1">What it means downstream</span></div>
-   ${MAP.map(([a,b,why])=>`<div class="table-row"><span class="mono">${a}</span><span>${prov(b)}</span><span style="grid-column:3/-1;opacity:.75">${why}</span></div>`).join('')}
-   <small class="mono dim">the mapping only ever holds or lowers confidence. Nothing in this table turns an estimate into a measurement, including caching it, re-serving it, or a second service repeating it back.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Without SIRVIS</h3>${cell(`
-   <div class="trace-step"><b>evidence source</b><span>${usable('sirvis')?'SIRVIS · measured':'provider metadata and RAVIS observations'}</span></div>
-   <div class="trace-step"><b>hard constraints</b><span>still enforced</span></div>
-   <div class="trace-step"><b>degradation</b><span>${usable('sirvis')?'none':'labelled on every affected route'}</span></div>
-   <div class="trace-step"><b>scores</b><span>never fabricated</span></div>
-   <small class="mono dim">${usable('sirvis')?'SIRVIS is answering, so local candidates rank on measured evidence. Cycle it off on the SIMULATE strip: routing continues on provider metadata and RAVIS’s own observations, the table above goes absent rather than stale, and the constraints do not move.':'SIRVIS is '+SERVICES.sirvis.state+'. Routing continues — the ranking now rests on provider metadata and RAVIS’s own production observations, and says so. What it does not do is keep serving the last measured scores as though they were current.'}</small>`,'ravis')}</div>`}
+  
+  `}
 
 /* Logs — the request record and the frames RAVIS emitted, side by side. There is
    deliberately no prompt or completion log to show: payload capture is off by

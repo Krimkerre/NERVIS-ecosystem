@@ -5062,6 +5062,30 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### The explanation-card pass, screen by screen
+
+Fifteen cards existed to describe the card above them. Each is now an
+`explains()` disclosure attached to the data it is about — native `<details>`,
+so no JavaScript, keyboard-operable, and it still renders with nothing running.
+
+Folded: Providers' protocol mode; the event envelope and "Meanwhile"; the
+§18.2 egress table; the credential location and the voice-key exception; "What
+a session pins" and "Two windows"; "What is not logged"; SIRVIS's persistence,
+failure detail, catalogue caveats, state-versus-detail, uncertainty, evidence
+identity, memory, authorisation, run-detail retention and rate-versus-size;
+RAVIS's provenance mapping and "Without SIRVIS"; and NERVIS's claim types.
+
+**What was deliberately left as a card.** Several that look like explainers
+render *derived data* — SIRVIS's "Validity" reads `rs.validity`,
+"Observer-side state" reads the registry's own states, "Source priority" and
+"Conditions" are tables of live values, and Discover's "Sources" is a computed
+set. A disclosure hides those behind a click for no gain. The rule applied was
+whether the card would say the same thing with every service stopped.
+
+Voice stopped being a screen in the same pass: every card on it was a setting,
+so it lives in Settings, which is now four foldable sections rather than nine
+cards in a column.
+
 ### Version numbers that mean something
 
 All three services reported `0.0.1`, which had been true on the first day and
