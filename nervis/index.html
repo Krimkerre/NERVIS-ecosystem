@@ -6138,17 +6138,24 @@ async function ravisSettings(){
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${sHealth.models_known} model(s) visible</span>`:''}</span></div>
    ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${p.enabled?'enabled':'disabled'} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${p.reachable===null?'not probed':(p.reachable?'answering':'not answering')}</span></div>`).join('')}
    <div class="trace-step"><b>credentials</b><span><a href="#" onclick="state.view='Credentials';render();return false" style="color:inherit">RAVIS → Credentials</a></span></div>
-   <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404, and §15.1 keeps mutation off the read-only surface. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
+   <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404. Mutation is not absent from the surface, though: five endpoints write, and the Providers and Credentials screens use four of them. What has no endpoint is <i>settings as a document</i>. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
  $('#content').innerHTML=liveCard+kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis',false],
-   ['Mutations','0','this API is read-only','ravis',false],
+   /* Five, not zero. RAVIS ships PUT and DELETE on provider credentials, PUT
+      on a provider's enabled flag and on its model filter, and PUT on a pool's
+      membership -- and the dashboard's own Providers and Credentials screens
+      call four of them. This tile said the API was read-only on a page that
+      was writing to it. */
+   ['Mutations','5','credentials, enabled, filter, members','ravis',false],
    ['Listen',`${s.listen.host}:${s.listen.port}`,s.listen.tls?'tls':'loopback, no tls','ravis',false]])
- +`<div class="card full"><h3>What a client can change <span class="chip warn">nothing, yet</span></h3>${cell(`
-   <div class="trace-step"><b>mutating endpoints</b><span>none — RAVIS's management API is read-only at M18a</span></div>
-   <div class="trace-step"><b>active profile</b><span>configuration · no endpoint</span></div>
-   <div class="trace-step"><b>provider enable/disable</b><span>configuration · no endpoint</span></div>
-   <div class="trace-step"><b>evidence refresh</b><span>arrives with RAVIS M13</span></div>
+ +`<div class="card full"><h3>What a client can change</h3>${cell(`
+   <div class="trace-step"><b>provider credentials</b><span class="mono">PUT · DELETE /api/v1/providers/credentials/{name}</span></div>
+   <div class="trace-step"><b>provider enable/disable</b><span class="mono">PUT /api/v1/providers/{name}/enabled</span></div>
+   <div class="trace-step"><b>model filter</b><span class="mono">PUT /api/v1/providers/{name}/models</span></div>
+   <div class="trace-step"><b>pool membership</b><span class="mono">PUT /api/v1/pools/{pool_key}/members</span></div>
+   <div class="trace-step"><b>active profile</b><span>still configuration · no endpoint (§15.1)</span></div>
+   <div class="trace-step"><b>evidence refresh</b><span>still no endpoint; RAVIS reads SIRVIS on its own since M13</span></div>
    <div class="trace-step"><b>conformance suite</b><span class="mono">ravis conformance clarvis</span></div>
    <small class="mono dim">this card used to list five actions under a chip reading <b>has an endpoint</b>, with a working-looking button beside each. Not one of them existed: RAVIS publishes nine reads and no writes. The buttons raised a toast and changed nothing, which is worse than an absent control — an operator learns the system does something it does not, and only finds out when it matters. The suite is a real operation and runs on the CLI, which is where it is named.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Serving surface</h3>${cell(`

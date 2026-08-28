@@ -3390,10 +3390,13 @@ about a setting nobody publishes. Beside it: the upstream's actual answer, each
 provider's enabled state, credential source and reachability, and a link to the
 Credentials screen that does allow a change.
 
-**NERVIS Settings** is the shortest, because the honest answer is that **NERVIS
-has no service to configure.** M0 — package, FastAPI, SQLite, migrations,
-`nervis serve` — has never been built; `nervis/` is one HTML file served
-statically. The endpoints this dashboard talks to *are* its configuration, so
+**NERVIS Settings** was the shortest, on the reasoning that **NERVIS had no
+service to configure**: M0 — package, FastAPI, SQLite, migrations, `nervis
+serve` — was unbuilt and `nervis/` was one HTML file served statically. M0
+shipped, NERVIS serves this page and answers `/api/v1/settings`, and the screen
+now reads it. The paragraph is kept because the reasoning it records is still
+how this dashboard decides what a settings screen may claim. The endpoints this
+dashboard talks to were then its configuration, so
 each is listed with whether it actually answered, alongside the two pieces of
 state it does hold: conversations in this browser, and a runtime token for this
 tab.

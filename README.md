@@ -117,10 +117,15 @@ file.
 
 ## Current state
 
-**Clarvis** (`../clarvis`) and **RAVIS** (`ravis/`) exist as code; SIRVIS and NERVIS are still
-specifications. [`STATUS.md`](./STATUS.md) is the file that says how far RAVIS has got and how
-to check it in four commands — this section deliberately says no more than that, because two
-places tracking the same number is how one of them starts lying.
+**Clarvis** (`../clarvis`), **RAVIS** (`ravis/`), **SIRVIS** (`sirvis/`) and **NERVIS**
+(`nervis/`) all exist as code, and all three of this repository's services run.
+[`STATUS.md`](./STATUS.md) is the file that says how far each has got and how to check it in
+four commands — this section deliberately says no more than that, because two places tracking
+the same number is how one of them starts lying.
+
+That sentence previously said SIRVIS and NERVIS were still specifications, which stopped being
+true many milestones ago and stayed on the front page — the exact failure the paragraph above
+warns about, in the file that warns about it.
 
 The single most useful verified fact in this set, because it determines the build order:
 
