@@ -192,6 +192,12 @@ jobs:
       - name: provider data cannot write markup into the page
         run: node tools/injection_check.js
         working-directory: nervis
+      # Every screen has an address that survives a round trip, and an address
+      # nobody can serve resolves to a real screen with the correction stated.
+      # "Run & debug" is the view that catches an unencoded fragment.
+      - name: every screen is addressable
+        run: node tools/routing_check.js
+        working-directory: nervis
 
   nervis:
     name: nervis — lint, types, tests

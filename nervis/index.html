@@ -570,6 +570,118 @@ const APP_CONFIG={
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
+/* ── ROUTING ───────────────────────────────────────────────────────────────
+   §25.2: "There is none — no hash, no pushState, no popstate. State is
+   {app, view} in a global, so there are no deep links and no back button. A
+   dashboard whose purpose includes sending someone a route decision needs to
+   be able to address one."
+
+   **The fragment, not a path.** `nervis/src/nervis/web.py` serves exactly two
+   routes — `/` redirects to `/index.html`, which is one FileResponse — and
+   mounts nothing else. `pushState('/ravis/routes')` would look right until
+   somebody reloaded or followed the link, and then 404. A fragment needs no
+   server at all, which also keeps the page working opened from disk, the one
+   property this file is written never to lose.
+
+   **The spelling is the one the page already uses.** `TILE_CAPABILITY` keys
+   screens as `nervis/Ecosystem map`, and `requiredCapability` builds that key
+   from `state`. A router inventing `#/nervis/ecosystem-map` would be a second
+   naming for the same thing, and the two would drift.
+
+   **The token shares this fragment**, and got there first. The launcher opens
+   the dashboard with `#token=…`, read once into memory and erased before it can
+   reach a bookmark or a Referer. That erase used to take the whole fragment
+   with it, which would have deleted a route on every cold start — and it fires
+   on `DOMContentLoaded` and `load`, both *after* the first render, so the bug
+   would have looked like "the URL forgets where I was" rather than like a
+   scrub. It now removes only its own parameter. */
+const ROUTE_PREFIX='#/';
+
+/* What the address bar is currently asking for, or null when it asks for
+   nothing. Never trusted: `resolveRoute` decides whether it names a screen. */
+function routeFromHash(){
+ const hash=(location.hash||'').replace(/^#/,'');
+ const path=hash.split('&').find(part=>part.startsWith('/'));
+ if(!path)return null;
+ const [,app,...rest]=path.split('/');
+ if(!app||!rest.length)return null;
+ return{app:decodeURIComponent(app),view:decodeURIComponent(rest.join('/'))};
+}
+
+/* The address for a screen. Views carry spaces and an ampersand — "Runtime
+   sets", "Run & debug" — so each segment is encoded; without that, `Run & debug`
+   would end at the `&` and read as a second fragment parameter. */
+function hashFor(app,view){
+ return ROUTE_PREFIX+encodeURIComponent(app)+'/'+encodeURIComponent(view);
+}
+
+/* Whether a route names a screen that exists, and what to do when it does not.
+   Returns the resolved screen plus a note when the address was corrected, so
+   the correction can be *said* rather than performed silently — `nav()` already
+   coerces an unknown view to the first one, and a URL somebody pasted deserves
+   better than being quietly replaced by the Overview. */
+function resolveRoute(route){
+ if(!route)return{app:state.app,view:state.view,note:''};
+ const config=APP_CONFIG[route.app];
+ if(!config)return{app:'nervis',view:'Overview',
+   note:`no app called “${route.app}” — showing the overview`};
+ if(!config.nav.includes(route.view))return{app:route.app,view:config.nav[0],
+   note:`${config.name} has no “${route.view}” screen — showing ${config.nav[0]}`};
+ return{app:route.app,view:route.view,note:''};
+}
+
+/* Where a correction is remembered until a render can show it. A toast fired
+   here would be gone before the first paint, since this runs before it. */
+let ROUTE_NOTE='';
+
+/* The single navigation entry point.
+   Every `state.view=…;render()` in the file went through this, because a
+   navigation that does not reach the address bar is exactly the state §25.2
+   describes — and there were nine of them, each one a place to forget. */
+function go(app,view,{replace=false}={}){
+ const target=resolveRoute({app,view});
+ state.app=target.app;state.view=target.view;
+ ROUTE_NOTE=target.note;
+ const url=location.pathname+location.search+hashFor(state.app,state.view);
+ /* `replace` for a correction, `push` for a navigation: rewriting an address
+    the reader never chose should not cost them a press of Back. */
+ if(replace)history.replaceState(null,'',url);else history.pushState(null,'',url);
+ render();
+}
+
+/* Back and forward, and a fragment somebody typed.
+   Reads the address rather than a remembered stack, so both arrive at the same
+   place — but they arrive through *different events*, which is the part that
+   was wrong here first. `popstate` fires for history traversal; setting the
+   fragment directly fires `hashchange` and no `popstate` at all. This comment
+   claimed to handle a hand-edited fragment while listening for the one event
+   that never fires for it, and the symptom was an address bar naming one screen
+   while the page showed another — found by driving a real browser, because the
+   check harness delivers neither event.
+
+   `pushState` raises neither, so `go` cannot re-enter through this. */
+function routeChanged(){
+ const target=resolveRoute(routeFromHash());
+ if(target.app===state.app&&target.view===state.view&&!target.note)return;
+ state.app=target.app;state.view=target.view;ROUTE_NOTE=target.note;
+ /* Correct the address *here*, before rendering, and this is load-bearing
+    rather than tidiness. An address that stays wrong is re-resolved by the next
+    event, which produces the same note, which re-renders — and the second
+    render rebuilds the content region without the banner the first one had just
+    prepended, so the correction was applied and then made invisible. The
+    symptom was a screen quietly different from the one the URL named, with
+    nothing on screen saying so: the exact failure the note exists to prevent.
+    Rewriting the fragment makes the next resolve agree, and the guard above
+    then stops the second render.
+
+    Replace rather than push: the reader never chose this address, so undoing it
+    should not cost them a press of Back. */
+ if(target.note)history.replaceState(null,'',
+   location.pathname+location.search+hashFor(target.app,target.view));
+ render();
+}
+addEventListener('popstate',routeChanged);
+addEventListener('hashchange',routeChanged);
 /* ── ABSENCE VOCABULARY ───────────────────────────────────────────────────
    Every figure on screen belongs to a service, and no service is assumed
    present. These are NERVIS's *observer-side* registry states, deliberately
@@ -2985,7 +3097,7 @@ const DEMO_API={
     reaches a real service. SIRVIS owns load and unload (§9), and the session it
     returns is a lease: it is visible on the Runtime screen and released there,
     rather than started here and forgotten. */
- loadModel(){state.app='sirvis';state.view='Runtime';render()}};
+ loadModel(){go('sirvis','Runtime')}};
 
 /* ── CLARVIS_BRIDGE ─────────────────────────────────────────────────────────
    The one channel by which a real Clarvis drives the header avatar. This is not
@@ -3047,7 +3159,7 @@ function focusClarvisView(view){
  notify(v.panel)}
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
  _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
-function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;if(state.app==='clarvis')focusClarvisView(state.view);render()})}
+function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
    lets this one speak for it — see CLARVIS_BRIDGE below. */
@@ -3495,7 +3607,7 @@ async function eventsView(){
     <div class="trace-step"><b>redaction</b><span>at the producer, never at the hub</span></div>
     <small class="mono dim">no prompt, completion, source or path travels in an envelope — a trace says what happened and how long it took, not what was said. This was a card headed <b>specified, not built</b>, which had stopped being true: the hub ships, and a stored event carries every field listed here.</small>`)}
    ${explains('where routing and benchmark history live instead',`
-    <div class="trace-step"><b>routing decisions</b><span><a href="#" onclick="state.view='Traces';render();return false" style="color:inherit">Traces</a> · live</span></div>
+    <div class="trace-step"><b>routing decisions</b><span><a href="#" onclick="go(state.app,'Traces');return false" style="color:inherit">Traces</a> · live</span></div>
     <div class="trace-step"><b>benchmark history</b><span>SIRVIS → Results · live</span></div>
     <small class="mono dim">RAVIS records a decision per request and SIRVIS records every benchmark run. Neither is an event stream, and both answer most of what someone opens this screen to ask.</small>`)}`,'nervis')}</div>`;
 }
@@ -4489,7 +4601,18 @@ let RUNTIME_TOKEN='';
     for anchor scrolling once the document finishes, and it can reappear in the
     address bar afterwards. Observed on a cold-start test — the token was picked
     up, so this ran, and the fragment was back by the time the page settled. */
- const scrub=()=>{ if(location.hash)history.replaceState(null,'',location.pathname+location.search); };
+ /* Only the token. This used to erase the whole fragment, which was correct
+    while the fragment held nothing else — and would have deleted the route on
+    every launcher start now that it does. Both scrubs below fire after the
+    first render, so the symptom would have been an address bar that forgets
+    the screen you are on rather than anything that looked like a scrub. */
+ const scrub=()=>{
+  const kept=(location.hash||'').replace(/^#/,'').split('&')
+    .filter(part=>part&&!part.startsWith('token='));
+  const rest=kept.length?'#'+kept.join('&'):'';
+  if((location.hash||'')!==rest)
+   history.replaceState(null,'',location.pathname+location.search+rest);
+ };
  scrub();
  addEventListener('DOMContentLoaded',scrub);
  addEventListener('load',scrub);
@@ -6391,7 +6514,7 @@ async function ravisSettings(){
    ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(dash(sDiag.identity.build_version))}</span></div>`:''}
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${escapeHtml(sHealth.models_known)} model(s) visible</span>`:''}</span></div>
    ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${escapeHtml(p.enabled?'enabled':'disabled')} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${escapeHtml(p.reachable===null?'not probed':(p.reachable?'answering':'not answering'))}</span></div>`).join('')}
-   <div class="trace-step"><b>credentials</b><span><a href="#" onclick="state.view='Credentials';render();return false" style="color:inherit">RAVIS → Credentials</a></span></div>
+   <div class="trace-step"><b>credentials</b><span><a href="#" onclick="go(state.app,'Credentials');return false" style="color:inherit">RAVIS → Credentials</a></span></div>
    <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404. Mutation is not absent from the surface, though: five endpoints write, and the Providers and Credentials screens use four of them. What has no endpoint is <i>settings as a document</i>. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
  $('#content').innerHTML=liveCard+kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
@@ -6489,7 +6612,7 @@ async function ravisCredentials(){
     <div class="trace-step"><b>permissions</b><span>0600 — owner only</span></div>
     <div class="trace-step"><b>also read from</b><span>macOS Keychain, then environment</span></div>
     <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
-    <div class="trace-step"><b>Fish Audio key</b><span><a href="#" onclick="state.app='nervis';state.view='Settings';render();return false" style="color:inherit"><b>NERVIS &rarr; Settings</b></a></span></div>
+    <div class="trace-step"><b>Fish Audio key</b><span><a href="#" onclick="go('nervis','Settings');return false" style="color:inherit"><b>NERVIS &rarr; Settings</b></a></span></div>
     <small class="mono dim">the same protection as the SSH private key sitting next to it — encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too.<br><br>every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: §18.2 keeps voice credentials in NERVIS's own storage, and the deciding reason is the privacy gate — whether a sentence may reach a cloud voice depends on <i>which model produced it</i>, a fact NERVIS holds and RAVIS would have to be told.</small>`)}`,'ravis')}</div>
 
   ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`
@@ -7454,7 +7577,7 @@ function voicePickerRow(){
  const set=SPEECH.settings;
  if(!set||!set.credential||!set.credential.configured)return '';
  const saved=set.profiles||[];
- if(!saved.length)return `<small class="mono dim" style="grid-column:1/-1">a key is configured but no voice is named yet — add one on <a href="#" onclick="state.view='Settings';render();return false" style="color:inherit"><b>Settings</b></a>.</small>`;
+ if(!saved.length)return `<small class="mono dim" style="grid-column:1/-1">a key is configured but no voice is named yet — add one on <a href="#" onclick="go(state.app,'Settings');return false" style="color:inherit"><b>Settings</b></a>.</small>`;
  return `<label style="grid-column:1/-1">Voice
    <select style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
      onchange="VOICE.flag('selected_profile',this.value)">
@@ -8346,6 +8469,17 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
  if(state.app==='ravis')await ravis();if(state.app==='clarvis')await clarvis();
  /* What this render fell back on, for `recoverable()`. Taken here because it
     describes the screen now on display; `SOURCE` keeps changing after it. */
+ /* A corrected address, said on the screen it landed on.
+    `nav()` has always coerced an unknown view to the first one and said
+    nothing, which is fine for an internal inconsistency and wrong for a link
+    somebody was sent: silently showing a different screen than the one the URL
+    named is the page being confidently wrong about what it is showing. Cleared
+    once shown, so it does not follow the reader around. */
+ if(ROUTE_NOTE){
+  $('#content').innerHTML=banner('That link did not name a screen',
+    escapeHtml(ROUTE_NOTE),'warn')+$('#content').innerHTML;
+  ROUTE_NOTE='';
+ }
  RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');
  markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar
@@ -8545,10 +8679,30 @@ function setZen(on){document.querySelector('.app').classList.toggle('zen',on);do
 addEventListener('keydown',e=>{if(e.key==='Escape')setZen(false)});
 /* The wordmark is a home link: back to the NERVIS overview from anywhere,
    including a Clarvis workspace in focus mode. Same state reset as a tab click. */
-const goHome=()=>{setZen(false);state.app='nervis';state.view='Overview';render()};
+const goHome=()=>{setZen(false);go('nervis','Overview')};
 $('#brandHome').onclick=goHome;
 $('#brandHome').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();goHome()}};
-$$('.tab').forEach(t=>t.onclick=()=>{setZen(false);state.app=t.dataset.app;state.view=APP_CONFIG[state.app].nav[0];render()});
+$$('.tab').forEach(t=>t.onclick=()=>{setZen(false);go(t.dataset.app,APP_CONFIG[t.dataset.app].nav[0])});
+
+/* Resolve the address *before* the first paint, not after it.
+   `applyTheme()` reads `APP_CONFIG[state.app]` with no guard and `render()`
+   calls it first, so an app name from a pasted URL reaching `state` unchecked
+   blanks the page on load — which is why this goes through `resolveRoute`
+   rather than assigning what the fragment said.
+
+   `replaceState`, because the reader did not navigate here: they arrived. A
+   push would put an entry behind the first screen and make Back do nothing
+   visible, which is the small wrongness that makes a router feel broken. */
+(function(){
+ const opened=routeFromHash();
+ const target=resolveRoute(opened);
+ state.app=target.app;state.view=target.view;ROUTE_NOTE=target.note;
+ /* Written even when the address was empty, so every screen is addressable
+    from the moment it is on screen rather than only after the first click. */
+ history.replaceState(null,'',location.pathname+location.search
+   +hashFor(state.app,state.view));
+})();
+
 render();
 
 /* Start polling the registry, and stop while the tab is hidden.
