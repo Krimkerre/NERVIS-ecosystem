@@ -1821,7 +1821,13 @@ const API={
    try{
     const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit='+(limit||25),
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(r.ok){const d=await r.json();if((d.items||[]).length)return{items:d.items,live:true}}
+    /* **Answered-with-nothing is not the same as did-not-answer**, and this
+       line used to conflate them: it reported `live` only when the list came
+       back non-empty, so a RAVIS that had just restarted — the decision log is
+       in memory — was treated as unreachable and the screens fell back to
+       invented routes. `live()` above has always drawn the line correctly; this
+       hand-rolled fetch did not. */
+    if(r.ok){const d=await r.json();return{items:d.items||[],live:true}}
    }catch(e){}
    return{items:[],live:false};
   },
@@ -2516,9 +2522,13 @@ const API={
    try{
     const r=await fetch(BASE.nervis+'/api/v1/events?limit=40',
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    /* Ok-but-empty is live, not absent — the same line `decisions()` had
+       wrong. A hub that has recorded nothing yet is answering, and falling
+       back to the mock here put invented events on the Overview of a running
+       service whose real answer was "none". */
     if(r.ok){
      const d=await r.json();
-     if((d.items||[]).length)return{...d,live:true};
+     return{...d,items:d.items||[],live:true};
     }
    }catch(e){}
    return this._eventsMock();
@@ -4992,6 +5002,24 @@ function recentDecisionsCard(items){
 }
 
 function liveRoutesScreen(decisions,prof){
+ /* **RAVIS answering with nothing is not RAVIS being down**, and this screen
+    could not say so: it read `decisions[0]` straight away, so the only thing
+    keeping it from throwing was `decisions()` reporting an empty-but-successful
+    response as a failure and handing back a mock instead. That made a restarted
+    RAVIS — whose decision log is in memory and starts empty — render invented
+    routes, and the Overview tile beside it say "RAVIS not answering" while
+    RAVIS answered every request put to it.
+    The log is bounded and in memory, so empty is the ordinary state after a
+    restart rather than an error worth dressing up. */
+ if(!decisions.length){
+  const chosen=prof.items.find(p=>p.default)||prof.items[0];
+  $('#content').innerHTML=`<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/route-decisions</span></div>
+   <div class="trace-step"><b>returned</b><span>an empty list — RAVIS is answering</span></div>
+   <div class="trace-step"><b>active profile</b><span>${chosen?escapeHtml(chosen.label):'—'}</span></div>
+   <small class="mono dim">route decisions are kept <b>in memory and bounded</b>, so a restart empties them and that is the intended trade — §17 does not list them as stored state. Send a request through <span class="mono">ravis/auto</span> and the funnel, the fallback chain and the candidate snapshot appear here for it.</small>`,'ravis')}</div>`;
+  return;
+ }
  const newest=decisions[0];
  const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default)||prof.items[0];
  const considered=(newest.considered||[]).length;
