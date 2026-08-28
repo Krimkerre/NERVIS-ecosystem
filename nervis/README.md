@@ -33,12 +33,17 @@ handler for it. Processes ordered by memory rather than CPU, and named without
 their command line — §15 forbids publishing a raw workspace path, and an
 argument list is where one appears.
 
-Eight of the ten capabilities §3.1 names are `unavailable`, each naming its
-milestone. `nervis.registry@1` is available. `nervis.dashboard@1` is `degraded`:
-the shell, this machine's telemetry and the registry are served, and the rest of
-the peer data on it still comes from RAVIS and SIRVIS directly. **Nothing
-advertises an operation it cannot perform** — §4.1 forbids it, and both sibling
-services spent milestones learning why.
+Four of the eleven capabilities §3.1 names are `unavailable`, each naming its
+milestone; four are `degraded` and three are `available`. **Nothing advertises
+an operation it cannot perform** — §4.1 forbids it, and both sibling services
+spent milestones learning why.
+
+The harder half of that rule is the other direction, and this file has been
+wrong about it twice: a capability must not go on citing a limit that has since
+been lifted. `nervis.dashboard@1` deferred to "M2" long after M2 shipped, and
+`nervis.ravis_chat@1` waited on a RAVIS marker that RAVIS M16 now honours. A
+stale reason is a working feature hidden behind an excuse, and a peer reading
+one plans around a limit that is gone.
 
 **M2** adds `/api/v1/services` — §5.1's registry, probed on a timer, and §5.2's
 capability negotiation per operation. The states are NERVIS's own observer-side
@@ -90,11 +95,19 @@ frames reach the browser unchanged; what NERVIS adds is keeping the text and
 cancelling RAVIS when the connection goes away. A cancelled reply is stored as
 the partial the reader actually saw, marked `interrupted`.
 
-**Titles are truncated from the first message, never generated.** §7 wants them
-produced as a RAVIS background call carrying §9.6.1's marker, and RAVIS honours
-that marker nowhere — so a generated title would route as ordinary work and
-could select a paid model for a string nobody reads. §7's own words: an untitled
-conversation is a smaller failure than a title billed to a frontier model.
+**Titles are generated as RAVIS background calls, when a credential allows it.**
+§7 wants them produced that way, carrying §9.6.1's marker, and RAVIS M16 honours
+the marker — from an *authenticated* identity, so NERVIS presents a client
+credential and RAVIS resolves it to the `nervis` application. Without one it
+stays anonymous, the marker is ignored, and titles remain the truncation of the
+first message.
+
+That fallback is the design rather than a gap, and every failure takes it: no
+credential, no RAVIS, a refusal, an empty answer. §7's own words are why — an
+untitled conversation is a smaller failure than a title billed to a frontier
+model — so retrying or falling back to a paid route would invert the trade the
+feature exists to respect. A generated title replaces the truncation and never a
+name a person typed.
 
 **It is not Clarvis chat.** No workspace, no tools, no gates, no agent role, and
 a test asserts none of them appear in the body sent to RAVIS — because the

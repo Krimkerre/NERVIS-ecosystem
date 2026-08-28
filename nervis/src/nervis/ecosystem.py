@@ -41,10 +41,17 @@ DECLARED: dict[str, Capability] = {
     # from RAVIS and SIRVIS directly, so NERVIS is the page's host and not yet
     # its source. A peer reading `available` would expect to ask NERVIS for
     # dashboard data and get it.
+    # Degraded, and the reason had to be rewritten rather than kept: it said
+    # "peer data lands at M2" while M2 has shipped and `nervis.registry@1` is
+    # advertised `available`, so this row was describing a limit that no longer
+    # existed. What actually keeps it short of available is the runbook's own
+    # Stage 6 wording — the prototype has to stop being one — and screens that
+    # still render invented data mark themselves rather than being listed here.
     "nervis.dashboard@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="the shell and this machine's telemetry are served; peer data lands at M2",
+        reason="the shell, this machine's telemetry and live peer data are served; "
+        "some screens still render prototype data until Stage 6 rebuilds them",
     ),
     # Available: the hub itself is complete — §4.4's envelope, HTTP ingestion,
     # bounded persistence with retention, §11.2's filters and an SSE broadcast
@@ -70,16 +77,21 @@ DECLARED: dict[str, Capability] = {
         reason="§11.2's correlation, waterfall and gap marking are served; "
         "cross-service traces need RAVIS M18b and SIRVIS M21 to publish events",
     ),
-    # Degraded rather than available, and the gap is one named thing. §7 lists
-    # conversation titles as a RAVIS *background call* carrying §9.6.1's marker;
-    # RAVIS defines `may_declare_background_calls` and honours it nowhere, so
-    # NERVIS titles a conversation by truncating its first message instead.
-    # Everything else §7 asks of the MVP is served.
+    # **The named gap has closed, and this is now a fact about configuration.**
+    # It read "generated titles wait for RAVIS to honour §9.6.1's marker" —
+    # true until RAVIS M16, and stale the moment M16 landed. A reason naming a
+    # milestone that has since shipped is the same defect as a capability stuck
+    # on `unavailable`: a peer reads it and plans around a limit that is gone.
+    #
+    # Titles are generated now, but only from an authenticated identity, so the
+    # honest advertisement depends on whether a RAVIS client credential is
+    # configured — the same shape as `nervis.voice@1` and for the same reason.
+    # `advertise_chat` sets it at startup; this literal is the unconfigured case.
     "nervis.ravis_chat@1": Capability(
         version="1.0.0",
         state=DEGRADED,
         reason="chat, streaming, history and the route inspector are served; "
-        "generated titles wait for RAVIS to honour §9.6.1's background marker",
+        "generated titles need a RAVIS client credential, and none is configured",
     ),
     # Degraded, and the missing half is named. §9's read surfaces are served —
     # inventory, state, Runtime Sets, results, evidence, recommendations, with
@@ -161,6 +173,34 @@ def nervis_surface(service_id: str, machine_id: str, database: object) -> Ecosys
         declared=dict(DECLARED),
         checks={"database": database_answers},
     )
+
+
+def advertise_chat(surface: EcosystemSurface, credentialed: bool) -> None:
+    """Say whether chat can generate titles, which depends on a credential.
+
+    §7 wants conversation titles produced as a RAVIS background call, and
+    RAVIS §9.6.1 honours the marker only from an authenticated identity. So the
+    difference between `degraded` and `available` here is not what NERVIS has
+    built — it is whether an operator has given it a credential to present.
+
+    Mirrors `advertise_voice` exactly, including the revision bump, so a peer
+    caching capabilities learns the answer changed without a restart.
+    """
+    declared = surface.declared
+    if not isinstance(declared, dict):  # pragma: no cover - constructed as a dict
+        return
+    declared["nervis.ravis_chat@1"] = Capability(
+        version="1.0.0",
+        state=AVAILABLE if credentialed else DEGRADED,
+        reason=(
+            "chat, streaming, history, the route inspector, and generated titles "
+            "as RAVIS background calls (§9.6.1)"
+            if credentialed
+            else "chat, streaming, history and the route inspector are served; "
+            "generated titles need a RAVIS client credential, and none is configured"
+        ),
+    )
+    surface.revision += 1
 
 
 def advertise_voice(surface: EcosystemSurface, configured: bool) -> None:

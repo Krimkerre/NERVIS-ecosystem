@@ -1178,7 +1178,7 @@ and §20.1 maps these milestones onto its stages.
 | **M11** | Sessions — `RoutingSession`, affinity, sticky routes | Isolation, correlation and retention tests pass |
 | **M12** | Health, retries and fallbacks — circuit breaker, retry budget, failure classification | Fallback never violates Clarvis pool invariants; cancellation never triggers fallback |
 | **M13** | SIRVIS evidence integration — evidence keyed by family, variant/build, runtime config, machine, role, suite | No one-number-per-model shortcut; repeated-measurement statistics preserved; provenance never upgraded |
-| **M14** | Local lifecycle intelligence — HOT/WARM/COLD, load penalty, resource awareness. **Split:** the observation half (residency preference, memory pressure) is Stage 3; the load-versus-don't tradeoff stays at Stage 5, since it needs M11's session length and M13's evidence | Memory pressure produces a safe route change |
+| **M14** | Local lifecycle intelligence — HOT/WARM/COLD, load penalty, resource awareness. **Split:** the observation half (residency preference, memory pressure) is Stage 3; the load-versus-don't tradeoff is **Stage 6, after M11**, since it needs M11's session length (M13's evidence landed at Stage 5) | Memory pressure produces a safe route change |
 | **M15** | Cost engine — pricing, estimates, actual usage, budgets | No double counting; estimates never presented as invoices |
 | **M16** | Policy engine — application policies, privacy, provider allow/deny, model exclusions, §9.6.1 background-call class. **`ClientApplication` regains `may_declare_background_calls` and `max_privacy_level` here**: both were set on every identity and enforced nowhere, and a field describing an unenforced trust boundary reads as protection, so they were removed rather than left looking live. **Also: a tiebreak that knows about reasoning overhead.** `ravis/auto` breaks a tie on smallest-build-is-cheapest, which on this machine selects a reasoning distill that spends most of a small `max_tokens` budget on reasoning tokens before emitting any content. RAVIS cannot know this from advertised metadata — LM Studio publishes no reasoning flag — so it needs SIRVIS M22b's measurement, not a name-pattern guess. **Also: pool versions and revisions**, which §4.1 makes the advertise-when condition for `ravis.virtual_profiles@1` — the capability is `degraded` until they exist | Each hard constraint provably excludes a top-ranked candidate; a declared background call never selects a paid provider under the default profile; a pool carries a revision a consumer can pin |
 | **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS | — |
@@ -1201,7 +1201,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 2 — transparent gateway and Clarvis conformance | M1 + M2, **wire-level scenarios only** — stream termination and `[DONE]`, fragmented tool-call arguments, tool-call indexes and IDs, tool result IDs, `reasoning_content`, cancellation, fast cached `/v1/models`. Pool separation and fallback are Stage 3 additions to the same suite (§8.8). Plus M10, since an upstream needing a credential cannot be reached without it |
 | Stage 3 — live Clarvis ↔ RAVIS | M9, and with it M3a (the adapter interface M6 filters through), M5 (chat and agent pools resolve independently), M6 (the agent pool refuses a non-tool model), M12 (fallback does not corrupt the stream), **M14** and **M18a** (see the notes below) — each of the first four is named in the stage's own exit criteria. Direct-provider fallback verified |
 | Stage 5 — RAVIS intelligence | M3b + M4 + M7 + M8 (translated path, native and local adapters), M13 (SIRVIS evidence), M16 (policy) |
-| Stage 6 — NERVIS core | M11 + M15 |
+| Stage 6 — NERVIS core | M11 + M15, and **M14's remaining half**, which lands after M11 because that is what supplies expected session length |
 | Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
 | **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
@@ -1263,9 +1263,17 @@ behind a scaler — has the same four problems, so M25b is the serverless
 > machine where every pool request risks a multi-gigabyte load. Preferring what is already
 > loaded needs no ownership of the runtime's lifecycle (§12.2 restricts RAVIS to operations the
 > adapter or SIRVIS owns), which is exactly why this half can land early. **M14's remaining
-> half stays at Stage 5**: the load-versus-don't tradeoff needs expected session length (M11)
+> half moves to Stage 6**: the load-versus-don't tradeoff needs expected session length (M11)
 > and evidence that a cold model is actually better (M13), and RAVIS still neither loads nor
 > unloads anything.
+>
+> **Corrected 2026-08-28.** This said "stays at Stage 5", which cannot be true and was not
+> caught because both halves were read as one milestone: M11 is a *Stage 6* milestone, so a
+> Stage 5 item was declared to depend on one that lands after it. The stage table above never
+> listed M14 under Stage 5 either, so the two disagreed. Stage 5's own exit criteria — all
+> five of them, in the runbook — are met without this half, which is the other way of saying
+> it does not belong there. M13, its evidence dependency, landed at Stage 5; M11 is what it
+> is actually waiting for.
 >
 > This also pulled a **slice of M8** forward: the LM Studio residency probe. M14 is inert
 > without a runtime that reports residency, and a generic OpenAI-compatible endpoint does not.

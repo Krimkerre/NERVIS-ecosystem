@@ -24,6 +24,7 @@ from nervis import chat as store
 from nervis.api.chat import _first_user_message, _forwarded, _title_from
 from nervis.app import create_app
 from nervis.config import Settings
+from nervis.ecosystem import advertise_chat, nervis_surface
 from nervis.registry import RegistryState
 from nervis.storage import prepare_database
 
@@ -1113,3 +1114,45 @@ def test_an_answerless_completion_produces_no_title() -> None:
     """An empty answer leaves the stand-in in place rather than blanking it."""
     assert _title_from({}) == ""
     assert _title_from({"choices": []}) == ""
+
+
+def test_the_chat_capability_follows_the_credential_not_the_build() -> None:
+    """A reason naming a shipped milestone is a capability that lies.
+
+    This read "generated titles wait for RAVIS to honour §9.6.1's background
+    marker" — true until RAVIS M16, stale the moment it landed, and a peer
+    reading it would plan around a limit that no longer existed. What actually
+    decides the state now is whether an operator configured a credential, so
+    that is what it reports.
+    """
+    surface = nervis_surface(service_id="s", machine_id="m", database=prepare_database(":memory:"))
+
+    advertise_chat(surface, credentialed=False)
+    unconfigured = surface.declared["nervis.ravis_chat@1"]
+    advertise_chat(surface, credentialed=True)
+    configured = surface.declared["nervis.ravis_chat@1"]
+
+    assert unconfigured.state == "degraded"
+    assert "none is configured" in unconfigured.reason
+    assert configured.state == "available"
+    assert "§9.6.1" in configured.reason
+    # A peer caching capabilities has to be able to tell the answer changed.
+    assert surface.revision >= 2
+
+
+def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
+    """The drift this file caught twice, pinned so it cannot come back quietly.
+
+    `nervis.dashboard@1` said "peer data lands at M2" while M2 had shipped and
+    `nervis.registry@1` was advertised available. A reason is read by peers to
+    decide what not to attempt, so a stale one is a working feature hidden
+    behind an excuse.
+    """
+    from nervis.ecosystem import DECLARED
+
+    shipped = ("M2", "M3", "M4")
+    for name, capability in DECLARED.items():
+        for milestone in shipped:
+            assert f"lands at {milestone}" not in (capability.reason or ""), (
+                f"{name} defers to {milestone}, which has shipped"
+            )

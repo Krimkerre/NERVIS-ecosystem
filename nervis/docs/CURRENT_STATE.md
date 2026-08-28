@@ -1,8 +1,13 @@
 # Current state
 
-*Snapshot as of 26 Aug 2026. Written so an agent with no memory of how this got here
+*Snapshot as of 28 Aug 2026. Written so an agent with no memory of how this got here
 can be useful in five minutes. If this file and the code disagree, the code is right
 and this file is stale — fix it.*
+
+*Since the 26 Aug snapshot: the voice stack (§18.2's credential gate, personas, the
+chat surface around them), RAVIS M7 and M16, and NERVIS's conversation titles as
+RAVIS background calls. The audit that dated this file also found two capabilities
+citing limits that had been lifted — see `nervis/README.md`.*
 
 *It was stale, and by a lot: it said "NERVIS is still a specification" three days
 after NERVIS became a running service with six milestones behind it. Nothing catches
@@ -25,7 +30,7 @@ frontend, and the data layer below is a client of NERVIS rather than of every
 service at once. `../STATUS.md` says what is actually finished.
 
 **The one rule that has not changed**: it must still render with nothing running.
-`tools/render_check.js` enforces that in CI now, across all 34 screens.
+`tools/render_check.js` enforces that in CI now, across all 35 screens.
 
 ## Architecture, in one pass
 

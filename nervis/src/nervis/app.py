@@ -30,7 +30,12 @@ from nervis.api import chat_router, events_router, instances_router, traces_rout
 from nervis.api import router as api_router
 from nervis.api.chat import seed_chat_defaults
 from nervis.config import Settings
-from nervis.ecosystem import BUILD_VERSION, advertise_voice, nervis_surface
+from nervis.ecosystem import (
+    BUILD_VERSION,
+    advertise_chat,
+    advertise_voice,
+    nervis_surface,
+)
 from nervis.enrollment import load_or_create
 from nervis.errors import NervisError, to_response
 from nervis.events import Hub
@@ -108,6 +113,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # §18.2: advertised only when configured. Read once here and kept current by
     # the credential endpoints, so the answer never needs a restart to be true.
     advertise_voice(api.state.ecosystem, api.state.voice_credential.configured())
+    # §7's generated titles are RAVIS background calls, and RAVIS honours the
+    # marker only from an authenticated identity — so what this advertises
+    # depends on whether a credential was configured, not on what NERVIS built.
+    advertise_chat(api.state.ecosystem, bool(settings.ravis_client_credential))
 
     # §5.1's registry, built from configuration alone. A declaration whose
     # endpoint fails the SSRF guard is dropped and recorded rather than raised:

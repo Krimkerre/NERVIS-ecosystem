@@ -271,10 +271,19 @@ def _milestones(section: str) -> list[str]:
     check that treated them as different would miss exactly the contradiction it
     exists to catch. Service prefixes are kept where present so that SIRVIS M10
     and RAVIS M10 — genuinely different milestones — never collide.
+
+    **Table rows only**, which is what this check has always claimed to compare:
+    the Done table against the Next table. Reading bold anywhere also read bold
+    *prose*, and a sentence like "**M15's acceptance, met.**" put a bare M15
+    into the Done set — which then collided with "RAVIS M15" in Next and
+    reported a contradiction that existed only in a comment about a different
+    service's milestone.
     """
     return [
         " ".join(found.split())
-        for span in _BOLD.findall(section)
+        for line in section.splitlines()
+        if line.lstrip().startswith("|")
+        for span in _BOLD.findall(line)
         for found in _MILESTONE.findall(span)
     ]
 
@@ -355,6 +364,18 @@ def self_test() -> list[str]:
     check_next_milestone_is_not_already_done(prose_only, misread)
     if misread:
         problems.append(f"self-test: a milestone named only in prose was read as next: {misread}")
+
+    # Bold prose is commentary, not a claim that a milestone is done. The Done
+    # section is full of it, and reading it as a declaration invents collisions
+    # between services that share a milestone number.
+    prose_bold = (
+        "### Done\n| 1 | **SIRVIS M15** | done |\nSome note: **M15's acceptance, met.**\n"
+        "### Next\n| 1 | **RAVIS M15** | later |\n### After that\n"
+    )
+    invented: list[str] = []
+    check_next_milestone_is_not_already_done(prose_bold, invented)
+    if invented:
+        problems.append(f"self-test: bold prose was read as a milestone claim: {invented}")
 
     # A declared split must not be reported: it is a recorded decision.
     if not _is_declared_split("M14", text.split("### Next")[0],

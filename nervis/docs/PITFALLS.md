@@ -324,7 +324,7 @@ nothing**.
 
 Since this list was written, three of them became automated:
 
-- **`node tools/render_check.js`** renders all 34 screens with nothing running
+- **`node tools/render_check.js`** renders all 35 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
   render. **Runs in CI.**
 - **`python3 ../tools/check_dead_code.py`** finds definitions and dataclass

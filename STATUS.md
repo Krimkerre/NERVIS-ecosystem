@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1372 tests, no network, no live service
+.venv/bin/pytest                      # part of 1374 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1372 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1374 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2051,16 +2051,23 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
-| 2 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
-| 3 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
+| 1 | **RAVIS M11** | Sessions — `RoutingSession`, affinity, sticky routes. First because it is the blocker: M14's remaining half cannot be built without expected session length |
+| 2 | **The rest of M14** | The load-versus-don't tradeoff, immediately after the thing it waits for |
+| 3 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
+| 4 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
+| 5 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
 
-What is left of Stage 5 is RAVIS's remaining intelligence: the rest of **M14**.
-**M7, M8 and M16 are done**, M16 except for one tiebreak that is blocked on
-SIRVIS M22b and is recorded as unbuilt rather than quietly dropped. Stage 6 is
-NERVIS core — **M11** + **M15**.
+**Stage 5 is complete.** All five of the runbook's exit criteria for it are
+met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —
+has shipped. M16's reasoning tiebreak is the one piece recorded as unbuilt
+rather than quietly dropped; it is blocked on SIRVIS M22b.
+
+**M14's remaining half was filed under Stage 5 and cannot belong there**, which
+the audit below explains: it depends on M11, and M11 is Stage 6. Stage 6 is
+where the work now is — **M11** + **M15** on RAVIS's side, and on NERVIS's the
+larger half, which is the prototype ceasing to be one.
 
 **M3b, M4 and M13 are done, out of stage order**, and all three for the same
 reason: §20.2 holds translation back until the transparent Clarvis slice works,
@@ -4213,6 +4220,12 @@ recorded" rather than error.
 
 ### Titles are truncated, not generated — deliberately
 
+> **Superseded.** RAVIS M16 honours the marker and NERVIS generates titles
+> through it — see *Policy, wired: NERVIS titles as background calls*. Kept
+> because the reasoning is why the feature waited rather than shipping wrong,
+> and because the last paragraph names a gap in the dead-code gate that is
+> still open. Read the rest of this section in the past tense.
+
 §7 wants generated titles as a RAVIS **background call** carrying §9.6.1's
 marker. RAVIS defines `may_declare_background_calls` on its application identity
 and **honours it nowhere**, so a generated title would route as ordinary work
@@ -5048,6 +5061,41 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### Build-order audit, 28 Aug 2026
+
+Run before starting M14, and it changed what to build next. Four findings.
+
+**Stage 5 is complete, and M14's remaining half was filed under it wrongly.**
+The stage table assigns Stage 5 six milestones — M3b, M4, M7, M8, M13, M16 —
+and all six have shipped; the runbook's five exit criteria for it are met. But
+M14's split note said its remaining half *"stays at Stage 5"*, and that half
+needs M11's expected session length. **M11 is a Stage 6 milestone**, so a Stage
+5 item was declared to depend on one that lands after it. The stage table never
+listed M14 under Stage 5 either, so the two had disagreed since the split. Both
+are corrected in `RAVIS.md`, and the half now sits in Stage 6 behind M11.
+
+**Two capabilities were citing limits that had been lifted.**
+`nervis.dashboard@1` deferred to "M2" long after M2 shipped and
+`nervis.registry@1` was advertised `available`; `nervis.ravis_chat@1` said
+generated titles were waiting for RAVIS to honour §9.6.1's marker, which RAVIS
+M16 does. This is the same defect as a capability stuck on `unavailable` and it
+has now happened in both directions in this repository — a peer reads the
+reason and plans around a limit that is gone. Chat's advertisement is now
+conditional on the credential, mirroring `nervis.voice@1`, because what
+separates degraded from available there is configuration rather than code.
+
+**NERVIS's milestones are not tracked in the Done table.** Every row above is a
+RAVIS or SIRVIS milestone, while NERVIS has shipped M0 through M7 and half of
+M8a. Nothing is wrong with the code; the ledger simply does not cover a third of
+the project, and the capability surface has been doing that job instead.
+
+**The order that follows.** M11 first, because it is the blocker rather than
+merely the next number; then M14's remaining half immediately after the thing it
+waits for; then M15. Doing M16 before M11 turns out to have been right for a
+reason nobody planned: a session is keyed to an application, and until M16's
+credential lookup landed, every authenticated caller was a single identity
+called `configured`.
 
 ### Policy, wired: NERVIS titles as background calls
 
