@@ -62,7 +62,16 @@ function cardsOf(html) {
     const title = part.slice(h3 + 4, part.indexOf("</h3>", h3)).replace(/<[^>]*>/g, "").trim();
     /* Digits and identifiers only. Whitespace and markup shift for reasons that
        are not "a service answered", and a check that cries wolf gets ignored. */
-    const body = part.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    /* Controls are stripped before comparing. Since controls became
+       capability-driven, a disabled button carries the owning service's own
+       reason — so a card holding one differs between the two passes even when
+       every number on it is identical. That is the control working, not a data
+       provenance fault, and counting it flagged sixty cards that had nothing
+       wrong with them. This check is about where the *data* came from. */
+    const body = part
+      .replace(/<button[\s\S]*?<\/button>/g, " ")
+      .replace(/title="[^"]*"/g, " ")
+      .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     /* **Keyed by a title with its values stripped, not the raw title.**
        A heading like "Machine mc_7a1f" or "ravis/cheap unavailable" carries the
        data in it, so the same card had two different keys in the two passes and

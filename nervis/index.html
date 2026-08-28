@@ -689,12 +689,94 @@ function gated(service,capability){
    :`${known.label} is ${known.state}`;
  return ` disabled title="${escapeHtml(why)}" style="opacity:.45;cursor:not-allowed"`;
 }
-/* A tile renders its value only if the service that owns it can answer.
-   Otherwise it names the service and the reason — so an empty panel can
-   never be mistaken for a measured zero. */
-function cell(body,src){if(!src||usable(src))return body;const known=SERVICES[src]||{state:'unknown',label:src};
- const st=known.state;
- return `<div class="absent" data-state="${st}"><b>${known.label} ${st}</b><span>${REASON[st]||'no MEP surface to read'}</span></div>`}
+/* Which capability a screen's data actually needs, per service.
+ 
+   **Stage 6's exit asks for tiles that are capability-driven, and `cell` gated
+   on whether the service was *reachable*.** Those are different questions: a
+   RAVIS that is up and has withdrawn `ravis.sessions` answers everything except
+   the thing the Sessions screen exists to show, and the old gate let that
+   screen render as though the surface were fine.
+ 
+   Declared per screen rather than at ninety-five call sites, because a screen
+   reads one surface per service and repeating the answer beside every card is
+   how the copies drift. A screen with no entry falls back to reachability,
+   which is exactly today's behaviour -- so this narrows what is claimed and
+   never widens it. `tools/check.py` counts which screens are in each group.
+ 
+   Four screens are deliberately absent and stay reachability-gated, because no
+   single capability governs them: both Diagnostics screens read `/ecosystem/*`
+   health, which every service publishes and none advertises as a capability;
+   NERVIS's Settings reads its own store; and Downloads has no endpoint at all
+   until SIRVIS M11. Mapping those would mean inventing a capability to satisfy
+   a tool, which is the failure this whole audit was about. */
+const TILE_CAPABILITY={
+ 'nervis/Overview':{nervis:'nervis.registry'},
+ 'nervis/Ecosystem map':{nervis:'nervis.registry'},
+ 'nervis/Events':{nervis:'nervis.event_hub'},
+ 'nervis/Traces':{nervis:'nervis.traces',ravis:'ravis.routing.explanations'},
+ 'nervis/Chat':{ravis:'ravis.openai_compatible.chat_completions'},
+ 'nervis/System':{sirvis:'sirvis.inventory.read'},
+ 'sirvis/Dashboard':{sirvis:'sirvis.inventory.read'},
+ 'sirvis/Models':{sirvis:'sirvis.inventory.read'},
+ 'sirvis/Discover':{sirvis:'sirvis.inventory.read'},
+ 'sirvis/Runtime':{sirvis:'sirvis.runtime.state.read'},
+ 'sirvis/Benchmarks':{sirvis:'sirvis.benchmarks.results'},
+ 'sirvis/Results':{sirvis:'sirvis.benchmarks.results'},
+ 'sirvis/Runtime sets':{sirvis:'sirvis.runtime_sets'},
+ 'sirvis/Recommendations':{sirvis:'sirvis.recommendations'},
+ 'ravis/Dashboard':{ravis:'ravis.routing.explanations'},
+ 'ravis/Routes':{ravis:'ravis.routing.explanations'},
+ 'ravis/Sessions':{ravis:'ravis.sessions'},
+ 'ravis/Pools':{ravis:'ravis.virtual_profiles'},
+ 'ravis/Providers':{ravis:'ravis.management'},
+ 'ravis/Credentials':{ravis:'ravis.management'},
+ 'ravis/Policies':{ravis:'ravis.management'},
+ 'ravis/Logs':{ravis:'ravis.management'},
+ 'ravis/Settings':{ravis:'ravis.management'},
+ 'ravis/Evidence':{ravis:'ravis.usage_cost',sirvis:'sirvis.benchmarks.results'},
+};
+
+/* The capability this screen needs from this service, or '' when none is
+   declared and reachability is the whole of the question. */
+const requiredCapability=src=>(TILE_CAPABILITY[`${state.app}/${state.view}`]||{})[src]||'';
+
+/* A tile renders its value only if the service that owns it can answer *this*
+   screen's question. Otherwise it names the service and the reason — so an
+   empty panel can never be mistaken for a measured zero. */
+/* Whether the registry has told us what this service offers. Its own function
+   because `cell` reached complexity 14 asking, and the question is one fact
+   about the reading rather than four decisions about the cell. */
+function capabilitiesKnown(src,need){
+ const advertised=(SERVICES[src]||{}).caps;
+ return Boolean(need)&&REGISTRY_AT>0&&Array.isArray(advertised)&&advertised.length>0;
+}
+
+function cell(body,src){
+ if(!src)return body;
+ const need=requiredCapability(src);
+ /* **Only gate on a capability once the registry has actually answered.**
+ 
+    `SERVICES` is the from-disk fallback, and it carries a *transcribed*
+    capability list — a guess written into the page, not something a service
+    said. Gating on that turned thirty-five cards into "has withdrawn this
+    surface" on a page opened with nothing running, which is a claim nobody was
+    entitled to make: with no registry reading we do not know what any service
+    offers. `REGISTRY_AT` is zero until a real read lands, and until then
+    reachability is the whole of the question — exactly the old behaviour.
+ 
+    Caught by the honesty check, which went from two findings to thirty-seven
+    the moment this gate shipped. Not knowing is not evidence of absence, which
+    is the rule this audit spent a day applying elsewhere. */
+ const known=capabilitiesKnown(src,need);
+ if(known?capable(src,need):usable(src))return body;
+ const service=SERVICES[src]||{state:'unknown',label:src};
+ const st=service.state;
+ /* Reachable but not offering the surface is its own sentence. "RAVIS
+    unreachable" beside a running RAVIS sends a reader to the wrong problem. */
+ const withheld=usable(src)&&known;
+ return `<div class="absent" data-state="${withheld?'incapable':st}"><b>${service.label} ${withheld?'has withdrawn this surface':st}</b><span>${
+   withheld?`${need} is not among the capabilities it currently advertises`:(REASON[st]||'no MEP surface to read')}</span></div>`;
+}
 /* MEASURED / ESTIMATED / UNKNOWN must survive to the pixel: a bare number is
    a claim the underlying evidence may not support. */
 const prov=(kind,detail='')=>`<span class="prov" data-kind="${kind}">${kind}${detail?' · '+detail:''}</span>`;

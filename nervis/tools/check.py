@@ -216,6 +216,26 @@ for comment in re.finditer(r"<!--.*?-->", html, re.DOTALL):
             "backticks."
         )
 
+# Which screens gate their tiles on a capability, and which still gate only on
+# whether the service is reachable.
+#
+# Stage 6's exit asks for tiles that are capability-driven. `cell()` consults
+# `TILE_CAPABILITY` per screen and falls back to reachability where no entry
+# exists — which is the old behaviour, and therefore invisible unless something
+# counts it. Reported rather than enforced: several screens genuinely read no
+# peer surface (the CLARVIS panel, NERVIS's own Settings), and demanding an
+# entry for those would mean inventing a capability to satisfy a tool.
+declared = set(re.findall(r"^\s*'([^']+)':\{", html[html.find("const TILE_CAPABILITY"):
+                                                     html.find("const requiredCapability")], re.M))
+navs = re.findall(r"(\w+):\{name:'[^']*'.*?nav:\[([^\]]*)\]", html, re.S)
+screens = {f"{app}/{view.strip().strip(chr(39))}"
+           for app, views in navs for view in views.split(",") if view.strip()}
+ungated = sorted(s for s in screens if s not in declared and not s.startswith("clarvis/"))
+print(f"\n{len(declared)} screen(s) gate tiles on a capability; "
+      f"{len(ungated)} still gate on reachability alone:")
+for screen in ungated:
+    print("  ", screen)
+
 print(f"{len(endpoints)} endpoints cited, all defined in the specs:"
       if not uncited else f"{len(endpoints)} endpoints cited:")
 for e in endpoints:
