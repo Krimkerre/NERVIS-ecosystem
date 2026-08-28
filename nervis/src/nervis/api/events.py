@@ -16,11 +16,17 @@ import asyncio
 import json
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from nervis.errors import InvalidConfigurationError
 from nervis.events import Rejected, ends_stream, heartbeat, sse_frame
+
+# How far back a resuming subscriber is replayed in one connection. Named rather
+# than a literal in the call, because it is a *policy*: past this the client is
+# better served by the 409 above, and a bare 500 in the middle of a generator
+# reads as an implementation detail nobody chose.
+RESUME_LIMIT = 500
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
@@ -131,12 +137,43 @@ async def stream(request: Request) -> StreamingResponse:
     # history to whoever asked. A new subscriber wants what happens next, and a
     # short tail for context; a resuming one says where it stopped.
     fresh = not resume
-    start = max(0, hub.latest_sequence() - FRESH_TAIL) if fresh else _int(resume, 0)
+    # **A cursor that is not a number is not a cursor.** The comment above
+    # records this exact bug being fixed for the *no-cursor* case and it
+    # survived untouched for the bad-cursor case: `_int("abc", 0)` is 0, `fresh`
+    # is False because the header was present, and the stream then replayed the
+    # oldest retained events to a client that asked for something unreadable.
+    # Refusing is the only answer that cannot be mistaken for data.
+    start = max(0, hub.latest_sequence() - FRESH_TAIL) if fresh else _int(resume, -1)
+    if start < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "EVENT_CURSOR_INVALID",
+                    "message": f"{resume!r} is not a sequence number"},
+        )
+    # Runbook §4.1: "A cursor outside retention returns 409
+    # `EVENT_CURSOR_EXPIRED`." Retention deletes by age and by count, so a
+    # client that was away long enough is asking for events that no longer
+    # exist. Resuming it from whatever survived would hand it a stream with a
+    # hole in it and no way to know — the same silence the gap frame exists to
+    # break, arriving through the front door.
+    oldest = hub.oldest_sequence()
+    if not fresh and oldest and start < oldest - 1:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "EVENT_CURSOR_EXPIRED",
+                    "message": f"cursor {start} is older than the retention floor {oldest}",
+                    "oldest_sequence": oldest,
+                    "latest_sequence": hub.latest_sequence()},
+        )
 
     async def frames() -> AsyncIterator[bytes]:
         queue = hub.subscribe()
         try:
-            for missed in hub.query(after=start, limit=FRESH_TAIL if fresh else 500):
+            # Runbook §4.1: "Reconnect advertises `retry: 3000`." Sent first and
+            # once — a client that loses the connection reconnects on its own
+            # schedule otherwise, and the default differs by browser.
+            yield b"retry: 3000\n\n"
+            for missed in hub.query(after=start, limit=RESUME_LIMIT if not fresh else FRESH_TAIL):
                 yield sse_frame(missed)
             # Tells a client the backlog is done and everything after this is
             # live. Without it, a burst of replay and a burst of new events are

@@ -333,6 +333,20 @@ class Hub:
         )
         return [dict(row) for row in rows]
 
+    def oldest_sequence(self) -> int:
+        """The retention floor: the lowest sequence still stored, or 0 when empty.
+
+        A cursor at or above this can still be honoured; one below it is asking
+        for events that have been deleted, which runbook §4.1 says answer 409
+        `EVENT_CURSOR_EXPIRED` rather than silently resuming from whatever
+        survived. `sequence` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so numbers
+        are never reused and this is a well-defined floor rather than a guess.
+        """
+        row = self._database.connection.execute(
+            "SELECT COALESCE(MIN(sequence), 0) AS n FROM event"
+        ).fetchone()
+        return int(row["n"])
+
     def latest_sequence(self) -> int:
         row = self._database.connection.execute(
             "SELECT COALESCE(MAX(sequence), 0) AS n FROM event"
@@ -453,13 +467,30 @@ def sse_frame(event: Mapping[str, Any]) -> bytes:
     `id:` carries the sequence rather than the `event_id`, because that is what
     `Last-Event-ID` is compared against on the way back in. §4.1 requires the
     `id`, `event` and one JSON `data` line.
+
+    **A frame with no sequence gets no `id:` line at all**, and the difference
+    is not cosmetic. This emitted `id: ` with an empty value for such a frame,
+    and per the SSE specification an `id` field sets the last-event-ID buffer to
+    *any* value that contains no NUL — the empty string included. So the one
+    frame that carries no sequence, the gap frame, wiped the client's cursor on
+    its way past.
+
+    The consequence is precisely the opposite of what was intended, and the
+    docstring on `_broadcast` asserts the intention: the gap frame deliberately
+    carries no `_sequence` "so the reconnect uses the id of the last real
+    event". It could not. A gap frame is terminal — the stream closes right
+    after it — so the client reconnected immediately, with no `Last-Event-ID`,
+    was treated as a new subscriber, and got a short tail instead of the replay
+    it was owed. A dropped subscriber told it had missed events, and then
+    quietly denied the means to catch up.
     """
-    cursor = event.get("_sequence", "")
-    return (
-        f"id: {cursor}\n"
-        f"event: {event.get('event_type', 'message')}\n"
-        f"data: {json.dumps(event)}\n\n"
-    ).encode()
+    lines = []
+    cursor = event.get("_sequence")
+    if cursor is not None:
+        lines.append(f"id: {cursor}")
+    lines.append(f"event: {event.get('event_type', 'message')}")
+    lines.append(f"data: {json.dumps(event)}")
+    return ("\n".join(lines) + "\n\n").encode()
 
 
 def heartbeat() -> bytes:

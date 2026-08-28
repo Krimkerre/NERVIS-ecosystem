@@ -474,9 +474,17 @@ def test_a_subscriber_that_falls_behind_has_its_stream_closed() -> None:
         response = stream(_Request())  # type: ignore[arg-type]
         frames = (await response).body_iterator
 
-        # The backlog and the live marker, so the generator is parked on the
-        # queue exactly as a connected client leaves it.
-        await frames.__anext__()
+        # Drain until the live marker, so the generator is parked on the queue
+        # exactly as a connected client leaves it.
+        #
+        # Read to a *landmark* rather than by count. This consumed exactly one
+        # frame, which was right until the stream began advertising `retry:
+        # 3000` ahead of the backlog — then one frame left the generator still
+        # in its replay loop rather than waiting on the queue, and the failure
+        # surfaced as "the stream never closed after the gap frame", which
+        # describes neither the change nor the cause.
+        while b"ecosystem.stream.live" not in await frames.__anext__():
+            pass
 
         # More than the buffer holds, with nothing consuming: the hub drops this
         # subscriber and writes the gap.
@@ -498,3 +506,134 @@ def test_a_subscriber_that_falls_behind_has_its_stream_closed() -> None:
     assert not frames[-1].startswith(b":"), (
         "the last thing sent is the gap, not another heartbeat"
     )
+
+
+# ── §4.1's stream contract, the three clauses that were prose ───────────────
+
+
+def test_a_gap_frame_does_not_erase_the_client_s_cursor() -> None:
+    """The frame whose job is to make a client catch up cannot delete its place.
+
+    `sse_frame` wrote `id: ` with an empty value for any event without a
+    `_sequence`, and the gap frame is the one event that deliberately has none.
+    Per the SSE specification an `id` field sets the last-event-ID buffer to any
+    value without a NUL — the empty string included — so the gap frame cleared
+    the cursor on its way past. A gap frame is terminal, so the client
+    reconnected at once, with no `Last-Event-ID`, was treated as new, and
+    received a short tail instead of the replay it was owed.
+
+    `_broadcast`'s docstring asserted the opposite behaviour as its rationale.
+    """
+    gap = {"event_type": "ecosystem.stream.gap", "data": {"reason": "fell behind"}}
+
+    frame = sse_frame(gap)
+
+    assert not frame.startswith(b"id:"), "a frame with no sequence must carry no id"
+    assert b"\nid:" not in frame
+    assert frame.startswith(b"event: ecosystem.stream.gap\n")
+    # And the ordinary case still carries one, or nothing can resume at all.
+    assert sse_frame({"event_type": "x", "_sequence": 7}).startswith(b"id: 7\n")
+
+
+def test_the_stream_advertises_a_reconnect_interval() -> None:
+    """Runbook §4.1: "Reconnect advertises `retry: 3000`."
+
+    Without it every client picks its own default and they differ by browser,
+    which turns a restart into a thundering herd or a three-second stall
+    depending on who is looking.
+
+    Driven through the generator rather than a `TestClient` stream, for the
+    reason the falls-behind test above gives: this endpoint never ends, so a
+    pull-based client hangs on the way out rather than on the way in.
+    """
+    import asyncio
+
+    from nervis.api.events import stream
+
+    async def first_frame() -> bytes:
+        hub = a_hub()
+
+        class _Request:
+            app = type("_App", (), {"state": type("_S", (), {"hub": hub})()})()
+            headers: dict[str, str] = {}
+            query_params: dict[str, str] = {}
+
+        response = await stream(_Request())  # type: ignore[arg-type]
+        frames = response.body_iterator
+        try:
+            return await frames.__anext__()
+        finally:
+            await frames.aclose()
+
+    assert asyncio.run(first_frame()) == b"retry: 3000\n\n"
+
+
+def test_a_cursor_older_than_retention_is_refused_rather_than_silently_moved() -> None:
+    """Runbook §4.1: "A cursor outside retention returns 409 EVENT_CURSOR_EXPIRED."
+
+    Resuming such a client from whatever survived hands it a stream with a hole
+    in it and no way to know — the same silence the gap frame exists to break,
+    arriving through the front door.
+    """
+    api = an_api()
+    hub = api.app.state.hub
+    for n in range(4):
+        hub.emit("nervis.test", data={"n": n})
+    # Delete the beginning, so the floor is above the cursor the client holds.
+    with hub._database.connection as connection:
+        connection.execute("DELETE FROM event WHERE sequence <= 2")
+
+    response = api.get("/api/v1/events/stream", headers={"last-event-id": "1"})
+
+    assert response.status_code == 409
+    body = response.json()["detail"]
+    assert body["code"] == "EVENT_CURSOR_EXPIRED"
+    assert body["oldest_sequence"] == 3
+
+
+def test_a_cursor_that_is_not_a_number_is_refused() -> None:
+    """The bad-cursor half of a bug whose good half was already fixed.
+
+    `_int("abc", 0)` is 0 and the header was present, so the stream replayed the
+    *oldest* retained events to a client that had asked for something
+    unreadable. The comment above the code records that exact fix for the
+    no-cursor case; it never covered this one.
+    """
+    api = an_api()
+
+    response = api.get("/api/v1/events/stream", headers={"last-event-id": "not-a-number"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "EVENT_CURSOR_INVALID"
+
+
+def test_a_cursor_inside_retention_still_resumes() -> None:
+    """The control. A check that refused every cursor would pass the two above."""
+    import asyncio
+
+    from nervis.api.events import stream
+
+    async def replayed() -> bytes:
+        hub = a_hub()
+        for n in range(3):
+            hub.emit("nervis.test", data={"n": n})
+
+        class _Request:
+            app = type("_App", (), {"state": type("_S", (), {"hub": hub})()})()
+            headers = {"last-event-id": "1"}
+            query_params: dict[str, str] = {}
+
+        response = await stream(_Request())  # type: ignore[arg-type]
+        frames = response.body_iterator
+        seen = b""
+        try:
+            while b"ecosystem.stream.live" not in seen:
+                seen += await frames.__anext__()
+        finally:
+            await frames.aclose()
+        return seen
+
+    joined = asyncio.run(replayed())
+
+    assert b"id: 2" in joined and b"id: 3" in joined
+    assert b"id: 1\n" not in joined, "the cursor is exclusive"
