@@ -36,7 +36,7 @@
    it had less room than the panel needed. `--chat-h` is set on render from the
    card's own top offset; the fallback matters only for the first paint. */
 .chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
-.model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}
+.model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
@@ -564,7 +564,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
 const APP_CONFIG={
- nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Voice','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
+ nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
@@ -2754,6 +2754,32 @@ function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pag
    numbers. A live value labelled invented is the same defect as an invented one
    labelled live, and slightly worse: it teaches a reader to distrust the part
    that is true. */
+/* An explanation folded into the thing it explains.
+
+   Several screens carried a whole card whose only job was to describe a column
+   on the card above it — Providers had one listing which providers are
+   transparent and which are translated, both already a column two inches
+   higher. A reader who knows the vocabulary scrolls past it every time; a
+   reader who does not has to work out which card the words belong to.
+
+   `<details>` rather than a click handler: it needs no JavaScript, survives the
+   render check with nothing running, and is keyboard-operable for free. The
+   summary states what the answer will be about, so it is worth opening. */
+/* A foldable group of cards on one screen.
+
+   Settings collects four unrelated concerns — where the peers are, what NERVIS
+   may supervise, what it does not enforce, and the whole of voice — and nine
+   cards in one column makes the reader scroll past three of them to reach the
+   one they came for. Sections keep them addressable without a second screen.
+
+   The two that hold *controls* open by default and the readouts start closed:
+   a setting nobody can find is not much better than one that does not exist,
+   while a paragraph explaining what is unenforced can wait to be asked for. */
+const section=(title,body,open=true)=>`<details class="settings-group"${open?' open':''}>
+  <summary>${title}</summary><div class="grid">${body}</div></details>`;
+
+const explains=(summary,body)=>`<details class="explains"><summary>${summary}</summary><div>${body}</div></details>`;
+
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
  return `<div class="card kpi${x[4]?' live':''}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
   cell(`<strong>${x[1]}</strong><small>${x[2]}</small>`,own)}</div>`}).join('');
@@ -2807,22 +2833,60 @@ function liveSpanRows(tr){
    does it. Was a chain of eight `if`s, which cost a branch per screen and put
    this function over the complexity ratchet the moment a ninth was added — the
    ratchet pointing at a dispatch table written out longhand. */
-const NERVIS_VIEWS={'Chat':chatView,'Voice':voiceView,'Events':eventsView,
+const NERVIS_VIEWS={'Chat':chatView,'Events':eventsView,
  'Diagnostics':diagnosticsView,'Traces':tracesView,'Settings':settingsView,
  'Ecosystem map':mapView,'System':systemView};
+
+/* The Overview's two headline numbers, measured rather than asserted.
+
+   Both were invented: the tiles read a fixed "128" and "0.42s" beside live
+   service states — a rate nobody counted and a latency nobody timed, on the
+   screen most likely to be glanced at and least likely to be questioned.
+
+   Requests per minute is counted from the decision log's own timestamps, a
+   real rate over a real window. That log is bounded and in memory, so this is
+   *recent* traffic rather than all-time, and the tile's subtitle says which.
+
+   Latency is the median of what RAVIS has actually timed — `OBSERVED_BY_RAVIS`
+   in §13.3's vocabulary — across models past its sample floor. Models it has
+   barely called are excluded rather than averaged in: a median of two calls is
+   two numbers, and this is the tile someone would quote.
+
+   Extracted because folding both into `nervis()` took it to 17 against a
+   ratchet of 13. The measurement is not the screen. */
+function throughput(obs,recent){
+ const since=Date.now()-60000;
+ const perMinute=(recent.items||[]).filter(d=>Date.parse(d.decided_at||'')>=since).length;
+ const timed=(obs.items||[]).filter(o=>o.confident&&o.median_ttft_ms!=null)
+   .map(o=>o.median_ttft_ms).sort((a,b)=>a-b);
+ const p50=timed.length?timed[Math.floor(timed.length/2)]:null;
+ /* The tiles as well as the figures, so the caller places them rather than
+    re-deriving when a number is absent. Absence has two different sentences
+    here — "RAVIS is not answering" and "nothing has been measured yet" — and
+    they send a reader to different places. */
+ return [
+  ['Requests / min',recent.live?String(perMinute):'—',
+   recent.live?'routed in the last 60s':'RAVIS not answering','ravis',recent.live],
+  ['Latency p50',p50==null?'—':(p50/1000).toFixed(2)+'s',
+   p50==null?'nothing measured past the sample floor'
+            :`median TTFT across ${timed.length} model(s) RAVIS has timed`,
+   'ravis',obs.live&&p50!=null],
+ ];
+}
 
 async function nervis(){
  const view=NERVIS_VIEWS[state.view];
  if(view)return view();
  heading('Ecosystem overview','What each service reports, when it said so, and how sure it is.',control('Run diagnostics','diagnose',' primary'));
- const [svc,inst,tr,ev,usage]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
-   API.nervis.trace(),API.nervis.events(),API.ravis.usage()]);
+ const [svc,inst,tr,ev,usage,obs,recent]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
+   API.nervis.trace(),API.nervis.events(),API.ravis.usage(),API.ravis.observations(),API.ravis.decisions(200)]);
+ const measured=throughput(obs,recent);
  /* From the rows NERVIS just published, not from the fallback `SERVICES` map
     and not against a hardcoded four. §5.1 declares six entries and the map
     holds four, so the two disagreed the moment the registry went live. */
  const live=svc.items.filter(x=>['healthy','degraded'].includes(x.state)).length;
  const bar=sp=>spanBar(sp,tr.window_ms);
- $('#content').innerHTML=kpis([['Requests / min','128','↗ 12%','ravis'],['Latency p50','0.42s','healthy','ravis'],
+ $('#content').innerHTML=kpis([...measured,
    /* `local_share`, not `local_pct`. The mock defines `local_pct` and RAVIS
       publishes `local_share`, so this tile read **undefined%** against a live
       RAVIS and the correct figure against nothing running — the one direction a
@@ -2951,20 +3015,18 @@ async function eventsView(){
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
    ${quarantine.items.map(q=>`<div class="table-row"><span class="mono">${escapeHtml(q.reason)}</span><span class="mono dim" style="grid-column:2/-1">${escapeHtml(q.detail||'')} · ${escapeHtml(String(q.payload).slice(0,70))}</span></div>`).join('')}`
     :'<small class="mono dim">nothing has been refused.</small>'}
-   <small class="mono dim">§11.1: malformed events are <b>quarantined with safe diagnostics and never crash the hub</b>. Kept rather than dropped, because "the hub is quiet" and "a producer is sending rubbish" look identical from outside and need different things done about them. Ingestion answers <b>202 with the reason</b> rather than an error, so a producer's mistake never becomes a retry storm.</small>`,'nervis')}</div>
-
-  <div class="card wide"><h3>What lands with it <span class="chip">specified, not built</span></h3>${cell(`
-   <div class="trace-step"><b>envelope</b><span class="mono">event_id · event_type · event_version · occurred_at · source · trace_id</span></div>
-   <div class="trace-step"><b>ordering</b><span>guaranteed within one source stream only</span></div>
-   <div class="trace-step"><b>duplicates</b><span>tolerated, resolved by <span class="mono">event_id</span></span></div>
-   <div class="trace-step"><b>gaps</b><span>a <span class="mono">ecosystem.stream.gap</span> frame is itself an event</span></div>
-   <div class="trace-step"><b>redaction</b><span>at the producer, never at the hub</span></div>
-   <small class="mono dim">this is the specified contract rather than a description of running code. The hub says it lost something rather than closing the hole, and no prompt, completion, source or path travels in an envelope — a trace says what happened and how long it took, not what was said.</small>`,'nervis')}</div>
-
-  <div class="card narrow"><h3>Meanwhile</h3>${cell(`
-   <div class="trace-step"><b>routing decisions</b><span><a href="#" onclick="state.view='Traces';render();return false" style="color:inherit">Traces</a> · live</span></div>
-   <div class="trace-step"><b>benchmark history</b><span>SIRVIS → Results · live</span></div>
-   <small class="mono dim">RAVIS records a decision per request and SIRVIS records every benchmark run. Neither is an event stream, and both answer most of what someone opens this screen to ask.</small>`,'nervis')}</div>`;
+   <small class="mono dim">§11.1: malformed events are <b>quarantined with safe diagnostics and never crash the hub</b>. Kept rather than dropped, because "the hub is quiet" and "a producer is sending rubbish" look identical from outside and need different things done about them. Ingestion answers <b>202 with the reason</b> rather than an error, so a producer's mistake never becomes a retry storm.</small>
+   ${explains('what travels in an envelope, and what never does',`
+    <div class="trace-step"><b>envelope</b><span class="mono">event_id · event_type · event_version · occurred_at · source · trace_id</span></div>
+    <div class="trace-step"><b>ordering</b><span>guaranteed within one source stream only</span></div>
+    <div class="trace-step"><b>duplicates</b><span>tolerated, resolved by <span class="mono">event_id</span></span></div>
+    <div class="trace-step"><b>gaps</b><span>a <span class="mono">ecosystem.stream.gap</span> frame is itself an event</span></div>
+    <div class="trace-step"><b>redaction</b><span>at the producer, never at the hub</span></div>
+    <small class="mono dim">no prompt, completion, source or path travels in an envelope — a trace says what happened and how long it took, not what was said. This was a card headed <b>specified, not built</b>, which had stopped being true: the hub ships, and a stored event carries every field listed here.</small>`)}
+   ${explains('where routing and benchmark history live instead',`
+    <div class="trace-step"><b>routing decisions</b><span><a href="#" onclick="state.view='Traces';render();return false" style="color:inherit">Traces</a> · live</span></div>
+    <div class="trace-step"><b>benchmark history</b><span>SIRVIS → Results · live</span></div>
+    <small class="mono dim">RAVIS records a decision per request and SIRVIS records every benchmark run. Neither is an event stream, and both answer most of what someone opens this screen to ask.</small>`)}`,'nervis')}</div>`;
 }
 
 async function diagnosticsView(){
@@ -3352,21 +3414,26 @@ function chatMood(mood){
    substrings RAVIS ids must avoid. The deciding argument is the gate — whether
    a sentence may leave the machine depends on how the reply was produced, and
    that is a fact NERVIS holds. */
-async function voiceView(){
- heading('Voice','Spoken replies. The key is entered here, the voice is chosen here, and a local reply is never read aloud by a cloud service.');
+/* Voice used to be its own nav item, and every card on it is a setting: the
+   credential, the named voices, the engine, and whether NERVIS speaks at all.
+   A screen of nothing but settings sitting *beside* Settings is a second
+   settings screen with a different name — so it returns its cards and
+   `settingsView` places them, which also removed the duplicate voice toggles
+   that had just been added to Settings to give that screen something real to
+   write. One home, one editor. */
+async function voiceSection(){
  const data=await SPEECH.load();
  if(!data){
-  $('#content').innerHTML=`<div class="card full"><h3>NERVIS is not answering</h3>${cell(`
+  return `<div class="card full"><h3>Voice</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/voice</span></div>
    <small class="mono dim">no transcription to fall back to, deliberately. A remembered "configured" for a service that is not running would be the most misleading thing this screen could say.</small>`,'nervis')}</div>`;
-  return;
  }
  /* One function per card. It was one function for all five, which read fine and
     scored 22 against a ratchet of 13 — a template with a ternary in every other
     line is mostly branches, and there the branches are the content rather than
     the logic. Splitting on the card boundary is the seam already present. */
- $('#content').innerHTML=voiceKeyCard(data)+voiceVoicesCard(data)
-   +voiceEngineCard(data)+voiceSpeaksCard(data)+voiceEgressCard();
+ return voiceKeyCard(data)+voiceVoicesCard(data)
+   +voiceEngineCard(data)+voiceSpeaksCard(data);
 }
 
 /* Where the key goes in. The field is always empty because NERVIS has no
@@ -3445,20 +3512,16 @@ function voiceSpeaksCard(data){
     <option value="silence"${data.fallback==='silence'?' selected':''}>say nothing</option>
    </select></span></div>
    <div class="trace-step"><b>local replies</b><span>${data.fallback==='silence'?'not read aloud at all':'spoken by this browser, never by Fish Audio'}</span></div>
-   <small class="mono dim"><b>When it cannot be used</b> is §18.2's own sentence, which offers both halves: <i>fall back to local system TTS, or stay silent and say so</i>. The browser's voice is free, offline and sends nothing, which is why it is the right refusal for a local model's reply — and it sounds nothing like the voice you chose, which is why the other half exists. The text is on screen either way. A silence caused by a <b>fault</b> rather than by this setting is still announced once, because that one is not a choice anybody made.<br><br>mute is kept by <b>NERVIS</b> rather than by this page, because §18.2 requires it to persist — a mute a second tab does not honour is not a mute. It also drops whatever was queued: a merely paused queue floods out on unmute and narrates replies from ten minutes ago.</small>`,'nervis')}</div>`;
+   <small class="mono dim"><b>When it cannot be used</b> is §18.2's own sentence, which offers both halves: <i>fall back to local system TTS, or stay silent and say so</i>. The browser's voice is free, offline and sends nothing, which is why it is the right refusal for a local model's reply — and it sounds nothing like the voice you chose, which is why the other half exists. The text is on screen either way. A silence caused by a <b>fault</b> rather than by this setting is still announced once, because that one is not a choice anybody made.<br><br>mute is kept by <b>NERVIS</b> rather than by this page, because §18.2 requires it to persist — a mute a second tab does not honour is not a mute. It also drops whatever was queued: a merely paused queue floods out on unmute and narrates replies from ten minutes ago.</small>
+   ${explains('which voice speaks which reply, and what leaves this machine',`
+    <div class="trace-step"><b>a cloud model answered</b><span>spoken by Fish Audio</span></div>
+    <div class="trace-step"><b>a local model answered</b><span>spoken by this browser</span></div>
+    <div class="trace-step"><b>NERVIS cannot tell</b><span>spoken by this browser</span></div>
+    <div class="trace-step"><b>key written to</b><span class="mono">~/.config/nervis/voice-credential.json</span></div>
+    <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
+    <small class="mono dim">a reply a privacy constraint kept on this machine must not then be read aloud by a third party — §18.2: <b>failing closed on the route and open on the voice is still a leak</b>. NERVIS asks RAVIS which models are reached over the network and speaks only what it can positively confirm already left; anything it cannot confirm is treated as local. The browser's own voice costs nothing and sends nothing, so the line is still heard either way.</small>`)}`,'nervis')}</div>`;
 }
 
-/* §18.2, as a table of what happens to whom. */
-function voiceEgressCard(){
- return `
-  <div class="card narrow live"><h3>What leaves the machine</h3>${cell(`
-   <div class="trace-step"><b>a cloud model answered</b><span>spoken by Fish Audio</span></div>
-   <div class="trace-step"><b>a local model answered</b><span>spoken by this browser</span></div>
-   <div class="trace-step"><b>NERVIS cannot tell</b><span>spoken by this browser</span></div>
-   <div class="trace-step"><b>key written to</b><span class="mono">~/.config/nervis/voice-credential.json</span></div>
-   <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
-   <small class="mono dim">a reply a privacy constraint kept on this machine must not then be read aloud by a third party — §18.2: <b>failing closed on the route and open on the voice is still a leak</b>. NERVIS asks RAVIS which models are reached over the network and speaks only what it can positively confirm already left; anything it cannot confirm is treated as local. The browser's own voice costs nothing and sends nothing, so the line is still heard either way.</small>`,'nervis')}</div>`;
-}
 
 /* One form field's trimmed value, or empty. Written because reading four of
    them inline was `(document.getElementById(id)||{}).value||''` four times over
@@ -3851,13 +3914,7 @@ async function settingsView(){
     the endpoints this dashboard talks to *are* its configuration, and their
     reachability is the only setting whose effect can be observed. */
  const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
- /* The one part of this screen NERVIS actually stores and reads. Everything
-    else here is either set at start or specified-but-unenforced, and both say
-    so rather than drawing a switch. */
- let v=null;
- try{const r=await fetch(BASE.nervis+'/api/v1/voice',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-     if(r.ok)v=await r.json()}catch(e){}
- const toggle=(key,on)=>`<button class="btn${on?' primary':''}" onclick="SETTINGS.voice('${key}',${on?'false':'true'})">${on?'On':'Off'}</button>`;
+
  /* NERVIS's own stored settings, since M0 gave it a database to store them in.
     `null` rather than 0 when it does not answer: nought settings and no service
     are different facts and the card says which. */
@@ -3878,11 +3935,13 @@ async function settingsView(){
    <div class="trace-step"><b>conversations</b><span>${CHAT_STORE.read().length} stored in this browser</span></div>
    <div class="trace-step"><b>runtime token</b><span>${RUNTIME_TOKEN?'<span class="chip">held for this tab</span>':'<span class="chip warn">none</span>'}</span></div>
    <small class="mono dim"><b>NERVIS M0 shipped, so there is a service to configure.</b> <span class="mono">nervis serve</span> serves this page, holds a migrated SQLite database and answers <span class="mono">/api/v1/settings</span> — the count above is read from it. This card said the opposite for as long as the dashboard was a statically served file, which it no longer is. <b>Conversations are still in this browser</b>, not the database: moving them is M20. Everything below describes settings the service does not yet expose and is prototype content until the screens that own them land.</small>`,'nervis')}</div>`;
- $('#content').innerHTML=liveCard+`<div class="card full"><h3>Services</h3>
+ $('#content').innerHTML=
+  section('Ecosystem', liveCard + `<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
    ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="healthTest('${escapeHtml(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
-   <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>
-  <div class="card wide"><h3>Privacy</h3>
+   <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>`)
+  + section('Voice', await voiceSection())
+  + section('Privacy and retention', `<div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
    <div class="table-row"><span>Content logging</span><span>${flag(s.privacy.content_logging,false)}</span><span style="opacity:.7;grid-column:3/-1">prompts and completions are never written to the event or trace store</span></div>
    <div class="table-row"><span>Payload capture</span><span>${flag(s.privacy.payload_capture,false)}</span><span style="opacity:.7;grid-column:3/-1">spans carry timings, decisions and states — not bodies</span></div>
@@ -3890,25 +3949,17 @@ async function settingsView(){
    <div class="table-row"><span>Redact prompts</span><span>${flag(s.privacy.redact_prompts,true)}</span><span style="opacity:.7;grid-column:3/-1">defence in depth: NERVIS re-applies redaction it already expects upstream</span></div>
    <div class="table-row"><span>Diagnostics route</span><span class="mono">${s.privacy.diagnostics_route}</span><span style="opacity:.7;grid-column:3/-1">cloud analysis is never implicit — sending a diagnostic packet is still sending your data somewhere</span></div>
    <small class="mono dim"><b>None of these five is enforced by NERVIS.</b> They describe what the specification requires and are read from a fixed shape, not from any setting NERVIS honours — no code reads <span class="mono">redact_paths</span> or <span class="mono">redact_prompts</span>, and <span class="mono">/api/v1/system</span> publishes this machine's hostname by default. Said plainly because a switch rendered <b>ON</b> beside "workspace paths are removed" is a claim of protection, and an unenforced claim of protection is worse than no claim: it is the reason nobody checks. What <i>is</i> enforced today is narrower and elsewhere — the event quarantine stores a shape digest rather than a producer's values, and <span class="mono">/api/v1/system?redact=true</span> withholds the fields it labels sensitive. These read as state because changing one is a mutation: it needs an actor, an audit record with precondition and result, and a revalidated capability. A toggle wired to nothing would be a claim that the endpoint exists.</small></div>
-  <div class="card narrow"><h3>Retention</h3>
+<div class="card narrow"><h3>Retention</h3>
    <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
-   <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>
-  <div class="card wide"><h3>Supervision</h3>
+   <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
+  + section('Supervision', `<div class="card wide"><h3>Supervision</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${s.supervision.restartable.join(' · ')}</span></div>
    <div class="table-row"><span>observed only</span><span style="grid-column:2/-1" class="mono">${s.supervision.observed.join(' · ')}</span></div>
-   <small class="mono dim">${s.supervision.observed.length} of ${s.supervision.observed.length+s.supervision.restartable.length} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>
-  <div class="card narrow${v?' live':''}"><h3>Voice</h3>
-   ${v?`
-   <div class="table-row"><span>Speak replies</span><span>${toggle('enabled',v.enabled)}</span></div>
-   <div class="table-row"><span>Muted</span><span>${toggle('muted',v.muted)}</span></div>
-   <div class="table-row"><span>Trim long replies</span><span>${toggle('trim_long_replies',v.trim_long_replies)}</span></div>
-   <div class="table-row"><span>Daily cap</span><span>${toggle('daily_cap_enabled',v.daily_cap_enabled)}</span></div>
-   <div class="trace-step"><b>when it cannot speak</b><span>${(v.fallback_modes||[]).map(m=>`<button class="btn${m===v.fallback?' primary':''}" onclick="SETTINGS.voice('fallback','${m}')">${m}</button>`).join(' ')}</span></div>
-   <small class="mono dim">these four write to <span class="mono">PUT /api/v1/voice/settings</span> and NERVIS reads every one of them — mute is honoured mid-utterance (§18.2), and the fallback decides whether a reply NERVIS may not send to a cloud voice is spoken by the browser or left silent. The card that stood here read <b>enabled: no · "cloud synthesis is disabled"</b> from a hard-coded object while the service reported voice configured and available, so the page disagreed with itself on one screen.</small>`
-   :`<div class="trace-step"><b>state</b><span class="chip warn">NERVIS not answering</span></div>
-   <small class="mono dim">no invented default in its place: whether voice is on is a fact about the service, and this card showed a fixed <b>no</b> for as long as it was mocked.</small>`}</div>`}
+   <small class="mono dim">${s.supervision.observed.length} of ${s.supervision.observed.length+s.supervision.restartable.length} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>`, false);
+}
+
 
 /* Function declarations hoist, so the tables can name views defined further down.
    One entry per sidebar destination; a missing entry falls through to the app's
@@ -5496,14 +5547,12 @@ async function ravisSessions(){
  +`<div class="card full${s.live?' live':''}"><h3>Routing sessions</h3>${cell(`
    <div class="table-row head six"><span>Session</span><span>Application</span><span>Pool</span><span style="grid-column:4/6">Model</span><span>Requests</span></div>
    ${s.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.session_id)}</span><span class="mono" style="opacity:.8">${escapeHtml(x.application_id)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.pool||'—')}</span><span class="mono" style="grid-column:4/6">${escapeHtml(x.model||'—')}<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider||'—')}</span></span><span>${x.requests||0}<span class="dim" style="opacity:.6"> · ${escapeHtml(ago(x.last_activity))}</span></span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no sessions yet — a client supplies one with the <b>X-Session-ID</b> header</span></div>'}
-   <small class="mono dim">RAVIS scopes this list to the <b>asking application</b>, so this is what NERVIS can see and not the machine's every session. Two applications may use the identical session ID and get two separate sessions — §12.1 requires that they never merge, and the stored key is an identity rather than a display name, which is what makes it structural instead of a rule somebody has to remember.</small>`,'ravis')}</div>
-  <div class="card wide${s.live?' live':''}"><h3>What a session pins</h3>${cell(`
-   ${s.items.slice(0,3).map(x=>`<div class="trace-step"><b>${escapeHtml(x.session_id)}</b><span class="mono">${escapeHtml(x.pool||'—')} @ ${escapeHtml(x.pool_revision||'—')}</span></div>`).join('')||'<div class="trace-step"><b>—</b><span>nothing to pin yet</span></div>'}
-   <small class="mono dim">§5.4: every session records the <b>pool revision</b> it used, so a consumer can tell that a pool's definition changed underneath a conversation already in progress. The revision is derived from the pool's behaviour and not from its wording — rewording a description keeps it.</small>`,'ravis')}</div>
-  <div class="card narrow${s.live?' live':''}"><h3>Two windows</h3>${cell(`
-   <div class="trace-step"><b>affinity</b><span>1 hour idle</span></div>
-   <div class="trace-step"><b>retention</b><span>7 days idle</span></div>
-   <small class="mono dim">deliberately different. A stale session stops <i>steering</i> routing after the first window and stays <i>readable</i> until the second: collapsing them would mean either routing on yesterday's choice or losing the correlation somebody is here to read.</small>`,'ravis')}</div>`;
+   <small class="mono dim">RAVIS scopes this list to the <b>asking application</b>, so this is what NERVIS can see and not the machine's every session. Two applications may use the identical session ID and get two separate sessions — §12.1 requires that they never merge, and the stored key is an identity rather than a display name, which is what makes it structural instead of a rule somebody has to remember.</small>
+   ${explains('what a session pins, and the two windows it lives by',`
+    ${s.items.slice(0,3).map(x=>`<div class="trace-step"><b>${escapeHtml(x.session_id)}</b><span class="mono">${escapeHtml(x.pool||'—')} @ ${escapeHtml(x.pool_revision||'—')}</span></div>`).join('')||'<div class="trace-step"><b>—</b><span>nothing to pin yet</span></div>'}
+    <div class="trace-step"><b>affinity</b><span>1 hour idle</span></div>
+    <div class="trace-step"><b>retention</b><span>7 days idle</span></div>
+    <small class="mono dim">§5.4: every session records the <b>pool revision</b> it used, so a consumer can tell that a pool's definition changed underneath a conversation already in progress — the revision is derived from the pool's behaviour, not its wording, so rewording a description keeps it.<br><br>the two windows are deliberately different. A stale session stops <i>steering</i> routing after the first and stays <i>readable</i> until the second: collapsing them would mean either routing on yesterday's choice or losing the correlation somebody is here to read.</small>`)}`,'ravis')}</div>`;
 }
 
 async function ravisPolicies(){
@@ -5739,23 +5788,20 @@ async function ravisCredentials(){
   <div class="card full"><h3>Provider keys</h3>${cell(`
    ${items.map(row).join('')}
    ${items.some(i=>i.routable===false)?`<small class="mono dim" style="display:block;margin-top:6px"><b>Unroutable</b> means the key would be stored and never sent: no adapter and no declared upstream carries that provider. Until M10 connected the store, <b>every</b> row was unroutable — a key typed here was written to a 0600 file, reported as configured, and read by nothing. Declare an upstream with that <span class="mono">kind</span> to make one reachable.</small>`:''}
-   <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>`,'ravis')}</div>
+   <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>
+   ${explains('where these are written, and why the voice key is not among them',`
+    <div class="trace-step"><b>written to</b><span class="mono">~/.config/ravis/credentials.json</span></div>
+    <div class="trace-step"><b>permissions</b><span>0600 — owner only</span></div>
+    <div class="trace-step"><b>also read from</b><span>macOS Keychain, then environment</span></div>
+    <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
+    <div class="trace-step"><b>Fish Audio key</b><span><a href="#" onclick="state.app='nervis';state.view='Settings';render();return false" style="color:inherit"><b>NERVIS &rarr; Settings</b></a></span></div>
+    <small class="mono dim">the same protection as the SSH private key sitting next to it — encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too.<br><br>every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: §18.2 keeps voice credentials in NERVIS's own storage, and the deciding reason is the privacy gate — whether a sentence may reach a cloud voice depends on <i>which model produced it</i>, a fact NERVIS holds and RAVIS would have to be told.</small>`)}`,'ravis')}</div>
 
   ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`
    <div class="trace-step"><b>${loose.map(i=>escapeHtml(i.name)).join(', ')}</b><span>readable by other accounts on this machine</span></div>
    <small class="mono dim">RAVIS writes the credential file at mode <b>0600</b>. Something has widened it since. Repair with <span class="mono">chmod 600 ~/.config/ravis/credentials.json</span> — the file is still being read, because refusing would lock you out of your own service over a permission bit.</small>`,'ravis')}</div>`:''}
 
-  <div class="card narrow"><h3>Not here: the voice key</h3>${cell(`
-   <div class="trace-step"><b>Fish Audio</b><span><a href="#" onclick="state.app='nervis';state.view='Voice';render();return false" style="color:inherit"><b>NERVIS &rarr; Voice</b></a></span></div>
-   <div class="trace-step"><b>stored by</b><span>NERVIS, in its own config directory</span></div>
-   <small class="mono dim">every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: NERVIS.md §18.2 requires voice credentials to live in <b>NERVIS's own storage</b>, and RAVIS.md §5.0.1 reserves <span class="mono">tts</span> and <span class="mono">audio</span> as substrings RAVIS ids must avoid — speech was never RAVIS's to route. The deciding reason is the privacy gate: whether a sentence may be sent to a cloud voice depends on <i>which model produced it</i>, which is a fact NERVIS holds and RAVIS would have to be told.</small>`,'ravis')}</div>
-
-  <div class="card narrow"><h3>Where these live</h3>${cell(`
-   <div class="trace-step"><b>written to</b><span class="mono">~/.config/ravis/credentials.json</span></div>
-   <div class="trace-step"><b>permissions</b><span>0600 — owner only</span></div>
-   <div class="trace-step"><b>also read from</b><span>macOS Keychain, then environment</span></div>
-   <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
-   <small class="mono dim">the same protection as the SSH private key sitting next to it. Encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too — moving the problem rather than solving it, for a native dependency on three platforms.</small>`,'ravis')}</div>`;
+`;
 }
 
 /* The Settings screen's one real writer.
@@ -6706,7 +6752,7 @@ function voicePickerRow(){
  const set=SPEECH.settings;
  if(!set||!set.credential||!set.credential.configured)return '';
  const saved=set.profiles||[];
- if(!saved.length)return `<small class="mono dim" style="grid-column:1/-1">a key is configured but no voice is named yet — add one on <a href="#" onclick="state.view='Voice';render();return false" style="color:inherit"><b>Voice</b></a>.</small>`;
+ if(!saved.length)return `<small class="mono dim" style="grid-column:1/-1">a key is configured but no voice is named yet — add one on <a href="#" onclick="state.view='Settings';render();return false" style="color:inherit"><b>Settings</b></a>.</small>`;
  return `<label style="grid-column:1/-1">Voice
    <select style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
      onchange="VOICE.flag('selected_profile',this.value)">
