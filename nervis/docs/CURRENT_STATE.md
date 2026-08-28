@@ -93,9 +93,19 @@ table, in STATUS.md.**
 What this page can say without going stale: a screen that reads a service says
 so on screen, an invented card is faded and labelled `PROTOTYPE`, and a screen
 that mixes the two fades only the invented half. Where a value cannot be read at
-all — cost before M15, policies before M16, events before M18b — the screen
-reports the effect it *can* observe and names the milestone that would publish
-the value.
+all — RAVIS's routing timings (§9.8), SIRVIS's benchmark job queue (M14), peer
+events (RAVIS M18b, SIRVIS M21) — the screen reports the effect it *can* observe
+and names the milestone that would publish the value.
+
+**That badge is only as good as the flag behind it, and for a long time it was
+not good at all.** `live()` performs every read on this page; it knew whether
+the service had answered and returned the payload without saying so, leaving a
+global that the next fetch overwrote as the only witness. Sixty-eight cards
+hardcoded their CSS class in consequence, unable to report provenance whatever
+their data did — so live data rendered faded, and mock data rendered live. The
+helper now attaches the answer to the object it answered, and three checks hold
+the line: `liveness_check.js` ratchets the number of cards that *cannot* report,
+and `honesty_check.js` renders every screen twice and compares. See PITFALLS §7.
 
 Two screens moved or are new since the first pass:
 
@@ -306,7 +316,20 @@ like that drifts within a day.
 Read it before your first script-driven edit to `index.html`. The short version:
 almost nothing here fails loudly.
 
-The newest entry is the one live wiring produced: **when a shared `API` method
+The newest entries are the ones the badge audit produced:
+
+- **When the same mistake keeps appearing in new code, look for the answer that
+  exists and is being thrown away.** Eight instances of one defect in a day were
+  not eight lapses; they were one missing return value.
+- **An empty answer is an answer.** Four adapters treated "the service replied
+  with nothing" as "the service is not there" and fell back to invented data.
+  The worst of them rendered fabricated co-residency measurements on the screen
+  whose entire argument is that such numbers cannot be predicted.
+- **A test written beside the code it checks locks in that code's mistake.**
+  NERVIS advertised `clarvis_visibility` as unavailable for as long as M8a had
+  been shipped, and a test asserted the wrong value the whole time.
+
+And the one live wiring produced before them: **when a shared `API` method
 changes shape, grep its callers.** Two screens read `API.sirvis.runs()`, the
 Results wiring changed what it returns, and the SIRVIS Dashboard threw for a
 commit because only the neighbouring screens were re-tested.

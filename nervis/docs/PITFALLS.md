@@ -352,7 +352,7 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, three of them became automated:
+Since this list was written, six of them became automated:
 
 - **`node tools/render_check.js`** renders all 35 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
@@ -362,6 +362,33 @@ Since this list was written, three of them became automated:
   behaviour which does not exist. **Runs in CI.**
 - **`python3 ../tools/check_status.py`** checks STATUS.md's counts and cited
   paths against the repository.
+- **`node tools/complexity_check.js`** holds every function in the file under a
+  ratchet of 13. **Runs in CI.**
+- **`node tools/liveness_check.js`** counts the cards that hardcode their CSS
+  class and so *cannot* report where their data came from. A ratchet: the count
+  may fall, never rise. **Runs in CI.**
+- **`node tools/honesty_check.js`** renders all 35 screens twice — once with
+  nothing running, once against whatever is up — and compares the badges. A card
+  whose body changes between the passes was fed by a service; if it is not
+  badged live, it is understating. A card badged live in the *dark* pass claims
+  a live read with nothing to read from. **Not in CI**, because which services
+  happen to be up changes the answer.
+
+The last one exists because the defect it hunts was found **eight times in one
+day, every time by a person looking at the screen**. Providers had seven of
+them. Sessions shipped with six, hours after the first batch was fixed.
+"Evidence in the ranking" showed thirty-two live rows from SIRVIS's own
+benchmark runs, faded out. Not one was caught by a check, because
+`render_check` proves a screen *assembles* and nothing proved it was *honest*.
+
+The root cause was structural, and worth stating because it generalises: the
+fetch helper `live()` knew whether the service had answered — it sets
+`SOURCE[service]` — and returned the payload without it. The only witness was a
+global the next fetch overwrote. Ten different idioms grew up around that
+absence (`fromSirvis`, `p.live`, `ev.source`, `j.source`, `tr.live`, …), and
+sixty-eight cards hardcoded their class because there was nothing better to
+read. **When the same mistake keeps appearing in new code, look for the answer
+that exists but is being thrown away.**
 
 None of them catches a **prose claim about the state of the world**.
 `docs/CURRENT_STATE.md` said "NERVIS is still a specification" three days after
@@ -392,8 +419,18 @@ wolf trains you to ignore it. It was replaced with a real per-namespace check in
 ### Before you commit
 
 ```bash
-python3 tools/check.py                             # parse · braces · duplicate API methods
-python3 tools/embed-avatars.py && git diff --stat   # avatars round-trip byte-identical
+python3 tools/check.py                              # parse · braces · duplicate API methods
+node tools/render_check.js                          # all 35 screens render with nothing up
+node tools/complexity_check.js                      # every function under 13
+node tools/liveness_check.js                        # the hardcoded-card ratchet
+node tools/shaping_check.js                         # adapters shape payloads as before
+python3 tools/embed-avatars.py && git diff --stat    # avatars round-trip byte-identical
+```
+
+With the ecosystem running, also:
+
+```bash
+node tools/honesty_check.js                         # do the badges match the data's source?
 ```
 
 Then, in the browser: render every screen in all four apps, check for console

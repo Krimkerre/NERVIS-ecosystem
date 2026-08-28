@@ -2694,11 +2694,20 @@ is prose; whoever compares two evidence IDs never reads it.
 
 ## The sweep: what the dashboard actually reads
 
+> **This section records the sweep as it stood when it was run, and the table
+> below has not been true for many milestones.** It is kept because the
+> reasoning still holds and because the follow-up — *the badge audit*, further
+> down — is only legible against it. For the current position, run the checks:
+> `node nervis/tools/liveness_check.js` counts the cards that cannot report
+> where their data came from, and `node nervis/tools/honesty_check.js` renders
+> every screen against the running ecosystem and compares each badge with the
+> data behind it.
+
 Every screen was classified mechanically rather than by eye — each view function
 matched against the data sources it touches, then every endpoint it asks for
 probed against a running service.
 
-**What it found.**
+**What it found, then.**
 
 | | Screens |
 |---|---|
@@ -2727,6 +2736,69 @@ This is the ecosystem rule — *a control that implies an endpoint exists is the
 one thing the dashboard must not do* — applied to **numbers** rather than to
 buttons. It was already enforced for controls; the sweep found it had never been
 enforced for data.
+
+## The badge audit: one defect, found eight times by a person
+
+The rule above was enforced from the day it was written, and it kept being
+broken. Over one day, eight separate times, a card was found rendering real data
+from a running service while wearing a `PROTOTYPE` badge. Providers had seven of
+them. The Sessions screen shipped with six, hours after the first batch was
+fixed. "Evidence in the ranking" showed thirty-two live rows off SIRVIS's own
+benchmark runs, faded out. Every one was found by somebody looking at the
+screen. None was found by a check.
+
+Asked why cards that should work keep not working, the honest answer was that
+this was not eight lapses.
+
+**The answer existed and was being thrown away.** `live()` performs every read
+on the page. It sets `SOURCE[service]` to `'live'` or `'mock'` — and then
+returns the adapted payload with no trace of which, so a card holding the result
+had nothing to consult. The global was the only witness, and the next call to
+the same service overwrites it. Ten idioms grew up around that absence
+(`fromSirvis`, `p.live`, `ev.source`, `j.source`, `tr.live`, `spend.live`, …),
+and sixty-eight cards hardcoded their CSS class because there was nothing better
+to read. Errors ran in **both** directions: live data faded, and mock data
+badged live.
+
+`live()` now attaches the answer to the object it answered. What that made
+visible, and what it cost:
+
+| | Before | After |
+|---|---|---|
+| Cards that cannot report provenance | 88 | 63 |
+| Cards rendering live data as `PROTOTYPE` | 17 | 2, both understood |
+| Cards claiming a live read with nothing running | 14 | 0 |
+
+Three checks now hold it, all in `nervis/tools/`:
+
+- **`liveness_check.js`** — a ratchet on the number of cards that hardcode their
+  class. May fall, never rise. Demanding all of them change at once would mean
+  marking cards live to satisfy a tool, which is this same failure pointed the
+  other way.
+- **`honesty_check.js`** — renders all 35 screens twice, once with nothing
+  running and once against whatever is up, and compares. A card whose body
+  changes between the passes was fed by a service; if it is not badged live it
+  is understating. A card badged live in the dark pass is overstating. Not in
+  CI: which services are up changes the answer.
+- **`card()`** in `index.html` — a builder that *requires* `live` and throws
+  when it is missing, so `render_check.js` turns an omission into a build
+  failure instead of a faded card.
+
+**Two things this cost, recorded because they are the useful part.**
+
+The first version of `honesty_check.js` captured no markup at all — the page
+writes through `querySelector` and the DOM shim handed back a fresh stub every
+call — and it reported that every badge on every screen was correct. A checker
+whose empty-input path was indistinguishable from a clean pass, hunting exactly
+that bug. It now fails if it captures nothing.
+
+And the suite did not catch any of this, which is worth being plain about: 1433
+tests passed throughout. They also passed while NERVIS advertised
+`clarvis_visibility` as unavailable for as long as M8a had been shipped, because
+the test asserting it was written beside the declaration and locked in its
+mistake. **Passing tests were never evidence for this class of defect.** The
+things that found it were rendering the real page against real services and
+comparing what it claimed with what it did.
 
 ### Two real bugs the sweep turned up
 
