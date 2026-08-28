@@ -28,6 +28,7 @@ from ravis.routing.engine import RoutingEngine
 from ravis.sessions import (
     DEFAULT_IDLE_SECONDS,
     MAX_ID_LENGTH,
+    SESSION_HEADER,
     SessionStore,
     session_key,
 )
@@ -456,3 +457,88 @@ def test_a_background_call_does_not_inflate_the_count(store: SessionStore) -> No
     session = store.get("clarvis", "s1")
 
     assert session is not None and session.requests == 1
+
+
+def _request_with(store: SessionStore, session: str = "conversation-1") -> Any:
+    """The parts of a request `_record_session` reads, and nothing else."""
+
+    class _State:
+        sessions = store
+        transparents: dict[str, Any] = {}
+        translating: dict[str, Any] = {}
+
+    class _Request:
+        app = type("_App", (), {"state": _State()})()
+        headers = {SESSION_HEADER: session}
+        state = type("_St", (), {"identity": None})()
+
+    return _Request()
+
+
+def test_a_background_call_does_not_redefine_the_session() -> None:
+    """§9.6.1's exemption runs in both directions, and only one had a test.
+
+    Skipping affinity on the way in is not enough: a declared background call
+    was still *recording* its own cheap selection, so generating one
+    conversation title reset the session and the next real turn started over on
+    a different model. That was found by sending four requests in order against
+    a live gateway -- the exemption read as working until the fifth showed the
+    conversation had moved -- and the fix shipped with the reasoning written out
+    at length and nothing exercising it. A line trace of the whole suite reaches
+    six of `_record_session`'s forty-two lines: the early return, and nothing
+    else.
+
+    The session is still *touched*, because a conversation whose titles are
+    being generated is not idle.
+    """
+    from ravis.api.openai.chat import _record_session
+    from ravis.routing.engine import RouteDecision
+
+    clock = Clock()
+    store = _store(clock)
+    request = _request_with(store)
+
+    real = RouteDecision(requested="ravis/clarvis-chat")
+    # `routed` is derived from `selected`, not set.
+    real.selected, real.pool_id = "qwen2.5-coder-7b", "ravis/clarvis-chat"
+    _record_session(request, real)
+
+    settled = store.get("anonymous", "conversation-1")
+    assert settled is not None and settled.model == "qwen2.5-coder-7b"
+
+    cheap = RouteDecision(requested="ravis/clarvis-chat")
+    cheap.selected, cheap.pool_id = "tiny-1b", "ravis/clarvis-chat"
+    clock.advance(30)
+    _record_session(request, cheap, background=True)
+
+    after = store.get("anonymous", "conversation-1")
+    assert after is not None
+    assert after.model == "qwen2.5-coder-7b", (
+        "a background call must not move the conversation to its own cheap pick"
+    )
+    assert after.last_activity > settled.last_activity, (
+        "but the session is touched: titles being generated is not idleness, and "
+        "a conversation must not expire while its titles are being written"
+    )
+
+
+def test_a_no_route_leaves_the_last_successful_model_in_place() -> None:
+    """Overwriting it with nothing would make the next request start over, and a
+    conversation being actively refused must not quietly expire while somebody
+    is trying to fix it."""
+    from ravis.api.openai.chat import _record_session
+    from ravis.routing.engine import RouteDecision
+
+    store = _store(Clock())
+    request = _request_with(store, "conversation-2")
+
+    good = RouteDecision(requested="ravis/clarvis-chat")
+    good.selected, good.pool_id = "qwen2.5-coder-7b", "ravis/clarvis-chat"
+    _record_session(request, good)
+
+    refused = RouteDecision(requested="ravis/clarvis-chat")  # nothing selected
+    _record_session(request, refused)
+
+    after = store.get("anonymous", "conversation-2")
+    assert after is not None
+    assert after.model == "qwen2.5-coder-7b", "the last successful choice survives"

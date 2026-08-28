@@ -677,3 +677,68 @@ def test_an_unpriced_record_does_not_claim_a_currency() -> None:
                               cost=None, currency=None, cost_state=CostState.UNKNOWN))
 
     assert ledger.currencies() == {"USD"}
+
+
+def test_the_usage_frame_in_a_stream_is_read_and_the_rest_is_not() -> None:
+    """The parser every streamed call's cost rests on, and nothing reached it.
+
+    A line trace of the whole suite ran `_usage_in` as far as
+    `if b'"usage"' not in chunk: return None` and never once past it -- three of
+    twenty-six lines. Every streamed price RAVIS has ever published came out of
+    the untested half.
+
+    The cheap rejection is asserted too, because it is the half that runs on
+    hundreds of chunks per call: a content delta must not be parsed as JSON at
+    all, and getting that backwards would be invisible except as latency.
+    """
+    from ravis.api.openai.chat import _usage_in
+
+    delta = b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+    assert _usage_in(delta) is None, "a content delta carries no usage"
+
+    frame = (
+        b'data: {"choices":[],"usage":{"prompt_tokens":91,"completion_tokens":7,'
+        b'"total_tokens":98,"prompt_tokens_details":{"cached_tokens":64},'
+        b'"completion_tokens_details":{"reasoning_tokens":3}}}\n\n'
+    )
+    counted = _usage_in(frame)
+
+    assert counted is not None
+    assert counted.input_tokens == 91
+    assert counted.output_tokens == 7
+    assert counted.cached_input_tokens == 64
+    assert counted.reasoning_tokens == 3
+
+
+def test_a_stream_that_reports_no_counts_stays_unknown() -> None:
+    """Absent is not zero, which is the rule the whole cost engine rests on.
+
+    A provider that sends a usage frame with nothing in it must not be read as
+    a call that cost nothing -- §14's "unknown usage stays unknown", and the
+    reason `estimate` can refuse to produce a figure at all.
+    """
+    from ravis.api.openai.chat import _usage_in
+
+    counted = _usage_in(b'data: {"usage":{}}\n\n')
+
+    assert counted is not None
+    assert counted.input_tokens is None
+    assert counted.output_tokens is None
+    assert estimate(Price(input_per_million=1.0, output_per_million=1.0), counted) == (
+        None, CostState.UNKNOWN,
+    )
+
+
+def test_the_last_usage_frame_wins_when_a_provider_reports_growing_counts() -> None:
+    """Some providers report usage on every frame, growing as they go.
+
+    Keeping the first reading understates the call, which is the direction §14
+    names -- a budget reads an understatement as room left.
+    """
+    from ravis.api.openai.chat import _usage_in
+
+    first = _usage_in(b'data: {"usage":{"prompt_tokens":10,"completion_tokens":1}}\n\n')
+    last = _usage_in(b'data: {"usage":{"prompt_tokens":10,"completion_tokens":48}}\n\n')
+
+    assert first is not None and last is not None
+    assert last.output_tokens == 48, "the final reading is the whole call"

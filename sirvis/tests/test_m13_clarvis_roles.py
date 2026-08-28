@@ -424,3 +424,62 @@ def test_a_missing_coverage_axis_is_unknown_rather_than_assumed() -> None:
     }])
 
     assert states["no-coverage-fields:tool_use"] == "UNKNOWN"
+
+
+async def test_the_engine_passes_its_repetition_count_to_the_trials(tmp_path: Any) -> None:
+    """The seam the test above documents but does not cross.
+
+    `test_the_specs_repetition_count_reaches_the_trials` calls `run_tool_trials`
+    directly, passing `repetitions=3` itself and asserting the callee honours
+    it. The defect it describes lived in the *caller*: the engine used to invoke
+    the trial runner without forwarding `spec.repetitions`, so `--repetitions 3`
+    produced three prose repetitions and eight tool attempts, and no run from
+    the CLI could establish the capability at all. A test that supplies the
+    argument cannot notice the caller failing to.
+
+    This drives `run_experiment` end to end and asserts the count that comes out
+    the far side: eight phrasings times three repetitions.
+    """
+    from tests.test_m6_benchmark import (
+        SNAPSHOT,
+        FakeRuntime,
+        SteadyProbe,
+        Ticking,
+        _spec,
+    )
+
+    from sirvis.benchmarks import ExperimentSpec, run_experiment
+    from sirvis.resources.manager import ResourceManager
+    from sirvis.storage.database import prepare_database
+
+    class _ToolCapableRuntime(FakeRuntime):
+        """The engine's runtime, answering the tool prompts with real calls.
+
+        `FakeToolRuntime` implements only what the trial runner needs, and the
+        seam under test is the engine -- which loads, unloads and lists models
+        first. Composed rather than reimplemented so this stays a test of the
+        engine's forwarding, not of a second fake.
+        """
+
+        def stream_generate(self, model_key, messages, **options):  # type: ignore[no-untyped-def]
+            asked = str(messages[-1].get("content", "")) if messages else ""
+            if any(prompt in asked for prompt in TOOL_PROMPTS):
+                return FakeToolRuntime(script=[well_formed()]).stream_generate(
+                    model_key, messages, **options
+                )
+            return super().stream_generate(model_key, messages, **options)
+
+    spec: ExperimentSpec = _spec(tool_trials=True, repetitions=3, warmups=0)
+    runtime = _ToolCapableRuntime()
+    outcome = await run_experiment(
+        spec, runtime=runtime, resources=ResourceManager(runtime=runtime),
+        database=prepare_database(":memory:"), results_root=str(tmp_path),
+        probe=SteadyProbe(), snapshot=SNAPSHOT, clock=Ticking(),
+        thermal=lambda: "nominal",
+    )
+
+    assert outcome.tool_reliability is not None
+    assert outcome.tool_reliability.total == len(TOOL_PROMPTS) * 3, (
+        "the spec's repetition count has to reach the trials through the engine, "
+        "not only when a test hands it over directly"
+    )

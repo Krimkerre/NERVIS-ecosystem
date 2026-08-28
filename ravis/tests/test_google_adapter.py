@@ -9,6 +9,7 @@ index, both of which Clarvis's agent role reads.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import FinishReason, StreamEventType
@@ -232,3 +233,76 @@ def test_a_call_in_one_frame_still_finishes_the_stream_as_a_tool_call() -> None:
 
     finishes = [e for e in ending if e.type is StreamEventType.FINISH]
     assert [f.finish_reason for f in finishes] == [FinishReason.TOOL_CALLS]
+
+
+# ── The adapter itself ───────────────────────────────────────────────────────
+#
+# Every test above this line exercises `google_wire`, the translation functions.
+# A line trace of the whole suite over `providers/google.py` found `models`,
+# `capabilities`, `_record_advertised`, `complete`, `_stream`, `_body_for`,
+# `_get` and `_path` at zero executed lines: the file named `test_google_adapter`
+# never constructed a `GoogleAdapter`. Gemini is a provider this deployment
+# actually routes to, and the class that talks to it was reached only through
+# `__init__` and `health`.
+
+
+def _adapter(handler: Any) -> Any:
+    """A GoogleAdapter whose upstream is a transport under the test's control."""
+    import httpx
+
+    from ravis.providers.google import GoogleAdapter
+    from ravis.upstream import Upstream
+
+    return GoogleAdapter(
+        upstream=Upstream(base_url="https://google.invalid", declared_key="k"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_the_catalogue_offers_only_models_that_can_take_a_chat_request() -> None:
+    """This catalogue also lists embedding, image and TTS models.
+
+    Offering one as a routing candidate produces a 404 at the moment of use --
+    a failure that surfaces as "the provider is broken" long after the decision
+    that caused it.
+    """
+    import asyncio
+
+    import httpx
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": [
+            {"name": "models/gemini-3.6-flash",
+             "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/text-embedding-004",
+             "supportedGenerationMethods": ["embedContent"]},
+            {"name": "models/no-methods-at-all"},
+        ]})
+
+    offered = asyncio.run(_adapter(handler).models())
+
+    assert offered == ["models/gemini-3.6-flash"]
+
+
+def test_a_catalogue_that_cannot_be_read_leaves_a_model_at_its_defaults() -> None:
+    """Discovery being unavailable is not evidence about the model.
+
+    §9.5's ordering is protocol defaults, then catalogue, then operator
+    configuration -- so a failed read must leave the defaults standing rather
+    than record an absence as a denial.
+    """
+    import asyncio
+
+    import httpx
+
+    from ravis.core.capabilities import Capability, CapabilityState
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "unavailable"})
+
+    known = asyncio.run(_adapter(handler).capabilities("models/gemini-3.6-flash"))
+
+    assert known.state_of(Capability.TEXT) is CapabilityState.SUPPORTED, "protocol default"
+    assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN, (
+        "a catalogue nobody could read says nothing about tools"
+    )

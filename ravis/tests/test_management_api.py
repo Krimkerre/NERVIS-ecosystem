@@ -47,14 +47,54 @@ def test_list_responses_carry_the_required_envelope() -> None:
     assert set(body) == {"items", "next_cursor", "snapshot_revision"}
 
 
-def test_no_endpoint_accepts_a_mutation() -> None:
-    """M18a is reads only. A mutation needs Idempotency-Key, separate
-    authorization and an audit event (§15.1) — none of which exist yet, and
-    shipping the verb without them would be worse than not shipping it."""
+def test_a_read_endpoint_does_not_accept_a_write() -> None:
+    """The read surface stays a read surface.
+
+    This was `test_no_endpoint_accepts_a_mutation`, and it asserted that the
+    whole module accepted no mutation -- by POSTing to eight *collection* paths.
+    It could not see a `PUT` on an item path, so it went on passing after
+    `PUT /pools/{pool_key}/members` shipped and began writing routing state to
+    disk. A test that checks a claim by a method the claim does not involve
+    proves nothing about it, and this one held the module's docstring in place
+    while the docstring was wrong.
+    """
     client = _client()
     with client:
         for path in READ_ENDPOINTS:
             assert client.post(path, json={}).status_code == 405, path
+
+
+def test_every_write_this_surface_serves_is_one_of_the_five_it_declares() -> None:
+    """The mutation surface, asserted rather than described.
+
+    RAVIS serves five writes: two on a provider credential, one on a provider's
+    enabled flag, one on its model filter, and one on a pool's membership. Each
+    is deliberate; what is not acceptable is a sixth appearing without anybody
+    noticing, which is exactly what happened to the fifth -- it shipped while
+    the module said "Reads only. No endpoint here mutates", and without the
+    authorization that sentence implied.
+
+    Read off the published OpenAPI document rather than a hand-kept list, so a
+    new verb has to be added here on purpose.
+    """
+    client = _client()
+    with client:
+        document = client.get("/openapi.json").json()
+
+    writes = {
+        f"{method.upper()} {path}"
+        for path, operations in document["paths"].items()
+        for method in operations
+        if method in ("put", "post", "delete", "patch") and path.startswith("/api/v1/")
+    }
+
+    assert writes == {
+        "PUT /api/v1/providers/credentials/{name}",
+        "DELETE /api/v1/providers/credentials/{name}",
+        "PUT /api/v1/providers/{name}/enabled",
+        "PUT /api/v1/providers/{name}/models",
+        "PUT /api/v1/pools/{pool_key}/members",
+    }, "a write appeared or vanished on the management surface"
 
 
 def test_a_provider_record_never_carries_a_credential_value() -> None:

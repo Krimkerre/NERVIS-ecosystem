@@ -1147,12 +1147,35 @@ def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
     `nervis.registry@1` was advertised available. A reason is read by peers to
     decide what not to attempt, so a stale one is a working feature hidden
     behind an excuse.
-    """
-    from nervis.ecosystem import DECLARED
 
-    shipped = ("M2", "M3", "M4")
+    **Derived from `BUILD_VERSION`, not from a tuple somebody has to remember.**
+    It hardcoded `("M2", "M3", "M4")` and nobody extended it, so it went on
+    passing through M5a, M6, M7 and M8a -- and `nervis.clarvis_visibility@1`
+    advertised "the Clarvis Bridge integration lands at M8" for as long as M8a
+    had been shipped, telling every peer it could not register with a service
+    that would have accepted the registration. A guard against staleness that is
+    itself hand-maintained goes stale in the same way as the thing it guards.
+
+    The version scheme is `0.<milestones completed>.<patch>`, so the minor *is*
+    the answer. Any bare `M<n>` at or below it is a milestone this service has
+    finished.
+
+    A lettered milestone is deliberately exempt: `M5a` and `M5b`, `M8a` and
+    `M8b` ship independently, and the second half of each is genuinely still
+    ahead. Milestones belonging to *other* services (SIRVIS M14, RAVIS M18b) are
+    numbered past this service's own and fall out for free.
+    """
+    import re
+
+    from nervis.ecosystem import BUILD_VERSION, DECLARED
+
+    completed = int(BUILD_VERSION.split(".")[1])
     for name, capability in DECLARED.items():
-        for milestone in shipped:
-            assert f"lands at {milestone}" not in (capability.reason or ""), (
-                f"{name} defers to {milestone}, which has shipped"
+        for token in re.findall(r"\bM(\d+)([a-z]?)\b", capability.reason or ""):
+            number, suffix = int(token[0]), token[1]
+            if suffix:
+                continue
+            assert number > completed, (
+                f"{name} defers to M{number}, and this build says it has "
+                f"completed {completed} milestones"
             )

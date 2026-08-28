@@ -673,7 +673,8 @@ def test_a_machine_already_swapping_is_not_blamed_on_the_run() -> None:
     class _Outcome:
         telemetry = [
             MemorySample(point=BASELINE, captured_at=0.0, swap_used_bytes=4 * 1024 ** 3),
-            MemorySample(point=POST_RUN, captured_at=1.0, swap_used_bytes=4 * 1024 ** 3 + 1024 ** 2),
+            MemorySample(point=POST_RUN, captured_at=1.0,
+                         swap_used_bytes=4 * 1024 ** 3 + 1024 ** 2),
         ]
 
     assert _swap_warnings(_Outcome()) == []  # type: ignore[arg-type]
