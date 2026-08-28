@@ -969,12 +969,22 @@ async function peerRead(service,surface,params,method){
      tiles showed one of four as real for exactly that reason: the data arrived,
      and nothing recorded where it came from. Negotiation refusing the surface
      is *not* the peer answering, so only an available read counts. */
-  if(body&&body.available)SOURCE[service]='live';
+  /* **And a read that did not succeed has to say so too.** Only the success
+     half was recorded, so a proxied read that failed left `SOURCE[service]`
+     wherever a previous screen had put it — usually `live`. Two things go wrong
+     with that: a badge keeps claiming a live read that failed, and the repaint
+     that recovers a screen once its service answers never fires, because it
+     asks which services this render fell back on and is told none did.
+     Credentials and Policies are read entirely this way; both changed
+     completely between a running RAVIS and a stopped one while reporting that
+     nothing had fallen back. */
+  SOURCE[service]=body&&body.available?'live':'mock';
   return body;
  }catch(e){
   /* NERVIS itself is not answering — which, since it serves this page, mostly
      means this file was opened from disk. Distinct from RAVIS being down, and
      said differently, because the two need different things done about them. */
+  SOURCE[service]='mock';
   return{surface,available:false,availability:'unknown',data:null,
          reason:'NERVIS is not answering, so nothing negotiated this read'};
  }

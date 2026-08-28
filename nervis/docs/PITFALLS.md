@@ -357,7 +357,7 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, seven of them became automated:
+Since this list was written, eight of them became automated:
 
 - **`node tools/render_check.js`** renders all 35 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
@@ -375,6 +375,12 @@ Since this list was written, seven of them became automated:
 - **`node tools/empty_world_check.js`** renders all 35 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
+- **`node tools/recovery_check.js`** renders every screen with the services down,
+  then again after they answer, and reports any screen that kept its fallback.
+  **Not in CI** — it needs services, and RAVIS rate-limits an anonymous caller
+  at 60 requests a minute, so a screen it flags may simply have been refused.
+  Confirm a finding in a browser before believing it; all three it flagged on
+  its first useful run recovered correctly when driven by hand.
 - **`node tools/honesty_check.js`** renders all 35 screens twice — once with
   nothing running, once against whatever is up — and compares the badges. A card
   whose body changes between the passes was fed by a service; if it is not
