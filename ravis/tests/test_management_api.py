@@ -152,13 +152,22 @@ def test_an_aged_out_decision_says_so_rather_than_erroring_vaguely() -> None:
 
 def test_usage_reports_cost_as_unknown_rather_than_zero() -> None:
     """§14 forbids presenting an estimate as an invoice, and a dashboard reading
-    "€0.00" would be a confident lie."""
+    "€0.00" would be a confident lie.
+
+    The field is `spend_estimated` since M15, not `spend_today`. The rename is
+    the point: a consumer reads the key, not the documentation beside it, and a
+    field called `spend` on a figure RAVIS cannot stand behind is the exact
+    misreading §14 rules out.
+    """
     client = _client()
     with client:
         usage = client.get("/api/v1/usage").json()
 
-    assert usage["spend_today"] is None
+    # Nothing has run, so nothing has been priced — and that is reported as
+    # unknown rather than as nought spent.
+    assert usage["spend_estimated"] is None
     assert usage["cost_available"] is False
+    assert usage["calls_priced"] == 0
 
 
 def test_policies_are_empty_until_the_policy_engine_exists() -> None:

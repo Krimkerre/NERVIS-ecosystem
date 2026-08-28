@@ -51,6 +51,10 @@ class Usage:
     output_tokens: int | None = None
     cached_input_tokens: int | None = None
     reasoning_tokens: int | None = None
+    # What the provider said this call cost, where it says so at all. Not an
+    # invoice and not RAVIS's arithmetic — see `CostState.REPORTED`. `None`
+    # everywhere else, which is most providers.
+    reported_cost: float | None = None
 
     @property
     def is_reported(self) -> bool:

@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator, Callable
@@ -40,9 +41,11 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ravis.api.management.decisions import RecordedDecision
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
+from ravis.core.capabilities import ModelCapabilities
 from ravis.core.pools import POOLS_BY_ID, direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
-from ravis.core.responses import NormalizedStreamEvent
+from ravis.core.responses import NormalizedStreamEvent, Usage
+from ravis.cost import BudgetBand, PriceBook, UsageLedger, UsageRecord, band_for, estimate
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
 from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.policy import (
@@ -193,6 +196,7 @@ async def create_chat_completion(request: Request) -> Response:
         payload=parsed,
         chain=chain,
         recorded=getattr(request.state, "recorded_decision", None),
+        note_usage=_usage_writer(request, decision),
     )
 
     # §6's fork, and the only place it is decided. A provider whose upstream
@@ -421,6 +425,7 @@ class _Call:
         payload: dict[str, Any],
         chain: AttemptChain,
         recorded: RecordedDecision | None,
+        note_usage: Callable[[str, Usage | None, float | None], None] | None = None,
     ) -> None:
         self.client = client
         self._destination = destination
@@ -428,6 +433,16 @@ class _Call:
         self.payload = payload
         self.chain = chain
         self.recorded = recorded
+        # §14's usage record, written once when a stream finishes. Injected
+        # rather than reached for: this class performs no I/O and holds no app
+        # state, and the ledger needs the identity and the price book, neither
+        # of which a request carrier should know about.
+        self._note_usage = note_usage
+
+    def note_usage(self, model: str, usage: Usage | None, latency_ms: float | None) -> None:
+        """Record what this call consumed, if anything is listening."""
+        if self._note_usage is not None:
+            self._note_usage(model, usage, latency_ms)
 
     def target_for(self, model: str) -> str:
         """The URL this attempt goes to.
@@ -541,6 +556,12 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         adapter: ProviderAdapter = request.app.state.adapter
         candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
         residency = registry.residency
+    # §14's price book, filled from the catalogue this pass already read. Done
+    # here rather than on the refresh timer because the capability records are
+    # what carry a price, and this is where they are assembled — harvesting it
+    # anywhere else would mean reading the catalogue a second time to learn
+    # something the first read already knew.
+    _harvest_prices(request, candidates)
     remote = remote_models(transparents) | frozenset(
         getattr(request.state, "translated_owners", {})
     )
@@ -655,6 +676,135 @@ def _expected_session_requests(request: Request) -> int | None:
     return store.typical_length(identity.application_id if identity else "anonymous")
 
 
+def _harvest_prices(request: Request, candidates: dict[str, ModelCapabilities]) -> None:
+    """Record every published price this catalogue carried.
+
+    Only models that actually publish one: a model with no price is left absent
+    from the book rather than entered as free, which is the distinction the
+    whole cost engine rests on.
+    """
+    prices: PriceBook | None = getattr(request.app.state, "prices", None)
+    if prices is None:
+        return
+    for model, known in candidates.items():
+        if known.price is not None:
+            prices.record(model, known.price)
+
+
+def _usage_writer(
+    request: Request, decision: RouteDecision
+) -> Callable[[str, Usage | None, float | None], None]:
+    """A sink that writes one §14 usage record for a completed call.
+
+    Closed over the request rather than reading it later: by the time a stream
+    finishes the handler has returned, and this is the only thing still holding
+    the identity, the decision and the session the call belonged to.
+
+    **Called from one place per attempt**, which is what makes double counting
+    structural. A retry that failed never reaches it; a fallback that worked
+    reaches it once, naming the model that actually answered rather than the
+    one originally selected.
+    """
+    ledger: UsageLedger | None = getattr(request.app.state, "usage_ledger", None)
+    identity = getattr(request.state, "identity", None)
+    application = identity.application_id if identity else "anonymous"
+    request_id = getattr(request.state, "request_id", "")
+    session_id = _session_id(request)
+    provider_of = _provider_of(request)
+    prices = getattr(request.app.state, "prices", None)
+    pool = decision.pool_id or ""
+
+    def note(model: str, usage: Usage | None, latency_ms: float | None) -> None:
+        if ledger is None:
+            return
+        price = prices.price_of(model) if prices is not None else None
+        amount, state = estimate(price, usage)
+        ledger.record(
+            UsageRecord(
+                model=model,
+                provider=provider_of(model),
+                application_id=application,
+                usage=usage,
+                cost=amount,
+                cost_state=state,
+                currency=price.currency if price else None,
+                price_source=price.source if price else "",
+                price_captured_at=price.captured_at if price else 0.0,
+                latency_ms=latency_ms,
+                request_id=request_id,
+                session_id=session_id,
+                # Read here rather than captured above: the decision is recorded
+                # after this closure is built, so reading it early would store
+                # an empty string on every record.
+                decision_id=getattr(request.state, "decision_id", ""),
+                pool=pool,
+            )
+        )
+
+    return note
+
+
+def _usage_in(chunk: bytes) -> Usage | None:
+    """The token counts in an SSE chunk, if it carries a usage frame.
+
+    Read from bytes forwarded unchanged either side of this call, so §6's
+    byte-for-byte guarantee on the transparent path is untouched: nothing here
+    rewrites, buffers or re-frames anything.
+
+    Cheap on the common chunk — the substring test rejects a content delta
+    before any JSON is parsed, and a stream carries one usage frame in hundreds.
+    """
+    if b'"usage"' not in chunk:
+        return None
+    for line in chunk.split(b"\n"):
+        if not line.startswith(b"data:"):
+            continue
+        body = line[5:].strip()
+        if not body or body == b"[DONE]":
+            continue
+        try:
+            frame = json.loads(body)
+        except ValueError:
+            continue
+        reported = frame.get("usage") if isinstance(frame, dict) else None
+        if isinstance(reported, dict):
+            return _usage_from(reported)
+    return None
+
+
+def _usage_from(reported: dict[str, Any]) -> Usage:
+    """One provider's usage object in RAVIS's own shape.
+
+    Absent counts stay `None` rather than becoming zero — §14's rule that
+    unknown usage stays unknown, and the reason `estimate` can refuse to
+    produce a figure at all rather than producing a confident nought.
+    """
+    details = reported.get("completion_tokens_details")
+    cached = reported.get("prompt_tokens_details")
+    return Usage(
+        input_tokens=_count(reported.get("prompt_tokens")),
+        output_tokens=_count(reported.get("completion_tokens")),
+        cached_input_tokens=(
+            _count(cached.get("cached_tokens")) if isinstance(cached, dict) else None
+        ),
+        reasoning_tokens=(
+            _count(details.get("reasoning_tokens")) if isinstance(details, dict) else None
+        ),
+        reported_cost=_rate(reported.get("cost")),
+    )
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and value >= 0 else None
+
+
+def _rate(value: Any) -> float | None:
+    """A provider-reported cost, or None. Negative is not a cost."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value >= 0 else None
+
+
 def _record_session(
     request: Request, decision: RouteDecision, background: bool = False
 ) -> None:
@@ -719,11 +869,21 @@ def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
     configured = policies.for_application(
         identity.application_id if identity else "anonymous"
     )
+    # §14's band, computed from what RAVIS has observed itself spending. It
+    # rides on the policy because both are hard constraints applied in one
+    # place — see `RoutingPolicy.budget_band`.
+    budget = getattr(request.app.state, "budget", None)
+    ledger = getattr(request.app.state, "usage_ledger", None)
+    band = BudgetBand.NORMAL
+    if budget is not None and ledger is not None:
+        band, _spent, _unpriced = band_for(budget, ledger, time.time())
     return effective_policy(
         configured,
         metadata=payload.get("metadata") or {},
         may_declare_background=bool(identity and identity.may_declare_background_calls),
         ceiling=identity.max_privacy_level if identity else PrivacyLevel.NORMAL,
+        budget_band=band,
+        budget_hard=bool(budget and budget.hard),
     )
 
 
@@ -978,6 +1138,10 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
     """
     started = call.chain.begin(model)
     committed = False
+    # §14: the usage frame, if this provider sends one. None until it does, and
+    # None afterwards for a provider that never does — which is a fact about the
+    # provider rather than a zero-token call.
+    reported: Usage | None = None
     try:
         async with call.client.stream(
             "POST",
@@ -999,10 +1163,19 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
                     # inspection costs no latency and holds nothing back.
                     _commit_or_refuse(call, model, started, chunk)
                     committed = True
+                # §14's token counts, read on the way past. The chunk is yielded
+                # unchanged on the next line, so §6's byte-for-byte guarantee is
+                # untouched — this looks, and never rewrites.
+                reported = _usage_in(chunk) or reported
                 yield chunk
     except httpx.HTTPError as failure:
         yield _stream_failed(call, model, started, failure, committed)
         return
+    # **Written after the stream, and only for one that produced something.** A
+    # stream that never committed is a non-answer (see below) and recording
+    # usage for it would put a priced row against a call the client never got.
+    if committed:
+        call.note_usage(model, reported, (call.chain.now() - started) * 1000)
     if not committed:
         # A stream that ended without a single byte. This used to be recorded as
         # a *success*, on the reasoning that the upstream answered and simply

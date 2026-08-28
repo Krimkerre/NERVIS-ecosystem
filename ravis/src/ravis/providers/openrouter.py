@@ -38,6 +38,7 @@ from ravis.core.capabilities import (
     Provenance,
     apply_configured,
 )
+from ravis.cost import Price
 from ravis.providers.generic_openai import PROTOCOL_DEFAULTS, GenericOpenAiAdapter
 
 # How long a catalogue read is believed. OpenRouter's list is four hundred
@@ -199,6 +200,35 @@ def _absorb_price(known: ModelCapabilities, pricing: Any) -> None:
         # it as one would make those models the cheapest in the catalogue.
         return
     known.price_per_million = (prompt + completion) * 1_000_000
+    # §14's split, kept alongside the blended ranking figure. The two answer
+    # different questions and M15 needs both: this one is what a call cost,
+    # that one is how models order against each other.
+    #
+    # Dated and attributed, because §14 asks for a price-source version and
+    # time — a cost computed from a price nobody can date is not auditable, and
+    # OpenRouter changes prices without announcing it.
+    cached = pricing.get("input_cache_read")
+    known.price = Price(
+        input_per_million=prompt * 1_000_000,
+        output_per_million=completion * 1_000_000,
+        cached_input_per_million=_optional_rate(cached),
+        source="openrouter/models",
+        captured_at=time.time(),
+    )
+
+
+def _optional_rate(value: Any) -> float | None:
+    """A published per-token rate scaled to a million, or None.
+
+    None rather than falling back to the ordinary input rate: `estimate` already
+    decides what an absent cached rate means, and deciding it twice in two
+    places is how the two come to disagree.
+    """
+    try:
+        rate = float(value)
+    except (TypeError, ValueError):
+        return None
+    return rate * 1_000_000 if rate >= 0 else None
 
 
 def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:

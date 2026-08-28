@@ -121,6 +121,19 @@ class Settings(BaseSettings):
     # Generous, because a large local model's first token can be slow and a
     # timeout here reads to the client as the model failing.
     upstream_timeout_seconds: float = 300.0
+    # §14's budget. Zero means *no budget*, not a budget of nothing: an
+    # unconfigured deployment must route exactly as it did before the cost
+    # engine existed, and a limit of zero would put every request in the
+    # exhausted band on the first call.
+    budget_limit: float = 0.0
+    budget_currency: str = "USD"
+    # `daily`, `weekly` or `monthly` (§14). A rolling window rather than a
+    # calendar period — see `PERIOD_SECONDS`.
+    budget_period: str = "monthly"
+    # Whether reaching the limit blocks paid providers or only penalises them.
+    # False by default: §14 blocks *if hard*, and a figure RAVIS calls an
+    # estimate should not become an outage without somebody saying so.
+    budget_hard: bool = False
     # How long a cached model list is served before a refresh is due. The list
     # is always served from cache regardless (§4.3); this only paces the
     # background refresh.

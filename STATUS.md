@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1404 tests, no network, no live service
+.venv/bin/pytest                      # part of 1425 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1404 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1425 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -110,6 +110,7 @@ into the order work actually happens.
 | 32 | **RAVIS M16** *(policy; the reasoning tiebreak waits on SIRVIS M22b)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. Settled below |
 | 33 | **RAVIS M11** | Sessions. §12.1's `RoutingSession` persisted, sticky routing as a preference that leads the ranking, expiry and retention as two separate windows, and isolation keyed to the application rather than to a name — which is the one thing §12.1 says outright must never merge. `ravis.sessions@1` moves off `unavailable`. **Verified live**, and the fourth request found a defect the first three hid. Settled below |
 | 34 | **RAVIS M14** *(complete)* | The load-versus-don't tradeoff, and with it Stage 5's last open item. Expected session length is **measured from an application's own history** rather than predicted, because affinity settles a conversation on its model at the first request — when the current session's count is 1 and says nothing. Unknown routes exactly as before. **Verified live in both directions.** Settled below |
+| 35 | **RAVIS M15** | The cost engine. Published prices split into input and output, usage captured from the stream without touching a byte of it, estimates that are never invoices, and §14's four budget bands enforced as policy. `ravis.usage_cost@1` moves to `available`. **Verified live against OpenRouter's own cost figures**, which agreed with RAVIS's arithmetic to the microcent. Settled below |
 
 
 ### Done — NERVIS
@@ -2077,9 +2078,8 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
-| 2 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. What remains is the stage's *exit*: every tile capability-driven, unavailable operations disabled with a stated reason, and the prototype ceasing to be one. RAVIS's half is items 1 and 3 |
-| 3 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
+| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. What remains is the stage's *exit*: every tile capability-driven, unavailable operations disabled with a stated reason, and the prototype ceasing to be one. RAVIS's half is items 1 and 3 |
+| 2 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
 
@@ -5092,6 +5092,58 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### M15 — an estimate that says so, and a price the provider agreed with
+
+§14's rule is one sentence: *never present an estimated cost as an invoice.*
+Everything here is arranged around it. The state enum has no `BILLED`, because
+a value nothing can reach is a value somebody will eventually set; an unpriced
+call reports `None` rather than nought; and the endpoint's field is
+`spend_estimated`, since a consumer reads the key and not the docstring beside
+it.
+
+**Three states, not two.** RAVIS multiplying a published price by reported
+tokens is `ESTIMATED`. A provider stating what the call cost — OpenRouter
+returns `cost` on every usage frame — is `REPORTED`, which is stronger, because
+it is arrived at with knowledge RAVIS does not have: which upstream actually
+served, at what negotiated rate. It is still not an invoice, and §14 asking for
+"estimated-versus-billed status" is asking for exactly this middle. Preferring
+our own arithmetic over the provider's figure would be choosing the weaker of
+two available answers.
+
+**The arithmetic was checked against the provider's own.** One call, 15 prompt
+and 7 completion tokens: RAVIS estimated 6.45e-06 from published prices, and
+OpenRouter's `upstream_inference_prompt_cost` and `completions_cost` came back
+as 2.25e-06 and 4.2e-06 — the same figure, split the same way. That agreement
+is what the split price is for; a blended rate would have been wrong in
+proportion to how lopsided the call was, which is every call.
+
+**Double counting is structural rather than careful.** A usage record is
+written from one place, the point where a stream that produced something
+finishes, so a retry that failed has no path to the ledger and a fallback
+writes one row naming the model that actually answered. A stream that never
+committed is a non-answer and writes nothing at all.
+
+**Reading the stream does not touch it.** §6's byte-for-byte guarantee on the
+transparent path is intact: the usage frame is read from the chunk already in
+hand, on the line before it is yielded unchanged. The substring test rejects a
+content delta before any JSON is parsed.
+
+**Budgets are policy, not a second gate.** §14's four bands reach the routing
+engine through `RoutingPolicy`, because every hard exclusion in this service is
+applied in one place and a budget that blocked candidates somewhere else would
+be a quieter second policy. Only a budget marked `hard` blocks — a figure this
+service insists is an estimate should not become an outage because nobody said
+it could. Verified live: with a hard budget of $0.000005 exhausted by a single
+call, `ravis/cheap` excluded 415 paid candidates by name and still answered,
+from a genuinely free model.
+
+Two faults of my own were caught by tooling rather than by reading. The API
+rounded to six decimal places, which renders a 6.45e-06 call as 6e-06 — the
+rounding destroying the precision the engine exists to produce. And the
+dead-code gate reported `price_captured_at` as written and never read: §14 asks
+for price-source version *and time*, and the time was being recorded into a
+field nothing published, which makes it unauditable and therefore pointless.
 
 ### The badge sweep: the flag was opt-in, so it defaulted to a lie
 

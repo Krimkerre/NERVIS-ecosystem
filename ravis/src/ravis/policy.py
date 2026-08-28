@@ -34,6 +34,7 @@ from typing import Any
 
 from ravis.core.capabilities import ModelCapabilities
 from ravis.core.pools import direct_target, is_pool_id
+from ravis.cost import BudgetBand
 from ravis.credentials import config_directory
 
 
@@ -98,6 +99,12 @@ class RoutingPolicy:
     trusted_providers: frozenset[str] = frozenset()
     # §9.6.1's declared background call. Never inferred: see `background_marked`.
     background: bool = False
+    # §14's budget band, when a budget is configured. It reaches policy rather
+    # than the engine directly because the last band is a *hard* exclusion and
+    # every hard exclusion in this service is applied in one place — a budget
+    # that blocked candidates somewhere else would be a second, quieter policy.
+    budget_band: BudgetBand = BudgetBand.NORMAL
+    budget_hard: bool = False
     # A marker that was present and *not* honoured, because the identity may not
     # declare one. Recorded rather than discarded so §9.7's explanation can say
     # so — see `describe`. Found live: an anonymous caller marked a request as
@@ -110,6 +117,27 @@ class RoutingPolicy:
     def local_only(self) -> bool:
         """Whether policy forbids leaving this machine outright."""
         return self.privacy is PrivacyLevel.LOCAL_ONLY
+
+    @property
+    def over_budget(self) -> bool:
+        """Whether a *hard* budget has been exhausted (§14).
+
+        Only `hard` blocks. §14 says paid APIs are blocked *if hard*, and a
+        figure this service insists is an estimate should not become an outage
+        because nobody said it could.
+        """
+        return self.budget_hard and self.budget_band is BudgetBand.EXHAUSTED
+
+    @property
+    def prefers_cheap(self) -> bool:
+        """Whether the budget says to lean cheaper without refusing anything.
+
+        Covers §14's two middle bands. They differ in the *strength* of the
+        preference, and RAVIS has one ordering rather than a weighted score —
+        so both are expressed the same way and the band is reported so a reader
+        can see which one is in force rather than inferring it from a route.
+        """
+        return self.budget_band in (BudgetBand.PREFER_CHEAPER, BudgetBand.STRONG_PENALTY)
 
     @property
     def prefers_local(self) -> bool:
@@ -140,6 +168,11 @@ class RoutingPolicy:
             lines.append(f"models excluded: {', '.join(self.excluded_models)}")
         if self.background:
             lines.append("declared a background call (§9.6.1)")
+        if self.budget_band is not BudgetBand.NORMAL:
+            lines.append(
+                f"budget band {self.budget_band.value}"
+                + (" — paid providers blocked" if self.over_budget else " (§14)")
+            )
         if self.background_declined:
             lines.append(
                 "background marker ignored: §9.6.1 honours it only from an "
@@ -197,6 +230,12 @@ def _refusals(
     ]
     if policy.background and _is_paid(is_remote, known):
         reasons.append(_BACKGROUND_REFUSAL.format(provider=provider))
+    if policy.over_budget and _is_paid(is_remote, known):
+        reasons.append(
+            f"the hard budget for this period is spent, and {provider} is not known to be free "
+            f"(§14) — the figure behind that is an estimate, which is why only a budget "
+            f"marked hard blocks"
+        )
     return reasons
 
 
@@ -280,6 +319,8 @@ def effective_policy(
     metadata: Mapping[str, Any],
     may_declare_background: bool,
     ceiling: PrivacyLevel,
+    budget_band: BudgetBand = BudgetBand.NORMAL,
+    budget_hard: bool = False,
 ) -> RoutingPolicy:
     """Combine what the identity carries with what the request asked for.
 
@@ -312,6 +353,8 @@ def effective_policy(
         trusted_providers=identity_policy.trusted_providers,
         background=may_declare_background and background_marked(metadata),
         background_declined=background_marked(metadata) and not may_declare_background,
+        budget_band=budget_band,
+        budget_hard=budget_hard,
     )
 
 

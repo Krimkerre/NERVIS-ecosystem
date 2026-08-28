@@ -43,6 +43,7 @@ from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
+from ravis.cost import PriceBook, UsageLedger, budget_from
 from ravis.credentials import CredentialStore, credential_for
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
@@ -217,6 +218,17 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # on restart would swap the model under a conversation still in progress —
     # the churn stickiness exists to prevent.
     api.state.sessions = SessionStore(api.state.database)
+
+    # §14's cost engine. The price book is filled from provider catalogues on
+    # the refresh that already runs, so a price is never older than the
+    # catalogue it came from; the ledger is bounded and in memory, like the
+    # decision log, because neither is anybody's accounting system and §14 is
+    # explicit that RAVIS never presents an estimate as an invoice.
+    api.state.prices = PriceBook()
+    api.state.usage_ledger = UsageLedger()
+    # §14's budget, when one is configured. `None` means unlimited, which is
+    # not the same as a limit of zero and must not route as one.
+    api.state.budget = budget_from(settings)
 
     # Which providers an operator has switched off (M10). Read on every routing
     # pass rather than cached, so a toggle takes effect on the next request

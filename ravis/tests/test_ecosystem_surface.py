@@ -92,16 +92,22 @@ def test_a_degraded_capability_is_distinguishable_from_a_missing_one(
 ) -> None:
     """Partly-shipped is its own state, and collapsing it loses real information.
 
-    `management` has its reads and none of its mutations; `usage_cost` counts
-    real traffic and knows no prices. Reporting either as `unavailable` would
-    make a peer hide a working screen, and as `available` would make it offer a
-    control that does nothing.
+    `management` has its reads and none of its mutations. Reporting it as
+    `unavailable` would make a peer hide a working screen, and as `available`
+    would make it offer a control that does nothing.
+
+    `usage_cost` was the other example here and is no longer one: M15 gave it
+    prices, usage records and estimates, so it reads `available`. The pairing
+    is kept as a *contrast* rather than deleted, because the point of the test
+    is that the three states mean different things — and one capability moving
+    between them while the other did not is the clearest demonstration of it.
     """
     body = _client(settings).get("/ecosystem/capabilities").json()
     states = {c["id"]: c["state"] for c in body["capabilities"]}
 
     assert states["ravis.management"] == "degraded"
-    assert states["ravis.usage_cost"] == "degraded"
+    assert states["ravis.usage_cost"] == "available"
+    assert states["ravis.sessions"] == "available"
 
 
 def test_a_matching_protocol_major_is_supported() -> None:

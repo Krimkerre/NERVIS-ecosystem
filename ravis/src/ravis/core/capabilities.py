@@ -23,6 +23,11 @@ measurement outranks an advertisement rather than overwriting it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ravis.cost import Price
+
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -142,6 +147,14 @@ class ModelCapabilities:
     # pricing at all. Ranking must sort `None` *last* rather than treat it as
     # free, or every unpriced model wins the cheap pool by being unmeasured.
     price_per_million: float | None = None
+
+    # §14's split price, when the provider publishes one. Separate from the
+    # blended figure above rather than replacing it: that one exists to *rank*
+    # and is consulted on every routing pass, while this one exists to compute
+    # what a call cost and is consulted once, afterwards. Summing input and
+    # output is right for the first and useless for the second, since the two
+    # differ by an order of magnitude nearly everywhere.
+    price: Price | None = None
 
     def state_of(self, capability: Capability) -> CapabilityState:
         """The believed state, defaulting to UNKNOWN.

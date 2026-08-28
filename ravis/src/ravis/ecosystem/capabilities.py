@@ -121,13 +121,16 @@ DECLARED: dict[str, Capability] = {
         reason="§12.1's sessions: affinity, sticky routing, retention, and isolation "
         "keyed to the application rather than to a name",
     ),
-    # Degraded rather than unavailable: /api/v1/usage counts real traffic, and
-    # says `cost_available: false` because pricing is M15. A peer can render the
-    # counts today and must not render a spend figure.
+    # Available since M15, and the reason is worth stating precisely: the
+    # capability is *usage and cost*, not *billing*. RAVIS estimates from
+    # published prices and reported tokens, labels every figure ESTIMATED, and
+    # reports how many calls it could not price — which is the whole of what
+    # §14 asks for. A peer must still never render one of these as an invoice.
     "ravis.usage_cost@1": Capability(
         version="1.0.0",
-        state=DEGRADED,
-        reason="request counts are real; monetary cost needs the M15 pricing engine",
+        state=AVAILABLE,
+        reason="usage records and estimated cost from published prices; "
+        "never billed, and unpriced calls are counted rather than assumed free",
     ),
     # Degraded for the same reason in the other direction: M18a shipped the
     # reads, M18b owns every mutation. A peer may query and must not expect to

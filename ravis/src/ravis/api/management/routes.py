@@ -25,6 +25,7 @@ one showing nothing.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -34,6 +35,7 @@ from pydantic import BaseModel
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
+from ravis.cost import PriceBook, UsageLedger, band_for
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
@@ -625,6 +627,22 @@ async def read_sessions(request: Request) -> dict[str, Any]:
     return _listing([session.as_dict() for session in sessions])
 
 
+@router.get("/usage/records")
+async def read_usage_records(request: Request) -> dict[str, Any]:
+    """Recent per-call usage, newest first (§14, §17's `UsageRecord`).
+
+    The aggregate on `/usage` answers "what has this cost"; this answers "which
+    calls, and how sure is each figure". They are different questions and a
+    total cannot be audited without the second — `cost_state` on every row is
+    what stops a reader assuming the whole sum was arrived at the same way.
+
+    Carries no prompt and no completion: a usage record has nowhere to put one.
+    """
+    ledger: UsageLedger | None = getattr(request.app.state, "usage_ledger", None)
+    records = ledger.recent(100) if ledger else []
+    return _listing([record.as_dict() for record in records])
+
+
 @router.get("/policies")
 async def read_policies(request: Request) -> dict[str, Any]:
     """What policy is in force, per application (§9.6).
@@ -735,8 +753,67 @@ async def read_usage(request: Request) -> dict[str, Any]:
         # requests is not zero percent.
         "local_share": None if not executed else local / executed,
         "executed": executed,
-        "spend_today": None,
-        "spend_currency": None,
-        "cost_available": False,
-        "cost_detail": "the cost engine lands at M15; no pricing is configured",
+        **_spend(request),
+    }
+
+
+def _spend(request: Request) -> dict[str, Any]:
+    """What RAVIS estimates it has spent, and how much of that it can stand behind.
+
+    **Three numbers, not one.** A total on its own invites being read as a bill,
+    which §14 forbids in as many words. `priced` and `unpriced` say how much of
+    the traffic the figure actually covers: twelve dollars across forty calls of
+    which nine had no published price is a different statement from twelve
+    dollars across forty calls, and only the second is what a lone total looks
+    like.
+
+    `cost_available` stays false when nothing has been priced yet, so a consumer
+    can tell "nothing has cost anything" from "nothing could be costed".
+    """
+    ledger: UsageLedger | None = getattr(request.app.state, "usage_ledger", None)
+    prices: PriceBook | None = getattr(request.app.state, "prices", None)
+    if ledger is None:
+        return {
+            "spend_estimated": None, "spend_currency": None,
+            "cost_available": False, "cost_detail": "no usage ledger is configured",
+        }
+    day = ledger.since(time.time() - 24 * 3600)
+    total, priced, unpriced = ledger.spend(day)
+    budget = getattr(request.app.state, "budget", None)
+    band, spent, band_unpriced = band_for(budget, ledger, time.time())
+    return {
+        # Named `spend_estimated` rather than `spend`: the field name itself has
+        # to carry the claim, because a dashboard reads the key and not this
+        # docstring, and §14's rule is that an estimate never reads as an invoice.
+        # Nine places, not six. A single small call costs 6.45e-06 dollars and
+        # `round(x, 6)` renders that as 6e-06 — the rounding silently destroying
+        # the precision the engine exists to produce. Found by comparing RAVIS's
+        # figure against OpenRouter's own for the same call.
+        "spend_estimated": round(total, 9) if priced else None,
+        "spend_currency": "USD" if priced else None,
+        "spend_window": "24h",
+        "calls_priced": priced,
+        "calls_unpriced": unpriced,
+        "prices_known": prices.known() if prices else 0,
+        "cost_available": priced > 0,
+        "cost_detail": (
+            f"estimated from published prices for {priced} of {priced + unpriced} call(s) "
+            f"in the last 24h; never an invoice (§14)"
+            if priced
+            else "no call has been priced yet — either none has run, or no provider "
+                 "published a price for the models used"
+        ),
+        "budget": None if budget is None else {
+            "limit": budget.limit,
+            "currency": budget.currency,
+            "period": budget.period,
+            "hard": budget.hard,
+            "spent_estimated": round(spent, 9),
+            "band": band.value,
+            # §14 requires a budget to fail predictably when a price is
+            # unavailable. It cannot do that silently: a band computed while
+            # nine calls went unpriced is a band standing on partial evidence,
+            # and whoever is about to be throttled by it is owed the number.
+            "calls_unpriced_in_window": band_unpriced,
+        },
     }

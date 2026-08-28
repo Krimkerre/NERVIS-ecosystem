@@ -535,33 +535,8 @@ def _rank(
         # by default and needed no rule of its own. What was missing was the
         # brake, not the accelerator.
         load = 1.0 if short_session and _pays_a_load(model, residency, remote) else 0.0
-        terms: list[float | str] = [affinity, load]
-        # **`prefer_remote` ranks before speed, and `prefer_local` after it.**
-        # The asymmetry is deliberate and was found live. A pool that prefers
-        # hosted models is saying *where* first and *which* second: put speed
-        # ahead of it and the resident 1.5B model — measured at 181 ms against
-        # gpt-4o-mini's 484 ms — wins the conversation the pool exists to keep
-        # away from it. `prefer_local` has no such problem, because the pools
-        # that declare it are ranking on cost first by design.
-        if pool.prefer_remote:
-            terms.append(0.0 if model in remote else 1.0)
-        if pool.prefer_fast:
-            terms.append(_speed_rank(model, observed or {}, pool.speed_bucket_ms))
-        if pool.prefer_cheap:
-            terms.append(_price_rank(candidates.get(model)))
-        # **Policy's preference leads the pool's own.** `LOCAL_PREFERRED` is the
-        # application saying where its data should go; `prefer_local` is a pool
-        # saying what it is for. When both speak, the one that came from the
-        # identity wins the first position — a pool preference is a default and
-        # a privacy posture is a request, and it would be strange for the
-        # default to outrank it.
-        #
-        # Still only a preference: the ladder's hard rungs excluded their
-        # candidates above, and this one deliberately did not.
-        if policy.prefers_local:
-            terms.append(0.0 if model not in remote else 1.0)
-        if pool.prefer_local:
-            terms.append(0.0 if model not in remote else 1.0)
+        terms: list[float | str] = [affinity, load, *_preference_terms(
+            pool, policy, model, candidates, remote, observed or {})]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
         lead: tuple[float | str, ...] = tuple(terms)
         # Size is the *last* thing consulted, and only for a pool that declared
@@ -614,6 +589,51 @@ def _default_exclusion(pool: VirtualModelPool) -> str:
             else f"above this pool's ${ceiling:g} per-million ceiling"
         ) + " — tick it to include it"
     return "not among this pool's default members — tick it to include it"
+
+
+def _preference_terms(
+    pool: VirtualModelPool,
+    policy: RoutingPolicy,
+    model: str,
+    candidates: dict[str, ModelCapabilities],
+    remote: frozenset[str],
+    observed: Mapping[str, float],
+) -> list[float]:
+    """The declared preferences, in the order they are consulted.
+
+    Lifted out of `key` when adding §14's budget bands took `_rank` past the
+    complexity gate. The order *is* the policy, so it stays one readable list
+    rather than being spread across the caller — and each entry is only
+    appended when something actually asked for it, since an unconditional term
+    becomes the whole ranking for every pool that declares nothing.
+
+    **`prefer_remote` ranks before speed and `prefer_local` after it.** The
+    asymmetry was found live: a pool that prefers hosted models is saying
+    *where* first and *which* second, and putting speed ahead of it let a
+    resident 1.5B model — 181 ms against gpt-4o-mini's 484 ms — win the
+    conversation the pool exists to keep away from it. `prefer_local` has no
+    such problem, because the pools declaring it rank on cost first by design.
+    """
+    terms: list[float] = []
+    if pool.prefer_remote:
+        terms.append(0.0 if model in remote else 1.0)
+    if pool.prefer_fast:
+        terms.append(_speed_rank(model, observed, pool.speed_bucket_ms))
+    if pool.prefer_cheap:
+        terms.append(_price_rank(candidates.get(model)))
+    # A budget being approached leans cheaper without refusing anything (§14's
+    # two middle bands). Ahead of the pool's own cost preference: a budget is a
+    # fact about the account, `prefer_cheap` is a fact about what the pool is
+    # for. Behind privacy, which is never traded for money.
+    if policy.prefers_cheap:
+        terms.append(_price_rank(candidates.get(model)))
+    # Policy's placement preference leads the pool's own: `LOCAL_PREFERRED` came
+    # from the identity and `prefer_local` is a default.
+    if policy.prefers_local:
+        terms.append(0.0 if model not in remote else 1.0)
+    if pool.prefer_local:
+        terms.append(0.0 if model not in remote else 1.0)
+    return terms
 
 
 def _reach_rank(
