@@ -5130,10 +5130,30 @@ already refuses to do for a *disabled* upstream, for the same stated reason.
 
 It also buys nothing on latency, which was the reason for trying it: the native
 adapter is itself the direct-to-Google path and is registered independently of
-`RAVIS_UPSTREAMS`. The proxied comparison against OpenRouter is unmeasured —
-the free tier's 20 requests a day went on the probing that produced everything
-above, and two earlier latency readings had to be thrown away because failed
-requests were being recorded as 0ms samples. A 429 is fast.
+`RAVIS_UPSTREAMS`.
+
+**And latency turns out not to separate the paths at all.** Measured once
+billing replaced the free tier, 20 interleaved rounds, `gemini-3.6-flash`,
+comparing per-round *differences* rather than per-run medians:
+
+| | median paired Δ | faster in |
+|---|---|---|
+| native vs OpenRouter | −35ms | 11/20 |
+| native vs compat | −94ms | 12/20 |
+| compat vs OpenRouter | +178ms | 6/20 |
+
+Native versus OpenRouter is a coin flip. The compat path is the slowest of the
+three, which is one more reason not to declare it, though 14/20 is a weak
+result and the catalogue argument above is the one that decides it.
+
+**Three readings had to be thrown away to get here, and each was wrong in its
+own way.** The first two counted refusals as data: the measurement loop
+recorded a provider's 429 as a 0ms sample, and a rate-limited request is fast,
+so the failing provider won. The third rejected refusals correctly and still
+misled — comparing medians *across* runs, where drift between runs was as large
+as the effect, produced a confident "OpenRouter is 630ms faster, the
+distributions barely overlap" that pairing dissolved to nothing. Interleaving
+the samples was already right; the analysis was not using it.
 
 **The collision is now stated rather than resolved in silence.** One name
 claimed by both tables is a working configuration — a direct address reaches
