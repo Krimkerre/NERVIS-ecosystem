@@ -206,3 +206,35 @@ def test_a_narrowing_that_admits_nothing_reports_the_pool_unavailable() -> None:
     assert api["available"] is False, (
         "the router refuses this pool, so the listing must not call it available"
     )
+
+
+def test_a_pool_revision_moves_when_an_operator_narrows_it() -> None:
+    """§5.4's pin has to signal the change it exists for.
+
+    `revision` is a hash of the pool's *definition*, and an operator's narrowing
+    lives in `pools.json` rather than in the definition -- so ticking a model out
+    of a pool changed which model comes back and left the revision untouched. A
+    consumer pinning it was told nothing, which is worse than not being able to
+    pin at all: they believe they are protected. The property's own docstring
+    promises "everything that changes which model comes back is in here".
+
+    The catalogue stays excluded on purpose, and the last assertion says so: a
+    revision that moved whenever a model was installed would be a version number
+    for the machine rather than for the pool.
+    """
+    from ravis.core.pools import POOLS_BY_ID
+
+    pool = POOLS_BY_ID["ravis/clarvis-chat"]
+
+    assert pool.revision_with(()) == pool.revision, "no narrowing, no change"
+    assert pool.revision_with(None) == pool.revision
+
+    narrowed = pool.revision_with(("model-a", "model-b"))
+    assert narrowed != pool.revision, "a narrowing changes which model comes back"
+
+    assert pool.revision_with(("model-b", "model-a")) == narrowed, (
+        "the same selection in a different order is the same selection"
+    )
+    assert pool.revision_with(("model-a",)) != narrowed, (
+        "and a different selection is a different revision"
+    )

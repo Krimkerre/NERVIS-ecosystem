@@ -132,13 +132,15 @@ DECLARED: dict[str, Capability] = {
         reason="usage records and estimated cost from published prices; "
         "never billed, and unpriced calls are counted rather than assumed free",
     ),
-    # Degraded for the same reason in the other direction: M18a shipped the
-    # reads, M18b owns every mutation. A peer may query and must not expect to
-    # change anything.
+    # Degraded, and the reason had to be corrected: it said the surface was
+    # read-only long after `PUT /pools/{pool_key}/members` shipped and began
+    # persisting a narrowing to disk. A peer reading this was told it could not
+    # change anything by a service that would have accepted the change.
     "ravis.management@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="read-only surface shipped at M18a; mutations land at M18b",
+        reason="reads shipped at M18a, plus pool membership and provider "
+        "configuration writes; §15.1's Idempotency-Key and audit event are M18b",
     ),
     "ravis.events@1": Capability(
         version="1.0.0",

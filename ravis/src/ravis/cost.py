@@ -275,6 +275,9 @@ class UsageLedger:
         which nine had no price, is a different statement from twelve euros
         across forty calls — and §14's rule about invoices is exactly about not
         letting the first be read as the second.
+
+        The total is only meaningful when every record shares a currency; see
+        `currencies` for what a caller must check before rendering it.
         """
         total = 0.0
         priced = unpriced = 0
@@ -285,6 +288,24 @@ class UsageLedger:
             total += record.cost
             priced += 1
         return total, priced, unpriced
+
+    def currencies(self, records: Iterable[UsageRecord] | None = None) -> set[str]:
+        """Every currency the priced records are stated in.
+
+        **`spend` adds `record.cost` without looking at `record.currency`**, and
+        the usage endpoint labelled the result `"USD"` unconditionally. An
+        operator pricing anything in another currency — or mixing a EUR contract
+        with OpenRouter's USD catalogue figures — got euros and dollars added
+        into one number and rendered with a dollar sign, and the same untyped
+        total is what a budget band is compared against.
+
+        Reported rather than converted: a rate nobody supplied is not something
+        this service may invent, and §14's whole posture is that an uncertain
+        figure says so instead of looking confident.
+        """
+        source = self._records if records is None else records
+        return {record.currency for record in source
+                if record.cost is not None and record.currency}
 
 
 def _stamped(entry: UsageRecord, now: float) -> UsageRecord:
@@ -446,20 +467,32 @@ def _price_from(entry: Any, where: str, captured_at: float) -> Price:
     unknown = set(entry) - {"input", "output", "cached_input", "currency"}
     if unknown:
         raise PriceConfigurationError(f"{where}: unrecognised {sorted(unknown)}")
+    # **`cached_input` is parsed here, with the other two.** It used to be
+    # converted in the `Price(...)` call below, outside this guard: a
+    # non-numeric value raised a bare `ValueError`, and `PriceConfigurationError`
+    # is a *subclass* of `ValueError` rather than the other way round, so
+    # `ravis doctor`'s `except PriceConfigurationError` did not catch it. A
+    # typo'd rate therefore made `serve` refuse to start -- `create_app` loads
+    # the same file -- and then killed the one command whose docstring says it
+    # exists "because the service will not start", with a traceback instead of
+    # the line naming the entry. It also escaped the negativity check, so a
+    # negative cached rate was accepted and lowered every cached call.
+    cached = entry.get("cached_input")
     try:
         given_input = float(entry["input"])
         given_output = float(entry["output"])
+        given_cached = None if cached is None else float(cached)
     except (KeyError, TypeError, ValueError) as failure:
         raise PriceConfigurationError(
             f"{where}: needs numeric 'input' and 'output', per million tokens"
+            " (and a numeric 'cached_input' where one is stated)"
         ) from failure
-    if given_input < 0 or given_output < 0:
+    if given_input < 0 or given_output < 0 or (given_cached is not None and given_cached < 0):
         raise PriceConfigurationError(f"{where}: a price cannot be negative")
-    cached = entry.get("cached_input")
     return Price(
         input_per_million=given_input,
         output_per_million=given_output,
-        cached_input_per_million=None if cached is None else float(cached),
+        cached_input_per_million=given_cached,
         currency=str(entry.get("currency", "USD")),
         source="operator",
         captured_at=captured_at,

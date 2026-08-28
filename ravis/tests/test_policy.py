@@ -376,3 +376,71 @@ def test_an_honoured_marker_does_not_also_report_itself_ignored() -> None:
     assert honoured.background is True
     assert honoured.background_declined is False
     assert not any("ignored" in line for line in honoured.describe())
+
+
+def test_a_budget_lean_does_not_move_a_request_off_device() -> None:
+    """§14 rule 14, on the one privacy level that ranks instead of excluding.
+
+    The ranking terms carried two claims their own order contradicted: a budget
+    lean was documented as sitting "behind privacy, which is never traded for
+    money" while being appended *before* `prefers_local`. Earlier terms dominate
+    a tuple sort, so it was exactly inverted -- an account approaching its
+    budget would move a request off-device to save a fraction of a cent, against
+    a privacy level the caller's identity had asked for.
+
+    The default fixture cannot show this: its local model is free and its hosted
+    one costs, so thrift and privacy agree. Here they disagree, which is the
+    only arrangement in which the order is observable.
+    """
+    from ravis.core.capabilities import ModelCapabilities
+    from ravis.cost import BudgetBand
+
+    advertised = _catalogue()[LOCAL].claims
+    candidates = {
+        LOCAL: ModelCapabilities(model_id=LOCAL, claims=dict(advertised),
+                                 context_window=32_000, price_per_million=9.0),
+        HOSTED: ModelCapabilities(model_id=HOSTED, claims=dict(advertised),
+                                  context_window=128_000, price_per_million=0.5),
+    }
+    remote = frozenset({HOSTED})
+    policy = RoutingPolicy(privacy=PrivacyLevel.LOCAL_PREFERRED,
+                           budget_band=BudgetBand.PREFER_CHEAPER)
+
+    decision = RoutingEngine().select(
+        "ravis/auto", candidates, remote_models=remote, policy=policy,
+        policy_refusals=policy_refusals(
+            policy, candidates, addressed="ravis/auto",
+            provider_of=_provider, remote=remote,
+        ),
+    )
+
+    assert decision.selected == LOCAL, (
+        "the cheaper model is the hosted one; privacy still decides"
+    )
+
+
+def test_a_budget_lean_still_decides_when_privacy_is_not_asked_for() -> None:
+    """The other half: with no privacy level the budget lean must still work, or
+    the reorder would have quietly disabled it."""
+    from ravis.core.capabilities import ModelCapabilities
+    from ravis.cost import BudgetBand
+
+    advertised = _catalogue()[LOCAL].claims
+    candidates = {
+        LOCAL: ModelCapabilities(model_id=LOCAL, claims=dict(advertised),
+                                 context_window=32_000, price_per_million=9.0),
+        HOSTED: ModelCapabilities(model_id=HOSTED, claims=dict(advertised),
+                                  context_window=128_000, price_per_million=0.5),
+    }
+    remote = frozenset({HOSTED})
+    policy = RoutingPolicy(budget_band=BudgetBand.PREFER_CHEAPER)
+
+    decision = RoutingEngine().select(
+        "ravis/auto", candidates, remote_models=remote, policy=policy,
+        policy_refusals=policy_refusals(
+            policy, candidates, addressed="ravis/auto",
+            provider_of=_provider, remote=remote,
+        ),
+    )
+
+    assert decision.selected == HOSTED, "nothing asked to stay local, so cost decides"

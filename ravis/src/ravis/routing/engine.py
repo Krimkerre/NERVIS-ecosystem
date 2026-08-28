@@ -620,18 +620,33 @@ def _preference_terms(
         terms.append(0.0 if model in remote else 1.0)
     if pool.prefer_fast:
         terms.append(_speed_rank(model, observed, pool.speed_bucket_ms))
-    if pool.prefer_cheap:
-        terms.append(_price_rank(candidates.get(model)))
-    # A budget being approached leans cheaper without refusing anything (§14's
-    # two middle bands). Ahead of the pool's own cost preference: a budget is a
-    # fact about the account, `prefer_cheap` is a fact about what the pool is
-    # for. Behind privacy, which is never traded for money.
-    if policy.prefers_cheap:
-        terms.append(_price_rank(candidates.get(model)))
-    # Policy's placement preference leads the pool's own: `LOCAL_PREFERRED` came
-    # from the identity and `prefer_local` is a default.
+    # **Privacy before money, and both stated in the order they are applied.**
+    #
+    # These three terms carried two claims that the order underneath them
+    # contradicted. A budget lean was said to sit "behind privacy, which is
+    # never traded for money" while being appended *before* `prefers_local`, and
+    # "ahead of the pool's own cost preference" while being appended *after*
+    # `pool.prefer_cheap`. Earlier terms dominate a tuple sort, so both were
+    # exactly inverted: an account approaching its budget would move a request
+    # off-device to save a fraction of a cent, against a privacy level the
+    # caller's identity had asked for.
+    #
+    # §14's rule 14 -- a privacy constraint is never overridden by score -- is
+    # enforced structurally for the levels that *exclude*, before ranking ever
+    # happens. `LOCAL_PREFERRED` is the one level that ranks instead of
+    # excluding, which is precisely why its position here is the whole of its
+    # protection.
     if policy.prefers_local:
         terms.append(0.0 if model not in remote else 1.0)
+    # A budget being approached leans cheaper without refusing anything (§14's
+    # two middle bands), and leads the pool's own cost preference: a budget is a
+    # fact about the account, `prefer_cheap` is a fact about what the pool is
+    # for.
+    if policy.prefers_cheap:
+        terms.append(_price_rank(candidates.get(model)))
+    if pool.prefer_cheap:
+        terms.append(_price_rank(candidates.get(model)))
+    # The pool's own placement preference is a default, so it comes last.
     if pool.prefer_local:
         terms.append(0.0 if model not in remote else 1.0)
     return terms

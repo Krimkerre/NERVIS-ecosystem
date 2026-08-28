@@ -435,8 +435,18 @@ def test_a_price_must_be_numeric_and_not_negative(tmp_path) -> None:  # noqa: AN
     is checked rather than coerced."""
     path = tmp_path / "prices.json"
 
+    # `cached_input` is in this list because it was not in the guard. It was
+    # converted in the `Price(...)` call, outside the try, so a non-numeric
+    # value raised a bare `ValueError` -- and `PriceConfigurationError` is a
+    # *subclass* of `ValueError`, not its parent, so `ravis doctor`'s
+    # `except PriceConfigurationError` did not catch it. `serve` refused to
+    # start on the same file, and the command that exists "because the service
+    # will not start" died with a traceback instead of naming the entry. The
+    # negative case escaped the negativity check for the same reason.
     for entry in ({"input": "cheap", "output": 1.0}, {"input": -1.0, "output": 1.0},
-                  {"input": 1.0}, {"input": 1.0, "output": 1.0, "typo": 2}):
+                  {"input": 1.0}, {"input": 1.0, "output": 1.0, "typo": 2},
+                  {"input": 1.0, "output": 1.0, "cached_input": "free"},
+                  {"input": 1.0, "output": 1.0, "cached_input": -0.5}):
         path.write_text(json.dumps({"m": entry}))
         try:
             load_prices(path)
@@ -564,3 +574,106 @@ def test_a_cached_anthropic_call_is_not_priced_as_if_it_were_free() -> None:
     assert cost > (5_000 * 0.3 + 5 * 15.0) / 1_000_000, (
         "the fresh tokens must cost something; zeroing them is the bug"
     )
+
+
+def test_a_pooled_call_to_a_translated_provider_is_attributed_to_that_provider() -> None:
+    """§6's fork resolves the owner from the *selected* model; the ledger did not.
+
+    `_usage_writer` computed `direct_provider(decision.requested)`, which answers
+    only for a directly addressed model and returns None for a pool id. So on a
+    pooled request -- the normal way a client addresses RAVIS, and the reason
+    translated candidates exist at all -- the owner was None and the record fell
+    back to `provider_of`, which cannot resolve a translated model because its
+    ids never appear in a transparent upstream's catalogue. The spend landed
+    under the `upstream` fallback label instead of Anthropic.
+
+    The fork one function away has the rule right, and its comment calls it "the
+    whole fix": fall back to `translated_owners[selected]`. It was applied there
+    and not here, so STATUS.md records the misattribution as fixed while it
+    survived on the pooled route.
+    """
+    from ravis.api.openai.chat import _usage_writer
+    from ravis.routing.engine import RouteDecision
+
+    ledger = UsageLedger()
+
+    class _State:
+        translating = {"anthropic": object()}
+        prices = PriceBook()
+        usage_ledger = ledger
+
+    class _App:
+        state = _State()
+
+    class _Request:
+        app = _App()
+        headers: dict[str, str] = {}
+
+        class state:  # noqa: N801 - mirrors Starlette's attribute bag
+            identity = None
+            request_id = "rq"
+            # Populated by the router before the stream finishes, which is why
+            # the writer has to read it lazily rather than at construction.
+            translated_owners = {"claude-haiku-4-5": "anthropic"}
+
+    decision = RouteDecision(requested="ravis/clarvis-chat")
+    decision.selected = "claude-haiku-4-5"
+    decision.pool_id = "ravis/clarvis-chat"
+
+    write = _usage_writer(_Request(), decision)  # type: ignore[arg-type]
+    write("claude-haiku-4-5", Usage(input_tokens=10, output_tokens=2), 12.0)
+
+    written = ledger.recent(5)[0]
+    assert written.provider == "anthropic", (
+        "the provider that served it, not the transparent upstream fallback"
+    )
+
+
+def test_a_mixed_currency_ledger_offers_no_single_total() -> None:
+    """`spend` adds `record.cost` without consulting `record.currency`.
+
+    The usage endpoint then labelled the result "USD" whatever the prices were
+    stated in, so an operator pricing anything in euros -- or mixing a EUR
+    contract with OpenRouter's USD catalogue figures -- read euros and dollars
+    added into one number, rendered with a dollar sign by the dashboard, and
+    compared against a budget limit in a third currency.
+
+    Withheld rather than converted: a rate nobody supplied is not something
+    RAVIS may invent, and §14's posture is that an uncertain figure says so
+    rather than looking confident.
+    """
+    ledger = UsageLedger()
+    for currency, cost in (("USD", 1.0), ("EUR", 2.0)):
+        ledger.record(UsageRecord(model="m", provider="p", application_id="a",
+                                  cost=cost, currency=currency,
+                                  cost_state=CostState.ESTIMATED))
+
+    assert ledger.currencies() == {"USD", "EUR"}
+
+
+def test_a_single_currency_ledger_reports_that_currency() -> None:
+    """The other half. A total is only withheld when it would be meaningless,
+    and the currency reported is the one actually stated -- not a hardcoded USD.
+    """
+    ledger = UsageLedger()
+    for cost in (1.0, 2.0):
+        ledger.record(UsageRecord(model="m", provider="p", application_id="a",
+                                  cost=cost, currency="EUR",
+                                  cost_state=CostState.ESTIMATED))
+
+    total, priced, _ = ledger.spend()
+
+    assert ledger.currencies() == {"EUR"}
+    assert (total, priced) == (3.0, 2)
+
+
+def test_an_unpriced_record_does_not_claim_a_currency() -> None:
+    """UNKNOWN cost carries no currency, so it must not make a single-currency
+    ledger look mixed."""
+    ledger = UsageLedger()
+    ledger.record(UsageRecord(model="m", provider="p", application_id="a",
+                              cost=1.0, currency="USD", cost_state=CostState.ESTIMATED))
+    ledger.record(UsageRecord(model="m", provider="p", application_id="a",
+                              cost=None, currency=None, cost_state=CostState.UNKNOWN))
+
+    assert ledger.currencies() == {"USD"}

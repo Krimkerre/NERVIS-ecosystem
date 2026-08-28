@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
 
@@ -200,6 +200,30 @@ class VirtualModelPool:
         comes back* is in here; nothing that only changes how it reads is.
         """
         return sha256(self._definition().encode()).hexdigest()[:12]
+
+    def revision_with(self, narrowing: Sequence[str] | None) -> str:
+        """This pool's revision including an operator's stored narrowing.
+
+        **The narrowing is the change that most often alters which model comes
+        back, and it was the one thing `revision` could not see.** It lives in
+        `pools.json` rather than in the definition, so a consumer pinning a
+        revision was told nothing when an operator ticked a model out of the
+        pool -- the case §5.4's pin exists for, and the one the docstring above
+        promised was covered ("everything that changes which model comes back is
+        in here").
+
+        The *catalogue* is still excluded, deliberately: installing a model
+        changes what a derived pool can choose from, and a revision that moved
+        on every install would be a version number for the machine rather than
+        for the pool. A narrowing is configuration, like the definition.
+
+        No narrowing returns the definition revision unchanged, so a deployment
+        that has never touched a pool keeps the revision it already published.
+        """
+        if not narrowing:
+            return self.revision
+        stated = "|".join(sorted(narrowing))
+        return sha256(f"{self._definition()}\nnarrowed:{stated}".encode()).hexdigest()[:12]
 
     def _definition(self) -> str:
         """The behavioural definition, rendered canonically.

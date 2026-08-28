@@ -5,10 +5,16 @@ going wrong: which models can this pool actually use, why was that one excluded,
 what did RAVIS decide for that request, is the provider healthy. That audience
 shapes three rules the code follows throughout.
 
-**Reads only.** No endpoint here mutates. Mutations are M18b and carry
-`Idempotency-Key`, separate authorization and an audit event (§15.1); shipping
-them alongside reads would mean shipping that machinery now or shipping a
-mutation without it.
+**Reads, and one write.** `PUT /pools/{pool_key}/members` narrows a pool and
+persists the narrowing to `pools.json`. It arrived with the Pools screen and
+this paragraph went on saying "no endpoint here mutates" -- which is how it also
+shipped without the authorization the sentence promised, so on a non-loopback
+bind an unauthenticated caller could change which models every client routes to.
+It now takes the same guard the credential writes take.
+
+The rest of §15.1's mutation machinery -- `Idempotency-Key` and an audit event
+-- is still M18b, and is still not here. That is a real gap and is stated as one
+rather than described as read-only.
 
 **Redacted by construction.** §15.1 requires provider and model results to be
 redacted, so nothing here reads a credential in the first place — an endpoint
@@ -34,6 +40,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ravis.api.management.credentials import _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
@@ -197,7 +204,12 @@ async def read_pools(request: Request) -> dict[str, Any]:
                 # behaviour changes under it. Derived from the definition, so it
                 # cannot claim a stability the pool does not have.
                 "version": pool.version,
-                "revision": pool.revision,
+                # Including the operator's narrowing, which is the change that
+                # most often alters which model comes back and the one thing the
+                # definition hash could not see.
+                "revision": pool.revision_with(
+                    membership.for_pool(pool.pool_id) if membership is not None else ()
+                ),
                 "requirements": {
                     "required": sorted(
                         capability.value for capability in pool.requirements.required
@@ -552,6 +564,12 @@ async def set_pool_members(
     stored member that can never be routed to is a lie the file tells the next
     person to read it.
     """
+    # The same boundary the credential writes use: a loopback bind is the
+    # deployment this endpoint is for, and a published one must not let an
+    # anonymous caller re-point every client's routing.
+    refusal = _may_write(request)
+    if refusal is not None:
+        return _refused(refusal)
     pool_id = f"{POOL_PREFIX}{pool_key}" if not pool_key.startswith(POOL_PREFIX) else pool_key
     pool = POOLS_BY_ID.get(pool_id)
     if pool is None:
@@ -823,6 +841,16 @@ def _spend(request: Request) -> dict[str, Any]:
         }
     day = ledger.since(time.time() - 24 * 3600)
     total, priced, unpriced = ledger.spend(day)
+    # **One currency, or no total.** `spend` adds costs without consulting
+    # `record.currency`, and this endpoint labelled the result "USD" whatever
+    # the prices were stated in -- so a mixed ledger produced euros and dollars
+    # summed into one figure, rendered with a dollar sign by the dashboard and
+    # compared against a budget limit in a third currency. Where they disagree
+    # the total is withheld and the reason is stated, because a conversion rate
+    # nobody supplied is not something RAVIS may invent.
+    stated = ledger.currencies(day)
+    mixed = len(stated) > 1
+    currency = next(iter(stated)) if len(stated) == 1 else None
     budget = getattr(request.app.state, "budget", None)
     band, spent, band_unpriced = band_for(budget, ledger, time.time())
     return {
@@ -833,14 +861,17 @@ def _spend(request: Request) -> dict[str, Any]:
         # `round(x, 6)` renders that as 6e-06 — the rounding silently destroying
         # the precision the engine exists to produce. Found by comparing RAVIS's
         # figure against OpenRouter's own for the same call.
-        "spend_estimated": round(total, 9) if priced else None,
-        "spend_currency": "USD" if priced else None,
+        "spend_estimated": round(total, 9) if priced and not mixed else None,
+        "spend_currency": currency,
         "spend_window": "24h",
         "calls_priced": priced,
         "calls_unpriced": unpriced,
         "prices_known": prices.known() if prices else 0,
-        "cost_available": priced > 0,
+        "cost_available": priced > 0 and not mixed,
         "cost_detail": (
+            f"prices are stated in {len(stated)} currencies ({', '.join(sorted(stated))}); "
+            f"RAVIS does not convert between them, so no single total is offered"
+            if mixed else
             f"estimated from published prices for {priced} of {priced + unpriced} call(s) "
             f"in the last 24h; never an invoice (§14)"
             if priced

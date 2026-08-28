@@ -737,11 +737,32 @@ def _usage_writer(
     # reading three records that named one provider for three providers.
     translating = getattr(request.app.state, "translating", {})
     addressed = direct_provider(decision.requested or "")
-    owner = addressed if addressed in translating else None
+
+    def owner_of(model: str) -> str | None:
+        """Which provider served this call, by the same rule §6's fork uses.
+
+        **The fork's own comment is "forking on the selected model rather than
+        the requested one is the whole fix", and that fix was applied there and
+        not here.** `direct_provider` answers only for a directly addressed
+        model: it returns None for a pool id (`core/pools.py`), so on a pooled
+        request -- the normal way a client addresses RAVIS, and the reason
+        `translated_candidates` exists at all -- `owner` was None and the record
+        fell back to `provider_of`, which cannot resolve a translated model
+        because its ids never appear in a transparent upstream's catalogue. The
+        spend then landed under the `upstream` fallback label instead of
+        Anthropic or Google.
+
+        Read lazily: `translated_owners` is put on the request after this
+        closure is built.
+        """
+        if addressed in translating:
+            return addressed
+        return getattr(request.state, "translated_owners", {}).get(model)
 
     def note(model: str, usage: Usage | None, latency_ms: float | None) -> None:
         if ledger is None:
             return
+        owner = owner_of(model)
         price = prices.price_of(model) if prices is not None else None
         amount, state = estimate(price, usage)
         ledger.record(

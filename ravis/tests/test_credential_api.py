@@ -183,3 +183,29 @@ def test_an_anonymous_caller_cannot_write_a_credential_on_a_published_bind() -> 
         "a loopback bind is reachable only from this machine, which is the "
         "deployment this endpoint is for"
     )
+
+
+def test_an_anonymous_caller_cannot_narrow_a_pool_on_a_published_bind() -> None:
+    """The pool write shipped with the guard its own module docstring promised.
+
+    `PUT /pools/{pool_key}/members` persists a narrowing to `pools.json` and
+    decides which models every client of that pool can reach. The module
+    describing it went on saying "Reads only. No endpoint here mutates", and the
+    endpoint went out without the authorization that sentence implied -- so on a
+    non-loopback bind an unauthenticated caller could re-point every client's
+    routing.
+
+    Asserted at the guard rather than over HTTP because that is where the
+    boundary lives, and because the credential endpoints already prove the same
+    guard refuses and permits correctly end to end.
+    """
+    import inspect
+
+    from ravis.api.management import routes
+
+    source = inspect.getsource(routes.set_pool_members)
+
+    assert "_may_write(request)" in source, (
+        "a write that changes routing for every client must take the same "
+        "boundary the credential writes take"
+    )
