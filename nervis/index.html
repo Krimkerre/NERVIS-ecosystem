@@ -3851,6 +3851,13 @@ async function settingsView(){
     the endpoints this dashboard talks to *are* its configuration, and their
     reachability is the only setting whose effect can be observed. */
  const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
+ /* The one part of this screen NERVIS actually stores and reads. Everything
+    else here is either set at start or specified-but-unenforced, and both say
+    so rather than drawing a switch. */
+ let v=null;
+ try{const r=await fetch(BASE.nervis+'/api/v1/voice',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+     if(r.ok)v=await r.json()}catch(e){}
+ const toggle=(key,on)=>`<button class="btn${on?' primary':''}" onclick="SETTINGS.voice('${key}',${on?'false':'true'})">${on?'On':'Off'}</button>`;
  /* NERVIS's own stored settings, since M0 gave it a database to store them in.
     `null` rather than 0 when it does not answer: nought settings and no service
     are different facts and the card says which. */
@@ -3884,21 +3891,24 @@ async function settingsView(){
    <div class="table-row"><span>Diagnostics route</span><span class="mono">${s.privacy.diagnostics_route}</span><span style="opacity:.7;grid-column:3/-1">cloud analysis is never implicit — sending a diagnostic packet is still sending your data somewhere</span></div>
    <small class="mono dim"><b>None of these five is enforced by NERVIS.</b> They describe what the specification requires and are read from a fixed shape, not from any setting NERVIS honours — no code reads <span class="mono">redact_paths</span> or <span class="mono">redact_prompts</span>, and <span class="mono">/api/v1/system</span> publishes this machine's hostname by default. Said plainly because a switch rendered <b>ON</b> beside "workspace paths are removed" is a claim of protection, and an unenforced claim of protection is worse than no claim: it is the reason nobody checks. What <i>is</i> enforced today is narrower and elsewhere — the event quarantine stores a shape digest rather than a producer's values, and <span class="mono">/api/v1/system?redact=true</span> withholds the fields it labels sensitive. These read as state because changing one is a mutation: it needs an actor, an audit record with precondition and result, and a revalidated capability. A toggle wired to nothing would be a claim that the endpoint exists.</small></div>
   <div class="card narrow"><h3>Retention</h3>
-   <div class="trace-step"><b>events</b><span>${s.retention.events_days} days</span></div>
-   <div class="trace-step"><b>traces</b><span>${s.retention.traces_days} days</span></div>
-   <div class="trace-step"><b>chat</b><span>${s.retention.chat}</span></div>
-   <div class="trace-step"><b>logs</b><span>${s.retention.logs_mb} MB cap</span></div>
-   <small class="mono dim">retention, export and delete are visible and testable. Chat is NERVIS's own local store and is the one thing here the user deletes directly.</small></div>
+   <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
+   <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
+   <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>
   <div class="card wide"><h3>Supervision</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${s.supervision.restartable.join(' · ')}</span></div>
    <div class="table-row"><span>observed only</span><span style="grid-column:2/-1" class="mono">${s.supervision.observed.join(' · ')}</span></div>
    <small class="mono dim">${s.supervision.observed.length} of ${s.supervision.observed.length+s.supervision.restartable.length} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>
-  <div class="card narrow"><h3>Voice</h3>
-   <div class="trace-step"><b>enabled</b><span>${s.voice.enabled?'yes':'no'}</span></div>
-   <div class="trace-step"><b>provider</b><span>${s.voice.provider}</span></div>
-   <div class="trace-step"><b>capability</b><span class="mono">${s.voice.capability}</span></div>
-   <small class="mono dim">${s.voice.note}. The capability is declared either way, so the control is absent for a reason a user can read rather than greyed out without one.</small></div>`}
+  <div class="card narrow${v?' live':''}"><h3>Voice</h3>
+   ${v?`
+   <div class="table-row"><span>Speak replies</span><span>${toggle('enabled',v.enabled)}</span></div>
+   <div class="table-row"><span>Muted</span><span>${toggle('muted',v.muted)}</span></div>
+   <div class="table-row"><span>Trim long replies</span><span>${toggle('trim_long_replies',v.trim_long_replies)}</span></div>
+   <div class="table-row"><span>Daily cap</span><span>${toggle('daily_cap_enabled',v.daily_cap_enabled)}</span></div>
+   <div class="trace-step"><b>when it cannot speak</b><span>${(v.fallback_modes||[]).map(m=>`<button class="btn${m===v.fallback?' primary':''}" onclick="SETTINGS.voice('fallback','${m}')">${m}</button>`).join(' ')}</span></div>
+   <small class="mono dim">these four write to <span class="mono">PUT /api/v1/voice/settings</span> and NERVIS reads every one of them — mute is honoured mid-utterance (§18.2), and the fallback decides whether a reply NERVIS may not send to a cloud voice is spoken by the browser or left silent. The card that stood here read <b>enabled: no · "cloud synthesis is disabled"</b> from a hard-coded object while the service reported voice configured and available, so the page disagreed with itself on one screen.</small>`
+   :`<div class="trace-step"><b>state</b><span class="chip warn">NERVIS not answering</span></div>
+   <small class="mono dim">no invented default in its place: whether voice is on is a fact about the service, and this card showed a fixed <b>no</b> for as long as it was mocked.</small>`}</div>`}
 
 /* Function declarations hoist, so the tables can name views defined further down.
    One entry per sidebar destination; a missing entry falls through to the app's
@@ -5387,20 +5397,13 @@ async function ravisProviders(){
    ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis',p.live]])
  +`<div class="card full${p.live?' live':''}"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
-   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono"><a href="#" onclick="PROVIDERS.explainProtocol('${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}');return false" style="color:inherit;text-decoration:underline dotted" title="what RAVIS does to a request on this path">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</a></span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
+   <div id="protocolNote" class="trace-step" style="display:none"></div>
    <small class="mono dim">${p.items.map(x=>`<b>${x.label}</b> — ${x.note}`).join('<br>')}</small>`,'ravis')}</div>
   <div class="card full${p.live?' live':''}"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
    <div class="table-row head six"><span>Provider</span><span style="grid-column:2/4">Origin</span><span>Chat path</span><span>Auth</span><span>Secret</span></div>
    ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path||'not published')}</span><span class="mono">${x.auth?escapeHtml(x.auth.scheme)+(x.auth.header?' · '+escapeHtml(x.auth.header):''):'not published'}</span><span class="mono" style="opacity:.7">${x.auth?escapeHtml(dash(x.auth.secret_ref)):'—'}</span></div>`).join('')}
-   <small class="mono dim"><b>chat path</b> and <b>auth</b> read "not published" against a live RAVIS because <b>/api/v1/providers</b> does not carry them — which is an absence rendered as one rather than invented, so this card is live with two honest gaps in it. This is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>
-  <div class="card wide${p.live?' live':''}"><h3>Protocol mode</h3>${cell(`
-   <div class="table-row head"><span>Mode</span><span>Providers</span><span style="grid-column:3/-1">What RAVIS does to the request</span></div>
-   <div class="table-row"><span class="mono">transparent</span><span>${p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').map(x=>x.label).join(', ')}</span><span style="grid-column:3/-1;opacity:.75">proxied essentially unchanged — an OpenAI client is talking to an OpenAI API</span></div>
-   <div class="table-row"><span class="mono">translated</span><span>${p.items.filter(x=>x.protocol==='TRANSLATED').map(x=>x.label).join(', ')}</span><span style="grid-column:3/-1;opacity:.75">request and streamed response are rewritten into another vendor's shape</span></div>
-   <small class="mono dim">every translated path is a place tool-call framing can be lost: fragmented arguments, a renumbered tool index, a dropped <b>tool_call_id</b>. That is exactly what the conformance suite on the Diagnostics screen checks, and why a provider passing "chat works" is not the same as a provider Clarvis can use.</small>`,'ravis')}</div>
-  <div class="card narrow${p.live?' live':''}"><h3>Not currently usable</h3>${cell(p.items.filter(x=>!x.enabled).map(x=>`
-   <div class="trace-step"><b>${x.label}</b><span>${x.credential==='not configured'?'no credential':x.breaker!=='CLOSED'?'breaker '+x.breaker:'disabled'}</span></div>`).join('')
-   +`<small class="mono dim">three different conditions, deliberately not merged. A provider with no credential is unavailable rather than failing; one whose daemon is not listening is unreachable, which is not the same as absent; one switched off by policy is working perfectly and still not a candidate. Each is removed before scoring, so none of them appears as a low-ranked option.</small>`,'ravis')}</div>`}
+   <small class="mono dim"><b>chat path</b> and <b>auth</b> read "not published" against a live RAVIS because <b>/api/v1/providers</b> does not carry them — which is an absence rendered as one rather than invented, so this card is live with two honest gaps in it. This is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>`}
 
 /* Policies — conditions and actions in evaluation order. Hard policies eliminate,
    soft policies bias the ranking; showing them in one list without that column
@@ -5755,7 +5758,56 @@ async function ravisCredentials(){
    <small class="mono dim">the same protection as the SSH private key sitting next to it. Encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too — moving the problem rather than solving it, for a native dependency on three platforms.</small>`,'ravis')}</div>`;
 }
 
+/* The Settings screen's one real writer.
+
+   Separate from `SPEECH` on purpose: `SPEECH` owns playback and re-renders the
+   chat strip after a change, and this screen has no strip to re-render. Both
+   write the same endpoint, which is the point — a setting with two editors and
+   one home, rather than a second copy of the state. */
+const SETTINGS={
+ async voice(key,value){
+  try{
+   const r=await fetch(BASE.nervis+'/api/v1/voice/settings',{method:'PUT',
+     headers:{'content-type':'application/json'},
+     body:JSON.stringify({[key]:value==='true'?true:value==='false'?false:value})});
+   if(!r.ok)throw new Error(String(r.status));
+   /* Mute has to bite now rather than at the end of whatever is playing
+      (§18.2: "honoured immediately"), and this screen can be open while a
+      reply is being spoken. */
+   if(key==='muted'&&value===true)SPEECH.stop();
+   notify('Saved');
+   render();
+  }catch(e){notify('NERVIS did not accept that change')}
+ },
+};
+
 const PROVIDERS={
+ /* The Protocol mode card, folded into the column it described.
+
+    It was a second table listing which providers are transparent and which are
+    translated — both already a column in the Health table above it — plus two
+    sentences nobody reads until the moment they care. Attaching the sentences
+    to the value makes the screen shorter and puts the explanation where the
+    question is asked, which is the point at which somebody clicks "translated"
+    wondering what it costs them. */
+ PROTOCOL:{
+  transparent:'proxied essentially unchanged — an OpenAI client is talking to an OpenAI API. '
+    +'Nothing re-frames the stream, so tool-call fragments arrive exactly as the provider sent them.',
+  translated:'request and streamed response are rewritten into another vendor\u2019s shape. '
+    +'Every translated path is a place tool-call framing can be lost: fragmented arguments, a '
+    +'renumbered tool index, a dropped tool_call_id \u2014 which is what the conformance suite checks, '
+    +'and why a provider passing "chat works" is not yet a provider Clarvis can use.',
+ },
+ explainProtocol(mode){
+  const box=document.getElementById('protocolNote');
+  if(!box)return;
+  /* Clicking the same value again closes it: the row is an answer to a
+     question, not a permanent third of the screen. */
+  if(box.dataset.mode===mode&&box.style.display!=='none'){box.style.display='none';return}
+  box.dataset.mode=mode;
+  box.style.display='';
+  box.innerHTML=`<b>${escapeHtml(mode)}</b><span style="opacity:.8">${this.PROTOCOL[mode]}</span>`;
+ },
  /* One provider's catalogue while its picker is open, keyed by provider.
     Held here rather than read back off the checkboxes: a search narrows what is
     *rendered*, and a selection made before searching has to survive the list

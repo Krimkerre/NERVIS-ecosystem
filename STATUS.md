@@ -5062,6 +5062,42 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### Fluff cards, and a Settings screen with one real setting on it
+
+Asked to look for cards that exist to hold prose, and for Settings screens that
+are readouts rather than settings. Both were there.
+
+**Providers' "Protocol mode" card was a second copy of a column.** It listed
+which providers are transparent and which are translated — already the protocol
+column of the Health table directly above it — plus two sentences nobody reads
+until the moment they care. The sentences now attach to the value: clicking
+`transparent` or `translated` explains that path where the question is asked,
+and clicking it again closes it. One card fewer, nothing lost.
+
+**"Not currently usable" went entirely.** Its three conditions are visible in
+the table above as credential, breaker and the On/Off control, and on a healthy
+deployment it rendered as a paragraph with nothing above it.
+
+**The Settings screen was reading a hard-coded object.**
+`API.nervis.settings()` performs no fetch at all, so Retention printed 14 days,
+7 days and a 200 MB cap that nothing had been told, and Voice printed
+*enabled: no · "cloud synthesis is disabled"* while the live service reported
+voice configured, credentialed and `available`. One page disagreeing with the
+service it is a dashboard for.
+
+Voice is now the real thing: four toggles and the fallback mode, writing
+`PUT /api/v1/voice/settings`, every one of them a key NERVIS actually reads —
+verified by round-tripping a value through the API and back. Retention says the
+window is set at start rather than inventing a number, because that is what it
+is.
+
+**What was deliberately left as a readout.** The Privacy card's five entries
+are specified and unenforced, and its own prose already says so at length: *a
+toggle wired to nothing would be a claim that the endpoint exists.* That
+argument is right, and drawing switches there to make the screen look complete
+is the failure it describes. Supervision is M16 and unbuilt. Neither gained a
+control it could not honour.
+
 ### The prototype badge is opt-in, and mostly not opted into
 
 Asked why the Providers screen still shows prototype cards. Because the badge
