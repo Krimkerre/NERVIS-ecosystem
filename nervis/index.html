@@ -2848,6 +2848,20 @@ function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pag
    numbers. A live value labelled invented is the same defect as an invented one
    labelled live, and slightly worse: it teaches a reader to distrust the part
    that is true. */
+/* `live` as a class fragment, so asking the question is not a branch.
+
+   Every card that learned to report its own provenance did it with an inline
+   `x.live?' live':''`, and five functions crossed the complexity ratchet on the
+   strength of those ternaries alone — a screen with six honest cards scored as
+   six decisions. The question is one fact about the card, not a fork in the
+   screen's logic, and hoisting it says so. */
+const liveClass=on=>on?' live':'';
+
+/* The chip beside a card that reports whether anything answered it. Shared by
+   the two Settings screens, which ask the identical question of different
+   services. */
+const answeredChip=on=>on?'observed':'nothing answered';
+
 /* Every card on every screen, built one way.
 
    **This exists because one defect was found eight times in a day**, always by
@@ -2937,7 +2951,7 @@ const explains=(summary,body)=>`<details class="explains"><summary>${summary}</s
    says nothing about a figure that was never going to come from it. */
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
  const real=x[4]===undefined?(own?SOURCE[own]==='live':false):!!x[4];
- return `<div class="card kpi${real?' live':''}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
+ return `<div class="card kpi${liveClass(real)}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
   cell(`<strong>${x[1]}</strong><small>${x[2]}</small>`,own)}</div>`}).join('');
 /* One bar of a trace waterfall. Hoisted out of the Overview because the Traces
    screen draws the identical thing, and a span NERVIS never received must look
@@ -2970,7 +2984,7 @@ function overviewTraceCard(tr,mockBar){
     the other's geometry is how a bar ends up at left 0, full width, with
     nothing thrown to say so. */
  const rows=tr.live?liveSpanRows(tr):(tr.spans||[]).map(sp=>`<div class="wf"><span>${escapeHtml(sp.service||'')}</span><div class="track">${mockBar(sp)}</div></div>`).join('');
- return `<div class="card wide${tr.live?' live':''}"><h3>Trace ${escapeHtml(String(tr.trace_id||'').slice(0,16))} <span class="chip">cross-service</span></h3>
+ return `<div class="card wide${liveClass(tr.live)}"><h3>Trace ${escapeHtml(String(tr.trace_id||'').slice(0,16))} <span class="chip">cross-service</span></h3>
    ${rows}
    <small class="mono dim">a missing span is drawn as missing, and one event is drawn as a moment rather than a zero-length bar. A gap invented as a duration would be worse than a hole.</small></div>`;
 }
@@ -3053,7 +3067,7 @@ async function nervis(){
    /* `true` was written here literally, so the tile counted mock rows as
       reachable services on a page with nothing running. */
    ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',svc.live]])
- +`<div class="card wide${svc.live?' live':''}"><h3>Service registry</h3>
+ +`<div class="card wide${liveClass(svc.live)}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
@@ -3063,10 +3077,10 @@ async function nervis(){
        is why this card carried a PROTOTYPE badge while the tab beside it was
        live. Ollama never appeared at all, and a node stayed green for a service
        that had been down for an hour. -->
-  <div class="card narrow${svc.live?' live':''}"><h3>Ecosystem map</h3>
+  <div class="card narrow${liveClass(svc.live)}"><h3>Ecosystem map</h3>
    ${topologyMap(ecosystemNodes(svc),230,true)}
    <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
-  <div class="card wide${inst.live?' live':''}"><h3>Clarvis instances</h3>
+  <div class="card wide${liveClass(inst.live)}"><h3>Clarvis instances</h3>
    ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
         process can bind the port a Bridge would have used and impersonate one,
@@ -3082,7 +3096,7 @@ async function nervis(){
    ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
-  <div class="card narrow${ev.live?' live':''}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
+  <div class="card narrow${liveClass(ev.live)}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
   ${overviewTraceCard(tr,bar)}
   <!-- **This card demonstrated the point it was making.** It set out to show
        that a service-reported fact, a NERVIS observation and an operator
@@ -3094,7 +3108,7 @@ async function nervis(){
 
        §9.8's routing overhead is not measured yet, so the honest card has one
        row and says what the other two would need. -->
-  <div class="card narrow${usage.live?' live':''}"><h3>Diagnostics</h3>
+  <div class="card narrow${liveClass(usage.live)}"><h3>Diagnostics</h3>
    <div class="trace-step"><b>fact</b><span>${usage.live&&usage.routing_p50_ms!=null?`RAVIS reported ${usage.routing_p50_ms} ms`:'RAVIS has reported no routing time'}</span></div>
    <div class="trace-step dim"><b>observation</b><span>not measured — NERVIS does not time its own call to RAVIS</span></div>
    <div class="trace-step dim"><b>inference</b><span>needs both of the above; transport is their difference</span></div>
@@ -3159,7 +3173,7 @@ async function eventsView(){
  const sev=s=>s==='error'||s==='critical'?' warn':'';
 
  $('#content').innerHTML=`
-  <div class="card full${feedLive?' live':''}"><h3>Feed <span class="chip">${feed.items.length} shown · seq ${feed.latest_sequence}</span></h3>${cell(`
+  <div class="card full${liveClass(feedLive)}"><h3>Feed <span class="chip">${feed.items.length} shown · seq ${feed.latest_sequence}</span></h3>${cell(`
    <div class="filter-row">
     ${['','nervis','ravis','sirvis'].map(v=>`<button class="mode-chip${f.service===v?' on':''}" onclick="setEventFilter('service','${v}')">${v||'all services'}</button>`).join('')}
     ${['','info','warning','error'].map(v=>`<button class="mode-chip${f.severity===v?' on':''}" onclick="setEventFilter('severity','${v}')">${v||'any severity'}</button>`).join('')}
@@ -3187,7 +3201,7 @@ async function eventsView(){
    ${row('SIRVIS',sv)}
    <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests; <b>neither peer publishes yet</b>, so every event in the feed above is NERVIS's own — mostly registry transitions. RAVIS events land at its M18b and SIRVIS's at its M21, and until then a feed implying otherwise would be inventing traffic.</small>`,'nervis')}</div>
 
-  <div class="card wide${quarantineLive?' live':''}"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${quarantine.items.length}</span></h3>${cell(`
+  <div class="card wide${liveClass(quarantineLive)}"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${quarantine.items.length}</span></h3>${cell(`
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
    ${quarantine.items.map(q=>`<div class="table-row"><span class="mono">${escapeHtml(q.reason)}</span><span class="mono dim" style="grid-column:2/-1">${escapeHtml(q.detail||'')} · ${escapeHtml(String(q.payload).slice(0,70))}</span></div>`).join('')}`
     :'<small class="mono dim">nothing has been refused.</small>'}
@@ -3899,18 +3913,18 @@ async function mapView(){
    ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis',svc.live],
    ['Protocol','major 1','negotiated with every peer','nervis',svc.live],
    ['Editor hosts',String(inst.items.length),inst.live?'extension hosts · never merged':'Clarvis Bridge is not running','clarvis',inst.live]])
- +`<div class="card full${svc.live?' live':''}"><h3>Topology <span class="chip">as observed</span></h3>
+ +`<div class="card full${liveClass(svc.live)}"><h3>Topology <span class="chip">as observed</span></h3>
    <div class="map" style="height:320px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
     <div class="hub">NERVIS</div>
     ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${n.label}</b><br><small style="opacity:.6">${n.state}</small></div>`).join('')}
    </div>
    <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
-  <div class="card wide${svc.live?' live':''}"><h3>Capability negotiation</h3>
+  <div class="card wide${liveClass(svc.live)}"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(s=>`<div class="table-row five caps"><span>${s.label}</span><span class="mono">${s.build_version}</span><span class="mono">${s.protocol_version?'proto '+s.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${s.capability}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':s.state}</span></div>`).join('')}
    <small class="mono dim">an unknown capability is unavailable, not disabled-and-hopeful. An unsupported required major marks that one <b>feature</b> incompatible — never the whole dashboard, while other surfaces still negotiate.</small></div>
-  <div class="card narrow${svc.live?' live':''}"><h3>Observer-side state</h3>
+  <div class="card narrow${liveClass(svc.live)}"><h3>Observer-side state</h3>
    ${svc.items.map(s=>`<div class="trace-step"><b>${s.label}</b><span>${s.state}${REASON[s.state]?' · '+REASON[s.state]:''} ${stamp(s.age ?? 0)}</span></div>`).join('')}
    <small class="mono dim">these are NERVIS's own states, not the <b>healthy | degraded | unhealthy</b> a peer reports about itself. Healthy means a truthful response <i>plus</i> reachability: a successful TCP connect is not readiness.</small></div>`}
 
@@ -4111,8 +4125,8 @@ async function settingsView(){
  /* Live when anything actually answered — either peer's diagnostics, or
     NERVIS's own settings store. It hardcoded ` live`, so from disk it reported
     an observed configuration it had observed nothing about. */
- const configObserved=peers.some(Boolean)||STORED_SETTINGS!==null;
- const liveCard=`<div class="card full${configObserved?' live':''}"><h3>What NERVIS is configured with <span class="chip">${configObserved?'observed':'nothing answered'}</span></h3>${cell(`
+ const configObserved=[...peers,STORED_SETTINGS].some(x=>x!==null&&x!==undefined);
+ const liveCard=`<div class="card full${liveClass(configObserved)}"><h3>What NERVIS is configured with <span class="chip">${answeredChip(configObserved)}</span></h3>${cell(`
    ${['ravis','sirvis','clarvis'].map((k,n)=>{
      const d=n<2?peers[n]:null;
      return `<div class="trace-step"><b>${k.toUpperCase()}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
@@ -4621,7 +4635,7 @@ async function sirvisModels(){
    ['Loaded',String(loaded.length),'holding memory now','sirvis',m.live],
    ['Resident',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'holding memory now':`of a ${mc.model_budget_gb} GB budget`,'sirvis',mc.live],
    ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis',m.live]])
- +`<div class="card full${m.live?' live':''}"><h3>Builds</h3>${cell(`
+ +`<div class="card full${liveClass(m.live)}"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
    ${m.items.map(x=>buildRow(x,ctx)).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
@@ -4778,7 +4792,7 @@ async function sirvisRuntimeSets(){
    ['Heaviest',heaviest?gbOr(heaviest.peak_gb):'—',heaviest?'resident, no swap':'peak memory not on this record','sirvis',rs.live],
    ['Degraded',anyFollowUp?String(degraded.length):'—',anyFollowUp?'on behaviour, not memory':'no tool-call trial yet (M13)','sirvis',rs.live],
    ['Evidence',rs.samples+' runs',prov(rs.evidence_type)+' per pairing','sirvis',rs.live]])
- +`<div class="card full${rs.live?' live':''}"><h3>Every measured pairing</h3>${cell(`
+ +`<div class="card full${liveClass(rs.live)}"><h3>Every measured pairing</h3>${cell(`
    <div class="table-row head six"><span>Build A</span><span>Build B</span><span>Peak</span><span>First token</span><span>Follow-up</span><span>Note</span></div>
    ${rs.pairs.map(p=>{const bad=known(p).some(f=>f!=='used-result'&&f!=='never-reached');
     return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${warnIf(bad)}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
@@ -4800,7 +4814,7 @@ async function sirvisRuntimeSets(){
    <small class="mono dim">${rs.finding}. ${SOURCE.sirvis==='live'
      ?`Co-resident is both models loaded with one generating; concurrent is both generating at once. The gap between those two columns is the whole reason a pair is its own subject — co-residency is nearly free and concurrency is not, and no single-model run produces either number. Follow-up is absent because no tool-call trial exists yet (M13).`
      :`Sustained rate under contention was not measured for this pair, so <b>concurrent_tok_s</b> is null rather than carrying the solo figure — which would have read as "no degradation found" when nothing looked.`}</small>`,'sirvis')}</div>
-  <div class="card narrow${rs.live?' live':''}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
+  <div class="card narrow${liveClass(rs.live)}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
    +`<small class="mono dim">the measurement is valid and the combination is a bad idea. Those are different statements, kept in different fields — validity says the run can be trusted, and the finding above says what it found.</small>`,'sirvis')}</div>
   `}
 
@@ -4853,7 +4867,7 @@ async function sirvisResults(){
     carrying('code').length?'6 of 6 — no variance at all':'accuracy suites are M18','sirvis']])
  /* `ev.source`, for the reason the Evidence screen documents: the fetch has
      always reported whether SIRVIS answered and the card never read it. */
- +`<div class="card full${ev.source==='live'?' live':''}"><h3>Generation rate</h3>${cell(`
+ +`<div class="card full${liveClass(ev.source==='live')}"><h3>Generation rate</h3>${cell(`
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100)}%" title="${e.target.family} · ${e.metrics.generation_tok_s} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${e.target.family} · no visible output"></i>`).join('')}</div>
    <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
    ${rated.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${dash(e.metrics.effective_tok_s)}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${dash(e.metrics.follow_up)}</span></div>`).join('')}
@@ -4874,7 +4888,7 @@ async function sirvisResults(){
   <!-- Keyed on ev.source, as the two cards above it already are. These rows
        come from the same live evidence read, and this was the last card on the
        screen still hardcoding its class. -->
-  <div class="card full${ev.source==='live'?' live':''}"><h3>What the automated scoring missed</h3>${cell(`
+  <div class="card full${liveClass(ev.source==='live')}"><h3>What the automated scoring missed</h3>${cell(`
    <div class="table-row head"><span>Build</span><span style="grid-column:2/-1">Not caught by the grounding check</span></div>
    ${caveats.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;opacity:.75">${e.caveat}</span></div>`).join('')}
    ${warned.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;color:#ffb648">${e.warnings.join(', ')} — ${e.validity}</span></div>`).join('')}
@@ -4897,7 +4911,7 @@ async function sirvisRecommendations(){
    ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis',r.live]]:[]),
    ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis',r.live],
    ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis',r.live]])
- +`<div class="card full${r.live?' live':''}"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
+ +`<div class="card full${liveClass(r.live)}"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
    <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,x.samples?'n='+x.samples:'')}</span>
     <small>${x.role} · fit ${x.fit} ${x.headroom_gb==null?'':` · ${x.headroom_gb} GB headroom`}<br>${x.why}</small></div>`).join('')}</div>
    ${r.uncertainty&&r.uncertainty.length?`<div style="margin-top:10px">${r.uncertainty.map(u=>`<div class="trace-step"><b>uncertainty</b><span>${escapeHtml(u)}</span></div>`).join('')}</div>`:''}${r.proposed&&r.proposed.length?`<div>${r.proposed.map(u=>`<div class="trace-step"><b>would raise coverage</b><span class="mono">${escapeHtml(u)}</span></div>`).join('')}</div>`:''}
@@ -4907,7 +4921,7 @@ async function sirvisRecommendations(){
    <div class="trace-step"><b>algorithm</b><span>v${r.algorithm_version}</span></div>
    <div class="trace-step"><b>expires</b><span>${r.expires_in_min} min</span></div>
    <small class="mono dim">${(r.uncertainty||[]).length?escapeHtml((r.uncertainty||[]).join(' · ')):'nothing was flagged as uncertain'}.</small>`)}`,'sirvis')}</div>
-  <div class="card wide${r.live?' live':''}"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
+  <div class="card wide${liveClass(r.live)}"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
    <div class="lane excluded"><b>${x.target}</b><span>—</span><small>${x.why}</small></div>`).join('')}</div>
    <small class="mono dim">two of these are exclusions by <b>measurement</b>, which is the kind this machine produced most usefully: one build advertises tool support and loses seven calls in eight, and another is correct alone and abandons the tool with a second model resident. Neither is visible in a capability record, a parameter count or a file size.</small>`,'sirvis')}</div>
   
@@ -4973,7 +4987,7 @@ async function systemView(){
     sample of this machine, `m` is the identity SIRVIS pins to every result.
     All four hardcoded ` live`, so from disk the mock machine — a fictional
     `mc_7a1f` — rendered as a sample taken this second. */
- +`<div class="card full${now.live?' live':''}"><h3>Live load <span class="chip">${now.live?'sampled now':'not sampled'}</span></h3>${cell(`
+ +`<div class="card full${liveClass(now.live)}"><h3>Live load <span class="chip">${now.live?'sampled now':'not sampled'}</span></h3>${cell(`
    <div class="table-row head five"><span>OS</span><span>Load average</span><span>Memory in use</span><span>Swap</span><span>Thermal</span></div>
    <div class="table-row five"><span>${now.os_description}<small class="mono" style="opacity:.5;display:block">${orDash(now.cpu_count)} CPU</small></span>
     <span class="mono">${now.load_average?now.load_average.map(x=>x.toFixed(2)).join(' · '):'<span class="dim">not reported</span>'}</span>
@@ -4984,17 +4998,17 @@ async function systemView(){
    ${now.processes.length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
     :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
    <small class="mono dim">read from <b>NERVIS /api/v1/system</b>, sampled at the moment of the request rather than by a background timer — a value from a timer is whatever the timer last caught, not the state when you looked. Ordered by <b>memory</b> rather than CPU: this ecosystem's failure mode is a multi-gigabyte model resident when something else needs the room. A command name, never a command line — an argument list is where a workspace path leaks. <b>Thermal is macOS-only</b> and reads <i>not reported</i> elsewhere rather than a comfortable-looking <i>nominal</i>: SIRVIS's first probe collapsed those two and reported a happy machine while it lost 48% of its throughput to heat.</small>`,'nervis')}</div>
-  <div class="card wide${m.live?' live':''}"><h3>Machine ${m.machine_id}</h3>${cell(`
+  <div class="card wide${liveClass(m.live)}"><h3>Machine ${m.machine_id}</h3>${cell(`
    <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
    <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
    <div class="bar"><i style="--w:${usedPct}%"></i></div>
    <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>
-  <div class="card narrow${m.live?' live':''}"><h3>Runtimes</h3>${cell(`
+  <div class="card narrow${liveClass(m.live)}"><h3>Runtimes</h3>${cell(`
    <div class="table-row head"><span>Runtime</span><span style="grid-column:2/-1">Version</span></div>
    ${m.runtimes.map(r=>`<div class="table-row"><span>${r.name}</span><span class="mono" style="grid-column:2/-1">${r.version}</span></div>`).join('')}
    <small class="mono dim">runtime versions are pinned too. An LM Studio or MLX upgrade is exactly the event that moves throughput without anything else changing, and comparing across one without saying so produces a regression nobody can locate.</small>`,'sirvis')}</div>
-  <div class="card full${m.live?' live':''}"><h3>Conditions</h3>${cell(`
+  <div class="card full${liveClass(m.live)}"><h3>Conditions</h3>${cell(`
    <div class="table-row head five"><span>Condition</span><span>Now</span><span style="grid-column:3/-1">Effect on a measurement taken in it</span></div>
    <div class="table-row five"><span>Thermal state</span><span class="chip${warnUnless(m.thermal_state==='nominal')}">${m.thermal_state}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
    <div class="table-row five"><span>Swap</span><span class="chip${warnIf(m.swap_gb)}">${m.swap_gb} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
@@ -5694,12 +5708,12 @@ async function ravisProviders(){
    ['Local',`${local.filter(x=>x.enabled).length} / ${local.length}`,'answering on this machine','ravis',p.live],
    ['Breakers open',String(breakers.length),breakerNote,'ravis',p.live],
    ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis',p.live]])
- +`<div class="card full${p.live?' live':''}"><h3>Health</h3>${cell(`
+ +`<div class="card full${liveClass(p.live)}"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
    ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono"><a href="#" onclick="PROVIDERS.explainProtocol('${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}');return false" style="color:inherit;text-decoration:underline dotted" title="what RAVIS does to a request on this path">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</a></span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
    <div id="protocolNote" class="trace-step" style="display:none"></div>
    <small class="mono dim">${p.items.map(x=>`<b>${x.label}</b> — ${x.note}`).join('<br>')}</small>`,'ravis')}</div>
-  <div class="card full${p.live?' live':''}"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
+  <div class="card full${liveClass(p.live)}"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
    <div class="table-row head six"><span>Provider</span><span style="grid-column:2/4">Origin</span><span>Chat path</span><span>Auth</span><span>Secret</span></div>
    ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path||'not published')}</span><span class="mono">${x.auth?escapeHtml(x.auth.scheme)+(x.auth.header?' · '+escapeHtml(x.auth.header):''):'not published'}</span><span class="mono" style="opacity:.7">${x.auth?escapeHtml(dash(x.auth.secret_ref)):'—'}</span></div>`).join('')}
    <small class="mono dim"><b>chat path</b> and <b>auth</b> read "not published" against a live RAVIS because <b>/api/v1/providers</b> does not carry them — which is an absence rendered as one rather than invented, so this card is live with two honest gaps in it. This is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>`}
@@ -5797,7 +5811,7 @@ async function ravisSessions(){
       and on a page opened from disk this tile glowed alone among four faded
       ones. Provenance, not truth. */
    ['Content stored','none','§12.1: no prompts, no responses','ravis',s.live]])
- +`<div class="card full${s.live?' live':''}"><h3>Routing sessions</h3>${cell(`
+ +`<div class="card full${liveClass(s.live)}"><h3>Routing sessions</h3>${cell(`
    <div class="table-row head six"><span>Session</span><span>Application</span><span>Pool</span><span style="grid-column:4/6">Model</span><span>Requests</span></div>
    ${s.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.session_id)}</span><span class="mono" style="opacity:.8">${escapeHtml(x.application_id)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.pool||'—')}</span><span class="mono" style="grid-column:4/6">${escapeHtml(x.model||'—')}<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider||'—')}</span></span><span>${x.requests||0}<span class="dim" style="opacity:.6"> · ${escapeHtml(ago(x.last_activity))}</span></span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no sessions yet — a client supplies one with the <b>X-Session-ID</b> header</span></div>'}
    <small class="mono dim">RAVIS scopes this list to the <b>asking application</b>, so this is what NERVIS can see and not the machine's every session. Two applications may use the identical session ID and get two separate sessions — §12.1 requires that they never merge, and the stored key is an identity rather than a display name, which is what makes it structural instead of a rule somebody has to remember.</small>
@@ -5811,11 +5825,14 @@ async function ravisSessions(){
 async function ravisPolicies(){
  heading('Policies','Conditions and actions, in evaluation order. Hard policies eliminate; soft policies only rank.');
  const p=await API.ravis.policies();
- /* RAVIS answering with nothing is a *fact*, not an empty screen to fill. The
-    engine that would evaluate policies is M16 and is not built, so the honest
-    render is a statement to that effect — and the constraint table below it,
-    which is real: §9.2's hard/soft split is enforced today by pool invariants
-    and the routing engine, and that is what actually governs a request. */
+ /* RAVIS answering with nothing is a *fact*, not an empty screen to fill.
+    This said the policy engine was unbuilt; M16 shipped it — §14's four privacy
+    levels, provider allow and deny, model exclusions and §9.6.1's background
+    class, every one a hard exclusion applied before ranking. So an empty list
+    now means *no policy is configured*, which is a different sentence and the
+    one the screen prints. The constraint table below it is real either way:
+    §9.2's hard/soft split is enforced by pool invariants and the routing
+    engine, and that is what governs a request when no policy names it. */
  if(p.live&&!p.items.length)return noPoliciesScreen();
  /* One row per application, plus `*` for the default that governs anything
     unlisted. The constraint strings are RAVIS's own words, rendered rather than
@@ -5833,7 +5850,7 @@ async function ravisPolicies(){
       from anywhere, and the badge means provenance, not truth. */
    ['Enforcement','hard','applied before ranking, never as a score','ravis',p.live],
    ['Engine','M16','shipped','ravis',p.live]])
- +`<div class="card full${p.live?' live':''}"><h3>Policy in force</h3>${cell(`
+ +`<div class="card full${liveClass(p.live)}"><h3>Policy in force</h3>${cell(`
    <div class="table-row head"><span>Application</span><span style="grid-column:2/-1">Constraints</span></div>
    ${p.items.map(x=>`<div class="table-row"><span class="mono">${escapeHtml(x.application_id)}</span><span style="grid-column:2/-1;opacity:.85">${(x.constraints||[]).map(escapeHtml).join(' · ')||'—'}</span></div>`).join('')}
    <small class="mono dim"><b>*</b> is the default: an application with no row of its own is governed by it. Every constraint here is <b>hard</b> — §14 rule 14 says a privacy constraint can never be overridden by score, so these remove candidates before anything is ranked rather than penalising them inside it. <b>LOCAL_PREFERRED</b> is the one level that ranks instead of excluding, and it says so.</small>`,'ravis')}</div>
@@ -5853,7 +5870,7 @@ function costCard(usage,spend){
  const rows=(spend.items||[]).slice(0,10);
  const state=r=>`<span class="chip${r.cost_state==='UNKNOWN'?' warn':''}">${escapeHtml(r.cost_state)}</span>`;
  const budget=usage.budget;
- return `<div class="card full${spend.live?' live':''}"><h3>What it cost <span class="chip">estimated</span></h3>${cell(`
+ return `<div class="card full${liveClass(spend.live)}"><h3>What it cost <span class="chip">estimated</span></h3>${cell(`
    <div class="table-row head five"><span>Model</span><span>Provider</span><span>Tokens</span><span>Cost</span><span>Basis</span></div>
    ${rows.map(r=>`<div class="table-row five"><span class="mono">${escapeHtml(r.model)}</span><span class="mono" style="opacity:.75">${escapeHtml(r.provider||'—')}</span><span class="mono" style="opacity:.8">${r.input_tokens==null?'—':r.input_tokens} in · ${r.output_tokens==null?'—':r.output_tokens} out</span><span class="mono">${money(r.cost,r.currency)}</span><span>${state(r)}</span></div>`).join('')
     ||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">nothing has been priced yet — either no call has run, or no provider published a price for the models used</span></div>'}
@@ -5912,7 +5929,7 @@ async function ravisEvidence(){
     the understating direction again, one level above the KPI tiles where the
     same default was fixed. The fetch has reported `source: 'live'` since it
     was written; nothing read it. */
- +`<div class="card full${ev.source==='live'?' live':''}"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
+ +`<div class="card full${liveClass(ev.source==='live')}"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${e.target.family} <small class="mono" style="opacity:.5">${e.target.variant}</small></span><span>${e.role}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—'}</span><span class="mono">${e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s'}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—'}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
    <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>
@@ -5952,11 +5969,11 @@ async function ravisLogs(){
    ['No-route',String(req.items.filter(r=>r.result!=='OK').length),'failed closed, recorded','ravis'],
    ['Events published',String(mine.length),`${warn} warning`,'nervis'],
    ['Payload capture','off','no prompt or completion is stored','ravis']])
- +`<div class="card full${SOURCE.ravis==='live'?' live':''}"><h3>Request log</h3>${cell(`
+ +`<div class="card full${liveClass(SOURCE.ravis==='live')}"><h3>Request log</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
    ${req.items.map(r=>`<div class="table-row five"><span class="mono">${r.pool}</span><span>${dash(r.model)}</span><span class="mono">${dash(r.execution_path)}</span><span>${r.ttft_s?r.ttft_s+'s':'—'}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${r.result}</span></div>`).join('')}
    <small class="mono dim">every row is a decision id away from its full record — pool, requirements, candidates, exclusions and timings. What no row leads to is the text of the request, because it was never written down.</small>`,'ravis')}</div>
-  <div class="card wide${SOURCE.nervis==='live'?' live':''}"><h3>Events published by RAVIS</h3>${cell(`
+  <div class="card wide${liveClass(SOURCE.nervis==='live')}"><h3>Events published by RAVIS</h3>${cell(`
    <div class="table-row head five"><span>Time</span><span>Type</span><span>Version</span><span>Trace</span><span>Severity</span></div>
    ${mine.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.event_version}</span><span class="mono">${dash(e.trace_id)}</span><span class="chip${warnIf(e.severity==='warning')}">${e.severity}</span></div>`).join('')}
    <small class="mono dim">these are the frames RAVIS handed the hub, carrying identifiers and result classes only. Export failing never blocks a route: telemetry is downstream of serving the request, and a collector outage must not become a routing outage.</small>
@@ -6001,8 +6018,11 @@ async function ravisSettings(){
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?(await r.json()).items||[]:null}
     catch(e){return null}})(),
    serviceDiagnostics('ravis')]);
- const ravisObserved=Boolean(sHealth||sProv||sDiag);
- const liveCard=`<div class="card full${ravisObserved?' live':''}"><h3>How RAVIS is running <span class="chip">${ravisObserved?'observed':'nothing answered'}</span></h3>${cell(`
+ /* `.some(Boolean)` rather than a chain of `||`: three reads that fail
+    independently are one question, and writing it as two short-circuits scored
+    as two decisions against the complexity ratchet. */
+ const ravisObserved=[sHealth,sProv,sDiag].some(Boolean);
+ const liveCard=`<div class="card full${liveClass(ravisObserved)}"><h3>How RAVIS is running <span class="chip">${answeredChip(ravisObserved)}</span></h3>${cell(`
    <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(BASE.ravis)}</span></div>
    ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(dash(sDiag.identity.build_version))}</span></div>`:''}
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${sHealth.models_known} model(s) visible</span>`:''}</span></div>
@@ -6323,10 +6343,13 @@ const PROVIDERS={
    ID, title, timestamps, messages, RAVIS route IDs. Allow deletion." NERVIS M4
    adds "history persists locally".
 
-   **This is `localStorage`, not the database §7.2 eventually wants.** NERVIS M0
-   — the FastAPI package with SQLite and migrations — has never been built, and
-   `nervis/` holds a single HTML file served by a static server. So there is no
-   backend to persist to. `localStorage` satisfies the requirement that matters
+   **This is `localStorage`, not the database §7.2 eventually wants.** That was
+   once because there was nowhere else to put it — M0 was unbuilt and `nervis/`
+   was one HTML file on a static server. M0 shipped the package, SQLite and the
+   migrations, so a backend now exists and this is a choice rather than a
+   constraint: §7.2 says local by default, and per-browser storage cannot leak
+   a conversation to another account on this machine. Moving it is NERVIS M20's
+   business. `localStorage` satisfies the requirement that matters
    (local, deletable, survives a reload) and is honest about being per-browser
    rather than per-machine: another browser, or a private window, sees nothing.
 
@@ -6786,15 +6809,19 @@ const CHAT_SESSIONS={
    Every service publishes `/ecosystem/health` (§1) and `/ecosystem/capabilities`,
    so a diagnostics screen has real material without any diagnostics endpoint —
    which is fortunate, because there is not one: `/api/v1/diagnostics` is a 404
-   on both, and the Clarvis conformance suite is a CLI command with no HTTP
-   surface at all. */
+   on RAVIS and SIRVIS alike, and the Clarvis conformance suite is a CLI command
+   with no HTTP surface at all. NERVIS's own reads are included since M0 — it
+   publishes the same three surfaces its peers do. */
 /* The Test button, which used to raise a toast describing a test it did not
    run. §14's health test is exactly the three metadata reads this already does,
    so the control now performs them and reports what came back — including
    "nothing", which is the answer it exists to surface. */
 async function healthTest(key){
  if(!BASE[key]&&key!=='nervis')return notify(`${key}: no address configured`);
- if(key==='nervis')return notify('NERVIS has no service to test — M0 is unbuilt');
+ /* NERVIS was refused here on the grounds that M0 was unbuilt. It shipped:
+    NERVIS serves this page and publishes all three `/ecosystem/*` reads, which
+    are exactly what this control performs. The button did nothing for the one
+    service that is certainly running. */
  notify(`${key.toUpperCase()}: testing…`);
  const d=await serviceDiagnostics(key);
  if(!d||!d.health)return notify(`${key.toUpperCase()}: not answering`);
@@ -7689,7 +7716,7 @@ function providerHealthCard(pr,breakers,live=false){
  const note=breakers.length
   ? `<b>${breakers[0].label}</b> is at ${breakers[0].breaker}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`
   : 'Every breaker closed and every enabled provider answering.';
- return `<div class="card wide${live?' live':''}"><h3>Provider health</h3>${cell(`
+ return `<div class="card wide${liveClass(live)}"><h3>Provider health</h3>${cell(`
    <div class="table-row head five"><span>Provider</span><span>Breaker</span><span>Error rate</span><span>p50</span><span>Enabled</span></div>
    ${pr.items.map(x=>`<div class="table-row five"><span>${x.label}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${x.breaker}</span><span>${Math.round(x.error_rate*100)}%</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span><span class="chip${warnUnless(x.enabled)}">${x.enabled?'yes':'no'}</span></div>`).join('')}
    <small class="mono dim">${note}</small>`,'ravis')}</div>`;
@@ -7700,7 +7727,7 @@ function unavailablePoolsCard(down,live=false){
   ? down.map(x=>`<div class="trace-step"><b>${x.pool_id}</b><span>${x.reason||'no member satisfies its invariants'}</span></div>`).join('')
     +`<small class="mono dim">a request to ${down[0].pool_id} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
   : `<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`;
- return `<div class="card narrow${live?' live':''}"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
+ return `<div class="card narrow${liveClass(live)}"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
 }
 
 async function ravisDiagnostics(){
