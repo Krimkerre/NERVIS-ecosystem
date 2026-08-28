@@ -12,6 +12,7 @@ from tests.test_transparent_proxy import _app_with
 
 from ravis.app import create_app
 from ravis.config import Settings
+from ravis.policy import ApplicationPolicies, PrivacyLevel, RoutingPolicy
 
 READ_ENDPOINTS = [
     "/api/v1/health",
@@ -234,3 +235,34 @@ def test_a_shared_name_does_not_give_one_provider_another_s_catalogue() -> None:
     assert "catalogue_size" not in by_mode["TRANSLATED"], (
         "a translated provider has no catalogue to report"
     )
+
+
+def test_the_policies_endpoint_reports_what_is_actually_in_force() -> None:
+    """Empty still means "none configured" — but now because the file says so.
+
+    This returned `[]` unconditionally until M16, with the honest note that no
+    policy engine existed. A dashboard reading an empty list can now say
+    "unrestricted" and be right, which it could not before.
+    """
+    client = _client()
+    client.app.app.state.policies = ApplicationPolicies(
+        by_application={"nervis": RoutingPolicy(excluded_models=("*-preview*",))},
+        default=RoutingPolicy(privacy=PrivacyLevel.LOCAL_PREFERRED),
+    )
+    with client:
+        rows = client.get("/api/v1/policies").json()["items"]
+
+    by_id = {row["application_id"]: row["constraints"] for row in rows}
+    # The default is listed as `*`, because an application with no row of its
+    # own is governed by it — omitting it would leave a reader unable to answer
+    # "what applies to Clarvis" from this response.
+    assert by_id["*"] == ["privacy level LOCAL_PREFERRED"]
+    assert by_id["nervis"] == ["models excluded: *-preview*"]
+
+
+def test_an_unconfigured_deployment_reports_no_policy() -> None:
+    """"Nothing configured" must stay distinguishable from "policy hidden"."""
+    client = _client()
+    client.app.app.state.policies = ApplicationPolicies()
+    with client:
+        assert client.get("/api/v1/policies").json()["items"] == []

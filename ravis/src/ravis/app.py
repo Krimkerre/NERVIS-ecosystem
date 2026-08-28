@@ -364,7 +364,12 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
             # should not learn what this service would have permitted.
             return Response(status_code=204 if allowed else 403, headers=allowed)
 
-        identity = resolve_identity(headers, settings)
+        # The store is passed so a `client.<application>` credential resolves to
+        # that application rather than to the one shared `configured` identity.
+        # Read per request, like every other credential lookup here, so an
+        # application enrolled on the Credentials screen works on the next
+        # request instead of the next restart.
+        identity = resolve_identity(headers, settings, api.state.credentials)
         request.state.identity = identity
 
         try:

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1355 tests, no network, no live service
+.venv/bin/pytest                      # part of 1372 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1355 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1372 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5048,6 +5048,61 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### Policy, wired: NERVIS titles as background calls
+
+M16 built the engine; this connects something to it. NERVIS.md §7 already said
+what should happen — *NERVIS chat generates conversation titles... Each is a
+RAVIS background call and must carry RAVIS's declared marker* — and
+`set_title`'s own docstring said why it had not: *RAVIS does not honour that
+marker yet.* It does now.
+
+**Three things were missing, and the first was not obvious.** Policy is keyed to
+an application identity, and every authenticated caller resolved to one identity
+called `configured` — so a policy written for NERVIS would have applied to
+Clarvis too, which is not policy but a global setting with a misleading name. A
+credential stored as `client.<application>` now resolves the caller to that
+application, which is the lookup M0 deferred in as many words: *"once M10 brings
+a credential store, this grows a lookup and the rest of the service does not
+change."* The legacy single credential still resolves to `configured`, because
+removing it would turn an authenticated caller anonymous at the moment its rate
+limit tightened.
+
+Second, NERVIS called RAVIS with **no credential at all** — every request
+arrived as `anonymous`, which is least-privileged by construction, so its
+marker would have been ignored even if it had sent one.
+
+Third, `/api/v1/policies` returned `[]` unconditionally. Empty still means no
+policy is configured; it now means that because the file says so.
+
+**The placeholder had to stop being permanent.** `store.append` writes the first
+message's opening as a stand-in title, so "already has a title" could not mean
+"leave it alone" — that reading would have made the generated path dead code
+that never ran once. The test is exact rather than a heuristic: the stored title
+either *is* `placeholder_title` of the first message, or a person typed it, and
+a name somebody typed is never replaced. Overwriting that is worse than never
+generating one — the first destroys their work, the second merely fails to help.
+
+Verified end to end against a stub upstream, so the chain could be proved
+without a provider key or a paid call:
+
+    application: nervis     title call   -> declared a background call (§9.6.1)
+    application: nervis     ordinary turn-> no marker, policy still applied
+    policy      *-preview*  excluded     -> tiny-local-1b-preview refused
+    title       "My sourdough starter smells like acet…" -> "Sourdough Starter
+                                                            Troubleshooting"
+    after a human rename and another turn -> "Bread notes", untouched
+
+Every failure in the titler is silent by design. No credential, no RAVIS, a
+refusal, an empty answer — each leaves the conversation with its truncation and
+nothing else happens, because §7 states the trade outright: an untitled
+conversation is a smaller failure than a title billed to a frontier model. A
+retry or a fallback to a paid route would invert exactly that.
+
+**Nothing is configured on this machine yet**, and that is deliberate: the
+credential is the operator's to create. Until `client.nervis` exists in RAVIS's
+store and the same value reaches NERVIS, NERVIS stays anonymous and simply does
+not generate titles.
 
 ### M16 — policy, and the field that had to earn its way back
 

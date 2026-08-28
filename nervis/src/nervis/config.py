@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     # is absent is reported as absent, never as broken. M2 owns the probing;
     # these exist at M0 so `doctor` can print where it *would* look.
     ravis_base_url: str = "http://127.0.0.1:8731"
+    # The credential NERVIS presents to RAVIS, so RAVIS resolves it to the
+    # `nervis` application rather than to `anonymous` (RAVIS §9.6.0).
+    #
+    # **This is what makes a background call possible at all.** §9.6.1 honours
+    # the background marker only from an authenticated identity, so without a
+    # credential NERVIS's conversation titles arrive as ordinary work and can be
+    # billed to whatever `ravis/auto` picks — the exact outcome NERVIS.md §7
+    # calls out: *an untitled conversation is a smaller failure than a title
+    # billed to a frontier model.*
+    #
+    # Empty by default, and empty means NERVIS stays anonymous and simply does
+    # not generate titles. A missing credential must not turn the feature into
+    # an expensive one.
+    ravis_client_credential: str = ""
     sirvis_base_url: str = "http://127.0.0.1:8721"
     # The Clarvis Bridge is per extension host, so this is only the first
     # instance. §5.1 lists it among the initial registry entries because an

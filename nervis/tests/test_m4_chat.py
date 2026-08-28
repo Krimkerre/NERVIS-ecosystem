@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nervis import chat as store
+from nervis.api.chat import _first_user_message, _forwarded, _title_from
 from nervis.app import create_app
 from nervis.config import Settings
 from nervis.registry import RegistryState
@@ -92,13 +93,17 @@ def turn(client: TestClient, content: str, **extra: Any) -> httpx.Response:
 # ── The store (§7.2) ────────────────────────────────────────────────────────
 
 
-def test_a_conversation_is_titled_from_its_first_message_never_generated() -> None:
-    """§7 wants generated titles as a RAVIS *background call* carrying §9.6.1's
-    marker. RAVIS defines `may_declare_background_calls` and honours it nowhere,
-    so a generated title would route as ordinary work through `ravis/auto` and
-    could select a paid model for a string nobody reads.
+def test_a_conversation_is_titled_from_its_first_message_as_a_stand_in() -> None:
+    """Truncation is the stand-in, and it stays the stand-in.
 
-    §7 states the trade outright: an untitled conversation is a smaller failure
+    This test used to assert that a title is *never* generated, because RAVIS
+    defined `may_declare_background_calls` and honoured it nowhere — so a
+    generated title would have routed as ordinary work and could bill a paid
+    model for a string nobody reads. RAVIS M16 honours the marker, so generation
+    exists now and replaces this value; what the store does on its own is
+    unchanged, which is what this still pins.
+
+    §7's trade is unchanged too: an untitled conversation is a smaller failure
     than a title billed to a frontier model. Truncation costs nothing.
     """
     database = prepare_database(":memory:")
@@ -1029,3 +1034,82 @@ def test_the_clock_is_for_answering_about_not_for_garnish() -> None:
     assert "unless they ask" in system
     # Still given, which is the whole distinction.
     assert "The current local time is" in system
+
+
+# ── Generated titles as RAVIS background calls (§7, RAVIS §9.6.1) ───────────
+
+
+def test_a_generated_title_replaces_the_truncation() -> None:
+    """The placeholder is not a name, so it must not be treated as one.
+
+    `store.append` writes the opening of the first message as a stand-in. If
+    "has a title" meant "leave it alone", the stand-in would be permanent and
+    the whole background-call path would be dead code that never ran.
+    """
+    database = prepare_database(":memory:")
+    conversation = store.start_conversation(database, profile="ravis/auto")
+    opening = "My sourdough starter smells like acetone, what went wrong?"
+    store.append(database, conversation, store.Message(store.new_id(), "user", opening))
+
+    assert _first_user_message(database, conversation) == opening
+
+
+def test_a_name_a_person_typed_is_never_replaced() -> None:
+    """The other half, and the one that costs something if it is wrong.
+
+    Overwriting a title somebody chose is worse than never generating one: the
+    first destroys their work, the second merely fails to help.
+    """
+    database = prepare_database(":memory:")
+    conversation = store.start_conversation(database, profile="ravis/auto")
+    store.append(database, conversation, store.Message(store.new_id(), "user", "anything"))
+    store.rename(database, conversation, "Bread notes")
+
+    assert _first_user_message(database, conversation) == ""
+
+
+def test_a_conversation_with_nothing_said_is_not_titled() -> None:
+    """A greeting alone gives a model nothing to name."""
+    database = prepare_database(":memory:")
+    conversation = store.start_conversation(database, profile="ravis/auto")
+    store.append(database, conversation, store.Message(store.new_id(), "assistant", "Hello."))
+
+    assert _first_user_message(database, conversation) == ""
+
+
+def test_the_credential_is_what_makes_a_background_call_possible() -> None:
+    """§9.6.1 honours the marker only from an authenticated identity.
+
+    Without the header NERVIS is `anonymous` to RAVIS, its marker is ignored,
+    and a title routes — and bills — as ordinary work. So the header is not a
+    detail of this feature; it is the feature's precondition.
+    """
+    assert "authorization" not in _forwarded("req-1", "")
+    assert _forwarded("req-1", "", "shh")["authorization"] == "Bearer shh"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Sourdough Starter Troubleshooting", "Sourdough Starter Troubleshooting"),
+        ('  "Quoted Title"  ', "Quoted Title"),
+        ("Title: Feeding Schedule", "Feeding Schedule"),
+        ("First line\nsecond line", "First line"),
+        ("", ""),
+    ],
+)
+def test_a_model_s_answer_is_trimmed_into_a_title(raw: str, expected: str) -> None:
+    """Small models asked for six words return sentences, quotes and preambles.
+
+    Storing that verbatim puts model noise in the conversation list where a
+    person expects a name.
+    """
+    body = {"choices": [{"message": {"role": "assistant", "content": raw}}]}
+
+    assert _title_from(body) == expected
+
+
+def test_an_answerless_completion_produces_no_title() -> None:
+    """An empty answer leaves the stand-in in place rather than blanking it."""
+    assert _title_from({}) == ""
+    assert _title_from({"choices": []}) == ""

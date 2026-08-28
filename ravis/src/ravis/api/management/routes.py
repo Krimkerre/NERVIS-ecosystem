@@ -39,6 +39,7 @@ from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
 from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.observations import MINIMUM_SAMPLES
+from ravis.policy import ApplicationPolicies
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry, HealthScope
@@ -587,14 +588,35 @@ async def read_observations(request: Request) -> dict[str, Any]:
 
 
 @router.get("/policies")
-async def read_policies() -> dict[str, Any]:
-    """Routing rules, in the `IF … THEN …` form of §9.6.
+async def read_policies(request: Request) -> dict[str, Any]:
+    """What policy is in force, per application (§9.6).
 
-    Empty until the policy engine lands at M16, and empty is the honest answer:
-    no policy is currently in force, so a dashboard should show none rather than
-    an invented default that would misrepresent what RAVIS is doing.
+    Empty still means *no policy is configured*, which stays the honest answer
+    for a deployment that has set none — but it now means that because the file
+    says so, rather than because the engine did not exist. A dashboard reading
+    an empty list here can say "unrestricted" and be right.
+
+    The `default` row is listed alongside the named ones, and only when it
+    actually constrains something. An application with no row of its own is
+    governed by it, so omitting it would leave a reader unable to answer "what
+    applies to Clarvis" from this response.
+
+    Nothing here can carry a credential: a policy names providers and patterns,
+    and the credential that identifies an application is never part of it.
     """
-    return _listing([])
+    policies: ApplicationPolicies = getattr(
+        request.app.state, "policies", ApplicationPolicies()
+    )
+    rows = [
+        {"application_id": name, "constraints": policy.describe()}
+        for name, policy in sorted(policies.by_application.items())
+    ]
+    if policies.default.describe():
+        rows.insert(
+            0,
+            {"application_id": "*", "constraints": policies.default.describe()},
+        )
+    return _listing(rows)
 
 
 @router.get("/evidence")

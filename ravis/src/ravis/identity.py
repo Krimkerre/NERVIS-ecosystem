@@ -30,6 +30,7 @@ import hmac
 from dataclasses import dataclass
 
 from ravis.config import Settings
+from ravis.credentials import CredentialStore
 from ravis.policy import PrivacyLevel
 
 # The header a client presents its credential in. Bearer is used because every
@@ -97,6 +98,42 @@ def anonymous_identity(settings: Settings) -> ClientApplication:
     )
 
 
+def _named_application(
+    presented: str, credentials: CredentialStore | None, settings: Settings
+) -> ClientApplication | None:
+    """Match the presented token against each stored `client.*` credential.
+
+    Every candidate is compared even after one matches, so the work does not
+    depend on *which* credential was presented. The early return would leak the
+    position of a matching name through timing — a small signal, and this is the
+    function that decides what policy applies.
+
+    Returns `None` rather than `anonymous` when nothing matches, so the caller
+    can still try the legacy single credential. Absence here means "not a named
+    application", not "not authenticated".
+    """
+    if credentials is None:
+        return None
+    matched: str | None = None
+    for name in credentials.names(CLIENT_PREFIX):
+        secret = credentials.resolve(name)
+        if secret and hmac.compare_digest(presented, secret.reveal()):
+            matched = name[len(CLIENT_PREFIX):]
+    if not matched:
+        return None
+    return ClientApplication(
+        application_id=matched,
+        label=matched,
+        rate_limit_per_minute=settings.rate_limit_per_minute,
+        # §9.6.1: the marker is honoured from an authenticated identity. What it
+        # then *buys* is decided by policy, which is keyed to this id — so an
+        # application that may declare background calls still reaches only the
+        # providers its policy allows.
+        may_declare_background_calls=True,
+        max_privacy_level=PrivacyLevel.NORMAL,
+    )
+
+
 def _presented_credential(headers: dict[str, str]) -> str:
     """Pull the bearer token out of the Authorization header, if there is one.
 
@@ -109,7 +146,19 @@ def _presented_credential(headers: dict[str, str]) -> str:
     return raw[len(BEARER_PREFIX):].strip()
 
 
-def resolve_identity(headers: dict[str, str], settings: Settings) -> ClientApplication:
+# The prefix marking a stored credential as a *client* identity rather than a
+# provider key. Both live in the same 0600 file and they are entirely different
+# things — one authenticates RAVIS to a provider, the other authenticates a
+# caller to RAVIS — so the namespace is separated rather than left to whoever
+# names the next credential.
+CLIENT_PREFIX = "client."
+
+
+def resolve_identity(
+    headers: dict[str, str],
+    settings: Settings,
+    credentials: CredentialStore | None = None,
+) -> ClientApplication:
     """Resolve the caller to exactly one application, or to `anonymous`.
 
     Comparison is constant-time. The values being compared are of attacker-chosen
@@ -117,12 +166,26 @@ def resolve_identity(headers: dict[str, str], settings: Settings) -> ClientAppli
     timing — small, but free to avoid, and this is the function guarding every
     policy decision in the service.
 
-    M0 knows one configured credential. Once M10 brings a credential store, this
-    grows a lookup and the rest of the service does not change, which is the
-    reason every caller depends on this function rather than reading the header.
+    **The lookup M0 promised.** Its comment said "once M10 brings a credential
+    store, this grows a lookup and the rest of the service does not change", and
+    that is what this is: a credential stored as `client.<application>` resolves
+    the caller to `<application>`, so §9.6's per-application policy has an
+    identity to key on. Before it, every authenticated caller was one identity
+    called `configured`, and a policy for NERVIS would have applied to Clarvis
+    too — which is not policy, it is a global setting with a misleading name.
+
+    The single `client_credential` setting still resolves to `configured`,
+    checked after the named ones. Every deployment written before this has one,
+    and taking it away would turn an authenticated caller into an anonymous one
+    at the exact moment its rate limit tightened.
     """
     presented = _presented_credential(headers)
-    if not presented or not settings.client_credential:
+    if not presented:
+        return anonymous_identity(settings)
+    named = _named_application(presented, credentials, settings)
+    if named is not None:
+        return named
+    if not settings.client_credential:
         return anonymous_identity(settings)
     if not hmac.compare_digest(presented, settings.client_credential):
         # A wrong credential is not an error, it is an unrecognised caller. It

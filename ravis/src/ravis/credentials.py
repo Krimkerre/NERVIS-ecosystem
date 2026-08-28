@@ -247,6 +247,21 @@ class CredentialStore:
                 return Secret(value, CredentialSource.ENVIRONMENT)
         return Secret("", CredentialSource.ABSENT)
 
+    def names(self, prefix: str = "") -> list[str]:
+        """Stored credential names, optionally filtered by prefix.
+
+        **File-backed only, and that is a real limit rather than an oversight.**
+        A Keychain cannot be enumerated by name without asking the user to
+        approve a search, and the environment has no list of "credentials" to
+        walk — only variables that happen to match a naming convention. So this
+        answers "which credentials were written *here*", which is the question
+        the client-identity lookup needs, and callers must not read it as "every
+        credential that exists".
+
+        Sorted so a caller iterating it behaves the same on every machine.
+        """
+        return sorted(name for name in self._file.read() if name.startswith(prefix))
+
     def status(self, name: str, *, env_var: str | None = None) -> CredentialStatus:
         """Whether a credential is available, and from where. Never the value."""
         secret = self.resolve(name, env_var=env_var)

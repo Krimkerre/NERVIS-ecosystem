@@ -127,11 +127,26 @@ def exists(database: Database, conversation_id: str) -> bool:
     return row is not None
 
 
+def placeholder_title(content: str) -> str:
+    """The stand-in title `append` writes for an unnamed conversation.
+
+    A function rather than an expression inlined below, because two places now
+    need to agree on it: this one writes it, and the background titler asks
+    whether the stored title *is* one before replacing it. A generated title
+    should replace a truncation and must never overwrite a name a person chose,
+    and comparing against a duplicated `[:TITLE_LENGTH]` elsewhere would make
+    that answer wrong the day either copy changed.
+    """
+    return content[:TITLE_LENGTH].strip()
+
+
 def append(database: Database, conversation_id: str, message: Message) -> Message:
     """Store one turn and mark the conversation as active.
 
     The title is filled from the first user message when nobody has set one —
-    locally, by truncation, never by a model call. See `TITLE_LENGTH`.
+    locally, by truncation, never by a model call. See `TITLE_LENGTH`. A real
+    title may replace this one later, as a RAVIS background call; a name typed
+    by a person may not be replaced at all.
     """
     with database.connection as connection:
         connection.execute(
@@ -156,7 +171,7 @@ def append(database: Database, conversation_id: str, message: Message) -> Messag
                 UPDATE chat_conversation SET title = ?
                  WHERE conversation_id = ? AND title = ''
                 """,
-                (message.content[:TITLE_LENGTH].strip(), conversation_id),
+                (placeholder_title(message.content), conversation_id),
             )
     return message
 

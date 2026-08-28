@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ravis.config import Settings
 from ravis.core.capabilities import ModelCapabilities
+from ravis.credentials import CredentialFile, CredentialStore
 from ravis.identity import resolve_identity
 from ravis.policy import PrivacyLevel, RoutingPolicy, effective_policy, policy_exclusions
 
@@ -124,3 +125,80 @@ def test_the_configured_credential_resolves_to_a_named_application() -> None:
     identity = resolve_identity({"authorization": "Bearer real-secret"}, settings)
 
     assert identity.application_id == "configured"
+
+
+def _store_with(tmp_path, **credentials: str) -> CredentialStore:  # noqa: ANN001
+    store = CredentialStore(
+        allow_environment=False, keychain=False,
+        file=CredentialFile(tmp_path / "credentials.json"),
+    )
+    for name, secret in credentials.items():
+        store.store(name.replace("__", "."), secret)
+    return store
+
+
+def test_a_client_credential_resolves_to_its_own_application(tmp_path) -> None:  # noqa: ANN001
+    """The lookup M0 promised, and what makes per-application policy possible.
+
+    Before it, every authenticated caller was one identity called `configured`,
+    so a policy written for NERVIS applied to Clarvis as well — which is not
+    policy, it is a global setting with a misleading name.
+    """
+    settings = _configured("legacy-secret")
+    store = _store_with(tmp_path, client__nervis="nervis-token")
+
+    identity = resolve_identity({"authorization": "Bearer nervis-token"}, settings, store)
+
+    assert identity.application_id == "nervis"
+    assert identity.may_declare_background_calls is True
+
+
+def test_two_applications_are_two_identities(tmp_path) -> None:  # noqa: ANN001
+    """The whole point: their policies must be able to differ."""
+    settings = _configured("legacy-secret")
+    store = _store_with(tmp_path, client__nervis="n-token", client__clarvis="c-token")
+
+    nervis = resolve_identity({"authorization": "Bearer n-token"}, settings, store)
+    clarvis = resolve_identity({"authorization": "Bearer c-token"}, settings, store)
+
+    assert (nervis.application_id, clarvis.application_id) == ("nervis", "clarvis")
+
+
+def test_an_unknown_token_is_anonymous_rather_than_an_error(tmp_path) -> None:  # noqa: ANN001
+    """§5.0.1 keeps the unauthenticated 200, including for a caller that guessed."""
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    store = _store_with(tmp_path, client__nervis="nervis-token")
+
+    identity = resolve_identity({"authorization": "Bearer wrong"}, settings, store)
+
+    assert identity.application_id == "anonymous"
+    assert identity.may_declare_background_calls is False
+
+
+def test_the_legacy_single_credential_still_works(tmp_path) -> None:  # noqa: ANN001
+    """Every deployment written before the lookup has one of these.
+
+    Taking it away would turn an authenticated caller into an anonymous one at
+    the exact moment its rate limit tightened.
+    """
+    settings = _configured("legacy-secret")
+    store = _store_with(tmp_path)
+
+    identity = resolve_identity({"authorization": "Bearer legacy-secret"}, settings, store)
+
+    assert identity.application_id == "configured"
+
+
+def test_a_provider_key_is_not_a_client_identity(tmp_path) -> None:  # noqa: ANN001
+    """Both live in the same 0600 file and they authenticate opposite directions.
+
+    A provider key authenticates RAVIS *to* a provider. Presenting one here must
+    not make the caller an application — otherwise anyone who learned an
+    OpenRouter key would inherit a policy.
+    """
+    settings = _configured("legacy-secret")
+    store = _store_with(tmp_path, openrouter="sk-provider-key")
+
+    identity = resolve_identity({"authorization": "Bearer sk-provider-key"}, settings, store)
+
+    assert identity.application_id == "anonymous"

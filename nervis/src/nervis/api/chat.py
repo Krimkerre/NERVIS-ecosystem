@@ -20,13 +20,15 @@ present a half-sentence as a finished thought.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import httpx
-from ecosystem_protocol import new_traceparent
+from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
@@ -46,6 +48,11 @@ CHAT_CAPABILITY = "ravis.openai_compatible.chat_completions"
 # 300 s and a client timing out first would abandon a request RAVIS is still
 # faithfully serving — leaving a model loading for a reply nobody will read.
 CHAT_TIMEOUT_SECONDS = 300.0
+
+# Far shorter than a conversation turn, and for a different reason: nobody is
+# waiting on a title. A slow one must not hold a connection open behind the
+# reply that already finished, and giving up costs an untitled conversation.
+TITLE_TIMEOUT_SECONDS = 30.0
 
 # What NERVIS asks for when a conversation opens with nothing in it.
 #
@@ -907,7 +914,9 @@ async def _relay(
             "POST",
             entry.declaration.base_url + "/v1/chat/completions",
             json=payload,
-            headers=_forwarded(request_id, trace_id),
+            headers=_forwarded(
+                request_id, trace_id, request.app.state.settings.ravis_client_credential
+            ),
             timeout=CHAT_TIMEOUT_SECONDS,
         ) as response:
             if response.status_code >= 400:
@@ -951,6 +960,148 @@ async def _relay(
                     interrupted=interrupted,
                 ),
             )
+            _title_later(request, conversation_id, trace_id)
+
+
+def _title_later(request: Request, conversation_id: str, trace_id: str) -> None:
+    """Schedule a title for a conversation that has none, and never wait for it.
+
+    **Scheduled rather than awaited**, because this runs in the `finally` of the
+    streaming response: awaiting a second network call there would hold the
+    reply open after its last token, so the user would watch a finished answer
+    fail to finish. A title arriving a second late costs nothing; a reply that
+    hangs costs the whole interaction.
+
+    **Only for a conversation that has no title.** Re-titling on every turn
+    would spend a call per message and overwrite a name a person chose by hand,
+    which is worse than never titling at all.
+
+    The task reference is deliberately dropped. `create_task` returns a handle
+    nothing here can await — the request is over — and holding one would only
+    give the garbage collector a reason to keep this frame alive.
+    """
+    database = request.app.state.database
+    opening = _first_user_message(database, conversation_id)
+    if not opening:
+        return
+    with contextlib.suppress(RuntimeError):  # no running loop, in a sync test
+        asyncio.get_running_loop().create_task(
+            _generate_title(request, conversation_id, opening, trace_id)
+        )
+
+
+def _first_user_message(database: Any, conversation_id: str) -> str:
+    """The message a title should describe, or empty when there is nothing to do.
+
+    Empty when there is nothing to do, so the caller has one condition to check
+    rather than three — and so "already named", "nothing was said" and "no such
+    conversation" produce the same inaction, which is what all three deserve.
+
+    **A generated title replaces the truncation and never a person's name.**
+    `store.append` writes the first message's opening as a stand-in, so "has a
+    title" cannot mean "leave it alone" — that would make the placeholder
+    permanent and this whole path dead. The test is exact rather than a
+    heuristic: the stored title either *is* `placeholder_title` of the first
+    message, or somebody typed it.
+    """
+    opening = ""
+    for message in store.messages(database, conversation_id):
+        if message.role == "user" and message.content.strip():
+            opening = message.content
+            break
+    if not opening:
+        return ""
+    stored = next(
+        (row.get("title") or "" for row in store.conversations(database)
+         if row["conversation_id"] == conversation_id),
+        "",
+    )
+    if stored and stored != store.placeholder_title(opening):
+        return ""
+    return opening
+
+
+# The pool a background call addresses. `ravis/cheap` rather than `ravis/auto`
+# because the marker and the pool answer different questions: the marker says
+# "do not bill this to a frontier model", the pool says what kind of work it is.
+# Naming the cheap pool means an operator who has not written a policy still
+# gets sensible routing, and a policy that restricts it further still applies.
+TITLE_POOL = "ravis/cheap"
+
+# Short, because the whole point is that this is not worth money. A title that
+# needs more than this is a summary, and NERVIS.md §7 asks for a title.
+TITLE_MAX_TOKENS = 24
+
+TITLE_PROMPT = (
+    "Write a short title, at most six words, for a conversation that begins "
+    "with the message below. Reply with the title alone: no quotes, no "
+    "punctuation at the end, no preamble.\n\n"
+)
+
+
+async def _generate_title(
+    request: Request, conversation_id: str, opening: str, trace_id: str
+) -> None:
+    """Title a conversation with a RAVIS background call (NERVIS.md §7, RAVIS §9.6.1).
+
+    **Every failure here is silent, and deliberately so.** NERVIS.md is explicit
+    that *an untitled conversation is a smaller failure than a title billed to a
+    frontier model*, so this refuses rather than degrades: no credential, no
+    RAVIS, a refusal, an empty answer — each leaves the conversation untitled
+    and nothing else happens. A retry loop or a fallback to a paid route would
+    invert the very tradeoff the specification states.
+
+    The marker is what makes it cheap, and the marker is only honoured because
+    `_forwarded` now carries a credential. Sent unconditionally: if RAVIS
+    declines to honour it, RAVIS says so in the route explanation and the call
+    is ordinary work — which is RAVIS's decision to report, not NERVIS's to
+    guess at.
+    """
+    settings = request.app.state.settings
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+        return
+    client: httpx.AsyncClient = request.app.state.probe_client
+    payload = {
+        "model": TITLE_POOL,
+        "max_tokens": TITLE_MAX_TOKENS,
+        "messages": [{"role": "user", "content": TITLE_PROMPT + opening[:600]}],
+        # RAVIS §9.6.1's declared marker. Never inferred by RAVIS from the shape
+        # of a request, which is why the client has to say it.
+        "metadata": {"background": True},
+    }
+    try:
+        response = await client.post(
+            entry.declaration.base_url + "/v1/chat/completions",
+            json=payload,
+            headers=_forwarded(new_request_id(), trace_id, settings.ravis_client_credential),
+            timeout=TITLE_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            return
+        body = response.json()
+    except (httpx.HTTPError, ValueError):
+        return
+    title = _title_from(body)
+    if title and store.exists(request.app.state.database, conversation_id):
+        store.rename(request.app.state.database, conversation_id, title)
+
+
+def _title_from(body: dict[str, Any]) -> str:
+    """The title in a completion, cleaned to one short line.
+
+    Trimmed rather than trusted. A small model asked for six words will
+    sometimes return a sentence, quotes around it, or a "Title:" prefix, and
+    storing that verbatim puts model noise in the conversation list where a
+    person expects a name.
+    """
+    choices = body.get("choices") or []
+    if not choices:
+        return ""
+    text = str((choices[0].get("message") or {}).get("content") or "")
+    line = text.strip().splitlines()[0] if text.strip() else ""
+    line = line.removeprefix("Title:").strip().strip("\"'").strip()
+    return line[:80]
 
 
 def _delta(line: str) -> tuple[str, bool]:
@@ -1012,16 +1163,23 @@ async def _json_body(request: Request) -> dict[str, Any]:
     return body
 
 
-def _forwarded(request_id: str, trace_id: str) -> dict[str, str]:
+def _forwarded(request_id: str, trace_id: str, credential: str = "") -> dict[str, str]:
     """The context headers one turn carries to RAVIS (§4.3).
 
     `traceparent` is a **new span in the same trace**, not the incoming header
     forwarded: forwarding would make RAVIS's parent NERVIS's parent, and §11.2's
     waterfall would draw two siblings where there is a call.
+
+    The credential is what makes NERVIS a *named* caller. Without it every
+    request arrives as `anonymous`, which RAVIS treats as least-privileged by
+    construction — no background marker honoured and no policy of its own. That
+    was the state until now, and it is why titles could not be generated.
     """
     headers = {"content-type": "application/json", "x-request-id": request_id}
     if trace_id:
         headers["traceparent"] = new_traceparent(trace_id)
+    if credential:
+        headers["authorization"] = f"Bearer {credential}"
     return headers
 
 
