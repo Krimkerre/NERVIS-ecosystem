@@ -54,6 +54,36 @@ repo has been recoverable only because the write was the last statement.
 
 ---
 
+### A backtick in a comment ends the string the comment is inside
+
+Three separate syntax errors in one session, all the same shape. An HTML comment
+written *inside* a template literal is not a comment to JavaScript — it is text
+in a string, and a backtick in it closes the string:
+
+```js
+$('#content').innerHTML = `
+  <!-- keyed on `ev.source`, like the card above -->   <-- ends the template here
+  <div class="card">...</div>`;
+```
+
+The error surfaces far away and names an identifier from the following line
+(`Unexpected identifier 'ev'`), so it reads as a problem with the code rather
+than with the prose. Write those comments without backticks.
+
+The mirror-image trap: an HTML comment placed between the two branches of a
+ternary is in *code* position, not string position — and `<!--` is a legal
+single-line comment in JavaScript, so only the first line disappears and the
+rest becomes code:
+
+```js
+const card = rows ? `...`
+  <!-- the failure branch -->    <-- line 1 is a comment; line 2 is a syntax error
+  : `...`;
+```
+
+Use `/* */` there. Rule of thumb: inside a template literal, HTML comment
+without backticks; anywhere else, a JavaScript comment.
+
 ## 2 · Renames, and the silence of `undefined`
 
 **`undefined` is falsy, so a stale read draws nothing rather than failing.**

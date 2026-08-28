@@ -931,12 +931,17 @@ async function live(service,path,mock,adapt){
    if(!response.ok)throw new Error('HTTP '+response.status);
    payload=await response.json();
   }finally{clearTimeout(timer)}
-  const adapted=adapt(payload);
+  const adapted=await adapt(payload);
   SOURCE[service]='live';
   return withSource(adapted,true);
  }catch(failure){
   SOURCE[service]='mock';
-  return withSource(mock(),false);
+  /* Awaited, because several mocks are `async` methods. Without this the flag
+     was set on the *Promise* — `withSource` saw an object, tagged it, and the
+     await handed back the resolved value with no flag on it at all. Every
+     screen fed by an async mock therefore still had `live === undefined`,
+     which is the silent half of this bug: no error, just no answer. */
+  return withSource(await mock(),false);
  }
 }
 
@@ -1644,14 +1649,18 @@ const API={
      liveSirvis('/api/v1/runtime-sets'),
      liveSirvis('/api/v1/benchmark-runs?limit=50')]);
    const items=(sets&&sets.items)||[];
-   if(!runs||!items.length)return this._runtimeSetMock();
+   /* Three exits and no way to tell them apart from the outside: two fall back
+      to the transcription and one is a live matrix off SIRVIS's own runs. The
+      Runtime sets screen hardcoded both its cards, so a measured pairing table
+      rendered under a PROTOTYPE badge. */
+   if(!runs||!items.length)return withSource(await this._runtimeSetMock(),false);
    const measured=this._measuredMatrices(runs);
-   if(!measured.length)return this._runtimeSetMock();
+   if(!measured.length)return withSource(await this._runtimeSetMock(),false);
    const newest=measured[0];
    const set=items.find(s=>s.name===newest.m.runtime_set)||items[0];
    SOURCE.sirvis='live';
-   return this._runtimeSetView(set,newest,
-     this._matrixLens(newest,this._resultsByRole(measured,newest)));
+   return withSource(this._runtimeSetView(set,newest,
+     this._matrixLens(newest,this._resultsByRole(measured,newest))),true);
   },
 
   /* Every stored result that carries an interaction matrix, newest first.
@@ -3882,22 +3891,26 @@ async function mapView(){
  const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
  const pts=ecosystemNodes(svc);
  $('#content').innerHTML=kpis([
-   ['Registered',String(svc.items.length),'one row per identity','nervis'],
-   ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis'],
-   ['Protocol','major 1','negotiated with every peer','nervis'],
-   ['Editor hosts',String(inst.items.length),inst.live?'extension hosts · never merged':'Clarvis Bridge is not running','clarvis']])
- +`<div class="card full"><h3>Topology <span class="chip">as observed</span></h3>
+   /* Stated rather than derived from `SOURCE`, which is a global the next
+      fetch overwrites. Every tile and card on this screen is drawn from one of
+      two reads, and the three cards below hardcoded their class — so a live
+      registry rendered a live topology under a PROTOTYPE badge. */
+   ['Registered',String(svc.items.length),'one row per identity','nervis',svc.live],
+   ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis',svc.live],
+   ['Protocol','major 1','negotiated with every peer','nervis',svc.live],
+   ['Editor hosts',String(inst.items.length),inst.live?'extension hosts · never merged':'Clarvis Bridge is not running','clarvis',inst.live]])
+ +`<div class="card full${svc.live?' live':''}"><h3>Topology <span class="chip">as observed</span></h3>
    <div class="map" style="height:320px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${n.x}%" y2="${n.y}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
     <div class="hub">NERVIS</div>
     ${pts.map(n=>`<div class="node" style="left:${n.x}%;top:${n.y}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${n.label}</b><br><small style="opacity:.6">${n.state}</small></div>`).join('')}
    </div>
    <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
-  <div class="card wide"><h3>Capability negotiation</h3>
+  <div class="card wide${svc.live?' live':''}"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(s=>`<div class="table-row five caps"><span>${s.label}</span><span class="mono">${s.build_version}</span><span class="mono">${s.protocol_version?'proto '+s.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${s.capability}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':s.state}</span></div>`).join('')}
    <small class="mono dim">an unknown capability is unavailable, not disabled-and-hopeful. An unsupported required major marks that one <b>feature</b> incompatible — never the whole dashboard, while other surfaces still negotiate.</small></div>
-  <div class="card narrow"><h3>Observer-side state</h3>
+  <div class="card narrow${svc.live?' live':''}"><h3>Observer-side state</h3>
    ${svc.items.map(s=>`<div class="trace-step"><b>${s.label}</b><span>${s.state}${REASON[s.state]?' · '+REASON[s.state]:''} ${stamp(s.age ?? 0)}</span></div>`).join('')}
    <small class="mono dim">these are NERVIS's own states, not the <b>healthy | degraded | unhealthy</b> a peer reports about itself. Healthy means a truthful response <i>plus</i> reachability: a successful TCP connect is not readiness.</small></div>`}
 
@@ -4604,11 +4617,11 @@ async function sirvisModels(){
     mock could never be empty, so this guard exists because of the wiring. */
  const first=loaded[0]||m.items[0]||null;
  $('#content').innerHTML=kpis([
-   ['Installed',String(m.items.length),'builds, not families','sirvis'],
-   ['Loaded',String(loaded.length),'holding memory now','sirvis'],
-   ['Resident',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'holding memory now':`of a ${mc.model_budget_gb} GB budget`,'sirvis'],
-   ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis']])
- +`<div class="card full"><h3>Builds</h3>${cell(`
+   ['Installed',String(m.items.length),'builds, not families','sirvis',m.live],
+   ['Loaded',String(loaded.length),'holding memory now','sirvis',m.live],
+   ['Resident',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'holding memory now':`of a ${mc.model_budget_gb} GB budget`,'sirvis',mc.live],
+   ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis',m.live]])
+ +`<div class="card full${m.live?' live':''}"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
    ${m.items.map(x=>buildRow(x,ctx)).join('')}
    <small class="mono dim">${SOURCE.sirvis==='live'
@@ -4671,7 +4684,10 @@ async function sirvisDiscover(){
  $('#content').innerHTML=kpis([
    ['Catalog',String(cat.items.length),'entries on this page','sirvis',false],
    ['Installed',`${installed} / ${cat.items.length}`,'already on disk','sirvis',false],
-   ['Disk free',free+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',false],
+   /* The catalogue above is a stored transcription and `false` is correct for
+      it. This one is not: the disk figure comes from SIRVIS's live machine
+      read, and it is what decides whether a row can be downloaded at all. */
+   ['Disk free',free+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',mc.live],
    ['Smallest',Math.min(...cat.items.filter(x=>!x.installed).map(x=>x.size_gb))+' GB',
     'of what is not installed','sirvis',false]])
  +`<div class="card full"><h3>Catalog <span class="chip" id="discoverCount">${cat.items.length} of ${cat.items.length}</span></h3>${cell(`
@@ -4758,11 +4774,11 @@ async function sirvisRuntimeSets(){
  const gbOr=v=>v==null?'—':v+' GB';
  const short=n=>n.replace(/^(lmstudio-community|mlx-community)\//,'').replace('-instruct','');
  $('#content').innerHTML=kpis([
-   ['Pairings',String(rs.pairs.length),'measured co-resident','sirvis'],
-   ['Heaviest',heaviest?gbOr(heaviest.peak_gb):'—',heaviest?'resident, no swap':'peak memory not on this record','sirvis'],
-   ['Degraded',anyFollowUp?String(degraded.length):'—',anyFollowUp?'on behaviour, not memory':'no tool-call trial yet (M13)','sirvis'],
-   ['Evidence',rs.samples+' runs',prov(rs.evidence_type)+' per pairing','sirvis']])
- +`<div class="card full"><h3>Every measured pairing</h3>${cell(`
+   ['Pairings',String(rs.pairs.length),'measured co-resident','sirvis',rs.live],
+   ['Heaviest',heaviest?gbOr(heaviest.peak_gb):'—',heaviest?'resident, no swap':'peak memory not on this record','sirvis',rs.live],
+   ['Degraded',anyFollowUp?String(degraded.length):'—',anyFollowUp?'on behaviour, not memory':'no tool-call trial yet (M13)','sirvis',rs.live],
+   ['Evidence',rs.samples+' runs',prov(rs.evidence_type)+' per pairing','sirvis',rs.live]])
+ +`<div class="card full${rs.live?' live':''}"><h3>Every measured pairing</h3>${cell(`
    <div class="table-row head six"><span>Build A</span><span>Build B</span><span>Peak</span><span>First token</span><span>Follow-up</span><span>Note</span></div>
    ${rs.pairs.map(p=>{const bad=known(p).some(f=>f!=='used-result'&&f!=='never-reached');
     return `<div class="table-row six"><span>${short(p.members[0])}</span><span>${short(p.members[1])}</span><span class="mono">${gbOr(p.peak_gb)}</span><span class="mono">${p.first_token_s.map(v=>v==null?'—':v).join(' · ')}s</span><span class="chip${warnIf(bad)}">${known(p).length?p.follow_up.join(' · '):'—'}</span><span style="opacity:.7">${p.note}</span></div>`}).join('')}
@@ -4784,7 +4800,7 @@ async function sirvisRuntimeSets(){
    <small class="mono dim">${rs.finding}. ${SOURCE.sirvis==='live'
      ?`Co-resident is both models loaded with one generating; concurrent is both generating at once. The gap between those two columns is the whole reason a pair is its own subject — co-residency is nearly free and concurrency is not, and no single-model run produces either number. Follow-up is absent because no tool-call trial exists yet (M13).`
      :`Sustained rate under contention was not measured for this pair, so <b>concurrent_tok_s</b> is null rather than carrying the solo figure — which would have read as "no degradation found" when nothing looked.`}</small>`,'sirvis')}</div>
-  <div class="card narrow"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
+  <div class="card narrow${rs.live?' live':''}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
    +`<small class="mono dim">the measurement is valid and the combination is a bad idea. Those are different statements, kept in different fields — validity says the run can be trusted, and the finding above says what it found.</small>`,'sirvis')}</div>
   `}
 
@@ -4855,7 +4871,10 @@ async function sirvisResults(){
    <small class="mono dim">the same family, twice the weights, identical on every accuracy measure in this document and three times slower. That comparison is invisible on time-to-first-token — 0.22 s against 0.62 s — because first token measures how quickly a build <i>starts</i>, not how quickly it finishes. On a long answer this is four seconds against twelve.</small>`)}`,'sirvis')}</div>
   
   
-  <div class="card full"><h3>What the automated scoring missed</h3>${cell(`
+  <!-- Keyed on ev.source, as the two cards above it already are. These rows
+       come from the same live evidence read, and this was the last card on the
+       screen still hardcoding its class. -->
+  <div class="card full${ev.source==='live'?' live':''}"><h3>What the automated scoring missed</h3>${cell(`
    <div class="table-row head"><span>Build</span><span style="grid-column:2/-1">Not caught by the grounding check</span></div>
    ${caveats.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;opacity:.75">${e.caveat}</span></div>`).join('')}
    ${warned.map(e=>`<div class="table-row"><span>${e.target.family}</span><span style="grid-column:2/-1;color:#ffb648">${e.warnings.join(', ')} — ${e.validity}</span></div>`).join('')}
@@ -4869,12 +4888,16 @@ async function sirvisRecommendations(){
  heading('Recommendations','Ranked with exclusions and uncertainty. SIRVIS suggests — RAVIS decides.');
  const r=await API.sirvis.recommendations();
  $('#content').innerHTML=kpis([
-   ['Profile',r.profile,`mode ${r.mode} · algorithm v${r.algorithm_version}`,'sirvis',false],
-   ['Ranked',String(r.ranked.length),`of ${r.ranked.length+r.excluded.length} considered`,'sirvis',false],
-   ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis',false]]:[]),
-   ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis',false],
-   ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis',false]])
- +`<div class="card full"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
+   /* `r.live`, which this screen already computes — the Coverage tile below is
+      conditional on it. All five passed a literal `false`, so a live ranking
+      off SIRVIS's own recommendation engine rendered entirely faded, including
+      the tile that only exists when the read was live. */
+   ['Profile',r.profile,`mode ${r.mode} · algorithm v${r.algorithm_version}`,'sirvis',r.live],
+   ['Ranked',String(r.ranked.length),`of ${r.ranked.length+r.excluded.length} considered`,'sirvis',r.live],
+   ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis',r.live]]:[]),
+   ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis',r.live],
+   ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis',r.live]])
+ +`<div class="card full${r.live?' live':''}"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
    <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,x.samples?'n='+x.samples:'')}</span>
     <small>${x.role} · fit ${x.fit} ${x.headroom_gb==null?'':` · ${x.headroom_gb} GB headroom`}<br>${x.why}</small></div>`).join('')}</div>
    ${r.uncertainty&&r.uncertainty.length?`<div style="margin-top:10px">${r.uncertainty.map(u=>`<div class="trace-step"><b>uncertainty</b><span>${escapeHtml(u)}</span></div>`).join('')}</div>`:''}${r.proposed&&r.proposed.length?`<div>${r.proposed.map(u=>`<div class="trace-step"><b>would raise coverage</b><span class="mono">${escapeHtml(u)}</span></div>`).join('')}</div>`:''}
@@ -4884,7 +4907,7 @@ async function sirvisRecommendations(){
    <div class="trace-step"><b>algorithm</b><span>v${r.algorithm_version}</span></div>
    <div class="trace-step"><b>expires</b><span>${r.expires_in_min} min</span></div>
    <small class="mono dim">${(r.uncertainty||[]).length?escapeHtml((r.uncertainty||[]).join(' · ')):'nothing was flagged as uncertain'}.</small>`)}`,'sirvis')}</div>
-  <div class="card wide"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
+  <div class="card wide${r.live?' live':''}"><h3>Excluded</h3>${cell(`<div class="route-lanes">${r.excluded.map(x=>`
    <div class="lane excluded"><b>${x.target}</b><span>—</span><small>${x.why}</small></div>`).join('')}</div>
    <small class="mono dim">two of these are exclusions by <b>measurement</b>, which is the kind this machine produced most usefully: one build advertises tool support and loses seven calls in eight, and another is correct alone and abandons the tool with a second model resident. Neither is visible in a capability record, a parameter count or a file size.</small>`,'sirvis')}</div>
   
