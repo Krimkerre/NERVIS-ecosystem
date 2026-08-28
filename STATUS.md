@@ -2125,6 +2125,66 @@ RAVIS's reach.
 
 ---
 
+## Stretch goal — a second consumer: WWAH
+
+**Not scheduled, and deliberately outside the stage plan.** WWAH is a separate
+project — a local AI-village simulator — which has built a provider seam of its
+own (a client protocol, a provider-neutral response contract, a per-provider
+catalogue source) and today calls Ollama and OpenRouter directly. The idea is a
+custom pool in RAVIS that WWAH addresses instead.
+
+**Why it is worth wanting.** Every consumer RAVIS has today is Clarvis or this
+dashboard, and both were built alongside it. A client written against RAVIS's
+published contracts by somebody who did not build RAVIS is the first real test
+of whether those contracts are contracts or descriptions. That is the same
+argument as §20.2's — the transparent slice had to work against a real client
+before translation was allowed — applied one level out.
+
+**What WWAH would gain.** Provenance it cannot get from OpenRouter directly.
+Against a raw provider it records every run as `provider_attested_unverifiable`,
+because no weights identity can be proven. Through RAVIS it could record the
+pool and its pinned revision, the concrete model selected, the upstream that
+served it, and whether the cost was the provider's own figure or RAVIS's
+arithmetic. That is materially stronger, and still short of weights identity —
+RAVIS attests the routing decision and the upstream, not that the upstream ran
+the weights it claims. Whatever WWAH records should say so in those words.
+
+**Two gaps found while scoping it, and the first is a defect on its own terms.**
+
+1. **Sampling parameters are silently discarded on the translated path.**
+   `NormalizedRequest` carries `messages`, `system`, `tools`, `tool_choice`,
+   `response_schema`, `temperature`, `max_output_tokens`, `reasoning_effort`,
+   `stream`, `metadata` and `requested_model` — and nothing else. A request
+   naming `top_p`, `top_k`, `min_p`, `repetition_penalty` or `seed` loses them
+   before any adapter is reached, answers 200, and says nothing. On the
+   transparent path they survive, because the body is forwarded byte-for-byte.
+   A client asking for a seed and receiving a clean answer computed without one
+   is the same shape of silent, plausible wrong answer this file spends a day
+   documenting elsewhere. **This is worth fixing whether or not WWAH ever
+   arrives**: RAVIS should refuse, or exclude the candidates whose path cannot
+   honour what was asked, rather than quietly dropping the field.
+
+2. **A pool restricts which models are candidates, not which path they take.**
+   Pool requirements are capabilities, minimum context, a price ceiling and
+   preferences; there is no "transparent providers only" requirement. So a
+   curated WWAH pool holds exactly until somebody adds a translated model to it,
+   at which point the guarantee breaks with nothing failing.
+
+**Three ways to do it, ranked.** Refusing rather than dropping (1) fixes every
+client, not just this one. A pool requirement for protocol mode (2) makes the
+intent structural rather than a convention an operator can edit away. Curating
+membership by hand works today and is the weakest: `pools.json` is
+operator-editable, so the guarantee lasts as long as nobody edits it. (1) and
+(2) compose — the pool states the intent, the refusal enforces it.
+
+**One thing curation cannot supply.** WWAH also refuses models that cannot do
+strict JSON-schema structured output. `capabilities.structured_output` reads
+`UNKNOWN` for most models here, because RAVIS records what a provider's
+catalogue states and refuses to infer. Curating on that basis is an operator's
+assertion, not a measured fact, and belongs in WWAH's record as one.
+
+---
+
 ## Reorderings made during the build
 
 Each is recorded in `RAVIS.md` §20.1 with its reason. Listed together here
