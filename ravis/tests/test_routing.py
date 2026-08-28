@@ -127,7 +127,17 @@ def test_the_explanation_separates_eligibility_from_ranking() -> None:
 
     What survives is the narrower claim, which is the one §9.4 actually needs:
     evidence admits and excludes, and nothing ranks one admitted build above
-    another on quality. Cost is genuinely absent until M15.
+    another on quality.
+
+    **And then the identical mistake was made one milestone later.** The same
+    sentence went on saying "No cost data is available yet" through M15 and
+    past it, on every explanation RAVIS produced, while cost was both excluding
+    candidates (a pool's per-million ceiling) and ordering them (a cheap pool,
+    or a budget band leaning that way). This test asserted that exact string,
+    so the check on the sentence kept the sentence wrong.
+
+    The claim is now conditional on what actually applied, which is why this
+    asserts the *unpriced* case here and the two applied cases below.
     """
     candidates = {"a": _model("a")}
 
@@ -135,7 +145,25 @@ def test_the_explanation_separates_eligibility_from_ranking() -> None:
 
     assert "Evidence decides eligibility rather than order" in decision.reason
     assert "nothing ranks one admitted build above another" in decision.reason
-    assert "No cost data is available yet" in decision.reason
+    assert "did not order this pool" in decision.reason, (
+        "clarvis-chat has no price ceiling and does not prefer cheap"
+    )
+
+
+def test_a_cheap_pool_says_that_prices_ordered_it() -> None:
+    """The other side of the sentence above: when cost *does* apply, say so.
+
+    `ravis/cheap` ranks on price by design, so an explanation claiming no cost
+    data was available was contradicting the pool it was explaining -- the same
+    shape as the evidence sentence before it.
+    """
+    decision = RoutingEngine().select(
+        "ravis/cheap", {"a": _model("a"), "b": _model("b")}
+    )
+
+    if decision.routed:
+        assert "Published prices" in decision.reason
+        assert "did not order this pool" not in decision.reason
 
 
 def test_an_empty_catalogue_is_a_no_route_with_a_distinct_reason() -> None:

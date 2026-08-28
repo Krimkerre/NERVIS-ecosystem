@@ -297,6 +297,7 @@ class RoutingEngine:
         decision.reason = _selection_reason(
             pool, eligible, residency, memory, expected_session_requests,
             _load_would_not_amortise(expected_session_requests, memory),
+            policy.prefers_cheap,
         )
         return decision
 
@@ -795,6 +796,7 @@ def _selection_reason(
     memory: MemoryReading,
     expected_session_requests: int | None = None,
     short_session: bool = False,
+    budget_leans_cheap: bool = False,
 ) -> str:
     """Say honestly why the winner won.
 
@@ -843,15 +845,42 @@ def _selection_reason(
     # yet" unconditionally, which stopped being true at M13 and then appeared
     # inside decisions that were only possible *because* evidence existed. What
     # is still true is narrower: evidence admits and excludes, and nothing here
-    # ranks one admitted build above another on quality. Cost genuinely is
-    # absent until M15.
+    # ranks one admitted build above another on quality.
+    #
+    # **Then the identical mistake was made one milestone later**, in the same
+    # sentence: "No cost data is available yet" outlived M15 by a whole
+    # milestone. Cost now both excludes — a pool with a per-million ceiling
+    # drops anything above it before ranking — and ranks, when the pool is a
+    # cheap one or a budget band leans that way. So it is said conditionally,
+    # from the two facts actually in scope, rather than asserted.
+    cost = _cost_note(pool, budget_leans_cheap)
     return (
         f"{'. '.join(part for part in parts if part)}. "
         f"Evidence decides eligibility rather than order — a build is admitted or "
         f"excluded on it, and nothing ranks one admitted build above another on "
-        f"quality. No cost data is available yet, and health is used to exclude "
+        f"quality. {cost}, and health is used to exclude "
         f"rather than to rank{tail}"
     )
+
+
+def _cost_note(pool: VirtualModelPool, budget_leans_cheap: bool) -> str:
+    """What published prices did to this decision, if anything.
+
+    Three different sentences, because they send a reader to three different
+    places: a ceiling that removed candidates, an ordering that moved them, or
+    prices recorded and not consulted.
+    """
+    ranks = pool.prefer_cheap or budget_leans_cheap
+    if pool.max_price_per_million is not None:
+        ordered = " and ranked cheapest-first among the rest" if ranks else ""
+        return (
+            f"Published prices excluded anything above this pool's "
+            f"${pool.max_price_per_million:g} per-million ceiling{ordered}"
+        )
+    if ranks:
+        why = "this pool prefers cheap" if pool.prefer_cheap else "a budget band leans cheaper"
+        return f"Published prices ordered the candidates because {why}"
+    return "Published prices are recorded per call but did not order this pool"
 
 
 def _size_note(
