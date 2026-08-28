@@ -84,6 +84,11 @@ const card = rows ? `...`
 Use `/* */` there. Rule of thumb: inside a template literal, HTML comment
 without backticks; anywhere else, a JavaScript comment.
 
+**`python3 tools/check.py` now catches the first of these.** It bit four times
+in one session before it became a check -- which is the honest measure of how
+easy it is to write. The second (an HTML comment in code position) is still on
+you.
+
 ## 2 · Renames, and the silence of `undefined`
 
 **`undefined` is falsy, so a stale read draws nothing rather than failing.**

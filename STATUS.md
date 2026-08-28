@@ -2765,7 +2765,7 @@ visible, and what it cost:
 
 | | Before | After |
 |---|---|---|
-| Cards that cannot report provenance | 88 | 63 |
+| Cards that cannot report provenance | 88 | 55 |
 | Cards rendering live data as `PROTOTYPE` | 17 | 2, both understood |
 | Cards claiming a live read with nothing running | 14 | 0 |
 
@@ -2780,6 +2780,12 @@ Three checks now hold it, all in `nervis/tools/`:
   changes between the passes was fed by a service; if it is not badged live it
   is understating. A card badged live in the dark pass is overstating. Not in
   CI: which services are up changes the answer.
+
+  It was itself half-blind for a while, and the fix is the more useful half of
+  the story: keyed by raw title, it skipped every card without a same-titled
+  counterpart in the dark pass — which is precisely the screens that collapse to
+  one "not answering" card, and every card whose heading is built from live
+  data. Six more understating cards appeared the moment it could see them.
 - **`card()`** in `index.html` — a builder that *requires* `live` and throws
   when it is missing, so `render_check.js` turns an omission into a build
   failure instead of a faded card.
