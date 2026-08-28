@@ -133,6 +133,20 @@ SELECTED_SETTING = "voice.selected_profile"
 LATENCY_SETTING = "voice.latency"
 DAILY_CAP_SETTING = "voice.daily_cap"
 DAILY_CAP_ENABLED_SETTING = "voice.daily_cap_enabled"
+
+# What happens when the chosen voice cannot be used.
+#
+# `browser` — the default — hands the line to the browser's own `speechSynthesis`,
+# which is §18.2's "fall back to local system TTS": free, offline, and it sends
+# nothing, which is why it is the right refusal for a local model's reply.
+#
+# `silence` is the other half of the same sentence — *"or stay silent and say
+# so"* — and exists because that fallback voice is not everyone's idea of an
+# improvement on nothing. Dropping from a chosen voice to a flat one can be
+# worse than not hearing the line at all, and the text is on screen either way.
+FALLBACK_SETTING = "voice.fallback"
+FALLBACK_MODES = ("browser", "silence")
+DEFAULT_FALLBACK = "browser"
 TRIM_SETTING = "voice.trim_long_replies"
 
 # Read when no key has been entered through the dashboard, so an existing
@@ -534,3 +548,13 @@ def cap_enforced(database: Database) -> bool:
     questions, neither of them ambiguous.
     """
     return read_setting(database, DAILY_CAP_ENABLED_SETTING, "false") == "true"
+
+
+def speaks_the_fallback(database: Database) -> bool:
+    """Whether a refused line is read by the browser or simply not read.
+
+    Defaults to reading it. Silence is a deliberate choice, and a voice feature
+    whose out-of-the-box behaviour was "sometimes nothing happens" would be
+    indistinguishable from a broken one.
+    """
+    return read_setting(database, FALLBACK_SETTING, DEFAULT_FALLBACK) != "silence"

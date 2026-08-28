@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1298 tests, no network, no live service
+.venv/bin/pytest                      # part of 1301 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1298 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1301 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5054,6 +5054,23 @@ draws.
 `data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
+
+**Silence is now an option when the chosen voice cannot be used**, which is the other half of a
+sentence §18.2 always had: *fall back to local system TTS, **or stay silent and say so***. Only
+the first half had been built. The browser's own voice is free, offline and sends nothing, which
+is exactly why it is the right refusal for a local model's reply — and it sounds nothing like the
+voice somebody picked, which is why the second half is there. The text is on screen either way.
+
+Reading it stays the default, because a voice feature whose out-of-the-box behaviour is
+"sometimes nothing happens" is indistinguishable from a broken one. And silence needed no
+mechanism of its own: an empty `fallback_text` already meant *say nothing*, which is the shape
+mute has used since the start.
+
+**A silence caused by a fault is still announced**, once per session. `muted`, `local_only` and
+`nothing_to_say` are the design working and say nothing about themselves; `unreachable`,
+`refused`, `no_credential` and `no_voice` are not choices anybody made, and a key that stopped
+working would otherwise present as a voice that quietly stopped existing. That is the "say so"
+in §18.2's sentence, and it is once rather than per line because a broken key speaks on every one.
 
 **The daily voice cap is off unless switched on**, which reverses the decision it shipped with.
 The guard was right about the risk — a dashboard that greets you on every tab open, and now talks

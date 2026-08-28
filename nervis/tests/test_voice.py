@@ -759,3 +759,58 @@ def test_the_counter_runs_whether_or_not_the_cap_does() -> None:
     body = client.get("/api/v1/voice").json()
     assert body["spent_today"] == 2
     assert body["daily_cap_enabled"] is False
+
+
+def test_silence_is_an_option_and_the_browser_is_the_default() -> None:
+    """§18.2 offers both halves — *fall back to local system TTS, or stay
+    silent and say so*. The browser's voice sends nothing, which is why it is
+    the right refusal for a local model's reply; it also sounds nothing like the
+    voice somebody chose, which is why the other half exists.
+
+    Reading it is the default, because a voice feature whose out-of-the-box
+    behaviour is "sometimes nothing happens" is indistinguishable from a broken
+    one.
+    """
+    client = an_api()
+    with_voice(client)
+
+    spoken_by_browser = client.post(
+        "/api/v1/voice/speak", json={"text": "Your build finished.", "source_model": LOCAL_MODEL}
+    ).json()
+    assert spoken_by_browser["fallback_text"] == "Your build finished."
+
+    client.put("/api/v1/voice/settings", json={"fallback": "silence"})
+    silent = client.post(
+        "/api/v1/voice/speak", json={"text": "Your build finished.", "source_model": LOCAL_MODEL}
+    ).json()
+
+    # No text to say means say nothing — the same shape a mute already uses, so
+    # silence needed no second mechanism.
+    assert "fallback_text" not in silent
+    # And the refusal still names its reason, so the page can tell a policy from
+    # a fault.
+    assert silent["reason"] == "local_only"
+
+
+def test_silence_applies_to_a_failing_provider_too() -> None:
+    """Not only to the privacy gate: somebody who does not want the browser's
+    voice does not want it when Fish is down either."""
+    client = an_api(fish_status=503)
+    with_voice(client)
+    client.put("/api/v1/voice/settings", json={"fallback": "silence"})
+
+    answer = client.post(
+        "/api/v1/voice/speak", json={"text": "Anything.", "source_model": REMOTE_MODEL}
+    ).json()
+
+    assert answer["reason"] == "refused"
+    assert "fallback_text" not in answer
+
+
+def test_an_unknown_fallback_mode_keeps_the_working_one() -> None:
+    """A client sending a mode this build does not have gets the one that
+    works, rather than a stored value nothing implements."""
+    client = an_api()
+    client.put("/api/v1/voice/settings", json={"fallback": "interpretive dance"})
+
+    assert client.get("/api/v1/voice").json()["fallback"] == voice.DEFAULT_FALLBACK

@@ -3124,6 +3124,11 @@ addEventListener('resize',()=>{if(document.querySelector('.card.chat'))sizeChat(
    understated, and about the machine rather than about you. */
 const VOICE_PREVIEW='RAVIS has been failing over to cloud for eleven minutes. Shall I show you why?';
 
+/* Reasons a line went unspoken that are faults rather than policy. `muted`,
+   `local_only` and `nothing_to_say` are all the design working and are absent
+   from this list on purpose. */
+const FAULTS=['unreachable','refused','no_credential','no_voice','daily_cap'];
+
 const SPEECH={
  /* What the service says is in force, re-read whenever a screen paints. Held
     rather than fetched per utterance: mute must be honoured immediately, and a
@@ -3135,6 +3140,8 @@ const SPEECH={
     a reply is enough to reach this. */
  queue:Promise.resolve(),
  audio:null, context:null, frame:0,
+ /* One notice per session for a voice that is failing rather than declining. */
+ warned:false,
  /* Set when the browser refused to play without a user gesture, so the screen
     can say why it went quiet instead of looking broken. */
  blocked:false,
@@ -3183,6 +3190,15 @@ const SPEECH={
      say nothing — muted, or nothing in the reply was speakable. */
   const body=await answer.json().catch(()=>({}));
   if(body.fallback_text)return this._fallback(body.fallback_text);
+  /* Nothing to say, for one of two very different reasons. A refusal by policy
+     — muted, a local model's reply, nothing speakable — is the feature working
+     and needs no announcement. A refusal by *fault* is §18.2's "stay silent and
+     say so": once per session, because a broken key would otherwise say it on
+     every line. */
+  if(FAULTS.includes(body.reason)&&!this.warned){
+   this.warned=true;
+   notify('Voice: '+(body.detail||body.reason));
+  }
  },
 
  async _play(blob){
@@ -3384,8 +3400,12 @@ function voiceSpeaksCard(data){
   <div class="card wide live"><h3>When NERVIS speaks</h3>${cell(`
    <div class="trace-step"><b>spoken replies</b><span><label style="cursor:pointer"><input type="checkbox"${data.enabled?' checked':''} onchange="VOICE.flag('enabled',this.checked)"> read chat replies aloud</label></span></div>
    <div class="trace-step"><b>mute</b><span><label style="cursor:pointer"><input type="checkbox"${data.muted?' checked':''} onchange="VOICE.flag('muted',this.checked)"> silence everything now</label></span></div>
-   <div class="trace-step"><b>local replies</b><span>spoken by this browser, never by Fish Audio</span></div>
-   <small class="mono dim">mute is kept by <b>NERVIS</b> rather than by this page, because §18.2 requires it to persist — a mute a second tab does not honour is not a mute. It also drops whatever was queued: a merely paused queue floods out on unmute and narrates replies from ten minutes ago.</small>`,'nervis')}</div>`;
+   <div class="trace-step"><b>when it cannot be used</b><span><select onchange="VOICE.flag('fallback',this.value)" style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;font-family:inherit">
+    <option value="browser"${data.fallback==='browser'?' selected':''}>let this browser read it</option>
+    <option value="silence"${data.fallback==='silence'?' selected':''}>say nothing</option>
+   </select></span></div>
+   <div class="trace-step"><b>local replies</b><span>${data.fallback==='silence'?'not read aloud at all':'spoken by this browser, never by Fish Audio'}</span></div>
+   <small class="mono dim"><b>When it cannot be used</b> is §18.2's own sentence, which offers both halves: <i>fall back to local system TTS, or stay silent and say so</i>. The browser's voice is free, offline and sends nothing, which is why it is the right refusal for a local model's reply — and it sounds nothing like the voice you chose, which is why the other half exists. The text is on screen either way. A silence caused by a <b>fault</b> rather than by this setting is still announced once, because that one is not a choice anybody made.<br><br>mute is kept by <b>NERVIS</b> rather than by this page, because §18.2 requires it to persist — a mute a second tab does not honour is not a mute. It also drops whatever was queued: a merely paused queue floods out on unmute and narrates replies from ten minutes ago.</small>`,'nervis')}</div>`;
 }
 
 /* §18.2, as a table of what happens to whom. */

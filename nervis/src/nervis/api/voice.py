@@ -77,6 +77,7 @@ class SettingsInput(BaseModel):
     muted: bool | None = None
     selected_profile: str | None = None
     latency: str | None = None
+    fallback: str | None = None
     daily_cap: int | None = None
     daily_cap_enabled: bool | None = None
     trim_long_replies: bool | None = None
@@ -124,6 +125,8 @@ async def read_voice(request: Request) -> dict[str, Any]:
         "latency_detail": dict(voice.LATENCY_DETAIL),
         "daily_cap": voice.daily_cap(database),
         "daily_cap_enabled": voice.cap_enforced(database),
+        "fallback": voice.read_setting(database, voice.FALLBACK_SETTING, voice.DEFAULT_FALLBACK),
+        "fallback_modes": list(voice.FALLBACK_MODES),
         # Reported next to the cap, because a limit with no reading against it
         # is a number nobody can act on.
         "spent_today": voice.spent_today(database),
@@ -266,37 +269,64 @@ async def delete_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return {"profile_id": profile_id, "deleted": True}
 
 
+def _flag(value: Any) -> str:
+    return "true" if value else "false"
+
+
+def _one_of(allowed: tuple[str, ...]) -> Any:
+    """An encoder that drops anything outside the set.
+
+    Silently, and deliberately: an unrecognised latency or fallback is a client
+    sending a value this build does not have, and the safe answer is to keep the
+    one that works rather than store a mode nothing implements.
+    """
+
+    def encode(value: Any) -> str | None:
+        return str(value) if value in allowed else None
+
+    return encode
+
+
+def _clamped(value: Any) -> str:
+    # Not clamped upward: somebody who types a large number means it. Zero is
+    # meaningful — never call Fish, the browser reads everything.
+    return str(max(0, int(value)))
+
+
+# Every writable setting, as a table rather than a branch each.
+#
+# It was a branch each, which cost a point of complexity per field and crossed
+# the gate on the eighth — the gate pointing at a function that had become a
+# list written in control flow. `None` means the caller did not send the field,
+# which is distinct from sending `false`.
+_WRITABLE: tuple[tuple[str, str, Any], ...] = (
+    ("enabled", voice.ENABLED_SETTING, _flag),
+    ("muted", voice.MUTED_SETTING, _flag),
+    ("selected_profile", voice.SELECTED_SETTING, str),
+    ("latency", voice.LATENCY_SETTING, _one_of(voice.LATENCY_MODES)),
+    ("fallback", voice.FALLBACK_SETTING, _one_of(voice.FALLBACK_MODES)),
+    ("daily_cap", voice.DAILY_CAP_SETTING, _clamped),
+    ("daily_cap_enabled", voice.DAILY_CAP_ENABLED_SETTING, _flag),
+    ("trim_long_replies", voice.TRIM_SETTING, _flag),
+)
+
+
 @router.put("/settings")
 async def write_settings(body: SettingsInput, request: Request) -> dict[str, Any]:
-    """Enable, mute, or choose the voice.
+    """Enable, mute, choose the voice, or change how it behaves.
 
     Kept server-side rather than in the browser because §18.2 requires mute to
-    *persist* — a mute a second tab does not honour is not a mute.
+    *persist* — a mute a second tab does not honour is not a mute — and the rest
+    followed it for the same reason.
     """
     database = request.app.state.database
-    if body.enabled is not None:
-        voice.write_setting(database, voice.ENABLED_SETTING, "true" if body.enabled else "false")
-    if body.muted is not None:
-        voice.write_setting(database, voice.MUTED_SETTING, "true" if body.muted else "false")
-    if body.selected_profile is not None:
-        voice.write_setting(database, voice.SELECTED_SETTING, body.selected_profile)
-    if body.latency is not None and body.latency in voice.LATENCY_MODES:
-        voice.write_setting(database, voice.LATENCY_SETTING, body.latency)
-    if body.daily_cap is not None:
-        # Not clamped upward: somebody who types a large number means it. Zero
-        # is meaningful — it says "never call Fish", and the browser's voice
-        # does everything.
-        voice.write_setting(database, voice.DAILY_CAP_SETTING, str(max(0, body.daily_cap)))
-    if body.daily_cap_enabled is not None:
-        voice.write_setting(
-            database,
-            voice.DAILY_CAP_ENABLED_SETTING,
-            "true" if body.daily_cap_enabled else "false",
-        )
-    if body.trim_long_replies is not None:
-        voice.write_setting(
-            database, voice.TRIM_SETTING, "true" if body.trim_long_replies else "false"
-        )
+    for field, key, encode in _WRITABLE:
+        value = getattr(body, field)
+        if value is None:
+            continue
+        encoded = encode(value)
+        if encoded is not None:
+            voice.write_setting(database, key, encoded)
     return await read_voice(request)
 
 
@@ -305,16 +335,19 @@ async def speak(body: SpeakInput, request: Request) -> Response:
     """Synthesize one line, if §18.2 allows this text to leave the machine."""
     database = request.app.state.database
     spoken = voice.spoken_form(body.text, _trims(database))
-    blocked = await _blocked(request, database, body, spoken)
+    # What the browser is allowed to say instead. Empty means *say nothing* —
+    # the same shape a mute already uses, so silence needs no second mechanism.
+    instead = spoken if voice.speaks_the_fallback(database) else ""
+    blocked = await _blocked(request, database, body, spoken, instead)
     if blocked is not None:
         return blocked
     profile = _profile_for(database, body.profile_id)
     if profile is None:
-        return _declined("no_voice", "no voice has been chosen", spoken)
+        return _declined("no_voice", "no voice has been chosen", instead)
     key = _credential(request).reveal()
     if not key:
-        return _declined("no_credential", "no Fish Audio key is configured", spoken)
-    return await _synthesize(request, database, spoken, profile, key)
+        return _declined("no_credential", "no Fish Audio key is configured", instead)
+    return await _synthesize(request, database, spoken, profile, key, instead)
 
 
 def _trims(database: Any) -> bool:
@@ -327,7 +360,7 @@ def _trims(database: Any) -> bool:
 
 
 async def _blocked(
-    request: Request, database: Any, body: SpeakInput, spoken: str
+    request: Request, database: Any, body: SpeakInput, spoken: str, instead: str
 ) -> Response | None:
     """Every reason this line must not reach a cloud voice, in order.
 
@@ -344,14 +377,14 @@ async def _blocked(
         return _declined("nothing_to_say", "nothing in this reply is speakable")
     gate = await _egress_permitted(request, body.source_model)
     if gate is not None:
-        return _declined("local_only", gate, spoken)
+        return _declined("local_only", gate, instead)
     if voice.cap_enforced(database):
         cap = voice.daily_cap(database)
         if not voice.within_cap(voice.spent_today(database), cap):
             return _declined(
                 "daily_cap",
                 f"{cap} Fish Audio requests today is the cap; the browser reads the rest",
-                spoken,
+                instead,
             )
     return None
 
@@ -479,7 +512,12 @@ def _detail_of(response: httpx.Response) -> str:
 
 
 async def _synthesize(
-    request: Request, database: Any, text: str, profile: voice.VoiceProfile, key: str
+    request: Request,
+    database: Any,
+    text: str,
+    profile: voice.VoiceProfile,
+    key: str,
+    instead: str = "",
 ) -> Response:
     """The Fish Audio call.
 
@@ -510,13 +548,13 @@ async def _synthesize(
         )
     except httpx.HTTPError as failure:
         return _declined(
-            "unreachable", f"Fish Audio did not answer: {type(failure).__name__}", text
+            "unreachable", f"Fish Audio did not answer: {type(failure).__name__}", instead
         )
     if response.status_code >= 400:
         return _declined(
             "refused",
             f"Fish Audio answered {response.status_code}: {_detail_of(response)}",
-            text,
+            instead,
         )
     # Counted only once Fish actually answered. Charging the cap for a refused
     # or unreachable request would let an outage exhaust the day's budget.
