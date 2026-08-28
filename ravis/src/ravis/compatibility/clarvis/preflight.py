@@ -8,10 +8,14 @@ its two failure modes are both silent from inside VS Code:
   `clarvis/src/model/OpenAiCompatibleProvider.ts` — so a base of
   `http://127.0.0.1:8731/v1` produces `/v1/v1/models`, a 404, and a provider
   Clarvis reports as **offline**. Nothing in the message says the URL is wrong.
-- **A pool has no eligible model.** `ravis/clarvis-agent` requires tools, and
-  nothing probes capabilities yet (§8.7 is unbuilt, SIRVIS evidence is M13), so
-  until an operator declares tool support the pool is legitimately unavailable
-  (§5.2). From Clarvis that looks like the agent being broken.
+- **A pool has no eligible model.** `ravis/clarvis-agent` requires tools, and on
+  this installation nothing yet *claims* them: provider catalogues are asked for
+  a tool-support key and Anthropic's does not publish one, so the capability
+  stays UNKNOWN and fails closed rather than being assumed. M13 consumes SIRVIS
+  evidence, but SIRVIS measures local builds — it has nothing to say about an
+  API model. So until an operator declares tool support (`configured_capabilities`)
+  or a measurement exists, the pool is legitimately unavailable (§5.2). From
+  Clarvis that looks like the agent being broken.
 
 So this prints the settings to paste, and then actually resolves both pools
 against the live catalogue and says what each one would select. Unlike `doctor`,

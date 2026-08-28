@@ -15,9 +15,11 @@ redacted, so nothing here reads a credential in the first place — an endpoint
 that never holds a secret cannot leak one. Provider records report *whether* a
 credential is configured, never any part of its value.
 
-**Unknown stays unknown.** Where a subsystem does not exist yet — cost at M15,
-policies at M16, sessions at M11 — the endpoint returns an empty collection and
-says why, rather than inventing a plausible number. §14 forbids presenting an
+**Unknown stays unknown.** Where a subsystem does not exist yet — §9.8's routing
+timings, event publication at M18b — the endpoint returns an empty collection and
+says why, rather than inventing a plausible number. (Cost, policies and sessions
+were the examples here until M15, M16 and M11 shipped them; the rule is what
+generalises, not the list.) §14 forbids presenting an
 estimate as an invoice, and a dashboard showing a confident zero is worse than
 one showing nothing.
 """
