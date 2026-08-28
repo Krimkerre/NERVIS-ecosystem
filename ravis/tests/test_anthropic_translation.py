@@ -370,7 +370,15 @@ def test_usage_carries_cache_reads_and_leaves_the_rest_unknown() -> None:
         model="m",
     )
 
-    assert answer.usage.input_tokens == 100
+    # 180, not 100. Anthropic reports `input_tokens` and
+    # `cache_read_input_tokens` as *disjoint* counts; OpenAI and Google report a
+    # total with the cached figure as a subset, and the normalized shape follows
+    # the latter because `cost.estimate` prices the halves apart by subtracting
+    # one from the other. Passing 100 through meant the engine computed
+    # `max(100 - 80, 0) = 20` new tokens against a call that actually read 100
+    # fresh ones -- understating it, which is the direction §14 names because a
+    # budget reads an understatement as room left.
+    assert answer.usage.input_tokens == 180, "fresh plus served-from-cache"
     assert answer.usage.cached_input_tokens == 80
     assert answer.usage.reasoning_tokens is None
 

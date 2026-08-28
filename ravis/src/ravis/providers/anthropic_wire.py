@@ -466,11 +466,27 @@ def usage_from(usage: dict[str, Any]) -> Usage:
     normalized shape has one cache field and it means *tokens served from the
     cache*, which is a different and cheaper thing than tokens written to it.
     Adding the write count to it would overstate the saving (§14).
+
+    **Cache reads are added into `input_tokens`, because Anthropic reports the
+    two as disjoint and the normalized shape defines input as the total.**
+    OpenAI and Google both report a total with the cached figure as a subset,
+    and `cost.estimate` prices the halves apart by subtracting one from the
+    other -- so passing Anthropic's counts through unchanged subtracted tokens
+    that had never been added. A call answered largely from cache had its new
+    input driven to zero: 20 new tokens against 5,000 cached priced as if the
+    20 were free. §14 calls out the understating direction specifically, because
+    a budget reads an understatement as room left.
     """
+    served_from_cache = usage.get("cache_read_input_tokens")
+    fresh = usage.get("input_tokens")
     return Usage(
-        input_tokens=usage.get("input_tokens"),
+        input_tokens=(
+            fresh + served_from_cache
+            if isinstance(fresh, int) and isinstance(served_from_cache, int)
+            else fresh
+        ),
         output_tokens=usage.get("output_tokens"),
-        cached_input_tokens=usage.get("cache_read_input_tokens"),
+        cached_input_tokens=served_from_cache,
     )
 
 

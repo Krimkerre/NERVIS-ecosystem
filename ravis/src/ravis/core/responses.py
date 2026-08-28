@@ -47,6 +47,13 @@ class Usage:
     and `0` mean different things and the cost engine at M15 depends on it.
     """
 
+    # **`input_tokens` includes `cached_input_tokens`.** OpenAI and Google both
+    # report it that way -- `prompt_tokens` and `promptTokenCount` are totals,
+    # with the cached figure a subset -- and `cost.estimate` prices the two
+    # halves apart by subtracting one from the other. Anthropic reports them as
+    # disjoint counts, so its adapter adds them before they arrive here.
+    # Stated because it cannot be inferred from the field names, and the one
+    # adapter that got it wrong understated every cached call.
     input_tokens: int | None = None
     output_tokens: int | None = None
     cached_input_tokens: int | None = None

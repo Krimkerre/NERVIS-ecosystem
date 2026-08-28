@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import platform
 import subprocess
 import sys
@@ -361,6 +362,7 @@ def start() -> int:
     if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
         print(f"\nRAVIS upstream defaulted to LM Studio at {LM_STUDIO}.")
         print("  Set RAVIS_UPSTREAM_BASE_URL (or RAVIS_UPSTREAMS) to override.")
+        _warn_about_undeclared_providers()
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
     if ready:
@@ -402,6 +404,47 @@ def stop() -> int:
     PIDFILE.unlink(missing_ok=True)
     print("Stopped.")
     return 0
+
+
+# Hosted providers reachable as a transparent upstream, and the kind name that
+# knows its own address. A credential here with no upstream declared is the
+# gap this warning exists for.
+TRANSPARENT_KINDS = ("openrouter", "openai")
+
+
+def _warn_about_undeclared_providers() -> None:
+    """Say when a stored credential has no upstream to use it.
+
+    RAVIS persists two things about a provider -- the credential, and whether it
+    is enabled -- and does not persist *which upstreams are declared*. That
+    lives only in `RAVIS_UPSTREAMS`. So a restart from a shell without it comes
+    up healthy, authenticated, and silently smaller: the key is still on disk,
+    the provider is simply not there.
+
+    That is exactly what happened here. OpenRouter vanished from the Providers
+    screen across a restart, with its credential untouched in
+    `~/.config/ravis/credentials.json`, and nothing said so -- the ecosystem
+    reported three services ready and one fewer provider than the last run.
+    """
+    try:
+        stored = json.loads(
+            (pathlib.Path.home() / ".config" / "ravis" / "credentials.json").read_text()
+        )
+    except (OSError, ValueError):
+        return
+    undeclared = [kind for kind in TRANSPARENT_KINDS if kind in stored]
+    if not undeclared:
+        return
+    print(f"\n  You have a stored credential for: {', '.join(undeclared)}.")
+    print("  Those are transparent upstreams and are NOT started by this default,")
+    print("  so they will be absent from the Providers screen. To include them:")
+    entries = ", ".join(
+        f'{{"name":"{kind}","kind":"{kind}"}}' for kind in undeclared
+    )
+    print(
+        f'\n    export RAVIS_UPSTREAMS=\'[{{"name":"default",'
+        f'"base_url":"{LM_STUDIO}","kind":"lmstudio"}}, {entries}]\''
+    )
 
 
 def status(quiet: bool = False) -> dict[str, bool]:

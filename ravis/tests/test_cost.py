@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ravis.core.responses import Usage
 from ravis.cost import (
     PER_MILLION,
@@ -527,4 +529,38 @@ def test_a_non_streamed_transparent_call_is_written_to_the_ledger() -> None:
     assert written.usage.output_tokens == 7
     assert written.cost_state is not CostState.UNKNOWN, (
         "both priced components are known, so this call can be costed"
+    )
+
+
+def test_a_cached_anthropic_call_is_not_priced_as_if_it_were_free() -> None:
+    """The engine subtracts cache reads from input; the adapter must have added them.
+
+    `estimate` computes `max(input - cached, 0)` because OpenAI and Google
+    report an input total with the cached figure as a subset. Anthropic reports
+    them disjoint, and its adapter passed both through unchanged -- so a call
+    answered largely from cache had its new input driven to zero and was priced
+    as though the fresh tokens cost nothing.
+
+    Asserted against the arithmetic rather than a fixed figure, so it keeps
+    meaning if the rates move.
+    """
+    from ravis.providers.anthropic_wire import usage_from
+
+    usage = usage_from({
+        "input_tokens": 20,          # fresh, in Anthropic's disjoint accounting
+        "output_tokens": 5,
+        "cache_read_input_tokens": 5_000,
+    })
+    price = Price(input_per_million=3.0, output_per_million=15.0,
+                  cached_input_per_million=0.3)
+
+    cost, state = estimate(price, usage)
+
+    assert state is CostState.ESTIMATED
+    expected = (20 * 3.0 + 5_000 * 0.3 + 5 * 15.0) / 1_000_000
+    assert cost == pytest.approx(expected), (
+        "twenty fresh tokens at the full rate, five thousand at the cache rate"
+    )
+    assert cost > (5_000 * 0.3 + 5 * 15.0) / 1_000_000, (
+        "the fresh tokens must cost something; zeroing them is the bug"
     )
