@@ -244,12 +244,23 @@ class Hub:
         event_type: str = "",
         trace_id: str = "",
         text: str = "",
+        latest: bool = False,
     ) -> list[dict[str, Any]]:
         """§11.2's filters, oldest first.
 
         Oldest first because this doubles as replay: a client resuming from a
         cursor wants what it missed in the order it happened, and reversing at
         the caller is easier than reconstructing an order that was thrown away.
+
+        **`latest` selects the newest window and still returns it ascending.**
+        Replay wants the oldest events after a cursor; a screen asking "what has
+        happened lately" wants the opposite, and with `LIMIT` applied to an
+        ascending scan it was silently served the oldest N instead. The traces
+        index read the 500 oldest events and called itself "newest first", so
+        once the hub passed 500 it reported no trace had ever been recorded
+        while holding several; the dashboard's "Recent events" showed the four
+        oldest events in the hub. Ordering the returned list stays ascending
+        either way, so no caller has to learn a second convention.
 
         `text` is a substring match over the stored envelope. Crude, and honest
         about it — §11.2 asks for free text, and anything cleverer would need an
@@ -268,12 +279,14 @@ class Hub:
             clauses.append("envelope LIKE ?")
             values.append(f"%{text}%")
         values.append(max(1, min(limit, 1000)))
+        order = "DESC" if latest else "ASC"
         rows = self._database.connection.execute(
             f"SELECT sequence, envelope, received_at FROM event "  # noqa: S608 - names are literals
-            f"WHERE {' AND '.join(clauses)} ORDER BY sequence LIMIT ?",
+            f"WHERE {' AND '.join(clauses)} ORDER BY sequence {order} LIMIT ?",
             values,
         )
-        return [self._view(row) for row in rows]
+        found = [self._view(row) for row in rows]
+        return found[::-1] if latest else found
 
     def quarantined(self, limit: int = 50) -> list[dict[str, Any]]:
         """What was refused and why — the diagnostic §11.1 asks quarantine for."""

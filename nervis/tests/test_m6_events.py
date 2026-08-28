@@ -111,7 +111,12 @@ def test_ingestion_answers_202_even_for_rubbish() -> None:
 
     response = client.post("/api/v1/events", json=[envelope(), {"nope": True}])
 
-    assert response.status_code == 200
+    # 202, as the name of this test, its docstring, the endpoint's docstring and
+    # STATUS.md all say. It asserted 200 -- the FastAPI default, because the
+    # route declared no status -- so the one check on the contract was written
+    # to match the behaviour instead of the contract, and passed for as long as
+    # the endpoint got it wrong.
+    assert response.status_code == 202
     body = response.json()
     assert body["accepted"] == 1
     assert body["rejected"][0]["reason"] == "missing required field(s)"
@@ -393,3 +398,44 @@ def test_a_fresh_subscriber_starts_near_the_end_not_at_the_beginning() -> None:
     assert fresh_start > 0                        # and what replaces it
     assert len(replayed) <= FRESH_TAIL
     assert replayed[0]["event_id"] != "e0"
+
+
+def test_a_feed_with_no_cursor_shows_the_newest_events_not_the_oldest() -> None:
+    """"What has happened lately" is the opposite window from replay's.
+
+    `query` scans `ORDER BY sequence` and applies `LIMIT`, which is right for
+    replay -- a client resuming from a cursor wants what it missed, in order --
+    and exactly wrong for a screen with no cursor, which was silently served the
+    N *oldest* events the hub had ever seen. The dashboard's "Recent events"
+    card showed the four oldest, and could not display anything from today.
+    """
+    client = an_api()
+    for n in range(30):
+        client.post(
+            "/api/v1/events",
+            json=envelope(event_id=f"01J00000000000000000000{n:03d}", data={"n": n}),
+        )
+
+    shown = client.get("/api/v1/events?limit=5").json()["items"]
+
+    assert [item["data"]["n"] for item in shown] == [25, 26, 27, 28, 29], (
+        "the five newest, still ascending so no caller learns a second convention"
+    )
+
+
+def test_replay_from_a_cursor_still_starts_at_the_cursor() -> None:
+    """The other half of the same change: `after` means replay, and replay is
+    oldest-first from that point. Asserted beside the test above because moving
+    the no-cursor case to the newest window is only safe if this stays put."""
+    client = an_api()
+    for n in range(30):
+        client.post(
+            "/api/v1/events",
+            json=envelope(event_id=f"01J00000000000000000000{n:03d}", data={"n": n}),
+        )
+
+    replayed = client.get("/api/v1/events?after=3&limit=4").json()["items"]
+
+    assert [item["data"]["n"] for item in replayed] == [3, 4, 5, 6], (
+        "what the client missed, in the order it happened"
+    )

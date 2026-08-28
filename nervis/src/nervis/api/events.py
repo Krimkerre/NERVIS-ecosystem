@@ -34,7 +34,7 @@ HEARTBEAT_SECONDS = 12.0
 FRESH_TAIL = 25
 
 
-@router.post("")
+@router.post("", status_code=202)
 async def ingest(request: Request) -> dict[str, Any]:
     """One envelope, or a batch of them.
 
@@ -76,8 +76,12 @@ async def read_events(request: Request) -> dict[str, Any]:
     """
     query = request.query_params
     hub = request.app.state.hub
+    # No cursor means "show me what has happened", which is the newest window.
+    # With a cursor this is replay and must stay oldest-first from that point.
+    after = _int(query.get("after"), 0)
     items = hub.query(
-        after=_int(query.get("after"), 0),
+        after=after,
+        latest=after == 0,
         limit=_int(query.get("limit"), 100),
         service=query.get("service", ""),
         severity=query.get("severity", ""),

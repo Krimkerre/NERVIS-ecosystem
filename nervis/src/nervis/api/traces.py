@@ -29,7 +29,11 @@ async def list_traces(request: Request) -> dict[str, Any]:
     twice.
     """
     limit = request.query_params.get("limit")
-    events = request.app.state.hub.query(limit=_int(limit, 500))
+    # `latest=True`, or this reads the *oldest* 500 events and calls the result
+    # "newest first". The limit is on the event scan, not on traces, so once the
+    # hub passes it every recent trace becomes invisible and the Overview card
+    # reports "no trace has been recorded yet" while the hub holds several.
+    events = request.app.state.hub.query(limit=_int(limit, 500), latest=True)
     return {"items": summarise(events)}
 
 

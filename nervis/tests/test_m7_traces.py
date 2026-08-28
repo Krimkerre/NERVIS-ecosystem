@@ -217,3 +217,37 @@ def test_a_trace_reaches_the_api_with_its_spans_and_its_warnings() -> None:
     assert body["spans"][0]["is_point"] is True     # one event
     assert body["spans"][1]["duration_ms"] == 200.0  # two events
     assert index["items"][0]["trace_id"] == TRACE
+
+
+def test_a_recent_trace_survives_a_hub_bigger_than_the_scan_limit() -> None:
+    """The traces index is limited on *events scanned*, not on traces returned.
+
+    It called `hub.query(limit=500)` and described itself as "newest first",
+    but `query` scans `ORDER BY sequence` -- so it read the 500 *oldest* events
+    in the hub. Once the hub passed that, every recent trace became invisible
+    and the Overview card reported "no trace has been recorded yet" while the
+    hub held several. The card is the honest-absence card, which is what makes
+    this the worst place for a false absence.
+
+    The limit is set small here rather than posting 500 events: the defect is
+    the ordering, and a test that needs half a thousand rows to show it would
+    be slow enough that nobody runs it.
+    """
+    client = an_api()
+    for n in range(12):
+        client.post(
+            "/api/v1/events",
+            json=event("ravis", "2026-08-22T12:00:00Z",
+                       event_id=f"old-{n}", trace_id=f"older-{n}"),
+        )
+    client.post(
+        "/api/v1/events",
+        json=event("ravis", "2026-08-22T12:00:05Z",
+                   event_id="newest", trace_id="the-newest-trace"),
+    )
+
+    listed = client.get("/api/v1/traces?limit=5").json()["items"]
+
+    assert any(item["trace_id"] == "the-newest-trace" for item in listed), (
+        "a trace recorded a moment ago must appear before twelve older ones"
+    )
