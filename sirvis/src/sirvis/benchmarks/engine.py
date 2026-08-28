@@ -758,6 +758,7 @@ def _evidence(
     warnings = list(outcome.warnings) + _generation_warnings(measured)
     warnings += _suppression_warnings(outcome, measured)
     warnings += _thermal_warnings(outcome)
+    warnings += _swap_warnings(outcome)
     # Either the runtime reported nothing, or it reported a count the content
     # stream contradicts. Both mean the numerator is inferred rather than
     # counted, and §12.1's lattice then weakens the whole record — which is the
@@ -849,11 +850,17 @@ def _rates(outcome: ExperimentOutcome) -> dict[str, TrialRate]:
 
 
 def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
-    """§11.8's validity warnings that this engine can actually observe.
+    """§11.8's validity warnings that this engine can actually observe *here*.
 
-    Only the ones it can see. Background contention and load instability are on
-    §11.8's list and are not claimed here, because asserting a warning nothing
-    checked for would be worse than the gap.
+    Only the ones it can see. Background contention, load instability and
+    `runtime changed` are on §11.8's list and are not claimed anywhere in this
+    engine, because asserting a warning nothing checked for would be worse than
+    the gap.
+
+    Swap used to belong on that list and no longer does -- see `_swap_warnings`.
+    It was the omission this docstring did not name, which is the more
+    misleading kind: a reader was told the unclaimed warnings were background
+    contention and load instability, and inferred the rest were covered.
     """
     warnings = []
     empty = [r.index for r in measured if not r.content]
@@ -869,6 +876,42 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
     if unexpected:
         warnings.append(f"unexpected generation stop: {', '.join(str(r) for r in unexpected)}")
     return warnings
+
+
+# Below this, growth is the operating system moving pages around rather than
+# the run reaching for disk. A run that swapped 64 MB did not measure the disk;
+# one that swapped a gigabyte measured little else.
+SWAP_GROWTH_BYTES = 256 * 1024 * 1024
+
+
+def _swap_warnings(outcome: ExperimentOutcome) -> list[str]:
+    """§11.8's swap warning, which was measured everywhere and reported nowhere.
+
+    `MemoryProbe.sample` reads `vm.swapusage` at baseline, after load, post-run
+    and post-unload, and the readings are real and non-null in stored telemetry.
+    Nothing in this engine mentioned swap, so a run taken while the machine was
+    paging was published `VALID` with no note -- a benchmark that measured the
+    disk as much as the model, offered to RAVIS as a clean number.
+
+    Growth from the baseline rather than an absolute level: a machine that was
+    already swapping before the run began is a fact about the machine, and the
+    thermal warning is the one that speaks to conditions. What invalidates a
+    throughput figure is the run *causing* paging.
+    """
+    samples = [s for s in outcome.telemetry if s.swap_used_bytes is not None]
+    if len(samples) < 2:
+        return []
+    baseline = next((s for s in samples if s.point == BASELINE), samples[0])
+    peak = max(samples, key=lambda s: s.swap_used_bytes or 0)
+    growth = (peak.swap_used_bytes or 0) - (baseline.swap_used_bytes or 0)
+    if growth < SWAP_GROWTH_BYTES:
+        return []
+    return [
+        f"swap grew by {growth / (1024 ** 3):.1f} GB during this run "
+        f"(baseline {(baseline.swap_used_bytes or 0) / (1024 ** 3):.1f} GB, "
+        f"peak {(peak.swap_used_bytes or 0) / (1024 ** 3):.1f} GB at {peak.point}); "
+        "these numbers measured the disk as well as the model"
+    ]
 
 
 def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:

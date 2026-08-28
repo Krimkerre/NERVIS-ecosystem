@@ -629,3 +629,51 @@ async def test_the_raw_directory_carries_the_run_it_describes(tmp_path) -> None:
     assert (root / "system.json").exists()
     assert (root / "runtime.json").exists()
     assert (root / "logs/run.log").read_text().strip()
+
+
+def test_a_run_that_swapped_says_so() -> None:
+    """§11.8's swap warning: measured at four points, reported at none.
+
+    `MemoryProbe.sample` reads `vm.swapusage` at baseline, after load, post-run
+    and post-unload, and the readings are real in stored telemetry. Nothing in
+    the engine mentioned swap, so a run taken while the machine was paging was
+    published VALID with no note -- a benchmark that measured the disk as much
+    as the model, handed to RAVIS as a clean number.
+
+    Growth from the baseline rather than an absolute level: a machine already
+    swapping before the run is a fact about the machine, and what invalidates a
+    throughput figure is the run *causing* the paging.
+    """
+    from sirvis.benchmarks.engine import _swap_warnings
+    from sirvis.telemetry import AFTER_LOAD, BASELINE, POST_RUN, MemorySample
+
+    class _Outcome:
+        telemetry = [
+            MemorySample(point=BASELINE, captured_at=0.0, swap_used_bytes=100 * 1024 ** 2),
+            MemorySample(point=AFTER_LOAD, captured_at=1.0, swap_used_bytes=3 * 1024 ** 3),
+            MemorySample(point=POST_RUN, captured_at=2.0, swap_used_bytes=2 * 1024 ** 3),
+        ]
+
+    warnings = _swap_warnings(_Outcome())  # type: ignore[arg-type]
+
+    assert warnings, "a run that paged three gigabytes is not a clean measurement"
+    assert "swap grew" in warnings[0]
+    assert "after_load" in warnings[0], "and says where the peak was"
+
+
+def test_a_machine_already_swapping_is_not_blamed_on_the_run() -> None:
+    """Steady swap is a fact about the machine, not about this measurement.
+
+    Asserted beside the test above because a warning that fires on every run of
+    a busy laptop is one nobody reads.
+    """
+    from sirvis.benchmarks.engine import _swap_warnings
+    from sirvis.telemetry import BASELINE, POST_RUN, MemorySample
+
+    class _Outcome:
+        telemetry = [
+            MemorySample(point=BASELINE, captured_at=0.0, swap_used_bytes=4 * 1024 ** 3),
+            MemorySample(point=POST_RUN, captured_at=1.0, swap_used_bytes=4 * 1024 ** 3 + 1024 ** 2),
+        ]
+
+    assert _swap_warnings(_Outcome()) == []  # type: ignore[arg-type]
