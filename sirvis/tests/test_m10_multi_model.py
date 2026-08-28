@@ -671,3 +671,49 @@ def test_a_member_the_runtime_did_not_report_carries_no_configuration() -> None:
     )
 
     assert _OutcomeView(spec, outcome, "concurrent").effective_configuration == {}
+
+
+def test_a_run_hot_throughout_is_flagged_not_read_as_steady() -> None:
+    """§11.8: "Flag thermally compromised runs. Do not silently discard them."
+
+    `_thermal_warnings` returned nothing whenever fewer than two *distinct*
+    thermal states were seen, so it detected drift and only drift. A run whose
+    every condition read `serious` -- the whole thing taken on a heat-soaked
+    machine -- has one distinct reading, produced no warning, and was published
+    VALID with empty `validity_notes`.
+
+    It matters most here rather than in the single-model engine, which has had
+    this branch since M6: `contention_penalty` reads these degradation figures
+    as facts about co-residency, and on hardware that loses 48% of its
+    throughput to heat a set benchmarked while hot files an interaction matrix
+    marked complete with nothing saying the machine was throttled.
+    """
+    from sirvis.benchmarks.multi import MultiModelOutcome, _thermal_warnings
+
+    outcome = MultiModelOutcome(
+        experiment_id="e", run_id="r", state=RunState.SUCCEEDED, detail="",
+        results_path="", load_order=["chat", "agent"],
+    )
+    outcome.thermal = {
+        "baseline": "serious", "alone": "serious",
+        "sequential": "serious", "concurrent": "serious",
+    }
+
+    warnings = _thermal_warnings(outcome)
+
+    assert warnings, "one distinct reading is not the same as a healthy machine"
+    assert "throughout" in warnings[0]
+
+
+def test_a_run_cool_throughout_is_still_not_flagged() -> None:
+    """The other half: a steady nominal run must stay unflagged, or the warning
+    means nothing."""
+    from sirvis.benchmarks.multi import MultiModelOutcome, _thermal_warnings
+
+    outcome = MultiModelOutcome(
+        experiment_id="e", run_id="r", state=RunState.SUCCEEDED, detail="",
+        results_path="", load_order=["chat"],
+    )
+    outcome.thermal = {"baseline": "nominal", "alone": "nominal", "concurrent": "nominal"}
+
+    assert _thermal_warnings(outcome) == []

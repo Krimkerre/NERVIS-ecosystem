@@ -31,6 +31,7 @@ that was already wrong.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -41,6 +42,11 @@ from sirvis.storage.database import Database
 # A table rather than a chain of `if` statements: adding a filter should be a
 # row, and a filter that exists in the API but not here would silently match
 # everything — the failure mode that looks like a working query.
+# A stored runtime-configuration key is an identifier. Anything else cannot
+# match one, and is refused rather than handed to `json_extract`, whose path
+# argument raises on malformed input.
+_SAFE_CONFIG_KEY = re.compile(r"^[A-Za-z0-9_]+$")
+
 FILTERS: tuple[tuple[str, str], ...] = (
     ("machine_id", "$.machine_id"),
     ("role", "$.role"),
@@ -117,8 +123,6 @@ def query_evidence(
     page = rows[: query.limit]
     moment = now or datetime.now(timezone.utc)
     items = [_view(row, moment) for row in page]
-    if query.runtime_config:
-        items = [item for item in items if _config_matches(item, query.runtime_config)]
     return EvidenceAnswer(
         items=items,
         next_cursor=page[-1]["created_at"] if len(rows) > query.limit and page else None,
@@ -158,6 +162,26 @@ def _conditions(query: EvidenceQuery) -> tuple[str, list[Any]]:
         placeholders = ",".join("?" for _ in query.candidates)
         clauses.append(f"json_extract(payload, '$.target.variant') IN ({placeholders})")
         arguments.extend(query.candidates)
+    # **In SQL, like every other filter.** This one ran in Python *after* the
+    # LIMIT, so a page of twenty-five rows could be filtered down to nothing and
+    # reported as "no evidence matches" while the record sat one page further
+    # in -- on the constraint §15.1's headline question actually names ("under
+    # these runtime configuration constraints"). `next_cursor` was derived from
+    # the unfiltered page too, so paging could not recover it either.
+    #
+    # The path is a bound parameter rather than interpolated: the keys come from
+    # a query string. `CAST(... AS TEXT)` keeps the tolerance the Python matcher
+    # had, where 8192 and "8192" are the same intent in different types.
+    for key, value in sorted(query.runtime_config.items()):
+        if not _SAFE_CONFIG_KEY.match(key):
+            # Not a shape any stored configuration key takes, so nothing can
+            # match it. Refused as unmatchable rather than passed to json_extract,
+            # which errors on a malformed path.
+            clauses.append("0")
+            continue
+        clauses.append("CAST(json_extract(payload, ?) AS TEXT) = ?")
+        arguments.append(f"$.target.runtime_config.{key}")
+        arguments.append(str(value))
     if query.since:
         # Strictly less-than, because the cursor is the last row already
         # returned: `<=` would hand the caller that row again on every page and
@@ -165,22 +189,6 @@ def _conditions(query: EvidenceQuery) -> tuple[str, list[Any]]:
         clauses.append("created_at < ?")
         arguments.append(query.since)
     return (f"WHERE {' AND '.join(clauses)}" if clauses else "", arguments)
-
-
-def _config_matches(item: Mapping[str, Any], wanted: Mapping[str, Any]) -> bool:
-    """Whether a record was measured under the runtime configuration asked for.
-
-    A **subset** match: the record must carry every constraint asked for, and
-    may carry more. §15.1 lets RAVIS constrain on runtime configuration, and a
-    request for `context_length=8192` should find a run that also recorded which
-    models it sat beside — the extra facts narrow what the evidence is about,
-    they do not disqualify it.
-
-    Compared as strings because a configuration crosses JSON and a query string,
-    where 8192 and "8192" are the same intent and different types.
-    """
-    measured = (item.get("target") or {}).get("runtime_config") or {}
-    return all(str(measured.get(key)) == str(value) for key, value in wanted.items())
 
 
 def _view(row: Any, now: datetime) -> dict[str, Any]:

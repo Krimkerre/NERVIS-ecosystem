@@ -80,6 +80,7 @@ from sirvis.telemetry import (
     MemorySample,
     SystemSnapshot,
     detect_system,
+    is_compromised,
     read_thermal_pressure,
 )
 
@@ -314,6 +315,28 @@ def _thermal_warnings(outcome: MultiModelOutcome) -> list[str]:
         point: state for point, state in outcome.thermal.items() if state
     }
     distinct = set(readings.values())
+    # **Compromised throughout is not the same as "no drift".**
+    #
+    # This returned nothing whenever fewer than two *distinct* states were seen,
+    # so it detected thermal drift and only drift. A run whose every condition
+    # read `serious` -- the whole thing taken on a heat-soaked machine -- has one
+    # distinct reading, produced no warning, and was published `VALID` with
+    # empty `validity_notes`. §11.8 says "Flag thermally compromised runs. Do
+    # not silently discard them", and this file's own docstring says the same;
+    # the single-model engine has had the branch since M6.
+    #
+    # It matters most here: `contention_penalty` reads these degradation figures
+    # as facts about co-residency, and on the fanless hardware STATUS.md records
+    # losing 48% of throughput to heat, a set benchmarked while hot would file an
+    # interaction matrix marked complete with nothing saying the machine was
+    # throttled.
+    if readings and all(is_compromised(state) for state in readings.values()):
+        described = ", ".join(f"{point} {state}" for point, state in sorted(readings.items()))
+        return [
+            f"the machine reported thermal pressure throughout this run ({described}); "
+            "these numbers describe a throttled machine and are not comparable with "
+            "results taken from a rested one"
+        ]
     if len(distinct) < 2:
         return []
     described = ", ".join(f"{point} {state}" for point, state in sorted(readings.items()))

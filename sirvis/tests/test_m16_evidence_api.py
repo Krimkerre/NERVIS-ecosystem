@@ -505,3 +505,50 @@ def _variant_of(runtime_key: str) -> str:
     build = inventory.by_runtime_key(runtime_key)
     assert build is not None, f"{runtime_key} is not in the recorded catalogue"
     return build.variant_id
+
+
+def test_a_configuration_constraint_is_applied_before_the_limit() -> None:
+    """It ran in Python *after* the SQL LIMIT, so a full page could be emptied.
+
+    §15.1's headline question is evidence "under these runtime configuration
+    constraints", and that constraint was the one filter not pushed into SQL.
+    A page of `limit` newer records that all failed the constraint was fetched,
+    truncated, and only then filtered -- so the endpoint answered "no evidence
+    matches" while the matching record sat one page further in. `next_cursor`
+    came from the unfiltered page, so paging could not recover it either.
+
+    The record to look for is chosen *after* insertion -- whichever one the
+    store happens to return last -- so the test cannot be satisfied by the
+    wanted row landing inside the limit by luck. An earlier version of this test
+    hard-coded the target and passed against the very bug it was written for.
+    """
+    database = a_database(*(
+        a_record(context_length=1024 * (n + 1), evidence_id=f"ev_{n}") for n in range(6)
+    ))
+    ordering = query_evidence(database, EvidenceQuery(limit=10)).items
+    furthest = ordering[-1]
+    wanted = furthest["target"]["runtime_config"]["context_length"]
+
+    answer = query_evidence(
+        database, EvidenceQuery(runtime_config={"context_length": wanted}, limit=1)
+    )
+
+    assert [item["evidence_id"] for item in answer.items] == [furthest["evidence_id"]], (
+        "a record past the limit is still found when the constraint reaches SQL"
+    )
+
+
+def test_a_configuration_key_that_is_not_an_identifier_matches_nothing() -> None:
+    """The keys arrive from a query string and the JSON path is built from them.
+
+    Bound as a parameter rather than interpolated, and anything that is not an
+    identifier is refused outright: `json_extract` raises on a malformed path,
+    and a 500 on a odd query string would be a worse answer than an empty one.
+    """
+    database = a_database(a_record(context_length=8192))
+
+    answer = query_evidence(
+        database, EvidenceQuery(runtime_config={"context_length' OR '1'='1": "x"})
+    )
+
+    assert answer.items == []
