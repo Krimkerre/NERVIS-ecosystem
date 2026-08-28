@@ -598,7 +598,7 @@ def test_evidence_is_requested_for_every_upstream_not_just_the_first() -> None:
     class _Store:
         is_configured = True
 
-        async def refresh(self, client: object, models: list[str]) -> None:
+        async def refresh(self, _: object, models: list[str]) -> None:
             asked.append(list(models))
 
     class _Registry:
