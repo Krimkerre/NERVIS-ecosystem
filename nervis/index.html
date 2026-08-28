@@ -2743,9 +2743,15 @@ const UNBUILT={
    is waiting for. Never a button that looks live and is not. */
 function control(label,action,extra){
  const missing=UNBUILT[action];
+ /* `DEMO_API.x()` or a page-local `x()`, whichever exists. This always emitted
+    the first, so "Clear filters" on the Events screen — whose handler is an
+    ordinary top-level function — rendered as a live button that threw a
+    TypeError on click. The helper exists to make a dead control impossible, so
+    it has to know both shapes a handler comes in. */
+ const call=typeof DEMO_API[action]==='function'?`DEMO_API.${action}()`:`${action}()`;
  return missing
   ?`<button class="btn" disabled title="${escapeHtml(missing)}" style="opacity:.45;cursor:not-allowed">${label}</button>`
-  :`<button class="btn${extra||''}" onclick="DEMO_API.${action}()">${label}</button>`;
+  :`<button class="btn${extra||''}" onclick="${call}">${label}</button>`;
 }
 
 const DEMO_API={
@@ -4536,7 +4542,16 @@ const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sir
 const RAVIS_VIEWS={'Routes':ravisRoutes,'Sessions':ravisSessions,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
  'Policies':ravisPolicies,'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
- heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',`<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button><button class="btn primary" onclick="DEMO_API.runBenchmark()">New benchmark</button>`);
+ /* Through `control()`, which is the whole reason it exists: "a button for
+    an operation that exists, or a disabled one that names what it is waiting
+    for. Never a button that looks live and is not." Both of these were
+    hand-written around it, and the primary one called
+    `DEMO_API.runBenchmark()` -- a method `DEMO_API` does not have. It rendered
+    enabled, as the screen's main action, and threw a TypeError on click.
+    `runBenchmark` has been in `UNBUILT` the whole time, naming the endpoint it
+    waits for; nothing consulted it here. */
+ heading('Benchmark laboratory','Model loading, repeated measurements and role-specific evidence.',
+   control('Runtime & sessions','loadModel')+control('New benchmark','runBenchmark',' primary'));
  const [mdl,ev,rs,rn,mc]=await Promise.all([API.sirvis.models(),API.sirvis.evidence(),
    API.sirvis.runtimeSet(),API.sirvis.runs(),API.sirvis.machine()]);
  /* Loaded builds first, then the rest in catalogue order. What is resident now is
@@ -4661,7 +4676,7 @@ function buildRow(x,contextLabel){
 
 async function sirvisModels(){
  heading('Installed builds','Identity is family, variant, runtime and runtime config — never the model name alone.',
-  `<button class="btn" onclick="DEMO_API.loadModel()">Runtime &amp; sessions</button>`);
+  control('Runtime & sessions','loadModel'));
  const [m,mc]=await Promise.all([API.sirvis.models(),API.sirvis.machine()]);
  const loaded=m.items.filter(x=>x.state!=='stopped');
  const resident=loaded.reduce((n,x)=>n+(x.resident_gb||0),0);

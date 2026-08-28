@@ -168,6 +168,33 @@ for i, line in enumerate(lines):
         fail.append(f"DEMO_API.{m.group(1)}() has no endpoint citation — "
                     "an uncited mutation is invisible to the endpoint check")
 
+# Every control names an action that exists, or one the UNBUILT map explains.
+#
+# `control()` is the rule made mechanical -- "a button for an operation that
+# exists, or a disabled one that names what it is waiting for. Never a button
+# that looks live and is not." It only helps where it is used, and the SIRVIS
+# laboratory's primary button was hand-written around it calling
+# `DEMO_API.runBenchmark()`, a method `DEMO_API` does not have. It rendered
+# enabled and threw a TypeError on click, on a screen where it was the main
+# action. `runBenchmark` had been in `UNBUILT` the whole time.
+methods = set(re.findall(r"^\s*(\w+)\s*\([^)]*\)\s*\{", 
+                         html[html.find("const DEMO_API={"):
+                                html.find("const DEMO_API={") + 900], re.M))
+unbuilt = set(re.findall(r"^\s*(\w+):\s*'", 
+                         html[html.find("const UNBUILT="):
+                                html.find("const UNBUILT=") + 1200], re.M))
+# A handler is a DEMO_API method, a page-local function, or an UNBUILT entry.
+locals_ = set(re.findall(r"^\s*function (\w+)\s*\(", html, re.M))
+locals_ |= set(re.findall(r"^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(", html, re.M))
+for action in sorted(set(re.findall(r"control\([^,]+,\s*'(\w+)'", html))):
+    if action not in methods and action not in unbuilt and action not in locals_:
+        fail.append(f"control(..., '{action}') names neither a DEMO_API method "
+                    f"nor an UNBUILT entry — it would throw on click")
+for hand in sorted(set(re.findall(r'onclick="DEMO_API\.(\w+)\(', html))):
+    if hand not in methods:
+        fail.append(f'onclick="DEMO_API.{hand}()" is not a DEMO_API method — '
+                    "route it through control(), which renders the disabled form")
+
 print(f"{len(endpoints)} endpoints cited, all defined in the specs:"
       if not uncited else f"{len(endpoints)} endpoints cited:")
 for e in endpoints:
