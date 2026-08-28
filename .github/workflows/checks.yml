@@ -171,6 +171,27 @@ jobs:
       - name: the live readers still shape their payloads the same way
         run: node tools/shaping_check.js
         working-directory: nervis
+      # The fresh-install world: services up and holding nothing. Neither of the
+      # checks above covers it — `render_check` makes every fetch reject and the
+      # shaping fixtures are populated — and six screens threw in it the first
+      # time it ran. PITFALLS.md claimed this ran in CI for some time before it
+      # did, which is its own lesson about prose.
+      - name: every screen renders against live-but-empty services
+        run: node tools/empty_world_check.js
+        working-directory: nervis
+      # A card that hardcodes its liveness class cannot report where its data
+      # came from. A two-sided ratchet, so the count moving in either direction
+      # is something a reader is told about.
+      - name: no new card hardcodes its liveness
+        run: node tools/liveness_check.js
+        working-directory: nervis
+      # Feeds every screen data that is trying to inject markup and fails if a
+      # tag the page did not write reaches the output — the §25.2 requirement,
+      # measured rather than asserted. Also fails the other way, on markup the
+      # page escaped into text, which is what makes fixing the first half safe.
+      - name: provider data cannot write markup into the page
+        run: node tools/injection_check.js
+        working-directory: nervis
 
   nervis:
     name: nervis — lint, types, tests

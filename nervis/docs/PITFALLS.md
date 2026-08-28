@@ -370,8 +370,17 @@ Since this list was written, eight of them became automated:
 - **`node tools/complexity_check.js`** holds every function in the file under a
   ratchet of 13. **Runs in CI.**
 - **`node tools/liveness_check.js`** counts the cards that hardcode their CSS
-  class and so *cannot* report where their data came from. A ratchet: the count
-  may fall, never rise. **Runs in CI.**
+  class and so *cannot* report where their data came from. A ratchet, pinned
+  from both sides so a movement either way is reported. **Runs in CI** — which
+  was written here before it was true, and is a small instance of the last
+  paragraph of this section.
+- **`node tools/injection_check.js`** wraps every `API` method so its answer
+  carries a hostile payload in every string, renders all 35 screens, and fails
+  if a tag the page did not write reaches the markup. It fails the other way
+  too, on markup the page escaped into text — which is the half that makes
+  fixing the first half safe to attempt, and the half no security check looks
+  for. A one-sided ratchet: 28 sites when it was written, and it may only fall.
+  **Runs in CI.**
 - **`node tools/empty_world_check.js`** renders all 35 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -438,6 +447,7 @@ node tools/render_check.js                          # all 35 screens render with
 node tools/complexity_check.js                      # every function under 13
 node tools/liveness_check.js                        # the hardcoded-card ratchet
 node tools/shaping_check.js                         # adapters shape payloads as before
+node tools/injection_check.js                       # provider data cannot write markup
 node tools/empty_world_check.js                     # screens survive live-but-empty services
 python3 tools/embed-avatars.py && git diff --stat    # avatars round-trip byte-identical
 ```

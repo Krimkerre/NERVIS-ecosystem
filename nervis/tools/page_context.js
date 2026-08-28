@@ -114,6 +114,58 @@ const context = {
   },
   location: { origin: "http://127.0.0.1:8790", href: "http://127.0.0.1:8790/index.html",
               search: "", hash: "", pathname: "/index.html" },
+  /* Routing writes here, so it has to exist — and it has to *record*, because
+     "the URL now addresses this screen" is a claim a check should be able to
+     read back rather than take on trust. `location.hash` is updated alongside,
+     since the page reads the hash it just wrote when resolving a route.
+
+     A no-op stub would have been fewer lines and would have let a router that
+     never actually changed the address pass every gate. */
+  history: {
+    entries: [],
+    pushState(stateObject, title, url) {
+      this.entries.push({ how: "push", url: String(url) });
+      context.location.hash = String(url).includes("#")
+        ? String(url).slice(String(url).indexOf("#")) : "";
+    },
+    replaceState(stateObject, title, url) {
+      this.entries.push({ how: "replace", url: String(url) });
+      context.location.hash = String(url).includes("#")
+        ? String(url).slice(String(url).indexOf("#")) : "";
+    },
+    back() {}, forward() {}, go() {},
+    get length() { return this.entries.length; },
+  },
+  /* A stream that connects and then says nothing, which is the state every
+     check runs in: no service is up. It records its instances so a check can
+     assert that a client opened one, closed it, and did not leak a second.
+
+     `readyState` starts CONNECTING and stays there. A shim that reported OPEN
+     would be claiming a connection nothing made — the same fabrication the page
+     itself is written to avoid. */
+  EventSource: class EventSource {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSED = 2;
+    constructor(url, options) {
+      this.url = String(url);
+      this.withCredentials = !!(options && options.withCredentials);
+      this.readyState = 0;
+      this.listeners = new Map();
+      this.onmessage = null; this.onerror = null; this.onopen = null;
+      context.EventSource.instances.push(this);
+    }
+    addEventListener(type, fn) {
+      if (!this.listeners.has(type)) this.listeners.set(type, []);
+      this.listeners.get(type).push(fn);
+    }
+    removeEventListener(type, fn) {
+      const list = this.listeners.get(type) || [];
+      const at = list.indexOf(fn);
+      if (at >= 0) list.splice(at, 1);
+    }
+    close() { this.readyState = 2; }
+  },
   /* Runs the first frame and never schedules another. The page's background
      canvas animation is decorative; letting it loop would spin this process
      for as long as it lived. */
@@ -165,6 +217,8 @@ const context = {
 };
 /* Exposed so a checker can read back what a screen wrote. */
 context.__elements = elements;
+context.__elements = elements;
+context.EventSource.instances = [];
 context.window = context;
 context.globalThis = context;
 context.self = context;
@@ -193,7 +247,12 @@ function loadPage({ fetchImpl } = {}) {
     "stopPolling: typeof stopPolling === 'function' ? stopPolling : null })",
     context,
   );
-  return { context, exported };
+  /* `elements` comes back too, because one checker needs to read *every* sink a
+     screen wrote to rather than the one it knows the name of. `#content` holds
+     most of a screen, and the status bar, the side nav and the avatar slot are
+     written separately — a check that only reads `#content` is blind to three
+     surfaces that also interpolate service data. */
+  return { context, exported, elements: context.__elements };
 }
 
 module.exports = { loadPage, element };
