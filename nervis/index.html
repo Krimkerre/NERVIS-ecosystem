@@ -1649,13 +1649,24 @@ const API={
      liveSirvis('/api/v1/runtime-sets'),
      liveSirvis('/api/v1/benchmark-runs?limit=50')]);
    const items=(sets&&sets.items)||[];
-   /* Three exits and no way to tell them apart from the outside: two fall back
-      to the transcription and one is a live matrix off SIRVIS's own runs. The
-      Runtime sets screen hardcoded both its cards, so a measured pairing table
-      rendered under a PROTOTYPE badge. */
-   if(!runs||!items.length)return withSource(await this._runtimeSetMock(),false);
+   /* **An empty answer is an answer.** This fell back to the transcription
+      whenever the list was empty, so a SIRVIS with no Runtime Set defined — an
+      ordinary state on a fresh install — rendered invented pairings between
+      builds nobody had ever measured together. That is the emptiness-as-absence
+      fault found three times already on other screens, and it is worse here
+      because the invented rows look like measurements.
+
+      Four outcomes now, and they are four different sentences: a read failed;
+      SIRVIS has no set defined; sets exist but no run carries an interaction
+      matrix; or there is a matrix to show. */
+   if(!sets||!runs)return withSource(await this._runtimeSetMock(),false);
    const measured=this._measuredMatrices(runs);
-   if(!measured.length)return withSource(await this._runtimeSetMock(),false);
+   if(!items.length||!measured.length){
+    SOURCE.sirvis='live';
+    return{live:true,empty:true,pairs:[],validity:{},samples:0,evidence_type:'UNKNOWN',name:null,
+     reason:items.length?'sets are defined, but no benchmark run carries an interaction matrix yet'
+                        :'no Runtime Set is defined on this machine'};
+   }
    const newest=measured[0];
    const set=items.find(s=>s.name===newest.m.runtime_set)||items[0];
    SOURCE.sirvis='live';
@@ -4774,17 +4785,40 @@ async function sirvisBenchmarks(){
    behaviour did not. A build that recovers correctly from a failed tool call when
    it is alone stopped calling the tool at all with a second model resident, in
    two different ways, and nothing in its solo record hints at it. */
+/* What the pairing rows add up to.
+
+   A follow-up outcome of null is *unmeasured*, not a failure: counting nulls as
+   degradation would report every pairing as broken the moment the column lost
+   its source. Lifted out of the screen with the same reasoning as `liveClass` —
+   these are four readings of one table, not four decisions the screen makes. */
+function pairingSummary(rs){
+ const known=p=>(p.follow_up||[]).filter(f=>f!=null);
+ const withPeak=rs.pairs.filter(p=>p.peak_gb!=null);
+ return{known,
+  degraded:rs.pairs.filter(p=>known(p).some(f=>f!=='used-result'&&f!=='never-reached')),
+  anyFollowUp:rs.pairs.some(p=>known(p).length),
+  heaviest:withPeak.length?withPeak.reduce((a,b)=>b.peak_gb>a.peak_gb?b:a):null};
+}
+
+/* SIRVIS answered and has nothing to show. Its own function, so the screen
+   below keeps one job and stays inside the complexity ratchet. */
+function noPairingsScreen(rs){
+ return kpis([
+   ['Pairings','0','none measured co-resident','sirvis',rs.live],
+   ['Evidence','—','§11.3 needs a set and a run','sirvis',rs.live]])
+  +`<div class="card full${liveClass(rs.live)}"><h3>No measured pairing</h3>${cell(`
+   <div class="trace-step"><b>SIRVIS says</b><span>${escapeHtml(rs.reason)}</span></div>
+   <small class="mono dim">a Runtime Set is §10's versioned multi-model target, and a pairing is only real once §11.3 has run one — every member measured alone first as the control, then together. Nothing is estimated from the solo figures: this screen exists because per-member numbers <b>do not</b> predict the pair, and inventing a row from them would be the exact error it was built to demonstrate.</small>`,'sirvis')}</div>`;
+}
+
 async function sirvisRuntimeSets(){
  heading('Runtime sets','Measured combinations. Memory held; behaviour did not — and only the pair measurement shows it.');
  const rs=await API.sirvis.runtimeSet();
- /* A follow-up outcome of null is *unmeasured*, not a failure. Counting nulls
-    as degradation would report every pairing as broken the moment the column
-    lost its source. */
- const known=p=>(p.follow_up||[]).filter(f=>f!=null);
- const degraded=rs.pairs.filter(p=>known(p).some(f=>f!=='used-result'&&f!=='never-reached'));
- const anyFollowUp=rs.pairs.some(p=>known(p).length);
- const withPeak=rs.pairs.filter(p=>p.peak_gb!=null);
- const heaviest=withPeak.length?withPeak.reduce((a,b)=>b.peak_gb>a.peak_gb?b:a):null;
+ /* SIRVIS answered and has nothing to show, which is a fact rather than an
+    empty screen to fill with a transcription. Rendered live, because the
+    absence itself was read from the running service. */
+ if(rs.empty)return void(($('#content').innerHTML=noPairingsScreen(rs)));
+ const {known,degraded,anyFollowUp,heaviest}=pairingSummary(rs);
  const gbOr=v=>v==null?'—':v+' GB';
  const short=n=>n.replace(/^(lmstudio-community|mlx-community)\//,'').replace('-instruct','');
  $('#content').innerHTML=kpis([

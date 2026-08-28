@@ -127,128 +127,16 @@
   },
   "no-matrix": {
     "runtimeSet": {
-      "runtime_set_id": "rs_clarvis_balanced",
-      "revision": 3,
-      "name": "clarvis-balanced",
-      "evidence_type": "MEASURED",
-      "samples": 3,
-      "combined_peak_gb": 8.8,
-      "swap_gb": 0,
-      "members": [
-        {
-          "role": "agent",
-          "family": "qwen2.5-coder-7b-instruct",
-          "variant": "MLX 4bit",
-          "alone_tok_s": 29.5,
-          "concurrent_tok_s": null,
-          "first_token_alone_s": 0.26,
-          "first_token_concurrent_s": 0.34,
-          "follow_up_alone": "used-result",
-          "follow_up_concurrent": "used-result"
-        },
-        {
-          "role": "chat",
-          "family": "ministral-8b-instruct-2410",
-          "variant": "MLX 4bit",
-          "alone_tok_s": 25.3,
-          "concurrent_tok_s": null,
-          "first_token_alone_s": 0.26,
-          "first_token_concurrent_s": 0.49,
-          "follow_up_alone": "used-result",
-          "follow_up_concurrent": "no-call"
-        }
-      ],
-      "pairs": [
-        {
-          "members": [
-            "phi-4-mini-instruct",
-            "qwen2.5-coder-7b-instruct"
-          ],
-          "peak_gb": 6.5,
-          "first_token_s": [
-            0.3,
-            0.69
-          ],
-          "follow_up": [
-            "used-result",
-            "used-result"
-          ],
-          "note": "no meaningful contention"
-        },
-        {
-          "members": [
-            "qwen2.5-coder-7b-instruct",
-            "ministral-8b-instruct-2410"
-          ],
-          "peak_gb": 8.8,
-          "first_token_s": [
-            0.34,
-            0.49
-          ],
-          "follow_up": [
-            "used-result",
-            "no-call"
-          ],
-          "note": "ministral stopped calling the tool at all"
-        },
-        {
-          "members": [
-            "mlx-community/granite-4.0-h-tiny",
-            "qwen2.5-coder-7b-instruct"
-          ],
-          "peak_gb": 8.2,
-          "first_token_s": [
-            0.13,
-            0.24
-          ],
-          "follow_up": [
-            "never-reached",
-            "used-result"
-          ],
-          "note": "neither degraded · granite reached a full 300-character line in 0.65s against the control 2.43s"
-        },
-        {
-          "members": [
-            "lfm2.5-2.6b-mlx",
-            "qwen2.5-coder-14b-instruct-mlx"
-          ],
-          "peak_gb": 9.9,
-          "first_token_s": [
-            4.5,
-            1.39
-          ],
-          "follow_up": [
-            "used-result",
-            "used-result"
-          ],
-          "note": "lfm2.5 briefing reached 11.1s"
-        },
-        {
-          "members": [
-            "ministral-8b-instruct-2410",
-            "qwen2.5-coder-14b-instruct-mlx"
-          ],
-          "peak_gb": 12.9,
-          "first_token_s": [
-            0.43,
-            0.77
-          ],
-          "follow_up": [
-            "gave-up",
-            "used-result"
-          ],
-          "note": "ministral abandoned the tool a second time, in a different way"
-        }
-      ],
-      "validity": {
-        "thermal": "nominal",
-        "swap": "none",
-        "effective_config": "matches requested",
-        "verdict": "VALID"
-      },
-      "finding": "memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB",
-      "live": false
-    }
+      "live": true,
+      "empty": true,
+      "pairs": [],
+      "validity": {},
+      "samples": 0,
+      "evidence_type": "UNKNOWN",
+      "name": null,
+      "reason": "sets are defined, but no benchmark run carries an interaction matrix yet"
+    },
+    "source": "live"
   },
   "co-residency-failure": {
     "runtimeSet": {
@@ -331,128 +219,16 @@
   },
   "no-sets": {
     "runtimeSet": {
-      "runtime_set_id": "rs_clarvis_balanced",
-      "revision": 3,
-      "name": "clarvis-balanced",
-      "evidence_type": "MEASURED",
-      "samples": 3,
-      "combined_peak_gb": 8.8,
-      "swap_gb": 0,
-      "members": [
-        {
-          "role": "agent",
-          "family": "qwen2.5-coder-7b-instruct",
-          "variant": "MLX 4bit",
-          "alone_tok_s": 29.5,
-          "concurrent_tok_s": null,
-          "first_token_alone_s": 0.26,
-          "first_token_concurrent_s": 0.34,
-          "follow_up_alone": "used-result",
-          "follow_up_concurrent": "used-result"
-        },
-        {
-          "role": "chat",
-          "family": "ministral-8b-instruct-2410",
-          "variant": "MLX 4bit",
-          "alone_tok_s": 25.3,
-          "concurrent_tok_s": null,
-          "first_token_alone_s": 0.26,
-          "first_token_concurrent_s": 0.49,
-          "follow_up_alone": "used-result",
-          "follow_up_concurrent": "no-call"
-        }
-      ],
-      "pairs": [
-        {
-          "members": [
-            "phi-4-mini-instruct",
-            "qwen2.5-coder-7b-instruct"
-          ],
-          "peak_gb": 6.5,
-          "first_token_s": [
-            0.3,
-            0.69
-          ],
-          "follow_up": [
-            "used-result",
-            "used-result"
-          ],
-          "note": "no meaningful contention"
-        },
-        {
-          "members": [
-            "qwen2.5-coder-7b-instruct",
-            "ministral-8b-instruct-2410"
-          ],
-          "peak_gb": 8.8,
-          "first_token_s": [
-            0.34,
-            0.49
-          ],
-          "follow_up": [
-            "used-result",
-            "no-call"
-          ],
-          "note": "ministral stopped calling the tool at all"
-        },
-        {
-          "members": [
-            "mlx-community/granite-4.0-h-tiny",
-            "qwen2.5-coder-7b-instruct"
-          ],
-          "peak_gb": 8.2,
-          "first_token_s": [
-            0.13,
-            0.24
-          ],
-          "follow_up": [
-            "never-reached",
-            "used-result"
-          ],
-          "note": "neither degraded · granite reached a full 300-character line in 0.65s against the control 2.43s"
-        },
-        {
-          "members": [
-            "lfm2.5-2.6b-mlx",
-            "qwen2.5-coder-14b-instruct-mlx"
-          ],
-          "peak_gb": 9.9,
-          "first_token_s": [
-            4.5,
-            1.39
-          ],
-          "follow_up": [
-            "used-result",
-            "used-result"
-          ],
-          "note": "lfm2.5 briefing reached 11.1s"
-        },
-        {
-          "members": [
-            "ministral-8b-instruct-2410",
-            "qwen2.5-coder-14b-instruct-mlx"
-          ],
-          "peak_gb": 12.9,
-          "first_token_s": [
-            0.43,
-            0.77
-          ],
-          "follow_up": [
-            "gave-up",
-            "used-result"
-          ],
-          "note": "ministral abandoned the tool a second time, in a different way"
-        }
-      ],
-      "validity": {
-        "thermal": "nominal",
-        "swap": "none",
-        "effective_config": "matches requested",
-        "verdict": "VALID"
-      },
-      "finding": "memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB",
-      "live": false
-    }
+      "live": true,
+      "empty": true,
+      "pairs": [],
+      "validity": {},
+      "samples": 0,
+      "evidence_type": "UNKNOWN",
+      "name": null,
+      "reason": "no Runtime Set is defined on this machine"
+    },
+    "source": "live"
   },
   "ravis reads": {
     "providers": {
