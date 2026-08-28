@@ -5284,10 +5284,14 @@ async function ravisPools(){
    this one describes how to reach them. */
 async function ravisProviders(){
  heading('Providers','Where each provider lives, how it is spoken to, and whether it is answering.');
- /* The live half. Everything below this card is still prototype content, and
-    the split is deliberate rather than tidy: the rows here are what RAVIS
-    actually has, and mixing them into the mocked table would make it
-    impossible to tell which numbers are real. */
+ /* **Two live reads, not one.** `ravisRead('providers')` fills the card at the
+    top through NERVIS, and `API.ravis.providers()` fills the tiles and the
+    Health table beneath it. Both are real when RAVIS is answering, and the
+    comment here used to say everything below the first card was prototype —
+    which stopped being true and left four tiles badged PROTOTYPE while showing
+    measured numbers. Each element below now carries `p.live`, so the badge
+    tracks whether RAVIS actually answered rather than a sentence somebody
+    forgot to update. */
  /* Through NERVIS since M3, rather than a direct fetch from this browser.
     NERVIS negotiates `ravis.management` before calling, so a RAVIS that has
     withdrawn the surface produces a stated reason here instead of a 404 this
@@ -5306,7 +5310,17 @@ async function ravisProviders(){
  }));
  const p=await API.ravis.providers();
  const on=p.items.filter(x=>x.enabled);
- const breakers=p.items.filter(x=>x.breaker!=='CLOSED');
+ /* **`null` is not an open breaker.** This counted `breaker !== 'CLOSED'`,
+    which swept up every provider RAVIS has never called — so the tile read
+    "breakers open 4 — lmstudio, openai, anthropic, google" while three of the
+    four were reachable and answering, and the Health table directly below
+    rendered the same providers as "not probed · never called, not a verdict".
+    One screen said two different things about the same fact.
+
+    An open breaker is a verdict: §10 opened it after failures. Never probed is
+    the absence of one, and the two belong in different columns. */
+ const breakers=p.items.filter(x=>x.breaker==='OPEN'||x.breaker==='HALF_OPEN');
+ const unprobed=p.items.filter(x=>x.breaker==null);
  const local=p.items.filter(x=>x.kind==='local');
  const pct=v=>v===null?'—':Math.round(v*100)+'%';
  const models=x=>{const m=x.models;if(!m)return '—';
@@ -5357,25 +5371,34 @@ async function ravisProviders(){
    <div class="trace-step"><b>state</b><span class="chip warn">${escapeHtml(read.availability)}</span></div>
    <small class="mono dim">this card shows nothing rather than a remembered list. The reason above is <b>NERVIS's</b>, and it distinguishes the four ways this read can fail: RAVIS unreachable, RAVIS refusing, the capability not advertised, or NERVIS itself not answering. Rendering them identically would hide three of them. Everything below is prototype content and always was.</small>`,'ravis')}</div>`;
 
+ /* `p.live` rather than nothing, which is what these four were passing.
+    `kpis` reads the fifth element as "this is real", so every one of these
+    rendered with a PROTOTYPE badge while being computed from the live
+    /api/v1/providers response — the Health card immediately below already keys
+    off the same flag. A screen disowning data it actually has is the same
+    defect as one claiming data it does not, and harder to notice because it
+    only ever understates. */
+ const breakerNote=breakers.length?breakers.map(b=>b.label).join(', ')
+   :unprobed.length?`none open · ${unprobed.length} never called`:'all closed';
  $('#content').innerHTML=liveCard+kpis([
-   ['Enabled',`${on.length} / ${p.items.length}`,'a disabled provider is not a candidate','ravis'],
-   ['Local',`${local.filter(x=>x.enabled).length} / ${local.length}`,'answering on this machine','ravis'],
-   ['Breakers open',String(breakers.length),breakers.length?breakers.map(b=>b.label).join(', '):'all closed','ravis'],
-   ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis']])
+   ['Enabled',`${on.length} / ${p.items.length}`,'a disabled provider is not a candidate','ravis',p.live],
+   ['Local',`${local.filter(x=>x.enabled).length} / ${local.length}`,'answering on this machine','ravis',p.live],
+   ['Breakers open',String(breakers.length),breakerNote,'ravis',p.live],
+   ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis',p.live]])
  +`<div class="card full${p.live?' live':''}"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
    ${p.items.map(x=>`<div class="table-row seven"><span>${x.label} <small class="mono" style="opacity:.45">${x.provider_id}</small></span><span>${x.kind}</span><span class="mono">${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}</span><span class="mono" style="opacity:.75">${x.credential}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${x.p50_ms?x.p50_ms+' ms':'—'}</span></div>`).join('')}
    <small class="mono dim">${p.items.map(x=>`<b>${x.label}</b> — ${x.note}`).join('<br>')}</small>`,'ravis')}</div>
-  <div class="card full"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
+  <div class="card full${p.live?' live':''}"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
    <div class="table-row head six"><span>Provider</span><span style="grid-column:2/4">Origin</span><span>Chat path</span><span>Auth</span><span>Secret</span></div>
    ${p.items.map(x=>`<div class="table-row six"><span>${x.label}</span><span class="mono" style="grid-column:2/4;opacity:.8">${x.base_url}</span><span class="mono">${escapeHtml(x.chat_path||'not published')}</span><span class="mono">${x.auth?escapeHtml(x.auth.scheme)+(x.auth.header?' · '+escapeHtml(x.auth.header):''):'not published'}</span><span class="mono" style="opacity:.7">${x.auth?escapeHtml(dash(x.auth.secret_ref)):'—'}</span></div>`).join('')}
-   <small class="mono dim">this is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Protocol mode</h3>${cell(`
+   <small class="mono dim"><b>chat path</b> and <b>auth</b> read "not published" against a live RAVIS because <b>/api/v1/providers</b> does not carry them — which is an absence rendered as one rather than invented, so this card is live with two honest gaps in it. This is the whole of what an implementation needs to place a call, and none of it is a secret: <b>secret_ref</b> names where the key lives, and RAVIS resolves it at call time inside the process. The value never crosses into a browser, a log, an event or a diagnostic packet — which is what makes it safe to render the reference at all.</small>`,'ravis')}</div>
+  <div class="card wide${p.live?' live':''}"><h3>Protocol mode</h3>${cell(`
    <div class="table-row head"><span>Mode</span><span>Providers</span><span style="grid-column:3/-1">What RAVIS does to the request</span></div>
    <div class="table-row"><span class="mono">transparent</span><span>${p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').map(x=>x.label).join(', ')}</span><span style="grid-column:3/-1;opacity:.75">proxied essentially unchanged — an OpenAI client is talking to an OpenAI API</span></div>
    <div class="table-row"><span class="mono">translated</span><span>${p.items.filter(x=>x.protocol==='TRANSLATED').map(x=>x.label).join(', ')}</span><span style="grid-column:3/-1;opacity:.75">request and streamed response are rewritten into another vendor's shape</span></div>
    <small class="mono dim">every translated path is a place tool-call framing can be lost: fragmented arguments, a renumbered tool index, a dropped <b>tool_call_id</b>. That is exactly what the conformance suite on the Diagnostics screen checks, and why a provider passing "chat works" is not the same as a provider Clarvis can use.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Not currently usable</h3>${cell(p.items.filter(x=>!x.enabled).map(x=>`
+  <div class="card narrow${p.live?' live':''}"><h3>Not currently usable</h3>${cell(p.items.filter(x=>!x.enabled).map(x=>`
    <div class="trace-step"><b>${x.label}</b><span>${x.credential==='not configured'?'no credential':x.breaker!=='CLOSED'?'breaker '+x.breaker:'disabled'}</span></div>`).join('')
    +`<small class="mono dim">three different conditions, deliberately not merged. A provider with no credential is unavailable rather than failing; one whose daemon is not listening is unreachable, which is not the same as absent; one switched off by policy is working perfectly and still not a candidate. Each is removed before scoring, so none of them appears as a low-ranked option.</small>`,'ravis')}</div>`}
 
@@ -5455,20 +5478,26 @@ async function ravisSessions(){
    return d<90?`${Math.round(d)}s ago`:d<5400?`${Math.round(d/60)}m ago`:`${Math.round(d/3600)}h ago`};
  const counts=s.items.map(x=>x.requests||0).sort((a,b)=>a-b);
  const median=counts.length?counts[Math.floor(counts.length/2)]:0;
+ /* `s.live` on each, which this screen shipped without — and it is the same
+    defect it was written days after criticising elsewhere: four tiles computed
+    from a live /api/v1/sessions response, badged PROTOTYPE because nobody
+    passed the flag. "Content stored" is the one hard-coded `true`, because it
+    is a property of the schema rather than of the answer: there is nowhere in
+    the record to put a prompt whether RAVIS replied or not. */
  $('#content').innerHTML=kpis([
-   ['Sessions',String(s.items.length),'visible to this caller','ravis'],
-   ['Median length',counts.length?String(median):'—','requests per session','ravis'],
+   ['Sessions',String(s.items.length),'visible to this caller','ravis',s.live],
+   ['Median length',counts.length?String(median):'—','requests per session','ravis',s.live],
    ['Load tradeoff',counts.length?(median>=8?'loads allowed':'loads declined'):'unknown',
-    '§12.2, from measured history','ravis'],
+    '§12.2, from measured history','ravis',s.live],
    ['Content stored','none','§12.1: no prompts, no responses','ravis',true]])
  +`<div class="card full${s.live?' live':''}"><h3>Routing sessions</h3>${cell(`
    <div class="table-row head six"><span>Session</span><span>Application</span><span>Pool</span><span style="grid-column:4/6">Model</span><span>Requests</span></div>
    ${s.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.session_id)}</span><span class="mono" style="opacity:.8">${escapeHtml(x.application_id)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.pool||'—')}</span><span class="mono" style="grid-column:4/6">${escapeHtml(x.model||'—')}<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider||'—')}</span></span><span>${x.requests||0}<span class="dim" style="opacity:.6"> · ${escapeHtml(ago(x.last_activity))}</span></span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no sessions yet — a client supplies one with the <b>X-Session-ID</b> header</span></div>'}
    <small class="mono dim">RAVIS scopes this list to the <b>asking application</b>, so this is what NERVIS can see and not the machine's every session. Two applications may use the identical session ID and get two separate sessions — §12.1 requires that they never merge, and the stored key is an identity rather than a display name, which is what makes it structural instead of a rule somebody has to remember.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>What a session pins</h3>${cell(`
+  <div class="card wide${s.live?' live':''}"><h3>What a session pins</h3>${cell(`
    ${s.items.slice(0,3).map(x=>`<div class="trace-step"><b>${escapeHtml(x.session_id)}</b><span class="mono">${escapeHtml(x.pool||'—')} @ ${escapeHtml(x.pool_revision||'—')}</span></div>`).join('')||'<div class="trace-step"><b>—</b><span>nothing to pin yet</span></div>'}
    <small class="mono dim">§5.4: every session records the <b>pool revision</b> it used, so a consumer can tell that a pool's definition changed underneath a conversation already in progress. The revision is derived from the pool's behaviour and not from its wording — rewording a description keeps it.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Two windows</h3>${cell(`
+  <div class="card narrow${s.live?' live':''}"><h3>Two windows</h3>${cell(`
    <div class="trace-step"><b>affinity</b><span>1 hour idle</span></div>
    <div class="trace-step"><b>retention</b><span>7 days idle</span></div>
    <small class="mono dim">deliberately different. A stale session stops <i>steering</i> routing after the first window and stays <i>readable</i> until the second: collapsing them would mean either routing on yesterday's choice or losing the correlation somebody is here to read.</small>`,'ravis')}</div>`;

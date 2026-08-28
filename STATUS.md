@@ -5062,6 +5062,46 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### The prototype badge is opt-in, and mostly not opted into
+
+Asked why the Providers screen still shows prototype cards. Because the badge
+is **opt-in and easy to forget**, not because the data is missing.
+
+`kpis()` reads a fifth element per tile as "this is real". **100 tiles are
+scoped to a service and 31 pass it**, so 69 render with a PROTOTYPE badge
+whatever their data actually is. Some of those 69 genuinely show invented
+numbers and are correctly badged; an unknown number are like the ones below,
+understating what they have. The badge only ever errs quietly in that
+direction, which is why nobody notices.
+
+**Every card on Providers was live data wearing a prototype badge.** The four
+tiles, the protocol-mode table, the connection wiring and the unusable list are
+all computed from the same `/api/v1/providers` response as the Health card
+immediately below them — and the Health card was the only one that passed
+`p.live`. The screen's own comment said "everything below this card is still
+prototype content", which had stopped being true and was doing the same job as
+a stale capability reason.
+
+**And the same defect landed in a screen written the same day.** `ravis /
+Sessions` shipped with four tiles and two cards unmarked, hours after this
+audit criticised exactly that. Fixed with the rest.
+
+**One card was worse than mislabelled.** "Breakers open" counted
+`breaker !== 'CLOSED'`, which sweeps up every provider RAVIS has never called —
+so it read *"4 — lmstudio, openai, anthropic, google"* while three of those
+four were reachable and answering, and the Health table directly beneath
+rendered the same providers as "not probed · never called, not a verdict". One
+screen, two contradictory claims about one fact. An open breaker is a verdict
+§10 reached; never probed is the absence of one. It reads `0 · none open · 4
+never called` now.
+
+**What was not changed, deliberately.** The remaining badged tiles were left
+alone rather than mass-flipped: a tile that shows a mock and claims to be live
+is the dangerous direction of this same error, and telling the two apart needs
+the per-screen check that found these. `nervis / System`'s thermal and GPU
+tiles, for instance, are correctly prototype — `/api/v1/system` publishes
+neither.
+
 ### The UI audit: two milestones that stopped at the endpoint
 
 Asked whether everything built so far reaches a screen. Mostly — Google's
