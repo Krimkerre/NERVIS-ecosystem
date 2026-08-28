@@ -205,6 +205,12 @@ jobs:
       - name: request outcomes stay distinct
         run: node tools/outcome_check.js
         working-directory: nervis
+      # The 409 EVENT_CURSOR_EXPIRED path is the reason this client is not an
+      # EventSource, and it is also the one case that cannot be produced
+      # against a running NERVIS without deleting rows from under it.
+      - name: the event stream client resumes and refuses correctly
+        run: node tools/stream_check.js
+        working-directory: nervis
 
   nervis:
     name: nervis — lint, types, tests

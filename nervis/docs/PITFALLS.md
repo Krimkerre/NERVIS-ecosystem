@@ -462,6 +462,7 @@ node tools/shaping_check.js                         # adapters shape payloads as
 node tools/injection_check.js                       # provider data cannot write markup
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
+node tools/stream_check.js                          # the stream resumes and refuses correctly
 node tools/empty_world_check.js                     # screens survive live-but-empty services
 python3 tools/embed-avatars.py && git diff --stat    # avatars round-trip byte-identical
 ```

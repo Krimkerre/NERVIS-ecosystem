@@ -93,7 +93,14 @@ const store = new Map();
 const elements = new Map();
 const context = {
   console,
-  setTimeout, clearTimeout, clearInterval,
+  /* Unreferenced, for the same reason as `setInterval` below and now for a
+     second one: the page reconnects its event stream on a `setTimeout`, so a
+     checker that does not call `stopPolling` is held open by a reconnect that
+     will never be needed. `shaping_check` hung exactly there. Unref'd timers
+     still fire while anything else keeps the loop alive; they simply stop being
+     a reason to keep it alive. */
+  setTimeout: (fn, ms, ...rest) => { const t = setTimeout(fn, ms, ...rest); t.unref?.(); return t; },
+  clearTimeout, clearInterval,
   /* Unreferenced, so the dashboard's own polling cannot hold the process open
      after the check is done. It starts a registry poll on load; without this the
      script runs, every screen passes, and node then waits forever. */

@@ -3652,6 +3652,26 @@ async function nervis(){
    authoritative for their own domain. So this screen reports the *stream's*
    condition — buffer, drops, quarantine, gaps — alongside the frames, because a
    feed that silently lost events looks identical to a quiet one. */
+/* The SSE connection, as a card.
+   Its own function so `eventsView` stays under the gate, and because a stream
+   that is connected-but-lossy is a state worth a sentence rather than a colour:
+   `gaps` is the count of times this tab was told it had missed events, and a
+   feed that looks continuous while having holes in it is the failure the whole
+   gap mechanism exists to make visible. */
+function streamCard(){
+ const health=EVENTS.health();
+ const age=EVENTS.since?Math.round((Date.now()-EVENTS.since)/1000):null;
+ return `<div class="card narrow${EVENTS.state==='open'?' live':''}"><h3>Stream</h3>
+  <div class="trace-step"><b>connection</b><span><span class="chip${health==='ok'?'':' warn'}">${escapeHtml(EVENTS.state)}</span></span></div>
+  <div class="trace-step"><b>cursor</b><span class="mono">${escapeHtml(EVENTS.cursor||'—')}</span></div>
+  <div class="trace-step"><b>delivered here</b><span class="mono">${escapeHtml(EVENTS.received)}</span></div>
+  <div class="trace-step"><b>gaps</b><span><span class="chip${EVENTS.gaps?' warn':''}">${escapeHtml(EVENTS.gaps)}</span></span></div>
+  ${age!=null?`<div class="trace-step"><b>connected</b><span class="mono">${escapeHtml(age)}s ago</span></div>`:''}
+  ${EVENTS.detail?`<small class="mono dim">${escapeHtml(EVENTS.detail)}</small>`:
+    '<small class="mono dim">the cursor is what a reconnect resumes from. A gap means the hub dropped this tab and some events were never delivered — they are not late, they are gone.</small>'}
+  </div>`;
+}
+
 async function eventsView(){
  heading('Event hub','NERVIS\'s own hub. Live, filtered, and honest about who is producing.',
   control('Clear filters','clearEventFilters'));
@@ -3731,6 +3751,13 @@ async function eventsView(){
          reader tracks whether it answered; this sentence just did not ask. */
       :`<small class="mono dim">the event feed could not be read, so this is empty because nothing was fetched — not because nothing has happened. <b>NERVIS /api/v1/events</b> did not answer.</small>`)}
    <small class="mono dim">read from <b>NERVIS /api/v1/events</b>. Ordering is guaranteed only <b>within one source stream</b> (§4.4), so this list is arrival order across producers and not a global sequence of what happened. <b>occurred_at</b> is the producer's clock and <b>_received_at</b> is NERVIS's; both are kept, because §11.2 requires clock skew to be visible rather than smoothed away.</small>`,'nervis')}</div>
+
+  <!-- The stream's own health, which NERVIS.md said "already renders from
+       mocks" and which in fact nothing on any screen read: the mock's
+       cursor, buffered, dropped, gaps and connected_since fields were
+       defined and never referenced. This is the live client's state
+       instead of a mock's, which is the only version worth showing. -->
+  ${streamCard()}
 
   <!-- Live when either peer answered its own /ecosystem/capabilities. Neither
        publishing events yet is a *finding*, not an outage — but "nobody
@@ -8878,13 +8905,180 @@ let POLL_TIMER=null;
 function startPolling(){
  if(POLL_TIMER===null)POLL_TIMER=setInterval(pollRegistry,POLL_MS);
 }
+/* ── THE EVENT STREAM ──────────────────────────────────────────────────────
+   §25.2: "Last-Event-ID resumption, retry: 3000 and the 409
+   EVENT_CURSOR_EXPIRED case (runbook §4.1) have no implementation."
+
+   **Not `EventSource`, and the reason is the 409.** `EventSource` is the
+   obvious choice: it reconnects on its own, resends `Last-Event-ID` for free
+   and honours `retry:` without being asked. What it cannot do is tell you the
+   status of a response it did not like — a 409 is delivered to `onerror` as an
+   indistinguishable failure, and its answer to every failure is to reconnect.
+   So the one case §25.2 names would become an invisible loop: reconnect,
+   refused, reconnect, at three-second intervals, forever, with the reader
+   looking at a feed that never fills and nothing anywhere saying why.
+
+   Reading the stream by hand costs the reconnect logic below and buys the three
+   things that matter: the status, an explicit cursor header, and an abort. The
+   file already hand-rolls SSE once, for the chat POST, for the neighbouring
+   reason that `EventSource` cannot send a body.
+
+   **Every state here is one a reader can be told.** `expired` is not an error:
+   it means this tab was away longer than the hub keeps events, some events
+   happened that it will never see, and it has resumed from the present. Saying
+   "reconnected" there would be true and would hide the gap. */
+const STREAM_RETRY_FLOOR_MS=1000;
+const EVENTS={
+ /* connecting · open · gap · expired · offline · stopped */
+ state:'stopped', detail:'', cursor:'', retryMs:3000,
+ received:0, gaps:0, since:0, timer:null, abort:null,
+
+ start(){if(this.state==='stopped'){this.state='connecting';this._open()}},
+
+ stop(){
+  this.state='stopped';
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null}
+  if(this.abort){this.abort.abort();this.abort=null}
+ },
+
+ /* How healthy the stream is, for the tiles that display it. Separate from
+    `state` because "connected but we missed events" is not a healthy stream and
+    is also not a broken one. */
+ health(){
+  if(this.state==='open')return this.gaps?'degraded':'ok';
+  if(this.state==='expired'||this.state==='gap')return 'degraded';
+  return this.state==='stopped'?'unknown':'down';
+ },
+
+ _later(){
+  if(this.state==='stopped')return;
+  if(this.timer!==null)clearTimeout(this.timer);
+  /* The interval the *stream* advertised, floored. A server that said `retry:
+     0` would otherwise turn a reconnect into a spin. */
+  this.timer=setTimeout(()=>{this.timer=null;this._open()},
+    Math.max(STREAM_RETRY_FLOOR_MS,this.retryMs));
+ },
+
+ async _open(){
+  if(this.state==='stopped')return;
+  this.abort=new AbortController();
+  try{
+   const response=await fetch(BASE.nervis+'/api/v1/events/stream',
+     {headers:this.cursor?{'last-event-id':this.cursor}:{},signal:this.abort.signal});
+   if(!(await this._accepted(response)))return;
+   this.state='open';this.since=this.since||Date.now();this.detail='';
+   await this._read(response.body);
+   /* A stream that ends without an error is the ordinary end of a gap frame,
+      or NERVIS restarting. Either way: reconnect from where we are. */
+   if(this.state!=='stopped'){this.state='connecting';this._later()}
+  }catch(failure){
+   if(this.state==='stopped')return;
+   this.state='offline';
+   this.detail=failure&&failure.name==='AbortError'?'the connection was closed'
+     :'NERVIS is not answering the event stream';
+   this._later();
+  }
+ },
+
+ /* Whether this response is a stream to read, and what to do when it is not.
+    Split out because `_open` sits under the complexity gate and because the
+    refusals are the interesting part of this module. */
+ async _accepted(response){
+  if(response.ok)return true;
+  if(response.status===409){
+   /* §4.1's expired cursor. The events between where this tab stopped and what
+      the hub still holds are gone — not delayed, deleted. Resuming from the
+      present is the only thing left to do, and saying so is the whole point of
+      the status existing: a silent reconnect here is a feed with a hole in it
+      and a reader with no reason to doubt it. */
+   const body=await response.json().catch(()=>({}));
+   const floor=(body.detail||{}).oldest_sequence;
+   this.cursor='';this.gaps++;this.state='expired';
+   this.detail=`this tab was away longer than the hub keeps events${floor?`, which now start at ${floor}`:''} — the ones in between are gone`;
+   this._later();
+   return false;
+  }
+  if(response.status===400){
+   this.cursor='';this.state='connecting';
+   this.detail='the stream refused this cursor; resuming from the present';
+   this._later();
+   return false;
+  }
+  this.state='offline';
+  this.detail=`the event stream answered HTTP ${response.status}`;
+  this._later();
+  return false;
+ },
+
+ async _read(body){
+  const reader=body.getReader(),decoder=new TextDecoder();
+  let buffer='';
+  for(;;){
+   const {value,done}=await reader.read();
+   if(done)return;
+   buffer+=decoder.decode(value,{stream:true});
+   const parts=buffer.split('\n\n');
+   buffer=parts.pop();
+   for(const part of parts)this._frame(part);
+   if(this.state==='stopped')return;
+  }
+ },
+
+ /* One frame. `id:` is tracked whatever else the frame carries, because that is
+    the cursor a reconnect resumes from — and a frame with no `id:` must leave
+    it alone rather than clear it, which is the client half of the same rule the
+    server side of this stream had to be taught. */
+ _frame(part){
+  let type='message',data='';
+  for(const line of part.split('\n')){
+   if(line.startsWith('id:'))this.cursor=line.slice(3).trim();
+   else if(line.startsWith('event:'))type=line.slice(6).trim();
+   else if(line.startsWith('data:'))data=line.slice(5).trim();
+   else if(line.startsWith('retry:')){
+    const advertised=parseInt(line.slice(6).trim(),10);
+    if(Number.isFinite(advertised))this.retryMs=advertised;
+   }
+  }
+  if(type==='ecosystem.stream.gap'){
+   this.gaps++;this.state='gap';
+   this.detail='this tab fell behind and the hub dropped it; some events were missed';
+   return;
+  }
+  if(type==='ecosystem.stream.live'||!data)return;
+  this.received++;
+  this._wake();
+ },
+
+ /* Repaint the screen the event belongs on, at most once a second.
+    The frames are counted and then dropped rather than buffered. A buffer was
+    the first version and it was dead weight: the Events screen reads the hub's
+    own query, which filters and pages, and a second copy of the feed held in
+    this tab would have to reimplement both to be usable — and would disagree
+    with the first the moment it did.
+    What the stream is actually good for here is knowing *when*, and this is
+    that: the feed stops being eight seconds stale without growing a second
+    source of truth. Throttled because a burst of forty events is one repaint
+    worth of news, and unthrottled it is forty. */
+ _wake(){
+  if(state.view!=='Events'||state.app!=='nervis')return;
+  const now=Date.now();
+  if(now-(this._woke||0)<STREAM_WAKE_MS)return;
+  this._woke=now;
+  repaint();
+ }
+};
+/* How often a stream of events may repaint the screen reading it. */
+const STREAM_WAKE_MS=1000;
+
 function stopPolling(){
  if(POLL_TIMER!==null){clearInterval(POLL_TIMER);POLL_TIMER=null}
+ EVENTS.stop();
 }
 document.addEventListener('visibilitychange',()=>{
  if(document.hidden){stopPolling()}
- else{pollRegistry();startPolling()}
+ else{pollRegistry();startPolling();EVENTS.start()}
 });
 pollRegistry();
 startPolling();
+EVENTS.start();
 </script></body></html>
