@@ -578,3 +578,52 @@ def test_a_peer_with_no_mep_surface_is_still_read() -> None:
     asyncio.run(store.refresh(client, [GGUF, MLX]))
 
     assert store.state is SourceState.FRESH
+
+
+def test_evidence_is_requested_for_every_upstream_not_just_the_first() -> None:
+    """`model_registry` is the *first* declared upstream's catalogue.
+
+    With the plural upstreams M8 shipped, `_refresh_evidence` asked SIRVIS only
+    about that one, so builds served by the second upstream routed on advertised
+    capability alone while RAVIS held measured evidence for their neighbours.
+    The Evidence screen reported the source healthy throughout, so the gap
+    looked like SIRVIS having nothing to say about those models.
+    """
+    import asyncio
+
+    from ravis.app import _refresh_evidence
+
+    asked: list[list[str]] = []
+
+    class _Store:
+        is_configured = True
+
+        async def refresh(self, client: object, models: list[str]) -> None:
+            asked.append(list(models))
+
+    class _Registry:
+        def __init__(self, models: list[str]) -> None:
+            self._models = models
+
+        def model_ids(self) -> list[str]:
+            return list(self._models)
+
+    class _Built:
+        def __init__(self, registry: _Registry) -> None:
+            self.registry = registry
+
+    class _State:
+        evidence = _Store()
+        upstream_client = object()
+        model_registry = _Registry(["first-upstream-build"])
+        transparents = {
+            "default": _Built(_Registry(["first-upstream-build"])),
+            "second": _Built(_Registry(["second-upstream-build"])),
+        }
+
+    api = type("_App", (), {"state": _State()})()
+    asyncio.run(_refresh_evidence(api))  # type: ignore[arg-type]
+
+    assert asked == [["first-upstream-build", "second-upstream-build"]], (
+        "both upstreams' builds, sorted so two refreshes can be compared"
+    )

@@ -94,14 +94,17 @@ DECLARED: dict[str, Capability] = {
         state=AVAILABLE,
         reason="every decision records its excluded candidates and why (§9.7)",
     ),
-    # Degraded, and the gap is exactly one word in §4.1. The advertise-when
-    # condition is *"profiles are versioned and revisioned"*; `VirtualModelPool`
-    # carries a `pool_id`, a label and its requirements, and no version or
-    # revision at all. The pools route — thirteen of them, live — so
-    # `unavailable` would make a peer hide a working feature; but a consumer
-    # reading `available` here is entitled to pin a revision and be told when it
-    # changes, and there is nothing to pin. §14's rule about not presenting an
-    # estimate as an invoice is the same rule in a different costume.
+    # Available, and the comment that used to sit here argued for DEGRADED on
+    # the grounds that `VirtualModelPool` carried "no version or revision at
+    # all". M16 gave it both -- a declared version and a revision derived from
+    # the definition, so a consumer may pin one and be told when the pool's
+    # behaviour changes under it, which is precisely what §4.1's
+    # "profiles are versioned and revisioned" asks for.
+    #
+    # The comment stayed as written while the declaration beneath it moved, so
+    # this block argued for one state and published the other. Worth naming
+    # rather than quietly deleting: a stale comment next to a live declaration
+    # is read as the reason for the declaration.
     "ravis.virtual_profiles@1": Capability(
         version="1.0.0",
         state=AVAILABLE,

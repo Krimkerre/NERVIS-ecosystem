@@ -14,12 +14,16 @@ to load first. For one short question the loaded model wins despite being weaker
 For a coding session about to make a hundred requests, paying the load is
 obviously right.
 
-RAVIS cannot resolve that tradeoff yet, because the inputs are not there:
-expected session length arrives with sessions at M11, and the benchmark evidence
-that would say a cold model is genuinely better arrives at M13. What it can do
-today is stop *ignoring* residency — which is what caused a loaded model to be
-evicted and replaced during testing, purely because another sorted earlier
-alphabetically.
+RAVIS resolves that tradeoff now, and this paragraph outlived the milestones it
+was waiting for. Both inputs arrived: sessions at M11 and SIRVIS's evidence at
+M13, and M14 put them together -- expected session length is measured from an
+application's own completed sessions, not predicted, and a load that would not
+amortise over that length is declined. `_load_would_not_amortise` in the routing
+engine is the rule; `LOAD_AMORTISES_AFTER_REQUESTS` is the threshold.
+
+What this module still does is the part that came first: stop *ignoring*
+residency -- which is what caused a loaded model to be evicted and replaced
+during testing, purely because another sorted earlier alphabetically.
 
 **RAVIS observes; it does not load or unload.** §12.2 restricts it to operations
 the runtime adapter or a SIRVIS management capability actually owns, so RAVIS and

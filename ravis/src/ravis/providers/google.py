@@ -224,13 +224,13 @@ class GoogleAdapter:
             )
 
     async def estimate_cost(self, request: NormalizedRequest) -> float | None:
-        """Unknown until the cost engine lands at M15.
+        """Unknown here, deliberately: cost is priced centrally.
 
         `None`, never `0.0`. Google's free tier is a quota on an account rather
         than a property of a model, so a zero here would be a claim about
         somebody's billing that this code cannot make.
         """
-        del request  # No pricing table exists yet; the parameter is the contract.
+        del request  # Priced centrally from the PriceBook; see `base.estimate_cost`.
         return None
 
     # ── Generation ───────────────────────────────────────────────────────────

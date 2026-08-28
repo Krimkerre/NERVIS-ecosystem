@@ -483,3 +483,42 @@ async def test_the_engine_passes_its_repetition_count_to_the_trials(tmp_path: An
         "the spec's repetition count has to reach the trials through the engine, "
         "not only when a test hands it over directly"
     )
+
+
+def test_a_runtime_that_falls_over_is_not_recorded_against_the_model() -> None:
+    """§11.8: an integrity problem is flagged, never hidden -- and never blamed
+    on the thing being measured.
+
+    `except Exception: return NO_CALL` turned any runtime fault -- a disconnect,
+    a timeout, a malformed stream, a crashed LM Studio -- into `no-call`, which
+    in this vocabulary means *the model declined to call the tool*. That verdict
+    was published in a record marked MEASURED, and RAVIS reads exactly this
+    field to decide whether a build may serve the agent role. A broken runtime
+    therefore disqualified a model that had done nothing wrong.
+
+    `trial-failed` sits outside the behavioural vocabulary on purpose: every
+    other outcome is something the model did, and this one is something that
+    happened to the run.
+    """
+    import asyncio
+
+    from sirvis.benchmarks.clarvis_roles import TRIAL_FAILED, run_tool_trials
+
+    reliability = asyncio.run(run_tool_trials(FakeToolRuntime(fail=True), "m"))
+
+    assert reliability.followup == TRIAL_FAILED
+    assert reliability.followup != "no-call", "the model did not decline anything"
+
+
+def test_a_failed_trial_measures_nothing_rather_than_measuring_a_failure() -> None:
+    """Nought out of nought, not nought out of one.
+
+    §12.1's lattice reads an absence as unmeasured and a zero as
+    measured-and-failed. A run that fell over is not entitled to the second
+    claim, and a rate of 0/1 is exactly that claim in the form RAVIS consumes.
+    """
+    from sirvis.benchmarks.clarvis_roles import TRIAL_FAILED, ToolReliability, followup_rate
+
+    assert followup_rate(ToolReliability(trials=[], followup=TRIAL_FAILED)) is None, (
+        "no evidence, rather than bad evidence"
+    )

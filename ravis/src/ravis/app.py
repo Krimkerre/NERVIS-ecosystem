@@ -552,7 +552,19 @@ async def _refresh_evidence(api: FastAPI) -> None:
     store: EvidenceStore = api.state.evidence
     if not store.is_configured:
         return
-    await store.refresh(api.state.upstream_client, api.state.model_registry.model_ids())
+    # **Every declared upstream's models, not the first one's.**
+    # `api.state.model_registry` is `primary.registry` -- the first upstream
+    # declared -- so with the plural upstreams M8 shipped, SIRVIS was never
+    # asked about anything served by the second, third or fourth. Their builds
+    # then routed on advertised capability alone while RAVIS held measured
+    # evidence for their neighbours, and the Evidence screen reported the source
+    # healthy: the gap looked like SIRVIS having nothing to say.
+    #
+    # `_registries` already knows the answer; it is what the refresh loop next
+    # to this uses. Sorted so the request is stable between calls, which makes
+    # a diff of two refreshes mean something.
+    wanted = {model for registry in _registries(api) for model in registry.model_ids()}
+    await store.refresh(api.state.upstream_client, sorted(wanted))
 
 
 async def _refresh_evidence_periodically(api: FastAPI, seconds: float) -> None:

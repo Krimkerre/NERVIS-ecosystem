@@ -126,12 +126,12 @@ class GenericOpenAiAdapter:
         return known
 
     async def estimate_cost(self, request: NormalizedRequest) -> float | None:
-        """Unknown until the cost engine lands at M15.
+        """Unknown here, deliberately: cost is priced centrally.
 
         `None`, never `0.0`: a free local model and an unpriced cloud model are
         different facts, and §14 forbids presenting an estimate as an invoice.
         """
-        del request  # No pricing table exists yet; the parameter is the contract.
+        del request  # Priced centrally from the PriceBook; see `base.estimate_cost`.
         return None
 
     def _headers(self) -> dict[str, str]:

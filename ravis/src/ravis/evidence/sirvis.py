@@ -342,14 +342,33 @@ class EvidenceStore:
     def record_for(self, runtime_key: str) -> EvidenceRecord | None:
         """The freshest record for one build, or None.
 
-        A record older than the staleness window returns None *and* leaves the
-        source degraded: §9.1 fails closed on what is not established, and a
-        measurement whose window has passed is no longer establishing anything.
+        A record older than the staleness window returns None *and* degrades the
+        source: §9.1 fails closed on what is not established, and a measurement
+        whose window has passed is no longer establishing anything.
+
+        **The second half of that sentence was not code.** This returned None
+        and never touched `_state`, which is assigned only inside `refresh`. So
+        a route explanation reported `source: "fresh"` beside a build recorded
+        as never measured, and the management surface said the evidence source
+        was healthy while every record in it had aged out. The reader is told
+        the measurement is missing and that the thing which would supply it is
+        fine -- two statements that cannot both be acted on.
+
+        Degraded rather than absent: SIRVIS answered, and what it said has
+        simply expired. Absent is for a source that is not configured or did not
+        reply, and the difference decides whether an operator looks at SIRVIS or
+        at the clock.
         """
         record = self._records.get(runtime_key)
         if record is None:
             return None
         if record.age_seconds is not None and record.age_seconds > self._max_age:
+            self._state = SourceState.DEGRADED
+            self._detail = (
+                f"the newest record for {runtime_key} is "
+                f"{int(record.age_seconds)}s old, past the {int(self._max_age)}s "
+                "staleness window"
+            )
             return None
         return record
 

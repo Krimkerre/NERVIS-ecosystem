@@ -235,11 +235,14 @@ The dependency order from the runbook, which is also the useful order here:
    The Dashboard, Chat and Routes screens light up together.
 3. **SIRVIS** `/api/v1/models`, `/benchmark-results`, `/runtime-sets`.
    Evidence provenance is already rendered; it just needs real records.
-   `/benchmark-runs` and `/benchmark-results` are **done**. `/models` exists and
-   is not yet wired. `/runtime-sets` does not exist and **must not be faked**:
+   `/benchmark-runs` and `/benchmark-results` are **done**, `/models` is wired,
+   and `/runtime-sets` **exists and is read** — M9 and M10 shipped it, and the
+   Runtime sets screen renders measured pairs from real runs.
+
+   The prohibition it was written under still stands and is worth keeping:
    Runtime sets reads measured *pairs*, and synthesising them from single-model
-   runs asserts exactly what `../../SIRVIS.md` §10.1 exists to deny. It waits
-   for M9 + M10.
+   runs asserts exactly what `../../SIRVIS.md` §10.1 exists to deny. The screen
+   now says "no measured pairing" when SIRVIS has none, rather than filling in.
 4. **`/ecosystem/events` (SSE)** — replace `API.nervis.events()` with an
    `EventSource`. The stream-health tiles (buffered, dropped, quarantined, gaps) are
    already wired to report it.

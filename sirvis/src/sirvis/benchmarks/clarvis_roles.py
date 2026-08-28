@@ -124,6 +124,16 @@ ANSWERED_IN_PROSE = "answered-in-prose"
 GAVE_UP = "gave-up"
 NO_CALL = "no-call"
 
+# **Not a behaviour, and deliberately outside the vocabulary above.** Every
+# outcome above is something the *model* did; this one is something that
+# happened to the run. A disconnect, a timeout, a malformed stream or a crashed
+# runtime used to return `NO_CALL`, which is a behavioural failure meaning "the
+# model did not call the tool" -- so a broken LM Studio was recorded as evidence
+# against the build, in a record marked MEASURED, and RAVIS reads exactly that
+# to decide agent eligibility. §11.8's rule is that an integrity problem is
+# flagged, never hidden, and blaming the model for it is worse than hiding it.
+TRIAL_FAILED = "trial-failed"
+
 # Only one of those is the model doing the right thing. Stated as a constant so
 # a scorer cannot quietly widen it.
 FOLLOWUP_PASSES = (USED_RESULT,)
@@ -413,7 +423,9 @@ async def run_followup(runtime: Any, model_key: str) -> str:
         )
         return score_followup(first, second, prose)
     except Exception:  # noqa: BLE001 - a runtime is third-party code
-        return NO_CALL
+        # Not `NO_CALL`: the model did not decline to call the tool, the run
+        # fell over. See `TRIAL_FAILED`.
+        return TRIAL_FAILED
 
 
 async def _streamed_turn(
@@ -446,13 +458,22 @@ def tool_rate(reliability: ToolReliability, *, phrasings: int) -> TrialRate:
     )
 
 
-def followup_rate(reliability: ToolReliability) -> TrialRate:
+def followup_rate(reliability: ToolReliability) -> TrialRate | None:
     """The follow-up outcome as a one-attempt rate.
 
     One trial, and it is still a rate rather than a flag: the outcome vocabulary
     has five failures and one success, so a boolean would discard which one
     happened — and `retried` versus `gave-up` are different bugs.
     """
+    # **A trial that fell over produces no rate at all.** §12.1's lattice reads
+    # an absence as unmeasured and a zero as measured-and-failed, and a run the
+    # runtime broke is not entitled to the second claim. `TrialRate` refuses a
+    # total of nought outright -- "a trial rate needs at least one attempt" --
+    # so the honest shape is None, which is what the multi-model path already
+    # returns for the same reason: the record carries no rate rather than a rate
+    # of zero.
+    if reliability.followup in (None, TRIAL_FAILED):
+        return None
     return TrialRate(
         passed=1 if reliability.followup in FOLLOWUP_PASSES else 0,
         total=1,

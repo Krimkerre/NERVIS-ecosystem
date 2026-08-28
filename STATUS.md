@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1474 tests, no network, no live service
+.venv/bin/pytest                      # part of 1477 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1474 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1477 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2038,7 +2038,7 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | RAVIS **Evidence** | live | `/api/v1/evidence` — what SIRVIS said and what RAVIS concluded, with the reason a build was refused |
 | SIRVIS **Recommendations** | live | `POST /api/v1/recommendations` — ranked, excluded with reasons, and the coverage each score rests on |
 | SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
-| Recommendations, Downloads | mocks | need M15 and M11 |
+| SIRVIS **Downloads** | mocks | needs SIRVIS M11's catalogue |
 
 **Wiring a screen is part of finishing a milestone from now on.** M9, M10 and
 M16 each shipped a producer and wired no consumer, and this table drifted from

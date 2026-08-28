@@ -190,12 +190,12 @@ class AnthropicAdapter:
         return known
 
     async def estimate_cost(self, request: NormalizedRequest) -> float | None:
-        """Unknown until the cost engine lands at M15.
+        """Unknown here, deliberately: cost is priced centrally.
 
         `None`, never `0.0`: Anthropic is a paid provider, and §14 forbids
         presenting an estimate as an invoice. A zero here would read as free.
         """
-        del request  # No pricing table exists yet; the parameter is the contract.
+        del request  # Priced centrally from the PriceBook; see `base.estimate_cost`.
         return None
 
     # ── Generation ───────────────────────────────────────────────────────────

@@ -7844,7 +7844,7 @@ function ravisHealthCard(rhealth,rdiag){
    <div class="trace-step"><b>models visible</b><span class="mono">${rhealth.models_known}</span></div>
    ${identity?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(dash(identity.build_version))} · protocol ${escapeHtml(dash(identity.protocol_version))}</span></div>`:''}
    ${((rdiag&&rdiag.unavailable)||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
-   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the sixteen checks below are the suite's shape rather than a run of it. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
+   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the ten checks below are a sample of the suite's shape rather than a run of it — the suite itself runs <b>seventeen</b>, and this card said sixteen while listing ten. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
 }
 
 function conformanceCard(cf){

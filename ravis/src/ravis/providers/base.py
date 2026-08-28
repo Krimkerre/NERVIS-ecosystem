@@ -109,9 +109,18 @@ class ProviderAdapter(Protocol):
         """The estimated monetary cost, or `None` when it is not known.
 
         `None` rather than `0.0`, because they are different claims and §14
-        forbids presenting an estimate as an invoice. The pricing that makes this
-        answerable arrives with the cost engine at M15; until then every adapter
-        honestly returns `None`.
+        forbids presenting an estimate as an invoice.
+
+        **Every adapter still returns `None`, and that is now a design choice
+        rather than a gap.** This said the pricing "arrives with the cost engine
+        at M15"; M15 shipped, and it did not price per adapter. Cost is computed
+        once, centrally, from a `PriceBook` filled by the catalogue and by the
+        operator's `prices.json` -- so the answer does not depend on which
+        adapter served the call, and a provider that publishes no price is
+        `UNKNOWN` everywhere rather than in one adapter's opinion.
+
+        The hook stays because the protocol may want a provider that can quote a
+        request before running it. Nothing does today.
         """
         ...
 

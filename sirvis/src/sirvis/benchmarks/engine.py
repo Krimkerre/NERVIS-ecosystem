@@ -843,10 +843,16 @@ def _rates(outcome: ExperimentOutcome) -> dict[str, TrialRate]:
         tool_rate,
     )
 
-    return {
+    # The follow-up rate is omitted rather than nulled when the trial fell over:
+    # a key that is absent is unmeasured, and a key holding nothing is a shape
+    # every reader then has to guard.
+    rates: dict[str, Any] = {
         "tool_call_well_formed": tool_rate(reliability, phrasings=len(TOOL_PROMPTS)),
-        "tool_followup_used_result": followup_rate(reliability),
     }
+    followup = followup_rate(reliability)
+    if followup is not None:
+        rates["tool_followup_used_result"] = followup
+    return rates
 
 
 def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:

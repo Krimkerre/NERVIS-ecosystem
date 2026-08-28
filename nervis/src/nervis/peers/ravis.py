@@ -25,10 +25,15 @@ SERVICE = "ravis"
 # M3's list: health, providers, models, routes, usage, sessions — plus pools,
 # which the Routes screen needs to explain what a decision chose between.
 #
-# `sessions` is here and will refuse: RAVIS M11 has not shipped, so
-# `ravis.sessions@1` is advertised `unavailable`. That is the point of listing
-# it. A surface that is planned and absent should say so with the milestone
-# attached, which is exactly what §4.1 makes RAVIS publish.
+# `sessions` was listed here as a surface that would refuse, because RAVIS M11
+# had not shipped and `ravis.sessions@1` was advertised `unavailable`. M11
+# shipped: the capability is `available`, `/api/v1/sessions` answers, and the
+# Sessions screen reads it. The comment outlived the milestone by long enough
+# that a reader would have believed the surface was still absent.
+#
+# The reasoning it recorded is still the right reasoning, and still applies to
+# whichever surface is next: a planned and absent surface should be listed with
+# the milestone attached, which is what §4.1 makes RAVIS publish.
 SURFACES: tuple[Surface, ...] = (
     Surface("health", "/api/v1/health", "ravis.management", "Health"),
     Surface("providers", "/api/v1/providers", "ravis.management", "Providers"),
