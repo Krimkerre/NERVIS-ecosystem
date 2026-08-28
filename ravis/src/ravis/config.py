@@ -133,6 +133,16 @@ class Settings(BaseSettings):
     # fails at the far end rather than being absent at the near one.
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com"
+
+    # Gemini, on §6's translated path since M7.
+    #
+    # **No `/v1beta/openai` here on purpose.** That endpoint exists and RAVIS
+    # used it, transparently, which is what §6 prefers — but it reports
+    # `finish_reason: stop` on a streamed tool call and omits the tool-call
+    # index, both measured. A base URL pointing at it would quietly put Gemini
+    # back on the path this milestone moved it off.
+    google_api_key: str = ""
+    google_base_url: str = "https://generativelanguage.googleapis.com"
     # Anthropic requires `max_tokens` on every request; OpenAI treats it as
     # optional. This is what a request that named no limit gets — a default for
     # the unstated case, not a cap on a stated one. Generous on purpose: a low

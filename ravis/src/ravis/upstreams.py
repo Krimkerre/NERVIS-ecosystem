@@ -50,6 +50,16 @@ DEFAULT_NAME = "default"
 # operator started them, and guessing a port is how a dashboard reports the
 # wrong machine as healthy.
 KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
+    # Gemini's OpenAI-compatible surface. **Kept, and no longer the way to
+    # reach Google**: M7 put Gemini on §6's translated path, and declaring a
+    # transparent upstream of this kind now lists the same models twice.
+    #
+    # Kept rather than removed because an operator with it in their environment
+    # should not fail to start, and because the native adapter takes precedence
+    # for a direct address anyway. But the reason it was left behind is
+    # measured, not stylistic: this endpoint reports `finish_reason: stop` on a
+    # streamed tool call and omits the tool-call index, and both are things
+    # Clarvis's agent role reads.
     "google": ("https://generativelanguage.googleapis.com", "/v1beta/openai"),
     # The shape everything else here is compatible *with*, so it needs no
     # special handling at all — which is the point worth recording. Listing it

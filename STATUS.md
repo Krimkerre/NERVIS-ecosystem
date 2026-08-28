@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1306 tests, no network, no live service
+.venv/bin/pytest                      # part of 1322 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1306 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1322 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -106,6 +106,7 @@ into the order work actually happens.
 | 28 | **SIRVIS M15** | The recommendation engine, and Stage 4's last piece. §14.3's weighted score computed without breaking §12.2's prohibition — every score carries the **coverage** it rests on, and on this machine that is 45%. Settled below |
 | 29 | **RAVIS M8** | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 | 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
+| 31 | **RAVIS M7** | Provider expansion. OpenRouter stays transparent, which is the measurement rather than the assumption. **Gemini moved to §6's translated path** after its OpenAI-compatible endpoint was measured reporting `finish_reason: stop` on a streamed tool call and omitting the tool-call index — both things Clarvis's agent role reads. A native Gemini adapter now makes the two providers indistinguishable on every surface §6 names, and `ravis conformance clarvis` stayed `PASS` throughout. Four judgement calls and two live-found bugs, settled below |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
 close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
@@ -2049,16 +2050,15 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **RAVIS M7** | Google and OpenRouter, the remaining native adapters. The last of Stage 5's provider work |
-| 2 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
-| 3 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
-| 4 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
+| 1 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
+| 2 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
+| 3 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
 
 ### After that
 
-What is left of Stage 5 is RAVIS's remaining intelligence: **M7** (Google,
-OpenRouter), the rest of **M14**, and **M16** (policy). **M8 is done** — it was
-still listed here eleven lines above the section that declares it finished. Stage 6 is NERVIS core — **M11** + **M15**.
+What is left of Stage 5 is RAVIS's remaining intelligence: the rest of **M14**
+and **M16** (policy). **M7 and M8 are done.** Stage 6 is NERVIS core — **M11** +
+**M15**.
 
 **M3b, M4 and M13 are done, out of stage order**, and all three for the same
 reason: §20.2 holds translation back until the transparent Clarvis slice works,
@@ -5046,6 +5046,49 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### RAVIS M7 — and the measurement that chose the path
+
+M7's exit is *"transparent/translated path chosen correctly; conformance stays green"*, which
+makes the choice the deliverable rather than a build being one. §6 answers half of it outright:
+OpenRouter speaks the protocol, so it stays on Path A and needed nothing. Google was the open
+question, because it publishes an OpenAI-compatible endpoint at `/v1beta/openai` and RAVIS was
+already using it — and §6 is emphatic that an already-compatible stream should not be normalized
+for architectural purity.
+
+**It is not compatible where it matters.** The same request, the same afternoon, through the same
+code path:
+
+| | `finish_reason` | tool-call index | usage chunk |
+|---|---|---|---|
+| Google via `/v1beta/openai` | `stop` | absent | absent |
+| OpenRouter, transparent | `tool_calls` | `0` | present |
+
+A client that notices a tool call by reading `finish_reason` sees a finished text answer, and one
+that assembles fragments by index has nothing to key on. Both are what Clarvis's agent role does
+and what its conformance suite checks. So the shortcut was worth trying, the measurement is why it
+was abandoned, and Gemini went where §6 put it in the first place. After the native adapter, the
+two providers are indistinguishable on every surface §6 names.
+
+**Four mappings are judgements rather than transcription**, and each is argued where it lives.
+Gemini's tool calls carry no id, so one is synthesised from position — stable, because a
+conversation stored with one set of ids and replayed with another stops matching its own tool
+results. Arguments arrive as an object and leave as a string. Thoughts arrive in the same parts
+list as the answer and are filed as reasoning, because a client rendering them together shows the
+model's working as if it were the reply. And `finishReason` is `STOP` even when the model called a
+tool, so the reason is derived from the content — reading that field literally is the compat
+endpoint's defect reproduced in our own code.
+
+**Which is exactly what happened once.** The first native implementation asked the *finishing
+frame* whether it carried a call, and Gemini sends the call and the finish separately — so the
+answer was always no and the stream ended `stop` with a tool call in it. The bug the adapter
+exists to avoid, rebuilt inside it, and caught only because the live probe was run again
+afterwards rather than trusted to have worked. Whether a tool was called is a fact about the
+stream, not about one frame.
+
+A second one was cheaper and duller: Gemini names already begin `models/`, so paths built from a
+name dropped the `/v1beta` segment and 404'd — which reads exactly like a deprecated model, and
+would have been diagnosed as one without the log.
 
 ### Delete deleted half of it
 

@@ -52,6 +52,7 @@ from ravis.pool_membership import PoolMembership
 from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
+from ravis.providers.google import GoogleAdapter
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
@@ -409,6 +410,18 @@ def _translating_adapters(
         ),
         client=client,
         max_output_tokens=settings.anthropic_max_output_tokens,
+        configured_capabilities=resolved_capabilities(settings),
+    )
+    # Gemini, for the reasons argued in `providers/google.py`: its
+    # OpenAI-compatible endpoint drops the tool-call index and reports `stop`
+    # for a streamed tool call, both of which Clarvis's agent role reads.
+    adapters["google"] = GoogleAdapter(
+        upstream=Upstream(
+            base_url=settings.google_base_url,
+            declared_key=settings.google_api_key,
+            credential=lambda: credential_for(credentials, "google", settings.google_api_key),
+        ),
+        client=client,
         configured_capabilities=resolved_capabilities(settings),
     )
     return adapters

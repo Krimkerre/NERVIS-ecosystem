@@ -283,8 +283,19 @@ def self_test() -> list[str]:
 
     # A milestone written into Next that the Done table already claims, in the
     # table's own convention and in the bare form.
+    # Anchored on *whichever* milestone is first in Next rather than on its
+    # name. The name was hard-coded, which made finishing that milestone break
+    # the self-test — so the gate that exists to catch a half-updated STATUS.md
+    # had to be edited by hand every time STATUS.md was correctly updated.
     for injected in ("**RAVIS M8**", "**M16**"):
-        row = text.replace("| 1 | **RAVIS M7**", f"| 1 | {injected}", 1)
+        head, _, tail = text.partition("### Next")
+        # Scoped to the Next section: the Done table has a row 1 too, and
+        # rewriting *that* one injects the milestone into the wrong table, so
+        # the checker sees nothing wrong and the self-test silently passes
+        # nothing. Which is how this was found.
+        row = head + "### Next" + re.sub(
+            r"\| 1 \| \*\*[^|*]+\*\*", f"| 1 | {injected}", tail, count=1
+        )
         caught: list[str] = []
         check_next_milestone_is_not_already_done(row, caught)
         if not caught:
