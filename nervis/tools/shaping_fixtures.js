@@ -124,6 +124,25 @@ function delta(content, extra = {}) {
 }
 
 const CHAT_STREAMS = [
+  /* RAVIS's own refusal shape: one frame carrying the whole envelope, with no
+     `event: error` line ahead of it. Read as an ordinary frame it has no
+     `choices`, contributes nothing, and the reply is reported as empty — which
+     is what a tripped circuit breaker looked like from the chat screen. */
+  {
+    name: "refused by RAVIS mid-stream",
+    frames: [
+      { frame: { error: { message: "circuit open after 3 consecutive failures (model_unavailable)", type: "upstream_error" } } },
+    ],
+  },
+  /* And the shape that must NOT be read as a refusal: a proxy that puts a null
+     error on every frame of a good stream. */
+  {
+    name: "null error on a good frame",
+    frames: [
+      { frame: { error: null, model: "gpt-4o-mini", choices: [{ delta: { content: "fine" } }] } },
+    ],
+  },
+
   {
     name: "ordinary reply",
     frames: [

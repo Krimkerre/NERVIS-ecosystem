@@ -948,3 +948,29 @@ def test_the_greeting_does_not_read_the_clock_out() -> None:
     assert "Do not say the time or the date" in system
     # And it is still *given* to her, which is the distinction.
     assert "The current local time is" in system
+
+
+def test_a_ravis_refusal_mid_stream_is_reported_as_itself() -> None:
+    """RAVIS puts the whole envelope in one `data:` frame with no `event: error`
+    line ahead of it. Only NERVIS's own spelling was recognised, so a real
+    refusal — "circuit open after 3 consecutive failures" — arrived as a frame
+    with no `choices`, contributed no text, and was rendered as *the model
+    returned an empty message*.
+
+    A confident diagnosis of something that did not happen, about a provider
+    that was in fact telling us exactly what was wrong. Found by pinning a
+    model the account cannot reach.
+    """
+    refusal = json.dumps(
+        {
+            "error": {
+                "message": "circuit open after 3 consecutive failures",
+                "type": "upstream_error",
+            }
+        }
+    )
+    client = an_api([f"data: {refusal}\n\n".encode(), b"data: [DONE]\n\n"])
+
+    answered = turn(client, "say ok")
+
+    assert "circuit open after 3 consecutive failures" in answered.text

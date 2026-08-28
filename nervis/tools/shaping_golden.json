@@ -624,6 +624,44 @@
     "Routes": "assembled"
   },
   "chat streams": {
+    "refused by RAVIS mid-stream": {
+      "acc": {
+        "reply": "",
+        "requestId": "req_1",
+        "served": "",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "circuit open after 3 consecutive failures (model_unavailable)",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "",
+        "request_id": "req_1",
+        "speaker": "NERVIS",
+        "at": "<when>",
+        "text": "circuit open after 3 consecutive failures (model_unavailable)"
+      }
+    },
+    "null error on a good frame": {
+      "acc": {
+        "reply": "fine",
+        "requestId": "req_1",
+        "served": "gpt-4o-mini",
+        "conversationId": "",
+        "reasoning": 0,
+        "failed": "",
+        "aborted": false
+      },
+      "message": {
+        "role": "assistant",
+        "served": "gpt-4o-mini",
+        "request_id": "req_1",
+        "speaker": "NERVIS",
+        "at": "<when>",
+        "text": "fine"
+      }
+    },
     "ordinary reply": {
       "acc": {
         "reply": "Hello, world",

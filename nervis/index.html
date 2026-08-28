@@ -6688,6 +6688,19 @@ function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
    a running model was to make it a function that takes a frame and returns
    nothing but its effect on an object. `tools/shaping_check.js` now feeds it
    recorded frames. */
+/* The message from a frame that is an error envelope rather than a delta.
+   Empty when the frame is an ordinary one.
+
+   **Truthiness, not presence.** Some proxies put `"error": null` on every
+   frame of a perfectly good stream, and testing for the key would turn each of
+   them into a refusal — RAVIS learned this from an upstream and the note is in
+   its own reader; this is the same rule on the other side of the wire. */
+function failureIn(frame){
+ const found=frame&&frame.error;
+ if(!found)return '';
+ return (typeof found==='string'?found:found.message)||'the provider refused mid-stream';
+}
+
 function frameDelta(frame){return((frame.choices||[{}])[0]||{}).delta||{}}
 
 function absorbFrame(item,acc,paint){
@@ -6695,7 +6708,18 @@ function absorbFrame(item,acc,paint){
  const frame=item.frame;
  /* A refusal arrives as an error marker followed by the frame carrying the
     reason, so the second frame is read only once the first has been seen. */
- if(acc.failed==='stream'){acc.failed=frame.message||'RAVIS refused mid-stream';return}
+ if(acc.failed==='stream'){acc.failed=frame.message||failureIn(frame)||'RAVIS refused mid-stream';return}
+ /* **A frame carrying an error object is itself the refusal**, with no marker
+    line before it — which is the shape RAVIS sends and NERVIS did not read.
+    Two services, two spellings: NERVIS writes `event: error` ahead of the data
+    because it is refusing something it never sent upstream, and RAVIS puts the
+    whole envelope in one frame. Only the first was recognised, so a real,
+    actionable refusal — "circuit open after 3 consecutive failures" — arrived
+    as a frame with no `choices`, contributed no text, and was reported as *the
+    model returned an empty message*. A confident diagnosis of something that
+    did not happen, which is the one thing this dashboard is not allowed to do. */
+ const refused=failureIn(frame);
+ if(refused){acc.failed=refused;return}
  const delta=frameDelta(frame);
  /* The first token that is actually text. Reasoning frames do not count: the
     model is still thinking, and the avatar should still say so. */

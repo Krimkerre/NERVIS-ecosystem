@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1301 tests, no network, no live service
+.venv/bin/pytest                      # part of 1302 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1301 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1302 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5023,6 +5023,34 @@ last is a trap that closes.
 `ravis/balanced` uses both without inventing an exchange rate between
 milliseconds and dollars. Models within a quarter-second count as equally quick —
 a claim the data supports at that resolution — and the cheaper of them wins.
+
+### "The model returned an empty message", which it had not
+
+Pinning `gpt-5-chat-latest` produced that line in the chat bubble. The model had not returned an
+empty message; it had not been called at all. OpenAI has **deprecated** the id — it is still in
+their `/v1/models` listing, so it is still in RAVIS's catalogue and still pickable — and RAVIS was
+saying so precisely: *circuit open after 3 consecutive failures (model_unavailable)*.
+
+**Two services spelled a refusal differently and only one spelling was read.** NERVIS writes
+`event: error` ahead of the data, because it is refusing something it never sent upstream. RAVIS
+puts the whole envelope in a single `data:` frame. NERVIS recognised only its own, so RAVIS's
+frame parsed as an ordinary one, found no `choices`, contributed no text — and the empty
+accumulator fell through to the branch that explains an empty reply.
+
+That branch is not wrong in general. It exists because a reasoning model really can spend its
+whole budget on `reasoning_content`, which was observed. It was reporting a real failure as a
+different real failure, which is worse than a bare error: it sent the reader to look at the model
+when the answer was on the provider's deprecation page.
+
+The check is truthiness rather than presence, because some proxies put `"error": null` on every
+frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
+this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
+harness, which is exactly the divergence it exists to catch.
+
+**A second one is left standing, deliberately.** Every `gpt-5` model rejects `max_tokens` and
+wants `max_completion_tokens`. Translating it would mean the transparent path stops forwarding the
+body verbatim, which is §6's whole distinction — so the parameter stays as sent and the refusal is
+now legible, which is the outcome the fix above was for.
 
 ### Miku, back as a persona rather than an easter egg
 
