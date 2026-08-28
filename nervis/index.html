@@ -4128,17 +4128,21 @@ async function tracesView(){
 
  const items=payload.items||[];
  if(!items.length){
-  $('#content').innerHTML=waterfall+`<div class="card full"><h3>Nothing has routed yet</h3>${cell(`
+  $('#content').innerHTML=waterfall+`<div class="card full${liveClass(SOURCE.ravis==='live')}"><h3>Nothing has routed yet</h3>${cell(`
    <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
    <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
   return;}
 
  const routed=items.filter(d=>d.selected).length;
  $('#content').innerHTML=waterfall+kpis([
-   ['Decisions',String(items.length),'kept in memory, not persisted','ravis',false],
-   ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis',false],
-   ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis',false],
-   ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis',false]])
+   /* **Not fed by NERVIS's traces.** `items` is RAVIS's decision log, read
+      through the peer surface, and this screen has already returned if that
+      read produced nothing — so all four of these are arithmetic over a live
+      answer and all four asserted `false`. */
+   ['Decisions',String(items.length),'kept in memory, not persisted','ravis',SOURCE.ravis==='live'],
+   ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis',SOURCE.ravis==='live'],
+   ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis',SOURCE.ravis==='live'],
+   ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis',SOURCE.ravis==='live']])
  +decisionsCard(items,items[0])+latestDecisionCard(items[0])+crossServiceCard();
 }
 
@@ -4294,9 +4298,9 @@ function runtimeUnreachable(){
    wants more context than the running copy has, and a person can load anything
    by hand — SIRVIS reports them rather than reclaiming them, because reclaiming
    something another client is using is the exact failure §9 exists to prevent. */
-function foreignInstancesCard(foreign){
+function foreignInstancesCard(foreign,live=false){
  if(!foreign.length)return '';
- return `<div class="card wide"><h3>Foreign instances</h3>${cell(`
+ return `<div class="card wide${liveClass(live)}"><h3>Foreign instances</h3>${cell(`
    ${foreign.map(f=>`<div class="trace-step"><b class="mono">${escapeHtml(f)}</b><span>loaded by the runtime, not by SIRVIS</span></div>`).join('')}
    <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`;
 }
@@ -4317,7 +4321,11 @@ async function sirvisRuntime(){
    ['Owned',String(owned),owned===held.length?'all held by SIRVIS':'the rest were adopted','sirvis'],
    ['Sessions',String(leases.length),'live leases','sirvis'],
    ['Foreign',String(foreign.length),foreign.length?'runtime loaded these itself':'none','sirvis']])
- +`<div class="card full"><h3>Load a model <span class="chip">POST /runtime/sessions</span></h3>${cell(`
+ /* `sirvisRuntime` returns `runtimeUnreachable()` unless the residency read
+    answered, so every card below this point is a live SIRVIS read by
+    construction — the four tiles above them already derive it correctly from
+    the identical response. The picker is filled from the live catalogue. */
+ +`<div class="card full${liveClass(mdl.live)}"><h3>Load a model <span class="chip">POST /runtime/sessions</span></h3>${cell(`
    <div class="table-row head six"><span>Model</span><span>Context</span><span>Policy</span><span>Lease</span><span style="grid-column:5/-1">Action</span></div>
    <div class="table-row six">
     <span><select id="rtModel" class="mono" style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px">${opts}</select></span>
@@ -4339,14 +4347,14 @@ async function sirvisRuntime(){
     <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
    </div>
    <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`)}`,'sirvis')}</div>
-  <div class="card full"><h3>Resident now</h3>${cell(
+  <div class="card full${liveClass(Boolean(res))}"><h3>Resident now</h3>${cell(
    held.length?`
    <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
    ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}</span><span>${h.reference_count}</span><span class="mono" style="opacity:.7">${dash((h.sessions||[]).map(s=>s.slice(0,8)).join(' · '))}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(effectiveConfig(h))}</span><span style="grid-column:5/-1"><span class="chip${warnUnless(h.owned)}">${h.owned?'SIRVIS':'adopted'}</span></span></div>`).join('')}
    <small class="mono dim">a model is unloaded when its reference count reaches zero and not before — releasing one lease on a model two clients hold takes it from neither. <b>Adopted</b> is the column that matters for memory: SIRVIS did not load those and will never unload them, so releasing every lease here does not give that memory back.</small>`
    :`<div class="trace-step"><b>resident</b><span>nothing</span></div>
    <small class="mono dim">no model is in memory and no lease is outstanding. This is the ordinary state of an idle machine, and it is the state that makes the ceiling above meaningful: ${res.max_loaded} is what the manager will hold at once, not what is loaded.</small>`,'sirvis')}</div>
-  <div class="card wide"><h3>Leases</h3>${cell(
+  <div class="card wide${liveClass(Boolean(res))}"><h3>Leases</h3>${cell(
    leases.length?`
    <div class="table-row head six"><span>Session</span><span>Owner</span><span style="grid-column:3/5">Models</span><span>Lease</span><span style="grid-column:6/-1">Action</span></div>
    ${leases.map(l=>`<div class="table-row six"><span class="mono">${escapeHtml((l.session_id||'').slice(0,12))}</span><span>${escapeHtml(dash(l.owner))}</span><span class="mono" style="grid-column:3/5;opacity:.75">${(l.models||[]).map(escapeHtml).join(' · ')}</span><span class="mono">${l.lease_seconds}s</span><span style="grid-column:6/-1"><button class="btn"${armed} onclick="RUNTIME.renew('${escapeHtml(l.session_id)}')">Renew</button> <button class="btn"${armed} onclick="RUNTIME.release('${escapeHtml(l.session_id)}')">Release</button></span></div>`).join('')}
@@ -4354,7 +4362,7 @@ async function sirvisRuntime(){
    :`<div class="trace-step"><b>leases</b><span>none outstanding</span></div>
    <small class="mono dim">nothing holds a claim on this runtime right now.</small>`,'sirvis')}</div>
   
-  ${foreignInstancesCard(foreign)}`;
+  ${foreignInstancesCard(foreign,Boolean(res))}`;
  const box=$('#rtToken');if(box)box.value=RUNTIME_TOKEN;}
 
 /* The four real mutations. Each one re-renders from the service afterwards
@@ -4499,7 +4507,13 @@ const BUILD={
   if(this.current)this.select(null,this.current.localId,this.current.variantId);
  },
  async release(sessionId,count){
-  if(count>1&&!armed('lease:'+id,`That lease holds ${count} models — releasing it unloads all of them`))return;
+  /* `sessionId`, not `id`. There is no `id` in scope and no global of that
+     name, so this raised a ReferenceError before `armed` was ever called:
+     whenever a lease held more than one model — the multi-model case this
+     confirmation exists for — Release did nothing at all. No toast, no DELETE,
+     no re-render. The single-model branch took the other path and worked, which
+     is why it looked fine. */
+  if(count>1&&!armed('lease:'+sessionId,`That lease holds ${count} models — releasing it unloads all of them`))return;
   const out=await RUNTIME._send('/api/v1/runtime/sessions/'+sessionId,'DELETE');
   if(out)notify(`Released · unloaded ${(out.unloaded||[]).length}`);
   if(this.current)this.select(null,this.current.localId,this.current.variantId);
@@ -4894,7 +4908,13 @@ async function sirvisRuntimeSets(){
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`measured on this machine: co-residency cost almost nothing and concurrency cost a third to a half of throughput, which no single-model run predicts. The behaviour half of that argument is still unmeasured here — it needs the tool-call trial M13 brings — so this card currently makes the memory case and only half the case it was built for.`
      :`the memory prediction was right and the behaviour prediction was wrong, which is the case against benchmarking members and inferring the set. The same build failed differently in each pairing — <b>no-call</b> at ${rs.pairs[1]?rs.pairs[1].peak_gb:'—'} GB and <b>gave-up</b> at ${rs.pairs[4]?rs.pairs[4].peak_gb:'—'} GB — so it is not one repeatable fault with a single cause either.`}</small>`)}`,'sirvis')}</div>
-  <div class="card wide"><h3>${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
+  <!-- Keyed on rs.live, like the cards either side of it, which are fed by the
+       same object. This one sat between two correctly-badged cards and its own
+       body branches on whether SIRVIS answered to pick a sentence, so it
+       already knew. The honesty check could not see it: its heading is built
+       from the set's name, so the card had no counterpart in the mock pass and
+       was never compared -- which is what that check was blind to until now. -->
+  <div class="card wide${liveClass(rs.live)}"><h3>${rs.name} <span class="chip">rev ${rs.revision}</span></h3>${cell(`
    <div class="table-row head six"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Concurrent</span><span>Follow-up</span></div>
    ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
     return `<div class="table-row six"><span>${m.role}</span><span>${m.family}</span><span class="mono">${n(m.first_token_alone_s,'s')} · ${n(m.alone_tok_s,' tok/s')}</span><span class="mono">${n(m.sequential_tok_s,' tok/s')}</span><span class="mono">${n(m.first_token_concurrent_s,'s')} · ${n(m.concurrent_tok_s,' tok/s')}</span><span class="chip">${m.follow_up_concurrent==null?'—':m.follow_up_concurrent}</span></div>`}).join('')}
@@ -5682,7 +5702,7 @@ async function ravisPools(){
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>poolRow(x,inv)).join('')}
    <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id||'no pool'}</b> means ${((agent.requires||{}).required||[]).join(' and ')||'no capability'} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
-  ${down.map(x=>`<div class="card wide"><h3>${x.pool_id} unavailable</h3>${cell(`
+  ${down.map(x=>`<div class="card wide${liveClass(p.live)}"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${inv(x.requires)}</span></div>
    <div class="trace-step"><b>members</b><span>${x.members}</span></div>
    <div class="trace-step"><b>reason</b><span>${x.reason||'not published — a pool reports availability, not a diagnosis'}</span></div>
@@ -5865,7 +5885,12 @@ function noPoliciesScreen(){
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/policies</span></div>
    <div class="trace-step"><b>returned</b><span>an empty list</span></div>
    <small class="mono dim">and that is now a statement about <i>configuration</i> rather than about the engine. The policy engine shipped at <b>M16</b>: privacy levels, provider allow and deny lists, model exclusions and §9.6.1's background-call class, every one of them a hard constraint applied before ranking. An empty list means an operator has written no <b>policies.json</b>, so every application routes unrestricted — this page said "not built" for a while after that stopped being true, which is the same defect as a capability advertising a limit that has been lifted. What <i>does</i> govern a route regardless is below, and it is enforced on every request.</small>`,'ravis')}</div>
-  <div class="card full live"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`;
+  <!-- Not live: constraintTable() builds its rows from two literal arrays
+       declared inside itself, and nothing in it is read from RAVIS. The
+       identical call on the other branch of this screen renders unbadged, and
+       the page's own rule is stated a few lines below - the badge means
+       provenance, not truth. -->
+  <div class="card full"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`;
 }
 
 /* Sessions — §12.1's correlation, and the one screen where isolation is visible.
@@ -6226,7 +6251,7 @@ async function ravisCredentials(){
   </div>`;
 
  $('#content').innerHTML=`
-  <div class="card full"><h3>Provider keys</h3>${cell(`
+  <div class="card full${liveClass(Boolean(payload))}"><h3>Provider keys</h3>${cell(`
    ${items.map(row).join('')}
    ${items.some(i=>i.routable===false)?`<small class="mono dim" style="display:block;margin-top:6px"><b>Unroutable</b> means the key would be stored and never sent: no adapter and no declared upstream carries that provider. Until M10 connected the store, <b>every</b> row was unroutable — a key typed here was written to a 0600 file, reported as configured, and read by nothing. Declare an upstream with that <span class="mono">kind</span> to make one reachable.</small>`:''}
    <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>

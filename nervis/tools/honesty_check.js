@@ -63,7 +63,16 @@ function cardsOf(html) {
     /* Digits and identifiers only. Whitespace and markup shift for reasons that
        are not "a service answered", and a check that cries wolf gets ignored. */
     const body = part.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-    found.set(title || "(untitled)", { live: /\blive\b/.test(cls), body });
+    /* **Keyed by a title with its values stripped, not the raw title.**
+       A heading like "Machine mc_7a1f" or "ravis/cheap unavailable" carries the
+       data in it, so the same card had two different keys in the two passes and
+       was silently never compared. Runs of digits and hex become `#`, which
+       leaves the wording that identifies the card and removes the reading that
+       distinguishes the run. */
+    const key = (title || "(untitled)")
+      .replace(/\b[0-9a-f]{6,}\b/gi, "#")
+      .replace(/\d+([.,]\d+)?/g, "#");
+    found.set(key, { live: /\blive\b/.test(cls), body, title: title || "(untitled)" });
   }
   return found;
 }
@@ -143,13 +152,20 @@ async function renderAll(fetchImpl) {
      So a finding has to survive twice. A tool that reports two or three
      phantoms every run teaches people to skim it, which costs more than the
      findings are worth. */
+  /* **A card with no counterpart in the dark pass is a finding, not a skip.**
+     `then && …` short-circuited, so two whole classes fell through: a screen
+     that collapses to a single "not answering" card when nothing is up, whose
+     real cards therefore exist only in the lit pass, and any card whose heading
+     is built from live data. Those are exactly the screens most worth checking,
+     and the check was quietest about them. */
   const suspect = (litRun) => {
     const found = [];
     for (const [screen, cards] of litRun) {
       const before = dark.get(screen) || new Map();
-      for (const [title, now] of cards) {
-        const then = before.get(title);
-        if (then && then.body !== now.body && !now.live) found.push(`${screen} :: ${title}`);
+      for (const [key, now] of cards) {
+        const then = before.get(key);
+        const changed = then ? then.body !== now.body : true;
+        if (changed && !now.live) found.push(`${screen} :: ${now.title}`);
       }
     }
     return found;
@@ -169,8 +185,10 @@ async function renderAll(fetchImpl) {
     for (const c of understating) console.log(`  • ${c}`);
   }
   if (transient.length) {
-    console.log(`\n${transient.length} card(s) differed in one pass only — a read that timed out,`);
-    console.log("not a badge fault:");
+    console.log(`\n${transient.length} card(s) appeared in one lit pass only. Two causes, both`);
+    console.log("usually fine: a read starved by this check's own load, or a card on a");
+    console.log("screen that returns early when nothing answers, so it has no counterpart");
+    console.log("in the dark pass and is static anyway. Read before changing:");
     for (const c of transient) console.log(`  • ${c}`);
   }
   if (overstating.length) {

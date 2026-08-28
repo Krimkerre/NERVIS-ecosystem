@@ -14,7 +14,7 @@
  * between. `render_check.js` proves a screen does not crash; nothing proved a
  * screen was honest.
  *
- * **A ratchet, not a standard.** Sixty-three cards hardcode their class today
+ * **A ratchet, not a standard.** Fifty-five cards hardcode their class today
  * and many of them are right to: an empty state, a reference table, a card
  * about something unbuilt. Demanding all of them change at once would mean
  * marking cards live to satisfy a tool, which is the failure this is meant to
@@ -28,7 +28,7 @@ const FILE = path.join(__dirname, "..", "index.html");
 
 /* The ceiling. Lower it when cards are wired; never raise it without saying
  * why in the commit message. */
-const CEILING = 63;
+const CEILING = 55;
 
 const source = fs.readFileSync(FILE, "utf8");
 

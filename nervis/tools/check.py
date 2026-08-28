@@ -195,6 +195,27 @@ for hand in sorted(set(re.findall(r'onclick="DEMO_API\.(\w+)\(', html))):
         fail.append(f'onclick="DEMO_API.{hand}()" is not a DEMO_API method — '
                     "route it through control(), which renders the disabled form")
 
+# A backtick inside an HTML comment ends the template literal the comment is in.
+#
+# Four separate breakages in one session, every one of them the same shape: an
+# explanatory comment written inside a `$(…).innerHTML = ` … `` string, quoting
+# an identifier in backticks the way the surrounding prose does. JavaScript sees
+# the string end there, and reports an "Unexpected identifier" naming a token
+# from the *following* line, so the error reads as a problem with the code
+# rather than with the prose.
+#
+# `render_check` catches it, but only after a full render of thirty-five
+# screens, and the message it prints points at the wrong place. This names the
+# comment.
+for comment in re.finditer(r"<!--.*?-->", html, re.DOTALL):
+    if "`" in comment.group(0):
+        line = html[: comment.start()].count("\n") + 1
+        fail.append(
+            f"index.html:{line}: an HTML comment contains a backtick. Inside a "
+            "template literal that ends the string; write the comment without "
+            "backticks."
+        )
+
 print(f"{len(endpoints)} endpoints cited, all defined in the specs:"
       if not uncited else f"{len(endpoints)} endpoints cited:")
 for e in endpoints:
