@@ -1332,6 +1332,14 @@ const API={
       request answers the whole screen; when nothing answers, the transcription
       below stands in and `source` says so on screen. */
    const live=await liveSirvis('/api/v1/benchmark-runs?limit=50');
+   /* **SIRVIS answering with no runs is an answer.** This fell through to the
+      transcription whenever the list was empty, so a machine that has never run
+      a benchmark — every fresh install — was shown a table of MEASURED results
+      for builds it has never measured. The rows fade, because the fallback
+      carries no `source`, but a faded table of fabricated measurements is still
+      a table of fabricated measurements, and this is the screen whose whole
+      subject is what was actually measured here. */
+   if(live&&!live.items.length)return{source:'live',live:true,empty:true,items:[]};
    if(live&&live.items.length){
     /* One row per *identity*, not per run. §12.2 keys evidence on the machine,
        the build, the runtime configuration, the role and the suite — so two
@@ -1668,7 +1676,14 @@ const API={
    const measured=this._measuredMatrices(runs);
    if(!items.length||!measured.length){
     SOURCE.sirvis='live';
-    return{live:true,empty:true,pairs:[],validity:{},samples:0,evidence_type:'UNKNOWN',name:null,
+    /* Every key the mock carries, because two other screens read this object
+       and a shape that is missing one of them blanks them. The SIRVIS Dashboard
+       reads `rs.members` and threw on the first version of this empty answer —
+       found by rendering every screen against services that are up and hold
+       nothing, which is the fresh-install world nothing else exercises. */
+    return{live:true,empty:true,runtime_set_id:null,revision:null,name:null,
+     evidence_type:'UNKNOWN',samples:0,combined_peak_gb:null,swap_gb:null,
+     members:[],pairs:[],validity:{},finding:null,
      reason:items.length?'sets are defined, but no benchmark run carries an interaction matrix yet'
                         :'no Runtime Set is defined on this machine'};
    }
@@ -1971,7 +1986,17 @@ const API={
       surface that demonstrates the gate letting a call through rather than
       only refusing them. */
    const read=await ravisRead('routes',{limit:25});
-   if(read.available)return recentDecisions(read.data);
+   /* `read.data||{items:[]}`: available says NERVIS reached RAVIS, not that a
+      body came back in the shape this reader wants, and `payload.items.map`
+      throws on the difference. */
+   /* `available` says NERVIS reached RAVIS, not that a body came back in the
+      shape this reader wants -- and `payload.items.map` throws on the
+      difference, blanking the Routes and Logs screens rather than showing an
+      empty table. Checked for the field that is actually read. */
+   if(read.available){
+    const body=read.data;
+    return recentDecisions(body&&Array.isArray(body.items)?body:{items:[]});
+   }
    return live('ravis','/api/v1/route-decisions?limit=25',
    ()=>({items:[
    {pool:'ravis/clarvis-agent',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
@@ -2872,6 +2897,14 @@ function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pag
    six decisions. The question is one fact about the card, not a fork in the
    screen's logic, and hoisting it says so. */
 const liveClass=on=>on?' live':'';
+
+/* The profile in force: the published default, or any profile, or nothing.
+   `find` alone returns undefined when RAVIS publishes no default, and
+   `items[0]` is undefined when it publishes none at all -- either blanked the
+   screen on the first reading of `active.label`. Hoisted rather than written
+   inline at both call sites, because two `||` in a template are two branches
+   against the complexity ratchet for one fact about the data. */
+const defaultProfile=items=>items.find(x=>x.default)||items[0]||{};
 
 /* The chip beside a card that reports whether anything answered it. Shared by
    the two Settings screens, which ask the identical question of different
@@ -5034,7 +5067,7 @@ async function systemView(){
     <span class="mono">${gib(now.swap_used_bytes)==null?'—':`${gib(now.swap_used_bytes)} of ${gib(now.swap_total_bytes)} GB`}</span>
     <span class="chip${warnIf(now.thermal_state&&now.thermal_state!=='nominal')}">${now.thermal_state||'not reported'}</span></div>
    <div class="table-row head" style="margin-top:14px"><span>Heaviest processes</span><span style="grid-column:2/-1">Resident</span></div>
-   ${now.processes.length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
+   ${(now.processes||[]).length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
     :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
    <small class="mono dim">read from <b>NERVIS /api/v1/system</b>, sampled at the moment of the request rather than by a background timer — a value from a timer is whatever the timer last caught, not the state when you looked. Ordered by <b>memory</b> rather than CPU: this ecosystem's failure mode is a multi-gigabyte model resident when something else needs the room. A command name, never a command line — an argument list is where a workspace path leaks. <b>Thermal is macOS-only</b> and reads <i>not reported</i> elsewhere rather than a comfortable-looking <i>nominal</i>: SIRVIS's first probe collapsed those two and reported a happy machine while it lost 48% of its throughput to heat.</small>`,'nervis')}</div>
   <div class="card wide${liveClass(m.live)}"><h3>Machine ${m.machine_id}</h3>${cell(`
@@ -5138,7 +5171,7 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
     invented figures. */
  if(usage.live)return liveRavisDashboard(decisions.items,usage,prof);
  const [rd,req]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests()]);
- const active=prof.items.find(x=>x.default);
+ const active=defaultProfile(prof.items);
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  $('#content').innerHTML=kpis([['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`],
    ['Routing P50',usage.routing_p50_ms+' ms','cached · rule-based'],['Local',usage.local_pct+'%','of today'],
@@ -5588,7 +5621,10 @@ async function ravisPools(){
  /* By id, not by position. The mock listed clarvis-agent first; the API
     publishes §5's thirteen in their own order and items[0] is ravis/auto, so
     every figure keyed off `agent` would have described the wrong pool. */
- const agent=p.items.find(x=>x.pool_id==='ravis/clarvis-agent')||p.items[0];
+ /* `||{}` last: `find` can miss and `items[0]` is undefined on an empty
+    list, so a RAVIS publishing no pools blanked this screen entirely rather
+    than showing that it publishes none. */
+ const agent=p.items.find(x=>x.pool_id==='ravis/clarvis-agent')||p.items[0]||{};
  /* RAVIS's requirement shape is {required:[capability], minimum_context:int},
     and both halves have a meaningful empty: no required capability, and no
     minimum. "required · minimum_context 0" states two constraints where there
@@ -5621,7 +5657,8 @@ async function ravisPools(){
  $('#content').innerHTML=kpis([
    ['Pools',String(p.items.length),'published stable ids','ravis'],
    ['Available',String(p.items.length-down.length),'have at least one member','ravis'],
-   ['Strictest',`${agent.members} / ${mdl.items.length}`,agent.pool_id,'ravis'],
+   ['Strictest',agent.pool_id?`${agent.members} / ${mdl.items.length}`:'—',
+    agent.pool_id||'no pool is published','ravis'],
    ['Clarvis pools',String(p.items.filter(x=>x.pool_id.includes('clarvis')).length),'agent and chat','ravis']])
  /* `p.live`, which the adapter has reported since the pools fix. The table
     below is §5's thirteen pools counted from what is actually installed, and
@@ -5629,7 +5666,7 @@ async function ravisPools(){
  +`<div class="card full${liveClass(p.live)}"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>poolRow(x,inv)).join('')}
-   <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
+   <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id||'no pool'}</b> means ${((agent.requires||{}).required||[]).join(' and ')||'no capability'} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   ${down.map(x=>`<div class="card wide"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${inv(x.requires)}</span></div>
    <div class="trace-step"><b>members</b><span>${x.members}</span></div>
@@ -5920,6 +5957,25 @@ function costCard(usage,spend){
    <small class="mono dim"><b>REPORTED</b> is the provider's own figure for that call; <b>ESTIMATED</b> is RAVIS multiplying a published price by the tokens the provider reported. Neither is an invoice — §14 is explicit, and a per-call figure precedes credits, minimums and whatever a monthly statement reconciles to. <b>UNKNOWN</b> means one of the two halves was missing, and it is counted rather than treated as nought: ${usage.calls_unpriced||0} of the last ${(usage.calls_priced||0)+(usage.calls_unpriced||0)} call(s) could not be priced.${budget&&budget.calls_unpriced_in_window?`<br><br>the budget band above rests on a window in which <b>${budget.calls_unpriced_in_window}</b> call(s) had no price, which §14 requires be visible rather than inferred — a budget that fails has to fail predictably.`:''}</small>`,'ravis')}</div>`;
 }
 
+/* "What RAVIS concluded" -- the tool-support verdict per build, and the
+   threshold it was judged against.
+
+   Its own function because `ravisEvidence` reached complexity 18 assembling
+   six cards, and this is the one whose payload is optional at three levels:
+   the verdict record, its source, and that source's threshold. Reading them
+   defensively inline cost a branch each, in the function that could least
+   afford one. */
+function ravisVerdictsCard(verdicts){
+ if(!verdicts)return '';
+ const source=verdicts.source||{};
+ const threshold=source.threshold||{};
+ const vsrc=source,vth=threshold;
+ return `<div class="card full live"><h3>What RAVIS concluded <span class="chip">${vsrc.state||'no source'}</span></h3>${cell(`
+   <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
+   ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${warnUnless(v.state==='SUPPORTED')}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
+   <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${vth.tool_call_pass_rate==null?'—':vth.tool_call_pass_rate*100+'%'}</b> over <b>${dash(vth.phrasings)}</b> phrasings × <b>${dash(vth.repetitions_each)}</b> repetitions.</small>`,'ravis')}</div>`;
+}
+
 /* Evidence — what RAVIS is scoring on, and who owns it. The table is SIRVIS's
    data rendered on a RAVIS page, so it is cell()'d to sirvis: cycle SIRVIS off
    and the evidence goes with it while RAVIS's own observations stay. That is
@@ -5961,10 +6017,7 @@ async function ravisEvidence(){
         millisecond count as a live measurement. */
      'ravis',usage.live&&usage.routing_p50_ms!=null]])
  +costCard(usage,spend)
- +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
-   <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
-   ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${warnUnless(v.state==='SUPPORTED')}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
-   <small class="mono dim">this table exists because the capability surface cannot carry it: <b>/api/v1/models</b> publishes the winning claim per capability, and an <b>UNKNOWN</b> verdict deliberately records none — so the most useful sentence in the system, why a build was <i>not</i> admitted, had nowhere to live. "No reliable tool calls" and "measured once where the threshold needs three repetitions" send a reader to entirely different places. The threshold is SIRVIS's to set and RAVIS's to apply: <b>${(verdicts.source.threshold.tool_call_pass_rate*100)}%</b> over <b>${verdicts.source.threshold.phrasings}</b> phrasings × <b>${verdicts.source.threshold.repetitions_each}</b> repetitions.</small>`,'ravis')}</div>`:'')
+ +ravisVerdictsCard(verdicts)
  /* **`ev.source` says whether SIRVIS answered, and this card ignored it.** It
     was hardcoded `card full`, so thirty-two rows read live off SIRVIS's own
     benchmark runs sat under a PROTOTYPE badge — the badge erring quietly in
@@ -6040,7 +6093,7 @@ async function ravisSettings(){
  heading('Settings','How the router serves its clients — and the five things that have an endpoint to change them.',
   control('Refresh evidence','refreshEvidence'));
  const [s,prof,pr]=await Promise.all([API.ravis.settings(),API.ravis.profiles(),API.ravis.providers()]);
- const active=prof.items.find(x=>x.default);
+ const active=defaultProfile(prof.items);
  const served=s.serving.endpoints.filter(e=>e[1]==='required').length;
  
  /* What can be observed about how RAVIS is actually running, as opposed to what

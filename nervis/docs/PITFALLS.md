@@ -352,7 +352,7 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, six of them became automated:
+Since this list was written, seven of them became automated:
 
 - **`node tools/render_check.js`** renders all 35 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
@@ -367,6 +367,9 @@ Since this list was written, six of them became automated:
 - **`node tools/liveness_check.js`** counts the cards that hardcode their CSS
   class and so *cannot* report where their data came from. A ratchet: the count
   may fall, never rise. **Runs in CI.**
+- **`node tools/empty_world_check.js`** renders all 35 screens against services
+  that are **up and hold nothing** — the fresh-install world, which is neither
+  of the two the other checks cover. Six screens threw in it. **Runs in CI.**
 - **`node tools/honesty_check.js`** renders all 35 screens twice — once with
   nothing running, once against whatever is up — and compares the badges. A card
   whose body changes between the passes was fed by a service; if it is not
@@ -424,6 +427,7 @@ node tools/render_check.js                          # all 35 screens render with
 node tools/complexity_check.js                      # every function under 13
 node tools/liveness_check.js                        # the hardcoded-card ratchet
 node tools/shaping_check.js                         # adapters shape payloads as before
+node tools/empty_world_check.js                     # screens survive live-but-empty services
 python3 tools/embed-avatars.py && git diff --stat    # avatars round-trip byte-identical
 ```
 

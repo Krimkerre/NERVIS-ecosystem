@@ -129,11 +129,17 @@
     "runtimeSet": {
       "live": true,
       "empty": true,
+      "runtime_set_id": null,
+      "revision": null,
+      "name": null,
+      "evidence_type": "UNKNOWN",
+      "samples": 0,
+      "combined_peak_gb": null,
+      "swap_gb": null,
+      "members": [],
       "pairs": [],
       "validity": {},
-      "samples": 0,
-      "evidence_type": "UNKNOWN",
-      "name": null,
+      "finding": null,
       "reason": "sets are defined, but no benchmark run carries an interaction matrix yet"
     },
     "source": "live"
@@ -221,11 +227,17 @@
     "runtimeSet": {
       "live": true,
       "empty": true,
+      "runtime_set_id": null,
+      "revision": null,
+      "name": null,
+      "evidence_type": "UNKNOWN",
+      "samples": 0,
+      "combined_peak_gb": null,
+      "swap_gb": null,
+      "members": [],
       "pairs": [],
       "validity": {},
-      "samples": 0,
-      "evidence_type": "UNKNOWN",
-      "name": null,
+      "finding": null,
       "reason": "no Runtime Set is defined on this machine"
     },
     "source": "live"
