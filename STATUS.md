@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1295 tests, no network, no live service
+.venv/bin/pytest                      # part of 1298 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1295 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1298 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5054,6 +5054,20 @@ draws.
 `data-miku` is set from the stored mode on every paint and removed otherwise, so nothing has to
 remember to undo it — and a preset that names no mode is read as *the ordinary one* rather than
 *leave whatever was there*, which is what puts NERVIS's face back when you switch away.
+
+**The daily voice cap is off unless switched on**, which reverses the decision it shipped with.
+The guard was right about the risk — a dashboard that greets you on every tab open, and now talks
+to you unprompted, is exactly the shape of thing that spends money while nobody is watching — and
+wrong about the cost of *reaching* it. The fallback is the browser's own voice, so hitting the cap
+drops you mid-conversation from the voice you chose to one that sounds nothing like it. A spend
+guard whose failure mode is "everything suddenly sounds wrong" gets switched off in irritation
+rather than tuned.
+
+It is a separate setting from the number, so `0` keeps meaning what it always meant — *never call
+Fish, the browser reads everything* — instead of being overloaded into a second way of saying "no
+limit". The number is editable whether or not it is being enforced, because setting a limit and then
+switching it on is the order anybody does it in. The counter runs either way, so the figure is
+there to look at before deciding to enforce anything.
 
 **Turns carry a timestamp, and the model carries a clock.** The transcript shows the time of each
 turn in 24-hour form, in the reader's own zone — stored as an instant and formatted at paint time,

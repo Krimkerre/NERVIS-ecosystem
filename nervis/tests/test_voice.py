@@ -425,7 +425,8 @@ def test_a_reply_past_the_daily_cap_is_read_by_the_browser() -> None:
     """Not silence, and not an error. The line is still heard."""
     client = an_api()
     with_voice(client)
-    client.put("/api/v1/voice/settings", json={"daily_cap": 0})
+    # Switched on, because the cap is off unless somebody asks for it.
+    client.put("/api/v1/voice/settings", json={"daily_cap": 0, "daily_cap_enabled": True})
 
     answer = client.post(
         "/api/v1/voice/speak",
@@ -711,3 +712,50 @@ def test_emoji_are_not_read_aloud(written: str, expected: str) -> None:
     The transcript keeps it either way.
     """
     assert voice.speakable(written) == expected
+
+
+def test_the_daily_cap_is_off_until_asked_for() -> None:
+    """A reversal, and the reason is the cost of *reaching* it: the fallback is
+    the browser's own voice, and dropping mid-conversation from a chosen voice
+    to that one is worse than the bill it avoids. A guard whose failure mode is
+    "everything suddenly sounds wrong" gets switched off in irritation rather
+    than tuned."""
+    client = an_api()
+    with_voice(client)
+    client.put("/api/v1/voice/settings", json={"daily_cap": 0})
+
+    answer = client.post(
+        "/api/v1/voice/speak",
+        json={"text": "Your build finished.", "source_model": REMOTE_MODEL},
+    )
+
+    # Zero would refuse everything if the cap were enforced; it is not.
+    assert answer.status_code == 200
+    assert client.get("/api/v1/voice").json()["daily_cap_enabled"] is False
+
+
+def test_switching_the_cap_on_makes_it_bite() -> None:
+    client = an_api()
+    with_voice(client)
+    client.put("/api/v1/voice/settings", json={"daily_cap": 0, "daily_cap_enabled": True})
+
+    answer = client.post(
+        "/api/v1/voice/speak",
+        json={"text": "Your build finished.", "source_model": REMOTE_MODEL},
+    )
+
+    assert answer.status_code == 409
+    assert answer.json()["reason"] == "daily_cap"
+
+
+def test_the_counter_runs_whether_or_not_the_cap_does() -> None:
+    """The reading is there to look at before deciding to enforce it."""
+    client = an_api()
+    with_voice(client)
+
+    client.post("/api/v1/voice/speak", json={"text": "One.", "source_model": REMOTE_MODEL})
+    client.post("/api/v1/voice/speak", json={"text": "Two.", "source_model": REMOTE_MODEL})
+
+    body = client.get("/api/v1/voice").json()
+    assert body["spent_today"] == 2
+    assert body["daily_cap_enabled"] is False

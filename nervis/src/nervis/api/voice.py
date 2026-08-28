@@ -78,6 +78,7 @@ class SettingsInput(BaseModel):
     selected_profile: str | None = None
     latency: str | None = None
     daily_cap: int | None = None
+    daily_cap_enabled: bool | None = None
     trim_long_replies: bool | None = None
 
 
@@ -122,6 +123,7 @@ async def read_voice(request: Request) -> dict[str, Any]:
         "latency_modes": list(voice.LATENCY_MODES),
         "latency_detail": dict(voice.LATENCY_DETAIL),
         "daily_cap": voice.daily_cap(database),
+        "daily_cap_enabled": voice.cap_enforced(database),
         # Reported next to the cap, because a limit with no reading against it
         # is a number nobody can act on.
         "spent_today": voice.spent_today(database),
@@ -285,6 +287,12 @@ async def write_settings(body: SettingsInput, request: Request) -> dict[str, Any
         # is meaningful — it says "never call Fish", and the browser's voice
         # does everything.
         voice.write_setting(database, voice.DAILY_CAP_SETTING, str(max(0, body.daily_cap)))
+    if body.daily_cap_enabled is not None:
+        voice.write_setting(
+            database,
+            voice.DAILY_CAP_ENABLED_SETTING,
+            "true" if body.daily_cap_enabled else "false",
+        )
     if body.trim_long_replies is not None:
         voice.write_setting(
             database, voice.TRIM_SETTING, "true" if body.trim_long_replies else "false"
@@ -337,13 +345,14 @@ async def _blocked(
     gate = await _egress_permitted(request, body.source_model)
     if gate is not None:
         return _declined("local_only", gate, spoken)
-    cap = voice.daily_cap(database)
-    if not voice.within_cap(voice.spent_today(database), cap):
-        return _declined(
-            "daily_cap",
-            f"{cap} Fish Audio requests today is the cap; the browser reads the rest",
-            spoken,
-        )
+    if voice.cap_enforced(database):
+        cap = voice.daily_cap(database)
+        if not voice.within_cap(voice.spent_today(database), cap):
+            return _declined(
+                "daily_cap",
+                f"{cap} Fish Audio requests today is the cap; the browser reads the rest",
+                spoken,
+            )
     return None
 
 

@@ -78,8 +78,18 @@ LATENCY_DETAIL = {
 DEFAULT_LATENCY = "balanced"
 
 # Requests per day before NERVIS stops calling Fish and lets the browser speak.
-# A dashboard that greets you every time you open a tab is exactly the shape of
-# thing that runs up a bill while nobody is watching.
+#
+# **Off by default**, which is a reversal. The guard was written on the sibling
+# project's reasoning — a dashboard that greets you every time you open a tab is
+# the shape of thing that runs up a bill while nobody is watching — and that is
+# still true. What it missed is the *cost of reaching it*: the fallback is the
+# browser's own voice, and dropping mid-conversation from a chosen voice to that
+# one is a worse experience than the bill it avoids. A spend guard whose failure
+# mode is "everything suddenly sounds wrong" gets switched off in irritation
+# rather than tuned, so it is off until asked for.
+#
+# The counter still runs either way, so the reading is there to look at before
+# deciding to enforce it.
 DEFAULT_DAILY_CAP = 200
 
 # Where a synthesis request goes, and where the user's own saved voices are read
@@ -122,6 +132,7 @@ MUTED_SETTING = "voice.muted"
 SELECTED_SETTING = "voice.selected_profile"
 LATENCY_SETTING = "voice.latency"
 DAILY_CAP_SETTING = "voice.daily_cap"
+DAILY_CAP_ENABLED_SETTING = "voice.daily_cap_enabled"
 TRIM_SETTING = "voice.trim_long_replies"
 
 # Read when no key has been entered through the dashboard, so an existing
@@ -512,3 +523,14 @@ def spoken_form(text: str, trim: bool) -> str:
     if not trim or len(stripped) <= WALL_OF_TEXT_CHARACTERS:
         return speakable(text, MAX_SPOKEN_CHARACTERS if trim else 10_000_000)
     return WALL_OF_TEXT_LINES[len(stripped) % len(WALL_OF_TEXT_LINES)]
+
+
+def cap_enforced(database: Database) -> bool:
+    """Whether the daily cap is switched on. Off unless somebody asked for it.
+
+    Separate from the number, so `0` keeps meaning what it has always meant —
+    *never call Fish, the browser reads everything* — instead of being
+    overloaded into a second way of saying "no limit". Two settings, two
+    questions, neither of them ambiguous.
+    """
+    return read_setting(database, DAILY_CAP_ENABLED_SETTING, "false") == "true"
