@@ -8,15 +8,21 @@ those tests stop passing rather than start hanging.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
+from ravis.app import create_app
 from ravis.config import Settings
 from ravis.credentials import CredentialFile, CredentialStore
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
-from ravis.providers_map import NO_ROUTE, resolve_provider_map
+from ravis.providers_map import (
+    NO_ROUTE,
+    resolve_provider_map,
+    shared_provider_names,
+)
 
 # Nothing listens here. Any accidental probe fails or hangs; a table computed
 # from configuration alone does not care.
@@ -204,3 +210,36 @@ def test_a_malformed_declaration_is_reported_rather_than_raised(configuration) -
     assert len(rows) == 1
     assert rows[0][1] == NO_ROUTE
     assert "malformed RAVIS_UPSTREAMS" in rows[0][2]
+
+
+def test_a_name_claimed_by_both_tables_is_reported() -> None:
+    """`google` is declarable as an upstream *and* is a translated provider."""
+    assert shared_provider_names(["lmstudio", "google", "openrouter"]) == ["google"]
+
+
+def test_a_name_claimed_by_one_table_is_not_a_collision() -> None:
+    """The common case must stay silent, or the warning becomes noise."""
+    assert shared_provider_names(["lmstudio", "openrouter", "openai"]) == []
+
+
+def test_the_collision_warning_names_the_provider_that_wins(caplog) -> None:  # noqa: ANN001
+    """Startup says it out loud, because that is when someone can still act.
+
+    RAVIS resolves this fine — a direct address reaches the translated provider
+    while it has a credential. It resolved it *silently*, which is how two
+    defects lived in it: `doctor` showing no row for a translated provider, and
+    a screen crediting one provider with another's catalogue.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        upstreams='[{"name": "google", "kind": "google"}]',
+        _env_file=None,  # type: ignore[call-arg]
+    )
+
+    with caplog.at_level(logging.WARNING, logger="ravis"):
+        create_app(settings)
+
+    assert any(
+        "'google'" in record.getMessage() and "translated" in record.getMessage()
+        for record in caplog.records
+    ), caplog.text

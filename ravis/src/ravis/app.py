@@ -18,6 +18,7 @@ claimed otherwise.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
@@ -53,6 +54,7 @@ from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
 from ravis.providers.base import TranslatingAdapter
 from ravis.providers.google import GoogleAdapter
+from ravis.providers_map import shared_provider_names
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
@@ -63,6 +65,9 @@ from ravis.upstream import Upstream, create_client, upstream_from
 from ravis.upstreams import DEFAULT_NAME, UpstreamSpec
 
 NextCall = Callable[[Request], Awaitable[Any]]
+
+
+logger = logging.getLogger("ravis")
 
 
 def create_app(settings: Settings) -> Any:
@@ -255,6 +260,19 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.translating = _translating_adapters(
         settings, api.state.upstream_client, api.state.credentials
     )
+    # One name, two providers — said out loud rather than resolved in silence.
+    # Logged at startup because this is a property of the configuration, so the
+    # moment it becomes true is the moment somebody can still act on it.
+    for name in shared_provider_names(api.state.transparents):
+        logger.warning(
+            "provider name %r is claimed by both a transparent upstream and a "
+            "translated provider; `ravis/%s/<model>` reaches the translated one "
+            "while it has a credential, and the upstream still contributes its "
+            "catalogue to /v1/models",
+            name,
+            name,
+        )
+
     # SIRVIS's evidence, cached with a staleness policy (§13.3). Absent until
     # a base URL is configured, and RAVIS routes without it — §13.4 makes the
     # source optional and the degradation visible rather than silent.

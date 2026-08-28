@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1326 tests, no network, no live service
+.venv/bin/pytest                      # part of 1329 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1326 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1329 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5111,6 +5111,36 @@ disagrees with the request path is worse than not having one.
 
 Reading a local file is not contacting an upstream, so M0's "without contacting
 any upstream" still holds.
+
+### Declaring Google as an upstream, measured rather than argued
+
+M7 left the compat `kind` in place, and the open question was whether to keep
+declaring it alongside the native adapter. Answered by diffing the two
+catalogues rather than by preference:
+
+    native 39    compat 54    shared 39    native-only 0
+
+The native catalogue is a strict **subset**. All 15 extras are models the
+adapter filters out precisely because they cannot serve `generateContent` —
+`veo-3.1-*`, `gemini-embedding-*`, `lyria-realtime-exp`, the live-audio and
+transcribe previews, `gemini-robotics-er-2-streaming-preview`, `aqa`. So
+declaring the upstream adds no model anyone can chat with, and 15 ids a client
+can pick out of `/v1/models` and be refused for — the thing `merged_catalogue`
+already refuses to do for a *disabled* upstream, for the same stated reason.
+
+It also buys nothing on latency, which was the reason for trying it: the native
+adapter is itself the direct-to-Google path and is registered independently of
+`RAVIS_UPSTREAMS`. The proxied comparison against OpenRouter is unmeasured —
+the free tier's 20 requests a day went on the probing that produced everything
+above, and two earlier latency readings had to be thrown away because failed
+requests were being recorded as 0ms samples. A 429 is fast.
+
+**The collision is now stated rather than resolved in silence.** One name
+claimed by both tables is a working configuration — a direct address reaches
+the translated provider while it has a credential, and the upstream still
+contributes its catalogue — but resolving it quietly is how both defects above
+survived. `doctor` prints a note naming which provider wins, and startup logs
+the same thing at the moment somebody can still act on it.
 
 ### One name, two providers, one provider's numbers
 

@@ -19,7 +19,8 @@ from ecosystem_protocol import configure_logging
 
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
 from ravis.credentials import CredentialStore
-from ravis.providers_map import resolve_provider_map
+from ravis.providers_map import resolve_provider_map, shared_provider_names
+from ravis.upstreams import UpstreamConfigurationError, upstream_specs
 
 EXIT_OK = 0
 EXIT_FATAL_CONFIGURATION = 1
@@ -129,6 +130,28 @@ def _print_provider_map(settings: Settings) -> None:
     print(f"  {'model':<24} {'provider':<22} decided by")
     for entry in entries:
         print(f"  {entry.model:<24} {entry.provider:<22} {entry.decided_by}")
+    _print_shared_names(settings)
+
+
+def _print_shared_names(settings: Settings) -> None:
+    """Warn where one name means two providers, and say which one wins.
+
+    The table above cannot show this: it prints `ravis/google/*` once, and a
+    reader has no way to tell that a transparent upstream answers to the same
+    address. RAVIS resolves the collision perfectly well — it just used to do
+    it in silence, which is how two defects lived in it unnoticed.
+    """
+    try:
+        names = shared_provider_names(spec.name for spec in upstream_specs(settings))
+    except UpstreamConfigurationError:
+        return  # already reported as a row above; not this function's to repeat
+    for name in names:
+        print(
+            f"\n  note: {name!r} names both a transparent upstream and a translated "
+            f"provider.\n        ravis/{name}/<model> reaches the translated one while it "
+            f"has a credential;\n        the upstream still contributes its catalogue to "
+            f"/v1/models."
+        )
 
 
 def _run_conformance() -> int:

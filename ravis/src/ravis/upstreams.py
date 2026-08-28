@@ -60,6 +60,14 @@ KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
     # measured, not stylistic: this endpoint reports `finish_reason: stop` on a
     # streamed tool call and omits the tool-call index, and both are things
     # Clarvis's agent role reads.
+    #
+    # **Declaring it alongside the native adapter buys nothing**, also measured:
+    # the native catalogue's 39 models are a strict subset of this one's 54, and
+    # all 15 extras — embeddings, Veo, Lyria, live-audio, robotics — are models
+    # the native adapter filters out precisely because they cannot serve
+    # `generateContent`. Declaring it adds 15 ids a client can pick out of
+    # /v1/models and be refused for, which is the thing `merged_catalogue`
+    # already refuses to do for a disabled upstream.
     "google": ("https://generativelanguage.googleapis.com", "/v1beta/openai"),
     # The shape everything else here is compatible *with*, so it needs no
     # special handling at all — which is the point worth recording. Listing it

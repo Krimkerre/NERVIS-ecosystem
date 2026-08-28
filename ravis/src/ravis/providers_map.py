@@ -21,6 +21,7 @@ uses — with a provider's exclusions above its inclusions, because exclude wins
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ravis.config import Settings
@@ -41,6 +42,25 @@ TRANSLATING_PROVIDERS: tuple[tuple[str, str], ...] = (
     ("anthropic", "anthropic_api_key"),
     ("google", "google_api_key"),
 )
+
+
+def shared_provider_names(upstream_names: Iterable[str]) -> list[str]:
+    """Names claimed by both a transparent upstream and a translated provider.
+
+    A name identifies a provider only *within* one of the two tables, so
+    declaring an upstream called `google` beside the translated Gemini provider
+    leaves one name meaning two things. RAVIS resolves it — a direct address
+    reaches the translated provider when it has a credential, and the
+    transparent upstream still contributes its catalogue to `/v1/models` — but
+    it resolved it silently, and the two defects that came of that were both
+    found by hand.
+
+    Returned rather than raised. Two providers under one name is a working
+    configuration, and refusing to start over something RAVIS knows how to
+    resolve would be worse than saying so.
+    """
+    translated = {name for name, _ in TRANSLATING_PROVIDERS}
+    return sorted(translated.intersection(upstream_names))
 
 
 @dataclass(frozen=True)
