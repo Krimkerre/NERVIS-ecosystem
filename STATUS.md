@@ -111,6 +111,30 @@ into the order work actually happens.
 | 33 | **RAVIS M11** | Sessions. §12.1's `RoutingSession` persisted, sticky routing as a preference that leads the ranking, expiry and retention as two separate windows, and isolation keyed to the application rather than to a name — which is the one thing §12.1 says outright must never merge. `ravis.sessions@1` moves off `unavailable`. **Verified live**, and the fourth request found a defect the first three hid. Settled below |
 | 34 | **RAVIS M14** *(complete)* | The load-versus-don't tradeoff, and with it Stage 5's last open item. Expected session length is **measured from an application's own history** rather than predicted, because affinity settles a conversation on its model at the first request — when the current session's count is 1 and says nothing. Unknown routes exactly as before. **Verified live in both directions.** Settled below |
 
+
+### Done — NERVIS
+
+Its own table, because the one above is in completion order and NERVIS's
+milestones are not in it at all. **That was the omission, not the ordering:**
+every row above belongs to RAVIS or SIRVIS, while NERVIS had shipped eight
+milestones and a voice stack, and the only thing tracking them was its own
+capability surface. Interleaving them now would renumber thirty-four rows to
+assert a sequence nobody recorded at the time, so they are listed on their own
+and the dates they landed are in the sections below.
+
+| Milestone | What it delivered | Evidence |
+|---|---|---|
+| **NERVIS M0** | Package, FastAPI, config, SQLite with migrations, logging, CLI, the web shell served rather than opened from disk, and NERVIS's own `/ecosystem/*` surface — which is what finally closed runbook Stage 1, since it requires the metadata endpoints in all three services | `nervis/tests/test_m0_foundation.py` |
+| **NERVIS M1** | System telemetry: CPU, memory, swap, disk, load average, process list and thermal, sampled without loading the machine, degrading to Unknown rather than to zero | `/api/v1/system`, asserted across the M0 suite it shipped beside |
+| **NERVIS M2** | The §5.1 registry: health model, probes on a timer, §5.2 capability negotiation, and the observer-side state vocabulary that keeps "unreachable" distinct from "unhealthy" | `nervis/tests/test_m2_registry.py`, `nervis.registry@1` **available** |
+| **NERVIS M3** | RAVIS integration through published contracts only — health, providers, models, routes, usage and, since the session screen landed, sessions. NERVIS never reads RAVIS's database | `nervis/tests/test_m3_ravis.py`, `/api/v1/ravis/{surface}` |
+| **NERVIS M4** | General chat as an ordinary RAVIS client: streaming, cancellation, local history, the route inspector, and conversation titles as §9.6.1 background calls — the last of which waited on RAVIS M16 and is the milestone's own exit criterion | `nervis/tests/test_m4_chat.py` |
+| **NERVIS M5a** | SIRVIS's read surfaces with provenance intact and no benchmark logic of NERVIS's own. **M5b stays blocked** on SIRVIS M14's job queue, and §1 forbids inventing the endpoint | `nervis/tests/test_m5_sirvis.py`, `nervis.sirvis_views@1` **degraded** |
+| **NERVIS M6** | The event hub: §4.4's envelope, ingestion, bounded persistence with retention, filters, and an SSE broadcast with replay. A malformed event is quarantined with safe diagnostics rather than crashing it | `nervis/tests/test_m6_events.py`, `nervis.event_hub@1` **available** |
+| **NERVIS M7** *(its own half)* | Trace correlation, the waterfall, and gaps marked rather than interpolated. Cross-service spans need RAVIS M18b and SIRVIS M21 to publish, which is why the capability reads degraded — the missing half is other people's | `nervis/tests/test_m7_traces.py` |
+| **NERVIS M8a** | §5.1's authenticated local dynamic registration: per-extension-host instances, leases, redaction, and no code path that could resolve a Clarvis gate. **M8b is blocked** on Clarvis building the Bridge at all | `nervis/tests/test_m8a_registration.py` |
+| **Voice (§18.2)** | Not a numbered milestone and too large to leave unlisted: the credential in NERVIS's own storage, named voice profiles, engine settings, and the privacy gate that refuses a cloud voice for a locally-produced reply. Advertised only when configured | `nervis/tests/test_voice.py`, `nervis.voice@1` |
+
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
 close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
 **NERVIS**", and exits when all three "pass live MEP conformance at one pinned
@@ -2054,7 +2078,7 @@ doing it early rather than last: a queue view counts states, and a log does not.
 | # | Milestone | Why here |
 |---|---|---|
 | 1 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
-| 2 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
+| 2 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. What remains is the stage's *exit*: every tile capability-driven, unavailable operations disabled with a stated reason, and the prototype ceasing to be one. RAVIS's half is items 1 and 3 |
 | 3 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
@@ -2063,6 +2087,13 @@ doing it early rather than last: a queue view counts states, and a log does not.
 met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —
 has shipped. M16's reasoning tiebreak is the one piece recorded as unbuilt
 rather than quietly dropped; it is blocked on SIRVIS M22b.
+
+**NERVIS's milestones now have a table.** They had none: every row of the Done
+table above belongs to RAVIS or SIRVIS, and eight NERVIS milestones plus the
+voice stack were tracked only by NERVIS's own capability surface. Found by the
+build-order audit and left open for a day because backfilling history is a
+judgement call about how much to reconstruct; the answer was to list them
+without inventing a completion order the file never recorded.
 
 **M14's remaining half was filed under Stage 5 and cannot belong there**, which
 the audit below explains: it depends on M11, and M11 is Stage 6. Stage 6 is
