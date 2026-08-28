@@ -1965,7 +1965,13 @@ const API={
        requests:x.requests||0,
        note:x.catalogue_error?`catalogue: ${x.catalogue_error}`
          :x.reachable===false?(x.detail||'not answering')
-         :`${x.catalogue_size==null?'no':x.catalogue_size} model(s) listed`,
+         // A translated provider carries no catalogue_size, and the previous
+         // line read that absence as a zero: Google and Anthropic both showed
+         // "no model(s) listed" while /api/v1/providers/<name>/models happily
+         // returned 39 and 32. Absent means not sampled here, which is a
+         // different sentence from none, and only one of them is true.
+         :x.catalogue_size==null?'catalogue not sampled on this screen'
+         :`${x.catalogue_size} model(s) listed`,
       }))};
      }
     }
