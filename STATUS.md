@@ -5062,6 +5062,42 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### The badge sweep: the flag was opt-in, so it defaulted to a lie
+
+69 of the 100 tiles scoped to a service never passed the fifth element `kpis()`
+reads as "this is real", so a figure taken straight off a live endpoint still
+wore a PROTOTYPE badge. Patching 26 call sites by hand would have left the same
+trap for the next tile somebody adds, so the default changed instead: a tile
+now derives from `SOURCE[service]`, which `live()` already sets on every
+successful fetch, and the fifth element became an override.
+
+**The override still matters, and it is the whole reason this was not a
+one-line change.** Six fetchers have no live path at all — SIRVIS's catalogue,
+recommendations and downloads, RAVIS's settings and conformance, NERVIS's
+traces — so the service answering says nothing about a figure that was never
+going to come from it. Those pass `false` explicitly, as do the two fallback
+branches on the RAVIS dashboard and Routes screen, which render mocks by
+definition after their live guard has already returned.
+
+A blanket regex over-suppressed two tiles on the way through: Diagnostics'
+**Breakers** and **Pools down** come from providers and pools, both live, and
+were marked false along with the conformance ones beside them. Caught by
+reading the screen afterwards rather than by the sweep.
+
+**And the sweep found a gap in the convention itself.** `live()` records
+`SOURCE[service]` on a direct fetch; `peerRead()` — every read proxied through
+NERVIS — recorded nothing. So a screen fed entirely through the proxy left the
+flag at whatever a previous screen had set, which is why Logs showed one tile
+of four as real while all four were. A successful negotiated read now records
+the peer as answering; a refusal deliberately does not, because negotiation
+declining a surface is not the peer being down.
+
+Walked afterwards, every screen: RAVIS 4/4 on nine screens and 2/4 on Settings,
+where three tiles genuinely come from a settings object RAVIS does not publish;
+SIRVIS live on six and 0 on the three fed by mock-only fetchers; NERVIS live on
+Overview and System, 0 on Traces. Which is the shape it should have had all
+along.
+
 ### The explanation-card pass, screen by screen
 
 Fifteen cards existed to describe the card above them. Each is now an

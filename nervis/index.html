@@ -893,7 +893,16 @@ async function peerRead(service,surface,params,method){
          body:JSON.stringify(params||{}),signal:AbortSignal.timeout(30000)}
       : {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
   if(!r.ok)throw new Error('HTTP '+r.status);
-  return await r.json();
+  const body=await r.json();
+  /* **A read that succeeded through NERVIS is that peer answering**, and this
+     did not say so. `live()` sets `SOURCE[service]` on every direct fetch, but
+     a proxied read set nothing — so a screen fed entirely through NERVIS left
+     `SOURCE.ravis` at whatever a previous screen had put there. The Logs
+     tiles showed one of four as real for exactly that reason: the data arrived,
+     and nothing recorded where it came from. Negotiation refusing the surface
+     is *not* the peer answering, so only an available read counts. */
+  if(body&&body.available)SOURCE[service]='live';
+  return body;
  }catch(e){
   /* NERVIS itself is not answering — which, since it serves this page, mostly
      means this file was opened from disk. Distinct from RAVIS being down, and
@@ -2795,8 +2804,24 @@ const section=(title,body,open=true)=>`<details class="settings-group"${open?' o
 
 const explains=(summary,body)=>`<details class="explains"><summary>${summary}</summary><div>${body}</div></details>`;
 
+/* A row of headline figures. `[label, value, subtitle, service, live?]`.
+
+   **The fifth element is now an override, not a requirement.** It used to be
+   the only way a tile could be marked real, and 69 of the 100 tiles scoped to
+   a service never passed it — so a figure read straight off a live endpoint
+   still wore a PROTOTYPE badge. Providers had four such tiles sitting directly
+   above a Health card that keyed off the same response and rendered correctly.
+   The badge only ever erred quietly in that direction, which is why it lasted.
+
+   So the default is what the service actually did: `SOURCE[service]` is set to
+   `live` by `live()` on a successful fetch and to `mock` on a fallback. A
+   screen whose *tiles* come from a fetcher with no live path at all — SIRVIS's
+   catalogue, recommendations and downloads, RAVIS's settings and conformance,
+   NERVIS's traces — passes `false` explicitly, because the service answering
+   says nothing about a figure that was never going to come from it. */
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
- return `<div class="card kpi${x[4]?' live':''}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
+ const real=x[4]===undefined?(own?SOURCE[own]==='live':false):!!x[4];
+ return `<div class="card kpi${real?' live':''}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
   cell(`<strong>${x[1]}</strong><small>${x[2]}</small>`,own)}</div>`}).join('');
 /* One bar of a trace waterfall. Hoisted out of the Overview because the Traces
    screen draws the identical thing, and a span NERVIS never received must look
@@ -3898,10 +3923,10 @@ async function tracesView(){
 
  const routed=items.filter(d=>d.selected).length;
  $('#content').innerHTML=waterfall+kpis([
-   ['Decisions',String(items.length),'kept in memory, not persisted','ravis'],
-   ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis'],
-   ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis'],
-   ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis']])
+   ['Decisions',String(items.length),'kept in memory, not persisted','ravis',false],
+   ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis',false],
+   ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis',false],
+   ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis',false]])
  +decisionsCard(items,items[0])+latestDecisionCard(items[0])+crossServiceCard();
 }
 
@@ -4507,11 +4532,11 @@ async function sirvisDiscover(){
   $('#discoverCount').textContent=`${hits.length} of ${cat.items.length}`};
  const chip=(group,val,label)=>`<button class="mode-chip${DISCOVER[group]===val?' on':''}" onclick="DISCOVER.${group}='${val}';selectOne(this,'[data-filter=${group}] .mode-chip');paintDiscover()">${label}</button>`;
  $('#content').innerHTML=kpis([
-   ['Catalog',String(cat.items.length),'entries on this page','sirvis'],
-   ['Installed',`${installed} / ${cat.items.length}`,'already on disk','sirvis'],
-   ['Disk free',free+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
+   ['Catalog',String(cat.items.length),'entries on this page','sirvis',false],
+   ['Installed',`${installed} / ${cat.items.length}`,'already on disk','sirvis',false],
+   ['Disk free',free+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',false],
    ['Smallest',Math.min(...cat.items.filter(x=>!x.installed).map(x=>x.size_gb))+' GB',
-    'of what is not installed','sirvis']])
+    'of what is not installed','sirvis',false]])
  +`<div class="card full"><h3>Catalog <span class="chip" id="discoverCount">${cat.items.length} of ${cat.items.length}</span></h3>${cell(`
    <div class="profile-row"><input id="discoverQ" placeholder="Search family, architecture, quantization or source…" style="flex:1;min-width:220px" oninput="DISCOVER.q=this.value;paintDiscover()">
     <span data-filter="runtime">${chip('runtime','all','Any runtime')}${runtimes.map(r=>chip('runtime',r,r)).join('')}</span>
@@ -4705,11 +4730,11 @@ async function sirvisRecommendations(){
  heading('Recommendations','Ranked with exclusions and uncertainty. SIRVIS suggests — RAVIS decides.');
  const r=await API.sirvis.recommendations();
  $('#content').innerHTML=kpis([
-   ['Profile',r.profile,`mode ${r.mode} · algorithm v${r.algorithm_version}`,'sirvis'],
-   ['Ranked',String(r.ranked.length),`of ${r.ranked.length+r.excluded.length} considered`,'sirvis'],
-   ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis']]:[]),
-   ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis'],
-   ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis']])
+   ['Profile',r.profile,`mode ${r.mode} · algorithm v${r.algorithm_version}`,'sirvis',false],
+   ['Ranked',String(r.ranked.length),`of ${r.ranked.length+r.excluded.length} considered`,'sirvis',false],
+   ...(r.live?[['Coverage',r.ranked.length?`${Math.round(Math.min(...r.ranked.map(x=>x.coverage))*100)}%`:'—','of the profile backed by evidence','sirvis',false]]:[]),
+   ['Excluded',String(r.excluded.length),'constraints and measurements','sirvis',false],
+   ['Generated',r.generated_at,`expires in ${r.expires_in_min} min`,'sirvis',false]])
  +`<div class="card full"><h3>Ranked</h3>${cell(`<div class="route-lanes">${r.ranked.map(x=>`
    <div class="lane${x.rank===1?' selected':''}" onclick="selectOne(this,'.lane')"><b>${x.rank} · ${x.target}</b><span>${prov(x.evidence_type,x.samples?'n='+x.samples:'')}</span>
     <small>${x.role} · fit ${x.fit} ${x.headroom_gb==null?'':` · ${x.headroom_gb} GB headroom`}<br>${x.why}</small></div>`).join('')}</div>
@@ -4739,10 +4764,10 @@ async function sirvisDownloads(){
  const failed=d.items.find(x=>x.status==='failed');
  const pct=x=>Math.round(x.bytes/x.total*100);
  $('#content').innerHTML=kpis([
-   ['Disk free',d.disk_free_gb+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
-   ['Downloading',String(by('downloading')),'resumable · survives reload','sirvis'],
-   ['Completed',String(by('completed')),'verified and installed','sirvis'],
-   ['Failed',String(by('failed')),failed?failed.error:'none','sirvis']])
+   ['Disk free',d.disk_free_gb+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',false],
+   ['Downloading',String(by('downloading')),'resumable · survives reload','sirvis',false],
+   ['Completed',String(by('completed')),'verified and installed','sirvis',false],
+   ['Failed',String(by('failed')),failed?failed.error:'none','sirvis',false]])
  +`<div class="card full"><h3>Jobs</h3>${cell(`
    <div class="table-row head five"><span>Variant</span><span>Status</span><span>Transferred</span><span style="grid-column:4/-1">Progress</span></div>
    ${d.items.map(x=>`<div class="table-row five"><span>${x.variant}</span><span class="chip${warnUnless(x.status==='completed'||x.status==='already_present')}">${x.status}</span><span class="mono">${x.bytes} / ${x.total} GB</span><span style="grid-column:4/-1"><div class="bar" style="margin:0"><i style="--w:${pct(x)}%"></i></div><small class="mono" style="opacity:.55">${x.error||pct(x)+'%'}</small></span></div>`).join('')}
@@ -5064,9 +5089,9 @@ async function ravisRoutes(){
  const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default);
  $('#content').innerHTML=kpis([
    ['Profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
-   ['Candidates',`${considered} → ${rd.eligible.length}`,'after hard constraints','ravis'],
-   ['Decision',rd.timings_ms.total+' ms','rule-based · no model call','ravis'],
-   ['Affinity',rd.affinity.split(' · ')[0],rd.affinity.split(' · ')[1]||'','ravis']])
+   ['Candidates',`${considered} → ${rd.eligible.length}`,'after hard constraints','ravis',false],
+   ['Decision',rd.timings_ms.total+' ms','rule-based · no model call','ravis',false],
+   ['Affinity',rd.affinity.split(' · ')[0],rd.affinity.split(' · ')[1]||'','ravis',false]])
  +`<div class="card wide"><h3>${rd.pool} · decision ${rd.decision_id}</h3>${cell(`
    <div class="table-row head"><span>Requirement</span><span>Value</span><span style="grid-column:3/-1">Effect</span></div>
    <div class="table-row"><span>tools</span><span class="mono">${rd.requirements.tools}</span><span style="grid-column:3/-1;opacity:.75">a candidate that failed the tool probe is removed, not down-ranked</span></div>
@@ -5754,9 +5779,9 @@ async function ravisSettings(){
    <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404, and §15.1 keeps mutation off the read-only surface. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
  $('#content').innerHTML=liveCard+kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
-   ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis'],
-   ['Mutations','0','this API is read-only','ravis'],
-   ['Listen',`${s.listen.host}:${s.listen.port}`,s.listen.tls?'tls':'loopback, no tls','ravis']])
+   ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis',false],
+   ['Mutations','0','this API is read-only','ravis',false],
+   ['Listen',`${s.listen.host}:${s.listen.port}`,s.listen.tls?'tls':'loopback, no tls','ravis',false]])
  +`<div class="card full"><h3>What a client can change <span class="chip warn">nothing, yet</span></h3>${cell(`
    <div class="trace-step"><b>mutating endpoints</b><span>none — RAVIS's management API is read-only at M18a</span></div>
    <div class="trace-step"><b>active profile</b><span>configuration · no endpoint</span></div>
@@ -7457,8 +7482,8 @@ async function ravisDiagnostics(){
  const down=pl.items.filter(x=>!x.available);
 
  $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+kpis([
-   ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis'],
-   ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis'],
+   ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis',false],
+   ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis',false],
    ['Breakers',String(breakers.length),breakers.length?'not closed':'all closed','ravis'],
    ['Pools down',String(down.length),down.length?down[0].pool_id:'none','ravis']])
  +conformanceCard(cf)+providerHealthCard(pr,breakers)+unavailablePoolsCard(down);
