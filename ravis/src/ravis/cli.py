@@ -18,6 +18,7 @@ from typing import Sequence
 from ecosystem_protocol import configure_logging
 
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
+from ravis.cost import PriceConfigurationError, load_prices
 from ravis.credentials import CredentialStore
 from ravis.policy import PolicyConfigurationError, load_policies
 from ravis.providers_map import resolve_provider_map, shared_provider_names
@@ -133,6 +134,27 @@ def _print_provider_map(settings: Settings) -> None:
         print(f"  {entry.model:<24} {entry.provider:<22} {entry.decided_by}")
     _print_shared_names(settings)
     _print_policies()
+    _print_prices()
+
+
+def _print_prices() -> None:
+    """How many models RAVIS can cost, and where those prices came from.
+
+    On `doctor` because "why is my spend zero" is a configuration question, and
+    the answer is nearly always that the provider publishes no pricing and
+    nobody has written any down. A malformed file is reported rather than
+    raised, like everything else here.
+    """
+    try:
+        stated = load_prices()
+    except PriceConfigurationError as failure:
+        print(f"\n  prices: UNREADABLE — {failure}")
+        print("          `serve` will refuse to start until this is fixed.")
+        return
+    print(f"\n  prices: {len(stated)} stated by the operator in prices.json")
+    print("          OpenRouter and the local runtimes publish their own; OpenAI,")
+    print("          Anthropic and Google publish none, so a call to those is")
+    print("          costed only if a price is written down here.")
 
 
 def _print_policies() -> None:

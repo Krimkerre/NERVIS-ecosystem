@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1425 tests, no network, no live service
+.venv/bin/pytest                      # part of 1431 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1425 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1431 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5092,6 +5092,44 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### Which providers can actually be costed
+
+Asked whether cost is computed for anything beyond OpenRouter. It was not, and
+checking turned up a wrong answer as well as a missing one.
+
+**Only OpenRouter publishes prices**, on every catalogue entry. OpenAI,
+Anthropic and Google ship catalogues with no pricing at all — which the adapters
+have said in a comment since M3a — so a call to any of them was `UNKNOWN` no
+matter how carefully the engine multiplied.
+
+**Local runtimes were reported as unpriced, which is simply false.** LM Studio
+and Ollama set the *ranking* price to zero and recorded no `Price`, so a local
+call came back `UNKNOWN` while RAVIS knew perfectly well it was free. That is
+the conflation the whole engine exists to prevent, arrived at from the other
+direction: zero is a fact and unknown is an absence. Both now record a zero
+`Price`, and a local call costs `0.0`.
+
+**The three that publish nothing get a registry rather than a table.**
+`prices.json` lets an operator state what they pay, per million tokens, and the
+price carries `source: operator` and the file's own timestamp — §14's
+price-source version and time. Deliberately *not* a table of published rates
+shipped inside RAVIS: a hardcoded price goes stale silently and nobody can date
+it, which is exactly what that clause of §14 guards against. An operator-stated
+price is never overwritten by a catalogue, because a catalogue price is what a
+provider charges anybody and an operator writing one down is stating what they
+pay.
+
+It fails closed, like the policy file and for a sharper reason: failing open
+would return every paid model to `UNKNOWN`, and a budget reads unknown as
+unspent — so a corrupt price file would quietly remove a spending limit rather
+than merely losing a figure. `doctor` reports how many prices are stated and
+which providers publish their own.
+
+Verified live in both directions: one OpenAI call recorded `cost=None ·
+UNKNOWN`, then the same call with a `prices.json` in place recorded
+`6e-06 · ESTIMATED · source=operator` — 8 tokens in at $0.15/M and 8 out at
+$0.60/M, which is what those rates come to.
 
 ### The cost data, on a screen
 

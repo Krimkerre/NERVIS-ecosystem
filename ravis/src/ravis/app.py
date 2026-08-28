@@ -43,7 +43,7 @@ from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, models_router
 from ravis.config import Settings, resolved_capabilities
-from ravis.cost import PriceBook, UsageLedger, budget_from
+from ravis.cost import PriceBook, UsageLedger, budget_from, load_prices
 from ravis.credentials import CredentialStore, credential_for
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
@@ -225,6 +225,13 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # decision log, because neither is anybody's accounting system and §14 is
     # explicit that RAVIS never presents an estimate as an invoice.
     api.state.prices = PriceBook()
+    # Operator-stated prices, loaded before any catalogue fills the book so the
+    # `state`/`record` precedence is never a question of ordering. Three of the
+    # four providers publish no pricing at all, so without this a call to
+    # OpenAI, Anthropic or Google is permanently UNKNOWN — and a budget reads
+    # unknown as unspent.
+    for model, price in load_prices().items():
+        api.state.prices.state(model, price)
     api.state.usage_ledger = UsageLedger()
     # §14's budget, when one is configured. `None` means unlimited, which is
     # not the same as a limit of zero and must not route as one.

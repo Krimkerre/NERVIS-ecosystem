@@ -23,13 +23,16 @@ count something that is only ever written once.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from ravis.core.responses import Usage
+from ravis.credentials import config_directory
 
 # Prices are published per token and are unreadable at that scale — OpenRouter
 # ships `"0.0000004"` — so everything here is per million tokens.
@@ -203,6 +206,18 @@ class PriceBook:
         self._clock = clock
 
     def record(self, model: str, price: Price) -> None:
+        """Take a catalogue price, unless an operator has stated one.
+
+        The operator wins. A catalogue price is what a provider publishes for
+        anybody; an operator writing a price down is stating what *they* pay,
+        which is the number their budget is actually spent against.
+        """
+        if self._prices.get(model, price).source == "operator":
+            return
+        self._prices[model] = price
+
+    def state(self, model: str, price: Price) -> None:
+        """Record an operator-stated price, which nothing else overwrites."""
         self._prices[model] = price
 
     def price_of(self, model: str) -> Price | None:
@@ -356,4 +371,84 @@ def budget_from(settings: Any) -> Budget | None:
         currency=str(getattr(settings, "budget_currency", "USD")),
         period=str(getattr(settings, "budget_period", "monthly")),
         hard=bool(getattr(settings, "budget_hard", False)),
+    )
+
+
+class PriceConfigurationError(ValueError):
+    """A price file that cannot be read as prices.
+
+    Its own type for the same reason `PolicyConfigurationError` has one: a
+    malformed price file must not fail open into "everything is unpriced",
+    because unpriced is also what a budget treats as unconstrained.
+    """
+
+
+def load_prices(
+    path: Path | None = None, environment: dict[str, str] | None = None
+) -> dict[str, Price]:
+    """Operator-stated prices, keyed by model id.
+
+    **This exists because three of the four providers publish none.** OpenRouter
+    ships per-token figures on every catalogue entry; OpenAI, Anthropic and
+    Google ship catalogues with no pricing at all, so a call to any of them is
+    `UNKNOWN` no matter how carefully the engine multiplies. An operator knows
+    what they are paying — it is on their own contract — and stating it is
+    configuration rather than invention.
+
+    Deliberately *not* a table of published rates shipped inside RAVIS. A
+    hardcoded price is a number that goes stale silently and that nobody can
+    date, which is precisely what §14's price-source version and time exist to
+    prevent. A file the operator wrote has both: the source is them, and the
+    time is when they wrote it.
+
+    A malformed file raises rather than yielding nothing. Failing open here
+    would silently return every paid model to `UNKNOWN`, which also reads to a
+    budget as "nothing has been spent".
+    """
+    location = path or (config_directory(environment) / "prices.json")
+    try:
+        with location.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as failure:
+        raise PriceConfigurationError(f"{location} could not be read: {failure}") from failure
+    if not isinstance(payload, dict):
+        raise PriceConfigurationError(f"{location} must contain an object of model → price")
+    captured = location.stat().st_mtime
+    return {
+        str(model): _price_from(entry, f"{location}: {model}", captured)
+        for model, entry in payload.items()
+    }
+
+
+def _price_from(entry: Any, where: str, captured_at: float) -> Price:
+    """One `{input, output}` object, per million tokens.
+
+    Per *million* rather than per token, because that is the unit a human reads
+    off a pricing page — asking somebody to write `0.0000004` invites a lost
+    zero, and a lost zero here is an order of magnitude on somebody's budget.
+    """
+    if not isinstance(entry, dict):
+        raise PriceConfigurationError(f"{where} must be an object")
+    unknown = set(entry) - {"input", "output", "cached_input", "currency"}
+    if unknown:
+        raise PriceConfigurationError(f"{where}: unrecognised {sorted(unknown)}")
+    try:
+        given_input = float(entry["input"])
+        given_output = float(entry["output"])
+    except (KeyError, TypeError, ValueError) as failure:
+        raise PriceConfigurationError(
+            f"{where}: needs numeric 'input' and 'output', per million tokens"
+        ) from failure
+    if given_input < 0 or given_output < 0:
+        raise PriceConfigurationError(f"{where}: a price cannot be negative")
+    cached = entry.get("cached_input")
+    return Price(
+        input_per_million=given_input,
+        output_per_million=given_output,
+        cached_input_per_million=None if cached is None else float(cached),
+        currency=str(entry.get("currency", "USD")),
+        source="operator",
+        captured_at=captured_at,
     )

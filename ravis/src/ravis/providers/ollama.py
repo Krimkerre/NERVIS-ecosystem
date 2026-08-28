@@ -42,6 +42,7 @@ from ravis.core.capabilities import (
     Provenance,
     apply_configured,
 )
+from ravis.cost import Price
 from ravis.providers.generic_openai import PROTOCOL_DEFAULTS, GenericOpenAiAdapter
 
 # Ollama's native model-detail endpoint. A POST, unlike everything else RAVIS
@@ -107,6 +108,16 @@ class OllamaAdapter(GenericOpenAiAdapter):
         # token, and it is the strongest argument a router has for reaching
         # here before reaching for a paid API.
         known.price_per_million = 0.0
+        # §14's split price as well as the ranking figure. Without it a local
+        # call reported cost UNKNOWN — while RAVIS knew perfectly well it was
+        # free — which is the same conflation of "free" and "unpriced" the cost
+        # engine exists to prevent, arrived at from the other direction.
+        known.price = Price(
+            input_per_million=0.0,
+            output_per_million=0.0,
+            source="ollama/local",
+            captured_at=time.time(),
+        )
         apply_configured(known, self._configured.get(model, {}))
         return known
 

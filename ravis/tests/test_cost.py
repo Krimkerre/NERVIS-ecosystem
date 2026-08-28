@@ -15,6 +15,9 @@ so a consumer reading only the key still reads the claim.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from ravis.core.responses import Usage
 from ravis.cost import (
     PER_MILLION,
@@ -23,11 +26,13 @@ from ravis.cost import (
     CostState,
     Price,
     PriceBook,
+    PriceConfigurationError,
     UsageLedger,
     UsageRecord,
     band_for,
     budget_from,
     estimate,
+    load_prices,
 )
 
 
@@ -343,3 +348,92 @@ def test_an_unpriced_model_is_absent_rather_than_free() -> None:
     assert book.price_of("priced") is A_PRICE
     assert book.price_of("never-published-one") is None
     assert book.known() == 1
+
+
+# ── Where prices come from (§14's cost registry) ────────────────────────────
+
+
+def test_a_local_model_is_free_rather_than_unpriced() -> None:
+    """The conflation this engine exists to prevent, from the other direction.
+
+    LM Studio and Ollama set the *ranking* price to zero and recorded no
+    `Price`, so a local call reported cost UNKNOWN while RAVIS knew perfectly
+    well it was free. Zero and unknown are the distinction; a local runtime is
+    the clearest zero there is.
+    """
+    local = Price(input_per_million=0.0, output_per_million=0.0, source="lmstudio/local")
+
+    cost, state = estimate(local, Usage(input_tokens=500, output_tokens=500))
+
+    assert (cost, state) == (0.0, CostState.ESTIMATED)
+    assert local.free is True
+    # And the adapters record one, which is the half that was missing: without
+    # it the engine is correct and the answer is still UNKNOWN.
+    for runtime in ("lmstudio", "ollama"):
+        source = Path(f"src/ravis/providers/{runtime}.py").read_text()
+        assert "known.price = Price(" in source, f"{runtime} records no split price"
+
+
+def test_an_absent_price_file_is_no_prices_not_an_error(tmp_path) -> None:  # noqa: ANN001
+    """Most deployments have none, and that is a legitimate state."""
+    assert load_prices(tmp_path / "nothing.json") == {}
+
+
+def test_an_operator_can_price_what_a_catalogue_does_not(tmp_path) -> None:  # noqa: ANN001
+    """OpenAI, Anthropic and Google ship catalogues with no pricing at all, so
+    a call to any of them is UNKNOWN however carefully the engine multiplies.
+
+    Stating the rate is configuration rather than invention — it is on the
+    operator's own contract — and it is dated by the file it was written in,
+    which a table hardcoded inside RAVIS never could be.
+    """
+    path = tmp_path / "prices.json"
+    path.write_text(json.dumps({"gpt-4o-mini": {"input": 0.15, "output": 0.60}}))
+
+    prices = load_prices(path)
+    cost, state = estimate(prices["gpt-4o-mini"], Usage(input_tokens=8, output_tokens=8))
+
+    assert prices["gpt-4o-mini"].source == "operator"
+    assert prices["gpt-4o-mini"].captured_at > 0
+    assert state is CostState.ESTIMATED
+    assert abs(cost - 6e-06) < 1e-12
+
+
+def test_an_operator_price_is_not_overwritten_by_a_catalogue() -> None:
+    """A catalogue price is what a provider charges anybody; an operator writing
+    one down is stating what *they* pay, which is the figure their budget is
+    actually spent against."""
+    book = PriceBook()
+    book.state("m", Price(input_per_million=1.0, output_per_million=1.0, source="operator"))
+
+    book.record("m", Price(input_per_million=99.0, output_per_million=99.0, source="catalogue"))
+
+    assert book.price_of("m").input_per_million == 1.0
+
+
+def test_a_malformed_price_file_fails_closed(tmp_path) -> None:  # noqa: ANN001
+    """Failing open would return every paid model to UNKNOWN — which a budget
+    also reads as nothing spent, so the failure would quietly remove a limit."""
+    path = tmp_path / "prices.json"
+    path.write_text("{ not json")
+
+    try:
+        load_prices(path)
+    except PriceConfigurationError:
+        return
+    raise AssertionError("a malformed price file must not read as no prices")
+
+
+def test_a_price_must_be_numeric_and_not_negative(tmp_path) -> None:  # noqa: ANN001
+    """A lost zero is an order of magnitude on somebody's budget, so the shape
+    is checked rather than coerced."""
+    path = tmp_path / "prices.json"
+
+    for entry in ({"input": "cheap", "output": 1.0}, {"input": -1.0, "output": 1.0},
+                  {"input": 1.0}, {"input": 1.0, "output": 1.0, "typo": 2}):
+        path.write_text(json.dumps({"m": entry}))
+        try:
+            load_prices(path)
+        except PriceConfigurationError:
+            continue
+        raise AssertionError(f"accepted a bad price entry: {entry}")
