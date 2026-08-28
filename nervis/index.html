@@ -2373,7 +2373,13 @@ const API={
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
     absorbRegistry(d);
-    return{items:d.items.map(e=>({
+    /* **Whether the registry itself answered.** Both branches of this method
+       returned a bare `{items}`, so a caller could not tell NERVIS's published
+       registry from the per-service fallback below — and the Overview's
+       registry card hardcoded ` live`, claiming a live read on a page opened
+       from disk. Liveness travels per row as well, because the fallback mixes
+       live rows with mock ones. */
+    return{live:true,items:d.items.map(e=>({
      service_type:e.key,label:e.label,build_version:dash(e.build_version),
      protocol_version:dash(e.protocol_version),
      /* The first *available* capability, not the first declared: a service that
@@ -2386,7 +2392,8 @@ const API={
      /* Carried through so a screen can tell an optional peer that has never
         answered from one that broke. Dropping it here is what left a healthy
         LM Studio wearing a warning chip on the map. */
-     optional:e.optional===true,awaiting_first_contact:e.awaiting_first_contact===true}))};
+     optional:e.optional===true,awaiting_first_contact:e.awaiting_first_contact===true,
+     live:true}))};
    }catch(err){/* fall through to the per-service reads below */}
 
    /* NERVIS is not answering — which, since it serves this page, mostly means
@@ -2405,7 +2412,7 @@ const API={
       build_version:id.build_version,protocol_version:id.protocol_version,
       capability:up.length?up[0].id:'none available',
       state:'healthy',age:0,
-      capabilities_available:up.length,capabilities_total:all.length,key};
+      capabilities_available:up.length,capabilities_total:all.length,key,live:true};
     }catch(e){return null}};
    const [rv,sv]=await Promise.all([ask('ravis'),ask('sirvis')]);
    if(!rv&&!sv)return this._servicesMock();
@@ -2414,11 +2421,14 @@ const API={
    const fallback=(await this._servicesMock()).items;
    const pick=(live,key)=>live||fallback.find(x=>x.key===key);
    const read=new Set(['ravis','sirvis']);
-   return{items:[pick(rv,'ravis'),pick(sv,'sirvis'),
+   /* `live:false` — a row or two here may be live, but the *registry* is not:
+      these were assembled in the browser, which is the thing M2 moved into
+      NERVIS. The rows carry their own `live` for the table to show. */
+   return{live:false,items:[pick(rv,'ravis'),pick(sv,'sirvis'),
                  ...fallback.filter(x=>!read.has(x.key))]};
   },
 
-  async _servicesMock(){return{items:[
+  async _servicesMock(){return{live:false,items:[
    {service_type:'ravis',label:'RAVIS',build_version:'0.4.1',protocol_version:'1',
     capability:'ravis.openai_compatible.chat_completions@1',key:'ravis'},
    {service_type:'sirvis',label:'SIRVIS',build_version:'0.3.0',protocol_version:'1',
@@ -3010,7 +3020,7 @@ async function nervis(){
    ['Local',usage.local_share==null?'not measured':Math.round(usage.local_share*100)+'%',
     usage.executed?`of ${usage.executed} executed`:'nothing routed yet','ravis',Boolean(usage.live)],
    ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',true]])
- +`<div class="card wide live"><h3>Service registry</h3>
+ +`<div class="card wide${svc.live?' live':''}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
@@ -3020,10 +3030,10 @@ async function nervis(){
        is why this card carried a PROTOTYPE badge while the tab beside it was
        live. Ollama never appeared at all, and a node stayed green for a service
        that had been down for an hour. -->
-  <div class="card narrow live"><h3>Ecosystem map</h3>
+  <div class="card narrow${svc.live?' live':''}"><h3>Ecosystem map</h3>
    ${topologyMap(ecosystemNodes(svc),230,true)}
    <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
-  <div class="card wide live"><h3>Clarvis instances</h3>
+  <div class="card wide${inst.live?' live':''}"><h3>Clarvis instances</h3>
    ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
         process can bind the port a Bridge would have used and impersonate one,
@@ -3041,11 +3051,21 @@ async function nervis(){
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
   <div class="card narrow${ev.live?' live':''}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
   ${overviewTraceCard(tr,bar)}
-  <div class="card narrow"><h3>Diagnostics</h3>
-   <div class="trace-step"><b>fact</b><span>RAVIS reported ${usage.routing_p50_ms} ms</span></div>
-   <div class="trace-step"><b>observation</b><span>NERVIS timed 4.0 ms</span></div>
-   <div class="trace-step"><b>inference</b><span>0.9 ms is transport</span></div>
-   <small class="mono dim">service-reported fact, NERVIS observation and operator inference are three different things and are never stacked into one number.</small></div>`}
+  <!-- **This card demonstrated the point it was making.** It set out to show
+       that a service-reported fact, a NERVIS observation and an operator
+       inference are three different things — and then printed a live figure
+       from RAVIS beside "NERVIS timed 4.0 ms" and "0.9 ms is transport", both
+       string literals. Nothing timed 4.0 ms. The subtraction was written by
+       hand. A card explaining why numbers must not be stacked was stacking two
+       invented ones under the labels "observation" and "inference".
+
+       §9.8's routing overhead is not measured yet, so the honest card has one
+       row and says what the other two would need. -->
+  <div class="card narrow${usage.live?' live':''}"><h3>Diagnostics</h3>
+   <div class="trace-step"><b>fact</b><span>${usage.live&&usage.routing_p50_ms!=null?`RAVIS reported ${usage.routing_p50_ms} ms`:'RAVIS has reported no routing time'}</span></div>
+   <div class="trace-step dim"><b>observation</b><span>not measured — NERVIS does not time its own call to RAVIS</span></div>
+   <div class="trace-step dim"><b>inference</b><span>needs both of the above; transport is their difference</span></div>
+   <small class="mono dim">service-reported fact, NERVIS observation and operator inference are three different things and are never stacked into one number — so the two NERVIS has not measured say so instead of carrying a plausible figure. §9.8's routing overhead is the milestone that fills these in.</small></div>`}
 
 /* ── EVENTS ────────────────────────────────────────────────────────────────
    The hub is operational telemetry, not the system of record: producers stay
@@ -3068,15 +3088,19 @@ async function eventsView(){
  const f=EVENT_FILTERS;
  const query=Object.entries({limit:200,service:f.service,severity:f.severity,
    event_type:f.event_type,text:f.text}).filter(([,v])=>v!=='' && v!=null);
- let feed={items:[],latest_sequence:0},quarantine={items:[]};
+ /* Each of the three cards below hardcoded ` live`, so on a page opened from
+    disk — or with NERVIS stopped — an empty feed, an empty producer table and
+    an empty quarantine all read as live reads of a quiet hub. They are three
+    separate answers and are tracked separately. */
+ let feed={items:[],latest_sequence:0},quarantine={items:[]},feedLive=false,quarantineLive=false;
  try{
   const [a,b]=await Promise.all([
    fetch(BASE.nervis+'/api/v1/events?'+new URLSearchParams(query),
      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)}).then(r=>r.ok?r.json():null),
    fetch(BASE.nervis+'/api/v1/events/quarantine?limit=10',
      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)}).then(r=>r.ok?r.json():null)]);
-  if(a){feed=a;SOURCE.nervis='live'}
-  if(b)quarantine=b;
+  if(a){feed=a;feedLive=true;SOURCE.nervis='live'}
+  if(b){quarantine=b;quarantineLive=true}
  }catch(e){}
 
  const ask=async key=>{
@@ -3102,7 +3126,7 @@ async function eventsView(){
  const sev=s=>s==='error'||s==='critical'?' warn':'';
 
  $('#content').innerHTML=`
-  <div class="card full live"><h3>Feed <span class="chip">${feed.items.length} shown · seq ${feed.latest_sequence}</span></h3>${cell(`
+  <div class="card full${feedLive?' live':''}"><h3>Feed <span class="chip">${feed.items.length} shown · seq ${feed.latest_sequence}</span></h3>${cell(`
    <div class="filter-row">
     ${['','nervis','ravis','sirvis'].map(v=>`<button class="mode-chip${f.service===v?' on':''}" onclick="setEventFilter('service','${v}')">${v||'all services'}</button>`).join('')}
     ${['','info','warning','error'].map(v=>`<button class="mode-chip${f.severity===v?' on':''}" onclick="setEventFilter('severity','${v}')">${v||'any severity'}</button>`).join('')}
@@ -3120,13 +3144,17 @@ async function eventsView(){
     :`<small class="mono dim">no event matches. The hub is running — <b>seq ${feed.latest_sequence}</b> events have passed through it — so this is a filter, not an outage.</small>`}
    <small class="mono dim">read from <b>NERVIS /api/v1/events</b>. Ordering is guaranteed only <b>within one source stream</b> (§4.4), so this list is arrival order across producers and not a global sequence of what happened. <b>occurred_at</b> is the producer's clock and <b>_received_at</b> is NERVIS's; both are kept, because §11.2 requires clock skew to be visible rather than smoothed away.</small>`,'nervis')}</div>
 
-  <div class="card wide live"><h3>Who is producing</h3>${cell(`
+  <!-- Live when either peer answered its own /ecosystem/capabilities. Neither
+       publishing events yet is a *finding*, not an outage — but "nobody
+       answered" and "both answered and neither publishes" are different facts
+       and the badge now separates them. -->
+  <div class="card wide${rv||sv?' live':''}"><h3>Who is producing</h3>${cell(`
    <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Why</span></div>
    ${row('RAVIS',rv)}
    ${row('SIRVIS',sv)}
    <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests; <b>neither peer publishes yet</b>, so every event in the feed above is NERVIS's own — mostly registry transitions. RAVIS events land at its M18b and SIRVIS's at its M21, and until then a feed implying otherwise would be inventing traffic.</small>`,'nervis')}</div>
 
-  <div class="card wide live"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${quarantine.items.length}</span></h3>${cell(`
+  <div class="card wide${quarantineLive?' live':''}"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${quarantine.items.length}</span></h3>${cell(`
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
    ${quarantine.items.map(q=>`<div class="table-row"><span class="mono">${escapeHtml(q.reason)}</span><span class="mono dim" style="grid-column:2/-1">${escapeHtml(q.detail||'')} · ${escapeHtml(String(q.payload).slice(0,70))}</span></div>`).join('')}`
     :'<small class="mono dim">nothing has been refused.</small>'}
@@ -3155,7 +3183,10 @@ async function diagnosticsView(){
     M12 and does not exist. Those stay marked as prototype. */
  const [dr,ds]=await Promise.all([serviceDiagnostics('ravis'),serviceDiagnostics('sirvis')]);
  const checksOf=d=>((d&&d.health&&d.health.checks)||[]);
- const liveCard=`<div class="card full live"><h3>Service health <span class="chip">live</span></h3>${cell(`
+ /* The chip said "live" in words while the class said it unconditionally —
+    both wrong together when neither peer answers, which is exactly when a
+    reader most needs to know. */
+ const liveCard=`<div class="card full${dr||ds?' live':''}"><h3>Service health <span class="chip">${dr||ds?'live':'no service answered'}</span></h3>${cell(`
    <div class="table-row head" style="grid-template-columns:.7fr 1.1fr 1fr 1.6fr"><span>Service</span><span>State</span><span>Checks</span><span>Capabilities</span></div>
    ${[['RAVIS',dr],['SIRVIS',ds]].map(([label,d])=>`<div class="table-row" style="grid-template-columns:.7fr 1.1fr 1fr 1.6fr">
      <span><b>${label}</b></span>

@@ -90,6 +90,7 @@ function element(id = "") {
    that fails. */
 function makeContext({ fetchImpl } = {}) {
 const store = new Map();
+const elements = new Map();
 const context = {
   console,
   setTimeout, clearTimeout, clearInterval,
@@ -132,8 +133,27 @@ const context = {
   scrollY: 0,
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   document: {
-    getElementById: (id) => element(id),
-    querySelector: () => element(),
+    /* Memoized by id, so a write survives to be read back.
+       `getElementById` returned a fresh stub per call, which is enough for
+       `render_check` — it only needs the render not to throw — but it throws
+       away every `innerHTML` a screen produces. `honesty_check` compares what
+       a screen *rendered* with nothing running against what it renders live,
+       so the markup has to still be there afterwards. */
+    getElementById: (id) => {
+      if (!elements.has(id)) elements.set(id, element(id));
+      return elements.get(id);
+    },
+    /* Memoized by selector, for the same reason as `getElementById` above —
+       and this is the one that mattered. The page's `$` is `querySelector`, so
+       every screen writes its markup through here. Returning a fresh stub made
+       `honesty_check` read nothing at all and report that every badge was
+       correct: a checker whose own absent-data path looked exactly like a pass,
+       which is the defect it was written to hunt. */
+    querySelector: (sel) => {
+      const key = `sel:${sel}`;
+      if (!elements.has(key)) elements.set(key, element(String(sel).replace(/^#/, "")));
+      return elements.get(key);
+    },
     querySelectorAll: () => [],
     createElement: () => element(),
     addEventListener() {}, removeEventListener() {},
@@ -143,6 +163,8 @@ const context = {
     title: "",
   },
 };
+/* Exposed so a checker can read back what a screen wrote. */
+context.__elements = elements;
 context.window = context;
 context.globalThis = context;
 context.self = context;
