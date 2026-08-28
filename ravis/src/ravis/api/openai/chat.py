@@ -550,6 +550,11 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # latency-insensitive, so holding it on a conversation's model would drag a
     # frontier choice onto work that exists to be cheap.
     sticky = "" if policy.background else _sticky_model(request)
+    # §12.2's expected session length, measured from this application's own
+    # history rather than from the request in hand. `None` where there is not
+    # enough history, which routes exactly as RAVIS did before the tradeoff
+    # existed.
+    expected = _expected_session_requests(request)
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -587,6 +592,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # capability table that knows neither.
         policy=policy,
         sticky=sticky,
+        expected_session_requests=expected,
         policy_refusals=policy_refusals(
             policy,
             candidates,
@@ -633,6 +639,20 @@ def _sticky_model(request: Request) -> str:
         identity.application_id if identity else "anonymous", _session_id(request)
     )
     return session.model if session else ""
+
+
+def _expected_session_requests(request: Request) -> int | None:
+    """How long this application's sessions usually run, or None.
+
+    Read per request rather than cached: it changes as sessions accumulate, and
+    a cached value would keep routing on last week's shape of usage. The query
+    is one indexed read of a small table.
+    """
+    store: SessionStore | None = getattr(request.app.state, "sessions", None)
+    if store is None:
+        return None
+    identity = getattr(request.state, "identity", None)
+    return store.typical_length(identity.application_id if identity else "anonymous")
 
 
 def _record_session(

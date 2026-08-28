@@ -138,3 +138,103 @@ def test_the_explanation_warns_when_a_load_will_be_paid() -> None:
     )
 
     assert "will cost a load" in decision.reason
+
+
+# ── M14's remaining half: the load-versus-don't tradeoff (§12.2) ─────────────
+
+
+def test_an_unmeasured_application_routes_exactly_as_before() -> None:
+    """The default, and the reason the tradeoff is tri-state.
+
+    `None` means RAVIS has not watched this application long enough to know how
+    long its sessions run. Guessing "short" there would silently invert a
+    documented behaviour — that a coding pool reaches for a coding model even at
+    the cost of a load — for every client that had never been observed. Not
+    knowing routes as it always did.
+    """
+    decision = RoutingEngine().select(
+        AGENT_POOL_PREFERENCE,
+        _candidates("qwen-coder", "chatty"),
+        residency=_loaded("chatty"),
+        memory=_memory(0.5),
+        expected_session_requests=None,
+    )
+
+    assert decision.selected == "qwen-coder"
+
+
+def test_a_measured_short_session_declines_to_pay_a_load() -> None:
+    """§12.2, in its own words: *for one simple question B is the worst choice
+    despite being the stronger model.*
+
+    Same pool, same candidates, same memory as the test above — the only
+    difference is that RAVIS has measured this application making one-shot
+    calls, so the fourteen-second load buys nothing.
+    """
+    decision = RoutingEngine().select(
+        AGENT_POOL_PREFERENCE,
+        _candidates("qwen-coder", "chatty"),
+        residency=_loaded("chatty"),
+        memory=_memory(0.5),
+        expected_session_requests=1,
+    )
+
+    assert decision.selected == "chatty"
+    assert "amortise" in decision.reason, decision.reason
+
+
+def test_a_measured_long_session_pays_the_load_for_the_better_model() -> None:
+    """The other half: *for a session expected to make 100 requests, loading B
+    is worth it.*
+
+    This needed no rule of its own — preference already outranks warmth, so the
+    stronger model wins once the brake is off. Asserted anyway, because "the
+    default happens to be right" is a claim that should fail loudly if the
+    default changes.
+    """
+    decision = RoutingEngine().select(
+        AGENT_POOL_PREFERENCE,
+        _candidates("qwen-coder", "chatty"),
+        residency=_loaded("chatty"),
+        memory=_memory(0.5),
+        expected_session_requests=100,
+    )
+
+    assert decision.selected == "qwen-coder"
+
+
+def test_memory_pressure_still_refuses_a_load_for_a_long_session() -> None:
+    """Where M14's two halves meet, and the direction that must not invert.
+
+    A long session is not a reason to load into a machine that has no room. The
+    observation half exists precisely to stop that, and a busy conversation must
+    not be able to talk it round.
+    """
+    decision = RoutingEngine().select(
+        AGENT_POOL_PREFERENCE,
+        _candidates("qwen-coder", "chatty"),
+        residency=_loaded("chatty"),
+        memory=_memory(0.05),
+        expected_session_requests=100,
+    )
+
+    assert decision.selected == "chatty"
+
+
+def test_a_hosted_model_is_never_penalised_as_a_load() -> None:
+    """A remote model needs a round trip and no load, whatever the session length.
+
+    `_reach_rank` already draws this line and the tradeoff has to respect it, or
+    a short-session client would be pushed onto whatever happens to be resident
+    even when the alternative costs nothing to reach.
+    """
+    decision = RoutingEngine().select(
+        AGENT_POOL_PREFERENCE,
+        _candidates("qwen-coder", "chatty"),
+        residency=_loaded("chatty"),
+        memory=_memory(0.5),
+        remote_models=frozenset({"qwen-coder"}),
+        expected_session_requests=1,
+    )
+
+    assert decision.selected == "qwen-coder"

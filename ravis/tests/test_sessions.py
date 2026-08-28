@@ -135,7 +135,14 @@ def test_a_session_holds_no_conversation_content(store: SessionStore) -> None:
     """§12.1: a session does not imply RAVIS stores prompts or responses.
 
     Checked on the serialised shape rather than the dataclass, because the
-    serialised shape is what leaves the process.
+    serialised shape is what leaves the process. Asserted as an exact set so a
+    field cannot be added without someone deciding it belongs.
+
+    `requests` is the one field beyond §12.1's list, and it was added on
+    purpose: §12.2 needs expected session length and a count is the only honest
+    source. A count is metadata about the conversation, not any part of it —
+    what §12.1 rules out is prompt and response text, and there is still
+    nowhere here to put any.
     """
     store.record("clarvis", "s1", pool="ravis/auto", model="m", provider="p")
     session = store.get("clarvis", "s1")
@@ -144,6 +151,7 @@ def test_a_session_holds_no_conversation_content(store: SessionStore) -> None:
     assert set(session.as_dict()) == {
         "session_id", "application_id", "pool", "model", "provider",
         "pool_revision", "profile", "cache_state", "created_at", "last_activity",
+        "requests",
     }
 
 
@@ -369,3 +377,82 @@ def test_touching_a_session_does_not_disturb_what_it_routed_to() -> None:
         before.model, before.pool, before.pool_revision,
     )
     assert after.last_activity > before.last_activity
+
+
+# ── Expected session length (§12.2's input, supplied by M11) ────────────────
+
+
+def test_expected_length_is_unknown_until_there_is_history(store: SessionStore) -> None:
+    """None rather than a number nobody measured.
+
+    A median of two sessions is two numbers. Answering anyway would let the
+    load-versus-don't tradeoff act on noise, and the tradeoff's whole defence is
+    that it moves only on a measurement.
+    """
+    assert store.typical_length("clarvis") is None
+
+    for name in ("a", "b"):
+        store.record("clarvis", name, pool="p", model="m", provider="x")
+
+    assert store.typical_length("clarvis") is None
+
+
+def test_expected_length_is_measured_from_this_application_only(
+    store: SessionStore,
+) -> None:
+    """Another application's habits say nothing about this one's.
+
+    Clarvis running long agent sessions must not convince RAVIS that NERVIS's
+    one-shot title calls are long too — which is the same isolation the storage
+    key provides, applied to the statistic drawn from it.
+    """
+    for name in ("a", "b", "c"):
+        for _ in range(20):
+            store.record("clarvis", name, pool="p", model="m", provider="x")
+    for name in ("x", "y", "z"):
+        store.record("nervis", name, pool="p", model="m", provider="x")
+
+    assert store.typical_length("clarvis") == 20
+    assert store.typical_length("nervis") == 1
+
+
+def test_one_runaway_session_does_not_define_the_rest(store: SessionStore) -> None:
+    """The median, not the mean.
+
+    One abandoned session of four hundred requests should not convince RAVIS
+    that every session is long and that loads are always worth paying.
+    """
+    for name in ("a", "b", "c", "d"):
+        store.record("clarvis", name, pool="p", model="m", provider="x")
+    for _ in range(400):
+        store.record("clarvis", "runaway", pool="p", model="m", provider="x")
+
+    typical = store.typical_length("clarvis")
+
+    assert typical is not None and typical <= 2, f"a mean would have said ~80, got {typical}"
+
+
+def test_a_session_counts_its_requests(store: SessionStore) -> None:
+    """The count is §12.2's only honest source of expected session length."""
+    for _ in range(3):
+        store.record("clarvis", "s1", pool="p", model="m", provider="x")
+
+    session = store.get("clarvis", "s1")
+
+    assert session is not None and session.requests == 3
+
+
+def test_a_background_call_does_not_inflate_the_count(store: SessionStore) -> None:
+    """`touch` keeps a session alive without claiming it made a routing request.
+
+    A background call is exempt from affinity, and counting it would let title
+    generation talk RAVIS into believing a conversation is longer than it is —
+    the same over-reach as letting it retarget the session.
+    """
+    store.record("clarvis", "s1", pool="p", model="m", provider="x")
+    store.touch("clarvis", "s1")
+    store.touch("clarvis", "s1")
+
+    session = store.get("clarvis", "s1")
+
+    assert session is not None and session.requests == 1

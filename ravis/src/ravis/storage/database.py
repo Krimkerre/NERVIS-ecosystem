@@ -79,6 +79,23 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON routing_session (application_id, last_activity DESC);
         """,
     ),
+    (
+        5,
+        "session request count, for RAVIS.md §12.2's load-versus-don't tradeoff",
+        """
+        -- How many requests this session has made. §12.1's field list does not
+        -- include it and §12.2 requires it: the tradeoff between using a loaded
+        -- model and loading a better one turns on "expected session length",
+        -- and this is the only honest source of that — an observation rather
+        -- than a prediction. A count is metadata, not content, so §12.1's rule
+        -- that a session implies no stored prompts or responses is untouched.
+        --
+        -- Appended as its own migration rather than folded into 4, which has
+        -- already run: editing a migration that shipped means two databases
+        -- claiming one version with different shapes.
+        ALTER TABLE routing_session ADD COLUMN requests INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]
 
 

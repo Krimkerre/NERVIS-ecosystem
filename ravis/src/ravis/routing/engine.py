@@ -77,6 +77,7 @@ class RoutingEngine:
         policy: RoutingPolicy | None = None,
         policy_refusals: Mapping[str, list[str]] | None = None,
         sticky: str = "",
+        expected_session_requests: int | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -133,6 +134,7 @@ class RoutingEngine:
                 policy,
                 refusals,
                 sticky,
+                expected_session_requests,
             )
 
         target = direct_target(requested)
@@ -235,6 +237,7 @@ class RoutingEngine:
         policy: RoutingPolicy | None = None,
         refusals: Mapping[str, list[str]] | None = None,
         sticky: str = "",
+        expected_session_requests: int | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -271,6 +274,7 @@ class RoutingEngine:
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
+            expected_session_requests,
         )
 
         if not eligible:
@@ -290,7 +294,10 @@ class RoutingEngine:
         # eligible list makes that structural: a candidate that failed either
         # check is not in this list to be chosen from.
         decision.fallbacks = eligible[1 : 1 + MAX_FALLBACKS]
-        decision.reason = _selection_reason(pool, eligible, residency, memory)
+        decision.reason = _selection_reason(
+            pool, eligible, residency, memory, expected_session_requests,
+            _load_would_not_amortise(expected_session_requests, memory),
+        )
         return decision
 
 
@@ -432,6 +439,7 @@ def _rank(
     refusals: Mapping[str, list[str]] | None = None,
     policy: RoutingPolicy | None = None,
     sticky: str = "",
+    expected_session_requests: int | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -448,6 +456,22 @@ def _rank(
     """
     refusals = refusals or {}
     policy = policy or RoutingPolicy()
+    # §12.2's tradeoff, decided once for the whole ranking rather than per
+    # candidate: the question is about this *request*, not about each model.
+    #
+    # **Three states, not two, and the third is the important one.** `None`
+    # means RAVIS has not watched this application long enough to know how long
+    # its sessions run, and the honest response to not knowing is to route
+    # exactly as it did before this tradeoff existed rather than to guess
+    # "short". Only a *measured* expectation moves anything.
+    #
+    # **Never loads under memory pressure.** M14's shipped half exists because
+    # loading anything new is the thing to avoid when memory is short, and a
+    # long session is not a reason to do it anyway — the machine's state
+    # outranks the conversation's length. This is where the two halves of M14
+    # meet, and reversing it would let a busy conversation force exactly the
+    # load the observation half was built to prevent.
+    short_session = _load_would_not_amortise(expected_session_requests, memory)
     members = [
         model for model, known in candidates.items()
         if not pool.requirements.unmet_by(known, remote=model in remote)
@@ -495,7 +519,23 @@ def _rank(
         #
         # Heterogeneous because the last component is the model name — the
         # total, reproducible order §9.7's determinism gate requires.
-        terms: list[float | str] = [affinity]
+        # §12.2's load-versus-don't tradeoff, ahead of the pool's own
+        # preference and behind session affinity.
+        #
+        # **Ahead of preference, because that is the case §12.2 describes.**
+        # Its example is a stronger model that takes fourteen seconds to load:
+        # *for one simple question B is the worst choice despite being the
+        # stronger model.* Preference already outranks warmth, so without this
+        # term RAVIS pays that load for a one-line question — the wrong half of
+        # the tradeoff, and the half that is visible to whoever is waiting.
+        #
+        # It fires only when RAVIS has *measured* that this application's
+        # sessions are short. A long expectation lifts nothing and adds nothing:
+        # preference already outranks warmth, so "load stronger" is what happens
+        # by default and needed no rule of its own. What was missing was the
+        # brake, not the accelerator.
+        load = 1.0 if short_session and _pays_a_load(model, residency, remote) else 0.0
+        terms: list[float | str] = [affinity, load]
         # **`prefer_remote` ranks before speed, and `prefer_local` after it.**
         # The asymmetry is deliberate and was found live. A pool that prefers
         # hosted models is saying *where* first and *which* second: put speed
@@ -604,6 +644,74 @@ def _reach_rank(
     return residency_rank(residency.state_of(model))
 
 
+# How many requests a session must have made before RAVIS will pay a model load
+# for it (§12.2's load-versus-don't tradeoff).
+#
+# **A declared policy, not a computed break-even, and the difference matters.**
+# The real threshold is load time divided by the per-request advantage, and
+# RAVIS can measure neither: no runtime publishes a load duration, SIRVIS
+# measures `load_seconds` only inside a Runtime Set benchmark and does not
+# expose it through the evidence API, and §13 deliberately refuses to reduce a
+# model's quality to one comparable number. Computing a break-even from figures
+# that do not exist would be §9.4's invented measurement with arithmetic on top.
+#
+# So this is a stated choice with a stated reason: a conversation that has run
+# eight turns is a conversation rather than a question, and the cost of being
+# wrong is asymmetric — paying a load for a one-line question wastes tens of
+# seconds of somebody's attention, while declining one for a long session costs
+# a slightly weaker model. When SIRVIS publishes load seconds this becomes
+# arithmetic and this constant should disappear.
+LOAD_AMORTISES_AFTER_REQUESTS = 8
+
+
+def _load_would_not_amortise(
+    expected_session_requests: int | None, memory: MemoryReading
+) -> bool:
+    """Whether §12.2 says to avoid paying a model load on this request.
+
+    **Three states, and the third decides most requests.** `None` means RAVIS
+    has not watched this application long enough to know how long its sessions
+    run, and the honest response to not knowing is to route exactly as it did
+    before this tradeoff existed rather than to guess "short". Only a measured
+    expectation moves anything.
+
+    **A measured expectation plus memory pressure is also short**, because
+    pressure is a reason to avoid a load whatever the session length — the
+    machine's state outranks the conversation's. It is gated on having an
+    expectation at all so that this function never overrides the pressure
+    handling that M14's shipped half already does on its own.
+
+    One definition, used by the ranking and by the explanation, so a decision
+    cannot be taken for a reason the explanation does not give.
+    """
+    if expected_session_requests is None:
+        return False
+    return (
+        expected_session_requests < LOAD_AMORTISES_AFTER_REQUESTS
+        or memory.under_pressure
+    )
+
+
+def _pays_a_load(model: str, residency: ResidencySnapshot, remote: frozenset[str]) -> bool:
+    """Whether choosing this model means waiting for a local load first.
+
+    Remote models are excluded rather than merely ranked lower, which is the
+    distinction `_reach_rank` exists to make: a hosted model needs a round trip
+    and no load, so no amount of session length changes what it costs. Only a
+    cold local model has a one-time cost to amortise.
+
+    Unknown residency counts as cold. A local model nobody has reported on may
+    or may not be resident, and assuming it is would be assuming the cheaper of
+    two answers — the direction that spends a user's time when it is wrong.
+    """
+    if model in remote:
+        return False
+    return residency_rank(residency.state_of(model)) >= _COLD_REACH
+
+
+# What `_reach_rank` returns for a cold local model, and for an unknown one.
+_COLD_REACH = 2.0
+
 # Strictly between WARM (1) and COLD (2), which is the whole point and which the
 # first attempt got wrong: it was set to 2, tying with COLD, and reproduced the
 # exact conflation it was written to remove. A float rather than renumbering
@@ -665,6 +773,8 @@ def _selection_reason(
     eligible: list[str],
     residency: ResidencySnapshot,
     memory: MemoryReading,
+    expected_session_requests: int | None = None,
+    short_session: bool = False,
 ) -> str:
     """Say honestly why the winner won.
 
@@ -681,6 +791,17 @@ def _selection_reason(
         else "first eligible candidate in stable order"
     )
     parts = [basis]
+
+    # §12.2's tradeoff, said out loud when it changed anything. §9.7 wants an
+    # explanation that separates facts from estimates, and "we declined to load
+    # a better model" is precisely the kind of decision that looks like a bug
+    # from outside if nobody says it was a decision.
+    if short_session and expected_session_requests is not None:
+        parts.append(
+            f"this application's sessions run about {expected_session_requests} request(s), "
+            f"so a one-time model load would not amortise and a resident model was "
+            f"preferred over one that must be loaded (§12.2)"
+        )
 
     state = residency.state_of(selected)
     if state in (Residency.HOT, Residency.WARM):

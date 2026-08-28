@@ -53,6 +53,13 @@ DEFAULT_RETENTION_SECONDS = 7 * 24 * 3600.0
 # request is how a table becomes a place to put things.
 MAX_ID_LENGTH = 200
 
+# How many of an application's sessions must exist before their length is
+# treated as a fact about it. Below this the answer is "unknown", which routes
+# exactly as RAVIS did before §12.2's tradeoff existed — the same floor
+# `Observations` puts under a latency median, and for the same reason: a median
+# of two is two numbers.
+MINIMUM_SESSIONS = 3
+
 
 @dataclass(frozen=True)
 class RoutingSession:
@@ -85,6 +92,13 @@ class RoutingSession:
     cache_state: str | None = None
     created_at: float = 0.0
     last_activity: float = 0.0
+    # How many requests this session has made, which is §12.2's "expected
+    # session length" — as an observation rather than a forecast. RAVIS has no
+    # model of how long a conversation will run and inventing one would be the
+    # guess §9.4 forbids, so the tradeoff reads what has happened instead of
+    # predicting what will. §12.1's field list does not name this; §12.2
+    # requires it, and a count is metadata rather than conversation content.
+    requests: int = 0
 
     def idle_for(self, now: float) -> float:
         return max(0.0, now - self.last_activity)
@@ -116,6 +130,7 @@ class RoutingSession:
             "cache_state": self.cache_state,
             "created_at": self.created_at,
             "last_activity": self.last_activity,
+            "requests": self.requests,
         }
 
 
@@ -228,27 +243,30 @@ class SessionStore:
             created_at=existing.created_at if existing else now,
             last_activity=now,
             cache_state=existing.cache_state if existing else None,
+            requests=(existing.requests if existing else 0) + 1,
         )
         with self._database.connection as connection:
             connection.execute(
                 """
                 INSERT INTO routing_session (
                     session_key, session_id, application_id, pool, model, provider,
-                    pool_revision, profile, cache_state, created_at, last_activity
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    pool_revision, profile, cache_state, created_at, last_activity,
+                    requests
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_key) DO UPDATE SET
                     pool = excluded.pool,
                     model = excluded.model,
                     provider = excluded.provider,
                     pool_revision = excluded.pool_revision,
                     profile = excluded.profile,
-                    last_activity = excluded.last_activity
+                    last_activity = excluded.last_activity,
+                    requests = excluded.requests
                 """,
                 (
                     key, session.session_id, session.application_id, session.pool,
                     session.model, session.provider, session.pool_revision,
                     session.profile, session.cache_state, session.created_at,
-                    session.last_activity,
+                    session.last_activity, session.requests,
                 ),
             )
         return session
@@ -267,6 +285,46 @@ class SessionStore:
                 "UPDATE routing_session SET last_activity = ? WHERE session_key = ?",
                 (self._clock(), session_key(application_id, supplied)),
             )
+
+    def typical_length(
+        self, application_id: str, minimum_sessions: int = MINIMUM_SESSIONS
+    ) -> int | None:
+        """How many requests this application's sessions usually make, or None.
+
+        **This is §12.2's "expected session length", and it has to come from
+        history rather than from the session in front of us.** Session affinity
+        settles a conversation on its model at the *first* request, which is
+        exactly when the current session's own count is 1 and says nothing. A
+        rule reading that count would decline the load on request one, decline
+        it again on request two, and then switch models halfway through a long
+        conversation — the churn stickiness exists to prevent, arrived at by the
+        feature meant to avoid a load.
+
+        So the estimate is the median request count of this application's
+        completed sessions: a measurement of how this client actually behaves,
+        available at the moment the decision is made.
+
+        **None until there is enough history**, and None means "do not change
+        the route" rather than "assume short". An application nobody has watched
+        yet gets the behaviour it had before this existed, which is the only
+        honest answer and the same rule `Observations` applies to a model it has
+        barely timed.
+
+        The median rather than the mean, because one abandoned session of 400
+        requests should not convince RAVIS that every session is long.
+        """
+        rows = self._database.connection.execute(
+            """
+            SELECT requests FROM routing_session
+             WHERE application_id = ? AND requests > 0
+             ORDER BY requests
+            """,
+            (application_id,),
+        ).fetchall()
+        counts = [int(row["requests"]) for row in rows]
+        if len(counts) < minimum_sessions:
+            return None
+        return counts[len(counts) // 2]
 
     def enforce_retention(self) -> int:
         """Delete sessions idle past the retention window. Returns how many.
@@ -313,4 +371,5 @@ def _from_row(row: Any) -> RoutingSession:
         cache_state=row["cache_state"],
         created_at=float(row["created_at"]),
         last_activity=float(row["last_activity"]),
+        requests=int(row["requests"]),
     )

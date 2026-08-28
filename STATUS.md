@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1394 tests, no network, no live service
+.venv/bin/pytest                      # part of 1404 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1394 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1404 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -109,6 +109,7 @@ into the order work actually happens.
 | 31 | **RAVIS M7** | Provider expansion. OpenRouter stays transparent, which is the measurement rather than the assumption. **Gemini moved to §6's translated path** after its OpenAI-compatible endpoint was measured reporting `finish_reason: stop` on a streamed tool call and omitting the tool-call index — both things Clarvis's agent role reads. A native Gemini adapter now makes the two providers indistinguishable on every surface §6 names, and `ravis conformance clarvis` stayed `PASS` throughout. Four judgement calls and two live-found bugs, settled below |
 | 32 | **RAVIS M16** *(policy; the reasoning tiebreak waits on SIRVIS M22b)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. Settled below |
 | 33 | **RAVIS M11** | Sessions. §12.1's `RoutingSession` persisted, sticky routing as a preference that leads the ranking, expiry and retention as two separate windows, and isolation keyed to the application rather than to a name — which is the one thing §12.1 says outright must never merge. `ravis.sessions@1` moves off `unavailable`. **Verified live**, and the fourth request found a defect the first three hid. Settled below |
+| 34 | **RAVIS M14** *(complete)* | The load-versus-don't tradeoff, and with it Stage 5's last open item. Expected session length is **measured from an application's own history** rather than predicted, because affinity settles a conversation on its model at the first request — when the current session's count is 1 and says nothing. Unknown routes exactly as before. **Verified live in both directions.** Settled below |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
 close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
@@ -2052,10 +2053,9 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **The rest of M14** | The load-versus-don't tradeoff. Unblocked now that M11 supplies session length |
-| 2 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
-| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
-| 4 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
+| 1 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
+| 2 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
+| 3 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
 
@@ -5061,6 +5061,55 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### M14 completed — and the estimate had to come from history
+
+§12.2 states the tradeoff with an example: a stronger model that takes fourteen
+seconds to load is *the worst choice for one simple question* and *worth it for
+a session expected to make 100 requests*.
+
+**The first attempt read the wrong number and contradicted a shipped rule.**
+Penalising a cold model whenever the current session was short broke
+`test_declared_preference_still_beats_residency_normally`, which pins M14's
+observation half: a coding pool should reach for a coding model even at the cost
+of a load. That test is right, and the failure exposed something better than a
+threshold bug — **session affinity settles a conversation on its model at the
+first request**, which is exactly when the current session's own count is 1 and
+means nothing. A rule reading it would decline the load on request one, decline
+it again on request two, and then switch models halfway through a long
+conversation: the churn stickiness exists to prevent, arrived at by the feature
+meant to avoid a load.
+
+So expected session length is the **median request count of this application's
+completed sessions** — a measurement available at the moment the decision is
+made, and the reason this half needed M11 rather than merely wanting it.
+
+**Three states, and the third decides most requests.** `None` means RAVIS has
+not watched this application long enough, and not knowing routes exactly as it
+did before the tradeoff existed. Only a measured expectation moves anything,
+which is what keeps the shipped rule intact for every client nobody has
+observed.
+
+**What is measured and what is chosen, kept apart.** The real threshold is load
+time divided by per-request advantage, and RAVIS can measure neither: no runtime
+publishes a load duration, SIRVIS measures `load_seconds` only inside a Runtime
+Set benchmark and does not expose it through the evidence API, and §13
+deliberately refuses to reduce quality to one comparable number. So
+`LOAD_AMORTISES_AFTER_REQUESTS = 8` is a declared policy with a stated reason
+rather than a computed break-even, and it should disappear when SIRVIS publishes
+load seconds.
+
+Verified live, two applications against one gateway, same pool, same two models,
+opposite routes from measured history alone:
+
+    one-shot client   ravis/coding -> chatty-1b       (resident)
+                      "sessions run about 1 request(s), so a one-time model load
+                       would not amortise"
+    long-session app  ravis/coding -> qwen-coder-30b  (cold, and worth loading)
+
+Memory pressure still refuses the load whatever the session length. That is
+where M14's two halves meet, and reversing it would let a busy conversation
+force exactly the load the observation half was built to prevent.
 
 ### M11 — sessions, and the request that exposed the exemption
 

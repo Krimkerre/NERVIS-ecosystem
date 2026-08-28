@@ -1201,7 +1201,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 2 — transparent gateway and Clarvis conformance | M1 + M2, **wire-level scenarios only** — stream termination and `[DONE]`, fragmented tool-call arguments, tool-call indexes and IDs, tool result IDs, `reasoning_content`, cancellation, fast cached `/v1/models`. Pool separation and fallback are Stage 3 additions to the same suite (§8.8). Plus M10, since an upstream needing a credential cannot be reached without it |
 | Stage 3 — live Clarvis ↔ RAVIS | M9, and with it M3a (the adapter interface M6 filters through), M5 (chat and agent pools resolve independently), M6 (the agent pool refuses a non-tool model), M12 (fallback does not corrupt the stream), **M14** and **M18a** (see the notes below) — each of the first four is named in the stage's own exit criteria. Direct-provider fallback verified |
 | Stage 5 — RAVIS intelligence | M3b + M4 + M7 + M8 (translated path, native and local adapters), M13 (SIRVIS evidence), M16 (policy) |
-| Stage 6 — NERVIS core | M11 + M15, and **M14's remaining half**, which lands after M11 because that is what supplies expected session length |
+| Stage 6 — NERVIS core | M11 + M15, and **M14's remaining half**, which landed after M11 because that is what supplies expected session length |
 | Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
 | **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
