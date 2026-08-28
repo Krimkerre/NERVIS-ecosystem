@@ -135,9 +135,21 @@ async def read_health(request: Request) -> dict[str, Any]:
 def _members(
     pool: Any, eligible: list[str], membership: Any, prices: dict[str, Any] | None = None
 ) -> list[str]:
-    """What this pool is choosing among right now."""
+    """What this pool is choosing among right now.
+
+    **Intersected with `eligible`, which this returned the stored tuple without
+    doing.** An operator's narrowing is applied *after* the invariants and never
+    instead of them -- `engine.py` ranks on `model in eligible and (not chosen
+    or model in chosen)` -- so a stored list naming models the pool no longer
+    admits described a pool that does not exist. On this machine that showed as
+    `ravis/cheap` reporting 62 members against 49 eligible, a count a narrowing
+    cannot produce, while the router refused the pool outright.
+    """
     stored = tuple(membership.for_pool(pool.pool_id)) if membership is not None else ()
-    return list(stored or pool.default_membership(eligible, prices))
+    if stored:
+        admitted = set(eligible)
+        return [model for model in stored if model in admitted]
+    return list(pool.default_membership(eligible, prices))
 
 
 @router.get("/pools")
@@ -149,14 +161,32 @@ async def read_pools(request: Request) -> dict[str, Any]:
     requirements and it joins with nobody editing a list, and a pool nothing
     satisfies shows as unavailable rather than silently routing somewhere close.
     """
-    candidates = await _candidates(request)
-    remote = remote_models(getattr(request.app.state, "transparents", {}))
+    # **The same candidate set and the same remote set the router uses.** This
+    # computed `remote_models(transparents)` alone, which by its own definition
+    # walks only the transparent upstreams -- so every model served by a
+    # *translated* provider (Anthropic, Google) counted as local. `ravis/local`
+    # and `ravis/private` then listed 49 hosted models and reported available,
+    # while `ravis/api` reported empty: exactly inverted, on the two pools whose
+    # whole promise is where a request goes. `_pool_candidates` has always had
+    # it right (`remote_models(transparents) | frozenset(owners)`), and
+    # `/api/v1/pools/{key}/members` answered correctly from it while this
+    # endpoint contradicted it on the identical catalogue.
+    candidates, remote = await _pool_candidates(request)
+    if not candidates:
+        # Pre-M8 single-adapter deployment: no declared addresses to derive a
+        # remote set from. `remote_models({})` was already empty here, so this
+        # preserves that path exactly.
+        candidates, remote = await _candidates(request), frozenset()
     membership = getattr(request.app.state, "pool_membership", None)
     prices = {model: known.price_per_million for model, known in candidates.items()}
     residency = request.app.state.model_registry.residency
     items = []
     for pool in DEFAULT_POOLS:
         eligible = pool.eligible(candidates, remote)
+        # Computed once. It was called twice for `members` and `member_count`,
+        # which is how the two could in principle disagree, and it is the number
+        # `available` has to be derived from.
+        members = _members(pool, eligible, membership, prices)
         items.append(
             {
                 "pool_id": pool.pool_id,
@@ -178,13 +208,18 @@ async def read_pools(request: Request) -> dict[str, Any]:
                 # then an operator's selection or its own default tier. The
                 # count on a dashboard has to be the count the router uses, or
                 # it is describing a different pool than the one that answers.
-                "members": _members(pool, eligible, membership, prices),
-                "member_count": len(_members(pool, eligible, membership, prices)),
+                "members": members,
+                "member_count": len(members),
                 "eligible_count": len(eligible),
                 "default_tier": pool.default_tier,
                 "listed": pool.listed,
-                # A pool nothing satisfies is unavailable, not empty-and-fine.
-                "available": bool(eligible),
+                # A pool nothing satisfies is unavailable, not empty-and-fine --
+                # and "nothing satisfies it" has to mean *after* the operator's
+                # narrowing, because that is what the router chooses from. This
+                # read `bool(eligible)`, so a pool whose narrowing admitted none
+                # of the eligible models reported available while every request
+                # to it was refused.
+                "available": bool(members),
                 "loaded_members": [
                     model for model in eligible if model in residency.loaded
                 ],
@@ -546,17 +581,24 @@ async def set_pool_members(
 
 
 async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[str]]:
-    """Every model the router could consider, and which of them are remote."""
+    """Every model the router could consider, and which of them are remote.
+
+    **Translated providers count even with no transparent upstream declared.**
+    This returned `({}, frozenset())` the moment `transparents` was empty, so a
+    deployment serving only hosted providers -- Anthropic and Google with no
+    local runtime, which is this machine whenever LM Studio is not running --
+    reported no candidates for any pool, and every screen built on it went
+    blank rather than saying the hosted models were there.
+    """
     transparents = getattr(request.app.state, "transparents", {})
-    if not transparents:
+    translating = getattr(request.app.state, "translating", {})
+    if not transparents and not translating:
         return {}, frozenset()
     evidence = getattr(request.app.state, "evidence", None)
-    candidates = await merged_candidates(transparents, evidence)
+    candidates = await merged_candidates(transparents, evidence) if transparents else {}
     # Translated providers too, or this screen describes a different candidate
     # set than the router uses — and the router is the one that answers.
-    translated, owners = await translated_candidates(
-        getattr(request.app.state, "translating", {}), evidence
-    )
+    translated, owners = await translated_candidates(translating, evidence)
     for model, known in translated.items():
         candidates.setdefault(model, known)
     return candidates, remote_models(transparents) | frozenset(owners)

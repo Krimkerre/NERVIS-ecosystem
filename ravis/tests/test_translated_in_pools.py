@@ -115,3 +115,94 @@ def test_a_translated_model_joins_with_the_same_honesty() -> None:
     known = ModelCapabilities(model_id="claude-haiku")
 
     assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
+
+
+def test_the_pools_listing_does_not_call_a_hosted_model_local() -> None:
+    """`ravis/local` and `ravis/private` promise the request stays on the machine.
+
+    `/api/v1/pools` derived its remote set as `remote_models(transparents)`,
+    which by that function's own definition walks the *transparent* upstreams
+    only. Every model served by a translated provider therefore counted as
+    local, and on a machine with no local runtime running the listing reported
+    `ravis/local` and `ravis/private` as available holding the hosted
+    catalogue, while `ravis/api` reported empty. Exactly inverted, on the two
+    pools whose entire promise is where a request goes.
+
+    `/api/v1/pools/{key}/members` was right the whole time -- it builds from
+    `_pool_candidates`, which unions the translated owners in -- so one service
+    gave opposite answers about one catalogue from two endpoints.
+    """
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+    from ravis.config import Settings
+
+    settings = Settings(
+        database_path=":memory:",
+        upstream_base_url="http://127.0.0.1:1234",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = create_app(settings)
+    # No local runtime offering anything -- the ordinary state when LM Studio
+    # is not running -- and one reachable hosted provider.
+    app.app.state.transparents = {}
+    app.app.state.translating = {"anthropic": FakeTranslating(["claude-haiku"])}
+
+    with TestClient(app) as client:
+        pools = {p["pool_id"]: p for p in client.get("/api/v1/pools").json()["items"]}
+
+    for pool_id in ("ravis/local", "ravis/private"):
+        assert "claude-haiku" not in pools[pool_id]["members"], (
+            f"{pool_id} must never list a model served by a hosted provider"
+        )
+
+    assert "claude-haiku" in pools["ravis/api"]["members"], (
+        "a hosted model belongs to ravis/api, and reporting that pool empty "
+        "while the catalogue is reachable is the other half of the inversion"
+    )
+
+
+def test_a_narrowing_that_admits_nothing_reports_the_pool_unavailable() -> None:
+    """The count on the dashboard has to be the count the router uses.
+
+    `_members` returned an operator's stored narrowing verbatim, without
+    intersecting it against what the pool's invariants actually admit, and
+    `available` was derived from `eligible` and never consulted membership. So
+    a pool whose narrowing named only models the pool no longer admits reported
+    available with more members than eligible -- a count a narrowing cannot
+    produce -- while every request to it was refused. Observed live as
+    `ravis/cheap`: 62 members against 49 eligible, and the router answering
+    "no candidate satisfies ravis/cheap".
+    """
+    from fastapi.testclient import TestClient
+
+    from ravis.app import create_app
+    from ravis.config import Settings
+
+    settings = Settings(
+        database_path=":memory:",
+        upstream_base_url="http://127.0.0.1:1234",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = create_app(settings)
+    app.app.state.transparents = {}
+    app.app.state.translating = {"anthropic": FakeTranslating(["claude-haiku"])}
+
+    membership = getattr(app.app.state, "pool_membership", None)
+    if membership is None:  # pragma: no cover - the store ships with the app
+        pytest.skip("no membership store on this build")
+    membership.set_for("ravis/api", ("a-model-that-is-not-installed",))
+
+    with TestClient(app) as client:
+        api = next(
+            p for p in client.get("/api/v1/pools").json()["items"]
+            if p["pool_id"] == "ravis/api"
+        )
+
+    assert api["member_count"] <= api["eligible_count"], (
+        "a narrowing removes candidates; it cannot add any"
+    )
+    assert api["members"] == [], "none of the narrowed ids is eligible"
+    assert api["available"] is False, (
+        "the router refuses this pool, so the listing must not call it available"
+    )
