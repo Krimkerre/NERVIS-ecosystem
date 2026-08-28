@@ -5047,6 +5047,21 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+**`confirm()` was silently disabled and every destructive control was dead.** Delete in the
+conversation list did nothing — because Chrome offers *"prevent this page from creating additional
+dialogs"* after a couple of prompts, and once that is ticked `confirm()` returns `false` with no
+dialog, no error and no way for the page to know. The button was not broken; it was being
+cancelled, forever, invisibly.
+
+Reproduced by watching the call: it fired and returned `false` with nothing on screen. Four other
+controls used the same pattern — releasing a multi-model lease, emptying a pool, emptying a
+provider filter, removing a credential — so all five were one ticked checkbox from being inert.
+
+They arm instead. The first click warns and turns the button amber, the second acts; the warning
+still gets read, nothing is one keystroke from being lost, and no part of it depends on a modal
+the browser may have muted. It is the same shape as `armProfile`, which was already here for the
+same reason and is presumably why that one never broke.
+
 **Models a provider lists and then refuses are hidden from the picker.** A deprecated id stays in
 OpenAI's `GET /v1/models` after it stops working, so it stayed pickable and every attempt came
 back 404 — which RAVIS already records as `MODEL_UNAVAILABLE`, per model, with the same machinery

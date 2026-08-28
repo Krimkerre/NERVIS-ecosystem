@@ -4141,7 +4141,7 @@ const BUILD={
   if(this.current)this.select(null,this.current.localId,this.current.variantId);
  },
  async release(sessionId,count){
-  if(count>1&&!confirm(`That lease holds ${count} models. Releasing it unloads all of them. Continue?`))return;
+  if(count>1&&!armed('lease:'+id,`That lease holds ${count} models — releasing it unloads all of them`))return;
   const out=await RUNTIME._send('/api/v1/runtime/sessions/'+sessionId,'DELETE');
   if(out)notify(`Released · unloaded ${(out.unloaded||[]).length}`);
   if(this.current)this.select(null,this.current.localId,this.current.variantId);
@@ -4686,6 +4686,29 @@ async function systemView(){
 /* Which profile the operator has selected but not yet committed. A single
    module-level value: arming is transient UI state, not something the router
    knows about, and it is cleared by any render that follows a commit or cancel. */
+/* A destructive action, confirmed in the page rather than by the browser.
+
+   **`confirm()` can be switched off, and the page cannot tell.** Chrome offers
+   "prevent this page from creating additional dialogs" after a couple of
+   prompts, and once that is ticked every `confirm()` returns `false` with no
+   dialog and no error — so the button does nothing, forever, and looks broken
+   rather than cancelled. That is exactly what happened to Delete in the
+   history list, and it applied equally to the four other destructive controls.
+
+   Two clicks instead: the first arms and says what will happen, the second
+   does it. The warning still gets read, nothing is one keystroke from being
+   lost, and no part of it depends on a modal the browser may have muted. The
+   same shape as `armProfile`, which was already here for the same reason. */
+let ARMED_ACTION=null;
+
+function armed(key,warning){
+ if(ARMED_ACTION===key){ARMED_ACTION=null;return true}
+ ARMED_ACTION=key;
+ notify(warning+' — click again to confirm');
+ render();
+ return false;
+}
+
 let ARMED=null;
 function armProfile(id){ARMED=ARMED===id?null:id;render()}
 /* The RAVIS dashboard from RAVIS's own records.
@@ -5119,7 +5142,7 @@ const POOLEDIT={
      rather than being excluded by yesterday's snapshot. */
   const models=st.on.size===st.all.length?[]:[...st.on];
   if(!models.length&&st.on.size!==st.all.length
-     &&!confirm('Nothing is ticked, which leaves this pool with no members and every request to it refused. Continue?'))return;
+     &&!armed('pool:'+pool,'Nothing is ticked, which leaves this pool with no members and every request to it refused'))return;
   try{
    const r=await fetch(BASE.ravis+'/api/v1/pools/'+encodeURIComponent(key)+'/members',
      {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({models})});
@@ -5733,7 +5756,7 @@ const PROVIDERS={
      the empty one, and "I ticked everything" plainly means the second. */
   const all=st.on.size===st.all.length;
   const body={include:all?[]:[...st.on],exclude:[]};
-  if(!all&&!st.on.size&&!confirm('Nothing is ticked. That leaves this provider with no models at all. Continue?'))return;
+  if(!all&&!st.on.size&&!armed('filter:'+name,'Nothing is ticked, which leaves this provider with no models at all'))return;
   try{
    const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/models',
     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
@@ -6182,7 +6205,7 @@ const CHAT_SESSIONS={
   render();
  },
  remove(id){
-  if(!confirm('Delete this conversation? It is not stored anywhere else.'))return;
+  if(!armed('conversation:'+id,'This conversation is not stored anywhere else'))return;
   CHAT_STORE.remove(id);
   if(CHAT_SESSION.id===id)Object.assign(CHAT_SESSION,{
     id:'cv_'+Math.random().toString(36).slice(2,6),
@@ -6423,7 +6446,7 @@ function historyPane(){
      return saved.length?`${saved.map(c=>`<div class="trace-step" style="align-items:flex-start">
         <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${escapeHtml(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
         <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${(c.messages||[]).length} msg
-        <button class="btn" style="margin-left:6px" onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">Delete</button></span></div>`).join('')}
+        <button class="btn"${ARMED_ACTION==='conversation:'+c.conversation_id?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'} onclick="CHAT_SESSIONS.remove('${escapeHtml(c.conversation_id)}')">${ARMED_ACTION==='conversation:'+c.conversation_id?'Confirm':'Delete'}</button></span></div>`).join('')}
       <small class="mono dim">stored in this browser only — <b>not</b> on the machine and not in any service. Another browser, or a private window, sees none of it. §7.2 keeps conversations local by default.</small>`
       :`<small class="mono dim">no other conversation is stored in this browser. §7.2 keeps them local by default, so another browser or a private window sees none of it.</small>`;
     }
@@ -7023,7 +7046,7 @@ const CREDS={
   ravisCredentials();
  },
  async forget(name){
-  if(!confirm('Remove the stored '+name+' key from RAVIS?'))return;
+  if(!armed('credential:'+name,'This removes the stored '+name+' key from RAVIS'))return;
   try{
    await fetch(BASE.ravis+'/api/v1/providers/credentials/'+encodeURIComponent(name),{method:'DELETE'});
   }catch(e){alert('RAVIS is not reachable.');return}
