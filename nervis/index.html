@@ -933,11 +933,33 @@ async function live(service,path,mock,adapt){
   }finally{clearTimeout(timer)}
   const adapted=adapt(payload);
   SOURCE[service]='live';
-  return adapted;
+  return withSource(adapted,true);
  }catch(failure){
   SOURCE[service]='mock';
-  return mock();
+  return withSource(mock(),false);
  }
+}
+
+/* **The answer, attached to the thing that was answered.**
+
+   This helper knew whether the service replied — it sets `SOURCE[service]` two
+   lines up — and then returned the adapted payload with no trace of it, so a
+   card holding the result had nothing to read. The global was the only witness,
+   and it is overwritten by the next call to the same service, so a screen that
+   fetched twice could not tell which answer it was looking at.
+
+   That is the root of the badge defect rather than one instance of it: every
+   card wired to `SOURCE` was reading a variable that had moved on, and every
+   card that hardcoded ` live` did so because there was nothing else to read.
+
+   An existing `live` is never overwritten — several adapters set it themselves,
+   and an adapter knows more than this does. Arrays and primitives pass through
+   untouched: a flag on an array is a property nobody looks at. */
+function withSource(value,answered){
+ if(value===null||typeof value!=='object'||Array.isArray(value))return value;
+ if('live'in value)return value;
+ value.live=answered;
+ return value;
 }
 
 /* GET /api/v1/route-decisions → the shape the Routes table already reads.
@@ -3019,7 +3041,9 @@ async function nervis(){
       renders it: a share nobody has measured says so rather than showing 0%. */
    ['Local',usage.local_share==null?'not measured':Math.round(usage.local_share*100)+'%',
     usage.executed?`of ${usage.executed} executed`:'nothing routed yet','ravis',Boolean(usage.live)],
-   ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',true]])
+   /* `true` was written here literally, so the tile counted mock rows as
+      reachable services on a page with nothing running. */
+   ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',svc.live]])
  +`<div class="card wide${svc.live?' live':''}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${r.label}</span><span class="mono">${r.build_version}</span><span class="mono">${r.protocol_version?'proto '+r.protocol_version:'—'}</span><span class="mono" style="opacity:.7">${r.capability}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
@@ -4054,11 +4078,11 @@ async function settingsView(){
    Redaction on is the safe state and reads green; payload capture on does not. */
  const flag=(on,safe=false)=>`<span class="chip${warnUnless(on===safe)}">${on?'on':'off'}</span>`;
  
- /* NERVIS's own configuration, which is a shorter list than the cards below
-    suggest. There is no NERVIS service to ask — `nervis/` is one HTML file and
-    NERVIS M0 (the package, database and migrations) has never been built — so
-    the endpoints this dashboard talks to *are* its configuration, and their
-    reachability is the only setting whose effect can be observed. */
+ /* NERVIS's own configuration. This said there was no NERVIS service to ask,
+    that `nervis/` was one HTML file, and that M0 had never been built — all
+    true when written and none of it true since M0 shipped the package,
+    database and migrations. NERVIS serves this page and answers
+    `/api/v1/settings`; the peers below are still read for their own state. */
  const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
 
  /* NERVIS's own stored settings, since M0 gave it a database to store them in.
@@ -4071,7 +4095,11 @@ async function settingsView(){
    return Object.keys((await r.json()).items||{}).length;
   }catch(e){return null}
  })();
- const liveCard=`<div class="card full live"><h3>What NERVIS is configured with <span class="chip">observed</span></h3>${cell(`
+ /* Live when anything actually answered — either peer's diagnostics, or
+    NERVIS's own settings store. It hardcoded ` live`, so from disk it reported
+    an observed configuration it had observed nothing about. */
+ const configObserved=peers.some(Boolean)||STORED_SETTINGS!==null;
+ const liveCard=`<div class="card full${configObserved?' live':''}"><h3>What NERVIS is configured with <span class="chip">${configObserved?'observed':'nothing answered'}</span></h3>${cell(`
    ${['ravis','sirvis','clarvis'].map((k,n)=>{
      const d=n<2?peers[n]:null;
      return `<div class="trace-step"><b>${k.toUpperCase()}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
@@ -4479,14 +4507,17 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
      fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
    ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
- +`<div class="card wide live"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
+ /* `fromSirvis`, like the sibling cards on this screen. These two hardcoded
+    ` live` and so rendered the eleven mock builds — a fictional catalogue — as
+    a live read of what is installed on this machine. */
+ +`<div class="card wide${fromSirvis}"><h3>Installed builds <span class="chip">${loaded.length} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
    ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${escapeHtml(m.local_model_id||'')}','${escapeHtml(m.variant_id||'')}')"><b>${m.family}</b> · ${m.variant} ${m.source?` · <span class="mono" style="opacity:.6">${m.source}</span>`:''} <span class="chip${warnIf(m.state==='stopped')}">${m.state}</span> ${toolCell(m)}<small class="mono"> ${dash(m.runtime)} · ${ctx(m.runtime_config)}${m.size_gb==null?'':' · '+m.size_gb+' GB'}${m.resident_gb?' resident':''}${m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':''}</small><div class="bar"><i style="--w:${fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0}%"></i></div></div>`).join('')}
    </div>
    <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. ${fastest
      ?`The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${fastest.family}</b> tops it at ${fastest.measured.gen_tok_s} tok/s${fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:''}.`
      :`The bars are flat because this endpoint carries no throughput: SIRVIS files measurements against evidence records rather than against a build, so a rate belongs to a run under a named configuration and not to a name in a catalogue. The <b>Results</b> screen has them.`}</small>`,'sirvis')}</div>
-  <div class="card narrow live" id="buildPanel"><h3>Selected build</h3>${cell(`
+  <div class="card narrow${fromSirvis}" id="buildPanel"><h3>Selected build</h3>${cell(`
    <small class="mono dim">click a build on the left. This panel reads <b>GET /api/v1/models/{id}</b> and its measurements from <b>GET /api/v1/evidence?variant=…</b> — both live.</small>`,'sirvis')}</div>
   <div class="card narrow${fromSirvis}"><h3>${rn.suite}@${rn.version}</h3>${cell(`
    <div class="trace-step"><b>target</b><span>${rn.target.split(' · ')[0]}</span></div>
@@ -4915,7 +4946,11 @@ async function systemView(){
    ['Thermal',m.thermal_state,`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
- +`<div class="card full live"><h3>Live load <span class="chip">sampled now</span></h3>${cell(`
+ /* Four cards, two services, and they go down separately: `now` is NERVIS's
+    sample of this machine, `m` is the identity SIRVIS pins to every result.
+    All four hardcoded ` live`, so from disk the mock machine — a fictional
+    `mc_7a1f` — rendered as a sample taken this second. */
+ +`<div class="card full${now.live?' live':''}"><h3>Live load <span class="chip">${now.live?'sampled now':'not sampled'}</span></h3>${cell(`
    <div class="table-row head five"><span>OS</span><span>Load average</span><span>Memory in use</span><span>Swap</span><span>Thermal</span></div>
    <div class="table-row five"><span>${now.os_description}<small class="mono" style="opacity:.5;display:block">${orDash(now.cpu_count)} CPU</small></span>
     <span class="mono">${now.load_average?now.load_average.map(x=>x.toFixed(2)).join(' · '):'<span class="dim">not reported</span>'}</span>
@@ -4926,17 +4961,17 @@ async function systemView(){
    ${now.processes.length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
     :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
    <small class="mono dim">read from <b>NERVIS /api/v1/system</b>, sampled at the moment of the request rather than by a background timer — a value from a timer is whatever the timer last caught, not the state when you looked. Ordered by <b>memory</b> rather than CPU: this ecosystem's failure mode is a multi-gigabyte model resident when something else needs the room. A command name, never a command line — an argument list is where a workspace path leaks. <b>Thermal is macOS-only</b> and reads <i>not reported</i> elsewhere rather than a comfortable-looking <i>nominal</i>: SIRVIS's first probe collapsed those two and reported a happy machine while it lost 48% of its throughput to heat.</small>`,'nervis')}</div>
-  <div class="card wide live"><h3>Machine ${m.machine_id}</h3>${cell(`
+  <div class="card wide${m.live?' live':''}"><h3>Machine ${m.machine_id}</h3>${cell(`
    <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
    <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${m.chip}</span><span class="mono">${m.cpu_cores} CPU · ${m.gpu_cores} GPU</span><span class="mono">${m.macos}</span></div>
    <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${(m.memory_gb-m.available_gb).toFixed(1)} of ${m.memory_gb} GB</span></div>
    <div class="bar"><i style="--w:${usedPct}%"></i></div>
    <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>
-  <div class="card narrow live"><h3>Runtimes</h3>${cell(`
+  <div class="card narrow${m.live?' live':''}"><h3>Runtimes</h3>${cell(`
    <div class="table-row head"><span>Runtime</span><span style="grid-column:2/-1">Version</span></div>
    ${m.runtimes.map(r=>`<div class="table-row"><span>${r.name}</span><span class="mono" style="grid-column:2/-1">${r.version}</span></div>`).join('')}
    <small class="mono dim">runtime versions are pinned too. An LM Studio or MLX upgrade is exactly the event that moves throughput without anything else changing, and comparing across one without saying so produces a regression nobody can locate.</small>`,'sirvis')}</div>
-  <div class="card full live"><h3>Conditions</h3>${cell(`
+  <div class="card full${m.live?' live':''}"><h3>Conditions</h3>${cell(`
    <div class="table-row head five"><span>Condition</span><span>Now</span><span style="grid-column:3/-1">Effect on a measurement taken in it</span></div>
    <div class="table-row five"><span>Thermal state</span><span class="chip${warnUnless(m.thermal_state==='nominal')}">${m.thermal_state}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
    <div class="table-row five"><span>Swap</span><span class="chip${warnIf(m.swap_gb)}">${m.swap_gb} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
@@ -5613,7 +5648,10 @@ async function ravisProviders(){
      <button class="btn" onclick="PROVIDERS.applyFilter('${escapeHtml(x.name)}',true)">Clear</button>
     </div>`).join('')}
    <small class="mono dim">the <b>Models</b> count is a link — it opens the filter for that provider. OpenRouter publishes over 400 models, and without a filter every one of them lands in <b>/v1/models</b>, which a client renders as a picker, and becomes a routing candidate on every request. Patterns are globs; <b>exclude wins over include</b>, and an empty include means all rather than none. The filter applies identically to the catalogue a client reads and the candidates the router picks from, so the two can never disagree about whether a model exists.<br><br>turning a provider off is not the same as removing its key. Disabled means <b>not right now</b> and is one click back; deleting the credential on <b>RAVIS → Credentials</b> means this deployment no longer holds one. A disabled provider is not probed, not advertised in <b>/v1/models</b>, and not a routing candidate — and addressing it directly returns 503 rather than quietly going somewhere else.</small>`,'ravis')}</div>`
-  :`<div class="card full live"><h3>Configured now</h3>${cell(`
+  /* The failure branch. It hardcoded a live class while printing the reason it
+     could not read anything: a card whose entire content is "this did not
+     work", badged as a successful live read. */
+  :`<div class="card full"><h3>Configured now</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/ravis/providers</span></div>
    <div class="trace-step"><b>why not</b><span>${escapeHtml(read.reason)}</span></div>
    <div class="trace-step"><b>state</b><span class="chip warn">${escapeHtml(read.availability)}</span></div>
@@ -5730,7 +5768,12 @@ async function ravisSessions(){
    ['Median length',counts.length?String(median):'—','requests per session','ravis',s.live],
    ['Load tradeoff',counts.length?(median>=8?'loads allowed':'loads declined'):'unknown',
     '§12.2, from measured history','ravis',s.live],
-   ['Content stored','none','§12.1: no prompts, no responses','ravis',true]])
+   /* Was hardcoded `true` on the argument that no-content-stored is a property
+      of the schema rather than of the answer. True — but the badge does not
+      mean "this is correct", it means "this came from the running service",
+      and on a page opened from disk this tile glowed alone among four faded
+      ones. Provenance, not truth. */
+   ['Content stored','none','§12.1: no prompts, no responses','ravis',s.live]])
  +`<div class="card full${s.live?' live':''}"><h3>Routing sessions</h3>${cell(`
    <div class="table-row head six"><span>Session</span><span>Application</span><span>Pool</span><span style="grid-column:4/6">Model</span><span>Requests</span></div>
    ${s.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.session_id)}</span><span class="mono" style="opacity:.8">${escapeHtml(x.application_id)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.pool||'—')}</span><span class="mono" style="grid-column:4/6">${escapeHtml(x.model||'—')}<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider||'—')}</span></span><span>${x.requests||0}<span class="dim" style="opacity:.6"> · ${escapeHtml(ago(x.last_activity))}</span></span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no sessions yet — a client supplies one with the <b>X-Session-ID</b> header</span></div>'}
@@ -5760,8 +5803,13 @@ async function ravisPolicies(){
    ['Applications',String(governed),'have a policy of their own','ravis'],
    ['Default',p.items.some(x=>x.application_id==='*')?'set':'none',
     'governs everything unlisted','ravis'],
-   ['Enforcement','hard','applied before ranking, never as a score','ravis',true],
-   ['Engine','M16','shipped','ravis',true]])
+   /* `p.live`, not `true`. This path runs when RAVIS did *not* answer — the
+      live-and-empty case returns above — so both tiles claimed a live read
+      while the card beneath them correctly faded. A statement that is true of
+      the design ("enforcement is hard") is still not something this page read
+      from anywhere, and the badge means provenance, not truth. */
+   ['Enforcement','hard','applied before ranking, never as a score','ravis',p.live],
+   ['Engine','M16','shipped','ravis',p.live]])
  +`<div class="card full${p.live?' live':''}"><h3>Policy in force</h3>${cell(`
    <div class="table-row head"><span>Application</span><span style="grid-column:2/-1">Constraints</span></div>
    ${p.items.map(x=>`<div class="table-row"><span class="mono">${escapeHtml(x.application_id)}</span><span style="grid-column:2/-1;opacity:.85">${(x.constraints||[]).map(escapeHtml).join(' · ')||'—'}</span></div>`).join('')}
@@ -5826,7 +5874,10 @@ async function ravisEvidence(){
    ['Routing p50',
      usage.routing_p50_ms==null?'not measured':usage.routing_p50_ms+' ms',
      usage.routing_p50_ms==null?'§9.8 is unbuilt — no timing is published':'decision cost, cached evidence',
-     'ravis',usage.routing_p50_ms!=null]])
+     /* `usage.live` as well: RAVIS has never published this field, so the only
+        way it is non-null is the mock inventing it — which badged an invented
+        millisecond count as a live measurement. */
+     'ravis',usage.live&&usage.routing_p50_ms!=null]])
  +costCard(usage,spend)
  +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
@@ -5927,7 +5978,8 @@ async function ravisSettings(){
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});return r.ok?(await r.json()).items||[]:null}
     catch(e){return null}})(),
    serviceDiagnostics('ravis')]);
- const liveCard=`<div class="card full live"><h3>How RAVIS is running <span class="chip">observed</span></h3>${cell(`
+ const ravisObserved=Boolean(sHealth||sProv||sDiag);
+ const liveCard=`<div class="card full${ravisObserved?' live':''}"><h3>How RAVIS is running <span class="chip">${ravisObserved?'observed':'nothing answered'}</span></h3>${cell(`
    <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(BASE.ravis)}</span></div>
    ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(dash(sDiag.identity.build_version))}</span></div>`:''}
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${sHealth.models_known} model(s) visible</span>`:''}</span></div>

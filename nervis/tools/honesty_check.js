@@ -77,7 +77,7 @@ async function renderAll(fetchImpl) {
   for (const [name, port] of Object.entries(PORTS)) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/ecosystem/health`,
-        { signal: AbortSignal.timeout(2000) });
+        { signal: AbortSignal.timeout(5000) });
       if (r.ok) up.push(name);
     } catch { /* not running */ }
   }
