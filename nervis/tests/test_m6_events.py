@@ -439,3 +439,62 @@ def test_replay_from_a_cursor_still_starts_at_the_cursor() -> None:
     assert [item["data"]["n"] for item in replayed] == [3, 4, 5, 6], (
         "what the client missed, in the order it happened"
     )
+
+
+def test_a_subscriber_that_falls_behind_has_its_stream_closed() -> None:
+    """§4.1's gap frame has to end the connection, or it tells the client nothing.
+
+    `_broadcast` drops a subscriber whose queue is full, then pushes a gap
+    marker into the now-orphaned queue. Nothing after that will ever arrive on
+    it -- but the SSE generator went on looping, yielding a heartbeat every
+    twelve seconds forever. The client saw a healthy connection carrying no
+    events, and because `EventSource` only reconnects on error or close it never
+    reconnected. The gap frame said "subscriber fell behind and was
+    disconnected" while the socket stayed open, so the one frame whose job is to
+    make a client notice was the frame that hid the problem.
+
+    Driven through the real endpoint's async generator rather than over HTTP:
+    the behaviour under test is what the generator does after that frame, and a
+    `TestClient` stream is pull-based, so not reading is exactly what will not
+    reproduce it.
+    """
+    import asyncio
+
+    from nervis.api.events import stream
+    from nervis.events import SUBSCRIBER_BUFFER
+
+    async def exercise() -> list[bytes]:
+        hub = a_hub()
+
+        class _Request:
+            app = type("_App", (), {"state": type("_S", (), {"hub": hub})()})()
+            headers: dict[str, str] = {}
+            query_params: dict[str, str] = {}
+
+        response = stream(_Request())  # type: ignore[arg-type]
+        frames = (await response).body_iterator
+
+        # The backlog and the live marker, so the generator is parked on the
+        # queue exactly as a connected client leaves it.
+        await frames.__anext__()
+
+        # More than the buffer holds, with nothing consuming: the hub drops this
+        # subscriber and writes the gap.
+        for n in range(SUBSCRIBER_BUFFER + 10):
+            hub.ingest(envelope(event_id=f"01J0000000000000000000{n:04d}"))
+
+        seen: list[bytes] = []
+        for _ in range(SUBSCRIBER_BUFFER + 20):
+            try:
+                seen.append(await asyncio.wait_for(frames.__anext__(), timeout=2))
+            except StopAsyncIteration:
+                return seen
+        raise AssertionError("the stream never closed after the gap frame")
+
+    frames = asyncio.run(exercise())
+
+    joined = b"".join(frames)
+    assert b"ecosystem.stream.gap" in joined, "the client is told why it was cut off"
+    assert not frames[-1].startswith(b":"), (
+        "the last thing sent is the gap, not another heartbeat"
+    )

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1463 tests, no network, no live service
+.venv/bin/pytest                      # part of 1464 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 285 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1463 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1464 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -4730,9 +4730,19 @@ has the most tests, because it is the one a hub fails silently — a producer
 sending rubbish is ordinary, and the wrong response punishes every *other*
 producer for one's mistake.
 
-`POST /api/v1/events` always answers **202 with the outcome**, never a 4xx or a
-5xx. A rejected event is a fact about the producer, not a failure of the hub,
-and an error status invites a retry of something that will never parse:
+`POST /api/v1/events` answers **202 with the outcome** for any body it can read
+as JSON, whatever that JSON turns out to be. A rejected event is a fact about
+the producer, not a failure of the hub, and an error status invites a retry of
+something that will never parse.
+
+**One exception, and it is the boundary rather than the envelope:** a body that
+is not JSON at all raises `InvalidConfigurationError` and answers **422**. There
+is nothing to quarantine and nothing to describe, so there is no outcome to
+report. This paragraph said "never a 4xx" flatly and was wrong about that case
+for as long as it has existed; the endpoint's own docstring said the same. And
+until this audit the 202 was not true either — the route declared no status and
+FastAPI returned 200, while the one test covering it, named
+`test_ingestion_answers_202_even_for_rubbish`, asserted 200.
 
 ```text
 POST {"looks": "nothing like an envelope"}

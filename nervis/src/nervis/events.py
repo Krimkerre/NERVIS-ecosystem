@@ -348,7 +348,7 @@ class Hub:
                 with contextlib.suppress(asyncio.QueueEmpty, asyncio.QueueFull):
                     queue.get_nowait()
                     queue.put_nowait({
-                        "event_type": "ecosystem.stream.gap",
+                        "event_type": GAP_EVENT,
                         "severity": "warning",
                         "data": {"reason": "subscriber fell behind and was disconnected"},
                     })
@@ -382,6 +382,33 @@ class Hub:
                 (self._retention_events,),
             )
         return int(aged.rowcount or 0) + int(excess.rowcount or 0)
+
+
+# The frame a subscriber gets when it has fallen behind and been dropped. Named
+# once, because the hub writes it and the SSE endpoint has to recognise it in
+# order to close the connection -- and a string spelled in two places is a
+# connection that stays open on a typo.
+GAP_EVENT = "ecosystem.stream.gap"
+
+
+def ends_stream(event: Mapping[str, Any]) -> bool:
+    """Whether this frame is the last thing the connection can honestly send.
+
+    **A gap frame means the hub has already stopped sending to this queue.**
+    `_broadcast` discards the subscriber and pushes the marker into the orphaned
+    queue, so nothing after it will ever arrive -- but the generator went on
+    looping, yielding a heartbeat every twelve seconds forever. The client saw a
+    healthy connection that would never carry another event, and because
+    `EventSource` only reconnects on error or close, it never reconnected: the
+    gap frame said "subscriber fell behind and was disconnected" while the
+    socket stayed open.
+
+    Returning here closes the response, which is what makes the browser
+    reconnect with `Last-Event-ID` -- and the id of the last real event is
+    exactly the cursor it needs, which is why the gap frame deliberately carries
+    no `_sequence` of its own.
+    """
+    return event.get("event_type") == GAP_EVENT
 
 
 def sse_frame(event: Mapping[str, Any]) -> bytes:

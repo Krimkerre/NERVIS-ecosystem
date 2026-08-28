@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis.errors import InvalidConfigurationError
-from nervis.events import Rejected, heartbeat, sse_frame
+from nervis.events import Rejected, ends_stream, heartbeat, sse_frame
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
@@ -42,9 +42,15 @@ async def ingest(request: Request) -> dict[str, Any]:
     backlog, and making it send them one at a time would turn one outage into a
     thundering herd.
 
-    **Always 202.** The body says what happened to each. A rejected event is a
-    fact about the producer, not a failure of the hub, and answering 4xx would
-    invite a retry of something that cannot parse.
+    **202 for anything readable as JSON.** The body says what happened to each.
+    A rejected event is a fact about the producer, not a failure of the hub, and
+    answering 4xx would invite a retry of something that cannot parse.
+
+    The one exception is below and is the boundary rather than the envelope: a
+    body that is not JSON at all has nothing to quarantine and nothing to
+    describe, so it answers 422. This docstring said "always 202" and named no
+    exception, which was wrong twice over -- the route also declared no status
+    at all, so FastAPI answered 200 to everything.
     """
     hub = request.app.state.hub
     try:
@@ -143,6 +149,11 @@ async def stream(request: Request) -> StreamingResponse:
                     yield heartbeat()
                     continue
                 yield sse_frame(event)
+                # A gap frame is terminal: the hub dropped this subscriber
+                # before writing it, so nothing else will ever arrive on this
+                # queue. Closing is what makes the client reconnect.
+                if ends_stream(event):
+                    return
         finally:
             # Runs on client disconnect, which is the ordinary way this ends. A
             # subscriber left registered is a queue filling until it is dropped
