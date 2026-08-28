@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1325 tests, no network, no live service
+.venv/bin/pytest                      # part of 1326 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1325 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1326 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5111,6 +5111,21 @@ disagrees with the request path is worse than not having one.
 
 Reading a local file is not contacting an upstream, so M0's "without contacting
 any upstream" still holds.
+
+### One name, two providers, one provider's numbers
+
+The other half of what leaving `google` declared turned up. A provider's
+catalogue was resolved by name, and a name identifies a provider only *within*
+one of the two tables — so a transparent upstream called `google` sitting
+beside the translated Gemini provider gave two rows one name, and the
+translated row reported the transparent upstream's 54 models as its own. The
+function's docstring already said a translated provider must report no count at
+all, "because a count of nothing and no count at all are different claims"; the
+lookup quietly supplied a third, worse option. Anthropic never hit it only
+because nobody declares an upstream called `anthropic`.
+
+The upstream now travels with the row rather than being looked up afterwards.
+Both translated providers report no catalogue, which is what they have.
 
 ### Delete deleted half of it
 

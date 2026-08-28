@@ -261,11 +261,11 @@ async def read_providers(request: Request) -> dict[str, Any]:
     probes = await asyncio.gather(
         *(
             _probe(adapter) if name not in disabled else _skipped()
-            for name, adapter, _ in entries
+            for name, adapter, _, _built in entries
         )
     )
     rows = []
-    for (name, adapter, base_url), probe in zip(entries, probes, strict=True):
+    for (name, adapter, base_url, built), probe in zip(entries, probes, strict=True):
         status = credentials.status(name)
         rows.append({
             **describe(adapter),
@@ -294,21 +294,23 @@ async def read_providers(request: Request) -> dict[str, Any]:
             # read it. A provider reachable now whose catalogue is empty because
             # the refresh before this one failed looked identical to one that
             # genuinely has no models.
-            **_catalogue_of(request, name),
+            **_catalogue_of(built),
             **probe,
         })
     return _listing(rows)
 
 
-def _catalogue_of(request: Request, name: str) -> dict[str, Any]:
+def _catalogue_of(built: Any) -> dict[str, Any]:
     """What this provider's last catalogue refresh produced, and why.
 
     Empty for a translating provider, which has no catalogue to refresh — the
     keys are omitted rather than reported as zero, because a count of nothing
     and no count at all are different claims.
+
+    Takes the upstream rather than its name. Resolving a name here read the
+    wrong table when both a transparent and a translated provider answered to
+    one, and reported the wrong provider's model count as this one's.
     """
-    transparents: dict[str, Any] = getattr(request.app.state, "transparents", {})
-    built = transparents.get(name)
     if built is None:
         return {}
     snapshot = built.registry.snapshot
@@ -319,21 +321,30 @@ def _catalogue_of(request: Request, name: str) -> dict[str, Any]:
     }
 
 
-def _provider_entries(request: Request) -> list[tuple[str, Any, str]]:
-    """(name, adapter, base_url) for every provider, transparent then translated.
+def _provider_entries(request: Request) -> list[tuple[str, Any, str, Any]]:
+    """(name, adapter, base_url, upstream) for every provider.
 
     Transparent first because that is declaration order and the order a
     collision is resolved in — a screen listing them the other way round would
     invite the wrong conclusion about which one serves a shared model id.
+
+    **The upstream travels with the row rather than being looked up by name
+    afterwards.** A name identifies a provider only within one of the two
+    tables: declaring a transparent upstream called `google` alongside the
+    translated Gemini provider gave two rows one name, and the by-name lookup
+    then handed the transparent upstream's catalogue to the translated row. The
+    fourth element is `None` for a translated provider, which has no catalogue.
     """
-    entries: list[tuple[str, Any, str]] = []
+    entries: list[tuple[str, Any, str, Any]] = []
     transparents: dict[str, Any] = getattr(request.app.state, "transparents", {})
     for name, built in transparents.items():
-        entries.append((name, built.adapter, built.upstream.base_url))
+        entries.append((name, built.adapter, built.upstream.base_url, built))
     if not transparents:
-        entries.append(("default", request.app.state.adapter, request.app.state.upstream.base_url))
+        entries.append(
+            ("default", request.app.state.adapter, request.app.state.upstream.base_url, None)
+        )
     for name, adapter in getattr(request.app.state, "translating", {}).items():
-        entries.append((name, adapter, getattr(adapter, "base_url", "")))
+        entries.append((name, adapter, getattr(adapter, "base_url", ""), None))
     return entries
 
 

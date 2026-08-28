@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 from tests.conftest_upstream import RecordingUpstream
 from tests.test_transparent_proxy import _app_with
 
+from ravis.app import create_app
+from ravis.config import Settings
+
 READ_ENDPOINTS = [
     "/api/v1/health",
     "/api/v1/pools",
@@ -201,3 +204,33 @@ def test_health_reports_nothing_observed_before_any_traffic() -> None:
         body = client.get("/api/v1/health").json()
 
     assert body["targets"] == []
+
+
+def test_a_shared_name_does_not_give_one_provider_another_s_catalogue() -> None:
+    """A transparent upstream and a translated provider may answer to one name.
+
+    Declaring `google` in RAVIS_UPSTREAMS alongside the translated Gemini
+    provider does exactly that, and the catalogue was resolved by name — so the
+    translated row reported the transparent upstream's model count as its own.
+    Anthropic never hit this only because nobody declares an upstream called
+    `anthropic`.
+
+    A count of nothing and no count at all are different claims (§9.4), and the
+    wrong provider's count is worse than either.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        upstreams='[{"name": "google", "kind": "google"}]',
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        rows = [r for r in client.get("/api/v1/providers").json()["items"]
+                if r["name"] == "google"]
+
+    assert len(rows) == 2, "both the transparent upstream and the translated provider"
+    by_mode = {r["protocol_mode"]: r for r in rows}
+    assert "catalogue_size" in by_mode["OPENAI_TRANSPARENT"]
+    assert "catalogue_size" not in by_mode["TRANSLATED"], (
+        "a translated provider has no catalogue to report"
+    )
