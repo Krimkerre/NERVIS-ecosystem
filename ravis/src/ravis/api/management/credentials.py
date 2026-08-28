@@ -116,7 +116,12 @@ def _may_write(request: Request) -> str | None:
     if settings.is_loopback_bind():
         return None
     identity = getattr(request.state, "identity", None)
-    if identity is None or getattr(identity, "is_anonymous", False):
+    # Read directly, not through `getattr(..., False)`. This guard was written
+    # against an `is_anonymous` that `ClientApplication` did not have, so the
+    # default answered every call: on a non-loopback bind an unauthenticated
+    # caller could write, delete and re-point provider credentials. A missing
+    # security predicate must raise, not resolve to "permitted".
+    if identity is None or identity.is_anonymous:
         return "credential changes require an authenticated client on a non-loopback bind"
     return None
 

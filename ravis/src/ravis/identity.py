@@ -39,6 +39,11 @@ from ravis.policy import PrivacyLevel
 CREDENTIAL_HEADER = "authorization"
 BEARER_PREFIX = "bearer "
 
+# The application id every unauthenticated caller resolves to. Named rather than
+# spelled inline, because it is a security boundary compared against in more than
+# one module and a typo in either copy fails open.
+ANONYMOUS_APPLICATION_ID = "anonymous"
+
 
 @dataclass(frozen=True)
 class ClientApplication:
@@ -77,6 +82,21 @@ class ClientApplication:
     # documents why that direction was chosen rather than read off the spec.
     max_privacy_level: PrivacyLevel = PrivacyLevel.NORMAL
 
+    @property
+    def is_anonymous(self) -> bool:
+        """Whether this caller presented no usable credential.
+
+        A real property rather than a convention, because a caller of it was
+        already written against the name and got `False` forever:
+        `management/credentials.py` guarded credential writes with
+        `getattr(identity, "is_anonymous", False)` and this class has never had
+        the attribute, so on a published bind the guard was unreachable and an
+        unauthenticated caller could write provider keys. `getattr` with a
+        default turns a missing security predicate into a silent permit; the
+        call site now reads the attribute directly, so a rename raises instead.
+        """
+        return self.application_id == ANONYMOUS_APPLICATION_ID
+
 
 def anonymous_identity(settings: Settings) -> ClientApplication:
     """The identity every unauthenticated caller resolves to.
@@ -87,8 +107,8 @@ def anonymous_identity(settings: Settings) -> ClientApplication:
     name means the rest of the system never has to ask whether it exists.
     """
     return ClientApplication(
-        application_id="anonymous",
-        label="anonymous",
+        application_id=ANONYMOUS_APPLICATION_ID,
+        label=ANONYMOUS_APPLICATION_ID,
         rate_limit_per_minute=settings.anonymous_rate_limit_per_minute,
         # Both spelled out rather than left to the field defaults. They *are*
         # the defaults, and that is exactly why an unauthenticated caller's

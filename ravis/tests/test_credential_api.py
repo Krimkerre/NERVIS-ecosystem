@@ -140,3 +140,46 @@ def test_a_secret_is_not_written_into_the_json_file_world_readable(
     path = tmp_path / "credentials.json"
     assert json.loads(path.read_text())["google"] == SECRET, "stored"
     assert stat.S_IMODE(path.stat().st_mode) & 0o077 == 0, "owner only"
+
+
+def test_an_anonymous_caller_cannot_write_a_credential_on_a_published_bind() -> None:
+    """§9.6.0: an anonymous identity on a non-loopback bind must not write keys.
+
+    This guard shipped unreachable. It asked `getattr(identity, "is_anonymous",
+    False)` and `ClientApplication` has never carried that attribute, so the
+    default answered every call and the refusal was dead code — on a published
+    bind any unauthenticated caller could write, delete or re-point a provider
+    credential. Nothing failed, because a missing predicate reads as "permitted".
+
+    The three cases are asserted together because the bug is only visible in the
+    contrast: a loopback bind is *meant* to permit anonymous writes, so testing
+    the refusal alone would pass against a guard that refused everybody.
+    """
+    from ravis.api.management.credentials import _may_write
+    from ravis.identity import anonymous_identity
+
+    class _Request:
+        def __init__(self, settings: Settings, identity: object) -> None:
+            self.app = type("_App", (), {"state": type("_S", (), {"settings": settings})()})()
+            self.state = type("_St", (), {"identity": identity})()
+
+    published = Settings(host="0.0.0.0", client_credential="secret")
+    assert not published.is_loopback_bind(), "the case this guard exists for"
+
+    anonymous = anonymous_identity(published)
+    assert anonymous.is_anonymous, "the predicate the guard reads"
+    refusal = _may_write(_Request(published, anonymous))
+    assert refusal is not None, "an anonymous caller must be refused"
+    assert "authenticated" in refusal
+
+    named = anonymous_identity(published).__class__(
+        application_id="client.nervis", label="NERVIS", rate_limit_per_minute=60
+    )
+    assert not named.is_anonymous
+    assert _may_write(_Request(published, named)) is None, "a named caller may write"
+
+    loopback = Settings(host="127.0.0.1")
+    assert _may_write(_Request(loopback, anonymous_identity(loopback))) is None, (
+        "a loopback bind is reachable only from this machine, which is the "
+        "deployment this endpoint is for"
+    )
