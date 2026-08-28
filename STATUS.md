@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1304 tests, no network, no live service
+.venv/bin/pytest                      # part of 1306 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 183 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1304 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1306 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -5177,6 +5177,17 @@ Fish, the browser reads everything* — instead of being overloaded into a secon
 limit". The number is editable whether or not it is being enforced, because setting a limit and then
 switching it on is the order anybody does it in. The counter runs either way, so the figure is
 there to look at before deciding to enforce anything.
+
+**Giving a model the time makes it say the time.** Four replies in a row opened with a clock
+reading nobody asked for — *"it's 04:03 and you just deleted every conversation"*, *"judging your
+life choices at 04:06"*. The greeting already had a rule against reciting it; the rule was needed
+on every turn. It is there so she can *answer* about it, not decorate with it.
+
+**And a coarse reading gets sharpened.** Asked a question fifty seconds after the previous one,
+she said *"you asked this fifty seconds ago"* — correct by luck, from a reading that said only
+"less than a minute". A rule against inventing a duration is worth nothing if the true one is
+withheld, so the gap is given in seconds under the minute and the instruction says not to make it
+more precise than it is written.
 
 **Turns carry a timestamp, and the model carries a clock.** The transcript shows the time of each
 turn in 24-hour form, in the reader's own zone — stored as an instant and formatted at paint time,

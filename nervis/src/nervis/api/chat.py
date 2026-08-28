@@ -705,6 +705,13 @@ def _clock(database: Any, conversation_id: str) -> str:
     answer. A gap NERVIS computed from two stored timestamps is a reading like
     any other; a gap a model felt is not.
 
+    **And handing it over reads as an invitation, which had to be withdrawn in
+    the same breath.** Given the time, a model opens with it: "it's 04:03 and
+    you just deleted every conversation", "judging your life choices at 04:06",
+    a reading in every single reply. It is available for answering *about*, not
+    for decorating with — the same rule the greeting already had, now stated for
+    every turn.
+
     Local time, with the zone named, because that is the clock the person
     reading it is on. The stored timestamps are UTC and are converted here
     rather than compared as strings, which is the bug this shape usually has.
@@ -715,8 +722,12 @@ def _clock(database: Any, conversation_id: str) -> str:
     if quiet:
         said.append(quiet)
     said.append(
-        "Those two are measurements and you may state them. Any other stretch of "
-        "time is not yours to invent."
+        "Those two are here so you can *answer* about them. Do not mention the "
+        "time or how long they have been away unless they ask, or unless it is "
+        "genuinely the point of what you are saying — a clock reading dropped "
+        "into an ordinary reply is filler, and doing it every time is worse. "
+        "When you do state one, never make it more precise than it is written "
+        "here, and any other stretch of time is not yours to invent."
     )
     return " ".join(said)
 
@@ -736,9 +747,16 @@ def _quiet_for(database: Any, conversation_id: str, now: datetime) -> str:
         last = datetime.fromisoformat(str(row["created_at"])).replace(tzinfo=timezone.utc)
     except ValueError:
         return ""
-    minutes = int((now - last).total_seconds() // 60)
-    if minutes < 1:
-        return "They said something less than a minute ago."
+    seconds = int((now - last).total_seconds())
+    # **Seconds under the minute, rather than "less than a minute".** Given the
+    # coarse phrasing, a model states a fine one anyway: asked a question fifty
+    # seconds after the last, it answered "you asked this fifty seconds ago" —
+    # right by luck, from a reading that did not contain it. The rule against
+    # inventing a duration is worth nothing if the true one is withheld, so the
+    # measurement is given at the precision it is wanted at.
+    if seconds < 60:
+        return f"They last said something {seconds} second{'s' if seconds != 1 else ''} ago."
+    minutes = seconds // 60
     if minutes < 60:
         return f"They last said something {minutes} minute{'s' if minutes > 1 else ''} ago."
     hours = minutes // 60

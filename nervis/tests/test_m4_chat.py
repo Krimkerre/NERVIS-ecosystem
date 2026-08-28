@@ -902,7 +902,7 @@ def test_the_quiet_gap_is_measured_from_stored_turns() -> None:
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
     system = sent[0]["messages"][0]["content"]
-    assert "They said something less than a minute ago." in system
+    assert "They last said something 0 seconds ago." in system
 
 
 def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
@@ -974,3 +974,58 @@ def test_a_ravis_refusal_mid_stream_is_reported_as_itself() -> None:
     answered = turn(client, "say ok")
 
     assert "circuit open after 3 consecutive failures" in answered.text
+
+
+def test_the_gap_is_given_in_seconds_rather_than_rounded_away() -> None:
+    """It used to say "less than a minute ago", and a model asked a question
+    fifty seconds after the previous one answered "you asked this fifty seconds
+    ago" — right by luck, from a reading that did not contain it.
+
+    A rule against inventing a duration is worth nothing if the true one is
+    withheld, so the measurement is given at the precision it is wanted at, and
+    the instruction says not to sharpen it further.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api(frames("sure"))
+    held = turn(client, "first").headers["x-conversation-id"]
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "seconds ago" in system
+    assert "never make it more precise than it is written here" in system
+
+
+def test_the_clock_is_for_answering_about_not_for_garnish() -> None:
+    """Handed the time, a model says it every turn — "it's 04:03 and you just
+    deleted every conversation", "judging your life choices at 04:06". Four
+    replies in a row opened with a clock reading nobody had asked for.
+
+    The greeting already had this rule; it needed to apply to every turn.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api()
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
+
+    system = sent[0]["messages"][0]["content"]
+    assert "Do not mention the time" in system
+    assert "unless they ask" in system
+    # Still given, which is the whole distinction.
+    assert "The current local time is" in system
