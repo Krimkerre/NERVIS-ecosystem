@@ -30,6 +30,7 @@ import hmac
 from dataclasses import dataclass
 
 from ravis.config import Settings
+from ravis.policy import PrivacyLevel
 
 # The header a client presents its credential in. Bearer is used because every
 # OpenAI-compatible client already knows how to send it, which is what lets an
@@ -51,16 +52,29 @@ class ClientApplication:
     label: str
     rate_limit_per_minute: int
 
-    # **Two fields were removed from here, and their absence is the honest
-    # state.** `may_declare_background_calls` and `max_privacy_level` recorded
-    # §9.6.1's background marker and §9.6.0's privacy ceiling — both trust
-    # boundaries, both set on every identity, and both read by nothing but a
-    # test asserting the constructor had set them.
+    # **Both fields are back, and both are now read on the routing path.** They
+    # were removed once, deliberately: they recorded §9.6.1's background marker
+    # and §9.6.0's privacy ceiling, both trust boundaries, and nothing but a
+    # constructor test read either. A field describing an unenforced boundary is
+    # worse than no field, because it reads as protection.
     #
-    # A field describing an unenforced boundary is worse than no field: it reads
-    # as protection. Neither can be enforced before M16, because neither the
-    # background-call class nor the privacy ladder exists to enforce them
-    # against. They come back with the engine that checks them.
+    # What makes them honest now is `policy.py`. `effective_policy` reads the
+    # ceiling to floor a request's privacy level, and `policy_exclusions`
+    # applies the background class as a hard exclusion — so a change to either
+    # value changes which models a request may reach, which is the only thing
+    # that makes a permission field true.
+
+    # Whether §9.6.1's background marker is honoured from this caller. False for
+    # `anonymous`: the marker buys cost and rate-limit relief, so honouring it
+    # from an unauthenticated caller would let any local process claim the
+    # relief by asserting it.
+    may_declare_background_calls: bool = False
+
+    # The most *permissive* privacy posture this identity may operate at
+    # (§9.6.0's "no privacy level above NORMAL" for anonymous). A request may
+    # tighten past it and may never loosen below it — see `policy.py`, which
+    # documents why that direction was chosen rather than read off the spec.
+    max_privacy_level: PrivacyLevel = PrivacyLevel.NORMAL
 
 
 def anonymous_identity(settings: Settings) -> ClientApplication:
@@ -75,6 +89,11 @@ def anonymous_identity(settings: Settings) -> ClientApplication:
         application_id="anonymous",
         label="anonymous",
         rate_limit_per_minute=settings.anonymous_rate_limit_per_minute,
+        # Both spelled out rather than left to the field defaults. They *are*
+        # the defaults, and that is exactly why an unauthenticated caller's
+        # privileges should be readable here without opening the dataclass.
+        may_declare_background_calls=False,
+        max_privacy_level=PrivacyLevel.NORMAL,
     )
 
 
@@ -115,4 +134,10 @@ def resolve_identity(headers: dict[str, str], settings: Settings) -> ClientAppli
         application_id="configured",
         label="configured",
         rate_limit_per_minute=settings.rate_limit_per_minute,
+        # An authenticated caller may declare background calls. This is the
+        # single privilege the credential buys beyond the higher rate limit, and
+        # §9.6.1 is explicit that it buys nothing else: no policy exemption, no
+        # provider access, no management authority.
+        may_declare_background_calls=True,
+        max_privacy_level=PrivacyLevel.NORMAL,
     )

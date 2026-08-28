@@ -2068,6 +2068,13 @@ const API={
     requires:x.requirements,
     members:x.member_count,
     available:x.available,
+    /* M16, RAVIS.md §5.4. A revision exists so a consumer can pin it and be
+       told when the pool starts choosing differently — and NERVIS is the
+       consumer, so dropping it here would leave the field true on the API and
+       invisible to the only thing reading it. Derived from the pool's
+       behaviour, not its wording: a reworded description keeps the revision. */
+    version:x.version||null,
+    revision:x.revision||null,
     reason:null}))}))},
 
   async _poolsMock(){
@@ -5166,7 +5173,7 @@ const POOLEDIT={
 
 function poolRow(x,inv){
  const key=x.pool_id.replace(/^ravis\//,'');
- return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${escapeHtml(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${x.pool_id}</a></span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${warnUnless(x.available)}">${x.available?'yes':'no'}</span><span style="opacity:.7">${dash(x.reason)}</span></div>
+ return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${escapeHtml(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${x.pool_id}</a>${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${inv(x.requires)}</span><span>${x.members}</span><span class="chip${warnUnless(x.available)}">${x.available?'yes':'no'}</span><span style="opacity:.7">${dash(x.reason)}</span></div>
   <div id="pm-${escapeHtml(key)}" class="model-picker" style="display:none">
    <div class="picker-head">
     <input class="picker-search mono" placeholder="filter this pool\u2019s candidates\u2026"

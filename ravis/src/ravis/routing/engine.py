@@ -39,6 +39,7 @@ from ravis.core.pools import (
     size_rank,
 )
 from ravis.core.requests import NormalizedRequest
+from ravis.policy import RoutingPolicy
 from ravis.routing.explain import ExcludedCandidate, RouteDecision
 from ravis.routing.requirements import RequestRequirements, analyse, unmet_by, unverified_notes
 from ravis.runtime.residency import Residency, ResidencySnapshot, residency_rank
@@ -73,6 +74,8 @@ class RoutingEngine:
         remote_models: frozenset[str] = frozenset(),
         chosen: tuple[str, ...] = (),
         observed_ttft_ms: Mapping[str, float] | None = None,
+        policy: RoutingPolicy | None = None,
+        policy_refusals: Mapping[str, list[str]] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -92,7 +95,21 @@ class RoutingEngine:
         health lives in the reliability layer, and keeping the engine a pure
         function of its arguments is what makes §9.7's determinism gate
         testable.
+
+        `policy_refusals` arrives computed, in the same shape and for the same
+        reason as `unavailable`: deciding whether a model is forbidden needs to
+        know which provider serves it and whether that provider is on this
+        machine, and neither is something a pure function of a capability table
+        can answer. The engine's job is to *apply* the refusals and report them,
+        which is what keeps §14's rule 14 structural — a policy exclusion is
+        removed before ranking, so no score can outweigh it.
+
+        `policy` itself comes along for what it says rather than what it
+        forbids: the explanation lines, and `LOCAL_PREFERRED`, which is the one
+        rung of the ladder that ranks instead of excluding.
         """
+        policy = policy or RoutingPolicy()
+        refusals = policy_refusals or {}
         requirements = analyse(request) if request else RequestRequirements()
         if is_pool_id(requested):
             return self._select_from_pool(
@@ -105,12 +122,15 @@ class RoutingEngine:
                 remote_models,
                 chosen,
                 observed_ttft_ms or {},
+                policy,
+                refusals,
             )
 
         target = direct_target(requested)
         if target is not None:
             return self._direct(requested, target, candidates, requirements,
-                                direct_provider(requested) in foreign_providers)
+                                direct_provider(requested) in foreign_providers,
+                                refusals.get(target) or refusals.get(requested) or [])
 
         if requested.startswith(POOL_PREFIX):
             return _unknown_address(requested, candidates)
@@ -121,11 +141,25 @@ class RoutingEngine:
         # request's own requirements are reported but not enforced — refusing a
         # model the client named by name would be RAVIS overruling an explicit
         # instruction on the strength of capability data it may not have.
+        # **Policy still applies to a name the client chose itself.** §5.3 puts
+        # an explicit request above inference, and policy is not inference — a
+        # `LOCAL_ONLY` request that names a hosted model by hand is the exact
+        # case the level exists to stop. Refusing it is §9.2's structured
+        # no-route, not a substitution: RAVIS does not pick something else.
+        forbidden = refusals.get(requested)
+        if forbidden:
+            return RouteDecision(
+                requested=requested,
+                selected=None,
+                reason="refused by policy; RAVIS does not route around a policy constraint",
+                excluded=[ExcludedCandidate(model=requested, reasons=forbidden)],
+                requirements=requirements.describe() + policy.describe(),
+            )
         return RouteDecision(
             requested=requested,
             selected=requested,
             reason="named directly by the client; no pool resolution applied",
-            requirements=requirements.describe(),
+            requirements=requirements.describe() + policy.describe(),
         )
 
     def _direct(
@@ -135,6 +169,7 @@ class RoutingEngine:
         candidates: dict[str, ModelCapabilities],
         requirements: RequestRequirements,
         foreign: bool = False,
+        forbidden: list[str] | None = None,
     ) -> RouteDecision:
         """Handle `ravis/<provider>/<model>`.
 
@@ -149,6 +184,18 @@ class RoutingEngine:
         request the moment the local upstream had any models at all — existence
         is real, but only the owning provider can answer it.
         """
+        # **This reason string has always said "policy still applies"** — it
+        # said so from M5, and until M16 nothing checked any. A direct address
+        # bypasses *selection*; it was never meant to bypass a boundary, and a
+        # privacy level anybody can step around by naming a model is not one.
+        if forbidden:
+            return RouteDecision(
+                requested=requested,
+                selected=None,
+                reason="refused by policy; a direct address does not bypass a policy constraint",
+                excluded=[ExcludedCandidate(model=target, reasons=forbidden)],
+                requirements=requirements.describe(),
+            )
         if not foreign and candidates and target not in candidates:
             return RouteDecision(
                 requested=requested,
@@ -176,19 +223,26 @@ class RoutingEngine:
         remote: frozenset[str] = frozenset(),
         chosen: tuple[str, ...] = (),
         observed: Mapping[str, float] | None = None,
+        policy: RoutingPolicy | None = None,
+        refusals: Mapping[str, list[str]] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
-        Two independent sets of hard constraints apply, and both are checked
+        Three independent sets of hard constraints apply, and all are checked
         before anything is ranked (§9.1): the pool's own invariants, which are
-        configuration, and the request's requirements, which are derived from
-        what the client sent. A candidate failing either is gone before scoring.
+        configuration; the request's requirements, derived from what the client
+        sent; and the application's policy, resolved from its identity. A
+        candidate failing any of them is gone before scoring — which is how §14's
+        "privacy constraints can never be overridden by score" is a property of
+        the structure rather than a rule someone has to remember.
         """
+        policy = policy or RoutingPolicy()
+        refusals = refusals or {}
         decision = RouteDecision(
             requested=pool.pool_id,
             pool_id=pool.pool_id,
             considered=sorted(candidates),
-            requirements=_all_requirements(pool, requirements),
+            requirements=_all_requirements(pool, requirements) + policy.describe(),
             unverified=unverified_notes(requirements, candidates),
         )
         # An operator's selection wins outright; the pool's own default applies
@@ -201,11 +255,12 @@ class RoutingEngine:
         )
         by_default = not chosen
         decision.excluded = _exclusions(
-            pool, candidates, requirements, unavailable, remote, effective, by_default
+            pool, candidates, requirements, unavailable, remote, effective, by_default,
+            refusals,
         )
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
-            effective, observed or {},
+            effective, observed or {}, refusals, policy,
         )
 
         if not eligible:
@@ -320,12 +375,13 @@ def _exclusions(
     remote: frozenset[str] = frozenset(),
     chosen: tuple[str, ...] = (),
     by_default: bool = False,
+    refusals: Mapping[str, list[str]] | None = None,
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
-    Pool invariants, request requirements and open circuits are reported
+    Pool invariants, request requirements, policy and open circuits are reported
     together and undifferentiated, because the person reading this wants to know
-    why a model was not used — not which of three rule sources rejected it.
+    why a model was not used — not which of four rule sources rejected it.
 
     An open circuit is listed here, among the hard exclusions, rather than
     treated as a preference. §10 is unambiguous that a failing provider is to be
@@ -342,6 +398,7 @@ def _exclusions(
                 else "not among the models chosen for this pool"
             )
         reasons += unmet_by(requirements, candidates[model])
+        reasons += (refusals or {}).get(model, [])
         refused = model in unavailable
         if refused:
             reasons.append(unavailable[model])
@@ -362,6 +419,8 @@ def _rank(
     remote: frozenset[str] = frozenset(),
     chosen: tuple[str, ...] = (),
     observed: Mapping[str, float] | None = None,
+    refusals: Mapping[str, list[str]] | None = None,
+    policy: RoutingPolicy | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -376,11 +435,17 @@ def _rank(
     criterion, that pressure produces a safe route change, and it changes the
     route without ever changing what the pool is allowed to select.
     """
+    refusals = refusals or {}
+    policy = policy or RoutingPolicy()
     members = [
         model for model, known in candidates.items()
         if not pool.requirements.unmet_by(known, remote=model in remote)
         and not unmet_by(requirements, known)
         and model not in unavailable
+        # Removed here, not penalised in `key` below. §14's rule 14 is that a
+        # privacy constraint cannot be overridden by score, and the only way to
+        # guarantee that is for the candidate never to reach the scoring.
+        and model not in refusals
         # An operator's selection narrows what the invariants already allowed.
         # Applied *after* them, never instead: `ravis/local` promises the
         # request never leaves this machine, and a promise somebody can tick
@@ -419,6 +484,17 @@ def _rank(
             terms.append(_speed_rank(model, observed or {}, pool.speed_bucket_ms))
         if pool.prefer_cheap:
             terms.append(_price_rank(candidates.get(model)))
+        # **Policy's preference leads the pool's own.** `LOCAL_PREFERRED` is the
+        # application saying where its data should go; `prefer_local` is a pool
+        # saying what it is for. When both speak, the one that came from the
+        # identity wins the first position — a pool preference is a default and
+        # a privacy posture is a request, and it would be strange for the
+        # default to outrank it.
+        #
+        # Still only a preference: the ladder's hard rungs excluded their
+        # candidates above, and this one deliberately did not.
+        if policy.prefers_local:
+            terms.append(0.0 if model not in remote else 1.0)
         if pool.prefer_local:
             terms.append(0.0 if model not in remote else 1.0)
         terms.extend((warmth, preference) if pressured else (preference, warmth))

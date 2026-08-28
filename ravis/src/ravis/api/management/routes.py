@@ -156,6 +156,12 @@ async def read_pools(request: Request) -> dict[str, Any]:
                 "pool_id": pool.pool_id,
                 "label": pool.label,
                 "description": pool.description,
+                # §5.4, and what moves `ravis.virtual_profiles@1` off DEGRADED:
+                # a consumer may pin the revision and be told when the pool's
+                # behaviour changes under it. Derived from the definition, so it
+                # cannot claim a stability the pool does not have.
+                "version": pool.version,
+                "revision": pool.revision,
                 "requirements": {
                     "required": sorted(
                         capability.value for capability in pool.requirements.required

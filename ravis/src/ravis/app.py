@@ -49,6 +49,7 @@ from ravis.evidence import EvidenceStore
 from ravis.identity import resolve_identity
 from ravis.model_filter import ModelFilters
 from ravis.observations import Observations
+from ravis.policy import load_policies
 from ravis.pool_membership import PoolMembership
 from ravis.provider_state import ProviderState
 from ravis.providers.anthropic import AnthropicAdapter
@@ -201,6 +202,14 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.credentials = CredentialStore(
         allow_environment=settings.credentials_allow_environment,
     )
+    # §9.6's application policy. Loaded once at startup and deliberately *not*
+    # re-read per request, unlike the provider toggles below: those fail open by
+    # design, and this must not — a policy file that becomes unreadable while
+    # RAVIS is running must not quietly downgrade every request already covered
+    # by it. A malformed file raises here and stops startup, which is the
+    # failure an operator can see and fix.
+    api.state.policies = load_policies()
+
     # Which providers an operator has switched off (M10). Read on every routing
     # pass rather than cached, so a toggle takes effect on the next request
     # instead of the next restart — the file is small and local.

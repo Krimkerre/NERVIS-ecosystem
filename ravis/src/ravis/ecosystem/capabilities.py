@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from ecosystem_protocol import AVAILABLE, DEGRADED, UNAVAILABLE, Capability, EcosystemSurface
 
+from ravis.core.pools import DEFAULT_POOLS
+
 # The build's own version, distinct from the protocol it speaks. Consumers must
 # never infer behaviour from this (runbook §4.2) — that is what capabilities are
 # for — but it belongs in a bug report.
@@ -73,9 +75,12 @@ DECLARED: dict[str, Capability] = {
     # estimate as an invoice is the same rule in a different costume.
     "ravis.virtual_profiles@1": Capability(
         version="1.0.0",
-        state=DEGRADED,
-        reason="pools route and are queryable; versioning and revisions land with M16",
-        constraints={"pools": 13, "versioned": False},
+        state=AVAILABLE,
+        reason="pools route, are queryable, and carry a revision a consumer can pin",
+        # 14, counted rather than remembered — the constant said 13 while
+        # fourteen pools were being served, which is the kind of number that
+        # only ever gets checked when somebody is already confused.
+        constraints={"pools": len(DEFAULT_POOLS), "versioned": True},
     ),
     "ravis.sessions@1": Capability(
         version="1.0.0", state=UNAVAILABLE, reason="sessions land at M11"

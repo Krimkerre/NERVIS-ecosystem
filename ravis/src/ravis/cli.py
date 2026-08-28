@@ -19,6 +19,7 @@ from ecosystem_protocol import configure_logging
 
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
 from ravis.credentials import CredentialStore
+from ravis.policy import PolicyConfigurationError, load_policies
 from ravis.providers_map import resolve_provider_map, shared_provider_names
 from ravis.upstreams import UpstreamConfigurationError, upstream_specs
 
@@ -131,6 +132,34 @@ def _print_provider_map(settings: Settings) -> None:
     for entry in entries:
         print(f"  {entry.model:<24} {entry.provider:<22} {entry.decided_by}")
     _print_shared_names(settings)
+    _print_policies()
+
+
+def _print_policies() -> None:
+    """What policy is configured, or that none is — and never a crash.
+
+    `serve` refuses to start on a malformed policy file, on purpose. `doctor`
+    must do the opposite and report it, because it is the command someone runs
+    *because* the service will not start, and a diagnostic that dies on the
+    thing it is diagnosing is worse than none.
+    """
+    try:
+        policies = load_policies()
+    except PolicyConfigurationError as failure:
+        print(f"\n  policy: UNREADABLE — {failure}")
+        print("          `serve` will refuse to start until this is fixed.")
+        return
+    configured = sorted(policies.by_application)
+    described = policies.default.describe()
+    if not configured and not described:
+        print("\n  policy: none configured (every application routes unrestricted)")
+        return
+    print("\n  policy")
+    for line in described:
+        print(f"    default: {line}")
+    for name in configured:
+        for line in policies.by_application[name].describe():
+            print(f"    {name}: {line}")
 
 
 def _print_shared_names(settings: Settings) -> None:

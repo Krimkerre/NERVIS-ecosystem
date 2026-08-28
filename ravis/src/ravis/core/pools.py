@@ -15,9 +15,11 @@ a broken tool call far from its cause.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from hashlib import sha256
 
 from ravis.core.capabilities import Capability, ModelCapabilities
 
@@ -173,6 +175,61 @@ class VirtualModelPool:
     # today, and offering two identical options invites somebody to reason about
     # a difference that is not there.
     listed: bool = True
+
+    # §5.4's version, bumped by hand when a pool's *meaning* changes — when
+    # `ravis/cheap` starts meaning something a consumer would want to know
+    # about, not when its wording is tidied.
+    version: str = "1"
+
+    @property
+    def revision(self) -> str:
+        """A stable fingerprint of this pool's behaviour (§5.4).
+
+        **Derived rather than stored, so it cannot drift from what it names.** A
+        hand-maintained revision is a number somebody forgets to increment, and
+        a consumer pinning a stale one is worse off than a consumer who could
+        not pin at all: they believe they are protected.
+
+        `clarvis-chat` and `clarvis-agent` get independent revisions for free,
+        which §5.4 requires explicitly — each hash covers only its own pool, so
+        changing one cannot move the other.
+
+        **Label and description are excluded on purpose.** A pin is a claim
+        about how the pool selects, and fixing a typo in a description must not
+        invalidate every consumer's pin. Everything that changes *which model
+        comes back* is in here; nothing that only changes how it reads is.
+        """
+        return sha256(self._definition().encode()).hexdigest()[:12]
+
+    def _definition(self) -> str:
+        """The behavioural definition, rendered canonically.
+
+        Sorted and explicit rather than `repr()` of the dataclass: `repr` would
+        fold in the label and description, and would change shape if a field
+        were reordered — turning a cosmetic edit into a revision bump and
+        breaking every pin for no reason.
+        """
+        requirements = {
+            "required": sorted(item.value for item in self.requirements.required),
+            "minimum_context": self.requirements.minimum_context,
+            "locality": self.requirements.locality,
+        }
+        return json.dumps(
+            {
+                "pool_id": self.pool_id,
+                "version": self.version,
+                "requirements": requirements,
+                "prefer": list(self.prefer),
+                "prefer_local": self.prefer_local,
+                "prefer_remote": self.prefer_remote,
+                "prefer_cheap": self.prefer_cheap,
+                "prefer_fast": self.prefer_fast,
+                "speed_bucket_ms": self.speed_bucket_ms,
+                "max_price_per_million": self.max_price_per_million,
+                "default_tier": self.default_tier,
+            },
+            sort_keys=True,
+        )
 
     def eligible(
         self,

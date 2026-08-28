@@ -45,6 +45,13 @@ from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
 from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.policy import (
+    ApplicationPolicies,
+    PrivacyLevel,
+    RoutingPolicy,
+    effective_policy,
+    policy_refusals,
+)
 from ravis.providers.base import ProviderAdapter, TranslatingAdapter, TranslationError
 from ravis.registry import ModelRegistry
 from ravis.reliability import (
@@ -533,6 +540,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         adapter: ProviderAdapter = request.app.state.adapter
         candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
         residency = registry.residency
+    remote = remote_models(transparents) | frozenset(
+        getattr(request.state, "translated_owners", {})
+    )
+    policy = _policy_for(request, payload)
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -552,8 +563,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # with an OpenRouter model.
         # Every translated provider is hosted, so its models are remote — which
         # is what keeps them out of `ravis/local` now that they are candidates.
-        remote_models=remote_models(transparents)
-        | frozenset(getattr(request.state, "translated_owners", {})),
+        remote_models=remote,
         # An operator's narrowing of this pool, if they made one. Read per
         # request for the same reason the provider toggles are.
         chosen=_chosen(request, payload.get("model") or ""),
@@ -564,6 +574,19 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.
         unavailable=health.unavailable(list(candidates), _provider_of(request)),
+        # §9.6's policy, resolved from the identity and what the request
+        # declared. Computed here rather than in the engine because deciding
+        # whether a model is forbidden needs its provider and whether that
+        # provider is on this machine, and the engine is a pure function of a
+        # capability table that knows neither.
+        policy=policy,
+        policy_refusals=policy_refusals(
+            policy,
+            candidates,
+            addressed=payload.get("model") or "",
+            provider_of=_provider_of(request),
+            remote=remote,
+        ),
     )
     # Recorded rather than recomputed. Re-running the router later would use a
     # different catalogue, residency and memory reading, and could reach a
@@ -580,6 +603,33 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     request.state.decision_id = recorded.decision_id
     request.state.recorded_decision = recorded
     return decision
+
+
+def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
+    """The policy governing this request (§9.6).
+
+    Two sources, combined by `effective_policy`: what the operator configured
+    for this application id, and what the request itself declared. The identity
+    is read from request state rather than from the payload — §9.6.0 is explicit
+    that a claimed identity is never accepted, and this is one of the places
+    where reading `payload["application"]` would look natural and be a hole.
+
+    Falls back to `anonymous`'s posture when no identity was resolved: absent is
+    a domain value here, and the least-privileged answer is the safe one.
+    """
+    identity = getattr(request.state, "identity", None)
+    policies: ApplicationPolicies = getattr(
+        request.app.state, "policies", ApplicationPolicies()
+    )
+    configured = policies.for_application(
+        identity.application_id if identity else "anonymous"
+    )
+    return effective_policy(
+        configured,
+        metadata=payload.get("metadata") or {},
+        may_declare_background=bool(identity and identity.may_declare_background_calls),
+        ceiling=identity.max_privacy_level if identity else PrivacyLevel.NORMAL,
+    )
 
 
 def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:

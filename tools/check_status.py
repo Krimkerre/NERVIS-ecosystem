@@ -165,7 +165,7 @@ def check_next_milestone_is_not_already_done(text: str, failures: list[str]) -> 
     next_section = text.split("### Next")[1].split("### After that")[0] if "### Next" in text else ""
     done = set(_milestones(done_section))
     upcoming = set(_milestones(next_section))
-    for milestone in sorted(done & upcoming):
+    for milestone in sorted(_collisions(done, upcoming)):
         # A milestone deliberately split across stages is named as split on at
         # least one side — "**M14** *(observation half)*" in Done, "**The rest
         # of M14**" in Next. That is a disclosed decision rather than a
@@ -174,6 +174,37 @@ def check_next_milestone_is_not_already_done(text: str, failures: list[str]) -> 
         if _is_declared_split(milestone, done_section, next_section):
             continue
         failures.append(f"{milestone} is listed as both done and next")
+
+
+def _collisions(done: set[str], upcoming: set[str]) -> set[str]:
+    """The milestones named on both sides, tolerating one written bare.
+
+    A plain set intersection misses the case this file's own docstring warns
+    about — Done writing "RAVIS M8" while Next writes "M8" — and the previous
+    pattern only ever passed that self-test by accident, because its phantom
+    spans happened to also emit a bare id from the prose nearby. Removing the
+    phantom removed the accident and exposed the real gap.
+
+    So a bare `Mn` matches a `SERVICE Mn`, while two *different* services' Mn
+    never match each other: SIRVIS M10 and RAVIS M10 are genuinely different
+    milestones, which is why the service prefix is kept in the first place.
+    A bare id that matches something done is worth reporting even when the
+    author meant another service's — the ambiguity is the problem.
+    """
+    found = set()
+    for name in upcoming:
+        for other in done:
+            if name == other or _same_number(name, other):
+                found.add(name)
+    return found
+
+
+def _same_number(one: str, other: str) -> bool:
+    """Whether these name the same milestone with only one side qualified."""
+    bare_one, bare_other = one.split()[-1], other.split()[-1]
+    if bare_one != bare_other:
+        return False
+    return " " not in one or " " not in other
 
 
 # Words that mark a milestone as knowingly split rather than accidentally
@@ -217,12 +248,19 @@ def _is_declared_split(milestone: str, done_section: str, next_section: str) -> 
 # Getting that wrong is not cosmetic: Done wrote "RAVIS M8" while Next wrote
 # "M8", the two sets never intersected, and the check stayed silent — the same
 # failure in a new place.
-# The closing `**` is required. Without it the *closing* delimiter of one bold
-# span becomes the opening of a phantom one, and the id is read out of the plain
-# text that follows — which is how "M11" was picked up from a row whose bold
-# name is "Stage 6 — NERVIS core".
+# **Bold spans are paired first, then searched.** Requiring a closing `**` in one
+# pattern is not enough and the previous version of this comment said it was: the
+# *closing* delimiter of one span pairs with the *opening* delimiter of the next,
+# forming a phantom span over the plain text between them. That is how "M11" was
+# read out of the row whose bold name is "Stage 6 — NERVIS core" — its
+# description mentions M11, and the phantom span reached from that row's closer
+# to the following row's opener.
+#
+# `findall` consumes matches left to right without overlapping, so pairing the
+# spans first makes a delimiter belong to exactly one of them.
+_BOLD = re.compile(r"\*\*([^*]+)\*\*")
 _MILESTONE = re.compile(
-    r"\*\*[^*]*?\b((?:RAVIS|SIRVIS|NERVIS)\s+M\d+[ab]?|M\d+[ab]?)\b[^*]*?\*\*"
+    r"\b((?:RAVIS|SIRVIS|NERVIS)\s+M\d+[ab]?|M\d+[ab]?)\b"
 )
 
 
@@ -234,7 +272,11 @@ def _milestones(section: str) -> list[str]:
     exists to catch. Service prefixes are kept where present so that SIRVIS M10
     and RAVIS M10 — genuinely different milestones — never collide.
     """
-    return [" ".join(match.split()) for match in _MILESTONE.findall(section)]
+    return [
+        " ".join(found.split())
+        for span in _BOLD.findall(section)
+        for found in _MILESTONE.findall(span)
+    ]
 
 
 def main() -> int:
@@ -300,6 +342,19 @@ def self_test() -> list[str]:
         check_next_milestone_is_not_already_done(row, caught)
         if not caught:
             problems.append(f"self-test: {injected} in Next was not caught")
+
+    # A milestone named only in a row's *description* is not a claim that it is
+    # next, and must not be read as one. This is the phantom-span case above,
+    # written as a fixture so the pairing cannot regress into the old pattern.
+    prose_only = (
+        "### Done\n| 1 | **M11** | done |\n"
+        "### Next\n| 1 | **Stage 6** | M11 + M15 |\n| 2 | **M99** | later |\n"
+        "### After that\n"
+    )
+    misread: list[str] = []
+    check_next_milestone_is_not_already_done(prose_only, misread)
+    if misread:
+        problems.append(f"self-test: a milestone named only in prose was read as next: {misread}")
 
     # A declared split must not be reported: it is a recorded decision.
     if not _is_declared_split("M14", text.split("### Next")[0],

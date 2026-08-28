@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1329 tests, no network, no live service
+.venv/bin/pytest                      # part of 1355 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1329 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1355 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -107,6 +107,7 @@ into the order work actually happens.
 | 29 | **RAVIS M8** | The LM Studio and Ollama adapters, and `upstream_kind` selecting between them and the generic one. **Both verified live, 2026-08-24** — LM Studio's catalogue turns 12 of this machine's 20 builds from `UNKNOWN` into `ADVERTISED` tool support and gives every one a context window; Ollama's array proved to enumerate, so absence within it is now read as denial. It also produced the corpus's first catalogue-versus-measurement disagreement — settled below. Plural upstreams landed the same day — `RAVIS_UPSTREAMS`, per-upstream adapters and registries, name-addressing, and a collision rule three code paths share |
 | 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
 | 31 | **RAVIS M7** | Provider expansion. OpenRouter stays transparent, which is the measurement rather than the assumption. **Gemini moved to §6's translated path** after its OpenAI-compatible endpoint was measured reporting `finish_reason: stop` on a streamed tool call and omitting the tool-call index — both things Clarvis's agent role reads. A native Gemini adapter now makes the two providers indistinguishable on every surface §6 names, and `ravis conformance clarvis` stayed `PASS` throughout. Four judgement calls and two live-found bugs, settled below |
+| 32 | **RAVIS M16** *(policy; the reasoning tiebreak waits on SIRVIS M22b)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. Settled below |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
 close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
@@ -2050,15 +2051,16 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **RAVIS M16** | Policy. The route explanations already carry everything it needs to decide on |
-| 2 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
-| 3 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
+| 1 | **The rest of M14** | The load-versus-don't tradeoff. Blocked on M11 for expected session length |
+| 2 | **Stage 6 — NERVIS core** | M11 + M15. M14's remaining half is waiting on M11 anyway |
+| 3 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
 
-What is left of Stage 5 is RAVIS's remaining intelligence: the rest of **M14**
-and **M16** (policy). **M7 and M8 are done.** Stage 6 is NERVIS core — **M11** +
-**M15**.
+What is left of Stage 5 is RAVIS's remaining intelligence: the rest of **M14**.
+**M7, M8 and M16 are done**, M16 except for one tiebreak that is blocked on
+SIRVIS M22b and is recorded as unbuilt rather than quietly dropped. Stage 6 is
+NERVIS core — **M11** + **M15**.
 
 **M3b, M4 and M13 are done, out of stage order**, and all three for the same
 reason: §20.2 holds translation back until the transparent Clarvis slice works,
@@ -5046,6 +5048,76 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### M16 — policy, and the field that had to earn its way back
+
+M16's own text says why two fields were deleted at M0:
+`may_declare_background_calls` and `max_privacy_level` were set on every
+identity and read by nothing, and *a field describing an unenforced trust
+boundary reads as protection*. They come back here, and what makes them honest
+is that flipping either one now changes which models a request may reach. The
+test that used to assert their **absence** inverts rather than disappears: it no
+longer asks whether the attribute exists — which is what it could check before,
+and what proved nothing — but whether the permission changes the answer.
+
+**Every policy constraint is a hard exclusion, applied before ranking.** §14's
+rule 14 says privacy can never be overridden by score, and the only way to
+guarantee that is for a forbidden candidate never to reach the scoring. So
+policy removes candidates where the pool invariants do. `LOCAL_PREFERRED` is the
+single exception and is deliberately *not* an exclusion — it is the one rung of
+the ladder that ranks.
+
+M16's first exit criterion is that each hard constraint **provably excludes a
+top-ranked candidate**, which is stronger than excluding something: a constraint
+that only ever removes candidates nobody wanted is indistinguishable from one
+that does nothing. So the tests pin a control first — the hosted model wins
+`ravis/auto` unaided — and then show each constraint overturning that.
+
+**A policy file fails closed, and that is the opposite of `providers.json`.**
+That file's own comment explains why it fails open: an operator whose provider
+toggles got corrupted should find their providers working. It is exactly wrong
+here. A corrupted policy file that reads as "nothing is restricted" turns
+`LOCAL_ONLY` off without telling anyone. So a malformed file raises, `serve`
+refuses to start, and `doctor` catches it and prints it — because the command
+you run *because* the service will not start must not be the one that dies on
+it.
+
+**Live verification found the gap.** Sent through the running gateway, an
+anonymous request marked `background` routed to a paid provider — which is
+§9.6.1 working exactly as written, since the marker is honoured only from an
+authenticated identity. But the route explanation read `requirements: none`. The
+routing was right and the account of it was silent about the only thing the
+caller had asked for, which is a caller being billed while believing otherwise.
+An unhonoured marker now says so in the explanation.
+
+With an authenticated identity the gate itself holds, on the live service and
+against OpenRouter's real catalogue:
+
+    authenticated, ordinary     ->  aion-labs/aion-2.0        (paid)
+    authenticated, background   ->  cohere/north-mini-code:free
+                                    415 candidates excluded, each naming §9.6.1
+
+Unpriced counts as paid, and that asymmetry is load-bearing: OpenAI, Google and
+Anthropic publish no pricing in their catalogues, so reading absence as free
+would leave the gate holding only for providers that happened to publish a
+number.
+
+**Pools now carry a version and a revision**, and the revision is derived from
+the pool's behaviour rather than stored. A hand-maintained revision is a number
+somebody forgets to increment, and a consumer pinning a stale one is worse off
+than one who could not pin at all, because they believe they are protected.
+Wording is excluded from the hash on purpose — fixing a typo in a description
+must not invalidate every pin. `clarvis-chat` and `clarvis-agent` get
+independent revisions for free, which §5.4 requires explicitly.
+`ravis.virtual_profiles@1` moves to `available`, and its `pools` constraint is
+now counted rather than remembered: it said 13 while fourteen were being served.
+
+**One part of M16 is not built.** The milestone also asks for a tiebreak that
+knows about reasoning overhead, and says in the same sentence that it needs
+SIRVIS M22b's measurement rather than a name-pattern guess. M22b is scheduled
+and unbuilt, so the tiebreak has no evidence to read and guessing from a model's
+name is the thing the milestone explicitly rules out. It is listed in Next
+rather than quietly dropped.
 
 ### RAVIS M7 — and the measurement that chose the path
 

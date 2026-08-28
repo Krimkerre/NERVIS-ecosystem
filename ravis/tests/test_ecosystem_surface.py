@@ -67,11 +67,13 @@ def test_only_conformance_passing_operations_are_advertised(settings: Settings) 
     # docstring above describes, one capability along.
     assert states["ravis.providers.native"] == "available"
     # And the same table read in the other direction. §4.1's condition for
-    # virtual profiles is *"profiles are versioned and revisioned"*, and
-    # `VirtualModelPool` has neither field. Thirteen pools route, so this is
-    # `degraded` rather than `unavailable` — but not `available`, because a peer
-    # reading that is entitled to pin a revision that does not exist.
-    assert states["ravis.virtual_profiles"] == "degraded"
+    # virtual profiles is *"profiles are versioned and revisioned"*. This was
+    # `degraded` for the whole of Stage 5 with the honest reason that a peer
+    # reading `available` is entitled to pin a revision, and there was none to
+    # pin. M16 gives every pool a version and a derived revision, so the
+    # condition is met and the state moves — which is the point of writing the
+    # condition down rather than the state.
+    assert states["ravis.virtual_profiles"] == "available"
 
 
 def test_anything_not_fully_available_says_why(settings: Settings) -> None:
