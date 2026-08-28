@@ -24,6 +24,23 @@
  * This needs services up to say anything, so it is a check you run, not a gate
  * that blocks a commit: with nothing running every card is identical between
  * the two passes and it reports exactly that.
+ *
+ * **Findings are leads, not verdicts.** Two shapes report as understating and
+ * are correct as they stand, so read the card before changing it:
+ *
+ *   • *Mixed provenance.* Discover's catalogue is a stored transcription that
+ *     carries one live figure — free disk, which decides whether a row can be
+ *     downloaded. Badging the whole card live would claim the catalogue is a
+ *     live read of what exists to download, which it is not.
+ *
+ *   • *A read that timed out in one pass.* `LIVE_TIMEOUT_MS` is 1500, and a
+ *     service that answers in the dark pass and times out in the lit one
+ *     changes the card's body without changing what it should claim. RAVIS's
+ *     Providers card moves in and out of this list on a busy machine.
+ *
+ * A card reporting the *same* body in both passes is invisible to this check
+ * either way — if a mock happens to match live output exactly, nothing here
+ * will notice.
  */
 const path = require("node:path");
 const { loadPage } = require("./page_context.js");

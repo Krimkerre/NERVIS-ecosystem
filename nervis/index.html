@@ -5618,7 +5618,10 @@ async function ravisPools(){
    ['Available',String(p.items.length-down.length),'have at least one member','ravis'],
    ['Strictest',`${agent.members} / ${mdl.items.length}`,agent.pool_id,'ravis'],
    ['Clarvis pools',String(p.items.filter(x=>x.pool_id.includes('clarvis')).length),'agent and chat','ravis']])
- +`<div class="card full"><h3>Pools</h3>${cell(`
+ /* `p.live`, which the adapter has reported since the pools fix. The table
+    below is §5's thirteen pools counted from what is actually installed, and
+    it rendered under a PROTOTYPE badge against a live RAVIS. */
+ +`<div class="card full${liveClass(p.live)}"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>poolRow(x,inv)).join('')}
    <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${agent.pool_id}</b> means ${(agent.requires.required||[]).join(' and ')||'no capability'} REQUIRED${agent.requires.minimum_context?` and context at least ${agent.requires.minimum_context/1024}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
