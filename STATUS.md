@@ -5093,6 +5093,36 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### The cost data, on a screen
+
+M15's figures had nowhere to be read. The Spend tile said *"not measured · the
+cost engine lands at M15"* — true when written and false the moment M15 landed
+— and the mock beside it carried `spend_today_eur` and `budget_used_pct`,
+neither of which `/api/v1/usage` has ever published. A mock whose field names
+cannot be confused with the real payload is a mock that never catches a rename,
+so it now uses RAVIS's own.
+
+The Spend tile reads the real estimate and carries its **coverage**: two of two
+calls priced, not a bare total. A sum whose coverage is invisible reads as
+complete, which is the misreading §14 spends a paragraph forbidding. A new card
+on the Evidence screen — the same question in a different currency — lists each
+call with the basis beside it: `REPORTED` where the provider stated its own
+figure, `ESTIMATED` where RAVIS multiplied a published price, `UNKNOWN` counted
+rather than treated as nought.
+
+**Formatting had to be part of it.** Two decimal places render every real
+figure as `$0.00`, which is the confident nought §14 forbids arrived at by
+formatting rather than by arithmetic. Amounts below a cent keep enough
+precision to be visibly non-zero.
+
+**And it exposed a tile that had been broken for as long as it had been live.**
+*Routing p50* read `undefined ms` against a running RAVIS, because
+`routing_p50_ms` is a field the mock invented and the endpoint has never
+published. §9.8 asks for normalization, capability, policy, scoring and total
+routing times against a P50 target of 5 ms, and RAVIS measures none of them.
+The tile says *not measured* and names the section, which is the fact; actually
+measuring it is §9.8's own work and is not M15's to smuggle in.
+
 ### M15 — an estimate that says so, and a price the provider agreed with
 
 §14's rule is one sentence: *never present an estimated cost as an invoice.*

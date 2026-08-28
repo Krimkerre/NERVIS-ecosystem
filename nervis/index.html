@@ -2201,6 +2201,22 @@ const API={
     model:'qwen3-30b-a3b-mlx',provider:'lmstudio',pool_revision:'873c26169d66',
     profile:'ravis/auto',cache_state:null,created_at:now-900,last_activity:now-60,requests:6}]}},
 
+  /* GET /api/v1/usage/records — §14's per-call usage, newest first.
+
+     The aggregate answers "what has this cost"; this answers "which calls, and
+     how sure is each figure". `cost_state` on every row is what stops a total
+     being read as though every part of it was arrived at the same way — RAVIS
+     multiplying a published price (ESTIMATED) and a provider stating its own
+     figure (REPORTED) are different claims, and neither is a bill. */
+  async usageRecords(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/usage/records',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{items:d.items||[],live:true}}
+   }catch(e){}
+   return{items:[],live:false};
+  },
+
   async policies(){
    try{
     const r=await fetch(BASE.ravis+'/api/v1/policies',
@@ -2302,7 +2318,15 @@ const API={
    return this._usageMock();
   },
 
-  async _usageMock(){return{spend_today_eur:0.42,budget_used_pct:1,local_pct:88,routing_p50_ms:3.1,
+  /* The mock's field names are RAVIS's own. They were not: this carried
+     `spend_today_eur` and `budget_used_pct`, neither of which the endpoint has
+     ever published, so the from-disk render exercised a shape the live one
+     could never produce — and the live branch beside it read different keys
+     entirely. A mock that cannot be confused with the real payload is a mock
+     that never catches a rename. */
+  async _usageMock(){return{spend_estimated:0.42,spend_currency:'USD',
+   calls_priced:38,calls_unpriced:2,spend_window:'24h',cost_available:true,
+   local_pct:88,routing_p50_ms:3.1,
    pools:{total:6,clarvis:2}}}
  },
 
@@ -2801,6 +2825,23 @@ function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pag
    while a paragraph explaining what is unenforced can wait to be asked for. */
 const section=(title,body,open=true)=>`<details class="settings-group"${open?' open':''}>
   <summary>${title}</summary><div class="grid">${body}</div></details>`;
+
+/* A cost, at the precision these figures actually have.
+
+   A single small call costs six millionths of a dollar, so two decimal places
+   render every real figure as "$0.00" — which is the confident nought §14
+   forbids, arrived at by formatting rather than by arithmetic. Small amounts
+   keep enough places to be non-zero; larger ones read as money.
+
+   `null` is "not known" and never "nothing": the caller decides whether to
+   show the tile at all, and this never turns an absence into a number. */
+const money=(amount,currency)=>{
+ if(amount==null)return 'not measured';
+ const symbol=currency==='EUR'?'€':currency==='USD'?'$':(currency?currency+' ':'');
+ if(amount===0)return symbol+'0.00';
+ if(amount<0.01)return symbol+amount.toPrecision(2);
+ return symbol+amount.toFixed(2);
+};
 
 const explains=(summary,body)=>`<details class="explains"><summary>${summary}</summary><div>${body}</div></details>`;
 
@@ -4888,10 +4929,20 @@ function liveRavisDashboard(decisions, usage, prof){
      usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
    ['Local',share==null?'—':Math.round(share*100)+'%',
      share==null?'nothing has executed yet':`of ${usage.executed} executed`,'ravis',true],
-   /* Rendered as unknown rather than omitted. A missing tile reads as a page
-      that forgot; a tile saying "not measured" is the answer. */
-   ['Spend',usage.cost_available?'—':'not measured',
-     usage.cost_detail||'the cost engine lands at M15','ravis',true]])
+   /* **Real since M15, and it still says what kind of number it is.** This read
+      "not measured · the cost engine lands at M15" — true when written, and
+      RAVIS now estimates from published prices and reports what providers
+      state. Rendered as unknown rather than omitted when nothing has been
+      priced: a missing tile reads as a page that forgot, and §14 forbids a
+      confident nought. The subtitle carries the coverage rather than the
+      total alone, because a sum without the calls behind it invites being
+      read as a bill. */
+   ['Spend',
+     usage.cost_available?money(usage.spend_estimated,usage.spend_currency):'not measured',
+     usage.cost_available
+       ? `estimated · ${usage.calls_priced} of ${usage.calls_priced+usage.calls_unpriced} call(s) priced · 24h`
+       : (usage.cost_detail||'nothing has been priced yet'),
+     'ravis',true]])
  +(decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
      +recentDecisionsCard(decisions.slice(0,8))
@@ -4913,7 +4964,7 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  $('#content').innerHTML=kpis([['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`],
    ['Routing P50',usage.routing_p50_ms+' ms','cached · rule-based'],['Local',usage.local_pct+'%','of today'],
-   ['Spend','€'+usage.spend_today_eur.toFixed(2),`today · budget ${usage.budget_used_pct}% ${stamp(SERVICES.ravis.age)}`]],'ravis')
+   ['Spend',money(usage.spend_estimated,usage.spend_currency),`estimated · ${usage.spend_window||'24h'} ${stamp(SERVICES.ravis.age)}`]],'ravis')
  +`<div class="card full"><h3>Routing profile <span class="chip">every client</span></h3>${cell(`
    <div class="profile-row">${prof.items.map(x=>`<button class="mode-chip${x.profile_id===active.profile_id?' on':''}${ARMED===x.profile_id?' armed':''}" onclick="armProfile('${x.profile_id}')" title="${x.profile_id} · rev ${x.revision}">${x.label}</button>`).join('')}
     <span class="mono dim" style="margin:0 0 0 auto">${prof.items.length} published by RAVIS</span></div>
@@ -5650,14 +5701,37 @@ async function ravisPolicies(){
    <small class="mono dim"><b>*</b> is the default: an application with no row of its own is governed by it. Every constraint here is <b>hard</b> — §14 rule 14 says a privacy constraint can never be overridden by score, so these remove candidates before anything is ranked rather than penalising them inside it. <b>LOCAL_PREFERRED</b> is the one level that ranks instead of excluding, and it says so.</small>`,'ravis')}</div>
   <div class="card full"><h3>What else decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`}
 
+/* What the traffic cost, per call, with each figure's authority beside it.
+
+   On the Evidence screen because it is the same question in a different
+   currency: what does RAVIS actually know, and how did it come to know it.
+   §14's states carry that — RAVIS multiplying a published price is ESTIMATED,
+   a provider stating its own figure is REPORTED, and neither is a bill.
+
+   The unpriced count is shown even when it is zero. A total whose coverage is
+   invisible is a total that reads as complete, and that is the misreading §14
+   spends a paragraph forbidding. */
+function costCard(usage,spend){
+ const rows=(spend.items||[]).slice(0,10);
+ const state=r=>`<span class="chip${r.cost_state==='UNKNOWN'?' warn':''}">${escapeHtml(r.cost_state)}</span>`;
+ const budget=usage.budget;
+ return `<div class="card full${spend.live?' live':''}"><h3>What it cost <span class="chip">estimated</span></h3>${cell(`
+   <div class="table-row head five"><span>Model</span><span>Provider</span><span>Tokens</span><span>Cost</span><span>Basis</span></div>
+   ${rows.map(r=>`<div class="table-row five"><span class="mono">${escapeHtml(r.model)}</span><span class="mono" style="opacity:.75">${escapeHtml(r.provider||'—')}</span><span class="mono" style="opacity:.8">${r.input_tokens==null?'—':r.input_tokens} in · ${r.output_tokens==null?'—':r.output_tokens} out</span><span class="mono">${money(r.cost,r.currency)}</span><span>${state(r)}</span></div>`).join('')
+    ||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">nothing has been priced yet — either no call has run, or no provider published a price for the models used</span></div>'}
+   ${budget?`<div class="trace-step"><b>budget</b><span>${escapeHtml(budget.band)} · ${money(budget.spent_estimated,budget.currency)} of ${money(budget.limit,budget.currency)} ${escapeHtml(budget.period)}${budget.hard?' · hard':''}</span></div>`:''}
+   <small class="mono dim"><b>REPORTED</b> is the provider's own figure for that call; <b>ESTIMATED</b> is RAVIS multiplying a published price by the tokens the provider reported. Neither is an invoice — §14 is explicit, and a per-call figure precedes credits, minimums and whatever a monthly statement reconciles to. <b>UNKNOWN</b> means one of the two halves was missing, and it is counted rather than treated as nought: ${usage.calls_unpriced||0} of the last ${(usage.calls_priced||0)+(usage.calls_unpriced||0)} call(s) could not be priced.${budget&&budget.calls_unpriced_in_window?`<br><br>the budget band above rests on a window in which <b>${budget.calls_unpriced_in_window}</b> call(s) had no price, which §14 requires be visible rather than inferred — a budget that fails has to fail predictably.`:''}</small>`,'ravis')}</div>`;
+}
+
 /* Evidence — what RAVIS is scoring on, and who owns it. The table is SIRVIS's
    data rendered on a RAVIS page, so it is cell()'d to sirvis: cycle SIRVIS off
    and the evidence goes with it while RAVIS's own observations stay. That is
    §13.4 optionality made visible rather than asserted. */
 async function ravisEvidence(){
  heading('Evidence','What the ranking is standing on, and which service owns each part of it.');
- const [ev,req,usage,verdicts,obs]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
-   API.ravis.usage(),API.ravis.evidenceVerdicts(),API.ravis.observations()]);
+ const [ev,req,usage,verdicts,obs,spend]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
+   API.ravis.usage(),API.ravis.evidenceVerdicts(),API.ravis.observations(),
+   API.ravis.usageRecords()]);
  /* RAVIS's own provenance enum, and the mapping it applies on the way in. It never
     upgrades a value: SIRVIS's PARTIALLY_MEASURED arrives as ESTIMATED, not MEASURED. */
  const MAP=[['MEASURED_BY_SIRVIS','MEASURED','repeated benchmark runs on this machine, with spread and sample count'],
@@ -5676,7 +5750,17 @@ async function ravisEvidence(){
    ['Observed by RAVIS',String(observed),
      obs.live?`${obs.confident_total} with enough samples to rank on`:'live TTFT from real traffic',
      'ravis',obs.live],
-   ['Routing p50',usage.routing_p50_ms+' ms','decision cost, cached evidence','ravis']])
+   /* **`undefined ms` against a live RAVIS**, for as long as this endpoint has
+      been answered by one. `routing_p50_ms` is a field the mock invented and
+      `/api/v1/usage` has never published — §9.8 asks for normalization,
+      capability, policy, scoring and total routing times against a P50 target
+      of 5 ms, and RAVIS measures none of them yet. Said as not measured, which
+      is the fact, rather than concatenated into a word. */
+   ['Routing p50',
+     usage.routing_p50_ms==null?'not measured':usage.routing_p50_ms+' ms',
+     usage.routing_p50_ms==null?'§9.8 is unbuilt — no timing is published':'decision cost, cached evidence',
+     'ravis',usage.routing_p50_ms!=null]])
+ +costCard(usage,spend)
  +(verdicts?`<div class="card full live"><h3>What RAVIS concluded <span class="chip">${verdicts.source.state}</span></h3>${cell(`
    <div class="table-row head five"><span>Build</span><span>Tools</span><span>Provenance</span><span style="grid-column:4/-1">Why</span></div>
    ${verdicts.items.filter(v=>v.state!=='UNKNOWN'||v.evidence).map(v=>`<div class="table-row five"><span class="mono">${v.model_id}</span><span class="chip${warnUnless(v.state==='SUPPORTED')}">${v.state}</span><span class="mono" style="opacity:.7">${v.evidence?v.evidence.provenance:'—'}</span><span style="grid-column:4/-1;opacity:.8">${escapeHtml(v.detail)}</span></div>`).join('')||'<div class="trace-step"><b>no SIRVIS evidence</b><span>nothing measured for this role yet</span></div>'}
