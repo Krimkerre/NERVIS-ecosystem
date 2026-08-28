@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from sirvis.app import create_app
 from sirvis.cli import main
 from sirvis.config import Settings
-from sirvis.ecosystem import sirvis_surface
+from sirvis.ecosystem import BUILD_VERSION, sirvis_surface
 from sirvis.storage import current_version, prepare_database
 from sirvis.storage.database import MIGRATIONS
 
@@ -191,7 +191,12 @@ def test_version_depends_on_nothing_that_can_be_unwell(settings: Settings) -> No
     body = TestClient(create_app(settings)).get("/ecosystem/version").json()
 
     assert body["protocol_version"] == PROTOCOL_VERSION
-    assert body["build_version"] == "0.0.1"
+    # Against the package's own version rather than a literal. Pinning the
+    # number here means every release edits a test to say what it just changed,
+    # which checks that somebody typed the same string twice — the endpoint
+    # reporting the *installed* version is the property worth holding.
+    assert body["build_version"] == BUILD_VERSION
+    assert body["build_version"] != "unknown", "the package should be installed under test"
 
 
 def test_doctor_reports_a_serveable_configuration(capsys) -> None:  # type: ignore[no-untyped-def]

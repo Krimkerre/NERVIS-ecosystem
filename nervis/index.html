@@ -5657,13 +5657,14 @@ async function ravisLogs(){
   <div class="card wide"><h3>Events published by RAVIS</h3>${cell(`
    <div class="table-row head five"><span>Time</span><span>Type</span><span>Version</span><span>Trace</span><span>Severity</span></div>
    ${mine.map(e=>`<div class="table-row five"><span class="mono">${e.occurred_at}</span><span class="mono">${e.event_type}</span><span class="mono">${e.event_version}</span><span class="mono">${dash(e.trace_id)}</span><span class="chip${warnIf(e.severity==='warning')}">${e.severity}</span></div>`).join('')}
-   <small class="mono dim">these are the frames RAVIS handed the hub, carrying identifiers and result classes only. Export failing never blocks a route: telemetry is downstream of serving the request, and a collector outage must not become a routing outage.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>What is not logged</h3>${cell(`
-   <div class="trace-step"><b>prompt</b><span>never</span></div>
-   <div class="trace-step"><b>completion</b><span>never</span></div>
-   <div class="trace-step"><b>credentials</b><span>never</span></div>
-   <div class="trace-step"><b>timings and decisions</b><span>always</span></div>
-   <small class="mono dim">this is a policy, not an empty table waiting to fill up. Turning payload capture on is a deliberate, audited change — and until someone makes it, "no prompts in the log" is a fact rather than a hope.</small>`,'ravis')}</div>`}
+   <small class="mono dim">these are the frames RAVIS handed the hub, carrying identifiers and result classes only. Export failing never blocks a route: telemetry is downstream of serving the request, and a collector outage must not become a routing outage.</small>
+   ${explains('what a log line never carries',`
+    <div class="trace-step"><b>prompt</b><span>never</span></div>
+    <div class="trace-step"><b>completion</b><span>never</span></div>
+    <div class="trace-step"><b>credentials</b><span>never</span></div>
+    <div class="trace-step"><b>timings and decisions</b><span>always</span></div>
+    <small class="mono dim">a policy rather than an empty table waiting to fill up. Turning payload capture on is a deliberate, audited change — and until someone makes it, "no prompts in the log" is a fact rather than a hope.</small>`)}`,'ravis')}</div>
+`}
 
 /* Settings — how the router serves its clients, and the short list of things a
    client may actually change.

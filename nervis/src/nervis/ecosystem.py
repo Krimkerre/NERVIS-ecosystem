@@ -22,12 +22,41 @@ just quietly cannot be integrated with.
 
 from __future__ import annotations
 
+from importlib import metadata
+
 from ecosystem_protocol import AVAILABLE, DEGRADED, UNAVAILABLE, Capability, EcosystemSurface
 
+
+def _installed_version(distribution: str) -> str:
+    """This package's version, or a marker when it is not installed.
+
+    `PackageNotFoundError` is reachable — running from a source checkout that
+    was never `pip install -e`'d — and an exception there would stop the service
+    starting over a string used in bug reports. "unknown" is the honest answer
+    and is visibly not a version, rather than a plausible-looking default that
+    would be reported as fact.
+    """
+    try:
+        return metadata.version(distribution)
+    except metadata.PackageNotFoundError:  # pragma: no cover - install-time only
+        return "unknown"
+
+
 # The build's own version, distinct from the protocol it speaks. Consumers must
-# never infer behaviour from it (runbook §4.2) — that is what capabilities are
+# never infer behaviour from this (runbook §4.2) — that is what capabilities are
 # for — but it belongs in a bug report.
-BUILD_VERSION = "0.0.1"
+#
+# **Read from the package rather than written twice.** `pyproject.toml` already
+# carries a version and this file carried another; both said `0.0.1` for months,
+# which is the only reason nobody noticed they were two numbers. A hardcoded
+# copy of a value that lives somewhere else is a drift waiting for the first
+# person to update one of them.
+#
+# The scheme is `0.<milestones completed>.<patch>`: the minor is how much of
+# this service's own plan has shipped, so it moves when a milestone lands and
+# `1.0.0` means the plan is finished. It is informational by §4.2's rule — a
+# peer that needs to know what this build can *do* reads the capabilities.
+BUILD_VERSION = _installed_version("nervis")
 
 DECLARED: dict[str, Capability] = {
     "nervis.registry@1": Capability(

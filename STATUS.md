@@ -5062,6 +5062,36 @@ frame of a healthy stream — RAVIS learned that from an upstream and the note i
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
 
+### Version numbers that mean something
+
+All three services reported `0.0.1`, which had been true on the first day and
+was still being served after seventeen milestones. Worse, each one said it
+twice — `pyproject.toml` carried a version and `BUILD_VERSION` carried another,
+and the only reason nobody noticed they were two numbers is that both were
+wrong in the same way.
+
+`BUILD_VERSION` is now read from the installed package, so the pair cannot
+disagree. The scheme is `0.<milestones completed>.<patch>`, which makes the
+minor a fact anybody can check against the table above and `1.0.0` mean the
+plan is finished:
+
+| | | |
+|---|---|---|
+| RAVIS | 0.16.0 | M0–M14, M16, M18a |
+| SIRVIS | 0.14.0 | M0–M4, M6–M10, M12, M13, M15, M16 |
+| NERVIS | 0.8.0 | M0–M7, M8a in part |
+| `ecosystem-protocol` | 0.2.0 | extracted, and three services stand on it |
+
+**The rule going forward: the minor moves when a milestone lands**, in the same
+commit that lands it. It stays informational — runbook §4.2 forbids a consumer
+inferring behaviour from a build version, which is what capabilities are for —
+so this is for the bug report, not for a compatibility check.
+
+The one test that pinned the literal now asserts the endpoint reports the
+*installed* version instead. Pinning the number meant every release edited a
+test to restate what it had just changed, which only ever checked that somebody
+typed the same string twice.
+
 ### Fluff cards, and a Settings screen with one real setting on it
 
 Asked to look for cards that exist to hold prose, and for Settings screens that
