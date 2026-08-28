@@ -7,11 +7,22 @@ today's catalogue, today's residency and today's memory, and would happily
 produce a *different* answer than the one being asked about. An explanation you
 recompute is a guess about the past.
 
-Bounded and in memory. Route decisions are diagnostic rather than business
-state — losing them on restart costs a debugging session, whereas persisting
-every decision costs disk forever, and §17's storage model does not list them.
-Durable decisions arrive if and when something needs them beyond the current
-process.
+Bounded and in memory, which is a **deviation from §17 rather than an
+application of it.** This said "§17's storage model does not list them", and
+§17 lists `RouteDecision · RouteCandidate · RequestMetric` in as many words —
+a justification that cited the specification and was contradicted by it.
+
+The design stands on its own reasons: a route decision is diagnostic rather
+than business state, losing one on restart costs a debugging session, and
+persisting every decision costs disk forever. What changes is the honesty of
+the claim — this is a decision taken against the storage model, recorded as
+one, not a reading of it.
+
+**M11 is where that stops being free.** §12.1 has a session correlate its route
+decisions, and the session gate tests restart; a session that outlives the
+decisions it points at would correlate to nothing. So `RoutingSession` persists
+the route facts §12.1 names — pool, model, provider, profile — rather than
+holding a reference to a record that evaporates.
 """
 
 from __future__ import annotations

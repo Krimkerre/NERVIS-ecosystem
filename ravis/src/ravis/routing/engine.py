@@ -76,6 +76,7 @@ class RoutingEngine:
         observed_ttft_ms: Mapping[str, float] | None = None,
         policy: RoutingPolicy | None = None,
         policy_refusals: Mapping[str, list[str]] | None = None,
+        sticky: str = "",
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -107,6 +108,13 @@ class RoutingEngine:
         `policy` itself comes along for what it says rather than what it
         forbids: the explanation lines, and `LOCAL_PREFERRED`, which is the one
         rung of the ladder that ranks instead of excluding.
+
+        `sticky` is the model this session last used (§12.1). A preference and
+        never a constraint: it orders candidates that already passed every hard
+        filter, so a session can steer a choice among models the caller was
+        already permitted and can never reach one it was not. That is what keeps
+        a session ID correlation data rather than authorization, which the
+        runbook §4.3 requires of every ID it defines.
         """
         policy = policy or RoutingPolicy()
         refusals = policy_refusals or {}
@@ -124,6 +132,7 @@ class RoutingEngine:
                 observed_ttft_ms or {},
                 policy,
                 refusals,
+                sticky,
             )
 
         target = direct_target(requested)
@@ -225,6 +234,7 @@ class RoutingEngine:
         observed: Mapping[str, float] | None = None,
         policy: RoutingPolicy | None = None,
         refusals: Mapping[str, list[str]] | None = None,
+        sticky: str = "",
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -260,7 +270,7 @@ class RoutingEngine:
         )
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
-            effective, observed or {}, refusals, policy,
+            effective, observed or {}, refusals, policy, sticky,
         )
 
         if not eligible:
@@ -421,6 +431,7 @@ def _rank(
     observed: Mapping[str, float] | None = None,
     refusals: Mapping[str, list[str]] | None = None,
     policy: RoutingPolicy | None = None,
+    sticky: str = "",
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -455,6 +466,20 @@ def _rank(
     pressured = memory.under_pressure
 
     def key(model: str) -> tuple[float | str, ...]:
+        # **Session affinity leads every other term (§12.1).** Sticky routing
+        # exists for consistency, prompt caching, context continuity and reduced
+        # model-load churn, and a preference that any other term can outvote
+        # delivers none of those — the model would change the first time a
+        # price or a latency sample moved.
+        #
+        # It is still only a preference, and the four conditions §12.1 gives for
+        # breaking it are already enforced *above* this function rather than
+        # here: a model whose capabilities no longer fit, whose context is
+        # exceeded, whose provider's circuit is open, or which policy now
+        # refuses, is not in `members` at all. So stickiness cannot hold a
+        # conversation on a model that stopped being allowed — it can only
+        # order the ones that are.
+        affinity = 0.0 if sticky and model == sticky else 1.0
         preference = pool.preference_rank(model)
         # Reach, not warmth: a hosted model is not a cold one. See `_reach_rank`.
         warmth = _reach_rank(model, residency, remote)
@@ -470,7 +495,7 @@ def _rank(
         #
         # Heterogeneous because the last component is the model name — the
         # total, reproducible order §9.7's determinism gate requires.
-        terms: list[float | str] = []
+        terms: list[float | str] = [affinity]
         # **`prefer_remote` ranks before speed, and `prefer_local` after it.**
         # The asymmetry is deliberate and was found live. A pool that prefers
         # hosted models is saying *where* first and *which* second: put speed

@@ -40,7 +40,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ravis.api.management.decisions import RecordedDecision
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
-from ravis.core.pools import direct_provider, is_pool_id
+from ravis.core.pools import POOLS_BY_ID, direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
@@ -66,6 +66,7 @@ from ravis.reliability import (
 from ravis.routing.engine import RoutingEngine
 from ravis.routing.explain import RouteDecision
 from ravis.runtime.resources import read_memory
+from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.transparent import (
     TransparentUpstream,
     merged_candidates,
@@ -544,6 +545,11 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         getattr(request.state, "translated_owners", {})
     )
     policy = _policy_for(request, payload)
+    # §12.1's affinity, and §9.6.1's exemption from it. A background call is
+    # explicitly *exempt* from session affinity — it is short, disposable and
+    # latency-insensitive, so holding it on a conversation's model would drag a
+    # frontier choice onto work that exists to be cheap.
+    sticky = "" if policy.background else _sticky_model(request)
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -580,6 +586,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # provider is on this machine, and the engine is a pure function of a
         # capability table that knows neither.
         policy=policy,
+        sticky=sticky,
         policy_refusals=policy_refusals(
             policy,
             candidates,
@@ -599,10 +606,78 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         request_id=getattr(request.state, "request_id", ""),
         trace_id=getattr(request.state, "trace_id", ""),
     )
+    _record_session(request, decision, background=policy.background)
     request.state.route_decision = decision
     request.state.decision_id = recorded.decision_id
     request.state.recorded_decision = recorded
     return decision
+
+
+def _session_id(request: Request) -> str:
+    """The session this request belongs to, as the client stated it (§4.3)."""
+    return request.headers.get(SESSION_HEADER, "")
+
+
+def _sticky_model(request: Request) -> str:
+    """What this session last routed to, if it is still fresh enough to matter.
+
+    Empty for a first request, an expired session, or a caller that sent no
+    header — all of which mean "nothing to be consistent with", and none of
+    which is an error.
+    """
+    store: SessionStore | None = getattr(request.app.state, "sessions", None)
+    if store is None:
+        return ""
+    identity = getattr(request.state, "identity", None)
+    session = store.affinity(
+        identity.application_id if identity else "anonymous", _session_id(request)
+    )
+    return session.model if session else ""
+
+
+def _record_session(
+    request: Request, decision: RouteDecision, background: bool = False
+) -> None:
+    """Write what this request routed to, so the next one can be consistent.
+
+    Only a routed decision updates the model: a no-route means the session's
+    last *successful* choice is still the thing to be consistent with, and
+    overwriting it with nothing would make the next request start over. The
+    session is still touched, so a conversation being actively refused does not
+    quietly expire while somebody is trying to fix it.
+
+    **A background call never writes the model, which is the other half of
+    §9.6.1's exemption and was missed the first time.** Skipping affinity on the
+    way in is not enough: a declared background call was still *recording* its
+    own cheap selection, so generating one conversation title reset the
+    session and the next real turn started over on a different model. Found by
+    sending the four requests in order against a live gateway — the exemption
+    read as working until the fifth one showed the conversation had moved.
+
+    Exempt means exempt in both directions: it does not consume affinity and it
+    does not get to redefine it.
+    """
+    store: SessionStore | None = getattr(request.app.state, "sessions", None)
+    supplied = _session_id(request)
+    if store is None or not supplied:
+        return
+    identity = getattr(request.state, "identity", None)
+    application = identity.application_id if identity else "anonymous"
+    if background or not decision.routed:
+        store.touch(application, supplied)
+        return
+    pool = POOLS_BY_ID.get(decision.pool_id or "")
+    store.record(
+        application,
+        supplied,
+        pool=decision.pool_id or decision.requested,
+        model=decision.selected or "",
+        provider=_provider_of(request)(decision.selected or ""),
+        # §5.4: the revision the session used, so a consumer can tell that a
+        # pool's definition changed under a conversation already in progress.
+        pool_revision=pool.revision if pool else "",
+        profile=decision.pool_id or "",
+    )
 
 
 def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:

@@ -43,6 +43,7 @@ from ravis.policy import ApplicationPolicies
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry, HealthScope
+from ravis.sessions import SessionStore
 from ravis.transparent import (
     merged_candidates,
     remote_models,
@@ -585,6 +586,43 @@ async def read_observations(request: Request) -> dict[str, Any]:
         # that says whether this is doing anything yet.
         "confident_total": sum(1 for o in store.all().values() if o.confident),
     }
+
+
+@router.get("/sessions/{session_id}")
+async def read_session(session_id: str, request: Request) -> dict[str, Any]:
+    """One routing session (§15.1, §12.1).
+
+    **Scoped to the caller's own application**, which is the isolation §12.1
+    asks for rather than a nicety: two applications may use the identical
+    session ID, and serving one to the other would merge exactly what the
+    specification says must never merge. A session belonging to somebody else
+    is reported as absent, not as forbidden — telling a caller that an ID it
+    cannot read *exists* is itself a leak.
+
+    Carries no prompt or response content, because a session never held any.
+    """
+    store: SessionStore | None = getattr(request.app.state, "sessions", None)
+    identity = getattr(request.state, "identity", None)
+    application = identity.application_id if identity else "anonymous"
+    session = store.get(application, session_id) if store else None
+    if session is None:
+        raise NotFoundError(f"no session {session_id!r}")
+    return session.as_dict()
+
+
+@router.get("/sessions")
+async def read_sessions(request: Request) -> dict[str, Any]:
+    """This application's recent sessions, newest first.
+
+    Never every application's. A single list across all of them would undo the
+    isolation the composite key exists to provide, on the one screen most likely
+    to be read as authoritative.
+    """
+    store: SessionStore | None = getattr(request.app.state, "sessions", None)
+    identity = getattr(request.state, "identity", None)
+    application = identity.application_id if identity else "anonymous"
+    sessions = store.for_application(application) if store else []
+    return _listing([session.as_dict() for session in sessions])
 
 
 @router.get("/policies")

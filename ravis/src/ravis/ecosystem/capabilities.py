@@ -82,8 +82,15 @@ DECLARED: dict[str, Capability] = {
         # only ever gets checked when somebody is already confused.
         constraints={"pools": len(DEFAULT_POOLS), "versioned": True},
     ),
+    # §4.1's advertise-when for this one is "session isolation tests pass", and
+    # it is the isolation rather than the feature that gates it: a session that
+    # merged across applications would be worse than none, because a consumer
+    # would trust the correlation it showed.
     "ravis.sessions@1": Capability(
-        version="1.0.0", state=UNAVAILABLE, reason="sessions land at M11"
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="§12.1's sessions: affinity, sticky routing, retention, and isolation "
+        "keyed to the application rather than to a name",
     ),
     # Degraded rather than unavailable: /api/v1/usage counts real traffic, and
     # says `cost_available: false` because pricing is M15. A peer can render the

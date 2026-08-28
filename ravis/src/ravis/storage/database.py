@@ -50,6 +50,35 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        4,
+        "routing sessions, per RAVIS.md §12.1 and §17",
+        """
+        CREATE TABLE IF NOT EXISTS routing_session (
+            -- The composite of application and client-supplied ID. Primary key
+            -- rather than `session_id`, which is what makes §12.1's isolation
+            -- structural: two applications calling their session `main` cannot
+            -- collide, because they are two different rows.
+            session_key    TEXT PRIMARY KEY,
+            session_id     TEXT NOT NULL,
+            application_id TEXT NOT NULL,
+            pool           TEXT NOT NULL DEFAULT '',
+            model          TEXT NOT NULL DEFAULT '',
+            provider       TEXT NOT NULL DEFAULT '',
+            pool_revision  TEXT NOT NULL DEFAULT '',
+            profile        TEXT NOT NULL DEFAULT '',
+            -- Nullable on purpose: no adapter reports a prompt cache yet, and a
+            -- NOT NULL default would record "no cache" where the truth is "never
+            -- asked". Nothing here holds prompt or response content (§12.1).
+            cache_state    TEXT,
+            created_at     REAL NOT NULL,
+            last_activity  REAL NOT NULL
+        );
+        -- Retention sweeps and the per-application listing both order by this.
+        CREATE INDEX IF NOT EXISTS routing_session_activity
+            ON routing_session (application_id, last_activity DESC);
+        """,
+    ),
 ]
 
 

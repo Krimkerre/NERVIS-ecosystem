@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1374 tests, no network, no live service
+.venv/bin/pytest                      # part of 1394 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 270 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1374 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1394 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -108,6 +108,7 @@ into the order work actually happens.
 | 30 | **RAVIS M10** | Credentials and the provider UI — a `Secret` type that refuses to render itself, an OS-agnostic 0600 credential file with Keychain and environment behind it, provider enable/disable that actually stops a provider being routed to, and health per provider. **Stage 2 closed with it.** Settled below |
 | 31 | **RAVIS M7** | Provider expansion. OpenRouter stays transparent, which is the measurement rather than the assumption. **Gemini moved to §6's translated path** after its OpenAI-compatible endpoint was measured reporting `finish_reason: stop` on a streamed tool call and omitting the tool-call index — both things Clarvis's agent role reads. A native Gemini adapter now makes the two providers indistinguishable on every surface §6 names, and `ravis conformance clarvis` stayed `PASS` throughout. Four judgement calls and two live-found bugs, settled below |
 | 32 | **RAVIS M16** *(policy; the reasoning tiebreak waits on SIRVIS M22b)* | The policy engine. §14's four privacy levels, provider allow and deny, model exclusions, and §9.6.1's background-call class — every one of them a *hard* exclusion applied before ranking, which is how "privacy constraints can never be overridden by score" becomes structural rather than a rule to remember. `ClientApplication` regains `may_declare_background_calls` and `max_privacy_level`, this time read on the routing path. Pools carry a version and a derived revision, moving `ravis.virtual_profiles@1` off `degraded`. **Verified live**, and one gap found that way. Settled below |
+| 33 | **RAVIS M11** | Sessions. §12.1's `RoutingSession` persisted, sticky routing as a preference that leads the ranking, expiry and retention as two separate windows, and isolation keyed to the application rather than to a name — which is the one thing §12.1 says outright must never merge. `ravis.sessions@1` moves off `unavailable`. **Verified live**, and the fourth request found a defect the first three hid. Settled below |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
 close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
@@ -2051,11 +2052,10 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **RAVIS M11** | Sessions — `RoutingSession`, affinity, sticky routes. First because it is the blocker: M14's remaining half cannot be built without expected session length |
-| 2 | **The rest of M14** | The load-versus-don't tradeoff, immediately after the thing it waits for |
-| 3 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
-| 4 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
-| 5 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
+| 1 | **The rest of M14** | The load-versus-don't tradeoff. Unblocked now that M11 supplies session length |
+| 2 | **RAVIS M15** | The cost engine. Moves `ravis.usage_cost@1` off `degraded`, where it says request counts are real and money is not |
+| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS: the prototype stops being one. RAVIS's half is items 1 and 3 |
+| 4 | **SIRVIS M22b** | Reasoning-token overhead as evidence. It unblocks the one piece of M16 that could not be built, which needs a measurement rather than a guess from a model's name |
 
 ### After that
 
@@ -5061,6 +5061,47 @@ The check is truthiness rather than presence, because some proxies put `"error":
 frame of a healthy stream — RAVIS learned that from an upstream and the note is in its own reader;
 this is the same rule on the other side of the wire. Both shapes are now fixtures in the shaping
 harness, which is exactly the divergence it exists to catch.
+
+### M11 — sessions, and the request that exposed the exemption
+
+§12.1 decides the storage key in one sentence: *cross-workspace Clarvis sessions
+must never merge because display names match.* So nothing keys on a label. The
+stored identity is the application's own, plus the ID the client supplied, which
+makes isolation structural — two applications that both call their session
+`main` are two rows and cannot read or steer each other. Within one application
+the client owns distinctness, and that limit is stated rather than hidden: §9.7
+forbids RAVIS from handling workspace identifiers at all, so it cannot tell two
+workspaces apart itself.
+
+**A session ID influences routing, so what it can influence had to be bounded.**
+The runbook §4.3 says every ID it defines is correlation data and never
+authorization. Stickiness is applied among candidates that already passed every
+hard filter, so presenting somebody else's session ID can at most express a
+preference for a model the caller could already reach. §12.1's four break
+conditions — capability, context, provider health, policy — are enforced *above*
+the ranking rather than inside it, which is why affinity cannot resurrect a
+model that stopped being allowed.
+
+**Expiry and deletion are two windows, not one.** A stale session stops steering
+routing after an hour and is still readable for a week. Collapsing them would
+mean either routing on yesterday's choice or losing the correlation somebody is
+reading, and §12.1 asks for both behaviours by name.
+
+**Sessions persist, and that is a deviation the decision log does not make.**
+The route-decision log is bounded and in memory, with a justification that
+claimed §17 does not list route decisions — §17 lists them explicitly, so that
+citation was false and is now recorded as a deviation instead. Sessions had to
+go the other way: §12.1's gate names restart, and a session that forgot its
+model on restart would swap the model under a conversation still in progress.
+
+**The fourth request found what the first three hid.** Sending pool → name a
+model → pool → background → pool against a live gateway, the exemption in
+§9.6.1 looked correct for three steps: the background call did skip affinity and
+route cheap. The fifth step showed the conversation had *moved* — the background
+call had recorded its own cheap selection over the session's model, so
+generating one title reset the conversation and the next real turn started
+somewhere else. Exempt has to mean both directions: a background call neither
+consumes affinity nor gets to redefine it.
 
 ### Build-order audit, 28 Aug 2026
 

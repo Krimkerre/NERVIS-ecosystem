@@ -18,6 +18,7 @@ claimed otherwise.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -60,6 +61,7 @@ from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
+from ravis.sessions import SessionStore
 from ravis.storage import prepare_database
 from ravis.transparent import adapter_for, build_transparents
 from ravis.upstream import Upstream, create_client, upstream_from
@@ -209,6 +211,12 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # by it. A malformed file raises here and stops startup, which is the
     # failure an operator can see and fix.
     api.state.policies = load_policies()
+
+    # §12.1's sessions. Persisted rather than in memory, unlike the decision
+    # log: the session gate names restart, and a session that forgot its model
+    # on restart would swap the model under a conversation still in progress —
+    # the churn stickiness exists to prevent.
+    api.state.sessions = SessionStore(api.state.database)
 
     # Which providers an operator has switched off (M10). Read on every routing
     # pass rather than cached, so a toggle takes effect on the next request
@@ -475,10 +483,31 @@ async def _refresh_catalogues(api: FastAPI) -> None:
 
 
 async def _refresh_catalogues_periodically(api: FastAPI, interval: float) -> None:
-    """The background half of the same thing."""
+    """The background half of the same thing, plus §12.1's retention sweep."""
     await asyncio.gather(
-        *(refresh_periodically(registry, interval) for registry in _registries(api))
+        *(refresh_periodically(registry, interval) for registry in _registries(api)),
+        _expire_sessions_periodically(api, interval),
     )
+
+
+async def _expire_sessions_periodically(api: FastAPI, interval: float) -> None:
+    """Delete sessions past their retention window, on the catalogue timer.
+
+    On an existing timer rather than its own: it is one indexed DELETE, and a
+    second scheduler for a millisecond of work is machinery nobody has to
+    maintain if it does not exist.
+
+    Tolerates everything. A sweep that raised would kill the task it shares
+    with catalogue refreshes, so a failure to prune old rows would stop the
+    model lists updating — a much worse outcome than a late deletion.
+    """
+    sessions: Any = getattr(api.state, "sessions", None)
+    if sessions is None:
+        return
+    while True:
+        with contextlib.suppress(Exception):
+            sessions.enforce_retention()
+        await asyncio.sleep(interval)
 
 
 def _registries(api: FastAPI) -> list[ModelRegistry]:
