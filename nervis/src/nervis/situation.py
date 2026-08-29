@@ -68,6 +68,22 @@ MAX_RECENT_FAILURES = 4
 # answers "how many"; only the names answer "which".
 MAX_MODEL_NAMES = 14
 
+# The benchmark half. A person who just pressed Run asks how it went, and the
+# answer is a handful of numbers with the reasons they might be wrong attached —
+# not a table. Three jobs is the recent past; §4.2 runs one at a time.
+MAX_JOBS = 3
+MAX_RESULTS = 2
+MAX_VALIDITY_NOTES = 2
+
+# Which measurements are worth a line, in the order a person asks about them.
+# A closed list for the same reason the event fields are one: a result carries
+# whatever the suite measured, and all of it does not belong in every prompt.
+HEADLINE_METRICS = (
+    "generation_tokens_per_second",
+    "time_to_first_token_seconds",
+    "total_latency_seconds",
+)
+
 # Which fields of an event's `data` are allowed to be quoted, in the order they
 # are looked for. A closed list rather than "whatever is in there": `data` is
 # open-ended by design, and a failing service is exactly the producer most
@@ -331,6 +347,76 @@ def _model_names(models: Sequence[Mapping[str, Any]], question: str) -> list[str
     return [heading] + named
 
 
+def benchmarks(
+    jobs: Sequence[Mapping[str, Any]],
+    runs: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """The queue and what the last runs measured.
+
+    **Why the numbers travel and not a link.** The person pressed Run in this
+    conversation; asking them to go and find the Results screen to learn what
+    came back is the dashboard answering a question with a map. What is quoted
+    is what SIRVIS measured, including `validity` and the notes behind it — a
+    figure without its caveat is the more useful half thrown away.
+    """
+    if not jobs and not runs:
+        return []
+    lines: list[str] = []
+    if jobs:
+        lines.append("benchmark queue, newest first:")
+        for job in list(jobs)[:MAX_JOBS]:
+            detail = clip(str(job.get("detail") or ""))
+            line = (
+                f"  {clip(str(job.get('job_id') or '?'))} · "
+                f"{clip(str(job.get('model') or 'unnamed model'))} · "
+                f"{clip(str(job.get('state') or '?'))}"
+            )
+            lines.append(line + (f" — {detail}" if detail else ""))
+    lines += _run_lines(runs)
+    return lines
+
+
+def _run_lines(runs: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What the most recent runs measured, with their validity attached."""
+    lines: list[str] = []
+    for run in list(runs)[:MAX_RESULTS]:
+        for result in list(run.get("results") or [])[:MAX_RESULTS]:
+            if not isinstance(result, Mapping):
+                continue
+            lines.append(
+                f"measured for {clip(str(result.get('target_key') or '?'))} "
+                f"({clip(str(result.get('samples') or '?'))} samples, "
+                f"{clip(str(result.get('validity') or 'unknown'))}):"
+            )
+            lines += _metric_lines(result.get("metrics"))
+            for note in list(result.get("validity_notes") or [])[:MAX_VALIDITY_NOTES]:
+                # The reason a number might be wrong, in SIRVIS's own words. It
+                # is the half a summary drops and the half that decides whether
+                # the figure means anything.
+                lines.append(f"    caveat: {clip(str(note))}")
+    return lines
+
+
+def _metric_lines(metrics: Any) -> list[str]:
+    """The headline figures, median and mean, in the units SIRVIS published."""
+    if not isinstance(metrics, Mapping):
+        return []
+    lines = []
+    for name in HEADLINE_METRICS:
+        found = metrics.get(name)
+        if not isinstance(found, Mapping):
+            continue
+        median, mean = found.get("median"), found.get("mean")
+        if not isinstance(median, (int, float)) or not isinstance(mean, (int, float)):
+            continue
+        unit = clip(str(found.get("unit") or ""))
+        lines.append(
+            f"    {name}: median {round(median, 3)}, mean {round(mean, 3)}"
+            + (f" {unit}" if unit else "")
+        )
+    return lines
+
+
 def block(
     services: Sequence[Mapping[str, Any]],
     windows: int,
@@ -339,6 +425,8 @@ def block(
     now: datetime,
     question: str = "",
     models: Sequence[Mapping[str, Any]] = (),
+    jobs: Sequence[Mapping[str, Any]] = (),
+    runs: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """The fenced reading a model is given, or nothing when there is none.
 
@@ -366,6 +454,7 @@ def block(
     for name in _loaded(models):
         lines.append(f"loaded in the runtime right now: {name}")
     lines += _model_names(models, question)
+    lines += benchmarks(jobs, runs)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong

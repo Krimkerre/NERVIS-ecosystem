@@ -460,6 +460,11 @@ EVENT_SAMPLE = 200
 # Benchmarks screen holds.
 JOB_SAMPLE = 25
 
+# How many finished runs are read with them. Small: a run carries every metric
+# the suite measured for every target, and the reading quotes the headline
+# figures of the most recent one rather than the history.
+RUN_SAMPLE = 3
+
 # How long RAVIS's catalogue is reused before it is read again. The registry,
 # the leases and the hub are already in memory and cost nothing per turn; the
 # catalogue is one HTTP call, and doing it on every message would put a remote
@@ -565,7 +570,8 @@ async def send(request: Request) -> Any:
     # anything at all. `offer` is a value; nothing here can carry it out.
     offer = (
         commands.propose(content, await _catalogue(request), await _jobs(request, content))
-        if not greeting else None
+        if not greeting
+        else None
     )
     if offer is not None:
         awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
@@ -865,13 +871,17 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     if greeting:
         return printed, ""
     events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
+    jobs = await _jobs(request, asked)
+    # Only alongside the queue: a run is what a job became, so a question that
+    # did not mention benchmarks does not need either.
+    runs = await _runs(request) if jobs else []
     # The question travels so the reading can go deep on what it named. Nothing
     # in it reaches the prompt — it is matched against the registry's own keys
     # and labels and then dropped, which is why a crafted question cannot select
     # anything NERVIS does not already publish about itself.
     return printed, situation.block(
         services, windows, events, catalogue, request.app.state.chat_clock(),
-        question=asked, models=models,
+        question=asked, models=models, jobs=jobs, runs=runs,
     )
 
 
@@ -893,6 +903,31 @@ async def _jobs(request: Request, question: str) -> list[dict[str, Any]]:
         answered = await client.get(
             entry.declaration.base_url + "/api/v1/benchmark-jobs",
             params={"limit": JOB_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
+        )
+        if answered.status_code >= 400:
+            return []
+        items = answered.json().get("items") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+async def _runs(request: Request) -> list[dict[str, Any]]:
+    """The most recent benchmark runs, with the numbers they measured.
+
+    Read only when the queue was read, and bounded to a handful: a person who
+    pressed Run wants to know how it went, and "go and look at the Results
+    screen" is a dashboard answering a question with a map. Open like the queue
+    — the scope is on mutations, not reads.
+    """
+    entry: RegistryEntry | None = request.app.state.registry.get("sirvis")
+    if entry is None:
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            entry.declaration.base_url + "/api/v1/benchmark-runs",
+            params={"limit": RUN_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
         )
         if answered.status_code >= 400:
             return []

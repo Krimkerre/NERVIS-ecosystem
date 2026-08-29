@@ -1090,6 +1090,67 @@ def test_a_confirmed_cancel_reaches_sirvis_with_the_credential() -> None:
     assert answered.json()["job"]["state"] == "running"
 
 
+def test_how_did_the_benchmark_go_is_answered_with_the_numbers() -> None:
+    """It ran, and chat could not say what came back — the half that makes
+    pressing Run worth doing. The figures travel, with their caveats."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/benchmark-jobs" in url:
+            return httpx.Response(200, json={"items": [
+                {"job_id": "bj_1", "state": "succeeded", "model": "qwen/qwen3-4b-2507",
+                 "detail": "completed"},
+            ]})
+        if "/api/v1/benchmark-runs" in url:
+            return httpx.Response(200, json={"items": [{"results": [{
+                "target_key": "qwen/qwen3-4b-2507", "samples": 5, "validity": "SUSPECT",
+                "metrics": {"generation_tokens_per_second": {
+                    "median": 19.386, "mean": 19.175, "unit": "tokens/second"}},
+                "validity_notes": ["the machine reported thermal pressure 'fair'"],
+            }]}]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "how did the benchmark go?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "19.386" in system
+    assert "tokens/second" in system
+    # **With the caveat.** A figure without the reason it might be wrong is the
+    # more useful half thrown away — and SUSPECT is exactly that reason.
+    assert "SUSPECT" in system
+    assert "thermal pressure" in system
+
+
+def test_the_queue_is_not_read_when_nobody_asked_about_it() -> None:
+    """It changes minute to minute, so it is read fresh — which is only worth
+    a round trip when the question is about it."""
+    seen: list[str] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "/api/v1/models" in str(request.url):
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "how is ravis?", system="Be someone.")
+
+    assert not [url for url in seen if "benchmark" in url]
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

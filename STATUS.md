@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1646 tests, no network, no live service
+.venv/bin/pytest                      # part of 1648 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 361 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1646 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1648 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,16 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**And it can say how the run went.** The first end-to-end press exposed the
+missing half: the benchmark succeeded and chat could not report a single number
+from it. When a question mentions a benchmark or a job, the reading now carries
+the queue *and* the last runs — the headline metrics in SIRVIS's own units, and
+`validity` with the notes behind it. A figure without the reason it might be
+wrong is the more useful half thrown away, so *"the machine reported thermal
+pressure 'fair' throughout"* travels beside the 19.4 tok/s it qualifies. Neither
+read happens on a turn that did not ask: the queue changes minute to minute, and
+most turns have nothing to do with it.
 
 **Cancel is the second operation, and "cancel the benchmark" resolves itself.**
 The person almost never says the job id, and NERVIS knows which job is live: the
