@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from datetime import datetime
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
@@ -146,6 +147,13 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Injected rather than called, so a test can register an instance and then
     # move time past its lease without sleeping through it.
     api.state.instances_clock = time.time
+    # The same injection for the chat clock, and for a sharper reason than
+    # convenience. The conversation-gap phrase changes wording at the second —
+    # "0 seconds ago", "1 second ago", "2 seconds ago" — so a test asserting the
+    # phrasing was really asserting how long the test itself took to run, and
+    # failed whenever a slow run crossed a boundary. A clock a test can hold
+    # still is what lets the *phrasing* be checked instead of the machine.
+    api.state.chat_clock = lambda: datetime.now().astimezone()
 
 
 def _register_error_handling(api: FastAPI) -> None:

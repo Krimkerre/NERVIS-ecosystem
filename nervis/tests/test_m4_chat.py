@@ -14,6 +14,7 @@ neither of which a real runtime will produce on request.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -41,6 +42,30 @@ def frames(*deltas: str, done: bool = True, reasoning: int = 0) -> list[bytes]:
     if done:
         lines.append(b"data: [DONE]\n\n")
     return lines
+
+
+def freeze_gap(client: TestClient, conversation_id: str, *, seconds: int) -> None:
+    """Hold the chat clock exactly `seconds` after the last stored user turn.
+
+    The gap in the system prompt is `now - the newest stored user message`, and
+    both ends used to be real time: the message was written when the test wrote
+    it and `now` was taken when the request ran, so the measured gap was however
+    long the test took. The phrase changes wording at every second boundary, so
+    those tests were asserting the speed of the machine.
+
+    Reading the stored timestamp rather than writing one keeps the production
+    path exactly as it is — the row is stored by the real code, and only the
+    clock it is compared against is held still.
+    """
+    row = client.app.state.database.connection.execute(  # type: ignore[attr-defined]
+        "SELECT created_at FROM chat_message WHERE conversation_id = ? AND role = 'user'"
+        " ORDER BY created_at DESC LIMIT 1",
+        (conversation_id,),
+    ).fetchone()
+    assert row is not None, "no stored user turn to measure a gap from"
+    stored = datetime.fromisoformat(str(row["created_at"])).replace(tzinfo=timezone.utc)
+    frozen = (stored + timedelta(seconds=seconds)).astimezone()
+    client.app.state.chat_clock = lambda: frozen  # type: ignore[attr-defined]
 
 
 def an_api(stream: list[bytes] | None = None, *, status: int = 200,
@@ -904,11 +929,68 @@ def test_the_quiet_gap_is_measured_from_stored_turns() -> None:
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
+    # Hold the clock a known distance from the turn that was just stored.
+    #
+    # This asserted "0 seconds ago", which was really an assertion that the
+    # whole request finished inside the same wall-clock second — true on most
+    # runs and false on a slow one, and the phrase changes at every second
+    # boundary ("0 seconds", "1 second", "2 seconds"). The reading under test is
+    # the *phrasing of a measured gap*, so the gap is now a fixed input and the
+    # phrasing is the only thing left that can move.
+    freeze_gap(client, held, seconds=0)
 
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
     system = sent[0]["messages"][0]["content"]
     assert "They last said something 0 seconds ago." in system
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0, "They last said something 0 seconds ago."),
+        # The boundary the flake lived on. Singular, so "seconds ago" as a
+        # substring does not appear at all — a test asserting that fragment
+        # passed at 0 and at 2 and failed only at 1, which is why it looked
+        # random rather than wrong.
+        (1, "They last said something 1 second ago."),
+        (2, "They last said something 2 seconds ago."),
+        (59, "They last said something 59 seconds ago."),
+        # Seconds give way to minutes here, and minutes are singular first.
+        (60, "They last said something 1 minute ago."),
+        (120, "They last said something 2 minutes ago."),
+        (3600, "They last said something about 1 hour ago."),
+        (7200, "They last said something about 2 hours ago."),
+    ],
+)
+def test_the_gap_is_worded_correctly_at_every_boundary(seconds: int, expected: str) -> None:
+    """Each wording, at the gap that produces it.
+
+    These are all one-second-wide decisions and the file had no test that could
+    see them: the two that touched the phrasing measured whatever gap the test
+    run happened to produce, which was nearly always zero. Holding the clock
+    makes each boundary an ordinary input.
+
+    This also proves the injection is doing something. Every case but the first
+    is unreachable in a test that takes milliseconds, so if `chat_clock` were
+    ignored these would fail rather than pass quietly.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client = an_api(frames("sure"))
+    held = turn(client, "first").headers["x-conversation-id"]
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+    freeze_gap(client, held, seconds=seconds)
+
+    client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
+
+    assert expected in sent[0]["messages"][0]["content"]
 
 
 def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
@@ -1002,11 +1084,17 @@ def test_the_gap_is_given_in_seconds_rather_than_rounded_away() -> None:
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
+    # Fifty, because fifty is the number in the docstring: the model answered
+    # "you asked this fifty seconds ago" from a reading that did not contain it,
+    # and this is the reading that now does. A held clock also makes the
+    # assertion exact — "seconds ago" alone passes for "1 second ago" too, which
+    # is the plural bug this phrasing has at exactly one second.
+    freeze_gap(client, held, seconds=50)
 
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
     system = sent[0]["messages"][0]["content"]
-    assert "seconds ago" in system
+    assert "They last said something 50 seconds ago." in system
     assert "never make it more precise than it is written here" in system
 
 

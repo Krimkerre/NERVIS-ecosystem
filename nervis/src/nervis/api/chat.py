@@ -537,7 +537,12 @@ async def send(request: Request) -> Any:
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
     asked = content
-    system = _house_system(body, database, greeting, conversation_id, nudge > 0)
+    system = _house_system(
+        body, database, greeting, conversation_id, nudge > 0,
+        # Read from the app rather than taken here, so one reading covers the
+        # whole assembly and a test can hold it still. See `app.state.chat_clock`.
+        now=request.app.state.chat_clock(),
+    )
     if greeting:
         asked = GREETING_OPENER
     elif nudge > 0:
@@ -584,6 +589,7 @@ def _house_system(
     greeting: bool,
     conversation_id: str = "",
     speaking_first: bool = False,
+    now: datetime | None = None,
 ) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
@@ -611,7 +617,7 @@ def _house_system(
     # returns: an unprompted remark about a silence is the one place the gap is
     # load-bearing, and it would have been the one place without a clock.
     if any(parts) or speaking_first:
-        parts.append(_clock(database, conversation_id))
+        parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
     if _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
@@ -703,7 +709,7 @@ def _excluded(database: Any) -> set[str]:
     return {str(one) for one in found} if isinstance(found, list) else set()
 
 
-def _clock(database: Any, conversation_id: str) -> str:
+def _clock(database: Any, conversation_id: str, now: datetime) -> str:
     """The time, and how long the user has been quiet. Both measured.
 
     **This is what makes a duration sayable at all.** The personas forbid
@@ -723,7 +729,6 @@ def _clock(database: Any, conversation_id: str) -> str:
     reading it is on. The stored timestamps are UTC and are converted here
     rather than compared as strings, which is the bug this shape usually has.
     """
-    now = datetime.now().astimezone()
     said = [f"The current local time is {now:%H:%M on %A %d %B %Y} ({now:%Z}, UTC{now:%z})."]
     quiet = _quiet_for(database, conversation_id, now)
     if quiet:
