@@ -2272,6 +2272,32 @@ otherwise have to be remembered:
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
 
+## Three things the credential switched on, and two the screen was missing (30 Aug)
+
+**Conversation titles generate themselves now, and nobody wrote new code for
+it.** `_title_later` has been in `api/chat.py` since M4: a RAVIS *background*
+call carrying §9.6.1's marker, addressed to `ravis/cheap` so a title is never
+billed to a frontier model. It was dormant for one reason — RAVIS honours the
+background marker only from an authenticated identity, and NERVIS had none.
+Giving NERVIS its credential turned it on: the last three conversations are
+*"Quick Code Help Local Model Pick"*, *"Recent log changes explained"* and
+*"Bench Results Update"*, where they would have been the first forty-eight
+characters of whatever was typed.
+
+**And a generated title is a stand-in, not a decision.** `PUT
+/conversations/{id}/title` has existed just as long with nothing on screen to
+call it, so the history drawer now has Rename beside Delete — the person who had
+the conversation is the one who knows what it was about. Both copies are
+updated, because NERVIS stores the conversation and the browser stores the row
+it draws.
+
+**Excluded models open.** The Logs disclosure grouped exclusions by reason,
+which answers *"why were most of them out"* and not *"was mine one of them"* —
+and the second question is why somebody opens a log line. Each group is now its
+own disclosure onto the models it names, scrolled rather than inlined: forty ids
+in the flow turn the interesting line, the one attempt that ran, into
+scrollback.
+
 ## Adapters: reading a service that never agreed to be read (30 Aug)
 
 **"Answering; publishes no MEP surface, so no capabilities are known" is true,
