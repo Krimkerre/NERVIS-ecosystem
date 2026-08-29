@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1655 tests, no network, no live service
+.venv/bin/pytest                      # part of 1659 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 368 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 372 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1655 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1659 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,33 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**A log line opens.** RAVIS's Logs screen printed five columns per request and
+a footnote saying *"every row is a decision id away from its full record"* —
+which told the reader where to go rather than taking them there, and the mapping
+step had already thrown the record away. Each row is a disclosure now: decision,
+request and trace ids, the caller, the full reason in RAVIS's own words, the
+requirements, the fallback order, what actually ran and through which provider,
+and why the rest were excluded — grouped by reason, because forty rows saying
+"not among the models chosen for this pool" is one fact printed forty times. The
+candidate list is counted and sampled rather than pasted: a pool decision
+considers five hundred models, and printing them all is a way of not answering
+the question. Rows carry a stable id keyed on the decision, so the page's
+existing `details[id]` preservation keeps an opened one open through the polls —
+keyed on the id rather than the position, because a new decision arriving at the
+top would otherwise hand the open state to whichever row slid into that slot.
+
+**NERVIS reads RAVIS as itself now.** RAVIS gives an anonymous caller sixty
+reads a minute and a named one six hundred, and NERVIS is the busiest reader it
+has: a probe loop on a timer, the dashboard polling several screens through the
+peer reader, and a catalogue read on every chat turn that mentions models. It
+tripped the limit routinely — 1,345 refusals in one log — and a rate-limited read
+is indistinguishable from an empty service at the screen. The probe's own
+docstring had already worked out the arithmetic that made it inevitable. The
+launcher mints the secret, caches it `0600`, hands it to NERVIS and stores the
+same string in RAVIS under `client.nervis`; `peer_credential` maps peer to
+credential in one place so a new reader cannot present RAVIS's to SIRVIS by
+copying a line. Forty-five seconds after the restart, zero 429s.
 
 **It can ask the runtime itself.** RAVIS reports what it can *route*, which is
 the right answer to "what can I use" and the wrong one to "what is LM Studio
