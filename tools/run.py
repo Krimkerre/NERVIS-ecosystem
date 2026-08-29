@@ -21,6 +21,14 @@ applications with their own lifecycles, and §9 puts model loading behind
 SIRVIS's Resource Manager. Their state is *reported* instead, because "nothing
 is routing" and "no runtime is running" are the same symptom with very different
 fixes.
+
+**code-server is started only if it is installed**, and its absence is a line of
+output rather than a failure. It is part of this ecosystem's delivery — the
+runbook's port table lists it and Stage 9 grades it — so a launcher that owned
+the other three and not this one would leave the Code tab as a thing somebody
+had to remember. But it is a separate install that most people running this will
+not have, and a launcher that reports NOT ready for a program nobody asked for
+teaches its own output to be ignored.
 """
 
 from __future__ import annotations
@@ -29,6 +37,8 @@ import json
 import os
 import pathlib
 import platform
+import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -45,6 +55,13 @@ PIDFILE = RUN / "services.json"
 SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
+
+# **Pinned here because this is its deployment.** The runbook's port table says
+# code-server is "pinned by its own deployment, proxied, never assumed" — it
+# declines to assign one, which means whoever deploys it decides, and that is
+# this file. Continuing the ecosystem's own 87x1 sequence rather than taking
+# 8080, which half the development tools on a machine want.
+CODE_SERVER_PORT = 8741
 DASHBOARD = f"http://127.0.0.1:{NERVIS_PORT}/index.html"
 
 WINDOWS = platform.system() == "Windows"
@@ -57,6 +74,70 @@ EXTERNAL = [
     ("Ollama", "http://127.0.0.1:11434/api/tags"),
     ("Clarvis", "http://127.0.0.1:7071/"),
 ]
+
+
+def code_server_binary() -> str:
+    """Where code-server is, or an empty string.
+
+    Looked up on PATH rather than at a fixed location, because Homebrew, the
+    official install script and npm each put it somewhere different and all
+    three put it on PATH. An empty answer is a normal outcome, not an error.
+    """
+    return shutil.which("code-server") or ""
+
+
+def code_server_password() -> str:
+    """A password for this deployment's code-server, minted once and kept.
+
+    **Auth is left on, deliberately.** `--auth none` on loopback is defensible
+    and it is also a decision this launcher should not make quietly: the Stage 9
+    matrix grades authentication as one of its axes, and a deployment that
+    turned it off would make that cell untestable while looking like it passed.
+    So a password is generated, stored at `0600` beside the logs, and printed by
+    `start` — the convenience is in not having to find it, not in removing it.
+
+    Same idiom as `dashboard_token`, and for the same reason: the manual step
+    nobody exercises is the step whose instructions go stale.
+    """
+    cached = RUN / "code-server.password"
+    try:
+        existing = cached.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    minted = secrets.token_urlsafe(18)
+    RUN.mkdir(parents=True, exist_ok=True)
+    handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(minted + "\n")
+    return minted
+
+
+def code_server_config() -> Path:
+    """This deployment's own config file, rewritten on every start.
+
+    **Not `~/.config/code-server/config.yaml`.** That file belongs to the person
+    using the machine, and a launcher that rewrote it would change the port and
+    password of a code-server they run for their own reasons. Keeping ours under
+    `.run/` means the two can both exist, and means `stop` plus deleting `.run/`
+    leaves nothing behind.
+
+    Rewritten rather than created-if-absent, so an edited port here cannot drift
+    from the port NERVIS proxies to — the failure that produces is a Code tab
+    that is blank for a reason three files away from what it shows.
+    """
+    RUN.mkdir(parents=True, exist_ok=True)
+    config = RUN / "code-server.yaml"
+    handle = os.open(config, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(
+            f"bind-addr: 127.0.0.1:{CODE_SERVER_PORT}\n"
+            "auth: password\n"
+            f"password: {code_server_password()}\n"
+            "cert: false\n"
+        )
+    return config
 
 
 def venv_bin(name: str) -> Path:
@@ -197,7 +278,43 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         ("NERVIS", [str(venv_bin("nervis")), "serve"], "nervis",
          env_for("NERVIS", NERVIS_PORT),
          f"http://127.0.0.1:{NERVIS_PORT}/api/v1/health"),
-    ]
+    ] + _code_server()
+
+
+def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
+    """code-server, if this machine has one. An empty list if it does not.
+
+    Appended rather than written into the list above so that everything which
+    walks the services — `start`, `stop`, `status` — gains it without knowing it
+    is conditional. The alternative is a flag threaded through three functions,
+    and the third one to forget it is the bug.
+
+    `--config` rather than a pile of flags: code-server reads its own file for
+    everything else, and passing half the settings on the command line and half
+    in a file is how the two end up disagreeing.
+    """
+    binary = code_server_binary()
+    if not binary:
+        return []
+    env = dict(os.environ)
+    # Its own state directory, so this deployment's extensions and settings do
+    # not land in a code-server the person already runs for their own work.
+    env["XDG_DATA_HOME"] = str(RUN / "code-server-data")
+    config = code_server_config()
+    return [(
+        "code-server",
+        [binary, "--config", str(config)],
+        # **The config path, not the program name.** `_alive` greps the process's
+        # command line, and code-server re-execs itself through node — so the
+        # name may or may not survive into what `ps` reports, depending on how it
+        # was installed. The config path is unique to this deployment and is
+        # necessarily still on the line, because that is how the process knows
+        # which port to bind. It also means `stop` can never kill a code-server
+        # the person runs for their own work.
+        str(config),
+        env,
+        f"http://127.0.0.1:{CODE_SERVER_PORT}/healthz",
+    )]
 
 
 def _with_results(env: dict[str, str]) -> dict[str, str]:
@@ -366,7 +483,21 @@ def start() -> int:
             time.sleep(0.4)
         answering = responds(url)
         ready = ready and answering
-        print(f"  {name:<7} {'ready' if answering else 'NOT ready — see .run/' + name.lower() + '.log'}")
+        print(f"  {name:<11} {'ready' if answering else 'NOT ready — see .run/' + name.lower() + '.log'}")
+
+    if code_server_binary():
+        print(f"\ncode-server: http://127.0.0.1:{CODE_SERVER_PORT}")
+        print(f"  password   {code_server_password()}")
+        print(f"  also in    {RUN / 'code-server.password'} (mode 0600)")
+        print("  install Clarvis into it with:")
+        print(f"    code-server --config {RUN / 'code-server.yaml'} \\")
+        print("      --install-extension ../clarvis/clarvis.vsix")
+    else:
+        # Named, not silent. Stage 9 grades code-server, so "it is not here" is
+        # a fact somebody needs, and a launcher that simply omitted the line
+        # would look identical to one where it had started.
+        print("\ncode-server is not installed, so it was not started.")
+        print("  brew install code-server        (then run this again)")
 
     print("\nRuntimes this ecosystem uses but does not start:")
     for name, url in EXTERNAL:
@@ -415,6 +546,20 @@ def stop() -> int:
                 os.kill(pid, 9)
         print(f"  {name} stopped")
     PIDFILE.unlink(missing_ok=True)
+
+    # **Checked, because the loop above can be wrong and say nothing.** A
+    # recorded PID whose command line no longer carries its marker is skipped as
+    # "was not running" — which is right when the PID was reused and wrong when
+    # the process simply re-exec'd itself out of recognition. Both print the same
+    # line, and in the second case this printed "Stopped." over a service still
+    # holding its port. Observed, not imagined: it is what a stub code-server did
+    # the first time this path ran.
+    still = [name for name, _, _, _, url in _services() if responds(url, 1.0)]
+    if still:
+        print("\nStill answering after stop: " + ", ".join(still))
+        print("  Something is holding those ports that this launcher did not start,")
+        print("  or did not recognise. `ps aux | grep -E 'ravis|sirvis|nervis|code-server'`")
+        return 1
     print("Stopped.")
     return 0
 
@@ -470,7 +615,7 @@ def status(quiet: bool = False) -> dict[str, bool]:
     answers = {name: responds(url, 1.0) for name, _, _, _, url in _services()}
     if not quiet:
         for name, ok in answers.items():
-            print(f"  {name:<7} {'answering' if ok else 'not running'}")
+            print(f"  {name:<11} {'answering' if ok else 'not running'}")
         print()
         for name, url in EXTERNAL:
             print(f"  {name:<10} {'answering' if responds(url, 1.0) else 'not running'} (external)")

@@ -3718,8 +3718,8 @@ async function nervis(){
        live. Ollama never appeared at all, and a node stayed green for a service
        that had been down for an hour. -->
   <div class="card narrow${escapeHtml(liveClass(svc.live))}"><h3>Ecosystem map</h3>
-   ${topologyMap(ecosystemNodes(svc),230,true)}
-   <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
+   ${topologyMap(ecosystemNodes(svc,inst),230,true)}
+   <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is a service that should be answering and is not — <b>an optional peer nobody has started is not drawn red</b>, because that is an absence rather than a fault. <b>The Clarvis Bridge node is read from registrations, never from an address</b>: its port is assigned per extension host and discovered when a window announces itself, so a configured address for it would be an assumption the runbook forbids. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
   <div class="card wide${escapeHtml(liveClass(inst.live))}"><h3>Clarvis instances</h3>
    ${inst.items.length?`<div class="table-row head five"><span>Instance</span><span>Endpoint</span><span>Registration</span><span>Doing</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
@@ -4588,7 +4588,7 @@ const VOICE={
    fixed positions regardless of what the registry said, which is why that card
    carried a PROTOTYPE badge while the tab beside it was live. A diagram that
    ignores the registry is not a smaller version of one that reads it. */
-function ecosystemNodes(svc){
+function ecosystemNodes(svc,inst){
  /* Nodes sit on a circle so the count can change without a layout rewrite. The
     inline position beats the `.node:nth-of-type` rules a fixed map relies on. */
  /* A wider horizontal radius than vertical. A node's label is far wider than
@@ -4618,9 +4618,53 @@ function ecosystemNodes(svc){
     own registry — a control plane that skipped its own entry would be the one
     row nobody could check — and drawing every entry put two boxes labelled
     NERVIS on the diagram, one at the centre and one on the ring. */
- const ring=[...svc.items.filter(s=>!['nervis','lmstudio','ollama'].includes(s.key)), ...bundled];
+ /* **The Bridge's state comes from the registrations, never from its address.**
+    The runbook's port table says the Bridge's port is "dynamic and discovered
+    through registration, never assumed", and §6.6 has each editor window take an
+    OS-assigned one — so NERVIS's configured `clarvis_base_url` is an address no
+    Bridge ever binds, and this node was red on a machine with two live windows
+    on it. The instance registry is where the answer actually is.
+
+    Left in the ring rather than dropped: a diagram that answers "can NERVIS see
+    an editor" needs the node whether or not one is open. */
+ const ring=[...svc.items.filter(s=>!['nervis','lmstudio','ollama'].includes(s.key)), ...bundled]
+   .map(s=>s.key==='clarvis'?bridgeNode(s,inst):s);
  return ring.map((s,i)=>({...s,...pos(i,ring.length),
-   ok:['healthy','degraded'].includes(s.state)}));
+   /* `awaiting_first_contact` is not a fault. NERVIS says it about an optional
+      peer that has never answered, the registry table has always honoured it,
+      and this map did not — so a Bridge nobody has started, on a machine that
+      never had one, drew the same alarming red as a service that had crashed. */
+   ok:['healthy','degraded'].includes(s.state)||s.awaiting_first_contact}));
+}
+
+/* What a node says under its name.
+
+   `unreachable` is the right word for a service that should be answering and is
+   not. It is the wrong word for an optional peer nobody has started — the
+   registry table has said `not configured` for that case since M2, and the map
+   went on printing the enum, so a Bridge with no editor open read as a fault on
+   a machine where nothing was wrong. Each node carries its own phrasing where
+   the generic one would mislead. */
+function nodeState(n){
+ if(!n.awaiting_first_contact)return n.state;
+ return n.key==='clarvis'?'no editor window':'not configured';
+}
+
+/* One node for the Bridge, described by how many windows have registered.
+
+   `inst` may be absent — `ecosystemNodes` is called from two screens and only
+   one of them had a reason to read the instances before now — in which case
+   this falls back to whatever the service probe said rather than inventing an
+   answer it does not have. */
+function bridgeNode(entry,inst){
+ if(!inst)return entry;
+ const windows=(inst.items||[]).filter(c=>c.live).length;
+ if(!inst.live)return{...entry,state:'unknown',
+   detail:'NERVIS is not answering, so whether a Bridge is running is unknown'};
+ if(!windows)return{...entry,state:'unreachable',awaiting_first_contact:true,
+   detail:'no editor window has registered; the Bridge is per extension host'};
+ return{...entry,state:'healthy',awaiting_first_contact:false,
+   detail:windows===1?'one editor window registered':`${windows} editor windows registered`};
 }
 
 function localDetail(up,missing){
@@ -4642,7 +4686,7 @@ async function mapView(){
  heading('Ecosystem map','Every node is a registry entry. Every edge is a connection NERVIS itself holds.');
  const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
  const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
- const pts=ecosystemNodes(svc);
+ const pts=ecosystemNodes(svc,inst);
  $('#content').innerHTML=kpis([
    /* Stated rather than derived from `SOURCE`, which is a global the next
       fetch overwrites. Every tile and card on this screen is drawn from one of
@@ -4656,7 +4700,7 @@ async function mapView(){
    <div class="map" style="height:320px">
     <svg>${pts.map(n=>`<line x1="50%" y1="50%" x2="${escapeHtml(n.x)}%" y2="${escapeHtml(n.y)}%"${n.ok?'':' style="stroke:#ff5c6a;stroke-opacity:.3;animation:none"'}/>`).join('')}</svg>
     <div class="hub">NERVIS</div>
-    ${pts.map(n=>`<div class="node" style="left:${escapeHtml(n.x)}%;top:${escapeHtml(n.y)}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${escapeHtml(n.label)}</b><br><small style="opacity:.6">${escapeHtml(n.state)}</small></div>`).join('')}
+    ${pts.map(n=>`<div class="node" style="left:${escapeHtml(n.x)}%;top:${escapeHtml(n.y)}%;right:auto;bottom:auto;transform:translate(-50%,-50%);text-align:center;white-space:nowrap${n.ok?'':';border-color:#5a2530;opacity:.7'}"><b>${escapeHtml(n.label)}</b><br><small style="opacity:.6">${escapeHtml(nodeState(n))}</small></div>`).join('')}
    </div>
    <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
   <div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Capability negotiation</h3>
