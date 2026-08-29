@@ -4704,6 +4704,18 @@ function effectiveConfig(h){
 /* Whether the mutation controls on this screen are usable.
    Reads are open on loopback; loading or releasing a model is not, because it
    spends gigabytes and can evict a model another client is holding. */
+/* What to do about a refusal that names a scope.
+
+   §4.5 separates SIRVIS's scopes by what they cost, so the token that loads a
+   model is *not* the token that occupies the machine for ten minutes with a
+   benchmark. That is a good rule with a bad failure mode on a dashboard: one
+   token box, and a refusal that says which scope is missing without saying that
+   one token can carry both. */
+function scopeHint(failure){
+ if(!failure||!/scope/i.test(failure.message||''))return '';
+ return ' · mint one that carries both: sirvis token --mint dashboard --scopes "runtime benchmark"';
+}
+
 function runtimeArmed(){
  return RUNTIME_TOKEN?'':' disabled title="a runtime-scoped token is required" style="opacity:.45;cursor:not-allowed"';
 }
@@ -4958,7 +4970,11 @@ const RUNTIME={
      body:JSON.stringify(body)});
    const payload=await r.json().catch(()=>({}));
    if(!r.ok){const e=(payload.error||{});
-     notify(`${e.code||r.status}: ${e.message||'refused'}`);return null}
+     /* The scope hint rides on the refusal itself. Runtime operations still go
+        straight from this tab with the runtime-scoped token, and a refusal that
+        names a scope without saying one token can carry both is where the
+        benchmark button lost ten minutes of somebody's evening. */
+     notify(`${e.code||r.status}: ${e.message||'refused'}${scopeHint(e)}`);return null}
    return payload;
   }catch(failure){notify('SIRVIS did not answer: '+failure.message);return null}},
  async load(){
@@ -5253,9 +5269,10 @@ async function sirvisDiscover(){
 async function submitBenchmark(){
  const model=(($('#bmModel')||{}).value||'').trim();
  if(!model){notify('Name a model to benchmark');return}
- const out=await RUNTIME._send('/api/v1/benchmark-jobs','POST',
-   {specification:BENCH_SPEC,model});
- if(out&&out.job)notify(`Queued ${out.job.job_id}`);
+ /* The same road the chat offer takes: one enumerated operation, one narrow
+    credential, held by NERVIS and not by this tab. */
+ const out=await runCommand('sirvis.benchmark.submit',model);
+ notify(out.job?`Queued ${out.job.job_id}`:out.error);
  repaint();
 }
 
@@ -5265,20 +5282,9 @@ async function cancelBenchmark(jobId){
  repaint();
 }
 
-/* The specification the dashboard submits. The same shape `examples/basic.yaml`
-   holds, sent as JSON — a queued job stores what it was given rather than a
-   path, so the file does not have to exist on the machine running the queue. */
-const BENCH_SPEC={id:'basic',suite:'performance-basic',suite_version:'1',
- role:'general',environment:'shared',
- target:{model:'',load:{context_length:8192}},
- warmups:2,repetitions:5,
- tests:[{id:'short-prompt-256-out',version:1,
-   prompt:'Write a Python function that merges two sorted lists into one sorted list. Return only the code.',
-   generation:{temperature:0,max_tokens:256}}]};
-
 function howToBenchmark(){
  return `<div class="card full"><h3>Running a benchmark</h3>
-  <small class="mono dim">Two ways, and they produce the same evidence. <b>From here</b>: name a model and press New benchmark — it is queued through SIRVIS's own <b>/api/v1/benchmark-jobs</b> (M14), one at a time, because two benchmarks running at once measure each other. Submitting needs a token with the <b>benchmark</b> scope, which is not the runtime scope: mint one with <b>sirvis token --scope benchmark</b> and paste it on the Runtime screen. <b>From the command line</b>, unchanged:</small>
+  <small class="mono dim">Two ways, and they produce the same evidence. <b>From here</b>: name a model and press New benchmark — it is queued through SIRVIS's own <b>/api/v1/benchmark-jobs</b> (M14), one at a time, because two benchmarks running at once measure each other. Nothing to paste: NERVIS holds its own <b>benchmark</b>-scoped token, minted by the launcher, and submits through its own <b>/api/v1/commands/run</b> — an enumerated operation that publishes every attempt to the event hub. <b>From the command line</b>, unchanged:</small>
   <div style="margin:9px 0;display:flex;gap:7px;align-items:center">
    <input id="bmModel" class="mono" placeholder="model id to benchmark" style="flex:1;min-width:0;background:#0b1118;border:1px solid #2a3541;color:#cfe;border-radius:6px;padding:7px 9px">
   </div>
@@ -7932,14 +7938,34 @@ function offerRow(offer,index){
    ?`<div class="mono dim" style="margin-top:5px;font-size:11px">${escapeHtml((offer.candidates||[]).join(' · '))}</div>`:'';
  if(!offer.ready)
   return `<div style="margin-top:7px"><div class="mono dim" style="font-size:11px">${escapeHtml(offer.detail||'this cannot be prepared')}</div>${candidates}</div>`;
- /* Disabled with the reason on it, rather than hidden: a benchmark needs a
-    token this tab may not hold, and "nothing happened" is the one response that
-    teaches somebody the feature does not work. */
- const armed=RUNTIME_TOKEN?'':' disabled title="a benchmark-scoped SIRVIS token is required — paste one on the Runtime screen" style="opacity:.45;cursor:not-allowed"';
+ /* No token gate on this button. It used to require one pasted into this tab
+    and was reported as "forbidden, scope needed" — the API being exactly right
+    and the product being wrong. NERVIS holds its own `benchmark`-scoped
+    credential now, minted by the launcher, so the person presses Run. */
  return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-   <button class="btn primary" onclick="runOffer(${index})"${armed}>Run</button>
-   <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}${RUNTIME_TOKEN?'':' · needs a benchmark-scoped SIRVIS token'}</span>
+   <button class="btn primary" onclick="runOffer(${index})">Run</button>
+   <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}</span>
   </div>`;
+}
+
+/* Ask NERVIS to carry out one enumerated operation.
+
+   **Through NERVIS rather than straight at SIRVIS**, which is the change that
+   made this usable: SIRVIS separates `runtime` from `benchmark` scope (§4.5),
+   the dashboard's own token is runtime-only, and pressing Run answered
+   "forbidden — a token with benchmark scope is required". Minting a second
+   token and pasting it is the manual step the launcher exists to remove. NERVIS
+   holds the narrow credential now, checks the operation against its own closed
+   set, and publishes every attempt to the hub. */
+async function runCommand(operation,target){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({operation,target})});
+  const payload=await r.json().catch(()=>({}));
+  if(!r.ok)return{error:((payload.error||{}).message)||('NERVIS answered HTTP '+r.status)};
+  return payload;
+ }catch(failure){return{error:'NERVIS did not answer: '+failure.message}}
 }
 
 /* Carry out exactly what the button says, through the service's own API.
@@ -7957,15 +7983,12 @@ async function runOffer(index){
   offer.done='NERVIS does not know how to carry that out';return render()}
  offer.done='queueing…';
  render();
- const out=await RUNTIME._send('/api/v1/benchmark-jobs','POST',
-   {specification:{...BENCH_SPEC,target:{...BENCH_SPEC.target,model:offer.target}},
-    model:offer.target});
- /* SIRVIS's own words on failure — `_send` has already shown them — and its own
-    job id on success. Neither is composed here, because a queue that reports
-    its own state is the only thing that knows it. */
- offer.done=out&&out.job
+ const out=await runCommand(offer.operation,offer.target);
+ /* SIRVIS's own job id, or the reason it refused — neither composed here,
+    because the queue is the only thing that knows the state of a job. */
+ offer.done=out.job
    ?`queued on SIRVIS · job ${String(out.job.job_id).slice(0,12)} · ${out.job.state||'pending'}`
-   :'SIRVIS did not accept it — nothing was queued';
+   :`nothing was queued — ${out.error}`;
  render();
 }
 

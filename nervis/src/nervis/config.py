@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     # not generate titles. A missing credential must not turn the feature into
     # an expensive one.
     ravis_client_credential: str = ""
+
+    # The credential NERVIS presents to SIRVIS when it carries out a confirmed
+    # command (§12). Narrow on purpose: `benchmark` scope, minted by the
+    # launcher, and nothing else — §4.5 separates SIRVIS's scopes by what they
+    # cost, and a control plane holding an admin token is a control plane whose
+    # compromise is total.
+    #
+    # **Empty means the operation does not exist.** §12: "each family of control
+    # operations carries its own switch, every switch defaults to off". An
+    # install that never configures this can be asked for a benchmark and will
+    # say it has no credential, which is the honest answer and not a silent
+    # refusal.
+    sirvis_client_credential: str = ""
     sirvis_base_url: str = "http://127.0.0.1:8721"
     # The Clarvis Bridge is per extension host, so this is only the first
     # instance. §5.1 lists it among the initial registry entries because an

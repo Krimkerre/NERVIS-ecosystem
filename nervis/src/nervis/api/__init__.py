@@ -1,6 +1,7 @@
 """NERVIS's own API surface (§14)."""
 
 from nervis.api.chat import router as chat_router
+from nervis.api.commands import router as commands_router
 from nervis.api.diagnostics import router as diagnostics_router
 from nervis.api.events import router as events_router
 from nervis.api.instances import router as instances_router
@@ -10,6 +11,7 @@ from nervis.api.voice import router as voice_router
 
 __all__ = [
     "chat_router",
+    "commands_router",
     "diagnostics_router",
     "events_router",
     "instances_router",

@@ -253,6 +253,12 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # been orphaned this way.
         package = prefix.lower()
         env[f"{prefix}_DATABASE_PATH"] = str(ROOT / package / f"{package}.db")
+        if prefix == "NERVIS":
+            # So a confirmed "bench this model" can actually be carried out.
+            # Minted here rather than asked of the operator: see benchmark_token.
+            token = benchmark_token()
+            if token:
+                env["NERVIS_SIRVIS_CLIENT_CREDENTIAL"] = token
         if prefix == "RAVIS":
             # Point RAVIS at SIRVIS. Without this RAVIS starts healthy with an
             # empty evidence store, its Evidence screen reads zero records, and
@@ -438,7 +444,35 @@ def dashboard_token() -> str:
     threat it answers — another process on the machine calling a mutating
     endpoint — is unchanged by the launcher being the one to mint it.
     """
-    cached = RUN / "dashboard.token"
+    return _sirvis_token("dashboard.token", "nervis-dashboard", "read runtime")
+
+
+def benchmark_token() -> str:
+    """A `benchmark`-scoped token for NERVIS itself, minted the same way.
+
+    **Why NERVIS holds one and the page does not.** §4.5 separates SIRVIS's
+    scopes by what they cost: loading a model is `runtime`, occupying the machine
+    for ten minutes is `benchmark`. Asking somebody to notice that distinction,
+    mint a second token and paste it is the manual step this launcher exists to
+    remove — it was reported as "forbidden, scope needed", which is the API being
+    exactly right and the product being wrong.
+
+    It goes to NERVIS rather than into the page for the ordinary reason: a
+    credential in a browser tab is a credential in every script that tab runs,
+    and the page has no need of this one. NERVIS carries out an enumerated
+    operation with it and publishes every attempt to the hub (§12).
+    """
+    return _sirvis_token("nervis-benchmark.token", "nervis-benchmark", "benchmark")
+
+
+def _sirvis_token(filename: str, label: str, scopes: str) -> str:
+    """Mint one SIRVIS token, cache it at 0600, and reuse it next time.
+
+    Cached per file rather than per label so two tokens with different scopes
+    can coexist: minting on every start would leave a pile of live credentials
+    nobody can account for, which is worse than the manual step it replaced.
+    """
+    cached = RUN / filename
     try:
         existing = cached.read_text(encoding="utf-8").strip()
         if existing:
@@ -449,8 +483,7 @@ def dashboard_token() -> str:
     env["SIRVIS_DATABASE_PATH"] = str(ROOT / "sirvis" / "sirvis.db")
     try:
         minted = subprocess.run(
-            [str(venv_bin("sirvis")), "token", "--mint", "nervis-dashboard",
-             "--scopes", "read runtime"],
+            [str(venv_bin("sirvis")), "token", "--mint", label, "--scopes", scopes],
             cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):

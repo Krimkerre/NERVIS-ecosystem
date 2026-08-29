@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse
 
 from nervis.api import (
     chat_router,
+    commands_router,
     diagnostics_router,
     events_router,
     instances_router,
@@ -77,6 +78,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(diagnostics_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(commands_router)
     api.include_router(voice_router)
     register_dashboard(api)
     return api

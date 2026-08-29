@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1637 tests, no network, no live service
+.venv/bin/pytest                      # part of 1641 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 350 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1637 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1641 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,32 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**Pressing Run said "forbidden — a token with benchmark scope is required".**
+The API was exactly right and the product was wrong. §4.5 separates SIRVIS's
+scopes by what they cost — loading a model is `runtime`, occupying the machine
+for ten minutes is `benchmark` — and the dashboard's launcher-minted token
+carries only the first. The fix somebody would have had to perform is the manual
+step the launcher exists to remove: notice the distinction, mint a second token,
+paste 43 characters into a field.
+
+**So NERVIS carries the operation out itself, with its own narrow credential.**
+`tools/run.py` mints a `benchmark`-scoped token at start, caches it `0600` beside
+the logs and hands it to NERVIS as `NERVIS_SIRVIS_CLIENT_CREDENTIAL`; nothing is
+pasted and nothing reaches the browser, because a credential in a tab is a
+credential in every script that tab runs. `POST /api/v1/commands/run` takes an
+operation id from the closed set — never a description of one — fills the
+standard experiment, presents the token, and publishes every attempt to the hub
+including the refused ones, because a control surface that records only what
+worked cannot answer *"did something try to do this"*. The Benchmarks screen's
+own button now takes the same road, so there is one path rather than two.
+
+Verified against the live queue: `POST /api/v1/commands/run` with an
+intentionally invalid model reached SIRVIS with the credential and came back
+`bj_cc726d2d79fa · queued`, which the worker then failed with *"no installed
+build carries the runtime key"* — auth proven, and nothing occupied the machine.
+Chat offers cannot produce that case anyway: an unknown model is refused before
+the offer is made.
 
 **The model will still say it has been queued, and the screen says otherwise.**
 Told *"queue a benchmark of X"* and instructed not to claim it had started, an

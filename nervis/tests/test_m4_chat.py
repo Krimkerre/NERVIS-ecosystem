@@ -872,6 +872,105 @@ def test_a_greeting_never_carries_an_offer() -> None:
     assert answered.headers["x-command-offer"] == ""
 
 
+def test_a_confirmed_command_is_carried_out_with_nervis_own_credential() -> None:
+    """The manual step this removes was reported as "forbidden, scope needed".
+
+    SIRVIS separates `runtime` from `benchmark` scope (§4.5) and the dashboard's
+    token is runtime-only, so pressing Run refused. Minting a second token and
+    pasting it is exactly the step the launcher exists to remove.
+    """
+    sent: list[httpx.Request] = []
+    client = an_api()
+    client.app.state.settings.sirvis_client_credential = "benchmark-scoped"  # type: ignore[attr-defined]
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(202, json={"job": {"job_id": "job-1", "state": "pending"}})
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = client.post(
+        "/api/v1/commands/run",
+        json={"operation": "sirvis.benchmark.submit", "target": "phi-4-mini-instruct"},
+    )
+
+    assert answered.status_code == 200
+    assert answered.json()["job"]["job_id"] == "job-1"
+    assert sent[0].headers["authorization"] == "Bearer benchmark-scoped"
+    body = json.loads(sent[0].content)
+    assert body["model"] == "phi-4-mini-instruct"
+    # The specification is NERVIS's, fixed: a forwarded one would be the
+    # free-form path §12 exists to prevent, wearing a parameter's clothes.
+    assert body["specification"]["target"]["model"] == "phi-4-mini-instruct"
+    assert body["specification"]["suite"] == "performance-basic"
+
+
+def test_an_operation_outside_the_set_does_not_exist() -> None:
+    """§12's wording, and a real distinction: a surface that fails validation
+    differently for near-misses can be enumerated by probing it."""
+    client = an_api()
+
+    answered = client.post(
+        "/api/v1/commands/run", json={"operation": "sirvis.runtime.unload", "target": "x"}
+    )
+
+    assert answered.status_code >= 400
+    assert "no such operation" in answered.json()["error"]["message"]
+
+
+def test_without_a_credential_it_says_so_rather_than_failing_obscurely() -> None:
+    """§12's switch in its off position. A 401 relayed from SIRVIS is a puzzle;
+    "NERVIS holds no benchmark credential" is an answer."""
+    client = an_api()
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+
+    answered = client.post(
+        "/api/v1/commands/run",
+        json={"operation": "sirvis.benchmark.submit", "target": "phi-4-mini-instruct"},
+    )
+
+    assert answered.status_code >= 400
+    assert "no benchmark credential" in answered.json()["error"]["message"]
+
+
+def test_every_attempt_is_published_including_the_refused_ones() -> None:
+    """§12 asks for audit. Failures matter more: a surface that records only
+    what worked cannot answer "did something try to do this"."""
+    client = an_api()
+    client.app.state.settings.sirvis_client_credential = "benchmark-scoped"  # type: ignore[attr-defined]
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                403, json={"error": {"code": "FORBIDDEN", "message": "scope required"}}
+            )
+        )
+    )
+
+    client.post(
+        "/api/v1/commands/run",
+        json={"operation": "sirvis.benchmark.submit", "target": "phi-4-mini-instruct"},
+    )
+
+    published = client.app.state.hub.query(latest=True, limit=20)  # type: ignore[attr-defined]
+    attempts = [e for e in published if e["event_type"] == "nervis.command.attempted"]
+    assert attempts, "a refused command left no trace"
+    assert attempts[-1]["data"]["outcome"] == "refused"
+    assert attempts[-1]["data"]["target"] == "phi-4-mini-instruct"
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every
