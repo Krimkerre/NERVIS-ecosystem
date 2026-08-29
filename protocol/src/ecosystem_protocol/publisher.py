@@ -143,6 +143,7 @@ class EventPublisher:
         # nothing on any screen can explain.
         if len(self._pending) == self._pending.maxlen:
             self._dropped += 1
+            self._report_drop()
         self._pending.append(built)
 
     async def flush(self, client: _Poster) -> int:
@@ -175,6 +176,7 @@ class EventPublisher:
             for event in reversed(batch):
                 if len(self._pending) == self._pending.maxlen:
                     self._dropped += 1
+                    self._report_drop()
                 self._pending.appendleft(event)
             return 0
         self._published += len(batch)
@@ -221,6 +223,35 @@ class EventPublisher:
         except (TimeoutError, Exception):  # noqa: BLE001 - never raise on the way out
             LOG.debug("event publisher drain did not finish", exc_info=True)
         return sent
+
+    def _report_drop(self) -> None:
+        """Say that events were lost, without making it the product's problem.
+
+        **This was a readiness check, and that was wrong in a way worth
+        recording.** Reporting a dropped event through `/ecosystem/health` made
+        the check fail, which made `ready` false, which made the service
+        advertise itself as degraded — so a dead collector degraded the
+        product's published health. That is precisely the coupling Stage 7's
+        clause forbids: *collector outage leaves every product healthy*. The
+        thing built to prove the clause broke it, and it took killing a
+        collector and reading `ready: False` to see it.
+
+        A log line instead. It is a real signal — an operator grepping for why
+        the timeline has holes finds it — and it cannot travel back up into the
+        service's own health. `snapshot()` remains for anything that wants the
+        numbers without an opinion attached.
+
+        Logged once per power of two rather than per drop, so a long outage
+        leaves a handful of lines rather than one per event.
+        """
+        if self._dropped & (self._dropped - 1):
+            return
+        LOG.warning(
+            "event publishing has dropped %d event(s); the collector at %s has "
+            "been unreachable long enough to overrun a %d-event buffer (%s)",
+            self._dropped, self._base_url, self._pending.maxlen,
+            self._last_error or "no detail",
+        )
 
     def snapshot(self) -> dict[str, Any]:
         """What to publish so an operator can see publishing failing.

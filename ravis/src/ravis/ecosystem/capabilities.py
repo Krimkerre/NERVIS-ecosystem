@@ -176,5 +176,9 @@ def ravis_surface(service_id: str, machine_id: str, database: object) -> Ecosyst
         machine_id=machine_id,
         build_version=BUILD_VERSION,
         declared=DECLARED,
+        # **Deliberately not a check for the event publisher.** A failing check
+        # makes `ready` false, and a dead collector making the product
+        # advertise itself as degraded is exactly the coupling Stage 7 forbids.
+        # A drop is logged instead; see `EventPublisher._report_drop`.
         checks={"database": database_answers},
     )

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1577 tests, no network, no live service
+.venv/bin/pytest                      # part of 1580 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1577 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1580 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2125,11 +2125,30 @@ to both producers: two lanes in one trace, RAVIS with two events and a measured
 now publish, and both were checked by reading what actually arrived in the hub
 rather than by trusting the tests.
 
-**Stage 7's remaining clauses.** *"Collector outage leaves every product
-healthy"* is built and tested at the publisher — bounded buffer, counted drops,
-nothing raising, a disabled publisher when no hub is configured — but not yet
-exercised against a hub that dies mid-run. *"Redaction and retention tests
-pass"* has the redaction half; retention is NERVIS's and predates this.
+**Stage 7 is complete. All three exit clauses are met.**
+
+*"Collector outage leaves every product healthy"* — exercised against a
+collector killed mid-run, not just unit-tested. With the hub dead, twelve
+consecutive requests returned 200 in ~7 ms, indistinguishable from the ~7 ms
+baseline taken while it was alive, and the service kept reporting `healthy` and
+`ready`. When the collector came back, all twelve events queued during the
+outage arrived in a single batch: retained, ordered, and delivered without a
+thundering herd.
+
+That exercise found a defect in the reporting built for this very clause. The
+publisher's `snapshot()` existed so an operator could see publishing fail, and
+nothing anywhere called it — the module's own docstring says telemetry that
+stops quietly looks exactly like a quiet system, and it shipped a reporter
+nobody read. The first fix was worse than the bug: reporting it as a readiness
+check made a dead collector turn `ready` false and the service advertise itself
+as **degraded**, which is precisely the coupling this clause forbids. The thing
+built to prove the clause broke it. It is a log line now — a real signal that
+cannot travel back up into the product's own health — emitted at powers of two
+so a long outage leaves a handful of lines rather than one per lost event.
+
+*"Redaction and retention tests pass"* — retention has four tests and predates
+this work; redaction is `redact_deep` plus the packet bounds, tested at the
+publisher and again at M12's fence.
 
 **Two things left deliberately.** A runtime-set run (`sirvis/src/sirvis/benchmarks/multi.py`) still records no
 trace: `start_run` defaults it to NULL, which is honest — that path mints

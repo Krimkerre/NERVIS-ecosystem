@@ -240,3 +240,48 @@ def test_a_built_event_carries_every_field_the_hub_requires() -> None:
 
 def test_the_default_buffer_matches_the_hub_s_own() -> None:
     assert DEFAULT_BUFFER == 256
+
+
+# ── Publishing that stopped has to be visible, and cost nothing ─────────────
+
+
+def test_a_drop_is_reported_without_touching_the_product_s_health(caplog: Any) -> None:
+    """Reported as a log line, deliberately, and this was a readiness check
+    first — which made a dead collector turn `ready` false and the service
+    advertise itself as degraded. That is exactly the coupling Stage 7 forbids:
+    *collector outage leaves every product healthy*. The thing built to prove
+    the clause broke it.
+    """
+    import logging
+
+    publisher = a_publisher(buffer=2)
+    with caplog.at_level(logging.WARNING, logger="ecosystem.publisher"):
+        for n in range(5):
+            publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    assert publisher.snapshot()["dropped"] == 3
+    assert any("dropped" in record.message for record in caplog.records)
+
+
+def test_the_drop_log_does_not_grow_with_the_outage(caplog: Any) -> None:
+    """A line per lost event would bury the first one, which is the useful one."""
+    import logging
+
+    publisher = a_publisher(buffer=2)
+    with caplog.at_level(logging.WARNING, logger="ecosystem.publisher"):
+        for n in range(200):
+            publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    assert publisher.snapshot()["dropped"] == 198
+    assert len(caplog.records) < 12, "one line per drop buries the first one"
+
+
+def test_a_disabled_publisher_reports_nothing() -> None:
+    """No collector configured is an ordinary state, not a fault to log about."""
+    import logging
+
+    publisher = EventPublisher(service_type="ravis")
+    publisher.emit("ravis.route.selected", trace_id="t1")
+
+    assert publisher.snapshot()["dropped"] == 0
+    del logging
