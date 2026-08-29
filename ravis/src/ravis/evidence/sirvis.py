@@ -352,6 +352,10 @@ class EvidenceStore:
         self._max_age = max_age_seconds
         self._clock = clock
         self._records: dict[str, EvidenceRecord] = {}
+        # Reasoning shares, keyed by runtime key and read across every role.
+        # Separate from `_records` because they are gathered by a different
+        # question — see `_absorb_shares`.
+        self._shares: dict[str, float] = {}
         # Declared context ceilings from SIRVIS's inventory, keyed by runtime
         # key. §13 lists "model fit" among what RAVIS asks SIRVIS for, and a
         # context ceiling is the most basic fit fact there is — without it a
@@ -418,6 +422,50 @@ class EvidenceStore:
             return None
         return record
 
+    async def _absorb_shares(self, client: httpx.AsyncClient, candidates: Sequence[str]) -> None:
+        """Reasoning shares, read across every role rather than one.
+
+        **Found by running an actual benchmark.** The share was measured at
+        0.992 for a distill that returned no content at all in five
+        repetitions — exactly the build M16's tiebreak exists to demote — and
+        the tiebreak did not fire, because the run recorded `role: general`
+        while this store asks SIRVIS for `clarvis-agent` and nothing else.
+
+        The role scope is right for what it was built for and wrong here.
+        §12.5 attaches verdicts to a build *and a role* because fitness is
+        role-specific: a tool-call pass rate for `clarvis-agent` says nothing
+        about `clarvis-chat`. How much of its output a build spends thinking
+        before it answers is not that kind of fact. It is a property of the
+        build's generation, and it is equally true whichever role asked — so
+        scoping its lookup to one role means the tiebreak fires only when
+        somebody happens to have benchmarked that build under exactly the role
+        this store is configured for.
+
+        Failures are swallowed rather than degrading the source. This is a
+        second, optional read; a SIRVIS that answers the first and not this one
+        has still given RAVIS everything eligibility depends on, and marking
+        evidence degraded over a ranking hint would be the tail wagging the dog.
+        """
+        self._shares = {}
+        try:
+            response = await client.get(
+                f"{self._base_url}/api/v1/evidence",
+                params=[("candidate", key) for key in candidates],
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return
+        variants = _variant_map(payload)
+        for item in payload.get("items") or []:
+            if not isinstance(item, Mapping):
+                continue
+            key = variants.get(str((item.get("target") or {}).get("variant") or ""), "")
+            share = _measured_share(item.get("metrics"))
+            if key and share is not None:
+                # Newest wins, and the API returns newest first.
+                self._shares.setdefault(key, share)
+
     def reasoning_share(self, runtime_key: str) -> float | None:
         """How much of this build's output is thinking rather than answer.
 
@@ -434,10 +482,14 @@ class EvidenceStore:
         claims. A measurement that has aged out establishes nothing, whether it
         was going to admit a build or order one.
         """
+        # The role-scoped record first, because a share measured under the role
+        # RAVIS actually asks about is the most specific answer available.
         record = self.record_for(runtime_key)
-        if record is None:
-            return None
-        return record.measured_share(MEASUREMENT_REASONING_SHARE)
+        if record is not None:
+            direct = record.measured_share(MEASUREMENT_REASONING_SHARE)
+            if direct is not None:
+                return direct
+        return self._shares.get(runtime_key)
 
     def claims_for(self, runtime_key: str) -> list[CapabilityClaim]:
         """What this build's evidence establishes, as capability claims.
@@ -533,6 +585,7 @@ class EvidenceStore:
             return
         self._absorb(payload)
         await self._absorb_context(client)
+        await self._absorb_shares(client, candidates)
 
     async def _negotiate(self, client: httpx.AsyncClient) -> str:
         """Check the protocol major and the capability before reading anything.
@@ -640,6 +693,43 @@ def _fresher(candidate: EvidenceRecord, held: EvidenceRecord) -> bool:
     if held.age_seconds is None:
         return True
     return candidate.age_seconds < held.age_seconds
+
+
+def _variant_map(payload: Any) -> dict[str, str]:
+    """Variant → runtime key, inverted from SIRVIS's own mapping.
+
+    The same inversion `_absorb` does. SIRVIS resolves candidate keys to
+    variants so RAVIS never has to infer equivalence between two packagings of
+    one model — §13.1's rule, and the reason this is read rather than guessed.
+    """
+    variants = payload.get("candidate_variants") if isinstance(payload, Mapping) else None
+    if not isinstance(variants, Mapping):
+        return {}
+    return {str(variant): str(key) for key, variant in variants.items()}
+
+
+def _measured_share(metrics: Any) -> float | None:
+    """`reasoning_token_share`, but only when SIRVIS counted rather than inferred.
+
+    The same rule `EvidenceRecord.measured_share` applies, over a raw payload:
+    §13.3 forbids upgrading provenance, and a share estimated from a runtime
+    that hid its token counts is not established. `direction` is checked rather
+    than assumed for the reason §11.7 added the field — reading a
+    higher-is-better quantity as lower-is-better inverts a ranking silently.
+    """
+    if not isinstance(metrics, Mapping):
+        return None
+    body = metrics.get(MEASUREMENT_REASONING_SHARE)
+    if not isinstance(body, Mapping):
+        return None
+    provenance = body.get("provenance")
+    kind = provenance.get("kind") if isinstance(provenance, Mapping) else None
+    if kind != SIRVIS_MEASURED or body.get("direction") != "lower":
+        return None
+    median = body.get("median")
+    if not isinstance(median, (int, float)) or isinstance(median, bool):
+        return None
+    return float(median)
 
 
 def _read_record(item: Any, by_variant: Mapping[str, str]) -> EvidenceRecord | None:

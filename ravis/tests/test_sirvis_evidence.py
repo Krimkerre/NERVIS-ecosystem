@@ -673,3 +673,109 @@ def test_ravis_can_read_sirvis_reasoning_share() -> None:
     assert share is not None, "the tiebreak needs this metric by name"
     assert share["median"] == 0.8
     assert share["direction"] == "lower", "less budget lost to thinking is better"
+
+
+# ── The share is not a role-specific fact (found by a real benchmark) ────────
+
+
+def test_a_reasoning_share_measured_under_another_role_is_still_read() -> None:
+    """M16's tiebreak was dead in practice, and only a real run showed it.
+
+    A benchmark of `deepseek-r1-distill-qwen-1.5b` measured
+    `reasoning_token_share` at 0.992 — five repetitions that produced no content
+    at all, which is precisely the build the tiebreak exists to demote. It did
+    not fire. The run recorded `role: general`, because the specification
+    measures raw throughput rather than fitness for a Clarvis role, while this
+    store asks SIRVIS for `clarvis-agent` and nothing else.
+
+    §12.5 scopes verdicts to a build *and a role* because fitness is
+    role-specific. How much of its output a build spends thinking before it
+    answers is not that kind of fact — it is the same whichever role asked.
+    """
+    import asyncio
+
+    role_records = payload(record(kind="MEASURED"))
+    other_role = {
+        "items": [record(variant="var_gguf") | {"role": "general", "metrics": {
+            "reasoning_token_share": {
+                "unit": "fraction", "direction": "lower", "samples": 5,
+                "median": 0.992,
+                "provenance": {"kind": "MEASURED", "method": "sirvis.reasoning.v1"},
+            }
+        }}],
+        "next_cursor": None, "snapshot_revision": 1,
+        "resolved_candidates": ["var_gguf"], "unresolved_candidates": [],
+        "candidate_variants": {GGUF: "var_gguf"}, "tombstones": [],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        mep = mep_surface()
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
+        # The role-scoped read gets records without a share; the second,
+        # role-agnostic read is the one carrying it.
+        if "role=" in str(request.url):
+            return httpx.Response(200, json=role_records)
+        return httpx.Response(200, json=other_role)
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(store.refresh(client, [GGUF, MLX]))
+
+    assert store.reasoning_share(GGUF) == 0.992
+
+
+def test_an_estimated_share_under_another_role_still_establishes_nothing() -> None:
+    """Widening the lookup must not widen what counts as measured. §13.3 forbids
+    upgrading provenance, and reading across roles is not a reason to relax it.
+    """
+    import asyncio
+
+    estimated = {
+        "items": [record(variant="var_gguf") | {"role": "general", "metrics": {
+            "reasoning_token_share": {
+                "unit": "fraction", "direction": "lower", "samples": 1,
+                "median": 0.7,
+                "provenance": {"kind": "ESTIMATED", "method": "x"},
+            }
+        }}],
+        "next_cursor": None, "snapshot_revision": 1,
+        "resolved_candidates": ["var_gguf"], "unresolved_candidates": [],
+        "candidate_variants": {GGUF: "var_gguf"}, "tombstones": [],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        mep = mep_surface()
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
+        if "role=" in str(request.url):
+            return httpx.Response(200, json=payload(record()))
+        return httpx.Response(200, json=estimated)
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(store.refresh(client, [GGUF]))
+
+    assert store.reasoning_share(GGUF) is None
+
+
+def test_a_sirvis_that_will_not_answer_the_second_read_is_not_degraded() -> None:
+    """The share is a ranking hint; eligibility does not depend on it. Marking
+    the source degraded because an optional second read failed would be the tail
+    wagging the dog."""
+    import asyncio
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        mep = mep_surface()
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
+        if "role=" in str(request.url):
+            return httpx.Response(200, json=payload(record()))
+        return httpx.Response(500, json={"error": "no"})
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(store.refresh(client, [GGUF]))
+
+    assert store.state is SourceState.FRESH
+    assert store.reasoning_share(GGUF) is None

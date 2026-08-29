@@ -1,0 +1,18 @@
+{
+  "chunk_count": 0,
+  "completion_tokens": 256,
+  "content": "",
+  "finish_reason": "length",
+  "generation_tokens_per_second": null,
+  "hidden_tokens": 254,
+  "index": 0,
+  "lowest_available_bytes": 9161392128,
+  "phase": "warmup",
+  "prompt_tokens": 23,
+  "reasoning_tokens": 254,
+  "test_id": "short-prompt-256-out",
+  "thinking": "",
+  "token_source": "reported",
+  "total_seconds": 4.711912041995674,
+  "ttft_seconds": null
+}

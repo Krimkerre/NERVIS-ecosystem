@@ -1,0 +1,90 @@
+{
+  "evidence_id": "ev_6d61d1654465f884",
+  "evidence_type": "MEASURED",
+  "machine_id": "5d94ae1a93544c2ba045ca191ec461b3",
+  "machine_snapshot_id": "fc7b460f14ba429abc9fde956b9febf4",
+  "metrics": {
+    "reasoning_token_share": {
+      "direction": "lower",
+      "max": 0.9921875,
+      "mean": 0.9921875,
+      "median": 0.9921875,
+      "min": 0.9921875,
+      "p10": 0.9921875,
+      "p90": 0.9921875,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "stream.reasoning_token_share.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        0.9921875,
+        0.9921875,
+        0.9921875,
+        0.9921875,
+        0.9921875
+      ],
+      "samples": 5,
+      "stddev": 0.0,
+      "unit": "fraction"
+    },
+    "total_latency_seconds": {
+      "direction": "lower",
+      "max": 4.537190374918282,
+      "mean": 4.495852449792437,
+      "median": 4.487991665955633,
+      "min": 4.475254041026346,
+      "p10": 4.475254041026346,
+      "p90": 4.537190374918282,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "stream.total_latency.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        4.475254041026346,
+        4.537190374918282,
+        4.487991665955633,
+        4.477987542049959,
+        4.500838625011966
+      ],
+      "samples": 5,
+      "stddev": 0.02519388463447514,
+      "unit": "seconds"
+    }
+  },
+  "role": "general",
+  "samples": 5,
+  "sirvis_version": "0.0.1",
+  "suite": {
+    "id": "performance-basic",
+    "version": "1"
+  },
+  "target": {
+    "format": "gguf",
+    "model_family": "deepseek-r1-distill-qwen-1.5b",
+    "quantization": "Q8_0",
+    "runtime": "lmstudio",
+    "runtime_config": {
+      "context_length": 8192
+    },
+    "runtime_version": null,
+    "source_repository": null,
+    "source_revision": null,
+    "variant": "var_f5b0d237d3485676"
+  },
+  "validity": "SUSPECT",
+  "validity_notes": [
+    "deepseek-r1-distill-qwen-1.5b was already resident, so no load time was measured \u2014 a warm acquire says nothing about how long this model takes to load",
+    "5 measured repetition(s) returned no content \u2014 the call succeeded but the model produced nothing to measure",
+    "5 repetition(s) generated tokens that never arrived as content \u2014 a median of 254 of them. Those are reasoning, spent before the first answer token: the throughput here covers the answer only, and the time-to-first-token includes the thinking",
+    "the build answered nothing as written, and none of no_think_suffix, no_think_system, nothink_suffix, direct_system changed that",
+    "thermal pressure changed from 'nominal' to 'fair' during the run, so the later repetitions were not taken under the same conditions as the earlier ones"
+  ]
+}
