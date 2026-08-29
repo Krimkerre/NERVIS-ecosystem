@@ -4893,13 +4893,38 @@ let RUNTIME_TOKEN='';
 
    The fragment is used rather than a query string because everything after `#`
    is never sent to a server: not to the file server that served this page, not
-   in a Referer, not into any access log. It is read here, kept in memory for
-   this tab only, and erased from the address bar with replaceState before the
-   first render — so a reload, a bookmark or a shared URL does not carry it. */
+   in a Referer, not into any access log. It is read here, erased from the
+   address bar with replaceState before the first render, and kept for this tab
+   only — so a bookmark or a shared URL does not carry it.
+
+   **`sessionStorage`, not a variable, and the difference was a reported bug.**
+   "This tab only" was implemented as "this page load only", which is stricter
+   than it sounds: every reload silently disarmed the dashboard, so Load and
+   Release went back to "a runtime-scoped token is required" with no way to tell
+   that from never having had one. Reported as *can't load models in sirvis*,
+   and the token was sitting valid in `.run/dashboard.token` the whole time.
+   Routing made it worse rather than causing it — an addressable page is one
+   people reload.
+
+   `sessionStorage` is exactly the documented intent: scoped to this tab, gone
+   when it closes, never in a URL, a bookmark or a Referer. What it does add is
+   that any script on this origin can read it — and the only thing served from
+   this origin is this page. */
+const TOKEN_KEY='nervis.runtime-token';
+function rememberToken(value){
+ RUNTIME_TOKEN=value||'';
+ try{
+  if(value)sessionStorage.setItem(TOKEN_KEY,value);
+  else sessionStorage.removeItem(TOKEN_KEY);
+ }catch(e){/* private mode, or storage disabled: the token stays in memory */}
+}
 (function(){
+ /* The remembered one first, so a reload keeps working; the fragment overrides
+    it, because a launcher that just minted a fresh token means it. */
+ try{RUNTIME_TOKEN=sessionStorage.getItem(TOKEN_KEY)||''}catch(e){}
  const m=/[#&]token=([^&]+)/.exec(location.hash||'');
  if(!m)return;
- RUNTIME_TOKEN=decodeURIComponent(m[1]);
+ rememberToken(decodeURIComponent(m[1]));
  /* Cleared twice, and the second time is not belt-and-braces. Clearing during
     parsing is not reliably final: the browser still has the fragment to process
     for anchor scrolling once the document finishes, and it can reappear in the
@@ -4999,7 +5024,7 @@ async function sirvisRuntime(){
     <code class="mono" style="display:block;font-size:10px;color:#9fd8e8;word-break:break-all">cd sirvis &amp;&amp; ../ravis/.venv/bin/sirvis token --mint dashboard --scopes "read runtime"</code>
     <small class="mono dim" style="display:block;margin-top:6px">fallback only. Printed once and never again — SIRVIS stores a hash, not the token. <b>Run it from <code>sirvis/</code></b> (or set <code>SIRVIS_DATABASE_PATH</code>): the CLI's database path is relative, so minting from the wrong directory writes into a different database and produces a token that authenticates against nothing.</small>
    </div>
-   <small class="mono dim">the token is kept in memory for this tab and never stored — a dashboard is a worse place to keep a credential than wherever it came from.</small>`)}`,'sirvis')}</div>
+   <small class="mono dim">the token is kept for <b>this tab</b> — in <code>sessionStorage</code>, so a reload does not lose it, and gone when the tab closes. It is never written to disk, never put in a URL a bookmark could keep, and never sent to any server but SIRVIS. It was memory-only until a reload was found to silently disarm this screen, which looked exactly like never having had a token at all.</small>`)}`,'sirvis')}</div>
   <div class="card full${liveClass(Boolean(res))}"><h3>Resident now</h3>${cell(
    held.length?`
    <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
@@ -5176,7 +5201,7 @@ const BUILD={
  }};
 
 const RUNTIME={
- setToken(){RUNTIME_TOKEN=($('#rtToken')||{}).value||'';
+ setToken(){rememberToken((($('#rtToken')||{}).value||'').trim());
    notify(RUNTIME_TOKEN?'Token set for this tab':'Token cleared');render()},
  /* `body` defaults rather than being tested against the literal — nervis's own
     check forbids that string anywhere in this file, because the way it usually

@@ -90,6 +90,7 @@ function element(id = "") {
    that fails. */
 function makeContext({ fetchImpl } = {}) {
 const store = new Map();
+const session = new Map();
 const elements = new Map();
 const context = {
   console,
@@ -118,6 +119,15 @@ const context = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
+  },
+  /* Its own map, because the page uses both and for different lifetimes: the
+     runtime token is per tab and must not outlive it, everything else is per
+     browser. Sharing one map here would let a check pass on a page that had
+     confused the two. */
+  sessionStorage: {
+    getItem: (k) => (session.has(k) ? session.get(k) : null),
+    setItem: (k, v) => session.set(k, String(v)),
+    removeItem: (k) => session.delete(k),
   },
   location: { origin: "http://127.0.0.1:8790", href: "http://127.0.0.1:8790/index.html",
               search: "", hash: "", pathname: "/index.html" },
