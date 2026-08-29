@@ -33,9 +33,10 @@
 const { loadPage } = require("./page_context.js");
 
 /* Sites still to convert. Was 28 across 27 screens when this check was written;
-   579 individual interpolations reached the markup unescaped. Lower it whenever
-   the count drops — never raise it. */
-const CEILING = 22;
+   579 individual interpolations reached the markup unescaped. Nine remain: the
+   invented-data sweep deleted the fixtures, and their template literals went
+   with them. Lower it whenever the count drops — never raise it. */
+const CEILING = 9;
 
 /* Two markers, because there are two questions.
  *
