@@ -97,14 +97,21 @@ DECLARED: dict[str, Capability] = {
     # Degraded, and the missing half is other people's. §11.2's correlation,
     # waterfall, gap marking and skew reporting all work — on the events the hub
     # holds. Today that is NERVIS's own spans plus anything posted to it, because
-    # RAVIS and SIRVIS advertise `events@1` as unavailable until their Stage 7
-    # milestones. A trace is therefore usually one lane, and the view says so
-    # rather than drawing bars for services that recorded nothing.
+    # **Both peers publish now**, so a trace can genuinely carry more than one
+    # lane — verified with a single `traceparent` sent to RAVIS and SIRVIS,
+    # which produced two spans under one trace.
+    #
+    # Available rather than degraded, and the distinction is about *whose*
+    # capability this is. It describes what NERVIS serves: correlation, the
+    # waterfall, and gaps marked rather than interpolated. Whether a given trace
+    # has two lanes depends on the peers being configured with a hub to publish
+    # to, which is their fact and not NERVIS's — and the view already says which
+    # services recorded nothing rather than drawing bars for them.
     "nervis.traces@1": Capability(
         version="1.0.0",
-        state=DEGRADED,
-        reason="§11.2's correlation, waterfall and gap marking are served; "
-        "RAVIS publishes since M18b; cross-service traces still need SIRVIS M21",
+        state=AVAILABLE,
+        reason="§11.2's correlation, waterfall and gap marking, across every "
+        "service that publishes — RAVIS since its M18b, SIRVIS since its M21",
     ),
     # **The named gap has closed, and this is now a fact about configuration.**
     # It read "generated titles wait for RAVIS to honour §9.6.1's marker" —
@@ -154,8 +161,10 @@ DECLARED: dict[str, Capability] = {
     ),
     "nervis.diagnostics@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="AI diagnostics land at M12; unified diagnostics at M17",
+        state=DEGRADED,
+        reason="§11.5's Analyze ships at M12 — a bounded, redacted, fenced packet "
+        "sent through RAVIS, previewable before it is sent; §17's unified "
+        "diagnostics across every service are still M17",
     ),
     # §3.1 attaches a condition to this one rather than a milestone: it is
     # advertised *"only for explicitly configured owned services"*. So it stays

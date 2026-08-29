@@ -184,7 +184,12 @@ unbuilt = set(re.findall(r"^\s*(\w+):\s*'",
                          html[html.find("const UNBUILT="):
                                 html.find("const UNBUILT=") + 1200], re.M))
 # A handler is a DEMO_API method, a page-local function, or an UNBUILT entry.
-locals_ = set(re.findall(r"^\s*function (\w+)\s*\(", html, re.M))
+# `async function` counts too. The pattern required `function` immediately
+# after the indent, so every async top-level handler was invisible to this
+# check — which meant a control naming one was reported as dead when it was
+# fine, and the first person to hit that would have been tempted to loosen the
+# check rather than the pattern.
+locals_ = set(re.findall(r"^\s*(?:async\s+)?function (\w+)\s*\(", html, re.M))
 locals_ |= set(re.findall(r"^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(", html, re.M))
 for action in sorted(set(re.findall(r"control\([^,]+,\s*'(\w+)'", html))):
     if action not in methods and action not in unbuilt and action not in locals_:

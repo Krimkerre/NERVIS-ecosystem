@@ -27,7 +27,14 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis.api import chat_router, events_router, instances_router, traces_router, voice_router
+from nervis.api import (
+    chat_router,
+    diagnostics_router,
+    events_router,
+    instances_router,
+    traces_router,
+    voice_router,
+)
 from nervis.api import router as api_router
 from nervis.api.chat import seed_chat_defaults
 from nervis.config import Settings
@@ -67,6 +74,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(api_router)
     api.include_router(chat_router)
     api.include_router(events_router)
+    api.include_router(diagnostics_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
     api.include_router(voice_router)

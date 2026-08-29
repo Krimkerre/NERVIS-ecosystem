@@ -3163,7 +3163,7 @@ const UNBUILT={
  refreshEvidence:'POST /api/v1/evidence/refresh · RAVIS M13',
  runBenchmark:'POST /api/v1/benchmark-jobs · specified in SIRVIS §4.2, not built — benchmarks run on the CLI',
  reroute:'POST /api/v1/route-tests · no endpoint',
- diagnose:'POST /api/v1/diagnostics · no endpoint'};
+};
 
 /* Which declared operation governs a control, where one does.
  
@@ -3827,6 +3827,70 @@ async function eventsView(){
     <small class="mono dim">RAVIS records a decision per request and SIRVIS records every benchmark run. Neither is an event stream, and both answer most of what someone opens this screen to ask.</small>`)}`,'nervis')}</div>`;
 }
 
+/* M12's Analyze, wired to the real endpoints.
+
+   **The preview is the point, not a nicety.** NERVIS.md §11.5's exit condition
+   is that *the user sees exactly what will be sent before it is sent*, and the
+   two routes call one builder so this really is the thing — not an
+   illustration of it. So the button previews, and sending is a second,
+   deliberate press. */
+const DIAGNOSE={packet:null,prompt:'',analysis:'',reason:'',busy:false,local:false};
+
+async function diagnose(){
+ DIAGNOSE.busy=true;DIAGNOSE.analysis='';DIAGNOSE.reason='';repaint();
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/diagnostics/packet',
+    {method:'POST',headers:{'content-type':'application/json'},
+     body:JSON.stringify({trace_id:TRACE_SHOWN||''}),
+     signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  const body=await r.json();
+  DIAGNOSE.packet=body.packet;DIAGNOSE.prompt=body.prompt;
+ }catch(e){DIAGNOSE.reason='the packet could not be built: '+e.message}
+ DIAGNOSE.busy=false;repaint();
+}
+
+/* Send what is on screen. Separate from building it, because §11.5 puts a
+   decision between the two and a single button would remove it. */
+async function sendAnalysis(){
+ DIAGNOSE.busy=true;repaint();
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/diagnostics/analyze',
+    {method:'POST',headers:{'content-type':'application/json'},
+     body:JSON.stringify({trace_id:TRACE_SHOWN||'',local_only:DIAGNOSE.local}),
+     signal:AbortSignal.timeout(180000)});
+  const body=await r.json();
+  DIAGNOSE.analysis=body.analysis||'';
+  DIAGNOSE.reason=body.available?'':(body.reason||'the analysis did not complete');
+ }catch(e){DIAGNOSE.reason='the analysis did not complete: '+e.message}
+ DIAGNOSE.busy=false;repaint();
+}
+
+function toggleLocalAnalysis(){DIAGNOSE.local=!DIAGNOSE.local;repaint()}
+
+/* What would be sent, rendered as text rather than summarised.
+   Escaped like everything else on this page — and with more reason than most,
+   since the whole point of the packet is that it is full of strings other
+   programs wrote. */
+function diagnosePanel(){
+ if(!DIAGNOSE.packet&&!DIAGNOSE.reason)return '';
+ const bounds=(DIAGNOSE.packet||{}).bounds||{};
+ /* Derived, not hardcoded. The panel also renders when the packet could not
+    be built, and a `live` class on that state would badge an error as a
+    successful read — which is the whole defect the liveness ratchet counts. */
+ return `<div class="card full${DIAGNOSE.packet?' live':''}"><h3>What would be sent</h3>
+  <div class="trace-step"><b>events</b><span class="mono">${escapeHtml(bounds.events_included)} of ${escapeHtml(bounds.events_available)}${bounds.truncated?' · truncated':''}</span></div>
+  <div class="trace-step"><b>routed to</b><span class="mono">${DIAGNOSE.local?'ravis/local':'ravis/auto'}</span></div>
+  <pre class="editor" style="max-height:340px;overflow:auto;white-space:pre-wrap">${escapeHtml(DIAGNOSE.prompt)}</pre>
+  <div style="margin-top:10px;display:flex;gap:7px;align-items:center">
+   <button class="btn primary"${DIAGNOSE.busy?' disabled':''} onclick="sendAnalysis()">${DIAGNOSE.busy?'Analysing…':'Send this to RAVIS'}</button>
+   <button class="btn" onclick="toggleLocalAnalysis()">${DIAGNOSE.local?'☑':'☐'} Local analysis only</button>
+  </div>
+  ${DIAGNOSE.reason?`<small class="mono dim">${escapeHtml(DIAGNOSE.reason)}</small>`:''}
+  ${DIAGNOSE.analysis?`<div class="trace-step" style="margin-top:10px"><b>analysis</b></div><pre style="white-space:pre-wrap">${escapeHtml(DIAGNOSE.analysis)}</pre>
+    <small class="mono dim">this is text. NERVIS does nothing with it — §11.5 forbids anything a model returns from analysing a packet becoming an action.</small>`:''}
+  </div>`;
+}
+
 async function diagnosticsView(){
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
   control('Analyze trace…','diagnose',' primary'));
@@ -3852,7 +3916,7 @@ async function diagnosticsView(){
      d.unavailable.map(c=>`<div class="trace-step"><b>${label} · ${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')).join('')}
    <small class="mono dim">read from each service's <b>/ecosystem/health</b> and <b>/ecosystem/capabilities</b>. There is no diagnostics endpoint to call — <span class="mono">/api/v1/diagnostics</span> is a 404 on both — so this is assembled from the surfaces every service already publishes. A capability listed as <b>not yet</b> names its own milestone, which is more useful than a red light.</small>`,'nervis')}</div>`;
 
- $('#content').innerHTML=liveCard+`<div class="card wide"><h3>Source priority</h3>
+ $('#content').innerHTML=liveCard+diagnosePanel()+`<div class="card wide"><h3>Source priority</h3>
    <div class="table-row head five"><span>Service</span><span>1 · structured event</span><span>2 · management API</span><span>3 · service log</span><span>4 · raw log</span></div>
    ${d.sources.map(x=>`<div class="table-row five"><span>${escapeHtml(x.service)}</span><span>${tick(x.structured)}</span><span>${tick(x.management_api)}</span><span>${tick(x.service_log)}</span><span>${tick(x.raw_log)}</span></div>`).join('')}
    <small class="mono dim">never parse a text log when structured data already exists. Clarvis has no management API by design — the Bridge is read-only status, and its log is a gated last resort.</small>
