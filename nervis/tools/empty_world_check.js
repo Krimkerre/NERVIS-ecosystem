@@ -23,7 +23,10 @@
  * screen must not blank because a field it never checked was missing. Where the
  * fix would be to invent a guarantee the service does not make, guard the read.
  */
-const { loadPage } = require("/Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/tools/page_context.js");
+// Relative, like every other check here. An absolute path from the machine it
+// was written on resolves nowhere else — this file ran green locally and failed
+// on every CI push for a day and a half, with the path in the error message.
+const { loadPage } = require("./page_context.js");
 
 const EMPTY = JSON.stringify({
   items: [], data: [], results: [], spans: [], events: [], models: [],

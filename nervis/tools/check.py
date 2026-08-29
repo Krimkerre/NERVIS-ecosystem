@@ -25,6 +25,34 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 html = (ROOT / "index.html").read_text()
 fail = []
 
+# **No path that only exists on one machine, where it will be resolved.**
+# `empty_world_check.js` shipped a `require("/Users/…/page_context.js")`, which
+# resolved fine for the person who wrote it and nowhere else: CI failed on every
+# push for a day and a half with that exact path in the error, while the local
+# run stayed green the whole time. The nine sibling checks all used a relative
+# require; this catches the tenth.
+#
+# Matched only inside a call that *resolves* a path. Several suites pass a home
+# path as deliberately hostile input — a workspace root, an ssh key, a secret —
+# to assert that NERVIS drops or redacts it, and those are the point of their own
+# tests rather than a mistake. An allowlist of files would have to grow every
+# time somebody wrote another such fixture; this distinguishes the two by what
+# the line does with the path.
+HOME_PATH = r"(?:/Users/[a-z]|/home/[a-z]|[A-Z]:\\\\Users\\\\)"
+RESOLVES = re.compile(
+    r"(?:require|open|import|Path|readFile|readFileSync|execFile|spawn|createReadStream)"
+    r"\s*\(\s*[\"']" + HOME_PATH,
+    re.IGNORECASE,
+)
+
+for source in sorted(ROOT.rglob("*.js")) + sorted(ROOT.rglob("*.py")):
+    if any(part in {"node_modules", ".venv", "__pycache__"} for part in source.parts):
+        continue
+    where = source.relative_to(ROOT).as_posix()
+    for number, line in enumerate(source.read_text(errors="ignore").splitlines(), 1):
+        if RESOLVES.search(line):
+            fail.append(f"{where}:{number} resolves a path from one machine: {line.strip()[:90]}")
+
 script = html[html.rindex("<script>") + 8: html.rindex("</script>")]
 if shutil.which("node"):
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
