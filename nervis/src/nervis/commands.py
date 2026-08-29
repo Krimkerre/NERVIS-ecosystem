@@ -102,7 +102,29 @@ BENCHMARK = re.compile(
 NOT_A_MODEL = frozenset({
     "it", "that", "this", "these", "those", "them", "one", "something",
     "everything", "again", "please", "now", "the", "model", "models",
+    # Observed live, and the reason the guard below exists: "how did the
+    # benchmark go?" offered to benchmark a model called "go".
+    "go", "went", "going", "do", "did", "done", "run", "runs", "result",
+    "results", "yesterday", "today", "finish", "finished",
 })
+
+# A question about benchmarks is not a request for one.
+#
+# **This was live, and it was the embarrassing kind.** Asked *"how did the
+# benchmark go?"* NERVIS offered to benchmark a model named `go` — the pattern
+# matched, the word after the verb became a target, and the answer to a question
+# about the past was a button that starts work. Two guards rather than one,
+# because either alone leaks: the word list above catches the common tails, and
+# this catches the shape of a question whatever noun follows it.
+ASKING = re.compile(
+    r"^\s*(?:so\s+)?(?:how|what|whats|what's|did|does|do|is|are|was|were|when|"
+    r"why|where|which|who|any|anything|show|tell)\b",
+    re.IGNORECASE,
+)
+
+# …unless it is a question that asks for the work to be done. "can you bench X"
+# and "could you benchmark X" are requests wearing a question mark.
+ASKING_FOR = re.compile(r"\b(?:can|could|would|will)\s+(?:you|we)\b", re.IGNORECASE)
 
 MAX_CANDIDATES = 6
 
@@ -163,6 +185,8 @@ def propose(
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
+    if ASKING.search(question) and not ASKING_FOR.search(question):
+        return None
     found = BENCHMARK.search(question)
     if not found:
         return None

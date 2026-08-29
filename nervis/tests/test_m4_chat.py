@@ -1151,6 +1151,97 @@ def test_the_queue_is_not_read_when_nobody_asked_about_it() -> None:
     assert not [url for url in seen if "benchmark" in url]
 
 
+def test_a_slow_catalogue_read_does_not_empty_the_reading() -> None:
+    """RAVIS enumerates hosted providers as well as local ones, and a refresh of
+    that list can outlast this read's timeout. Dropping the counts then reported
+    "NERVIS knows nothing about models" about a service the registry was calling
+    healthy in the same breath."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    answers = {"models": True}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        if "/api/v1/models" in str(request.url):
+            if not answers["models"]:
+                raise httpx.ReadTimeout("too slow", request=request)
+            return httpx.Response(200, json={"items": [{"model_id": "m", "local": True}]})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    first = turn(client, "how many models?", system="Be someone.")
+    assert "1 models routable" in first.headers["x-ecosystem-reading"]
+
+    # The cache expires and the next read times out, with RAVIS still healthy.
+    answers["models"] = False
+    client.app.state.chat_catalogue = None  # type: ignore[attr-defined]
+    client.app.state.chat_catalogue = (0.0, [{"model_id": "m", "local": True}])  # type: ignore[attr-defined]
+    second = turn(client, "how many models?", system="Be someone.")
+
+    assert "1 models routable" in second.headers["x-ecosystem-reading"]
+
+
+def test_a_catalogue_that_cannot_be_read_at_all_stays_absent() -> None:
+    """Last-known-good is not a licence to invent one. With nothing ever read,
+    the counts are absent rather than zero."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        if "/api/v1/models" in str(request.url):
+            return httpx.Response(503, json={"error": "no"})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = turn(client, "how many models?", system="Be someone.")
+
+    assert "models routable" not in answered.headers["x-ecosystem-reading"]
+
+
+def test_a_question_about_a_benchmark_is_not_a_request_for_one() -> None:
+    """Live, and the embarrassing kind: asked "how did the benchmark go?",
+    NERVIS offered to benchmark a model called `go`. The word after the verb
+    became a target, and the answer to a question about the past was a button
+    that starts work."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    for asked in (
+        "how did the benchmark go?",
+        "what did the benchmark do?",
+        "did the benchmark finish?",
+        "is the benchmark done?",
+        # The one the word list cannot catch: the noun after the verb is a real
+        # model, so only the shape of the question stops this becoming a button
+        # that starts work.
+        "how did the benchmark of qwen3-4b go?",
+        "did the benchmark for qwen3-4b finish?",
+    ):
+        answered = turn(client, asked, system="Be someone.")
+        assert answered.headers["x-command-offer"] == "", asked
+
+
+def test_a_request_wearing_a_question_mark_is_still_a_request() -> None:
+    """"can you bench qwen3-4b" is not somebody asking after the past."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    answered = turn(client, "can you bench qwen3-4b?", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["operation"] == "sirvis.benchmark.submit"
+    assert offer["target"] == "qwen/qwen3-4b-2507"
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

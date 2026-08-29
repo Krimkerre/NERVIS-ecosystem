@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1648 tests, no network, no live service
+.venv/bin/pytest                      # part of 1652 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 361 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 365 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1648 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1652 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,39 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**The bubble renders markdown now**, which §7's MVP asked for and it never did.
+A model answering *"how did the benchmark go"* replies in headings, bold labels
+and bullets — that is what a chat model does — and `escapeHtml` alone put the
+literal asterisks and backticks on screen beside the numbers. Worse than ugly:
+`**Total latency**` reads as emphasis somebody forgot to remove, which makes a
+correct answer look unfinished. The renderer is small and deliberate — headings,
+bold, italic, inline code, fenced blocks, both list kinds, rules, and pipe
+tables, because a result is a table often enough to matter. No links and no
+images: a chat reply is not a place to introduce a clickable destination the
+model composed. **Escaping happens first and the markup is built from the
+escaped string**, so nothing a model writes — or that reached it from a
+service's error message — can introduce a tag; a hostile `<img onerror=…>`
+renders as the text it is. The voice gets a stripped copy, because speaking
+"asterisk asterisk total latency asterisk asterisk" is the one thing worse than
+showing it.
+
+**Two live defects the first rendered answer exposed.**
+
+*"How did the benchmark go?" offered to benchmark a model called `go`.* The
+pattern matched, the word after the verb became the target, and a question about
+the past came back with a button that starts work. Two guards now, because
+either alone leaks: a word list for the common tails, and the *shape* of a
+question — which is the only thing that stops *"how did the benchmark of
+qwen3-4b go?"*, where the noun is a real model. A request wearing a question
+mark ("can you bench qwen3-4b?") is still a request.
+
+*The model counts vanished from a reading that had carried them a minute
+earlier.* RAVIS rate-limits, the catalogue read came back 429, and an empty list
+was cached as though the machine held no models. `_model_items` now answers
+three ways rather than two — a catalogue, an empty catalogue, and *could not
+ask* — and only the third is papered over with the last good answer. The reading
+also stopped taking that read twice per turn, which is what tripped the limit.
 
 **And it can say how the run went.** The first end-to-end press exposed the
 missing half: the benchmark succeeded and chat could not report a single number

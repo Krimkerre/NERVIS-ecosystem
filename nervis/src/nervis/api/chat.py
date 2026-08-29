@@ -472,7 +472,7 @@ RUN_SAMPLE = 3
 # success, so a service that has just come back is not treated as absent for a
 # minute.
 CATALOGUE_TTL_SECONDS = 60.0
-CATALOGUE_RETRY_SECONDS = 20.0
+CATALOGUE_RETRY_SECONDS = 5.0
 
 
 @router.get("/conversations")
@@ -568,6 +568,11 @@ async def send(request: Request) -> Any:
     # forbids model output becoming an action, and the way that rule survives a
     # refactor is for the proposal to be built before the model has seen
     # anything at all. `offer` is a value; nothing here can carry it out.
+    #
+    # Both reads are the cached ones `_situation` just took. They were two more
+    # round trips before, and RAVIS rate-limits — the second copy of the
+    # catalogue read is what came back 429 and emptied the model counts out of
+    # the reading in the same turn that had just read them successfully.
     offer = (
         commands.propose(content, await _catalogue(request), await _jobs(request, content))
         if not greeting
@@ -953,30 +958,45 @@ async def _catalogue(request: Request) -> list[dict[str, Any]]:
     fresh = CATALOGUE_TTL_SECONDS if items else CATALOGUE_RETRY_SECONDS
     if state.chat_catalogue and now - taken < fresh:
         return list(items)
-    items = await _model_items(request)
-    state.chat_catalogue = (now, items)
-    return items
+    read = await _model_items(request)
+    if read is None and items:
+        # **A failed read is not an empty catalogue.** Observed live: RAVIS
+        # rate-limits, this read came back 429, and the model counts vanished
+        # from a reading that had carried them a minute earlier — while the
+        # registry went on reporting RAVIS healthy, because it is. Keeping the
+        # last answer is the difference between "this was true a minute ago" and
+        # "NERVIS knows nothing about models". A catalogue that has never been
+        # read stays absent, which is the honest answer there and the reason
+        # this keeps rather than invents.
+        state.chat_catalogue = (now - CATALOGUE_TTL_SECONDS + CATALOGUE_RETRY_SECONDS, items)
+        return list(items)
+    state.chat_catalogue = (now, read or [])
+    return read or []
 
 
-async def _model_items(request: Request) -> list[dict[str, Any]]:
-    """What RAVIS says it can route, or an empty list.
 
-    Empty on any failure, which the reading then reports as absence rather than
-    as zero models — the distinction the whole invented-data sweep was about.
+async def _model_items(request: Request) -> list[dict[str, Any]] | None:
+    """What RAVIS says it can route — or `None` when it could not be asked.
+
+    **Three answers, not two.** A catalogue of nothing and a catalogue that
+    could not be read are different facts, and collapsing them is what let a
+    single 429 report "no models" about a machine holding 591 of them. `None`
+    is the one the caller may paper over with its last good answer; `[]` is a
+    measurement and stands.
     """
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if entry is None:
-        return []
+        return None
     client: httpx.AsyncClient = request.app.state.probe_client
     try:
         response = await client.get(
             entry.declaration.base_url + "/api/v1/models", timeout=FACTS_TIMEOUT_SECONDS
         )
         if response.status_code >= 400:
-            return []
+            return None
         items = response.json().get("items") or []
     except (httpx.HTTPError, ValueError, AttributeError):
-        return []
+        return None
     return [item for item in items if isinstance(item, dict)]
 
 
