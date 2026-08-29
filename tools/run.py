@@ -300,18 +300,22 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     # Its own state directory, so this deployment's extensions and settings do
     # not land in a code-server the person already runs for their own work.
     env["XDG_DATA_HOME"] = str(RUN / "code-server-data")
-    config = code_server_config()
     return [(
         "code-server",
-        [binary, "--config", str(config)],
-        # **The config path, not the program name.** `_alive` greps the process's
-        # command line, and code-server re-execs itself through node — so the
-        # name may or may not survive into what `ps` reports, depending on how it
-        # was installed. The config path is unique to this deployment and is
-        # necessarily still on the line, because that is how the process knows
-        # which port to bind. It also means `stop` can never kill a code-server
-        # the person runs for their own work.
-        str(config),
+        [binary, "--config", str(code_server_config())],
+        # **The program name, checked against a real 4.135.0 rather than reasoned
+        # about.** The first version used the config path, on the theory that it
+        # was unique to this deployment and had to still be on the command line
+        # for the process to know its port. It is not: code-server re-execs into
+        # `lib/node out/node/entry` and its arguments do not survive, so `stop`
+        # skipped it as "was not running" and left the port held.
+        #
+        # `code-server` does survive, in the install path — Homebrew, the
+        # standalone installer and npm all put it there. And the narrower marker
+        # bought nothing anyway: `_alive` is handed a PID this launcher recorded,
+        # so the marker only has to rule out PID *reuse*, never somebody else's
+        # code-server.
+        "code-server",
         env,
         f"http://127.0.0.1:{CODE_SERVER_PORT}/healthz",
     )]
