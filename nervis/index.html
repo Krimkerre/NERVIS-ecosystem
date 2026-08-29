@@ -115,11 +115,14 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .absent[data-state="stale"] b,.absent[data-state="discovering"] b{color:#8b9bb0}
 .absent[data-state="incompatible"] b,.absent[data-state="unauthorized"] b{color:#ff9d3d}
 .card.is-absent{opacity:.82;border-style:dashed}
-/* Prototype content. Faded and desaturated rather than hidden, because the
-   layout is the part that is real — these screens are the design for a thing
-   that is not built, and deleting them would lose that. Hovering restores them
-   to readable: the point is "do not trust this number", not "you may not look".
-   `.card.live` is the opt-out for a screen where only some cards are real. */
+/* Cards with no data behind them. Faded rather than hidden, because the layout
+   is real and the absence is the information — hovering restores them to fully
+   readable, since the point is "nobody answered this", not "you may not look".
+
+   This used to say "prototype content ... the design for a thing that is not
+   built", and that was true when the fallbacks returned invented numbers. They
+   return empty shapes now, so a faded card is a real card with nothing in it,
+   and its own text says which service did not answer. */
 .model-picker{border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:9px;margin:6px 0 2px;
   background:rgba(255,255,255,.025)}
 .picker-head{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
@@ -155,16 +158,20 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .pick-row em{flex:none;font-style:normal;font-size:9px;letter-spacing:.08em;text-transform:uppercase;
   opacity:.6;border:1px solid rgba(255,255,255,.15);border-radius:3px;padding:1px 5px}
 .picker-empty{padding:10px;opacity:.55;font:11px/1.5 ui-monospace,monospace}
-.card.prototype-card{opacity:.4;filter:saturate(.25);border-style:dashed}
-.card.prototype-card:hover{opacity:.82;filter:saturate(.6)}
-#content[data-wip] .card:not(.live){opacity:.4;filter:saturate(.25);border-style:dashed}
-#content[data-wip] .card:not(.live):hover{opacity:.82;filter:saturate(.6)}
-#content[data-wip] .card:not(.live) h3:after{content:"PROTOTYPE";margin-left:8px;
-  font-size:8px;letter-spacing:.14em;color:#8a6a3a;border:1px solid #4a3a20;
-  border-radius:2px;padding:1px 5px;vertical-align:middle}
-.wip-note{grid-column:1/-1;border:1px dashed #4a3a20;background:rgba(74,58,32,.12);
-  border-radius:3px;padding:9px 12px;font:10px/1.5 "SFMono-Regular",monospace;
-  color:#b08d55;letter-spacing:.04em}
+/* **A card with nothing behind it is faded, and says nothing about prototypes.**
+   Until the mock fallbacks were emptied, a faded card meant "this is invented",
+   and it needed a badge and a banner saying so. Now it means "nobody answered,
+   or there was nothing to show" — which the card's own words already state, in
+   its own terms: "not measured", "RAVIS not answering", "nothing recorded yet".
+   The fade is the glance-level signal; the text is the fact.
+
+   Ungated, too. It used to require a screen to appear in a hand-kept PROTOTYPE
+   map, which went stale in both directions: screens that had become fully live
+   still carried the banner, and screens never listed showed unbacked cards at
+   full contrast. Whether a card has data is decided per render by the reader
+   that filled it, which is the only thing that can know. */
+#content .card:not(.live){opacity:.55;filter:saturate(.45);border-style:dashed}
+#content .card:not(.live):hover{opacity:.9;filter:saturate(.8)}
 .wip-note b{color:#d8b478}
 .banner{grid-column:1/-1;display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:9px;
         border:1px solid rgba(255,92,106,.32);background:rgba(255,92,106,.07);margin-bottom:12px}
@@ -1768,7 +1775,7 @@ const API={
      tools_advertised:null,
      vision:null}})}))},
 
-  async _modelsMock(){return{snapshot_revision:412,items:lmstudioBuilds()}},
+  async _modelsMock(){return{snapshot_revision:null,items:[]}},
 
   /* GET /api/v1/benchmark-results — EvidenceRecord per SIRVIS.md §12.3, built
      from the real suite in ../clarvis/docs/benchmarks.md rather than written out.
@@ -1999,19 +2006,7 @@ const API={
     runtimes};
    })},
 
-  async _machineMock(){return{machine_id:'mc_7a1f',model:'MacBook Air M5',chip:'M5',
-   cpu_cores:10,cpu_performance_cores:4,cpu_efficiency_cores:6,gpu_cores:10,
-   memory_gb:24,available_gb:12.1,swap_gb:0,macos:'27.0',disk_free_gb:501,
-   /* Fanless, and that outranks the core count: sustained inference throttles, so
-      a build that finishes quickly is worth more than one that scores better and
-      grinds. Thermal state is read at the start and the end of every run. */
-   cooling:'passive',thermal_state:'nominal',
-   /* Measured with an ordinary working set open — editor, browser, LM Studio
-      itself — before any model loaded. The usable budget for models is about
-      14 GB, not 24, and every fit decision on this machine is against that. */
-   system_baseline_gb:7.6,model_budget_gb:14,
-   runtimes:[{name:'LM Studio',version:'0.4.21+2'},{name:'llama.cpp',version:'2.29.1'},
-             {name:'MLX',version:'mlx-llm-mac-arm64-apple-metal-advsimd-1.11.0'}]}},
+  async _machineMock(){return{machine_id:'',model:'',chip:'',cpu_cores:null,cpu_performance_cores:null,cpu_efficiency_cores:null,gpu_cores:null,memory_gb:null,swap_gb:null,disk_free_gb:null,macos:{version:''},thermal_state:'',cooling:'',system_baseline_gb:null,model_budget_gb:null,available_gb:null,runtimes:[],accelerators:[]}},
 
   /* POST /api/v1/recommendations — ranked WITH exclusions and uncertainty, never
      a bare winner. SIRVIS suggests; RAVIS decides.
@@ -2062,36 +2057,7 @@ const API={
       proposed:d.proposed_benchmarks||[],live:true};
    }catch(e){return this._recommendationsMock()}},
 
-  async _recommendationsMock(){return{profile:'clarvis',generated_at:'20 Aug 2026',algorithm_version:2,
-   mode:'verified',expires_in_min:45,
-   ranked:[
-    {rank:1,target:'qwen2.5-coder-7b-instruct · MLX 4bit',role:'clarvis-agent + clarvis-chat',
-     fit:'IDEAL',headroom_gb:9.7,evidence_type:'MEASURED',samples:3,
-     why:'0.26 s to first token, 29.5 tok/s, 8/8 tool calls, correct follow-up, 6/6 on both coding tasks, no invented facts. One model covers both roles at 4.3 GB'},
-    {rank:2,target:'granite-4.0-h-tiny · GGUF Q4_K_M',role:'clarvis-agent',
-     fit:'IDEAL',headroom_gb:9.8,evidence_type:'MEASURED',samples:3,
-     why:'twice the rate at 55.2 tok/s, 0.06 s to first token, 8/8 streamed calls, correct recovery — on eight requests and three recovery runs, not the full suite'},
-    {rank:3,target:'meta-llama-3.1-8b-instruct · MLX 4bit',role:'clarvis-chat',
-     fit:'GOOD',headroom_gb:9.5,evidence_type:'MEASURED',samples:3,
-     why:'the closest thing to the character in the whole run, at 19.9 tok/s. Pair with rank 1 for 8.8 GB total'}],
-   excluded:[
-    {target:'granite-4.0-h-tiny · MLX 4bit',
-     why:'MEASURED · 1 of 8 tool calls survived — the MLX runtime discards them. The GGUF build of the same model is rank 2'},
-    {target:'ministral-8b-instruct-2410 · MLX 4bit',
-     why:'MEASURED · agent role only. Correct alone, and its follow-up degraded to no-call and gave-up in both co-resident pairings'},
-    {target:'lfm2.5-2.6b-mlx · MLX 4bit',
-     why:'MEASURED · chat role only. Forced reasoning: 5.5 s to first token alone and 11.1 s co-resident, against a 2 s deadline'},
-    {target:'qwen2.5-coder-14b-instruct-mlx · MLX 4bit',
-     why:'MEASURED · identical accuracy to rank 1 at 9.6 tok/s against 29.5 — three times slower for no measured gain'},
-    {target:'Qwen3-Coder-30B-A3B · MLX 4bit',
-     why:'DOES_NOT_FIT · 17.2 GB against a 14 GB budget once the system baseline is counted. Not rejected on merit and never tested'}],
-   /* A list, because that is what SIRVIS publishes and what the live adapter
-      passes straight through. It was one long string here, and `.length` on a
-      string is truthy — so the guard passed and `.map` threw, blanking this
-      screen for anyone whose SIRVIS was not running. Which is the exact
-      condition this page promises to survive. */
-   uncertainty:['rank 2 rests on a partial suite and could displace rank 1 once it has been run properly — it is faster on every figure taken so far',
-                'rank 3 is chosen for tone, and it invented \"one commit ahead\" in a briefing the automated grounding check scored clean — a trade rather than a free upgrade']}},
+  async _recommendationsMock(){return{profile:'',generated_at:null,algorithm_version:null,mode:'',expires_in_min:null,evidence_type:'',samples:null,excluded:[],ranked:[]}},
 
   /* GET /api/v1/runtime-sets/{id} — combination evidence, which is the whole
      point: per-member numbers do not predict the pair.
@@ -2256,25 +2222,7 @@ const API={
     finding:roles.map(r=>`${r} lost ${round((deg(r).concurrent||{}).tokens_per_second,1)}% of its throughput under concurrent load`).join(', and ')};
   },
 
-  async _runtimeSetMock(){
-   const pair=BENCHMARK_PAIRS[1];
-   return{runtime_set_id:'rs_clarvis_balanced',revision:3,name:'clarvis-balanced',
-   evidence_type:'MEASURED',samples:3,combined_peak_gb:pair.peak_gb,swap_gb:0,
-   members:[
-    {role:'agent',family:'qwen2.5-coder-7b-instruct',variant:'MLX 4bit',
-     alone_tok_s:29.5,concurrent_tok_s:null,
-     first_token_alone_s:0.26,first_token_concurrent_s:pair.first_token_s[0],
-     follow_up_alone:'used-result',follow_up_concurrent:pair.follow_up[0]},
-    {role:'chat',family:'ministral-8b-instruct-2410',variant:'MLX 4bit',
-     alone_tok_s:25.3,concurrent_tok_s:null,
-     first_token_alone_s:0.26,first_token_concurrent_s:pair.first_token_s[1],
-     follow_up_alone:'used-result',follow_up_concurrent:pair.follow_up[1]}],
-   /* Sustained rate under contention was not measured for these pairs — only
-      first token and behaviour were. The field is null rather than filled with
-      the solo figure, which would read as "no degradation measured". */
-   pairs:BENCHMARK_PAIRS,
-   validity:{thermal:'nominal',swap:'none',effective_config:'matches requested',verdict:'VALID'},
-   finding:'memory held and behaviour did not: ministral-8b degraded from used-result to no-call at 8.8 GB, and to gave-up at 12.9 GB'}},
+  async _runtimeSetMock(){return{runtime_set_id:'',revision:null,name:'',evidence_type:'',samples:null,role:'',members:[],pairs:[],validity:'',verdict:'',finding:'',effective_config:{},combined_peak_gb:null,swap_gb:null,thermal:'',components:[]}},
 
   /* GET /api/v1/catalog — the model browser's source, one entry per downloadable
      build. `LMStudioCatalog` first, HuggingFace later, which is why `source` is a
@@ -2335,15 +2283,7 @@ const API={
        resolves to. Derived here rather than invented upstream. */
     default:p.profile_id==='ravis/auto'}))}))},
 
-  async _profilesMock(){return{items:[
-   {profile_id:'ravis/auto',label:'Auto',revision:4,default:true},
-   {profile_id:'ravis/balanced',label:'Balanced',revision:4},
-   {profile_id:'ravis/fast',label:'Fast',revision:3},
-   {profile_id:'ravis/performance',label:'Performance',revision:3},
-   {profile_id:'ravis/cheap',label:'Cheap',revision:2},
-   {profile_id:'ravis/local',label:'Local',revision:5},
-   {profile_id:'ravis/api',label:'API',revision:2},
-   {profile_id:'ravis/private',label:'Private',revision:5}]}},
+  async _profilesMock(){return{items:[]}},
 
   /* GET /api/v1/route-decisions/{id} — RAVIS.md §9.7 requires the candidate
      snapshot AND the exclusions with reasons. `excluded` carries a constraint,
@@ -2535,43 +2475,7 @@ const API={
    return this._providersMock();
   },
 
-  async _providersMock(){return{items:[
-   {provider_id:'lmstudio',label:'LM Studio',kind:'local',protocol:'OPENAI_TRANSPARENT',
-    base_url:'http://127.0.0.1:1234/v1',chat_path:'/chat/completions',models_path:'/models',
-    auth:{scheme:'none',header:null,secret_ref:null},
-    credential:'not required',breaker:'CLOSED',error_rate:0,p50_ms:310,enabled:true,
-    build_version:'0.4.21',models:11,
-    note:'answering on this machine · 11 local builds, 8 advertising tool_use'},
-   {provider_id:'ollama',label:'Ollama',kind:'local',protocol:'OPENAI_TRANSPARENT',
-    base_url:'http://127.0.0.1:11434/v1',chat_path:'/chat/completions',models_path:'/models',
-    auth:{scheme:'none',header:null,secret_ref:null},
-    credential:'not required',breaker:'OPEN',error_rate:null,p50_ms:null,enabled:false,
-    build_version:null,models:0,
-    note:'installed, daemon not listening on 11434 — unreachable, which is not the same as absent'},
-   {provider_id:'anthropic',label:'Anthropic',kind:'cloud',protocol:'TRANSLATED',
-    base_url:'https://api.anthropic.com/v1',chat_path:'/messages',models_path:'/models',
-    auth:{scheme:'api-key',header:'x-api-key',secret_ref:'keychain:ravis/anthropic'},
-    credential:'present · keychain',breaker:'HALF_OPEN',error_rate:0.37,p50_ms:810,enabled:true,
-    build_version:null,models:3,
-    note:'native Messages API — request and stream are translated, so the conformance suite covers it'},
-   {provider_id:'openai',label:'OpenAI',kind:'cloud',protocol:'OPENAI_TRANSPARENT',
-    base_url:'https://api.openai.com/v1',chat_path:'/chat/completions',models_path:'/models',
-    auth:{scheme:'bearer',header:'Authorization',secret_ref:'keychain:ravis/openai'},
-    credential:'present · keychain',breaker:'CLOSED',error_rate:0.01,p50_ms:640,enabled:false,
-    build_version:null,models:4,
-    note:'disabled for application Clarvis by policy pl_04, not by health'},
-   {provider_id:'gemini',label:'Google Gemini',kind:'cloud',protocol:'TRANSLATED',
-    base_url:'https://generativelanguage.googleapis.com/v1beta',chat_path:'/models/{model}:generateContent',models_path:'/models',
-    auth:{scheme:'api-key',header:'x-goog-api-key',secret_ref:'keychain:ravis/gemini'},
-    credential:'not configured',breaker:'CLOSED',error_rate:null,p50_ms:null,enabled:false,
-    build_version:null,models:0,
-    note:'no credential, so it is unavailable rather than failing — an OpenAI-compatible path exists at /v1beta/openai and would change protocol to transparent'},
-   {provider_id:'openrouter',label:'OpenRouter',kind:'cloud',protocol:'OPENAI_TRANSPARENT',
-    base_url:'https://openrouter.ai/api/v1',chat_path:'/chat/completions',models_path:'/models',
-    auth:{scheme:'bearer',header:'Authorization',secret_ref:'keychain:ravis/openrouter'},
-    credential:'not configured',breaker:'CLOSED',error_rate:null,p50_ms:null,enabled:false,
-    build_version:null,models:0,
-    note:'an aggregator in front of many vendors — one credential, many upstreams, and provenance that is only ever PROVIDER_METADATA'}]}},
+  async _providersMock(){return{items:[]}},
 
   /* GET /api/v1/pools — a pool is its invariants. If nothing satisfies them the
      pool is unavailable; it never quietly relaxes them.
@@ -2638,25 +2542,7 @@ const API={
     revision:x.revision||null,
     reason:null}))}))},
 
-  async _poolsMock(){
-   const local=lmstudioBuilds();
-   const fits=r=>local.filter(b=>
-    (r.tools!=='REQUIRED'||toolsWork(b))
-    &&(!r.minimum_context||b.runtime_config.max_context_length>=r.minimum_context)
-    &&(!r.vision||b.vision)).length;
-   const pool=(pool_id,requires,reason)=>{const members=fits(requires);
-    return{pool_id,requires,members,available:members>0,...(members?{}:{reason})}};
-   return{items:[
-    pool('ravis/clarvis-agent',{tools:'REQUIRED',minimum_context:32768},'no local build makes reliable tool calls at 32K context'),
-    pool('ravis/clarvis-chat',{tools:'OPTIONAL',minimum_context:8192},'no local build reaches 8K context'),
-    pool('ravis/auto',{},'no local build installed'),
-    pool('ravis/private',{privacy:'LOCAL_ONLY'},'no local build installed'),
-    pool('ravis/long-context',{minimum_context:262144},'no local build reaches 256K context'),
-    /* Not a published pool ID — RAVIS.md §5 lists thirteen and this is not among them.
-       It is a *requirement set* a recommendation reports on without RAVIS having to publish
-       a pool for it, which is the honest way to say "nothing installed would satisfy this".
-       Rendered as a requirement, never in a list captioned "published stable ids". */
-    pool('vision-capable agent',{vision:true,tools:'REQUIRED',minimum_context:32768},'no installed build is both a vision model and a reliable tool user')]}},
+  async _poolsMock(){return{items:[]}},
 
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
@@ -2694,13 +2580,7 @@ const API={
       advertised:tools.provenance==='ADVERTISED'?tools.state==='SUPPORTED':null,
       measured:null}}})}))},
 
-  async _modelsMock(){return{items:lmstudioBuilds().map(b=>({
-   model_id:'local/'+b.lmstudio_id,family:b.family,variant:b.variant,runtime:b.runtime,
-   maximum_context:b.runtime_config.max_context_length,vision:b.vision,
-   tools:{advertised:b.tools_advertised,
-          measured:b.measured&&b.measured.tools?b.measured.tools:null,
-          effective:toolsWork(b),
-          evidence:b.measured&&b.measured.tools?'MEASURED_BY_SIRVIS':'PROVIDER_METADATA'}}))}},
+  async _modelsMock(){return{items:[]}},
 
   /* GET /api/v1/policies — what governs a route, per application (§9.6).
 
@@ -2734,13 +2614,7 @@ const API={
    return this._sessionsMock();
   },
 
-  async _sessionsMock(){const now=Date.now()/1000;return{items:[
-   {session_id:'clarvis-agent-01',application_id:'clarvis',pool:'ravis/clarvis-agent',
-    model:'gpt-4o',provider:'openai',pool_revision:'0e475b406ac3',profile:'ravis/clarvis-agent',
-    cache_state:null,created_at:now-5400,last_activity:now-120,requests:34},
-   {session_id:'nervis-chat-7',application_id:'nervis',pool:'ravis/auto',
-    model:'qwen3-30b-a3b-mlx',provider:'lmstudio',pool_revision:'873c26169d66',
-    profile:'ravis/auto',cache_state:null,created_at:now-900,last_activity:now-60,requests:6}]}},
+  async _sessionsMock(){return{items:[]}},
 
   /* GET /api/v1/usage/records — §14's per-call usage, newest first.
 
@@ -2771,10 +2645,7 @@ const API={
      IF/THEN sketch this used to invent. Two applications with different
      postures, because one row cannot show that policy is *per application* —
      which is the whole point of it being keyed to an identity. */
-  async _policiesMock(){return{items:[
-   {application_id:'*',constraints:['privacy level LOCAL_PREFERRED']},
-   {application_id:'clarvis',constraints:['providers denied: openai','models excluded: *-preview*']},
-   {application_id:'nervis',constraints:['privacy level LOCAL_ONLY']}]}},
+  async _policiesMock(){return{items:[]}},
 
   /* POST /api/v1/route-tests, and `ravis conformance clarvis` on the CLI. A release
      claiming Clarvis compatibility must pass every one of these. */
@@ -2865,10 +2736,7 @@ const API={
      could never produce — and the live branch beside it read different keys
      entirely. A mock that cannot be confused with the real payload is a mock
      that never catches a rename. */
-  async _usageMock(){return{spend_estimated:0.42,spend_currency:'USD',
-   calls_priced:38,calls_unpriced:2,spend_window:'24h',cost_available:true,
-   local_pct:88,routing_p50_ms:3.1,
-   pools:{total:6,clarvis:2}}}
+  async _usageMock(){return{spend_estimated:null,spend_currency:'',calls_priced:null,calls_unpriced:null,spend_window:'',cost_available:false,local_pct:null,local_share:null,routing_p50_ms:null,executed:null,total:null,pools:[],clarvis:{}}}
  },
 
  nervis:{
@@ -3068,11 +2936,7 @@ const API={
    return{items:[],live:false};
   },
 
-  async _clarvisInstancesMock(){return{items:[
-   {instance_id:'ins_4f1a',workspace_id:'ws_4f1a',label:'my-project',mode:'agent',
-    state:'agent_running',route:'ravis/clarvis-agent'},
-   {instance_id:'ins_9c72',workspace_id:'ws_9c72',label:'notes',mode:'chat',
-    state:'waiting_for_approval',route:'ravis/clarvis-chat'}]}},
+  async _clarvisInstancesMock(){return{items:[]}},
 
   /* GET /api/v1/traces/{id} — a dropped span is reported as dropped. */
   /* GET /api/v1/traces — the newest recorded trace, for the Overview card.
@@ -3095,19 +2959,11 @@ const API={
    }catch(e){return this._traceMock()}
   },
 
-  async _traceMock(){return{trace_id:'3f8c…ab12',window_ms:800,spans:[
-   {service:'CLARVIS',label:'agent request',start_ms:0,duration_ms:9},
-   {service:'RAVIS',label:'route selected',start_ms:9,duration_ms:5},
-   {service:'SIRVIS',label:'span missing',start_ms:18,duration_ms:48,missing:true},
-   {service:'LM STUDIO',label:'inference · 676 ms to first token',start_ms:26,duration_ms:676}]}},
+  async _traceMock(){return{trace_id:'',window_ms:null,spans:[]}},
 
   /* GET /api/v1/traces — correlation only. A span NERVIS never received is
      reported missing; it is never interpolated from its neighbours. */
-  async traces(){return{items:[
-   {trace_id:'3f8c…ab12',started:'10:26:07',span_count:4,missing:1,total_ms:702,origin:'clarvis',outcome:'ok'},
-   {trace_id:'b7e1…c3d4',started:'10:24:02',span_count:3,missing:0,total_ms:41200,origin:'sirvis',outcome:'ok'},
-   {trace_id:'9a02…7f31',started:'10:19:55',span_count:2,missing:0,total_ms:118,origin:'nervis',outcome:'no_route'},
-   {trace_id:'c410…5d8a',started:'10:12:30',span_count:5,missing:2,total_ms:2140,origin:'clarvis',outcome:'cancelled'}]}},
+  async traces(){return{items:[]}},
 
   /* GET /api/v1/settings — every value here is a real switch in the built product,
      and several are safety boundaries rather than preferences. */
@@ -3132,13 +2988,7 @@ const API={
    return{conversation_id:CHAT_SESSION.id,title:CHAT_SESSION.title,messages:CHAT_SESSION.messages};
   },
 
-  async _conversationMock(){return{conversation_id:'cv_18a3',title:'Pancakes, and a failover',
-   messages:[
-    {role:'user',text:"What's a good recipe for pancakes?"},
-    {role:'assistant',text:'200 g flour, two eggs, 300 ml milk, a pinch of salt. Whisk smooth, rest it twenty minutes, then a medium pan and about a minute a side. I kept this local — it seemed unlikely to require Anthropic.',route_decision_id:'rd_c001'},
-    {role:'user',text:'Same again, but nothing leaves this machine.'},
-    {role:'assistant',text:'Already done, as it happens. Privacy is LOCAL_ONLY for this conversation, so the three cloud candidates were removed from eligibility rather than out-scored. Nothing has left the machine since you opened this tab.',route_decision_id:'rd_c002'},
-    {role:'assistant',text:'Unrelated, and you have not asked: RAVIS has failed over to cloud four times in the last eleven minutes, each time on the same local runtime timeout. Say the word and I will put the trace up.'}]}},
+  async _conversationMock(){return{conversation_id:'',title:'',messages:[]}},
 
   /* GET /ecosystem/events — SSE. Frames are MEP envelopes exactly as the runbook
      §4.4 defines them; `privacy.redactions` records what the *producer* removed
@@ -3165,25 +3015,7 @@ const API={
    return this._eventsMock();
   },
 
-  async _eventsMock(){return{
-   stream:{cursor:'01J8F2K9',retention_days:14,buffered:842,capacity:2000,
-           dropped:0,quarantined:3,gaps:1,connected_since:'10:04:12'},
-   items:[
-    {event_id:'01J8F2K9',event_type:'ravis.route.selected',event_version:'1.0.0',occurred_at:'10:26:08',
-     source:{service_type:'ravis'},severity:'info',trace_id:'3f8c…ab12',
-     data:{pool:'ravis/clarvis-agent',target:'meta-llama-3.1-8b-instruct'},privacy:{classification:'operational',redactions:[]}},
-    {event_id:'01J8F2K8',event_type:'clarvis.agent.started',event_version:'1.0.0',occurred_at:'10:26:07',
-     source:{service_type:'clarvis',instance_id:'ins_4f1a'},severity:'info',trace_id:'3f8c…ab12',
-     data:{run_id:'run_2b8e'},privacy:{classification:'operational',redactions:['workspace_path','prompt']}},
-    {event_id:'01J8F2K7',event_type:'sirvis.benchmark.result.created',event_version:'1.0.0',occurred_at:'10:26:06',
-     source:{service_type:'sirvis'},severity:'info',trace_id:null,
-     data:{result_id:'res_91c',role:'clarvis-agent'},privacy:{classification:'operational',redactions:[]}},
-    {event_id:'01J8F2K6',event_type:'ecosystem.stream.gap',event_version:'1.0.0',occurred_at:'10:26:05',
-     source:{service_type:'nervis'},severity:'warning',trace_id:null,
-     data:{missed:'unknown',reason:'subscriber buffer overflow'},privacy:{classification:'operational',redactions:[]}},
-    {event_id:'01J8F2K5',event_type:'ravis.provider.state_changed',event_version:'1.0.0',occurred_at:'10:26:02',
-     source:{service_type:'ravis'},severity:'warning',trace_id:null,
-     data:{provider:'anthropic',from:'healthy',to:'degraded'},privacy:{classification:'operational',redactions:[]}}]}},
+  async _eventsMock(){return{stream:{cursor:'',retention_days:null,buffered:null,capacity:null,dropped:null,quarantined:null,gaps:null,connected_since:null},items:[]}},
 
   /* Diagnostics is not one feed. It is a priority ladder — structured event, then
      management API, then service log, then raw process log — and a text log is never
@@ -4701,7 +4533,20 @@ function ecosystemNodes(svc,inst){
     Left in the ring rather than dropped: a diagram that answers "can NERVIS see
     an editor" needs the node whether or not one is open. */
  const ring=[...svc.items.filter(s=>!['nervis','lmstudio','ollama'].includes(s.key)), ...bundled]
-   .map(s=>s.key==='clarvis'?bridgeNode(s,inst):s);
+   .map(s=>s.key==='clarvis'?bridgeNode(s,inst):s)
+   /* **The map names the application; the registry names what was probed.**
+      This diagram answers "which of the four apps can NERVIS see", and the
+      fourth is Clarvis — code-server is the host it runs in, not one of the
+      four. The registry table a screen away still says `code-server`, because
+      that is literally what answered `/healthz`, and the two are not in
+      conflict: one is the product, the other is the process.
+
+      Renamed here rather than in the declaration for exactly that reason. A
+      registry row labelled Clarvis would claim NERVIS had reached Clarvis when
+      what it reached was an editor that may or may not have the extension
+      installed — and whether it does is a different fact, from the
+      registrations. */
+   .map(s=>s.key==='codeserver'?{...s,label:'Clarvis'}:s);
  return ring.map((s,i)=>({...s,...pos(i,ring.length),
    /* `awaiting_first_contact` is not a fault. NERVIS says it about an optional
       peer that has never answered, the registry table has always honoured it,
@@ -6294,9 +6139,16 @@ async function ravisRoutes(){
  const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  const considered=rd.eligible.length+rd.excluded.length;
  const phases=Object.entries(rd.timings_ms).filter(([k])=>k!=='total');
- const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default);
+ /* **`defaultProfile` is the fallback, not a second `find`.** Both `find`s return
+    undefined when RAVIS publishes no profiles at all, and the very next line
+    reads `active.label` — which blanked this screen the moment the invented
+    profiles stopped being supplied. The helper three thousand lines up exists
+    for exactly this and carries the same comment; this call site was written
+    without it. */
+ const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)
+   ||defaultProfile(prof.items);
  $('#content').innerHTML=kpis([
-   ['Profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
+   ['Profile',active.label||'none published',`${active.profile_id?active.profile_id+' · rev '+active.revision:'RAVIS has published no routing profile'}`,'ravis'],
    ['Candidates',`${considered} → ${rd.eligible.length}`,'after hard constraints','ravis',false],
    ['Decision',rd.timings_ms.total+' ms','rule-based · no model call','ravis',false],
    ['Affinity',rd.affinity.split(' · ')[0],rd.affinity.split(' · ')[1]||'','ravis',false]])
@@ -8891,97 +8743,6 @@ async function clarvis(){
 /* async because the views await real endpoints. With mocks these resolve on the
    same tick, so nothing changes today — and nothing changes when they stop being
    mocks either, which is the point. */
-/* Which screens show invented data (M18a and the sweep of 2026-08-24).
-   
-   A screen is listed here when some or all of what it renders has no endpoint
-   behind it. `live:` names the cards on that screen that *are* real, so a mixed
-   screen fades only the invented half — the alternative, one flag per screen,
-   would either fade a working table or leave a fabricated one bright.
-
-   The rule this enforces is the ecosystem rule stated on the Settings screen: a
-   control that implies an endpoint exists is the one thing the dashboard must
-   not do. This is the same rule applied to *numbers*. */
-const PROTOTYPE={
- nervis:{'Overview':1,
-         /* Chat is a real RAVIS client — live profiles, real completions, and
-            the route decision behind each reply. The map draws the registry,
-            which reads /ecosystem/identity, and asks the Clarvis bridge rather
-            than inventing workspaces. */
-         /* Events and Traces are no longer listed. Traces reads RAVIS's route
-            decisions; Events reads each service's declared capability state,
-            which is the honest live fact about a feed that does not exist. */
-         'Diagnostics':1,'Settings':1,
-         /* System is no longer listed: its KPI strip, machine card and runtime
-            list all read SIRVIS's /api/v1/system and /api/v1/runtimes. The one
-            card still inventing anything is `Conditions`, marked below. */},
- /* The service dashboards were the worst of it: SIRVIS's rendered from nine
-    sources of which two were live. Seven are live now — everything except the
-    catalogue and the download queue, neither of which SIRVIS publishes an
-    endpoint for at all. A landing screen full of confident invented numbers is
-    the most misleading page in the build, because it is the first one anyone
-    sees, so the ones that remain are the ones with nothing behind them.
-
-    `Benchmarks` stays listed for the same reason as RAVIS's Routes: it reads
-    the run history live and falls back to a transcription when SIRVIS is not
-    answering, and that fallback must not render unlabelled. Its cards carry
-    `.live` when the read succeeded. */
- sirvis:{'Dashboard':1,'Discover':1,'Benchmarks':1,'Downloads':1},
- /* Every one of these stays listed, and Routes and Policies are why the flag
-    is per *card* rather than per screen.
-
-    Both read live and both keep a transcription for the case where RAVIS is not
-    answering — Routes has no decision records to show on a fresh start, and
-    Policies would otherwise render four invented rules. Taking them off this
-    list would leave that fallback rendering **unlabelled**, which is the one
-    outcome worse than a faded card: invented data at full contrast.
-
-    So the banner stays and `.live` does the work. A live read shows at full
-    contrast, the fallback fades, and neither has to be predicted here. */
- ravis:{'Dashboard':1,'Routes':1,'Providers':1,'Policies':1,'Evidence':1,
-        'Logs':1,'Diagnostics':1,'Settings':1},
- /* Removed at Stage 9. The Clarvis tab was a hand-built mock of an editor —
-    fake explorer, hardcoded syntax-highlighted source, a second fake Clarvis
-    chat panel — under a heading that already claimed the frame rendered itself.
-    It is now a real <iframe> at the address in NERVIS's registry, or a banner
-    saying what was looked for and not found. Neither invents anything. */
- };
-
-function prototypeNote(){
- const map=PROTOTYPE[state.app]||{};
- if(!(map[state.view]||map['*']))return '';
- return `<div class="wip-note"><b>Prototype.</b> Faded cards on this screen render
-  invented data — there is no endpoint behind them yet. Anything at full contrast is
-  read from a running service. Hover a faded card to read it.</div>`;
-}
-
-function markPrototype(){
- const map=PROTOTYPE[state.app]||{};
- const box=$('#content');
- if(!box)return;
- /* Listed *and* actually showing something invented.
-
-    The map is a per-screen guess made ahead of time; whether a card is backed
-    is decided per render, by whether its reader reached a service. A screen
-    whose cards all came back live has nothing faded, and a banner reading
-    "faded cards on this screen render invented data" beside no faded card is
-    noise that teaches a reader to ignore the banner — which is the one thing it
-    cannot afford to become.
-
-    So the list decides whether to *look*, and the cards decide whether anything
-    is said. A screen that goes fully live drops the label on its own, and gets
-    it back the moment a service stops answering, without anybody remembering to
-    edit the map either way. */
- const invented=box.querySelectorAll('.card:not(.live)').length;
- if((map[state.view]||map['*'])&&invented){
-  box.setAttribute('data-wip','');
-  /* Prepended here rather than by each view, so a screen added later inherits
-     the label instead of being forgotten. */
-  if(!box.querySelector('.wip-note'))box.insertAdjacentHTML('afterbegin',prototypeNote());
- }else{
-  box.removeAttribute('data-wip');
-  box.querySelector('.wip-note')?.remove();
- }
-}
 
 /* Screens safe to repaint under the poll: pure display, no input to lose.
 
@@ -9181,8 +8942,7 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
     escapeHtml(ROUTE_NOTE),'warn')+$('#content').innerHTML;
   ROUTE_NOTE='';
  }
- RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');
- markPrototype();replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
+ RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar
     immediately so it is never blank; this one corrects it with whatever the
     screen just learned. Cheap — it reads variables and writes two nodes. */
