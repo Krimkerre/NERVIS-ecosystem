@@ -165,12 +165,17 @@ def _spell(seconds: int) -> str:
 
 def _service_line(service: Mapping[str, Any], now: datetime) -> str:
     """One service, as a sentence fragment made only of what was read."""
-    parts = [clip(str(service.get("key") or "?")), clip(str(service.get("state") or "unknown"))]
     if service.get("awaiting_first_contact"):
-        # Distinct from unreachable, and worth the words: nothing has failed,
-        # NERVIS simply has not looked yet. Reported as "offline" this was the
-        # single most misleading cell on the map.
-        parts.append("never contacted")
+        # **The whole line, not a qualifier on the state.** An optional peer that
+        # has never answered is absent rather than broken, and appending "never
+        # contacted" to `unreachable · no response: ConnectError` still reads as
+        # a fault — the transport error is a fact about software nobody
+        # installed, and printing it invites the model to explain it.
+        return (
+            f"  {clip(str(service.get('key') or '?'))} · not configured — optional, "
+            "and it has never answered on this machine"
+        )
+    parts = [clip(str(service.get("key") or "?")), clip(str(service.get("state") or "unknown"))]
     # Clipped, because this is the field a failing service writes: a stack
     # trace, an upstream's error body, or a message crafted to read as an
     # instruction all arrive here as an ordinary detail string.
@@ -274,9 +279,16 @@ def printed_line(
     and because every figure in it has to survive being read at a glance.
     """
     parts = []
-    if services:
-        up = [s for s in services if s.get("state") in ("healthy", "degraded")]
-        parts.append(f"{len(up)} of {len(services)} services reachable")
+    # **Never-configured optional peers are not in the denominator.** "5 of 6
+    # reachable" on a machine that has never had Ollama installed reports a
+    # missing sixth service; the Overview tile learned this first and says
+    # "5 / 5 · 1 optional peer(s) never configured".
+    declared = [s for s in services if not s.get("awaiting_first_contact")]
+    absent = len(services) - len(declared)
+    if declared:
+        up = [s for s in declared if s.get("state") in ("healthy", "degraded")]
+        line = f"{len(up)} of {len(declared)} services reachable"
+        parts.append(line + (f" ({absent} optional never configured)" if absent else ""))
     if catalogue:
         parts.append(catalogue)
     if windows:

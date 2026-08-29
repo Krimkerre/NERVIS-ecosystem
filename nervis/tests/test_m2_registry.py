@@ -294,6 +294,37 @@ def test_a_service_with_no_adapter_still_says_only_what_is_known() -> None:
     assert set(adapters.ADAPTERS) == {"lmstudio", "codeserver"}
 
 
+def test_an_optional_peer_that_never_answered_is_not_a_warning() -> None:
+    """A machine that never had Ollama installed produced a warning about
+    Ollama — an alarm for a machine working exactly as configured, and four
+    lines in "what has gone wrong lately" that nobody could act on.
+
+    The entry itself already knew: `awaiting_first_contact` is the state §5.1
+    distinguishes. Nothing read it when deciding severity.
+    """
+    optional = ServiceDeclaration(
+        "ollama", "Ollama", "http://127.0.0.1:9", mep=False,
+        probe_path="/api/tags", optional=True,
+    )
+    registry = registry_of(optional)
+    registry.record("ollama", observe(refusing(httpx.ConnectError("no")), optional))
+    entry = registry.get("ollama")
+
+    assert entry is not None
+    assert entry.awaiting_first_contact, "an optional peer that never answered"
+    assert not entry.is_usable
+
+    # A configured peer that goes down is the opposite case and stays a warning.
+    configured = ServiceDeclaration("ravis", "RAVIS", "http://127.0.0.1:8731")
+    live = registry_of(configured)
+    live.record("ravis", observe(peer(mep()), configured))
+    live.record("ravis", observe(refusing(httpx.ConnectError("no")), configured))
+    fallen = live.get("ravis")
+
+    assert fallen is not None
+    assert not fallen.awaiting_first_contact, "it answered once, so this is an outage"
+
+
 def test_an_unsupported_major_is_incompatible_not_unreachable() -> None:
     """Two different problems needing two different actions.
 

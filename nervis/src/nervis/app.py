@@ -307,7 +307,17 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
             continue
         hub.emit(
             "nervis.service.state_changed",
-            severity="warning" if not entry.is_usable else "info",
+            # **Absent is not broken.** An optional peer that has never answered
+            # is software nobody installed, and a warning about it is an alarm
+            # for a machine that is working exactly as configured — it turned
+            # "what has gone wrong lately" into four lines about Ollama on a
+            # machine that has never had Ollama. The transition is still
+            # recorded, because the hub is the record of what NERVIS observed;
+            # it is recorded as the ordinary fact it is.
+            severity=(
+                "warning" if not entry.is_usable and not entry.awaiting_first_contact
+                else "info"
+            ),
             subject={"type": "service", "id": entry.key},
             data={
                 "service": entry.key,

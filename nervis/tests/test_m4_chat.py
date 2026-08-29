@@ -1464,6 +1464,34 @@ def test_a_pool_nobody_published_is_not_offered() -> None:
     assert answered.headers["x-command-offer"] == ""
 
 
+def test_a_peer_nobody_installed_is_absent_rather_than_broken() -> None:
+    """Ollama has never been installed on this machine, and the reading said
+    "unreachable · no response: ConnectError" about it on every turn — an alarm
+    for a machine working exactly as configured, and an invitation for the model
+    to explain a fault that does not exist.
+
+    Written against the reading rather than the endpoint because `an_api` sets
+    every base URL explicitly, which makes each peer *configured* — the
+    condition this is about is the one where nobody set the address at all.
+    """
+    now = datetime.now().astimezone()
+    absent = {
+        "key": "ollama", "state": "unreachable", "awaiting_first_contact": True,
+        "detail": "no response: ConnectError",
+    }
+    present = {"key": "ravis", "state": "healthy", "detail": ""}
+
+    line = situation.block([absent, present], 0, [], "", now)
+
+    assert "ollama · not configured" in line
+    assert "ConnectError" not in line
+    # And not counted as a missing service either: the Overview tile learned
+    # this first — "5 / 5 · 1 optional peer(s) never configured".
+    assert situation.printed_line([absent, present], 0, "") == (
+        "1 of 1 services reachable (1 optional never configured)"
+    )
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1667 tests, no network, no live service
+.venv/bin/pytest                      # part of 1669 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 380 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 382 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1667 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1669 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2297,6 +2297,32 @@ and the second question is why somebody opens a log line. Each group is now its
 own disclosure onto the models it names, scrolled rather than inlined: forty ids
 in the flow turn the interesting line, the one attempt that ran, into
 scrollback.
+
+## Software nobody installed stops reporting as a fault (30 Aug)
+
+**Ollama has never been installed on this machine, and NERVIS warned about it
+every time it looked.** `nervis.service.state_changed` was published at
+`warning` for any peer that was not usable, so an absent optional runtime filled
+"what has gone wrong lately" with four lines about a machine working exactly as
+configured — and invited the model to explain a fault that does not exist.
+
+The entry already knew. `awaiting_first_contact` is §5.1's distinction — *an
+optional peer that has never answered is absent, not broken* — and the browser
+banner had read it for months (`quiet` rows are excluded from the status line).
+Nothing on the server side did. Now the severity does: a never-contacted
+optional peer transitions at `info`, a peer that answered once and then stopped
+still warns, because that is an outage.
+
+**The reading says it in words rather than in a state.** `ollama · unreachable ·
+never contacted · no response: ConnectError` was accurate and read as a fault
+three ways over; it is now `ollama · not configured — optional, and it has never
+answered on this machine`, with the transport error left out because a
+ConnectError against software nobody installed is not evidence of anything.
+
+**And it is out of the denominator.** The printed line said "5 of 6 services
+reachable" on a machine with five services and one uninstalled option. It now
+reads *"5 of 5 services reachable (1 optional never configured)"* — the same
+shape the Overview tile has used since M2.
 
 ## Adapters: reading a service that never agreed to be read (30 Aug)
 
