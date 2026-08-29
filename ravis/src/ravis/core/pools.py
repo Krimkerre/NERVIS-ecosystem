@@ -566,6 +566,29 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         requirements=PoolRequirements(minimum_context=131072),
     ),
     VirtualModelPool(
+        pool_id="ravis/agent",
+        label="Agent",
+        description=(
+            "Tool-capable models for any agentic caller. Tools are REQUIRED, and nothing "
+            "about this pool is tied to one product's role."
+        ),
+        # **The same hard invariant as `clarvis-agent`, and none of its opinions.**
+        # That pool is Clarvis's: §5.1 gives it coding and repository reasoning, so
+        # it prefers `coder` builds and is admitted on `clarvis-agent` evidence.
+        # A caller that simply needs a model which can call tools — NERVIS chat if
+        # it ever grows them, a script, a second consumer — was left choosing
+        # between borrowing another product's role pool and having no pool at all.
+        # Borrowing is the worse of the two: it silently inherits a preference
+        # for code models and an evidence role that says nothing about the
+        # caller's own workload.
+        requirements=_TOOLS_REQUIRED,
+        # Instruction-tuned builds follow a tool schema more reliably in
+        # practice, and this is a *declared preference on a name* like every
+        # other `prefer` in this file — not a measurement. Real ranking is
+        # SIRVIS's job, and a route explanation says which of the two decided.
+        prefer=("instruct",),
+    ),
+    VirtualModelPool(
         pool_id="ravis/clarvis-chat",
         label="Clarvis Chat",
         description=(

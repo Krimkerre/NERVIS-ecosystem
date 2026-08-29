@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1675 tests, no network, no live service
+.venv/bin/pytest                      # part of 1676 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1675 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1676 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2804,6 +2804,28 @@ came through LM Studio, which is a fact about the evidence rather than about
 RAVIS's reach.
 
 ---
+
+## A pool for tool-capable models that is nobody's role (30 Aug)
+
+**`ravis/agent` exists, and it is not `ravis/clarvis-agent` under a shorter
+name.** Both require tools with a 32K floor — the same hard invariant §5.1 puts
+on Clarvis's agent pool — and they differ in whose opinions they carry.
+`clarvis-agent` is Clarvis's: coding and repository reasoning, so it prefers
+`coder` builds and is admitted on `clarvis-agent` evidence. A caller that simply
+needs a model which can call tools was choosing between borrowing that role pool
+— inheriting a preference for code models it never asked for, and an evidence
+role that says nothing about its own workload — and having no pool at all.
+
+The new pool prefers `instruct` instead, and the comment says what kind of claim
+that is: a declared preference on a name, like every other `prefer` in the file,
+not a measurement. Live against the catalogue both pools hold 336 members;
+`ravis/agent` opens with `qwen3-30b-a3b-instruct` and `clarvis-agent` with
+`qwen3-coder-30b-a3b-instruct`, which is the difference doing its job.
+
+**One test changed for a good reason.** The near-miss suggester was pinned with
+`ravis/agent` as the example of a dropped qualifier that means `clarvis-agent` —
+and `ravis/agent` is a real pool now, so the example moved to `ravis/clarvis`.
+The new pool is suggestible in its own right: `ravis/agents` proposes it.
 
 ## Stretch goal — chat that can do more than talk (30 Aug)
 

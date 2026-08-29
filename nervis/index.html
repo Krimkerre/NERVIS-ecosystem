@@ -7405,7 +7405,7 @@ const CHAT_SESSION={
  busy:false};
 
 /* What NERVIS itself is holding, as opposed to what this browser remembers. */
-const HELD={count:0,ids:[]};
+const HELD={count:0,ids:[],titles:{}};
 
 async function readHeld(){
  try{
@@ -7415,7 +7415,25 @@ async function readHeld(){
   const items=(await r.json()).items||[];
   HELD.count=items.length;
   HELD.ids=items.map(c=>c.conversation_id);
+  /* **The titles were in this response all along and were being thrown away.**
+     The browser stored its own row when the conversation was saved — at which
+     point the title is "New conversation", because NERVIS generates one *after*
+     the first exchange as a background call. So the drawer listed a dozen
+     conversations all called the same thing while NERVIS knew every name.
+     §7.2 makes NERVIS the store of record; the browser's copy is a cache, and a
+     cache that ignores the source is just a stale list. */
+  HELD.titles=Object.fromEntries(items.map(c=>[c.conversation_id,c.title||'']));
  }catch(e){}
+}
+
+/* What a conversation is called, preferring NERVIS's answer over the browser's.
+
+   Falls back to the local title, then to the id — a row with no name at all is
+   still a row somebody can open, and "New conversation" is at least honest
+   about a conversation NERVIS has not titled yet. */
+function conversationTitle(row){
+ const held=HELD.titles[row.remote_id||row.conversation_id];
+ return held||row.title||row.conversation_id;
 }
 
 /* Everything NERVIS holds, gone. Deliberately separate from the per-row
@@ -7735,10 +7753,10 @@ function historyRow(c){
  const renaming=RENAMING===c.conversation_id;
  return `<div class="trace-step" style="align-items:flex-start">
    <b style="min-width:0">${renaming
-     ?`<input id="rename-${jsAttr(c.conversation_id)}" class="mono" value="${escapeHtml(c.title||'')}"
+     ?`<input id="rename-${jsAttr(c.conversation_id)}" class="mono" value="${escapeHtml(conversationTitle(c))}"
          style="width:100%;background:#0b1118;border:1px solid #2a3541;color:#cfe;border-radius:5px;padding:4px 6px"
          onkeydown="if(event.key==='Enter')renameConversation('${jsAttr(c.conversation_id)}');if(event.key==='Escape'){RENAMING='';render()}">`
-     :`<a href="#" onclick="CHAT_SESSIONS.open('${jsAttr(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a>`}</b>
+     :`<a href="#" onclick="CHAT_SESSIONS.open('${jsAttr(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(conversationTitle(c))}</a>`}</b>
    <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${escapeHtml((c.messages||[]).length)} msg
    <button class="btn" style="margin-left:6px" onclick="${renaming
      ?`renameConversation('${jsAttr(c.conversation_id)}')`

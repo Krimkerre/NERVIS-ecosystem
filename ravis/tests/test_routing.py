@@ -376,7 +376,14 @@ def test_the_refusal_suggests_the_pool_that_was_probably_meant() -> None:
     """
     engine = RoutingEngine()
 
-    assert "ravis/clarvis-agent" in engine.select("ravis/agent", {}).reason
+    # `ravis/agent` used to be the example here — a dropped qualifier that meant
+    # `clarvis-agent`. It is a real pool now (tool-capable models for any
+    # caller), so the containment case needs a name that is still a near-miss.
+    # `ravis/clarvis` contains two pools, and the first in stable order wins.
+    assert "ravis/clarvis-chat" in engine.select("ravis/clarvis", {}).reason
+    # And the new pool is itself suggestible, which is the same mechanism
+    # working for it rather than against it.
+    assert "ravis/agent" in engine.select("ravis/agents", {}).reason
     # A genuine misspelling has no containment match, so edit distance still
     # earns its place — at a raised cutoff.
     assert "ravis/clarvis-chat" in engine.select("ravis/clarvis-cat", {}).reason
@@ -438,3 +445,22 @@ def test_size_still_breaks_ties_where_a_preference_was_declared() -> None:
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
     assert decision.selected == "qwen2.5-coder-7b-instruct"
+
+
+def test_the_agent_pool_is_not_clarvis_agent_wearing_a_shorter_name() -> None:
+    """Two pools require tools, and the difference is whose opinions they carry.
+
+    `clarvis-agent` is §5.1's: coding and repository reasoning, so it prefers
+    `coder` builds and is admitted on `clarvis-agent` evidence. A caller that
+    simply needs a model which can call tools was choosing between borrowing
+    that role pool — inheriting a preference for code models it never asked for
+    — and having no pool at all.
+    """
+    from ravis.core.pools import POOLS_BY_ID
+
+    agent = POOLS_BY_ID["ravis/agent"]
+    clarvis = POOLS_BY_ID["ravis/clarvis-agent"]
+
+    assert agent.requirements == clarvis.requirements, "the hard invariant is the same"
+    assert "coder" in clarvis.prefer and "coder" not in agent.prefer
+    assert "role" not in agent.description.lower() or "one product" in agent.description
