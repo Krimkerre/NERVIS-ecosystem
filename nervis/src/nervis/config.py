@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # instance. §5.1 lists it among the initial registry entries because an
     # optional peer that is absent should read as absent rather than be missing
     # from the list entirely.
+    # **Kept, and no longer probed.** Setting it is how an operator says "there
+    # is a Bridge at this exact address" — a fixed deployment rather than the
+    # per-window one §6.6 describes. Nothing in the default path reads it, since
+    # a Bridge announces its own port at registration.
     clarvis_base_url: str = "http://127.0.0.1:7071"
 
     # Where code-server serves the editor NERVIS embeds in its Clarvis tab.

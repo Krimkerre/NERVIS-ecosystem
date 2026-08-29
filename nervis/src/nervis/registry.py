@@ -355,26 +355,20 @@ def declared_services(settings: Any) -> list[ServiceDeclaration]:
         ServiceDeclaration("nervis", "NERVIS", f"http://{settings.host}:{settings.port}"),
         ServiceDeclaration("ravis", "RAVIS", settings.ravis_base_url),
         ServiceDeclaration("sirvis", "SIRVIS", settings.sirvis_base_url),
-        # §5.1 calls this "the optional bridge" outright: it starts and stops
-        # with an editor window, so absent is its ordinary state.
+        # **No static entry for the Clarvis Bridge, deliberately.**
         #
-        # **A full MEP peer, and it was declared as a runtime.** CLARVIS.md §6
-        # opens with "The Bridge conforms to the MEP" and §6.2 publishes
-        # `clarvis.status.read@1`, `clarvis.events@1` and
-        # `clarvis.diagnostics.summary@1`. Declaring it `mep=False` against
-        # `/instances` — a path §6.3 does not define — meant NERVIS negotiated
-        # nothing and painted "healthy" for **anything that answered below 400
-        # on that port**, which §6.1 warns is exactly the impersonation the
-        # Bridge's own authentication exists to stop.
-        ServiceDeclaration(
-            "clarvis", "Clarvis Bridge", settings.clarvis_base_url,
-            optional="clarvis_base_url" not in chosen,
-        ),
-        # **Observed, never supervised.** §5.1 puts code-server in the registry so
-        # the Code tab can say honestly whether there is an editor to embed —
-        # NERVIS neither starts it nor stops it, and `/healthz` is the only thing
-        # it is asked. Optional unless somebody named an address: a machine
-        # without code-server is an ordinary machine, not a broken one.
+        # There was one, probing `clarvis_base_url` — a fixed 127.0.0.1:7071.
+        # The runbook's own port table says the Bridge's port is "dynamic and
+        # discovered through registration, never assumed", and §6.6 has each
+        # editor window take an OS-assigned one, so nothing ever binds that
+        # address. The row could not go green under any circumstances, and it
+        # produced two display defects before anybody noticed why: a red node on
+        # the ecosystem map with two live Bridges on the machine, and a
+        # "5 / 7 reachable" tile counting a peer that does not exist.
+        #
+        # Where a Bridge actually is comes from `instances.py` — the registration
+        # each window makes, with the port it chose. That is the only place that
+        # can know, and now the only place that says.
         runtime("codeserver", "code-server", settings.code_server_base_url, "/healthz"),
         runtime("lmstudio", "LM Studio", settings.lmstudio_base_url, "/v1/models"),
         runtime("ollama", "Ollama", settings.ollama_base_url, "/api/tags"),

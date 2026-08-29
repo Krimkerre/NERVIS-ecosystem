@@ -561,7 +561,14 @@ def test_the_registry_lists_every_declared_service_with_nothing_running() -> Non
         # `codeserver` joined at Stage 9: NERVIS embeds it in the Clarvis tab, so
         # the tab needs a truthful answer to "is there an editor to show here".
         # Observed and never supervised, like the two runtimes beside it.
-        "nervis", "ravis", "sirvis", "clarvis", "codeserver", "lmstudio", "ollama",
+        #
+        # `clarvis` left at the same time. The Bridge's port is assigned per
+        # editor window and announced at registration — the runbook says it is
+        # "never assumed" — so a static row probing a fixed address could never
+        # go green, and it made the map draw a red node while two Bridges were
+        # live. Registrations are in `/api/v1/registry/instances`, which is the
+        # only place that can know.
+        "nervis", "ravis", "sirvis", "codeserver", "lmstudio", "ollama",
     }
     assert body["refused"] == []
 

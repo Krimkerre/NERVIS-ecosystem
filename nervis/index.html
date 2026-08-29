@@ -3430,6 +3430,25 @@ function globalStatus(){
     registry and on its table — this bar simply does not raise them, because
     absent is their ordinary state. One that answered once and then stopped is
     not quiet, and does appear. */
+ /* **Ahead of every health state, because it is the only one that is about the
+    reader.** A degraded service tells you something; a gate asks you for
+    something, and it will wait for ever. A blocked agent behind "RAVIS degraded"
+    would be the more urgent fact reported second. */
+ if(WAITING.length){
+  const el0=$('#globalStatus'),dot0=$('.top-status .dot');
+  if(el0){
+   const each=WAITING.map(one=>{
+    const held=one.elapsed_ms!=null?` ${Math.round(one.elapsed_ms/1000)}s`:'';
+    /* The category, never the question. §6.4 forbids the command string, the
+       path and the approval details leaving the machine, and §6.7 permits
+       NERVIS to display *that* a gate awaits and nothing more. */
+    return `${one.label}${one.awaiting?' · '+one.awaiting:''}${held}`;
+   }).join(', ');
+   el0.textContent=`Waiting for you — ${each}`;
+   dot0.dataset.state='warn';
+   return;
+  }
+ }
  const bad=rows.filter(v=>!v.quiet&&!['healthy','degraded'].includes(v.state));
  const deg=rows.filter(v=>v.state==='degraded');
  /* Reachable from NERVIS, not reachable from here. See the branch below. */
@@ -8982,6 +9001,44 @@ const LIVE_VIEWS={nervis:['Overview','Ecosystem map','System','Events']};
    slower makes the bar wrong for longer than it takes somebody to notice. */
 const POLL_MS=8000;
 
+/* Editor windows currently blocked on the user, and for how long.
+
+   **The only thing on this dashboard that asks the reader for something.** Every
+   other line reports; this one says an agent stopped and is waiting on a person
+   who may be looking at a different tab, or a different window, or nothing at
+   all. That case is the whole reason the Bridge exists — everything else it
+   publishes can be read faster by looking at the editor.
+
+   Read here rather than folded into `/api/v1/registry/instances`, which is drawn
+   on every poll and deliberately cheap: one status read per live window, and
+   only when there are live windows. With no Bridge registered this makes no
+   requests at all.
+
+   `Promise.all` is safe because NERVIS's status route never rejects — every
+   failure comes back as a state. A window it could not reach reports `unknown`
+   and is not counted as waiting, because "I could not read it" is not "it needs
+   you". */
+let WAITING = [];
+
+async function pollGates(){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/registry/instances',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok){WAITING=[];return}
+  const live=((await r.json()).items||[]).filter(one=>one.live);
+  if(!live.length){WAITING=[];return}
+  const read=await Promise.all(live.map(async one=>{
+   try{
+    const s=await fetch(BASE.nervis+'/api/v1/registry/instances/clarvis/'
+      +encodeURIComponent(one.instance_id)+'/status',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    return s.ok?{...await s.json(),label:one.label}:null;
+   }catch(e){return null}
+  }));
+  WAITING=read.filter(one=>one&&one.state==='waiting_for_approval');
+ }catch(e){WAITING=[]}
+}
+
 async function pollRegistry(){
  /* The status bar's own source, independent of whatever screen is open.
 
@@ -9373,7 +9430,7 @@ render();
    refreshes immediately rather than waiting out the interval. */
 let POLL_TIMER=null;
 function startPolling(){
- if(POLL_TIMER===null)POLL_TIMER=setInterval(pollRegistry,POLL_MS);
+ if(POLL_TIMER===null)POLL_TIMER=setInterval(()=>{pollRegistry();pollGates()},POLL_MS);
 }
 /* ── THE EVENT STREAM ──────────────────────────────────────────────────────
    §25.2: "Last-Event-ID resumption, retry: 3000 and the 409
@@ -9546,7 +9603,7 @@ function stopPolling(){
 }
 document.addEventListener('visibilitychange',()=>{
  if(document.hidden){stopPolling()}
- else{pollRegistry();startPolling();EVENTS.start()}
+ else{pollRegistry();pollGates();startPolling();EVENTS.start()}
 });
 pollRegistry();
 startPolling();
