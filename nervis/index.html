@@ -1867,12 +1867,23 @@ const API={
   /* GET /api/v1/benchmark-jobs — states are the closed contract enum. The
      internal phase rides in `detail`; consumers switch on `state`. */
   async jobs(){
-   /* There is no queue. §11.10's coarse state enum is real and stored on every
-      run, but the queue behind it — submit, pause, retry, reorder, survive a
-      restart — is unbuilt, and so is `/api/v1/benchmark-jobs`. What exists is
-      the run history, and a run carries the same contract state a job would.
-      So this maps runs onto the job record rather than inventing an endpoint,
-      and the screen says which it is looking at. */
+   /* **The queue exists since SIRVIS M14**, so this reads it. A job is not a
+      run: a job may sit queued, be cancelled before anything loads, or fail
+      before a run exists — and `run_id` is what links the two once the engine
+      opens one.
+
+      Runs remain the fallback, and deliberately rather than as a leftover. A
+      SIRVIS from before M14 answers 404 here and still has a run history, and
+      showing that history is better than showing nothing; the screen says which
+      of the two it is looking at. */
+   const queue=await liveSirvis('/api/v1/benchmark-jobs?limit=25');
+   if(queue)return{source:'live',live:true,queue:true,items:(queue.items||[]).map(j=>({
+    job_id:j.job_id,state:j.state,detail:j.detail||null,
+    suite:j.suite||'—',target:dash(j.model),
+    /* Still null. Nothing publishes a fraction, and a zero bar would claim a
+       job that had started and achieved nothing. */
+    progress:null,submitted:(j.submitted_at||'').slice(11)||j.submitted_at,
+    run_id:j.run_id,cancellable:['queued','running'].includes(j.state)}))};
    const live=await liveSirvis('/api/v1/benchmark-runs?limit=25');
    /* Answered-with-nothing is live, the last of three fetches that read it as
       absent. A SIRVIS that has run no benchmarks yet is answering, and falling
@@ -5463,9 +5474,44 @@ async function sirvisDiscover(){
    outside, an honest dead end and a bug look the same.
  
    Benchmarks do run today, from the CLI, so the screen says how. */
+/* Submit one, through SIRVIS's own queue (its M14).
+   Uses the same token the Runtime screen holds, and the same `_send` — so a
+   refusal arrives as SIRVIS's own words rather than as a generic failure. A
+   benchmark needs the `benchmark` scope, which is not the `runtime` scope: §4.5
+   separates them because they cost different things, so a runtime-only token is
+   refused here and the message says which scope is missing. */
+async function submitBenchmark(){
+ const model=(($('#bmModel')||{}).value||'').trim();
+ if(!model){notify('Name a model to benchmark');return}
+ const out=await RUNTIME._send('/api/v1/benchmark-jobs','POST',
+   {specification:BENCH_SPEC,model});
+ if(out&&out.job)notify(`Queued ${out.job.job_id}`);
+ repaint();
+}
+
+async function cancelBenchmark(jobId){
+ const out=await RUNTIME._send('/api/v1/benchmark-jobs/'+encodeURIComponent(jobId)+'/cancel','POST',{});
+ if(out&&out.job)notify(`${out.job.job_id} is ${out.job.state}`);
+ repaint();
+}
+
+/* The specification the dashboard submits. The same shape `examples/basic.yaml`
+   holds, sent as JSON — a queued job stores what it was given rather than a
+   path, so the file does not have to exist on the machine running the queue. */
+const BENCH_SPEC={id:'basic',suite:'performance-basic',suite_version:'1',
+ role:'general',environment:'shared',
+ target:{model:'',load:{context_length:8192}},
+ warmups:2,repetitions:5,
+ tests:[{id:'short-prompt-256-out',version:1,
+   prompt:'Write a Python function that merges two sorted lists into one sorted list. Return only the code.',
+   generation:{temperature:0,max_tokens:256}}]};
+
 function howToBenchmark(){
  return `<div class="card full"><h3>Running a benchmark</h3>
-  <small class="mono dim">There is no submit endpoint yet — <b>sirvis.benchmarks.jobs</b> is advertised as unavailable until SIRVIS's M14 builds the queue, so the button above is disabled rather than hopeful. Benchmarks run from the command line, and their results appear on this screen and in Results:</small>
+  <small class="mono dim">Two ways, and they produce the same evidence. <b>From here</b>: name a model and press New benchmark — it is queued through SIRVIS's own <b>/api/v1/benchmark-jobs</b> (M14), one at a time, because two benchmarks running at once measure each other. Submitting needs a token with the <b>benchmark</b> scope, which is not the runtime scope: mint one with <b>sirvis token --scope benchmark</b> and paste it on the Runtime screen. <b>From the command line</b>, unchanged:</small>
+  <div style="margin:9px 0;display:flex;gap:7px;align-items:center">
+   <input id="bmModel" class="mono" placeholder="model id to benchmark" style="flex:1;min-width:0;background:#0b1118;border:1px solid #2a3541;color:#cfe;border-radius:6px;padding:7px 9px">
+  </div>
   <pre class="editor" style="margin-top:9px;white-space:pre-wrap">sirvis benchmark run sirvis/examples/basic.yaml --model &lt;model-id&gt;</pre>
   <small class="mono dim"><b>--clarvis-role clarvis-agent</b> runs Clarvis's own workload and the tool-call trials instead of the file's tests; <b>--runtime-set</b> measures every member of a set alone and then co-resident. Add <b>-y</b> to skip the confirmation before the model is loaded — a benchmark loads it for real, which is the whole point of the measurement.</small>
   </div>`;
@@ -5480,9 +5526,11 @@ async function sirvisBenchmarks(){
   j.source==='live'
    ?'Real runs on this machine and the contract state each ended in. There is no queue yet — §11.10\'s job machinery is unbuilt, so nothing is ever pending.'
    :'Jobs, their contract state, and the internal phase that rides alongside it.',
-  j.source==='live'
-   ?`<button class="btn" disabled title="no submit endpoint yet — §11.10's queue is unbuilt">New benchmark</button>`
-   :control('New benchmark','runBenchmark',' primary'));
+  j.queue
+   ?`<button class="btn primary"${runtimeArmed()} onclick="submitBenchmark()">New benchmark</button>`
+   :(j.source==='live'
+     ?`<button class="btn" disabled title="this SIRVIS predates M14 and serves no /api/v1/benchmark-jobs — benchmarks run from the CLI">New benchmark</button>`
+     :control('New benchmark','runBenchmark',' primary')));
  const by=s=>j.items.filter(x=>x.state===s).length;
  const partial=j.items.find(x=>x.state==='partial');
  $('#content').innerHTML=howToBenchmark()+kpis([
@@ -5492,7 +5540,7 @@ async function sirvisBenchmarks(){
    ['Failed',String(by('failed')),'no result written','sirvis']])
  +`<div class="card full${escapeHtml(j.source==='live'?' live':'')}"><h3>Queue</h3>${cell(`
    <div class="table-row head six"><span>Job</span><span>Suite</span><span>Target</span><span>Submitted</span><span>State</span><span>Progress</span></div>
-   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.job_id)}</span><span class="mono">${escapeHtml(x.suite)}</span><span>${escapeHtml(x.target)}</span><span class="mono">${escapeHtml(x.submitted)}</span><span class="chip${warnUnless(x.state==='succeeded'||x.state==='running')}">${escapeHtml(x.state)}</span><span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${escapeHtml(Math.round(x.progress*100))}%"></i></div>`}<small class="mono" style="opacity:.55">${escapeHtml(x.detail||(x.progress==null?'ran to completion':'—'))}</small></span></div>`).join('')}
+   ${j.items.map(x=>`<div class="table-row six"><span class="mono">${escapeHtml(x.job_id)}</span><span class="mono">${escapeHtml(x.suite)}</span><span>${escapeHtml(x.target)}</span><span class="mono">${escapeHtml(x.submitted)}</span><span class="chip${warnUnless(x.state==='succeeded'||x.state==='running')}">${escapeHtml(x.state)}</span>${x.cancellable?`<span><button class="btn"${runtimeArmed()} onclick="cancelBenchmark('${jsAttr(x.job_id)}')">Cancel</button></span>`:''}<span>${x.progress==null?'':`<div class="bar" style="margin:0"><i style="--w:${escapeHtml(Math.round(x.progress*100))}%"></i></div>`}<small class="mono" style="opacity:.55">${escapeHtml(x.detail||(x.progress==null?'ran to completion':'—'))}</small></span></div>`).join('')}
    <small class="mono dim">a successful HTTP request is not a successful benchmark. Cancellation is idempotent, and a job that ends early ends in <b>partial</b> or <b>failed</b> — never silently in <b>succeeded</b>.</small>
    ${explains('how a state differs from the detail beside it',`
    <div class="table-row head"><span>Contract state</span><span>Jobs</span><span style="grid-column:3/-1">What a consumer may rely on</span></div>

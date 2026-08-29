@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from importlib import metadata
 
-from ecosystem_protocol import AVAILABLE, UNAVAILABLE, Capability, EcosystemSurface
+from ecosystem_protocol import AVAILABLE, Capability, EcosystemSurface
 
 
 def _installed_version(distribution: str) -> str:
@@ -95,8 +95,9 @@ DECLARED: dict[str, Capability] = {
     # neighbouring one has.
     "sirvis.benchmarks.jobs@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="submit/poll/cancel lands with the queue at M14; M6 runs synchronously",
+        state=AVAILABLE,
+        reason="submit, poll and cancel over the queue (M14); one benchmark at a "
+        "time, because two measure each other",
     ),
     "sirvis.benchmarks.results@1": Capability(
         version="1.0.0",

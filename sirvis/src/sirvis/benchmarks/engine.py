@@ -366,6 +366,7 @@ async def run_experiment(
     thermal: Callable[[], str | None] = read_thermal_pressure,
     events: EventPublisher | None = None,
     trace_id: str = "",
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExperimentOutcome:
     """Run one single-model experiment end to end and persist its result.
 
@@ -441,7 +442,8 @@ async def run_experiment(
     )
 
     try:
-        await _execute(spec, runtime, resources, sampler, directory, outcome, clock, thermal)
+        await _execute(spec, runtime, resources, sampler, directory, outcome, clock,
+                       thermal, should_stop)
     except (RuntimeUnavailableError, RuntimeUnreachableError) as failure:
         # A runtime that stopped answering mid-run is the ordinary failure here,
         # and the partial telemetry is worth more than the exception: it says
@@ -526,6 +528,7 @@ async def _execute(
     outcome: ExperimentOutcome,
     clock: Callable[[], float],
     thermal: Callable[[], str | None],
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """§11.2's lifecycle for a single model, between acquire and release."""
     resident_before = {model.model_key for model in await runtime.list_loaded_models()}
@@ -554,6 +557,19 @@ async def _execute(
     outcome.thermal_before = thermal()
     try:
         for test in spec.tests:
+            # **Between tests, not mid-inference.** A cancel that killed the
+            # task would lose the partial telemetry §11.10 says to keep — how
+            # far the run got and what memory looked like when it stopped is
+            # most of the value of a run that ended early. So the check is
+            # cooperative and the granularity is one test.
+            if should_stop is not None and should_stop():
+                outcome.warnings.append(
+                    "cancelled after "
+                    f"{len([r for r in outcome.repetitions if r.phase != 'load'])} "
+                    "measured repetition(s); the results kept are the ones taken "
+                    "before the request to stop"
+                )
+                break
             await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
         if spec.tool_trials:
             await _run_tool_trials(spec, runtime, directory, outcome)

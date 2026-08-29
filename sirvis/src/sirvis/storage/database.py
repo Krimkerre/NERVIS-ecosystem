@@ -231,6 +231,49 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON benchmark_run (trace_id);
         """,
     ),
+    (
+        8,
+        "the benchmark job queue, per SIRVIS §4.2 and §11.10",
+        """
+        -- **A job is not a run.** A run is the engine's record of work that
+        -- started; a job is a *request* for work, which may sit queued, be
+        -- cancelled before anything loads, or fail before a run exists. §4.2's
+        -- rule that "a successful HTTP request is not a successful benchmark"
+        -- is the same distinction one level up: submitting returns a job, and
+        -- the job is the thing a client polls.
+        --
+        -- `run_id` is nullable and filled when the engine starts, which is what
+        -- lets a client follow a job through to the evidence it produced.
+        CREATE TABLE IF NOT EXISTS benchmark_job (
+            job_id           TEXT PRIMARY KEY,
+            -- The specification exactly as submitted, so a job is reproducible
+            -- and so a queued one does not depend on a file still being there.
+            specification    TEXT NOT NULL,
+            model_override   TEXT,
+            clarvis_role     TEXT,
+            -- queued · running · succeeded · failed · cancelled
+            state            TEXT NOT NULL,
+            detail           TEXT NOT NULL DEFAULT '',
+            -- Set by a cancel request while the job is running. The worker
+            -- reads it between repetitions; a flag rather than a signal
+            -- because the work is in this process and killing it would lose
+            -- the partial telemetry §11.10 says to keep.
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            -- The caller's trace, so a benchmark submitted over HTTP joins the
+            -- trace that submitted it rather than minting one of its own.
+            -- `benchmark_run.trace_id` is populated from this.
+            trace_id         TEXT,
+            run_id           TEXT REFERENCES benchmark_run(run_id),
+            submitted_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at       TEXT,
+            finished_at      TEXT
+        );
+
+        -- The worker's own query: the oldest thing still waiting.
+        CREATE INDEX IF NOT EXISTS benchmark_job_by_state
+            ON benchmark_job (state, submitted_at);
+        """,
+    ),
 ]
 
 

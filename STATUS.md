@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1580 tests, no network, no live service
+.venv/bin/pytest                      # part of 1595 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1580 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1595 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2124,6 +2124,38 @@ to both producers: two lanes in one trace, RAVIS with two events and a measured
 3550 ms bar, SIRVIS with one event drawn correctly as a point. Both producers
 now publish, and both were checked by reading what actually arrived in the hub
 rather than by trusting the tests.
+
+**SIRVIS M14 — the benchmark queue.** Submit, poll and cancel, which is what
+`sirvis.benchmarks.jobs@1` had been promising since M6 ran synchronously, and
+what NERVIS M5b has been blocked on. The dashboard's New benchmark button works
+now rather than explaining itself.
+
+**A job is not a run**, and most of the design is that distinction. A run is the
+engine's record of work that started; a job is a *request* for work, which may
+sit queued, be cancelled before anything loads, or fail before a run exists —
+verified live, where a job for a model the runtime could not reach ended
+`failed` with `run_id: null`. §4.2's rule that a successful HTTP request is not
+a successful benchmark is the same distinction one level up: submitting answers
+202 with a job, and the job is what a client polls.
+
+**One at a time, and that is a measurement decision.** A benchmark measures a
+machine; two running at once measure each other, and §11.1 already forbids
+comparing a `controlled` result with a `shared` one as though they were
+equivalent. A pool would quietly make every result `shared` without anybody
+choosing it.
+
+**Cancellation is a flag rather than a kill.** The work runs in-process, so
+killing the task would lose the partial telemetry §11.10 says to keep — how far
+a run got and what memory looked like when it stopped is most of the value of a
+run that ended early. The engine reads the flag between tests. A cancel of a
+*running* job leaves it `running` until it actually stops, because reporting
+`cancelled` while inference is in flight would tell a reader the machine is free
+and put the next benchmark onto a busy one.
+
+The trace column added at M21 pays off here: a job carries the submitter's
+`traceparent` onto the run, so a benchmark requested over HTTP joins the trace
+that asked for it instead of minting one. That is exactly why the column went on
+the row rather than into a local variable.
 
 **Stage 7 is complete. All three exit clauses are met.**
 

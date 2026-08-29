@@ -20,6 +20,7 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from sirvis import jobs as job_store
 from sirvis.api import router as api_router
 from sirvis.api.security import cors_headers, ensure_bootstrap_token, is_preflight
 from sirvis.config import Settings
@@ -29,6 +30,7 @@ from sirvis.errors import SirvisError, to_response
 from sirvis.resources import ResourceManager
 from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database, reconcile_interrupted
+from sirvis.worker import serve_queue
 
 NextCall = Callable[[Request], Awaitable[Any]]
 
@@ -73,15 +75,23 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     outbound client belongs to the LM Studio adapter and borrowing it would tie
     a telemetry timeout to a model load.
     """
+    # M14's queue. Started before the event pump because a submitted benchmark
+    # must run whether or not anybody is collecting telemetry — the queue is the
+    # product, the events are the observation of it.
+    worker = asyncio.create_task(serve_queue(api))
     publisher: EventPublisher = api.state.events
     if not publisher.enabled:
-        yield
+        try:
+            yield
+        finally:
+            worker.cancel()
         return
     async with httpx.AsyncClient() as client:
         pump = asyncio.create_task(publisher.run(client))
         try:
             yield
         finally:
+            worker.cancel()
             pump.cancel()
             # Bounded, so a hub that stopped answering cannot hold a shutdown
             # open. The closing event of a benchmark is the one worth waiting a
@@ -101,6 +111,14 @@ def _attach_shared_state(
     # This service is the thing that just started, so anything still unfinished
     # belonged to a process that no longer exists.
     abandoned = reconcile_interrupted(api.state.database)
+    # The same reconciliation for jobs, and for the same reason (§11.10): a row
+    # left reading `running` after the process died neither survived the restart
+    # nor was truthfully marked unrecoverable. A *queued* job is left alone —
+    # it never started, so it survives honestly and the worker will take it.
+    for stranded in job_store.reconcile_interrupted(api.state.database):
+        logging.getLogger(__name__).warning(
+            "marked interrupted benchmark job %s unrecoverable", stranded
+        )
     if abandoned:
         logging.getLogger(__name__).warning(
             "marked %d interrupted run(s) unrecoverable", len(abandoned),

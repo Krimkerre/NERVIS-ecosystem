@@ -13,11 +13,12 @@ to need one.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
 
+from sirvis import jobs
 from sirvis.api.security import (
     Scope,
     redacted,
@@ -351,6 +352,77 @@ async def read_benchmark_runs(
         "next_cursor": following,
         "snapshot_revision": SNAPSHOT_REVISION,
     }
+
+
+@router.post("/benchmark-jobs", status_code=202)
+async def submit_benchmark_job(request: Request) -> dict[str, Any]:
+    """Enqueue a benchmark and return the job. M14; §4.2.
+
+    **202, and a job rather than a result.** §4.2's rule is that a successful
+    HTTP request is not a successful benchmark, and the status code is where
+    that starts: a benchmark takes minutes, so 200-with-a-result would either
+    hold the connection open for the whole run or lie about what happened.
+
+    `Scope.BENCHMARK` because §4.5 separates the scopes by what they cost, and
+    this one costs time — a dashboard that draws graphs should not be able to
+    occupy the machine for ten minutes because it could read a number.
+    """
+    require(request, Scope.BENCHMARK)
+    body = await _json_body(request)
+    specification = body.get("specification")
+    if not isinstance(specification, Mapping) or not specification:
+        raise InvalidConfigurationError(
+            "a benchmark job needs a `specification` object — the experiment as "
+            "submitted, so a queued job does not depend on a file still existing"
+        )
+    job_id = jobs.submit(
+        request.app.state.database,
+        specification=specification,
+        model=str(body.get("model") or ""),
+        clarvis_role=str(body.get("clarvis_role") or ""),
+        # The caller's trace, so the run this job becomes joins the trace that
+        # asked for it rather than minting one of its own.
+        trace_id=str(getattr(request.state, "trace_id", "") or ""),
+    )
+    found = jobs.read(request.app.state.database, job_id)
+    return {"job": jobs.as_public(found)} if found else {"job": {"job_id": job_id}}
+
+
+@router.get("/benchmark-jobs")
+async def list_benchmark_jobs(request: Request) -> dict[str, Any]:
+    """The queue, newest first. Reads are open, like every other read here."""
+    try:
+        limit = int(request.query_params.get("limit") or 50)
+    except ValueError:
+        limit = 50
+    return {"items": jobs.public_list(
+        jobs.recent(request.app.state.database, limit)
+    )}
+
+
+@router.get("/benchmark-jobs/{job_id}")
+async def read_benchmark_job(request: Request, job_id: str) -> dict[str, Any]:
+    """One job. This is the poll half of submit/poll/cancel."""
+    found = jobs.read(request.app.state.database, job_id)
+    if found is None:
+        raise BenchmarkNotFoundError(f"no benchmark job {job_id!r}", run_id=job_id)
+    return {"job": jobs.as_public(found)}
+
+
+@router.post("/benchmark-jobs/{job_id}/cancel")
+async def cancel_benchmark_job(request: Request, job_id: str) -> dict[str, Any]:
+    """Ask a job to stop. Idempotent (§4.2).
+
+    Cancelling something already finished answers 200 with the job unchanged
+    rather than a conflict: a client with a stale view retrying is not a client
+    doing something wrong, and a 409 would make an idempotent retry look like a
+    failure.
+    """
+    require(request, Scope.BENCHMARK)
+    found = jobs.cancel(request.app.state.database, job_id)
+    if found is None:
+        raise BenchmarkNotFoundError(f"no benchmark job {job_id!r}", run_id=job_id)
+    return {"job": jobs.as_public(found)}
 
 
 @router.get("/benchmark-runs/{run_id}")

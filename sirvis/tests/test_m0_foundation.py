@@ -137,7 +137,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "sirvis.inventory.read": "available",       # M1 + M2 + M3
         "sirvis.runtime.state.read": "available",   # M8
         "sirvis.runtime.control": "available",      # M8
-        "sirvis.benchmarks.jobs": "unavailable",    # M14
+        "sirvis.benchmarks.jobs": "available",     # M14
         "sirvis.benchmarks.results": "available",   # M6 + M7 + M16
         "sirvis.runtime_sets": "available",         # M9
         "sirvis.recommendations": "available",      # M15
