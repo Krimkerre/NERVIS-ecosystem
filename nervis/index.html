@@ -45,7 +45,20 @@
 /* Sized rather than intrinsic: an iframe has no content height of its own, and
    `height:auto` collapses it to nothing. Tall enough to be an editor rather than
    a preview of one. */
-.code-frame{display:block;width:100%;height:min(74vh,760px);border:0;background:var(--surface)}
+/* **Scaled from this side, not from the editor's settings.** How large the
+   embedded editor should look is a decision about NERVIS's tab, so NERVIS makes
+   it — `window.zoomLevel` was tried first and does nothing here, because the web
+   build keeps zoom as per-window browser state rather than reading it from
+   settings.json. It would also have been the wrong place: it would have changed
+   the editor when opened in its own tab too.
+
+   The frame is laid out `1/scale` larger and then scaled back down, so the
+   content shrinks while the box it occupies stays exactly the same. */
+.app[data-app="clarvis"]{--code-scale:.85}
+.code-frame{display:block;border:0;background:var(--surface);transform-origin:0 0;
+  transform:scale(var(--code-scale,1));
+  width:calc(100% / var(--code-scale,1));
+  height:calc(min(74vh,760px) / var(--code-scale,1))}
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes flow{to{stroke-dashoffset:-20}}@keyframes grow{from{transform:scaleY(0)}}@keyframes flash{50%{background:rgba(var(--rgb),.16)}}@keyframes blink{50%{opacity:0}}@keyframes bob{50%{transform:translateY(-8px) rotate(1deg)}}@keyframes cbblink{0%,92%,100%{transform:translateY(0)}95%{transform:translateY(14px)}}
@@ -194,7 +207,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .side{display:none}
 .app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
 .app[data-app="clarvis"] .main{padding:0;min-height:0}
-.app[data-app="clarvis"] .code-frame{height:calc(100vh - 58px - 33px)}
+.app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px - 33px) / var(--code-scale,1))}
 
 
 
@@ -8783,6 +8796,22 @@ const EDITOR_PREVIEW={
   ['Leave it','No change. It keeps sharing.']]
 };
 
+/* The Bridge chips for the frame strip: what the registered windows are doing,
+   said once per distinct answer.
+
+   Returns an empty string when nothing could be read, rather than a placeholder.
+   The banner above the frame already says the Bridge is absent, and a second
+   sentence about it beside the address would be the same fact twice. */
+function bridgeChips(windows){
+ const read=windows.filter(c=>c.activity&&c.activity!=='unknown');
+ if(!read.length)return '';
+ const tally=new Map();
+ for(const one of read){const said=bridgeDoing(one);tally.set(said,(tally.get(said)||0)+1)}
+ return [...tally].map(([said,count])=>
+   `<span class="chip" title="${escapeHtml(count)} editor window(s) reporting this">`
+   +`${count>1?escapeHtml(count)+'× ':''}${escapeHtml(said)}</span>`).join('');
+}
+
 async function clarvis(){
  /* **No `heading()` here, deliberately.** Every other screen opens with one; this
     one is a full-bleed editor, and a hero with an avatar above it made the tab a
@@ -8825,15 +8854,19 @@ async function clarvis(){
   <div class="card full live" style="padding:0;overflow:hidden">
    <div class="frame-bar">
     <span class="mono">${escapeHtml(editor.endpoint)}</span>
-    ${/* **Only windows NERVIS actually reached.** A registration holds its lease
-          for 45 seconds after the window is gone, so a closed editor keeps a row
-          in the registry and its status read comes back `unknown · no response`.
-          That is the right answer on the instances card, where the row is the
-          subject — and noise on this strip, where the subject is the editor in
-          the frame. A window that cannot be read says nothing here; the banner
-          above covers the case where none can. */
-      windows.filter(c=>c.activity&&c.activity!=='unknown')
-        .map(c=>`<span class="chip">${escapeHtml(bridgeDoing(c))}</span>`).join('')}
+    ${/* **Grouped, and counted.** One chip per window read as `idle idle idle`
+          on a machine with three editors open — the same word three times, which
+          tells a reader nothing they could not have guessed, and crowds out the
+          one window that is doing something. Identical states collapse to a
+          count; differing ones stay separate, because that is the case worth
+          seeing.
+
+          Only windows NERVIS actually reached. A registration holds its lease
+          for 45 seconds after its window is gone, so a closed editor keeps a row
+          whose status read comes back `unknown · no response`. That is the right
+          answer on the instances card, where the row is the subject, and noise
+          here, where the subject is the editor in the frame. */
+      bridgeChips(windows)}
     <a class="frame-open" href="${escapeHtml(editor.endpoint)}" target="_blank" rel="noopener"
        title="Open the editor in its own tab">Open separately ↗</a>
    </div>
