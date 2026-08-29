@@ -50,11 +50,23 @@ async def list_instances(request: Request) -> dict[str, Any]:
 
 @router.post("", status_code=201)
 async def register(request: Request) -> dict[str, Any]:
-    """Register one instance, returning the token it renews with.
+    """Register one instance, returning the token that authenticates it both ways.
 
     The token appears in this response and nowhere else. Storing it where the
     dashboard could read it would make a browser tab sufficient to impersonate
     an editor window.
+
+    **One token, two directions, decided at Stage 8.** It is what the instance
+    renews and deregisters with, and — since the Stage 8 amendment to
+    `CLARVIS.md` §6.1 — also what a Bridge requires on every read of itself,
+    and therefore what NERVIS presents when it reads one.
+
+    The alternative was the Bridge minting its own and handing it over at
+    registration, which is what §6.1 originally said. `CLAIMABLE` refuses that
+    by design: NERVIS does not want a credential belonging to a registrant.
+    Inverting the issuer costs nothing, because registration is already gated
+    by the enrolment secret — a process that cannot read that file cannot
+    obtain a token, cannot register, and cannot have its port read.
     """
     _require_enrollment(request)
     instances: Instances = request.app.state.instances

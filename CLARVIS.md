@@ -239,10 +239,25 @@ host_kind:     vscode | vscodium | code-server | other proven-compatible host
 **The raw workspace path and name are private by default.** If user-visible workspace labelling
 is enabled, publish a deliberately selected label *separately* from the opaque ID.
 
-**Every Bridge request is authenticated.** The Bridge generates a token when it starts, holds it
-for the extension host's lifetime, and requires it on every request including
-`/ecosystem/events`. The token is handed to NERVIS at registration and never written to a log,
-an event, a trace or a diagnostic packet.
+**Every Bridge request is authenticated, with the token NERVIS issues at registration.** The
+Bridge registers, receives a token in the registration response, holds it for the extension
+host's lifetime, and requires it on every request including `/ecosystem/events`. NERVIS presents
+the same token when it reads the Bridge. It is never written to a log, an event, a trace or a
+diagnostic packet.
+
+> **Amended 29 Aug, and the original direction is recorded because the reasoning still applies.**
+> This said the *Bridge* generated the token and handed it to NERVIS at registration. NERVIS's
+> receiving half had already shipped refusing exactly that: its registration allowlist has no
+> field for a registrant's token, above a comment stating that secrets are stored separately and
+> *"the strongest form of separately is not at all"*. Written as it was, a Bridge would register
+> successfully and then be unreadable by the only service meant to read it.
+>
+> Inverting the issuer costs nothing the argument below depends on. Registration is already
+> gated by NERVIS's enrolment secret, a `0600` file beside its database — so a process that
+> cannot read that file cannot obtain a token, cannot be registered, and cannot have its port
+> read. And a local reader without the token still gets nothing from the Bridge, which is the
+> same hole read backwards. What changes is only who mints it, and it removes a second secret
+> from a system that already had one for this purpose.
 
 Two things force this, from opposite directions. NERVIS refuses to register a service that
 cannot authenticate — §5.1 requires an authentication reference and forbids accepting an
