@@ -6369,7 +6369,18 @@ async function ravisPolicies(){
     one the screen prints. The constraint table below it is real either way:
     §9.2's hard/soft split is enforced by pool invariants and the routing
     engine, and that is what governs a request when no policy names it. */
- if(p.live&&!p.items.length)return noPoliciesScreen();
+ /* Two absences, and they are not the same sentence. `!p.live` is RAVIS not
+    answering — or refusing — and there is deliberately nothing remembered to
+    draw in its place. Live-and-empty is the different fact that no policy is
+    configured, which the screen below states. Neither is a blank page: §9.2's
+    constraint table governs a route in both cases, and is rendered in both. */
+ if(!p.live){
+  $('#content').innerHTML=`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/policies</span></div>
+   <small class="mono dim">no transcription to fall back to, deliberately. A remembered policy list would say this machine restricts something nobody configured, and on screen it is indistinguishable from a live answer — worse, an <i>empty</i> remembered list reads as "nothing is restricted", which is a confident zero standing where an outage should be. What governs a route regardless is below, and it is enforced on every request.</small>`,'ravis')}</div>
+  <div class="card full"><h3>What actually decides a route <span class="chip">§9.2</span></h3>${cell(constraintTable(),'ravis')}</div>`;
+  return;}
+ if(!p.items.length)return noPoliciesScreen();
  /* One row per application, plus `*` for the default that governs anything
     unlisted. The constraint strings are RAVIS's own words, rendered rather than
     re-derived: this page reproducing the policy vocabulary is how the two drift
@@ -6403,6 +6414,13 @@ async function ravisPolicies(){
    invisible is a total that reads as complete, and that is the misreading §14
    spends a paragraph forbidding. */
 function costCard(usage,spend){
+ /* Neither read answered. §14's per-call records and the aggregate come from
+    the same service, so when it is absent there is no total — and nothing
+    remembered to put in its place. A transcribed cost prices traffic nobody
+    sent, and is indistinguishable on screen from one that was. */
+ if(!spend.live&&!usage.live)return `<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/usage · GET /api/v1/usage/records</span></div>
+   <small class="mono dim">what a call cost is a fact about a call that happened, so there is no transcription here on purpose. A remembered total would be read as this window's, and a nought computed from nothing reads as a window in which nothing was spent — the coverage misreading §14 spends a paragraph forbidding. Both endpoints are RAVIS's, so one absence takes the rows and the count beside them together.</small>`,'ravis')}</div>`;
  const rows=(spend.items||[]).slice(0,10);
  const state=r=>`<span class="chip${escapeHtml(r.cost_state==='UNKNOWN'?' warn':'')}">${escapeHtml(r.cost_state)}</span>`;
  const budget=usage.budget;
@@ -6439,7 +6457,7 @@ function ravisVerdictsCard(verdicts){
    §13.4 optionality made visible rather than asserted. */
 async function ravisEvidence(){
  heading('Evidence','What the ranking is standing on, and which service owns each part of it.');
- const [ev,req,usage,verdicts,obs,spend]=await Promise.all([API.sirvis.evidence(),API.ravis.requests(),
+ const [ev,usage,verdicts,obs,spend]=await Promise.all([API.sirvis.evidence(),
    API.ravis.usage(),API.ravis.evidenceVerdicts(),API.ravis.observations(),
    API.ravis.usageRecords()]);
  /* RAVIS's own provenance enum, and the mapping it applies on the way in. It never
@@ -6450,29 +6468,28 @@ async function ravisEvidence(){
             ['ESTIMATED','ESTIMATED','interpolated from a neighbouring build — never promoted by being reused'],
             ['UNKNOWN','UNKNOWN','no evidence. Distinct from a bad score, and it stays distinct']];
  const measured=ev.items.filter(e=>e.evidence_type==='MEASURED').length;
- /* Read from RAVIS's own store rather than counted off a mocked request log.
-    This is the one evidence kind RAVIS produces itself, and until the store
-    existed the number beside it was invented. */
- const observed=obs.live?obs.items.length:req.items.filter(r=>r.ttft_s!==null).length;
+ /* A figure, and the sentence it becomes when nobody answered for it.
+
+    Four tiles here are owned by three different readers, and each has to say
+    something true when its owner is absent — a dash and the name of the
+    service, never a number some constant in this file supplied. `value` and
+    `note` are read only when `on`, so a caller may compose them freely; and
+    the ternary living in here rather than four times over in the array is what
+    keeps this function under the ratchet. */
+ const tile=(label,on,value,note,absent,service)=>[label,on?value:'—',on?note:absent,service,on];
  $('#content').innerHTML=kpis([
-   ['From SIRVIS',String(ev.items.length),'evidence records consumed','sirvis'],
-   ['Measured',String(measured),'runs on this machine · n=3','sirvis'],
-   ['Observed by RAVIS',String(observed),
-     obs.live?`${obs.confident_total} with enough samples to rank on`:'live TTFT from real traffic',
-     'ravis',obs.live],
-   /* **`undefined ms` against a live RAVIS**, for as long as this endpoint has
-      been answered by one. `routing_p50_ms` is a field the mock invented and
-      `/api/v1/usage` has never published — §9.8 asks for normalization,
-      capability, policy, scoring and total routing times against a P50 target
-      of 5 ms, and RAVIS measures none of them yet. Said as not measured, which
-      is the fact, rather than concatenated into a word. */
-   ['Routing p50',
-     usage.routing_p50_ms==null?'not measured':usage.routing_p50_ms+' ms',
-     usage.routing_p50_ms==null?'§9.8 is unbuilt — no timing is published':'decision cost, cached evidence',
-     /* `usage.live` as well: RAVIS has never published this field, so the only
-        way it is non-null is the mock inventing it — which badged an invented
-        millisecond count as a live measurement. */
-     'ravis',usage.live&&usage.routing_p50_ms!=null]])
+   tile('From SIRVIS',ev.live,String(ev.items.length),'evidence records consumed','SIRVIS not answering','sirvis'),
+   tile('Measured',ev.live,String(measured),'runs on this machine','SIRVIS not answering','sirvis'),
+   /* Counted from RAVIS's own observation store and from nothing else. It fell
+      back to rows in the request log, so a stopped RAVIS still produced a
+      count — taken off a transcription, of timings nobody made. */
+   tile('Observed by RAVIS',obs.live,String(obs.items.length),`${obs.confident_total} with enough samples to rank on`,'RAVIS not answering','ravis'),
+   /* §9.8 asks for normalization, capability, policy, scoring and total routing
+      times against a P50 target of 5 ms, and RAVIS measures none of them yet:
+      `routing_p50_ms` is a field the mock invented and `/api/v1/usage` has
+      never published. So the honest tile is a dash, in either world. */
+   tile('Routing p50',usage.live&&usage.routing_p50_ms!=null,usage.routing_p50_ms+' ms',
+     'decision cost, cached evidence','not measured — §9.8 publishes no timing yet','ravis')])
  +costCard(usage,spend)
  +ravisVerdictsCard(verdicts)
  /* **`ev.source` says whether SIRVIS answered, and this card ignored it.** It
@@ -6483,7 +6500,7 @@ async function ravisEvidence(){
     was written; nothing read it. */
  +`<div class="card full${escapeHtml(liveClass(ev.source==='live'))}"><h3>Evidence in the ranking <span class="chip">owned by SIRVIS</span></h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>Rate</span><span>First token</span><span>Tools</span><span>Provenance</span></div>
-   ${ev.items.map(e=>`<div class="table-row six"><span>${escapeHtml(e.target.family)} <small class="mono" style="opacity:.5">${escapeHtml(e.target.variant)}</small></span><span>${escapeHtml(e.role)}</span><span class="mono">${escapeHtml(e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—')}</span><span class="mono">${escapeHtml(e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s')}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${escapeHtml(e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—')}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}
+   ${ev.live?ev.items.map(e=>`<div class="table-row six"><span>${escapeHtml(e.target.family)} <small class="mono" style="opacity:.5">${escapeHtml(e.target.variant)}</small></span><span>${escapeHtml(e.role)}</span><span class="mono">${escapeHtml(e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—')}</span><span class="mono">${escapeHtml(e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s')}</span><span class="mono"${e.metrics.tool_calls&&e.metrics.tool_calls[0]!==e.metrics.tool_calls[1]?' style="color:#ffb648"':''}>${escapeHtml(e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—')}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">SIRVIS answered and holds no benchmark runs — nothing has been measured on this machine yet, so there is no measured evidence here for the ranking to stand on. A build with none ranks as UNKNOWN, which is not the same as ranking badly</span></div>':'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">this read of SIRVIS returned nothing, so the table is empty rather than remembered — a measurement kept from an earlier session would read exactly like one taken now</span></div>'}
    <small class="mono dim">SIRVIS publishes measures, not a score. RAVIS computes the ranking from them and owns it — which is the split that lets the router be argued with: every number in this table came from a run, and every number in the Routes ranking is RAVIS's arithmetic on top of these. Collapsing the two would leave nobody able to say whether a bad route was a bad measurement or a bad weighting.</small>
    ${explains('how SIRVIS provenance maps onto RAVIS\'s',`
    <div class="table-row head"><span>Arrives as</span><span>RAVIS records</span><span style="grid-column:3/-1">What it means downstream</span></div>
@@ -6590,7 +6607,13 @@ async function ravisSettings(){
       call four of them. This tile said the API was read-only on a page that
       was writing to it. */
    ['Mutations','5','credentials, enabled, filter, members','ravis',false],
-   ['Listen',`${s.listen.host}:${s.listen.port}`,s.listen.tls?'tls':'loopback, no tls','ravis',false]])
+   /* Was the host and port read off the hardcoded settings object in this file
+      — a transcribed guess at a binding RAVIS does not publish, which the
+      comment at the top of this view already calls out and then this tile
+      contradicted. What the dashboard does know first-hand is the address it
+      dials, so the tile now names whose fact it is. Still false on the last
+      argument: nothing was read for this. */
+   ['Base address',BASE.ravis.replace(/^https?:\/\//,''),'where this page reaches RAVIS · not a setting RAVIS publishes','ravis',false]])
  +`<div class="card full"><h3>What a client can change</h3>${cell(`
    <div class="trace-step"><b>provider credentials</b><span class="mono">PUT · DELETE /api/v1/providers/credentials/{name}</span></div>
    <div class="trace-step"><b>provider enable/disable</b><span class="mono">PUT /api/v1/providers/{name}/enabled</span></div>
@@ -6606,12 +6629,10 @@ async function ravisSettings(){
    <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${escapeHtml(s.serving.supported.length)} supported</span></div>
    <small class="mono dim" style="opacity:.8">${escapeHtml(s.serving.supported.join(' · '))}</small>
    <small class="mono dim">${escapeHtml(s.serving.note)}. Errors are <b>${escapeHtml(s.serving.error_shape)}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
-  <div class="card full"><h3>Listen address <span class="chip${warnUnless(s.listen.tls)}">${escapeHtml(s.listen.tls?'tls':'loopback, no tls')}</span></h3>${cell(`
+  <div class="card full"><h3>Listen address <span class="chip${warnUnless(BASE.ravis.startsWith('https'))}">${escapeHtml(BASE.ravis.startsWith('https')?'tls':'no tls on this address')}</span></h3>${cell(`
    <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
-   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">http://${escapeHtml(s.listen.host)}:${escapeHtml(s.listen.port)}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
-   <div class="trace-step" style="margin-top:11px"><b>set by</b><span class="mono">${escapeHtml(s.listen.set_by)}</span></div>
-   <div class="trace-step"><b>takes effect</b><span>${escapeHtml(s.listen.restart_required?'on restart':'immediately')}</span></div>
-   <div class="trace-step"><b>remote access</b><span>${escapeHtml(s.listen.remote_access?'enabled':'off — loopback only')}</span></div>
+   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">${escapeHtml(BASE.ravis)}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
+   <div class="trace-step" style="margin-top:11px"><b>what RAVIS was started with</b><span>not published — nothing serves the settings document, so the host it bound, the port it was given and whether it answers anywhere other than this address are not readable from here</span></div>
    <small class="mono dim">all three surfaces share one port, so they move together. There is no endpoint to change this and that is structural rather than an omission: rebinding the socket a request arrived on would drop that request. It is set at start and changed by restarting.<br>${escapeHtml(s.listen.note)}.<br>a runtime version of this is written up as <b>PROPOSED</b> in RAVIS.md §15.1.1, with the six questions that block it — response ordering, in-flight streams, rollback when the new bind fails, propagation to the clients holding the old address, ownership, and its own permission. It is not in the agreed mutation list, so nothing here writes it.</small>`,'ravis')}</div>
   <div class="card wide"><h3>What breaks if the port changes</h3>${cell(`
    <div class="table-row head"><span>Service</span><span>Holds</span><span style="grid-column:3/-1">If it is not updated</span></div>
@@ -8264,11 +8285,19 @@ function ravisHealthCard(rhealth,rdiag){
    <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the ten checks below are a sample of the suite's shape rather than a run of it — the suite itself runs <b>seventeen</b>, and this card said sixteen while listing ten. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
 }
 
+/* The behaviours the suite covers — not a verdict on them. This card used to
+   render a green `pass` chip and ten green ticks out of a constant in this
+   file. Nothing had run, and no run's result is readable from a browser at
+   all: `ravis conformance clarvis` is a CLI command, and RAVIS publishes no
+   endpoint carrying its outcome. The chip beside the heading said "shape, not
+   a run" while the ticks said otherwise, and a reader believes the ticks. The
+   names stay — knowing what Clarvis depends on is worth reading without a
+   result. The ticks were the page marking its own homework. */
 function conformanceCard(cf){
- return `<div class="card full"><h3>Clarvis conformance <span class="chip warn">shape, not a run</span> <span class="chip${warnUnless(cf.pass)}">${escapeHtml(cf.pass?'pass':'fail')}</span></h3>${cell(`
-   <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name,ok])=>`
-    <div class="lane${ok?'':' excluded'}" style="cursor:default"><b>${name}</b><span class="chip${warnUnless(ok)}">${ok?'pass':'fail'}</span></div>`).join('')}</div>
-   <small class="mono dim">these are not unit tests of RAVIS — they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
+ return `<div class="card full"><h3>Clarvis conformance <span class="chip warn">not run from here</span></h3>${cell(`
+   <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name])=>`
+    <div class="lane" style="cursor:default"><b>${escapeHtml(name)}</b></div>`).join('')}</div>
+   <small class="mono dim">${escapeHtml(cf.checks.length)} of the suite's seventeen checks, listed rather than run: <span class="mono">ravis conformance clarvis</span> is a CLI command, <b>/api/v1/route-tests</b> answers 404, and no pass or fail reaches anywhere a browser can read. Run the command for a verdict — it is the §8.9 release gate. These are not unit tests of RAVIS; they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
 }
 
 function providerHealthCard(pr,breakers,live=false){

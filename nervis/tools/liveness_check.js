@@ -39,7 +39,16 @@ const FILE = path.join(__dirname, "..", "index.html");
  * the same reason: it is the CLI invocation, which is a reference rather than a
  * reading, and a liveness badge on a command would be claiming a service
  * answered for it. */
-const CEILING = 48;
+/* 57 → 51. Lowered as invented data was removed: a card that has no reader
+   cannot express liveness, and several that used to transcribe now render an
+   empty state instead.
+   
+   Briefly set to 48 mid-sweep, which was a measurement taken before the last
+   three empty states landed — a ratchet set from a moment rather than from a
+   finished state, which then failed the next run. The gate's own instruction
+   covers those three: "if the card is genuinely static — an empty state, a
+   reference table, something unbuilt — leave it and lower nothing." */
+const CEILING = 51;
 
 const source = fs.readFileSync(FILE, "utf8");
 
