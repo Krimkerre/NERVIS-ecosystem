@@ -52,7 +52,20 @@ def _serve(settings: Settings) -> int:
     if not report.is_startable:
         _print_findings(report)
         return EXIT_FATAL_CONFIGURATION
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)
+    # **A graceful stop has to be able to finish.** `/api/v1/events/stream` is an
+    # endless generator by design, and uvicorn's graceful shutdown waits for
+    # open connections to close before it runs lifespan shutdown — so a single
+    # dashboard tab with the feed open held NERVIS forever: port released,
+    # process alive, indistinguishable from a service that is down and refusing
+    # to die. The stream cannot fix this on its own, because the signal it would
+    # wait for is only set after the wait it is blocking.
+    #
+    # Five seconds: long enough for an ordinary request to finish, short enough
+    # that stopping the service stops it.
+    uvicorn.run(
+        create_app(settings), host=settings.host, port=settings.port,
+        log_config=None, timeout_graceful_shutdown=5,
+    )
     return EXIT_OK
 
 

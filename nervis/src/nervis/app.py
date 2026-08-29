@@ -217,9 +217,21 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     §5.1 lists that state for: not asked yet, as distinct from asked and silent.
     """
     task = asyncio.create_task(_refresh_periodically(api))
+    # **Something has to tell an open stream that the service is stopping.**
+    # `/api/v1/events/stream` is an endless generator, and uvicorn's graceful
+    # shutdown waits for open connections to close — so a single dashboard tab
+    # with the feed open held NERVIS in "Waiting for connections to close"
+    # indefinitely. The port was released and the process never exited, which
+    # looks from outside like the service being down and refusing to die.
+    #
+    # Found by restarting NERVIS with a dashboard open, which is the ordinary
+    # case rather than an unusual one — and it only became possible when Stage 7
+    # gave the page a real stream to hold.
+    api.state.stopping = asyncio.Event()
     try:
         yield
     finally:
+        api.state.stopping.set()
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task

@@ -637,3 +637,48 @@ def test_a_cursor_inside_retention_still_resumes() -> None:
 
     assert b"id: 2" in joined and b"id: 3" in joined
     assert b"id: 1\n" not in joined, "the cursor is exclusive"
+
+
+def test_an_open_stream_ends_when_the_service_is_stopping() -> None:
+    """A held-open stream must not hold the service open with it.
+
+    `frames()` never returns on its own and uvicorn's graceful shutdown waits
+    for open connections, so one dashboard tab with the feed open held NERVIS in
+    "Waiting for connections to close" indefinitely — port released, process
+    alive, indistinguishable from a service that is down and refusing to die.
+
+    Found by restarting NERVIS with a dashboard open, which is the ordinary case
+    and only became possible once Stage 7 gave the page a real stream to hold.
+    Closing costs the client nothing: it is told `retry: 3000` and reconnects.
+    """
+    import asyncio
+
+    from nervis.api.events import stream
+
+    async def exercise() -> bool:
+        hub = a_hub()
+        stopping = asyncio.Event()
+
+        class _Request:
+            app = type("_App", (), {"state": type(
+                "_S", (), {"hub": hub, "stopping": stopping})()})()
+            headers: dict[str, str] = {}
+            query_params: dict[str, str] = {}
+
+        response = await stream(_Request())  # type: ignore[arg-type]
+        frames = response.body_iterator
+        while b"ecosystem.stream.live" not in await frames.__anext__():
+            pass
+
+        # The service begins shutting down while the client is still attached.
+        stopping.set()
+        hub.emit("nervis.test", data={})
+        try:
+            await asyncio.wait_for(frames.__anext__(), timeout=2)
+        except StopAsyncIteration:
+            return True
+        except TimeoutError:
+            return False
+        return False
+
+    assert asyncio.run(exercise()), "the stream did not end when the service stopped"

@@ -137,6 +137,66 @@ async def stream(request: Request) -> StreamingResponse:
     # history to whoever asked. A new subscriber wants what happens next, and a
     # short tail for context; a resuming one says where it stopped.
     fresh = not resume
+    start = _resume_point(hub, resume, fresh)
+
+
+    async def frames() -> AsyncIterator[bytes]:
+        queue = hub.subscribe()
+        try:
+            # Runbook §4.1: "Reconnect advertises `retry: 3000`." Sent first and
+            # once — a client that loses the connection reconnects on its own
+            # schedule otherwise, and the default differs by browser.
+            yield b"retry: 3000\n\n"
+            for missed in hub.query(after=start, limit=RESUME_LIMIT if not fresh else FRESH_TAIL):
+                yield sse_frame(missed)
+            # Tells a client the backlog is done and everything after this is
+            # live. Without it, a burst of replay and a burst of new events are
+            # indistinguishable.
+            yield b"event: ecosystem.stream.live\ndata: {}\n\n"
+            stopping = getattr(request.app.state, "stopping", None)
+            while True:
+                # **End when the service is stopping.** This generator never
+                # returns on its own, and uvicorn's graceful shutdown waits for
+                # open connections — so one dashboard tab with the feed open
+                # held NERVIS in "Waiting for connections to close" forever,
+                # port released, process alive. A client reconnects on its own
+                # (it is told `retry: 3000`), so closing here costs nothing and
+                # is the difference between a service that stops and one that
+                # has to be killed.
+                if stopping is not None and stopping.is_set():
+                    return
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
+                except TimeoutError:
+                    yield heartbeat()
+                    continue
+                yield sse_frame(event)
+                # A gap frame is terminal: the hub dropped this subscriber
+                # before writing it, so nothing else will ever arrive on this
+                # queue. Closing is what makes the client reconnect.
+                if ends_stream(event):
+                    return
+        finally:
+            # Runs on client disconnect, which is the ordinary way this ends. A
+            # subscriber left registered is a queue filling until it is dropped
+            # for falling behind — a slow leak that presents as gap warnings
+            # about a tab somebody closed an hour ago.
+            hub.unsubscribe(queue)
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-store", "x-accel-buffering": "no"},
+    )
+
+
+def _resume_point(hub: Any, resume: str, fresh: bool) -> int:
+    """Where this subscriber resumes from, or the refusal that says why not.
+
+    Lifted out of `stream` when adding the shutdown check took it past ruff's
+    complexity 8. It is the right seam anyway: everything here is about the
+    *cursor*, and nothing about it is about streaming.
+    """
     # **A cursor that is not a number is not a cursor.** The comment above
     # records this exact bug being fixed for the *no-cursor* case and it
     # survived untouched for the bad-cursor case: `_int("abc", 0)` is 0, `fresh`
@@ -165,44 +225,7 @@ async def stream(request: Request) -> StreamingResponse:
                     "oldest_sequence": oldest,
                     "latest_sequence": hub.latest_sequence()},
         )
-
-    async def frames() -> AsyncIterator[bytes]:
-        queue = hub.subscribe()
-        try:
-            # Runbook §4.1: "Reconnect advertises `retry: 3000`." Sent first and
-            # once — a client that loses the connection reconnects on its own
-            # schedule otherwise, and the default differs by browser.
-            yield b"retry: 3000\n\n"
-            for missed in hub.query(after=start, limit=RESUME_LIMIT if not fresh else FRESH_TAIL):
-                yield sse_frame(missed)
-            # Tells a client the backlog is done and everything after this is
-            # live. Without it, a burst of replay and a burst of new events are
-            # indistinguishable.
-            yield b"event: ecosystem.stream.live\ndata: {}\n\n"
-            while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
-                except TimeoutError:
-                    yield heartbeat()
-                    continue
-                yield sse_frame(event)
-                # A gap frame is terminal: the hub dropped this subscriber
-                # before writing it, so nothing else will ever arrive on this
-                # queue. Closing is what makes the client reconnect.
-                if ends_stream(event):
-                    return
-        finally:
-            # Runs on client disconnect, which is the ordinary way this ends. A
-            # subscriber left registered is a queue filling until it is dropped
-            # for falling behind — a slow leak that presents as gap warnings
-            # about a tab somebody closed an hour ago.
-            hub.unsubscribe(queue)
-
-    return StreamingResponse(
-        frames(),
-        media_type="text/event-stream",
-        headers={"cache-control": "no-store", "x-accel-buffering": "no"},
-    )
+    return start
 
 
 def _int(value: Any, fallback: int) -> int:
