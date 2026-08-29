@@ -3352,6 +3352,10 @@ function globalStatus(){
     not quiet, and does appear. */
  const bad=rows.filter(v=>!v.quiet&&!['healthy','degraded'].includes(v.state));
  const deg=rows.filter(v=>v.state==='degraded');
+ /* Reachable from NERVIS, not reachable from here. See the branch below. */
+ const blind=Object.keys(OUTCOME).filter(key=>
+   OUTCOME[key].kind==='unreachable'
+   && SERVICES[key] && ['healthy','degraded'].includes(SERVICES[key].state));
  const el=$('#globalStatus'),dot=$('.top-status .dot');if(!el)return;
  /* How old this reading is. Only shown once it is older than two poll
     intervals, because a number that is always on screen stops being read — and
@@ -3368,7 +3372,29 @@ function globalStatus(){
     refused a read is emphatically *there*. `REASON` already spells all five and
     was already on the page; this bar just was not reading it. */
  if(bad.length){el.textContent=`${bad.map(v=>`${v.label} ${STATUS_WORD[v.state]||v.state}`).join(', ')} · other surfaces operational${old_}`;dot.dataset.state='bad'}
+ /* Services the registry calls healthy and this tab could not read itself. */
  else if(deg.length){el.textContent=`${deg.map(v=>v.label).join(', ')} degraded${old_}`;dot.dataset.state='warn'}
+ else if(blind.length){
+  /* **The registry is not this page.** NERVIS reaches its peers from the
+     server; this tab reaches them from a browser, and the two can disagree —
+     which is not a contradiction, it is two different facts.
+
+     This is a state this machine actually produces: RAVIS rejecting
+     `http://127.0.0.1:8790` at the CORS boundary appears in this session's
+     console, and `README.md` documents allow-listing the origin as a setup
+     step precisely because reads fail without it. In that state NERVIS reaches
+     RAVIS and reports it healthy, every RAVIS screen quietly draws its
+     transcription, and the bar says "All systems operational" over a screenful
+     of mock data — which a reader cannot tell apart from a quiet system.
+
+     Named as an origin problem rather than an outage because the pair of facts
+     says so: something on this machine is answering NERVIS and refusing us. A
+     fetch cannot see a CORS rejection — it is a TypeError with no status, the
+     same as an absent service — so the *combination* is the only evidence
+     there is, and it is good evidence. */
+  el.textContent=`${blind.map(k=>SERVICES[k]?SERVICES[k].label:k).join(', ')} answers NERVIS but not this page — likely an origin not on its allow-list${old_}`;
+  dot.dataset.state='warn';
+ }
  else{el.textContent='All systems operational'+old_;dot.dataset.state='ok'}}
 function heading(title,sub,actions=''){$('#pageTitle').textContent=title;$('#pageSubtitle').textContent=sub;$('#pageActions').innerHTML=actions}
 /* x = [label, value, note, owningService]. The fourth element is what makes a

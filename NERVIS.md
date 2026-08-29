@@ -1016,30 +1016,70 @@ So NERVIS's UI is **built from it, not instead of it** — the same instruction
 
 ## 25.2 What must be rebuilt, and why
 
-**Escaping, everywhere.** Every view assigns an interpolated template literal to
-`innerHTML` — 35 sites, of which 9 pass through `escapeHtml`. That is safe while the data is a
-trusted constant in the same file and stops being safe the moment it is live: model IDs,
-provider labels, route-explanation reasons and upstream error text all arrive from third
-parties. **Do not port `innerHTML` interpolation into a surface that will hold provider output.**
+*All six were rebuilt. Each entry now records what the check that established it
+actually found, because in every case the original count or claim was wrong in a
+way reading could not have caught. Two are not finished and say so.*
 
-**Targeted updates instead of full re-render.** Each view replaces the whole content region.
-Correct for a static prototype; wrong once an event stream drives it, because every event would
-rebuild the DOM and discard scroll position, focus, selection and any open control. The
-prototype's own SSE stub already calls `render()` from `onerror`.
+**Escaping, everywhere.** Stated here as 35 sites of which 9 escape. Measured by
+`tools/injection_check.js` — which feeds every `API` method a hostile payload
+and renders all 35 screens — it was **28 injection sites across 27 of the 35
+screens, from 579 interpolations reaching the markup unescaped**. Three defects
+underneath it: `escapeHtml` did not escape quotes, so 72 attribute sites were
+escaped in appearance only; an inline handler is parsed twice, so `&#39;` is
+decoded back to a quote before JavaScript sees it and the three sites that
+"fixed" this by replacing quotes were no safer; and ids were written escaped and
+read raw. Now 108 interpolations and 22 sites, held by a one-sided ratchet.
+**Not finished** — the remainder are compound expressions a position-aware
+scanner cannot classify safely, and they come down in reviewable passes.
 
-**Routing.** There is none — no `hash`, no `pushState`, no `popstate`. State is `{app, view}` in
-a global, so there are no deep links and no back button. A dashboard whose purpose includes
-sending someone a route decision needs to be able to address one.
+**Targeted updates instead of full re-render.** Rebuilt as *preserve and
+restore*, not as a diff, and the difference is deliberate: a keyed reconciler
+needs every view rewritten to describe its own identity before one screen works,
+which is not a change this file survives in one commit. The content region is
+still replaced wholesale; what was typed, focused, selected, opened and scrolled
+now survives it, and only for fields the reader touched, so a repaint cannot
+un-clear a form that was just saved. The one genuinely targeted update is the
+avatar — a sixty-thousand-character iframe document that was being torn down and
+rebuilt identically on all fifty render call sites.
 
-**Authentication.** The management API is separately authorized (`RAVIS.md` §15.1), and the
-prototype has no token handling and no 401 path.
+**Routing.** Hash-based, because `web.py` serves one file and mounts nothing
+else, so `pushState` would 404 on reload or on a pasted link. All 35 screens are
+addressable and round-trip; back, forward and a hand-edited fragment all work;
+an address naming no screen resolves to one that exists and *says so* rather
+than coercing silently. **Not finished** — this section asks that a route
+decision be addressable, and the Routes screen has no selected-decision state to
+address: it renders `decisions[0]` and its rows carry no click handler.
 
-**Per-request loading and error states.** Views `await` and then paint, with nothing defined for
-slow or failed. Service-level absence is handled; request-level is not.
+**Authentication.** The 401/403 path exists and is visibly distinct from
+absence: a refused read renders as a refusal, and the status bar no longer calls
+`unauthorized`, `incompatible`, `stale` and `stopped` all "unreachable". Stated
+plainly, because the opposite would be the kind of claim this document warns
+about: no RAVIS endpoint the dashboard calls can return 401 today, since reads
+are deliberately open on loopback. The path serves SIRVIS's scoped mutations and
+the day RAVIS gains one.
 
-**A real SSE client.** `Last-Event-ID` resumption, `retry: 3000` and the 409
-`EVENT_CURSOR_EXPIRED` case (runbook §4.1) have no implementation, though the stream-health
-tiles that would display them already render from mocks.
+**Per-request loading and error states.** The cause was one line: `live()` threw
+`new Error('HTTP '+status)` for every non-2xx, landing in the same `catch` as a
+network refusal, a timeout, a body that was not JSON and an adapter that threw —
+and never read the binding. Six outcomes are now kept apart. The sixth is
+`unreadable`: the service answered and *this page* could not read it, which used
+to be reported as the service being unreachable, sending the one person who
+could fix it to the wrong repository.
+
+**A real SSE client.** Built, and the server had to be corrected first: the gap
+frame emitted `id:` with an empty value, which per the SSE specification clears
+the client's cursor — so the one frame whose job is to make a client catch up
+removed its means to; `retry: 3000` was never sent; and a cursor outside
+retention was silently resumed rather than refused with 409. The client is
+deliberately **not** an `EventSource`, because that API never exposes the status
+of a response it rejects: the 409 named here would become an invisible
+three-second reconnect loop against a cursor the server refuses forever.
+
+The claim that "the stream-health tiles that would display them already render
+from mocks" was false when written — the mock's `cursor`, `buffered`, `dropped`,
+`gaps` and `connected_since` fields were defined and referenced by nothing on
+any screen. There is now one card, and it reads the live client rather than a
+mock.
 
 ## 25.3 Until then, it is the development instrument
 

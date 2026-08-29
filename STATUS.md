@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1498 tests, no network, no live service
+.venv/bin/pytest                      # part of 1503 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1498 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1503 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2079,7 +2079,7 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **Two of the four exit criteria are now met** — see below — and what remains is the render layer: §25's rebuild, and tiles gated per *capability* rather than per service |
+| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
 
 **Stage 6's exit, one criterion at a time.** The runbook asks for four things:
 
@@ -5864,6 +5864,97 @@ SIRVIS M22b's measurement rather than a name-pattern guess. M22b is scheduled
 and unbuilt, so the tiebreak has no evidence to read and guessing from a model's
 name is the thing the milestone explicitly rules out. It is listed in Next
 rather than quietly dropped.
+
+### §25's render layer, dimension by dimension
+
+The runbook's Stage 6 visible increment is "the prototype stops being one".
+`NERVIS.md` §25 splits that into what transfers verbatim — the screen inventory,
+the degradation model, the `API` signatures, the CSS — and six things that must
+be rebuilt. All six were done; two of them are not finished, and this section
+says which and how far.
+
+**The method mattered more than any of the six.** Every dimension began with a
+check that could see the defect, because none of these can be established by
+reading: whether a value is escaped, whether an address round-trips, whether a
+401 is distinguishable from an outage, whether a repaint kept your caret. Six
+gates were added and every one of them found something on its first run,
+including three bugs in the gates themselves. That ratio is the argument for
+writing the check first.
+
+**Escaping — measured, then reduced, now ratcheted.** §25.2's count was 35 sites
+of which 9 escaped; the truth was 28 injection sites across 27 of the 35
+screens, and 579 individual interpolations reaching the markup unescaped.
+`injection_check.js` establishes that by wrapping every `API` method so its
+answer carries a hostile payload in every string, rendering all 35 screens, and
+asking whether a tag appeared that the page did not write. It also fails the
+other way, on markup the page escaped into text — the half no security check
+looks for, and the half that made a mechanical sweep safe to attempt at all.
+Three defects were fixed before any sweep: `escapeHtml` did not escape quotes,
+so 72 sites were escaped in appearance and unescaped in fact; inline handlers
+needed an escape that survives being parsed twice, since `&#39;` is decoded back
+to a quote before JavaScript sees it, and the three sites that had "fixed" this
+by replacing quotes were no safer for it; and element ids were written escaped
+and read raw, so an awkward character produced an id no lookup could match and
+five unguarded lookups threw rather than degraded. Then four sweep passes took
+579 interpolations to 108 and 28 sites to 22. **Not finished**: 22 remain, in
+compound expressions the position-aware scanner cannot classify safely, and the
+gate is a one-sided ratchet so a new screen written the old way fails
+immediately while the backlog comes down in reviewable passes.
+
+**Routing — done, except for sub-state.** Every screen has an address, all nine
+`state.view=…;render()` sites go through one `go()`, and back, forward, a
+hand-edited fragment and a pasted link all work. The fragment rather than a
+path, because `web.py` serves one file and mounts nothing else, so `pushState`
+would 404 on reload. Three bugs were found by driving a real browser and could
+not have been found otherwise: `popstate` does not fire for a fragment somebody
+types, a corrected address left wrong is re-resolved by the next event and the
+second render wipes the correction's own banner, and the launcher's token scrub
+took the whole fragment with it. **Not finished**: §25 wants a *route decision*
+to be linkable, and the Routes screen has no selected-decision state to link to
+— it renders `decisions[0]` and its rows have no click handler. That is a screen
+change, not a router change.
+
+**Per-request states — done, and it was one line.** `live()` turned every
+non-2xx into `throw new Error('HTTP '+status)`, which landed in the same `catch`
+as a network refusal, a timeout, a bad body and an adapter that threw, and the
+binding was never read. The same shape as the badge defect this file already
+records: the answer existed and was thrown away. Six outcomes are now kept
+apart, including `unreadable` for an adapter that threw — ours, not the peer's,
+and it now says so instead of reporting the service as unreachable.
+
+**Authentication — the 401 path exists and is reachable.** `cell()` renders a
+refusal as a refusal, and the status bar stopped calling `unauthorized`,
+`incompatible`, `stale` and `stopped` all "unreachable". Worth stating plainly:
+no RAVIS endpoint the dashboard calls can return 401 today, because reads are
+deliberately open on loopback. The path is built for SIRVIS's scoped mutations
+and for the day RAVIS gains one, and it is now exercised by a check rather than
+waiting to be discovered.
+
+**The event stream — a real client, and the server had to be fixed first.**
+Scoping it found three server defects. The gap frame emitted `id:` with an empty
+value, which per the SSE specification *clears* the client's cursor — so the one
+frame whose job is to make a client catch up destroyed its ability to; the
+docstring beside it asserted the opposite as its rationale. `retry: 3000` was
+never sent. And a cursor outside retention was silently resumed from whatever
+survived rather than refused with 409, which hands a client a stream with a hole
+in it and no way to know. The client is deliberately not an `EventSource`: that
+API never exposes the status of a response it rejects, so the 409 §25.2 names
+would become an invisible three-second reconnect loop forever. Verified live —
+an event POSTed to the hub appears on the Events screen without waiting for the
+poll.
+
+**Targeted updates — preserve-and-restore, not a diff, and the distinction is
+stated.** A keyed reconciler is the right answer for a framework and the wrong
+one to graft onto eight thousand lines of template literals: every view would
+need rewriting to describe its own identity before one screen worked. The full
+re-render stays and the interaction survives it — what was typed, the focus, the
+caret, open disclosures, open pickers and scroll — and only for fields the
+reader actually touched, so a repaint cannot un-clear a form that was just
+saved. **Not finished** in the sense §25.2's title implies: the content region
+is still replaced wholesale on every render. What changed is that doing so no
+longer costs the reader anything. The one genuinely targeted update is the
+avatar, which was tearing down and rebuilding a sixty-thousand-character iframe
+document on all fifty render call sites.
 
 ### M16's second half — the tiebreak that knows what thinking costs
 
