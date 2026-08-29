@@ -7907,6 +7907,18 @@ async function* sseFrames(body){
    produced text fell through to the budget-exhaustion branch and announced "the
    model spent its whole budget on reasoning", which is a confident diagnosis of
    something that did not happen. */
+/* NERVIS's own figures, attached to a reply only when they have moved.
+   The reading now travels with every turn rather than only the greeting,
+   because the model is given it and a paraphrase needs something to be checked
+   against. Printing the identical line under every message trains the eye to
+   skip it — and the one time it matters is the time it changed. */
+let LAST_READING='';
+function withReading(message,reading){
+ if(!reading||reading===LAST_READING)return message;
+ LAST_READING=reading;
+ return {...message,reading};
+}
+
 function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
  const base={role:'assistant',served,request_id:requestId,speaker:speakerName(),
    at:new Date().toISOString()};
@@ -8075,7 +8087,7 @@ async function sendChat(){
     made before typing has somewhere to be written. */
  persistPrivate();
  CHAT_SESSION.messages.pop();
- const reply=replyMessage(outcome);
+ const reply=withReading(replyMessage(outcome),outcome.reading);
  CHAT_SESSION.messages.push(reply);
  await attachRouteDecision(outcome);
  /* NERVIS stored both turns already; this keeps the browser copy for the case
@@ -8172,7 +8184,7 @@ async function nudge(count){
  /* A nudge that fails leaves no trace. Nobody asked for it, so an error bubble
     in its place is worse than the silence it was trying to break. */
  if(outcome.failed||outcome.aborted||!outcome.reply){if(state.view==='Chat')render();return}
- CHAT_SESSION.messages.push(replyMessage(outcome));
+ CHAT_SESSION.messages.push(withReading(replyMessage(outcome),outcome.reading));
  if(state.view==='Chat')render();
  SPEECH.say(outcome.reply,outcome.served);
 }
@@ -8218,7 +8230,7 @@ async function maybeGreet(){
     nobody has started yet reads as a broken dashboard, and the failure is
     already visible everywhere else NERVIS reports on RAVIS. */
  if(outcome.failed||outcome.aborted||!outcome.reply)return render();
- CHAT_SESSION.messages.push({...replyMessage(outcome),reading:outcome.reading});
+ CHAT_SESSION.messages.push(withReading(replyMessage(outcome),outcome.reading));
  render();
  SPEECH.say(outcome.reply,outcome.served);
 }

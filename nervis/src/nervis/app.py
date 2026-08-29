@@ -100,6 +100,12 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # misspelling of the name for as long as the cache stayed cold.
     api.state.voice_locality = None
 
+    # RAVIS's model counts, cached by the chat reading (`api/chat.py`). Seeded
+    # for the same reason as the line above: an attribute that only exists once
+    # something has written it turns a misspelling into a cold cache that never
+    # warms.
+    api.state.chat_catalogue = None
+
     # NERVIS's own voice and its starting presets, as editable settings rather
     # than hidden rules.
     seed_chat_defaults(api.state.database)

@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
@@ -33,6 +34,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
+from nervis import situation
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -448,6 +450,20 @@ NUDGE_OPENER = "(the user has said nothing for a while)"
 # still being funny about a Tuesday.
 FACTS_TIMEOUT_SECONDS = 4.0
 
+# How many recent events the reading counts over. A window, not a transcript:
+# `situation` reports types and tallies and never a message body, so this bounds
+# the read rather than what is said about it.
+EVENT_SAMPLE = 200
+
+# How long RAVIS's catalogue is reused before it is read again. The registry,
+# the leases and the hub are already in memory and cost nothing per turn; the
+# catalogue is one HTTP call, and doing it on every message would put a remote
+# read in front of every reply. A failure is remembered for less time than a
+# success, so a service that has just come back is not treated as absent for a
+# minute.
+CATALOGUE_TTL_SECONDS = 60.0
+CATALOGUE_RETRY_SECONDS = 20.0
+
 
 @router.get("/conversations")
 async def list_conversations(request: Request) -> dict[str, Any]:
@@ -537,11 +553,13 @@ async def send(request: Request) -> Any:
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
     asked = content
+    reading, awareness = await _situation(request, greeting)
     system = _house_system(
         body, database, greeting, conversation_id, nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
         # whole assembly and a test can hold it still. See `app.state.chat_clock`.
         now=request.app.state.chat_clock(),
+        situation=awareness,
     )
     if greeting:
         asked = GREETING_OPENER
@@ -562,7 +580,6 @@ async def send(request: Request) -> Any:
     # said this — *character lives in the sentence around the reading, never in
     # the reading* — and asking a model to copy a number is putting it in the
     # reading. The model writes the greeting; NERVIS writes the facts.
-    reading = await _ecosystem_facts(request) if greeting else ""
 
     trace_id = getattr(request.state, "trace_id", "")
     if keep:
@@ -590,6 +607,7 @@ def _house_system(
     conversation_id: str = "",
     speaking_first: bool = False,
     now: datetime | None = None,
+    situation: str = "",
 ) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
@@ -618,6 +636,13 @@ def _house_system(
     # load-bearing, and it would have been the one place without a clock.
     if any(parts) or speaking_first:
         parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
+        # Under the same condition as the clock, and for the same reason: a
+        # request with no persona, no name and no house style still sends no
+        # system message at all. Ecosystem awareness is something NERVIS adds to
+        # its own assistant, not something it injects into a plain client of
+        # RAVIS's API. Empty when there is nothing read or when this is a
+        # greeting — the join drops it either way.
+        parts.append(situation)
     if _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
@@ -793,23 +818,55 @@ def _display_name(database: Any) -> str:
     return str(found).strip() if isinstance(found, str) else ""
 
 
-async def _ecosystem_facts(request: Request) -> str:
-    """One line of true figures, or as many of them as can be had.
+async def _situation(request: Request, greeting: bool) -> tuple[str, str]:
+    """What NERVIS prints about the ecosystem, and what it hands the model.
 
-    Assembled from the registry, which is already in memory, plus one short read
-    of RAVIS's catalogue. A part that cannot be read is left out rather than
-    guessed — a greeting that says nothing about models is better than one that
-    says a number nobody measured.
+    **Two products from one reading**, assembled together so they cannot
+    disagree: the printed line the browser renders verbatim, and the fenced
+    block the model is given so a question about the machine has an answer that
+    is not invented. `nervis.situation` decides what each may say; this does the
+    reading.
+
+    **The block is empty for a greeting.** NERVIS is speaking first there and
+    prints the figures itself — §18.1's rule that a model asked to restate a
+    measurement paraphrases it is the whole reason the greeting directive
+    forbids numbers, and handing it a table of them would be the same mistake
+    from the other end.
+
+    Three of the four sources cost nothing: the registry, the instance leases
+    and the event hub are already here. The fourth is RAVIS's catalogue, which
+    is one HTTP call and is therefore cached — a reply should not wait on a
+    remote read to say how many models exist.
     """
-    parts = []
-    entries = [entry.as_dict() for entry in request.app.state.registry.all()]
-    if entries:
-        up = [e for e in entries if e.get("state") in ("healthy", "degraded")]
-        parts.append(f"{len(up)} of {len(entries)} services reachable")
-    catalogue = await _model_counts(request)
-    if catalogue:
-        parts.append(catalogue)
-    return "; ".join(parts) if parts else "nothing has been read yet"
+    services = [entry.as_dict() for entry in request.app.state.registry.all()]
+    windows = len(request.app.state.instances.live("clarvis"))
+    catalogue = await _catalogue_line(request)
+    printed = situation.printed_line(services, windows, catalogue)
+    if greeting:
+        return printed, ""
+    events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
+    return printed, situation.block(
+        services, windows, events, catalogue, request.app.state.chat_clock()
+    )
+
+
+async def _catalogue_line(request: Request) -> str:
+    """RAVIS's model counts, read at most once a minute.
+
+    Cached on the app rather than recomputed per turn, because this is the one
+    part of the reading that leaves the process. A failure is cached too, for a
+    shorter time: without that, every message to a chat screen with RAVIS down
+    would wait out the same timeout before starting.
+    """
+    state = request.app.state
+    taken, text = state.chat_catalogue or (0.0, "")
+    now = time.monotonic()
+    fresh = CATALOGUE_TTL_SECONDS if text else CATALOGUE_RETRY_SECONDS
+    if state.chat_catalogue and now - taken < fresh:
+        return text
+    text = await _model_counts(request)
+    state.chat_catalogue = (now, text)
+    return text
 
 
 async def _model_counts(request: Request) -> str:

@@ -49,7 +49,11 @@ MAX_PACKET_CHARS = 24_000
 # The fence. Long and unlikely rather than pretty: a delimiter a retrieved
 # string could contain is not a delimiter. Nothing in the packet is allowed to
 # carry it — see `_fence_safe`.
-FENCE = "<<<NERVIS-DIAGNOSTIC-PACKET-a41f>>>"
+# Named for what it encloses rather than for the first thing that used it: M12's
+# diagnostic packet and the chat reading (`nervis.situation`) both put retrieved
+# text in front of a model, and a marker that says PACKET inside a chat prompt
+# is a marker that invites a second, differently-spelled one.
+FENCE = "<<<NERVIS-FENCED-DATA-a41f>>>"
 
 INSTRUCTIONS = (
     "You are helping an operator debug a local AI ecosystem. Below, between the "
@@ -69,8 +73,12 @@ INSTRUCTIONS = (
 )
 
 
-def _clip(value: Any) -> Any:
+def clip(value: Any) -> Any:
     """One field, bounded and stripped of anything that could end the fence.
+
+    Public because the chat reading (`nervis.situation`) fences retrieved text
+    for the same reason and must not grow a second, subtly different version of
+    this walk — a fence with two implementations is a fence with one bug.
 
     Two jobs in one walk because they have the same shape. The bound is why a
     log line cannot become the whole prompt; the fence check is why it cannot
@@ -81,9 +89,9 @@ def _clip(value: Any) -> Any:
         text = value.replace(FENCE, "[fence marker removed]")
         return text if len(text) <= MAX_FIELD_CHARS else text[:MAX_FIELD_CHARS] + "…"
     if isinstance(value, Mapping):
-        return {str(key): _clip(item) for key, item in value.items()}
+        return {str(key): clip(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_clip(item) for item in value]
+        return [clip(item) for item in value]
     return value
 
 
@@ -108,11 +116,11 @@ def build_packet(
     has an exception in it.
     """
     packet: dict[str, Any] = {
-        "note": _clip(note),
-        "trace": _clip(redact_deep(dict(trace))) if trace else None,
-        "events": [_clip(redact_deep(dict(event))) for event in events[:MAX_EVENTS]],
+        "note": clip(note),
+        "trace": clip(redact_deep(dict(trace))) if trace else None,
+        "events": [clip(redact_deep(dict(event))) for event in events[:MAX_EVENTS]],
         "services": [
-            _clip(redact_deep(dict(service))) for service in services[:MAX_SERVICES]
+            clip(redact_deep(dict(service))) for service in services[:MAX_SERVICES]
         ],
     }
     packet["bounds"] = {

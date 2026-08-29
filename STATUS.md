@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1620 tests, no network, no live service
+.venv/bin/pytest                      # part of 1626 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 333 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 339 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1620 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1626 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2200,6 +2200,80 @@ The trace column added at M21 pays off here: a job carries the submitter's
 `traceparent` onto the run, so a benchmark requested over HTTP joins the trace
 that asked for it instead of minting one. That is exactly why the column went on
 the row rather than into a local variable.
+
+## NERVIS chat can finally see the machine it runs on (29 Aug)
+
+**Asked "is SIRVIS up?", chat had two answers and both were wrong.** It could
+plead blindness — in the one product whose entire job is seeing — or invent a
+state. NERVIS holds the registry, the instance leases and the event hub in
+memory *while that question is being asked*, and simply never told the model.
+Only the greeting knew anything, and even that was a printed header rather than
+something the model could reason with.
+
+**Every ordinary turn now carries a reading**, assembled in `nervis/src/nervis/situation.py`
+from four sources: the registry (each service, its state, its detail, its build
+and when it was last checked), the Clarvis instance leases (how many editor
+windows are registered), RAVIS's catalogue (how many models are routable and how
+many are local), and the event hub (a count over the last fifteen minutes, by
+severity and by type).
+
+**Fenced, because every one of those strings was written by another program.**
+A failing service writes its own `detail`, so a repository whose build breaks
+with a crafted message reaches this prompt through an ordinary probe. The
+reading goes inside M12's fence, using M12's own `clip` — the marker is stripped
+from every field, so a detail cannot close the fence and start writing
+instructions after it. That is the one escape a delimiter scheme has, and the
+test that proves it is closed puts the marker in a service's detail and checks
+where the payload lands. The fence constant was renamed from
+`NERVIS-DIAGNOSTIC-PACKET` to `NERVIS-FENCED-DATA`: two callers now, and a
+marker that says PACKET inside a chat prompt invites a second, differently
+spelled one.
+
+**Three rules kept from work that already learned them.**
+
+*It rides with a persona, like the clock.* A request that configures nothing
+still sends no system message at all — §7 makes NERVIS a plain client of RAVIS's
+published API, and a gateway that prepends a line to every request is not one.
+Awareness is something NERVIS adds to its own assistant.
+
+*A greeting is not given the figures.* §18.1: character lives in the sentence
+around the reading, never in the reading. The greeting directive forbids numbers
+because a model asked to restate a measurement paraphrases one — a 1.5B build
+turned "4 of 6 services reachable" into "efficiently manages four key services"
+— so handing it a table of measurements would be the same mistake made earlier.
+NERVIS prints the greeting's figures itself, and still does.
+
+*What was not read stays absent.* A model count that cannot be fetched is left
+out rather than guessed, an unparseable timestamp produces no age at all, and
+the prompt says in as many words: if it is not in the reading, say NERVIS has
+not read it. That is the invented-data sweep's rule applied to the one surface
+that can talk back.
+
+**Event types travel; event bodies do not.** An envelope can hold a log line, a
+model response or a configuration value. §7.2 lists what a conversation stores
+and none of those is on it — the fence guards against injection, it is not a
+licence to include more. The reading says `ravis.request.failed ×3`; the Events
+screen holds what happened.
+
+**The catalogue is the only part that leaves the process**, so it is cached for
+sixty seconds — twenty after a failure, so a service that has just come back is
+not treated as absent for a minute. Without that, a chat screen with RAVIS down
+would wait out the same timeout before every reply.
+
+**The browser prints the reading under a reply, but only when it moved.** It
+used to be greeting furniture; it now travels on every turn, because the model
+is given the same figures and a paraphrase needs something to be checked
+against. Printing an identical line under every message trains the eye to skip
+it, and the one time it matters is the time it changed.
+
+**Verified against the real ecosystem, not a mock.** A second NERVIS was started
+on 8791 against the running SIRVIS, LM Studio, Ollama and code-server, with a
+stub standing in for RAVIS that recorded exactly what it was sent. The captured
+system prompt carried all six services with their real states — including
+`ollama · unreachable · never contacted · no response: ConnectError` — the
+window count, the model counts and the event tally, all inside the fence. Three
+mutations were run against the new tests: dropping the block, letting a field
+keep the fence marker, and giving the greeting the reading. Each was caught.
 
 ## Stage 8 — the Clarvis Bridge, built and driven end to end (29 Aug)
 
