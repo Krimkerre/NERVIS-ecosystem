@@ -2964,20 +2964,48 @@ const API={
      the old mock invented (`workspace_id`, `label:'my-project'`, `mode`) are
      not missing here by oversight; there is nowhere for them to come from.
 
-     `state` is what NERVIS can honestly say: whether the lease is current.
-     Reading the Bridge's own `/v1/status` for `agent_running` or
-     `waiting_for_approval` is M8b, and M8b is blocked on Clarvis building the
-     Bridge — so those read `unknown` rather than being guessed. */
+     `state` is what NERVIS can honestly say from the registry alone: whether
+     the lease is current. What the window is *doing* is a second read, of the
+     Bridge's own `/v1/status`, and it arrives as `activity` below — M8b, which
+     was blocked on Clarvis building a Bridge until 29 Aug.
+
+     `mode` and `route` are still `unknown`, and still said out loud rather than
+     left blank: §6.3 lists both, and Clarvis's Bridge does not publish either
+     yet. A blank cell reads as a value. */
   _bridgeRow(one){return{
    instance_id:one.instance_id, label:one.label,
    endpoint:one.endpoint, machine_id:one.machine_id,
    state:one.live?'registered':'lease lapsed',
    live:one.live, expires_in:one.expires_in,
    capabilities:one.capabilities||{},
-   /* Not read yet, and said so rather than left blank — a blank cell reads as
-      "idle", which is a claim. */
+   activity:'unknown', activity_detail:'not read',
    mode:'unknown', route:'unknown',
   }},
+
+  /* GET /api/v1/registry/instances/clarvis/{id}/status — one window, one answer.
+
+     Asked per row rather than folded into the listing, because the listing is
+     drawn on every poll and is deliberately cheap: a busy editor window must
+     not slow the whole screen, and a dead one must cost only its own row.
+
+     Every failure is a state, never a throw. A row that cannot be read says so
+     — `unknown` with the reason beside it — because a blank activity cell reads
+     as `idle`, and `idle` is a claim about a window nobody reached. */
+  async _bridgeActivity(row){
+   if(!row.live)return{...row,activity:'unknown',activity_detail:'lease lapsed'};
+   try{
+    const r=await fetch('/api/v1/registry/instances/clarvis/'+
+      encodeURIComponent(row.instance_id)+'/status',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{...row,activity:'unknown',activity_detail:'NERVIS could not read it'};
+    const d=await r.json();
+    return{...row,
+     activity:d.state||'unknown',
+     awaiting:d.awaiting||'',
+     steps_taken:d.steps_taken,
+     activity_detail:d.detail||''};
+   }catch(e){return{...row,activity:'unknown',activity_detail:'no answer'}}
+  },
 
   async clarvisInstances(){
    /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
@@ -2994,7 +3022,14 @@ const API={
    try{
     const r=await fetch('/api/v1/registry/instances',
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(r.ok){const d=await r.json();return{items:(d.items||[]).map(one=>this._bridgeRow(one)),lease:d.lease_seconds,live:true}}
+    if(r.ok){
+     const d=await r.json();
+     /* The rows first, then one status read each, in parallel. Sequential reads
+        would make the screen wait for the slowest window; `Promise.all` over
+        `_bridgeActivity` is safe because that function never rejects. */
+     const items=await Promise.all((d.items||[]).map(one=>this._bridgeActivity(this._bridgeRow(one))));
+     return{items,lease:d.lease_seconds,live:true};
+    }
    }catch(e){}
    return{items:[],live:false};
   },
@@ -3628,6 +3663,27 @@ function throughput(obs,recent){
  ];
 }
 
+/* §6.3's six interpreted states, in words rather than in the Bridge's spelling.
+
+   Written out rather than prettified from the string, because the mapping is
+   the honest place to say what each one means to a reader: `waiting_for_approval`
+   is the only one that asks something of the person looking at it, and §6.7
+   permits NERVIS to display exactly that fact and nothing more — no button.
+
+   An unrecognised state is `unknown` with the reason NERVIS has, never a blank:
+   a blank cell in this column reads as `idle`, which is a claim about a window
+   nobody reached. */
+const BRIDGE_DOING={idle:'idle',chatting:'answering',agent_running:'running a job',
+  waiting_for_approval:'waiting for you',stopping:'stopping',failed:'failed'};
+
+function bridgeDoing(row){
+ const said=BRIDGE_DOING[row.activity];
+ if(!said)return 'unknown'+(row.activity_detail?' · '+row.activity_detail:'');
+ if(row.activity==='waiting_for_approval'&&row.awaiting)return said+' · '+row.awaiting;
+ if(row.activity==='agent_running'&&row.steps_taken!=null)return said+' · step '+row.steps_taken;
+ return said;
+}
+
 async function nervis(){
  const view=NERVIS_VIEWS[state.view];
  if(view)return view();
@@ -3665,7 +3721,7 @@ async function nervis(){
    ${topologyMap(ecosystemNodes(svc),230,true)}
    <small class="mono dim">every node is a registry entry and every edge is a connection NERVIS holds. Red is unreachable. <b>LM Studio and Ollama draw as one node</b> — either answering is enough to serve a local model. The <b>Ecosystem map</b> tab has the same topology with the capability negotiation behind it.</small></div>
   <div class="card wide${escapeHtml(liveClass(inst.live))}"><h3>Clarvis instances</h3>
-   ${inst.items.length?`<div class="table-row head"><span>Instance</span><span>Endpoint</span><span>State</span><span>Lease</span></div>
+   ${inst.items.length?`<div class="table-row head five"><span>Instance</span><span>Endpoint</span><span>Registration</span><span>Doing</span><span>Lease</span></div>
    <!-- Every Bridge-supplied string is escaped. §6.1 is explicit that any local
         process can bind the port a Bridge would have used and impersonate one,
         so this is untrusted input arriving in NERVIS's own origin — and the
@@ -3677,8 +3733,8 @@ async function nervis(){
         hidden behind a banner whenever that map disagreed — the same defect
         found twice before on other screens. The rows are the live answer; if
         there are rows, there are Bridges. -->
-   ${inst.items.map(c=>`<div class="table-row"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
-   <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root.</small>`
+   ${inst.items.map(c=>`<div class="table-row five"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(bridgeDoing(c))}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
+   <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. <b>Doing</b> is a second read, of each Bridge's own <b>/v1/status</b>, presenting the token NERVIS issued it — one window, one answer, never merged; a row NERVIS could not read says <i>unknown</i> and why, because a blank cell reads as <i>idle</i>. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root — and <b>waiting for you</b> is displayed, never answered.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
   <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
   ${overviewTraceCard(tr,bar)}

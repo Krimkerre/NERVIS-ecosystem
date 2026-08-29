@@ -252,6 +252,17 @@ class Instances:
             raise RegistrationRefusedError("no such instance, or the token does not match it")
         return instance
 
+    def find(self, service: str, instance_id: str) -> Instance | None:
+        """One instance by name, for NERVIS's own use.
+
+        No token, unlike `_authenticated`: this is NERVIS looking something up
+        in its own registry, not a caller proving it owns an entry. Kept
+        separate from `_authenticated` for exactly that reason — one of them
+        must never become a way to skip the other, and two functions with
+        different names is a stronger guarantee than a boolean parameter.
+        """
+        return self._instances.get((service, instance_id))
+
     def all(self) -> list[Instance]:
         """Live and recently-dead instances, evicting the long dead first."""
         self._evict()

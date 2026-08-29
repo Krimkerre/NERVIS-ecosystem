@@ -24,8 +24,9 @@ from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
+from nervis.bridges import read_status as read_bridge_status
 from nervis.enrollment import matches, presented_secret
-from nervis.errors import RefusedError, UnauthorizedError
+from nervis.errors import NotFoundError, RefusedError, UnauthorizedError
 from nervis.instances import LEASE_SECONDS, Instances, RegistrationRefusedError
 
 router = APIRouter(prefix="/api/v1/registry/instances", tags=["registry"])
@@ -86,6 +87,35 @@ async def register(request: Request) -> dict[str, Any]:
             "invoke tools, change safety settings, or keep the service alive."
         ),
     }
+
+
+@router.get("/{service}/{instance_id}/status")
+async def read_status(service: str, instance_id: str, request: Request) -> dict[str, Any]:
+    """One Bridge's own `/v1/status`, read by NERVIS and passed through an allowlist.
+
+    **The one place in this file that talks to a registrant, and it is a read.**
+    The module docstring above says there is no handler that sends anything to a
+    registered instance other than a read; this is that read, and it stays true
+    because `read_status` issues a `GET` and has no other verb available to it.
+
+    **Its own endpoint rather than a field on the list.** The list is drawn on
+    every dashboard poll and is deliberately cheap; folding a network round trip
+    per instance into it would make one busy editor window slow the whole
+    screen. Asking per row also means a dead window costs only its own row.
+
+    **Readable without the enrollment secret, like the list.** What comes back
+    carries no token, no path and no port — the token NERVIS presents to the
+    Bridge is held here and never travels outward. Requiring the secret would
+    mean the browser had to hold the one credential that grants registration,
+    which is the trade `list_instances` already refused for the same reason.
+    """
+    instances: Instances = request.app.state.instances
+    instance = instances.find(service, instance_id)
+    if instance is None:
+        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    return await read_bridge_status(
+        request.app.state.probe_client, instance, request.app.state.instances_clock()
+    )
 
 
 @router.post("/{service}/{instance_id}/heartbeat")

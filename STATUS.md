@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1607 tests, no network, no live service
+.venv/bin/pytest                      # part of 1619 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 332 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1607 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1619 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -134,7 +134,8 @@ and the dates they landed are in the sections below.
 | **NERVIS M5a** | SIRVIS's read surfaces with provenance intact and no benchmark logic of NERVIS's own. **M5b stays blocked** on SIRVIS M14's job queue, and §1 forbids inventing the endpoint | `nervis/tests/test_m5_sirvis.py`, `nervis.sirvis_views@1` **degraded** |
 | **NERVIS M6** | The event hub: §4.4's envelope, ingestion, bounded persistence with retention, filters, and an SSE broadcast with replay. A malformed event is quarantined with safe diagnostics rather than crashing it | `nervis/tests/test_m6_events.py`, `nervis.event_hub@1` **available** |
 | **NERVIS M7** *(its own half)* | Trace correlation, the waterfall, and gaps marked rather than interpolated. Cross-service spans need RAVIS M18b and SIRVIS M21 to publish, which is why the capability reads degraded — the missing half is other people's | `nervis/tests/test_m7_traces.py` |
-| **NERVIS M8a** | §5.1's authenticated local dynamic registration: per-extension-host instances, leases, redaction, and no code path that could resolve a Clarvis gate. **M8b is blocked** on Clarvis building the Bridge at all | `nervis/tests/test_m8a_registration.py` |
+| **NERVIS M8a** | §5.1's authenticated local dynamic registration: per-extension-host instances, leases, redaction, and no code path that could *act* on a registered instance | `nervis/tests/test_m8a_registration.py` |
+| **NERVIS M8b** | Reading a registered Bridge's own `/v1/status`, presenting the token NERVIS issued it. Blocked until 29 Aug on Clarvis having a Bridge to read — a reader written against the specification alone would have been a guess about a contract, and the registry row said `unknown` rather than pretending. Every field passes an allowlist: the Bridge's port is dynamic and anything on this machine can bind one | `nervis/tests/test_m8b_status.py`, `/api/v1/registry/instances/{service}/{id}/status` |
 | **Voice (§18.2)** | Not a numbered milestone and too large to leave unlisted: the credential in NERVIS's own storage, named voice profiles, engine settings, and the privacy gate that refuses a cloud voice for a locally-produced reply. Advertised only when configured | `nervis/tests/test_voice.py`, `nervis.voice@1` |
 
 **Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
@@ -2079,7 +2080,9 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
+| 1 | **Stage 9 — code-server compatibility spike** | Stage 8 closed on 29 Aug bar two items that need a real extension host, and the runbook's ladder puts Stage 9 next. It is a *spike*: test the current `.vsix` under pinned code-server versions and classify each matrix cell, rather than assuming. A compatibility adapter may be proposed only after a failure is reproduced |
+| 2 | **Stage 8's two remaining exit items** | Both need a real editor, so neither is a code change: two VS Code windows with `clarvis.bridge.enabled` on against a running NERVIS, and the "disabled restores exact standalone behaviour" check. Everything they would exercise is verified from node against the compiled output, which is the same code and not the same environment |
+| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
 
 **Stage 6's exit, one criterion at a time.** The runbook asks for four things:
 
@@ -2197,6 +2200,57 @@ The trace column added at M21 pays off here: a job carries the submitter's
 `traceparent` onto the run, so a benchmark requested over HTTP joins the trace
 that asked for it instead of minting one. That is exactly why the column went on
 the row rather than into a local variable.
+
+## Stage 8 — the Clarvis Bridge, built and driven end to end (29 Aug)
+
+**Both halves exist and have spoken to each other.** Clarvis grew a Bridge
+(`clarvis/src/bridge/`, eight modules, its own repository) and NERVIS grew M8b,
+the read of one. Verified by running two real Bridges against a real NERVIS —
+not two mocks, not one mock and one real: two windows registered, took distinct
+instance and workspace IDs on distinct OS-assigned ports, NERVIS read each one's
+`/v1/status` with the token it had issued that window, and the dashboard drew
+*waiting for you · sensitive_read* for one and *answering* for the other.
+Closing the first removed only its registration. An unauthenticated read of a
+Bridge came back `401`, and a `POST` came back `405 — the Bridge is read-only;
+it has no write path at all`.
+
+**The sign-off question was the specifications contradicting each other.**
+`CLARVIS.md` §6.1 had the Bridge minting a token and handing it to NERVIS at
+registration; NERVIS's already-shipped half refuses exactly that, above a comment
+saying secrets are stored separately and *"the strongest form of separately is
+not at all"*. Written as it was, a Bridge would register successfully and then be
+unreadable by the only service meant to read it. Option (b) was chosen: NERVIS
+mints, and §6.1 is amended with the original direction kept because its reasoning
+still applies. Inverting the issuer costs nothing the argument depends on —
+registration is already gated by the enrolment secret, a `0600` file beside the
+database — and it removes a second secret from a system that already had one.
+
+**Two properties are structural rather than remembered.** Every non-GET is
+refused before the path is looked at, so §6.7's *"NERVIS may not act"* holds
+because there is no write path to extend; and a Bridge holding no token refuses
+everything including `/ecosystem/version`, because the token arrives in the
+registration response and the window between binding and registering is real.
+
+**The M8a guard did its job and had to be rewritten, not deleted.** A test read
+NERVIS's own source to assert that no `Instance` ever met an HTTP client, and it
+failed the moment `bridges.py` landed — which is what its docstring said it was
+for. The rule it defends was never "NERVIS does not call Clarvis"; it is §6.7's
+"NERVIS may not act on Clarvis", and a read is the one thing §6.7 permits. It now
+names the files allowed to hold both, and separately asserts that `bridges.py`
+contains no `client.post`, `put`, `patch` or `delete` — because widening the
+allowlist is a deliberate act somebody writes down, while adding a verb inside a
+file already on it is a two-word edit that looks like the lines around it.
+
+**What is not done.** Stage 8's exit also asks that disabling the Bridge restore
+exact standalone behaviour. `clarvis.bridge.enabled` is false by default and off
+means nothing is bound rather than a socket that refuses, and the Clarvis side
+proves the constructor commits to nothing — but the settings read that returns
+before it is one line of `vscode`-importing code, checked by reading. Nor has any
+of this run inside a real extension host: every Bridge exercised so far was
+driven from node against the compiled output, which is the same code and not the
+same environment.
+
+---
 
 **Stage 7 is complete. All three exit clauses are met.**
 

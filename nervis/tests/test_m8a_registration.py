@@ -1,9 +1,10 @@
 """M8a — authenticated local dynamic registration (§5.1, `CLARVIS.md` §6.7).
 
-The receiving half of the Clarvis Bridge integration. The Bridge itself does
-not exist yet — `CLARVIS.md` §6 specifies it and the Clarvis repository has no
-implementation — so these tests exercise the contract NERVIS offers, which is
-the half that can be built without inventing another component's API.
+The receiving half of the Clarvis Bridge integration. It was written before the
+Bridge existed, so these tests exercise the contract NERVIS offers rather than
+an integration — which was the half that could be built without inventing
+another component's API. The Bridge landed on 29 Aug and `test_m8b_status.py`
+covers reading one.
 
 The last test in this file is the unusual one: it reads NERVIS's own source to
 assert that no code path exists that could act on a registered instance. That
@@ -316,26 +317,38 @@ def test_no_write_surface_is_declared_for_clarvis() -> None:
     assert writes == [], f"NERVIS declares a write surface on Clarvis: {writes}"
 
 
-def test_a_registered_instance_is_never_handed_to_an_http_client() -> None:
-    """The other half: NERVIS holds instances, and does not call them.
+# The files allowed to put an `Instance` and an HTTP client in the same module.
+# It was empty until 29 Aug: M8b was blocked on Clarvis building a Bridge, so
+# nothing had any business calling one. `bridges.py` is the read that unblocked,
+# and it is named here rather than the guard being deleted — the rule this
+# defends was never "NERVIS does not call Clarvis", it is §6.7's "NERVIS may not
+# act on Clarvis", and a read is the one thing §6.7 explicitly permits.
+MAY_READ_AN_INSTANCE = {"instances.py", "app.py", "bridges.py"}
 
-    M8a is the receiving half — registration, leases, redaction. Reading a live
-    Bridge is M8b and is blocked on Clarvis building one. Until then an
-    `Instance` should reach the listing endpoint and nothing else, and this
-    fails the moment somebody wires one into a request without also revisiting
-    §6.7.
+
+def test_a_registered_instance_reaches_an_http_client_in_one_place_only() -> None:
+    """Where an `Instance` may meet a client, and what it may do there.
+
+    Two assertions, because the interesting failure is the second one. Widening
+    the allowlist is a deliberate act somebody has to write down; adding a
+    `client.post` inside a file already on it is a two-word edit that looks like
+    the lines around it — and it is the edit that would turn NERVIS into
+    something that acts on an editor.
     """
     package = Path(__file__).parent.parent / "src" / "nervis"
-    callers = [
+    callers = sorted(
         source.name
         for source in package.rglob("*.py")
-        if source.name not in {"instances.py", "app.py"}
+        if source.name not in MAY_READ_AN_INSTANCE
         and "Instance" in source.read_text(encoding="utf-8")
-        and source.name != "instances.py"
         and "httpx" in source.read_text(encoding="utf-8")
-    ]
+    )
 
     assert callers == [], f"an Instance reaches an HTTP client in: {callers}"
+
+    reader = (package / "bridges.py").read_text(encoding="utf-8")
+    wrote = [verb for verb in ("post", "put", "patch", "delete") if f"client.{verb}" in reader]
+    assert wrote == [], f"bridges.py sends {wrote} to a Bridge; §6.7 permits reads only"
 
 
 def test_no_gate_vocabulary_leaks_into_what_nervis_can_send() -> None:
