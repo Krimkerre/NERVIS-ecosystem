@@ -14,6 +14,8 @@ behaving badly and a real one will not oblige.
 from __future__ import annotations
 
 import asyncio
+import re
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -529,13 +531,37 @@ def an_api(**overrides: Any) -> Any:
     return TestClient(create_app(Settings(**fields)))
 
 
+def test_the_launcher_and_nervis_agree_on_code_servers_default_port() -> None:
+    """One number for one thing, checked rather than remembered.
+
+    The launcher writes a code-server config only for a machine that has none,
+    and NERVIS's registry has to look at whatever that config says. They were
+    briefly 8741 and 8080 — the launcher had continued the ecosystem's own 87x1
+    sequence, NERVIS had taken code-server's default — so a fresh install would
+    have served an editor the Clarvis tab reported as absent. The comment in
+    `config.py` already says a launcher and a service disagreeing about a port
+    produces a dashboard reporting everything as down; this is that sentence with
+    a test behind it.
+    """
+    from nervis.config import Settings  # local, like the two other uses in this file
+
+    launcher = (Path(__file__).parent.parent.parent / "tools" / "run.py").read_text()
+    declared = re.search(r"^CODE_SERVER_PORT = (\d+)$", launcher, re.MULTILINE)
+    assert declared, "tools/run.py no longer declares CODE_SERVER_PORT"
+
+    assert Settings().code_server_base_url.endswith(":" + declared.group(1))
+
+
 def test_the_registry_lists_every_declared_service_with_nothing_running() -> None:
     """§5.1's initial entries, and §5.1's gate that an offline peer is a state."""
     with an_api() as client:
         body = client.get("/api/v1/services").json()
 
     assert {entry["key"] for entry in body["items"]} == {
-        "nervis", "ravis", "sirvis", "clarvis", "lmstudio", "ollama",
+        # `codeserver` joined at Stage 9: NERVIS embeds it in the Clarvis tab, so
+        # the tab needs a truthful answer to "is there an editor to show here".
+        # Observed and never supervised, like the two runtimes beside it.
+        "nervis", "ravis", "sirvis", "clarvis", "codeserver", "lmstudio", "ollama",
     }
     assert body["refused"] == []
 

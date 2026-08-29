@@ -57,12 +57,18 @@ SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
 
-# **Pinned here because this is its deployment.** The runbook's port table says
-# code-server is "pinned by its own deployment, proxied, never assumed" — it
-# declines to assign one, which means whoever deploys it decides, and that is
-# this file. Continuing the ecosystem's own 87x1 sequence rather than taking
-# 8080, which half the development tools on a machine want.
-CODE_SERVER_PORT = 8741
+# **code-server's own default, not a number this file invented.** The runbook's
+# port table declines to assign one — "pinned by its own deployment, proxied,
+# never assumed" — so an earlier version of this file continued the ecosystem's
+# 87x1 sequence and picked 8741. That was a second number for the same thing:
+# NERVIS's `code_server_base_url` defaults to 8080 because that is what somebody
+# who installed code-server and ran it will have, so a machine with no config of
+# its own would have had the launcher serving on 8741 while the dashboard looked
+# at 8080, and the Clarvis tab would report no editor to embed.
+#
+# Only used when the user has no config of their own. When they do, their
+# bind-addr wins and this is never consulted.
+CODE_SERVER_PORT = 8080
 DASHBOARD = f"http://127.0.0.1:{NERVIS_PORT}/index.html"
 
 WINDOWS = platform.system() == "Windows"

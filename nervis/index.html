@@ -38,6 +38,14 @@
 .chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
 .model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
+.frame-bar{display:flex;align-items:center;gap:10px;padding:7px 11px;border-bottom:1px solid var(--line);background:#0a0f15;font-size:11px;color:var(--muted)}
+.frame-bar .chip{margin-left:0}
+.frame-open{margin-left:auto;color:var(--cyan);text-decoration:none;font-family:"JetBrains Mono",monospace;font-size:11px}
+.frame-open:hover{text-decoration:underline}
+/* Sized rather than intrinsic: an iframe has no content height of its own, and
+   `height:auto` collapses it to nothing. Tall enough to be an editor rather than
+   a preview of one. */
+.code-frame{display:block;width:100%;height:min(74vh,760px);border:0;background:var(--surface)}
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes flow{to{stroke-dashoffset:-20}}@keyframes grow{from{transform:scaleY(0)}}@keyframes flash{50%{background:rgba(var(--rgb),.16)}}@keyframes blink{50%{opacity:0}}@keyframes bob{50%{transform:translateY(-8px) rotate(1deg)}}@keyframes cbblink{0%,92%,100%{transform:translateY(0)}95%{transform:translateY(14px)}}
@@ -176,8 +184,17 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 
 
 
-.app[data-app="clarvis"] .page-head{margin:0;border-radius:0;border-left:0;border-right:0;border-top:0;
-  padding:14px 20px;flex:0 0 auto}
+/* **The Clarvis tab is the editor, not a page containing one.** The hero header
+   and NERVIS's own side nav both went at Stage 9, for the same reason: the frame
+   below already has a title bar, an activity bar and a file tree of its own, so
+   keeping NERVIS's meant two of each, one of them decorative. The tab now gives
+   the whole viewport to code-server and keeps one thin strip of NERVIS's own —
+   the address it framed and what the Bridge says the editor is doing. */
+.app[data-app="clarvis"] .page-head{display:none}
+.app[data-app="clarvis"] .side{display:none}
+.app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
+.app[data-app="clarvis"] .main{padding:0;min-height:0}
+.app[data-app="clarvis"] .code-frame{height:calc(100vh - 58px - 33px)}
 
 
 
@@ -2898,6 +2915,13 @@ const API={
      capabilities_available:Object.values(e.capabilities||{}).filter(st=>st==='available').length,
      capabilities_total:Object.keys(e.capabilities||{}).length,
      key:e.key,state:e.state,detail:e.detail,age:0,
+     /* **Carried through, because one screen needs the address itself.** The
+        Clarvis tab embeds code-server in an iframe and takes the `src` from
+        here rather than hardcoding a port — the runbook calls a hardcoded peer
+        port an invented contract. Dropping this field made that `src` the string
+        "undefined", which the browser resolved against NERVIS's own origin and
+        rendered as a 404 inside the frame. */
+     endpoint:e.endpoint,
      /* Carried through so a screen can tell an optional peer that has never
         answered from one that broke. Dropping it here is what left a healthy
         LM Studio wearing a warning chip on the map. */
@@ -8759,48 +8783,72 @@ const EDITOR_PREVIEW={
   ['Leave it','No change. It keeps sharing.']]
 };
 
-async function clarvis(){heading('Clarvis workspace','Reverse-proxied code-server. The frame renders itself; NERVIS reads status only.','<button class="btn" disabled title="the Clarvis Bridge is read-only \u2014 it reports workspace state and does not persist it, so nothing here could save one" style="opacity:.45;cursor:not-allowed">Save session</button>');
- const [st,se]=await Promise.all([API.clarvis.status(),API.clarvis.session()]);
+async function clarvis(){
+ /* **No `heading()` here, deliberately.** Every other screen opens with one; this
+    one is a full-bleed editor, and a hero with an avatar above it made the tab a
+    page about code-server rather than code-server. What the heading used to say —
+    the address, and that NERVIS only observes — is on the strip below and in the
+    note under the frame, where it is next to the thing it describes.
+
+    `#pageTitle` still needs clearing, or the previous screen's title survives
+    behind the hidden header and comes back on the next tab switch. */
+ $('#pageTitle').textContent='Clarvis';
+ $('#pageSubtitle').textContent='';
+ $('#pageActions').innerHTML='';
+
+ /* Both reads, and both are real. `services()` says whether there is an editor to
+    embed at all; `clarvisInstances()` says what the extension inside it is doing.
+    They answer different questions and either can be absent without the other. */
+ const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
+ const editor=svc.items.find(x=>x.key==='codeserver');
+ const windows=(inst.items||[]).filter(c=>c.live);
+
  /* The Bridge is optional by design: Clarvis activates and dies with its editor
-    window and never depends on NERVIS. Its absence is a disconnected state, not
-    an error — and it costs NERVIS visibility, not Clarvis function. */
- const bridge=usable('clarvis')?'':banner('Clarvis Bridge '+SERVICES.clarvis.state,
-  `${REASON[SERVICES.clarvis.state]}. NERVIS cannot read this workspace's status, agent runs or gate state. Clarvis itself is unaffected — it runs from its own extension host and does not require NERVIS.`,'info');
- const pct=Math.round(st.run.step/st.run.total_steps*100);
- $('#content').innerHTML=bridge+`<div class="full code-server" id="clarvis-frame">
-  <div class="vtitle">● ● ●　 ${escapeHtml(se.file)} — ${escapeHtml(se.workspace)}　　　　　　　　　　　　　　　code-server<button id="zenToggle" class="zen-toggle" onclick="setZen(!document.body.classList.contains('zen'))" title="Hide the dashboard chrome and give the editor the window">Focus</button></div>
-  <div class="activity">▱<br>⌕<br>⑂<br>▷<br>▦<br>◉</div>
-  <div class="explorer"><b>${(CLARVIS_VIEW[state.view]||CLARVIS_VIEW.Explorer).panel}</b><div class="file">▾ ${escapeHtml(se.workspace)}</div>${se.files.map(f=>`<div class="file${escapeHtml(f===se.file?' active':'')}">　${f}</div>`).join('')}</div>
-  <div class="editor">${/* markup, not data: this constant is syntax-highlighted
-    spans written in this file, so escaping it prints the highlighting as
-    text. */EDITOR_PREVIEW.code}</div>
-  <aside class="clarvis-panel"><div class="clarvis-chat">
-   <div id="clarvis-transcript">
-    ${EDITOR_PREVIEW.turns.map(t=>`<div class="clarvis-turn ${t[0]}"><span class="who">${t[0]==='user'?'You':'Clarvis'}</span>${t[1]}</div>`).join('')}
-    <div class="clarvis-choices stacked">${EDITOR_PREVIEW.choices.map(c=>`<button class="clarvis-choice"><span class="label">${c[0]}</span><span class="detail">${c[1]}</span></button>`).join('')}</div>
+    window and never depends on NERVIS. Its absence costs NERVIS visibility, not
+    Clarvis function — so it is a note above the frame, never a reason to hide it. */
+ const bridge=windows.length?'':banner('No Clarvis Bridge has registered',
+  'The editor below still works. NERVIS cannot read what this workspace is doing until a '
+  +'window registers — turn on <b>clarvis.bridge.enabled</b> in its settings.','info');
+
+ /* **The frame is only drawn when something answered.** An <iframe> pointed at a
+    port with nothing on it renders a browser error page inside the dashboard,
+    which reads as NERVIS being broken rather than as code-server being absent. */
+ if(!editor||!['healthy','degraded'].includes(editor.state)){
+  $('#content').innerHTML=bridge+banner('No editor to embed',
+   `NERVIS looked for code-server at <b>${escapeHtml((editor&&editor.endpoint)||'its configured address')}</b> `
+   +`and found ${escapeHtml(editor?REASON[editor.state]||editor.state:'no configured address')}. `
+   +'Start it and this tab becomes the editor; nothing else on the dashboard depends on it.','info');
+  return;
+ }
+
+ $('#content').innerHTML=bridge+`
+  <div class="card full live" style="padding:0;overflow:hidden">
+   <div class="frame-bar">
+    <span class="mono">${escapeHtml(editor.endpoint)}</span>
+    ${/* **Only windows NERVIS actually reached.** A registration holds its lease
+          for 45 seconds after the window is gone, so a closed editor keeps a row
+          in the registry and its status read comes back `unknown · no response`.
+          That is the right answer on the instances card, where the row is the
+          subject — and noise on this strip, where the subject is the editor in
+          the frame. A window that cannot be read says nothing here; the banner
+          above covers the case where none can. */
+      windows.filter(c=>c.activity&&c.activity!=='unknown')
+        .map(c=>`<span class="chip">${escapeHtml(bridgeDoing(c))}</span>`).join('')}
+    <a class="frame-open" href="${escapeHtml(editor.endpoint)}" target="_blank" rel="noopener"
+       title="Open the editor in its own tab">Open separately ↗</a>
    </div>
-   <div id="clarvis-progress" class="clarvis-progress" data-active="${st.state==='agent_running'}">
-    <span class="count">step ${escapeHtml(st.run.step)} of ${escapeHtml(st.run.total_steps)}</span><span class="step">${escapeHtml(st.run.label)}</span>
-    <span class="bar"><i style="width:${pct}%"></i></span>
-   </div>
-   <div class="clarvis-chat-head">
-    <button id="clarvis-mode" class="clarvis-mute clarvis-mode" data-safe="${escapeHtml(st.safe_mode)}" title="What Clarvis is allowed to do">${escapeHtml(st.mode==='agent'?'Auto':'Chat')}</button>
-    <button id="clarvis-output" class="clarvis-mute" title="Every command and tool call, as it runs.">Output</button>
-    <button id="clarvis-history" class="clarvis-mute" title="Earlier conversations from this workspace.">History</button>
-    <button id="clarvis-clear" class="clarvis-mute" title="Delete the conversation. There is no undo.">Clear</button>
-    <button id="clarvis-mute" class="clarvis-mute" data-muted="false" title="Silence him. Resets when the window reloads.">Mute</button>
-   </div>
-   <div class="clarvis-prompt">
-    <button id="clarvis-models" class="clarvis-bowtie" title="Models"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2 6l8 4.2v3.6L2 18V6zm20 0v12l-8-4.2v-3.6L22 6zM12 10.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg></button>
-    <textarea id="clarvis-input" rows="2" placeholder="Ask. Enter sends."></textarea>
-    <button id="clarvis-stop" class="clarvis-bowtie clarvis-stop" data-busy="${st.state==='agent_running'}" title="Stop what Clarvis is doing"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>
-   </div>
-  </div></aside>
-  <div class="terminal">TERMINAL　OUTPUT　DEBUG CONSOLE
-$ ${se.terminal.cmd}
-${escapeHtml(se.terminal.output)}</div>
-  <div class="statusbar">${escapeHtml(se.branch)}　✓　Ln ${escapeHtml(se.cursor.line)}, Col ${escapeHtml(se.cursor.col)}　Spaces: ${escapeHtml(se.indent)}　${escapeHtml(se.encoding)}　${escapeHtml(se.language)}</div>
- </div>`}
+   <iframe id="clarvis-frame" class="code-frame" src="${escapeHtml(editor.endpoint)}"
+     title="code-server"></iframe>
+  </div>
+  <small class="mono dim">Everything inside the frame — the file tree, the editor, the terminal
+   and Clarvis's own panel — is rendered by <b>code-server</b>, not by NERVIS. It is a separate
+   document on a separate origin, so this page cannot read or drive it, which is the same
+   boundary <b>CLARVIS.md §6.7</b> draws for the Bridge: NERVIS observes and never acts.
+   The chip above is read from the Bridge; the address is the one in NERVIS's own registry,
+   never assumed. If the framing ever breaks, <b>Open separately</b> is the supported fallback —
+   §7.3 says an external tab is an acceptable product, and Clarvis is never contorted to fit
+   an iframe.</small>`;
+}
 
 /* async because the views await real endpoints. With mocks these resolve on the
    same tick, so nothing changes today — and nothing changes when they stop being
@@ -8853,7 +8901,12 @@ const PROTOTYPE={
     contrast, the fallback fades, and neither has to be predicted here. */
  ravis:{'Dashboard':1,'Routes':1,'Providers':1,'Policies':1,'Evidence':1,
         'Logs':1,'Diagnostics':1,'Settings':1},
- clarvis:{'*':1}};
+ /* Removed at Stage 9. The Clarvis tab was a hand-built mock of an editor —
+    fake explorer, hardcoded syntax-highlighted source, a second fake Clarvis
+    chat panel — under a heading that already claimed the frame rendered itself.
+    It is now a real <iframe> at the address in NERVIS's registry, or a banner
+    saying what was looked for and not found. Neither invents anything. */
+ };
 
 function prototypeNote(){
  const map=PROTOTYPE[state.app]||{};

@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     # optional peer that is absent should read as absent rather than be missing
     # from the list entirely.
     clarvis_base_url: str = "http://127.0.0.1:7071"
+
+    # Where code-server serves the editor NERVIS embeds in its Clarvis tab.
+    #
+    # **Configuration, not an assumption.** The runbook's port table says
+    # code-server is "pinned by its own deployment, proxied, never assumed", so
+    # this is a setting with a default rather than a constant — and the default
+    # is 8080 because that is code-server's own, which is what somebody who
+    # installed it and ran it will have.
+    code_server_base_url: str = "http://127.0.0.1:8080"
     # Runtimes rather than ecosystem members: neither publishes a MEP surface,
     # so the registry can claim reachability about them and nothing more.
     lmstudio_base_url: str = "http://127.0.0.1:1234"

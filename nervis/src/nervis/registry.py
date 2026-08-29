@@ -341,9 +341,14 @@ def declared_services(settings: Any) -> list[ServiceDeclaration]:
         somebody else's program, and a machine with LM Studio and no Ollama is
         an ordinary machine rather than one with a fault.
         """
+        # `codeserver` has no underscore in its key but its setting does, so the
+        # name is derived rather than interpolated — getting this wrong would
+        # make an address the operator deliberately set look like a default, and
+        # the entry would go quiet instead of reporting an outage.
+        setting = "code_server_base_url" if key == "codeserver" else f"{key}_base_url"
         return ServiceDeclaration(
             key, label, url, mep=False, probe_path=path,
-            optional=f"{key}_base_url" not in chosen,
+            optional=setting not in chosen,
         )
 
     return [
@@ -365,6 +370,12 @@ def declared_services(settings: Any) -> list[ServiceDeclaration]:
             "clarvis", "Clarvis Bridge", settings.clarvis_base_url,
             optional="clarvis_base_url" not in chosen,
         ),
+        # **Observed, never supervised.** §5.1 puts code-server in the registry so
+        # the Code tab can say honestly whether there is an editor to embed —
+        # NERVIS neither starts it nor stops it, and `/healthz` is the only thing
+        # it is asked. Optional unless somebody named an address: a machine
+        # without code-server is an ordinary machine, not a broken one.
+        runtime("codeserver", "code-server", settings.code_server_base_url, "/healthz"),
         runtime("lmstudio", "LM Studio", settings.lmstudio_base_url, "/v1/models"),
         runtime("ollama", "Ollama", settings.ollama_base_url, "/api/tags"),
     ]
