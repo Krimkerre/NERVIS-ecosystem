@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1659 tests, no network, no live service
+.venv/bin/pytest                      # part of 1662 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 372 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 375 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1659 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1662 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,30 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**Chat reads the routing record and says what happened in words.** The Logs
+screen tabulates RAVIS's decisions; the question is asked as *"what happened
+recently"*, and a table is the wrong shape for that. When the words suggest it,
+the reading now carries the last few decisions — what was asked for, what
+answered, how it ended, and RAVIS's own sentence about why, quoted rather than
+paraphrased (§2.1, at the grain of one field). Live, that produced: *"The most
+frequent routing decisions were for `ravis/chat` requests, all directed to
+`amazon/nova-2-lite-v1` … In one case, a `ravis/cheap` request routed to
+`qwen/qwen3-4b-2507` because it was already loaded."*
+
+**And it can be told where to route.** `nervis.chat.profile` is the third
+operation: *"switch this chat to the coding pool"* offers a Switch button that
+sets the conversation's pool. Offered only against the pools RAVIS actually
+publishes — §7 says NERVIS addresses those and never invents one, so "use the
+turbo pool" is not a refusal, it is not an offer at all. Carried out in the tab
+rather than through an endpoint, because the profile is what the *next* request
+will carry and there is nothing to ask a service for.
+
+**The routes read went to the wrong path first.** `routes` is NERVIS's own
+surface *key* for `/api/v1/route-decisions`, and reading the key as the path
+gave a 404 that the function reported as "no decisions" rather than as a
+mistake. It reads the path from the peer table now, which is the one place that
+mapping is written down.
 
 **A log line opens.** RAVIS's Logs screen printed five columns per request and
 a footnote saying *"every row is a decision id away from its full record"* —

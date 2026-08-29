@@ -83,6 +83,10 @@ MAX_VALIDITY_NOTES = 2
 # single figures because a runtime loads two or three at a time.
 MAX_RUNTIME_MODELS = 8
 
+# How many recent routing decisions travel. Enough to describe "what has been
+# happening", short of pasting the Logs screen into a prompt.
+MAX_DECISIONS = 6
+
 HEADLINE_METRICS = (
     "generation_tokens_per_second",
     "time_to_first_token_seconds",
@@ -467,6 +471,41 @@ def _runtime_model(model: Mapping[str, Any]) -> str:
     return " · ".join(parts)
 
 
+def route_lines(decisions: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What RAVIS has actually been doing, newest first.
+
+    The Logs screen shows this as a table and the question is usually asked in
+    words — *"what happened recently"* — so the same record travels as one line
+    each: what was asked for, what answered, how it ended, and the beginning of
+    RAVIS's own reason. The reason is clipped rather than summarised: RAVIS
+    wrote a sentence about its own decision and paraphrasing it here would be
+    NERVIS inventing a second opinion about somebody else's data (§2.1).
+    """
+    if not decisions:
+        return []
+    lines = ["recent routing decisions, newest first:"]
+    for decision in list(decisions)[:MAX_DECISIONS]:
+        at = clip(str(decision.get("decided_at") or ""))[11:19]
+        asked = clip(str(decision.get("requested") or "?"))
+        chosen = clip(str(decision.get("selected") or ""))
+        ending = _ending_of(decision)
+        line = f"  {at} · {asked}" + (f" → {chosen}" if chosen else " → nothing")
+        lines.append(line + f" · {ending}")
+        reason = clip(str(decision.get("reason") or ""))
+        if reason:
+            lines.append(f"    because: {reason}")
+    return lines
+
+
+def _ending_of(decision: Mapping[str, Any]) -> str:
+    """How one decision ended, in the record's own vocabulary."""
+    execution = decision.get("execution")
+    attempts = execution.get("attempts") if isinstance(execution, Mapping) else None
+    if isinstance(attempts, list) and attempts and isinstance(attempts[-1], Mapping):
+        return str(clip(str(attempts[-1].get("outcome") or "?")))
+    return "no route" if not decision.get("selected") else "not attempted"
+
+
 def block(
     services: Sequence[Mapping[str, Any]],
     windows: int,
@@ -478,6 +517,7 @@ def block(
     jobs: Sequence[Mapping[str, Any]] = (),
     runs: Sequence[Mapping[str, Any]] = (),
     runtime: Sequence[Mapping[str, Any]] = (),
+    decisions: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """The fenced reading a model is given, or nothing when there is none.
 
@@ -507,6 +547,7 @@ def block(
     lines += _model_names(models, question)
     lines += benchmarks(jobs, runs)
     lines += runtime_lines(runtime)
+    lines += route_lines(decisions)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong

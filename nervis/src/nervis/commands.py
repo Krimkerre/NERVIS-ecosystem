@@ -56,6 +56,12 @@ class Operation:
 
 OPERATIONS: tuple[Operation, ...] = (
     Operation(
+        id="nervis.chat.profile",
+        service="nervis",
+        summary="this conversation to {target}",
+        action="Switch",
+    ),
+    Operation(
         id="sirvis.benchmark.cancel",
         service="sirvis",
         summary="the benchmark {target}",
@@ -74,6 +80,16 @@ OPERATIONS: tuple[Operation, ...] = (
 )
 
 BY_ID = {operation.id: operation for operation in OPERATIONS}
+
+# Switching this conversation's pool. Two shapes, because both are how people
+# ask: naming the pool ("use ravis/coding", "switch to the local pool") and
+# naming what they want from it ("route this through reasoning"). The pool has
+# to be named either way — NERVIS does not interpret "make it better".
+SWITCH = re.compile(
+    r"\b(?:use|switch|change|route|move|set)\b[^.?!]*?"
+    r"(?P<pool>ravis/[a-z0-9-]+|\b[a-z0-9-]+\s+pool\b|\bpool\s+[a-z0-9-]+)",
+    re.IGNORECASE,
+)
 
 # Stopping one. Narrower than the submit pattern on purpose: "cancel" and "stop"
 # are ordinary words, so they only count when a benchmark or a job id is named
@@ -170,6 +186,7 @@ def propose(
     question: str,
     models: Sequence[Mapping[str, Any]],
     jobs: Sequence[Mapping[str, Any]] = (),
+    pools: Sequence[Mapping[str, Any]] = (),
 ) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
@@ -182,6 +199,11 @@ def propose(
     """
     if not question:
         return None
+    switching = SWITCH.search(question)
+    if switching and pools:
+        switched = _switch_proposal(switching.group("pool"), pools)
+        if switched is not None:
+            return switched
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
@@ -233,6 +255,54 @@ def _benchmark_proposal(asked: str, models: Sequence[Mapping[str, Any]]) -> Prop
         detail=f"{len(near)} models match {asked!r} — say which",
         candidates=tuple(sorted(near)[:MAX_CANDIDATES]),
     )
+
+
+def _switch_proposal(
+    asked: str, pools: Sequence[Mapping[str, Any]]
+) -> Proposal | None:
+    """Which pool this conversation should use next, from what was named.
+
+    **Only a pool RAVIS publishes.** §7 has NERVIS address the pools RAVIS
+    already publishes and never invent one, so an unrecognised name is not an
+    offer — it is a list of what exists. `None` rather than a refusal when
+    nothing resembles a pool at all, because "use the other one" is a sentence
+    about something else far more often than it is a routing instruction.
+    """
+    operation = BY_ID["nervis.chat.profile"]
+    wanted = _squash(asked.replace("pool", " "))
+    if not wanted:
+        return None
+    known = [str(pool.get("pool_id") or "") for pool in pools]
+    known = [name for name in known if name]
+    exact = [name for name in known if _squash(name) == wanted]
+    near = exact or [name for name in known if wanted and wanted in _squash(name)]
+    if len(near) == 1:
+        target = near[0]
+        return Proposal(
+            operation=operation.id, service=operation.service, target=target,
+            summary=operation.summary.format(target=target), ready=True,
+            action=operation.action,
+        )
+    if not near:
+        return None
+    return Proposal(
+        operation=operation.id, service=operation.service, target="", ready=False,
+        summary="this conversation", action=operation.action,
+        detail=f"{len(near)} pools match — say which",
+        candidates=tuple(sorted(near)[:MAX_CANDIDATES]),
+    )
+
+
+def _squash(text: str) -> str:
+    """Lowercased letters and digits only, so spelling stops mattering.
+
+    "ravis/coding", "the coding pool" and "Coding" are one request. The same
+    idea as `situation.named_in`'s flattening and deliberately a separate copy:
+    that one matches service names against a registry, this one matches pool
+    names against RAVIS's list, and a shared helper would tie two unrelated
+    vocabularies to one definition of "close enough".
+    """
+    return "".join(character for character in text.lower() if character.isalnum())
 
 
 def _cancel_proposal(

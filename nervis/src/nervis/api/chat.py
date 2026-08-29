@@ -37,6 +37,7 @@ from nervis import chat as store
 from nervis import commands, situation
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
+from nervis.peers import ravis as ravis_peer
 from nervis.registry import RegistryEntry
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -470,6 +471,21 @@ RUN_SAMPLE = 3
 # types whichever they are looking at.
 RUNTIME_WORDS = ("lm studio", "lmstudio", "loaded", "runtime", "context window")
 
+# When the routing record is worth reading. "log" and "recently" are here
+# because that is how the question is actually asked — "what happened recently"
+# rather than "show me route decisions".
+ROUTING_WORDS = (
+    "log", "route", "routing", "request", "decision", "recently", "lately",
+    "happened", "pool", "why did", "chose", "picked",
+)
+
+# How many decisions are read. The reading quotes six; a few more are fetched so
+# the newest six are the newest six.
+DECISION_SAMPLE = 10
+
+# When a sentence might be asking to change where this conversation routes.
+POOL_WORDS = ("pool", "profile", "switch", "route this", "use ravis/")
+
 # How long RAVIS's catalogue is reused before it is read again. The registry,
 # the leases and the hub are already in memory and cost nothing per turn; the
 # catalogue is one HTTP call, and doing it on every message would put a remote
@@ -584,7 +600,12 @@ async def send(request: Request) -> Any:
     # catalogue read is what came back 429 and emptied the model counts out of
     # the reading in the same turn that had just read them successfully.
     offer = (
-        commands.propose(content, await _catalogue(request), await _jobs(request, content))
+        commands.propose(
+            content,
+            await _catalogue(request),
+            await _jobs(request, content),
+            await _pools(request, content),
+        )
         if not greeting
         else None
     )
@@ -888,6 +909,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
     jobs = await _jobs(request, asked)
     runtime = await _runtime(request, asked)
+    decisions = await _decisions(request, asked)
     # Only alongside the queue: a run is what a job became, so a question that
     # did not mention benchmarks does not need either.
     runs = await _runs(request) if jobs else []
@@ -898,6 +920,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     return printed, situation.block(
         services, windows, events, catalogue, request.app.state.chat_clock(),
         question=asked, models=models, jobs=jobs, runs=runs, runtime=runtime,
+        decisions=decisions,
     )
 
 
@@ -919,6 +942,67 @@ async def _jobs(request: Request, question: str) -> list[dict[str, Any]]:
         answered = await client.get(
             entry.declaration.base_url + "/api/v1/benchmark-jobs",
             params={"limit": JOB_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
+        )
+        if answered.status_code >= 400:
+            return []
+        items = answered.json().get("items") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+async def _pools(request: Request, question: str) -> list[dict[str, Any]]:
+    """The pools RAVIS publishes, when the question might be about switching.
+
+    §7: NERVIS addresses the pools RAVIS publishes and never invents one, so a
+    switch offer is only ever made against this list. Read on the same terms as
+    the rest — when the words suggest it, and absent rather than guessed.
+    """
+    if not any(word in question.lower() for word in POOL_WORDS):
+        return []
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if entry is None or not entry.is_usable:
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            entry.declaration.base_url + "/api/v1/pools",
+            timeout=FACTS_TIMEOUT_SECONDS, headers=_named(request),
+        )
+        if answered.status_code >= 400:
+            return []
+        found = answered.json()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+    items = found.get("items") if isinstance(found, dict) else found
+    return [item for item in (items or []) if isinstance(item, dict)]
+
+
+async def _decisions(request: Request, question: str) -> list[dict[str, Any]]:
+    """RAVIS's recent routing decisions, when the question is about them.
+
+    The same record the Logs screen tabulates. Asked in words — *"what happened
+    recently"*, *"why did it pick that"* — the table is the wrong shape and the
+    screen is the wrong place, so the decisions travel as text and the model
+    puts them in a sentence. NERVIS is a named caller now, so this read is not
+    the one that trips RAVIS's rate limit.
+    """
+    if not any(word in question.lower() for word in ROUTING_WORDS):
+        return []
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if entry is None or not entry.is_usable:
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            # `/api/v1/route-decisions`, which is what RAVIS actually serves —
+            # `routes` is NERVIS's own surface *key* for it, and reading the key
+            # as the path gave a 404 that this function then reported as "no
+            # decisions" rather than as a mistake. The peer table is the one
+            # place that mapping is written down.
+            entry.declaration.base_url + ravis_peer.BY_KEY["routes"].path,
+            params={"limit": DECISION_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
+            headers=_named(request),
         )
         if answered.status_code >= 400:
             return []

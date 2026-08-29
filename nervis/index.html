@@ -8069,6 +8069,16 @@ async function runOffer(index){
  const message=CHAT_SESSION.messages[index];
  const offer=message&&message.offer;
  if(!offer||offer.done||!offer.ready)return;
+ /* NERVIS's own state, changed here rather than through an endpoint: the
+    profile is what the *next* request will carry, and it lives in this tab.
+    There is nothing to ask a service for and nothing to audit — the change is
+    visible in the composer the moment it happens. */
+ if(offer.operation==='nervis.chat.profile'){
+  CHAT_SESSION.profile=offer.target;
+  offer.done=`this conversation now routes through ${offer.target}`;
+  persistPrivate();
+  return render();
+ }
  const stopping=offer.operation==='sirvis.benchmark.cancel';
  offer.done=stopping?'asking SIRVIS to stop it…':'queueing…';
  render();

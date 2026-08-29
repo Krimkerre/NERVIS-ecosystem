@@ -1374,6 +1374,96 @@ def test_a_peer_credential_travels_only_to_the_peer_it_belongs_to() -> None:
     assert peer_credential(_Request(), "clarvis") == ""
 
 
+def test_asking_what_happened_recently_reads_the_routing_record() -> None:
+    """The Logs screen shows this as a table and the question is asked in words.
+    The same record travels as text so the model can put it in a sentence."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/route-decisions" in url:
+            return httpx.Response(200, json={"items": [{
+                "decided_at": "2026-08-29T21:30:19Z", "requested": "ravis/chat",
+                "selected": "amazon/nova-2-lite-v1",
+                "reason": "first eligible candidate in stable order",
+                "execution": {"attempts": [{"model": "amazon/nova-2-lite-v1",
+                                            "outcome": "succeeded"}]},
+            }]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        if "/api/v1/pools" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "what happened recently?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "ravis/chat → amazon/nova-2-lite-v1" in system
+    assert "succeeded" in system
+    # RAVIS's own sentence about its own decision, quoted rather than
+    # paraphrased — §2.1, at the grain of one field.
+    assert "first eligible candidate in stable order" in system
+
+
+def test_a_pool_can_be_switched_by_asking() -> None:
+    """§7 has NERVIS address the pools RAVIS publishes, so the offer is made
+    against that list and never against a name somebody typed."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/pools" in url:
+            return httpx.Response(200, json={"items": [
+                {"pool_id": "ravis/coding"}, {"pool_id": "ravis/auto"},
+            ]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = turn(client, "switch this chat to the coding pool", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["operation"] == "nervis.chat.profile"
+    assert offer["target"] == "ravis/coding"
+    assert offer["action"] == "Switch"
+
+
+def test_a_pool_nobody_published_is_not_offered() -> None:
+    """"use the turbo pool" names nothing RAVIS has, and inventing one is the
+    thing §7 forbids in as many words."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/pools" in url:
+            return httpx.Response(200, json={"items": [{"pool_id": "ravis/auto"}]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = turn(client, "use the turbo pool", system="Be someone.")
+
+    assert answered.headers["x-command-offer"] == ""
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every
