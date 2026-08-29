@@ -1529,131 +1529,8 @@ function sirvisEvidence(result){
   evidence_id:result.evidence_id,measured_at:result.created_at,
   caveat:null,note:null,live:true}}
 
-/* ── LM STUDIO SNAPSHOT ────────────────────────────────────────────────────
-   Everything below is the verbatim body of
 
-       GET http://127.0.0.1:1234/api/v0/models
 
-   from the LM Studio server running on this machine, taken on 22 Aug 2026 — not
-   an illustration of one. It is embedded rather than fetched because this file
-   opens from disk with no server, and a runtime fetch would make the template
-   depend on LM Studio being up to render at all.
-
-   Keeping the payload in its own shape, rather than pre-chewed into SIRVIS
-   records, is what makes the swap real: `lmstudioBuilds()` below is the mapping
-   an implementation actually needs, and it has been exercised against a genuine
-   response. To go live, replace the constant with the fetch and delete nothing
-   else. */
-const LMSTUDIO_SNAPSHOT={object:'list',data:[
-   {id:"lmstudio-community/granite-4.0-h-tiny",type:"llm",publisher:"lmstudio-community",arch:"granitehybrid",
-    compatibility_type:"gguf",quantization:"Q4_K_M",state:"not-loaded",max_context_length:1048576,capabilities:["tool_use"]},
-   {id:"mlx-community/granite-4.0-h-tiny",type:"llm",publisher:"mlx-community",arch:"granitemoehybrid",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:131072,capabilities:["tool_use"]},
-   {id:"qwen/qwen3-1.7b",type:"llm",publisher:"qwen",arch:"qwen3",
-    compatibility_type:"mlx",quantization:"8bit",state:"not-loaded",max_context_length:40960,capabilities:["tool_use"]},
-   {id:"ministral-8b-instruct-2410",type:"llm",publisher:"mlx-community",arch:"mistral",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:32768,capabilities:["tool_use"]},
-   {id:"qwen2.5-coder-7b-instruct",type:"llm",publisher:"mlx-community",arch:"qwen2",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:32768,capabilities:[]},
-   {id:"lfm2.5-2.6b-mlx",type:"llm",publisher:"lmstudio-community",arch:"lfm2",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:128000,capabilities:["tool_use"]},
-   {id:"qwen3.5-2b-mlx",type:"vlm",publisher:"lmstudio-community",arch:"qwen3_5",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:262144,capabilities:["tool_use"]},
-   {id:"phi-4-mini-instruct",type:"llm",publisher:"mlx-community",arch:"phi3",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:131072,capabilities:[]},
-   {id:"qwen/qwen3-4b-2507",type:"llm",publisher:"qwen",arch:"qwen3",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:262144,capabilities:["tool_use"]},
-   {id:"meta-llama-3.1-8b-instruct",type:"llm",publisher:"mlx-community",arch:"llama",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:131072,capabilities:["tool_use"]},
-   {id:"qwen2.5-coder-14b-instruct-mlx",type:"llm",publisher:"lmstudio-community",arch:"qwen2",
-    compatibility_type:"mlx",quantization:"4bit",state:"not-loaded",max_context_length:32768,capabilities:[]},
-   {id:"text-embedding-nomic-embed-text-v1.5",type:"embeddings",publisher:"nomic-ai",arch:"nomic-bert",
-    compatibility_type:"gguf",quantization:"Q4_K_M",state:"not-loaded",max_context_length:2048,capabilities:[]}]};
-/* The models endpoint carries no file size — `lms ls` does, from the local model
-   directory. Sizes are GB on disk, which is not the same as resident memory:
-   weights are memory-mapped and the KV cache is charged on top, so a build's
-   resident figure is always the larger number. */
-const LMSTUDIO_SIZES={'lmstudio-community/granite-4.0-h-tiny':4.23,'mlx-community/granite-4.0-h-tiny':3.92,
- 'qwen/qwen3-1.7b':1.84,'ministral-8b-instruct-2410':4.54,'qwen2.5-coder-7b-instruct':4.30,
- 'lfm2.5-2.6b-mlx':1.54,'qwen3.5-2b-mlx':1.75,'phi-4-mini-instruct':2.18,'qwen/qwen3-4b-2507':2.28,
- 'meta-llama-3.1-8b-instruct':4.53,'qwen2.5-coder-14b-instruct-mlx':8.33,
- 'text-embedding-nomic-embed-text-v1.5':0.084};
-/* Parameter counts, also from `lms ls`. LM Studio leaves this blank for a few
-   builds; an absent count is carried as null and rendered as unknown, because a
-   guess from the file size would be a number nobody measured. */
-const LMSTUDIO_PARAMS={'lmstudio-community/granite-4.0-h-tiny':7,'mlx-community/granite-4.0-h-tiny':null,
- 'qwen/qwen3-1.7b':1.7,'ministral-8b-instruct-2410':8,'qwen2.5-coder-7b-instruct':7,'lfm2.5-2.6b-mlx':2.6,
- 'qwen3.5-2b-mlx':2,'phi-4-mini-instruct':null,'qwen/qwen3-4b-2507':4,'meta-llama-3.1-8b-instruct':8,
- 'qwen2.5-coder-14b-instruct-mlx':14,'text-embedding-nomic-embed-text-v1.5':null};
-
-/* ── MEASURED EVIDENCE ─────────────────────────────────────────────────────
-   From ../clarvis/docs/benchmarks.md — a real suite run on this machine on
-   20 Aug 2026. Each model loaded alone with `--parallel 1`, warmed twice, five
-   scenes three times each; reported figures are medians of three.
-
-   Two separate first-token numbers, because they answer different questions.
-   `first_token_s` is from the scene runs and is what Clarvis's deadlines actually
-   face. `ttft_s` is from the ~150-word prose task the throughput figures come
-   from. Reporting one as the other would flatter or punish a model for a task it
-   was not doing.
-
-   `gen_tok_s` is the sustained rate once the model is talking; `eff_tok_s` counts
-   from the request being sent, so it carries prompt processing and any preamble
-   emitted before visible content. Conflating them is how a benchmark recommends
-   a model with a healthy generation rate and 27 seconds of silence in front of it.
-
-   `tools` is measured tool-call reliability — well-formed calls out of attempts —
-   and it is NOT the same claim as LM Studio's `tool_use` capability flag. On this
-   machine those two disagree about four builds in both directions, which is the
-   single most useful thing in this data. `follow_up` classifies the second turn of
-   a two-turn exchange after the model is handed a real error: `used-result` acted
-   on it, `retried` reissued the dead call, `gave-up`/`no-call` stopped using the
-   tool at all. */
-const BENCHMARK={
- 'qwen3.5-2b-mlx':{first_token_s:0.22,gen_tok_s:93.6,eff_tok_s:88.2,ttft_s:0.14,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   caveat:'a vlm-typed model that has invented facts in earlier scenes — fastest here is not most trustworthy here'},
- 'phi-4-mini-instruct':{first_token_s:0.26,gen_tok_s:48.8,eff_tok_s:47.6,ttft_s:0.20,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3},
- 'qwen/qwen3-4b-2507':{first_token_s:0.38,gen_tok_s:46.5,eff_tok_s:44.7,ttft_s:0.16,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   caveat:'invented a non-existent file and syntax error in a briefing the guard scored clean'},
- 'qwen2.5-coder-7b-instruct':{first_token_s:0.26,gen_tok_s:29.5,eff_tok_s:27.0,ttft_s:0.22,
-   tools:[8,8],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   control_tok_s:28.5,note:'re-measured the same evening as a control and reproduced within 3.4%'},
- 'ministral-8b-instruct-2410':{first_token_s:0.26,gen_tok_s:25.3,eff_tok_s:24.4,ttft_s:0.22,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   caveat:'follow-up degraded to no-call and gave-up in both co-resident pairings — correct only when alone'},
- 'meta-llama-3.1-8b-instruct':{first_token_s:0.48,gen_tok_s:19.9,eff_tok_s:19.3,ttft_s:0.23,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   caveat:'invented "one commit ahead" in a briefing — numeric, and the grounding guard still missed it'},
- 'qwen2.5-coder-14b-instruct-mlx':{first_token_s:0.80,gen_tok_s:9.6,eff_tok_s:9.2,ttft_s:0.62,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[6,6],samples:3,
-   caveat:'identical accuracy to the 7B at a third of the rate'},
- 'lfm2.5-2.6b-mlx':{first_token_s:5.50,gen_tok_s:null,eff_tok_s:null,ttft_s:null,
-   tools:[3,3],follow_up:'used-result',code:[6,6],fib:[0,6],samples:3,
-   caveat:'forced reasoning — no visible output on the chat path, and 8/8 calls on the agent path, which has no deadline'},
- 'lmstudio-community/granite-4.0-h-tiny':{first_token_s:0.06,gen_tok_s:55.2,eff_tok_s:null,ttft_s:0.06,
-   tools:[8,8],follow_up:'used-result',code:null,fib:null,samples:3,
-   note:'8 phrasings, streamed. Not run through the full suite — the recommendation does not move until it is'},
- 'mlx-community/granite-4.0-h-tiny':{first_token_s:0.13,gen_tok_s:94.5,eff_tok_s:null,ttft_s:0.13,
-   tools:[1,8],follow_up:'never-reached',code:null,fib:null,samples:3,
-   caveat:'the MLX runtime discards its tool calls — 7 of 8 lost their arguments. Same model as the GGUF build, opposite outcome'}};
-
-/* Co-resident measurements. Two builds that each behave alone are a separate
-   subject, and this is where the only discriminating result in the whole suite
-   turned up: memory was never the problem, behaviour was. */
-const BENCHMARK_PAIRS=[
- {members:['phi-4-mini-instruct','qwen2.5-coder-7b-instruct'],peak_gb:6.5,first_token_s:[0.30,0.69],
-  follow_up:['used-result','used-result'],note:'no meaningful contention'},
- {members:['qwen2.5-coder-7b-instruct','ministral-8b-instruct-2410'],peak_gb:8.8,first_token_s:[0.34,0.49],
-  follow_up:['used-result','no-call'],note:'ministral stopped calling the tool at all'},
- {members:['mlx-community/granite-4.0-h-tiny','qwen2.5-coder-7b-instruct'],peak_gb:8.2,first_token_s:[0.13,0.24],
-  follow_up:['never-reached','used-result'],note:'neither degraded · granite reached a full 300-character line in 0.65s against the control 2.43s'},
- {members:['lfm2.5-2.6b-mlx','qwen2.5-coder-14b-instruct-mlx'],peak_gb:9.9,first_token_s:[4.50,1.39],
-  follow_up:['used-result','used-result'],note:'lfm2.5 briefing reached 11.1s'},
- {members:['ministral-8b-instruct-2410','qwen2.5-coder-14b-instruct-mlx'],peak_gb:12.9,first_token_s:[0.43,0.77],
-  follow_up:['gave-up','used-result'],note:'ministral abandoned the tool a second time, in a different way'}];
 
 /* Clarvis's own deadlines, from its source. These are not routing constraints —
    missing one substitutes a written fallback line rather than failing — but they
@@ -1664,19 +1541,6 @@ const CLARVIS_DEADLINES=[['Voice.say','rewriting a written line',2],
  ['intentModel','question or job?',2.5],['LiveQuips','an unprompted remark',4],
  ['Voice.open','writing a line for the moment',5],['BriefingService','the opening briefing',12]];
 
-/* The one scenario this template stages, and it is the benchmark's own headline
-   recommendation: `qwen2.5-coder-7b-instruct` serving both roles at 4.3 GB. It
-   wins or ties on everything measured — 0.26 s to first token, 29.5 tok/s (three
-   times the 14B's rate at identical accuracy), 8/8 tool calls, correct follow-up,
-   6/6 on both coding tasks — and needs no second model.
-
-   Every other build's state comes from the LM Studio payload as-is. Deleting this
-   constant and the line that reads it is the whole of what live state costs.
-
-   `resident_gb` equals the file size here rather than exceeding it, because that
-   is what the co-resident measurements show: the 6.5 GB and 8.8 GB pair peaks are
-   the sums of the two files. */
-const SCENARIO_LOADED={'qwen2.5-coder-7b-instruct':{state:'busy',resident_gb:4.30}};
 
 /* Whether a build can serve a role that requires tools. A measurement outranks
    the advertised capability in BOTH directions, which is the entire lesson of the
@@ -1691,40 +1555,7 @@ const SCENARIO_LOADED={'qwen2.5-coder-7b-instruct':{state:'busy',resident_gb:4.3
 
    Unmeasured builds fall back to the claim, and carry UNKNOWN evidence so nothing
    downstream mistakes the fallback for a result. */
-const toolsWork=b=>b.measured&&b.measured.tools
- ?b.measured.tools[0]===b.measured.tools[1]
- :b.tools_advertised;
 
-/* Maps LM Studio's model record onto the identity SIRVIS files evidence under:
-   family, build/variant, runtime, runtime configuration. LM Studio's `id` is not
-   that identity — it is a catalogue key — so the two are kept apart rather than
-   one standing in for the other.
-
-   `tool_use` is load-bearing far past this file: RAVIS's clarvis-agent pool holds
-   tools as a hard invariant, so a build that does not advertise it is ineligible
-   there no matter how good it is at the work. */
-function lmstudioBuilds(payload=LMSTUDIO_SNAPSHOT){
- return payload.data.filter(m=>m.type!=='embeddings').map(m=>{
-  const over=SCENARIO_LOADED[m.id]||{};
-  const family=m.id.includes('/')?m.id.split('/')[1]:m.id;
-  return{model_artifact_id:'ma_'+m.id.replace(/[^a-z0-9]+/gi,'_').toLowerCase(),
-   lmstudio_id:m.id,family,
-   variant:(m.compatibility_type==='mlx'?'MLX ':'GGUF ')+m.quantization,
-   source:m.publisher,runtime:m.compatibility_type==='mlx'?'mlx':'llama.cpp',
-   architecture:m.arch,params_b:LMSTUDIO_PARAMS[m.id],size_gb:LMSTUDIO_SIZES[m.id],
-   /* max_context_length is the ceiling the build supports; context_length is what
-      it was actually loaded with, which only exists once it is loaded. */
-   runtime_config:{max_context_length:m.max_context_length,
-                   context_length:over.state?Math.min(m.max_context_length,32768):null},
-   /* Two different claims about the same thing, deliberately not merged.
-      `tools_advertised` is LM Studio's capability array — metadata. `measured` is
-      what a run of ../clarvis/docs/benchmarks.md observed. They disagree about
-      four builds here, so collapsing them into one boolean would either exclude
-      builds that demonstrably work or admit one whose calls are being discarded. */
-   tools_advertised:!!(m.capabilities&&m.capabilities.includes('tool_use')),
-   measured:BENCHMARK[m.id]||null,
-   vision:m.type==='vlm',
-   state:over.state||'stopped',resident_gb:over.resident_gb||null}})}
 
 const API={
  sirvis:{
@@ -1821,34 +1652,16 @@ const API={
        `undefined` and faded a live read. `source` is kept because several
        cards already read it and it carries more than a boolean. */
     return{source:'live',live:true,items}}
-   const builds=lmstudioBuilds().filter(b=>b.measured);
-   const rec=(b,role)=>({
-    evidence_type:'MEASURED',role,
-    target:{family:b.family,variant:b.variant,runtime:b.runtime,lmstudio_id:b.lmstudio_id,
-            runtime_config:{context_length:32768}},
-    samples:b.measured.samples,
-    metrics:{first_token_s:b.measured.first_token_s,
-             generation_tok_s:b.measured.gen_tok_s,effective_tok_s:b.measured.eff_tok_s,
-             tool_calls:b.measured.tools,follow_up:b.measured.follow_up,
-             code:b.measured.code,fib:b.measured.fib},
-    /* A measurement is valid or not on its own terms; a caveat is a true thing
-       about the result that no number in it expresses. They are different fields
-       because a reader who only sees VALID has not seen the whole record. */
-    validity:b.measured.tools[0]===b.measured.tools[1]?'VALID':'VALID_WITH_WARNINGS',
-    warnings:b.measured.tools[0]===b.measured.tools[1]?[]:['tool calls discarded by the runtime'],
-    caveat:b.measured.caveat||null,note:b.measured.note||null});
-   return{items:[
-    /* The agent role is builds that write files; chat carries everything else and
-       is where the deadlines live. The same build measured for two roles is two
-       records, because the roles ask different things of it. */
-    ...builds.map(b=>rec(b,'clarvis-agent')),
-    /* Not benchmarked at all — present and empty on purpose. An absent row would
-       read as "nothing wrong here", and a zero would read as "measured and bad". */
-    {evidence_type:'UNKNOWN',role:'clarvis-agent',
-     target:{family:'qwen3-1.7b',variant:'MLX 8bit',runtime:'mlx',lmstudio_id:'qwen/qwen3-1.7b',
-             runtime_config:{}},
-     samples:0,metrics:{},validity:null,warnings:[],
-     caveat:'installed and never run — it advertises tool_use and nothing has checked',note:null}]}},
+   /* **No evidence, rather than transcribed evidence.** This built MEASURED
+      records from a bundled LM Studio snapshot and a table of benchmark numbers
+      in this file — real measurements, taken on one machine on one evening, and
+      presented as though this deployment had them. §12.3 makes an evidence
+      record a claim about *this* installation.
+
+      RAVIS publishes real ones at `/api/v1/evidence`, which the branch above
+      reads. This is what a reader sees when it has none. */
+   return{items:[],live:false};
+},
 
   /* GET /api/v1/benchmark-runs?result={id} — the detail behind one headline.
 
@@ -1888,15 +1701,13 @@ const API={
         have. */
      warmups:'run and discarded — not carried in the envelope',parallel:1,
      raw_runs:r.results_path||'written beside the run',validity:e.validity}}
-   return{suite:'clarvis-agent',version:1,role:'clarvis-agent',
-   target:'qwen2.5-coder-7b-instruct · MLX 4bit',
-   warmups:2,samples:3,parallel:1,
-   generation_tok_s:{median:29.5},effective_tok_s:{median:27.0},ttft_s:{median:0.22},
-   first_token_s:{median:0.26},
-   control:{generation_tok_s:28.5,when:'same evening',drift_pct:3.4},
-   measures:{code:[6,6],fib:[6,6],tool_calls:[8,8],follow_up:'used-result'},
-   raw_runs:'retained by the harness, not in this snapshot',
-   validity:'VALID'}},
+   /* **No run, rather than a specimen of one.** This returned a complete
+      benchmark envelope — target, medians, a control comparison, a validity
+      verdict — for a run nobody had performed. The live branch above is the
+      real one; this is what a reader sees when SIRVIS has recorded nothing. */
+   return{suite:'',version:null,role:'',target:'',warmups:null,samples:null,parallel:null,
+   generation_tok_s:{},effective_tok_s:{},ttft_s:{},first_token_s:{},
+   control:null,measures:{},raw_runs:'',validity:''}},
 
   /* GET /api/v1/benchmark-jobs — states are the closed contract enum. The
      internal phase rides in `detail`; consumers switch on `state`. */
@@ -1932,25 +1743,12 @@ const API={
         does not; nothing publishes a fraction, and a zero bar would claim a job
         that had started and achieved nothing. */
      progress:null,submitted:(r.started_at||'').slice(11)||r.started_at}})}
-   return{items:[
-   {job_id:'bj_5521',state:'running',detail:'warming_up',suite:'clarvis-agent@1',
-    target:'granite-4.0-h-tiny · GGUF Q4_K_M',progress:0.6,submitted:'10:24:02'},
-   {job_id:'bj_5520',state:'succeeded',detail:null,suite:'clarvis-chat@1',
-    target:'qwen2.5-coder-7b-instruct · MLX 4bit',progress:1,submitted:'10:11:47'},
-   {job_id:'bj_5519',state:'partial',detail:'2 of 3 runs before thermal abort — fanless',suite:'clarvis-chat@1',
-    target:'qwen2.5-coder-14b-instruct-mlx · MLX 4bit',progress:0.66,submitted:'09:52:10'},
-   {job_id:'bj_5518',state:'failed',detail:'7 of 8 tool calls lost their arguments in the runtime',suite:'clarvis-agent@1',
-    target:'granite-4.0-h-tiny · MLX 4bit',progress:0,submitted:'09:40:33'}]}},
+   return{items:[]}},
 
   /* GET /api/v1/downloads — persistent jobs; a browser reload must not lose them.
      The completed and already_present rows are builds this machine really has, at
      their real size on disk. */
-  async downloads(){return{disk_free_gb:501,items:[
-   {download_id:'dl_88',variant:'Qwen3-Coder-30B-A3B · MLX 4bit',status:'downloading',bytes:9.4,total:17.2},
-   {download_id:'dl_87',variant:'qwen2.5-coder-14b-instruct-mlx · MLX 4bit',status:'completed',bytes:8.33,total:8.33},
-   {download_id:'dl_86',variant:'phi-4-mini-instruct · MLX 4bit',status:'already_present',bytes:2.18,total:2.18},
-   {download_id:'dl_85',variant:'Llama-3.3-70B · GGUF Q4_K_M',status:'failed',bytes:12.0,total:39.6,
-    error:'cancelled — 39.6 GB will not load in 24 GB of memory'}]}},
+  async downloads(){return{disk_free_gb:null,items:[]}},
 
   /* GET /api/v1/machines/{id} — the snapshot every result is pinned to. Read from
      this machine: sysctl for the chip and memory, sw_vers for the OS, df for the
@@ -2235,31 +2033,13 @@ const API={
      this endpoint as query parameters; the catalogue is remote and much larger
      than one page of it. */
   async catalog(){
-   const installed=lmstudioBuilds().map(b=>({catalog_id:'cat_'+b.model_artifact_id.slice(3),
-    family:b.family,variant:b.variant,runtime:b.runtime,quantization:b.variant.split(' ')[1],
-    params_b:b.params_b,architecture:b.architecture,source:b.source,size_gb:b.size_gb,
-    /* An installed build has been run; a catalogue entry has only ever been
-       described. Carry both so the row can say which kind of answer it is
-       showing — `b.tools` stopped existing when the measured record arrived, and
-       reading it silently reported every installed build as tool-less. */
-    tools:toolsWork(b),tools_measured:b.measured&&b.measured.tools||null,
-    max_context_length:b.runtime_config.max_context_length,installed:true}));
-   /* Not installed: real published builds, sized as they ship. Nothing here is
-      recommended — the catalogue lists what exists, and whether any of it is
-      worth loading on this machine is a benchmark's answer, not a browser's. */
-   const available=[
-    {catalog_id:'cat_qwen3coder30b',family:'Qwen3-Coder-30B-A3B',variant:'MLX 4bit',runtime:'mlx',quantization:'4bit',
-     params_b:30,architecture:'qwen3-moe',source:'mlx-community',size_gb:17.2,tools:true,max_context_length:262144},
-    {catalog_id:'cat_qwen3_14b',family:'Qwen3-14B',variant:'MLX 4bit',runtime:'mlx',quantization:'4bit',
-     params_b:14,architecture:'qwen3',source:'mlx-community',size_gb:8.1,tools:true,max_context_length:40960},
-    {catalog_id:'cat_gemma3_12b',family:'Gemma-3-12B',variant:'GGUF Q4_K_M',runtime:'llama.cpp',quantization:'Q4_K_M',
-     params_b:12,architecture:'gemma3',source:'lmstudio-community',size_gb:7.3,tools:false,max_context_length:131072},
-    {catalog_id:'cat_mistral_small',family:'Mistral-Small-24B',variant:'MLX 4bit',runtime:'mlx',quantization:'4bit',
-     params_b:24,architecture:'mistral',source:'mlx-community',size_gb:13.3,tools:true,max_context_length:32768},
-    {catalog_id:'cat_llama70',family:'Llama-3.3-70B',variant:'GGUF Q4_K_M',runtime:'llama.cpp',quantization:'Q4_K_M',
-     params_b:70,architecture:'llama',source:'lmstudio-community',size_gb:39.6,tools:true,max_context_length:131072}]
-    .map(x=>({...x,installed:false}));
-   return{query:'',next_cursor:null,items:[...installed,...available]}},
+   /* **Empty until SIRVIS publishes a catalogue.** This returned the LM Studio
+      snapshot as "installed" rows plus five hand-written "available" builds with
+      their real sizes — plausible, checkable, and invented: nothing had asked a
+      service what this machine could fetch. SIRVIS M11 is the endpoint; until it
+      exists the Discover screen says there is nothing to show rather than
+      offering downloads nobody verified are offerable. */
+   return{query:'',next_cursor:null,items:[]}},
  },
 
  ravis:{
@@ -2312,78 +2092,26 @@ const API={
    return{items:[],live:false};
   },
 
-  async routeDecision(id){
-   /* Every reply records the decision that produced it, so the inspector is a lookup
-      rather than a re-derivation. An unknown id is an error in the real build. */
-   const CHAT={
-    rd_c001:{decision_id:'rd_c001',pool:'ravis/auto',selected:'qwen2.5-coder-7b-instruct · MLX 4bit',
-     provider:'LM Studio',execution_path:'TRANSPARENT_OPENAI',cost_eur:0,ttft_s:0.26,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},
-     reasons:['already loaded','no API cost','general-chat score'],
-     not_selected:[{target:'claude-sonnet-5',why:'better quality, €0.004 and a cloud round trip'},
-                   {target:'gpt-4o',why:'provider disabled for this application'}]},
-    rd_c002:{decision_id:'rd_c002',pool:'ravis/private',selected:'qwen2.5-coder-7b-instruct · MLX 4bit',
-     provider:'LM Studio',execution_path:'TRANSPARENT_OPENAI',cost_eur:0,ttft_s:0.26,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},
-     reasons:['privacy LOCAL_ONLY','4 cloud candidates removed before scoring'],
-     not_selected:[]}};
-   if(id&&CHAT[id])return CHAT[id];
-   /* The eligible list is every candidate that survived the hard constraints, not
-      a readable top few: an inspector showing three of eleven would hide the ones
-      a reader most needs to see.
 
-      `score` here is RAVIS's, computed from SIRVIS's measures — rate, first
-      token, tool reliability, follow-up behaviour — and it is RAVIS's to defend.
-      SIRVIS publishes no score at all, because two of its four accuracy measures
-      came back identical for every model and averaging those in would invent a
-      difference the run did not find. A candidate with no measurement carries a
-      null score and ranks last on UNKNOWN provenance; null is not zero. */
-   return{decision_id:'rd_7f2a',pool:'ravis/clarvis-agent',
-   requirements:{tools:'REQUIRED',minimum_context:32768},
-   eligible:[
-    {target:'qwen2.5-coder-7b-instruct · MLX 4bit · 32K',location:'local',score:0.91,ttft_s:0.26,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},
-     notes:['29.5 tok/s','8/8 tool calls','used-result','already loaded'],selected:true},
-    {target:'granite-4.0-h-tiny · GGUF Q4_K_M · 32K',location:'local',score:0.88,ttft_s:0.06,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},
-     notes:['55.2 tok/s','8/8 streamed','partial suite only']},
-    {target:'phi-4-mini-instruct · MLX 4bit · 32K',location:'local',score:0.79,ttft_s:0.26,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},
-     notes:['48.8 tok/s','3/3 tool calls','advertises no tool_use']},
-    {target:'qwen3-4b-2507 · MLX 4bit · 32K',location:'local',score:0.77,ttft_s:0.38,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['46.5 tok/s','3/3 tool calls']},
-    {target:'meta-llama-3.1-8b-instruct · MLX 4bit · 32K',location:'local',score:0.74,ttft_s:0.48,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['19.9 tok/s','3/3 tool calls']},
-    {target:'qwen3.5-2b-mlx · MLX 4bit · 32K',location:'local',score:0.72,ttft_s:0.22,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['93.6 tok/s','3/3 tool calls','has invented facts']},
-    {target:'ministral-8b-instruct-2410 · MLX 4bit · 32K',location:'local',score:0.61,ttft_s:0.26,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['25.3 tok/s','follow-up fails co-resident']},
-    {target:'qwen2.5-coder-14b-instruct-mlx · MLX 4bit · 32K',location:'local',score:0.58,ttft_s:0.80,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['9.6 tok/s','same accuracy as rank 1']},
-    {target:'lfm2.5-2.6b-mlx · MLX 4bit · 32K',location:'local',score:0.44,ttft_s:5.50,
-     evidence:{kind:'MEASURED_BY_SIRVIS',samples:3},notes:['forced reasoning','8/8 on the agent path']},
-    {target:'qwen3-1.7b · MLX 8bit · 32K',location:'local',score:null,ttft_s:null,
-     evidence:{kind:'UNKNOWN'},notes:['advertises tool_use','never benchmarked']},
-    {target:'claude-sonnet-5',location:'cloud',score:0.94,ttft_s:0.79,cost_eur:0.004,
-     evidence:{kind:'PROVIDER_METADATA'},notes:['translated path','breaker HALF_OPEN']}],
-   /* Constraints, never scores. The first is the one worth reading twice: a
-      measured exclusion of a build that advertises the capability it fails. */
-   excluded:[
-    {target:'granite-4.0-h-tiny · MLX 4bit',constraint:'pool invariant: 1 of 8 tool calls survived the runtime — advertises tool_use and does not deliver it'},
-    {target:'gpt-4o',constraint:'policy pl_04: provider disabled for application Clarvis'},
-    {target:'gemini-2.5-flash',constraint:'provider unavailable: no credential configured'},
-    {target:'openrouter/auto',constraint:'provider unavailable: no credential configured'}],
-   fallbacks:['granite-4.0-h-tiny · GGUF Q4_K_M','claude-sonnet-5'],
-   execution_path:'TRANSPARENT_OPENAI',
-   timings_ms:{requirements:0.4,constraints:0.9,scoring:1.1,affinity:0.7,total:3.1},
-   affinity:'sticky · same thread'}},
+  async routeDecision(){
+   /* **No decision, rather than a specimen of one.** This returned two complete
+      route decisions — pool, selected model, every candidate considered, why
+      each was eliminated, the timings and the affinity — for requests nobody
+      had made. RAVIS publishes real ones at `/api/v1/route-decisions`, which
+      the Routes screen already reads, and the inspector fills in from those.
 
-  /* GET /api/v1/route-decisions — recent. NO_ROUTE is a first-class result.
+      The empty shape keeps every field a screen touches, so the screens render
+      an empty inspector rather than throwing. */
+   return{decision_id:'',pool:'',requested:'',selected:'',
+    /* Both spellings, because the two screens read different ones: `requires`
+       is RAVIS's own vocabulary and `requirements` is what the inspector calls
+       it. Absent fields here throw in a template, so each is present and empty. */
+    requires:{minimum_context:null,tools:null},
+    requirements:{minimum_context:null,tools:null},eligible:[],
+    considered:[],excluded:[],fallbacks:[],execution_path:'',
+    timings_ms:{requirements:null,constraints:null,scoring:null,affinity:null,total:null},
+    affinity:''}},
 
-     Reads the real endpoint when one answers, and falls back to the rows below
-     when it does not. The mock stays because it is the only thing that renders
-     when nothing is running, and because it carries a NO_ROUTE example that a
-     healthy service will never produce on demand. */
   async requests(){
    /* Through NERVIS since M3. `ravis.routing.explanations@1` is the capability
       it negotiates, which is the one RAVIS reports `available` — so this is the
@@ -2402,14 +2130,9 @@ const API={
     return recentDecisions(body&&Array.isArray(body.items)?body:{items:[]});
    }
    return live('ravis','/api/v1/route-decisions?limit=25',
-   ()=>({items:[
-   {pool:'ravis/clarvis-agent',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
-   {pool:'ravis/clarvis-chat',model:'qwen2.5-coder-7b-instruct',execution_path:'TRANSPARENT_OPENAI',ttft_s:0.26,result:'OK'},
-   {pool:'ravis/auto',model:'claude-sonnet-5',execution_path:'TRANSLATED_NATIVE',ttft_s:0.79,result:'OK'},
-   {pool:'ravis/private',model:null,execution_path:null,ttft_s:null,result:'NO_ROUTE',
-    requirements:{vision:true,minimum_context:300000,privacy:'LOCAL_ONLY'},
-    reason:'vision at 300K context under privacy LOCAL_ONLY — the one installed vision build tops out at 262144, and the privacy constraint removed every cloud candidate before scoring'}]}),
+   ()=>({items:[]}),
    recentDecisions)},
+
 
   /* GET /api/v1/providers — health, circuit-breaker state and, critically, the
      connection facts. `credential` is a presence flag and nothing else: a key
@@ -2508,6 +2231,7 @@ const API={
      measurement, but not one taken under controlled conditions. Every figure
      carries the sample count that earned it, because a median of two network
      calls is two numbers. */
+
   async observations(){
    try{
     const r=await fetch(BASE.ravis+'/api/v1/observations',
@@ -2649,11 +2373,12 @@ const API={
 
   /* POST /api/v1/route-tests, and `ravis conformance clarvis` on the CLI. A release
      claiming Clarvis compatibility must pass every one of these. */
-  async conformance(){return{suite:'clarvis',ran_at:'10:02:11',pass:true,checks:[
-   ['/v1/models cached response',true],['chat stream',true],['[DONE] terminator',true],
-   ['fragmented tool arguments',true],['multiple tool indexes',true],['tool_call_id preserved',true],
-   ['reasoning_content preserved',true],['cancellation propagated',true],
-   ['clarvis-agent tool invariant',true],['fallback keeps invariants',true]]}},
+  async conformance(){
+   /* **A conformance run nobody ran.** This listed thirteen checks all passing,
+      with a timestamp. `ravis conformance clarvis` is a real CLI command and a
+      real release gate — but nothing on this page had invoked it, so the card was
+      asserting a result. Empty until a run is read from somewhere. */
+   return{suite:'',ran_at:null,pass:null,checks:[]}},
 
   /* GET /api/v1/settings — how the router serves its clients. Assembled from the
      behaviours RAVIS.md already fixes rather than invented here: the OpenAI-
@@ -3020,18 +2745,11 @@ const API={
   /* Diagnostics is not one feed. It is a priority ladder — structured event, then
      management API, then service log, then raw process log — and a text log is never
      parsed when structured data exists. Each source reports what it actually offers. */
-  async diagnostics(){return{
-   sources:[
-    {service:'RAVIS',structured:true,management_api:true,service_log:true,raw_log:false,adapter:null},
-    {service:'SIRVIS',structured:true,management_api:true,service_log:true,raw_log:false,adapter:null},
-    {service:'Clarvis',structured:true,management_api:false,service_log:false,raw_log:true,
-     adapter:{path:'.clarvis/vscode.log',gated:true,note:'M13 · security-gated, optional, never the primary status contract'}},
-    {service:'LM Studio',structured:false,management_api:false,service_log:true,raw_log:true,
-     adapter:{path:'~/.lmstudio/server.log',gated:false,note:'format unversioned — cursor and rotation handled by the adapter'}}],
-   packet:{trace_id:'3f8c…ab12',
-    includes:['route decision rd_7f2a','4 errors','service health at 10:26','runtime state','config diff since 09:40'],
-    excludes:['prompt and completion text','source files','workspace paths','provider credentials','unrelated logs'],
-    size_kb:14,route:'local only'}}}
+  async diagnostics(){
+   /* **A source matrix nobody surveyed.** This described which services publish
+      structured logs, a management API and raw logs, as settled fact, from a
+      constant. Empty until something asks them. */
+   return{sources:[],packet:null}}
  },
  clarvis:{
   /* GET {bridge}/v1/status — interpreted state ONLY. The Bridge is read-only and
@@ -3881,10 +3599,19 @@ async function diagnosticsView(){
    <div class="table-row head"><span>Source</span><span>Path</span><span>Gate</span><span>Note</span></div>
    ${d.sources.filter(x=>x.adapter).map(x=>`<div class="table-row"><span>${escapeHtml(x.service)}</span><span class="mono">${escapeHtml(x.adapter.path)}</span><span class="chip${warnIf(x.adapter.gated)}">${escapeHtml(x.adapter.gated?'approval required':'open')}</span><span style="opacity:.7">${escapeHtml(x.adapter.note)}</span></div>`).join('')}
    <small class="mono dim">an adapter exists only for a documented source, and carries its own cursor, rotation and redaction. An undocumented log is not a data source.</small></div>
-  <div class="card wide"><h3>Analyze packet <span class="chip">${escapeHtml(d.packet.route)}</span></h3>
+  ${/* **Only when there is a packet.** This card read `d.packet.route`,
+        `.includes`, `.size_kb` and `.trace_id` from a constant describing a
+        diagnostic packet nobody had assembled. Nothing builds one yet, so the
+        card is absent rather than illustrated — an example of a payload is not
+        the payload, and this screen is where a reader checks what would actually
+        be sent. */
+    d.packet?`<div class="card wide"><h3>Analyze packet <span class="chip">${escapeHtml(d.packet.route)}</span></h3>
    <div class="table-row head"><span>Included</span><span>Excluded</span></div>
    <div class="table-row"><span>${d.packet.includes.map(x=>'· '+x).join('<br>')}</span><span style="opacity:.7">${d.packet.excludes.map(x=>'· '+x).join('<br>')}</span></div>
-   <small class="mono dim">${escapeHtml(d.packet.size_kb)} KB for trace ${escapeHtml(d.packet.trace_id)}. You see the exact contents before anything is sent, and <b>${escapeHtml(d.packet.route)}</b> keeps the analysis on this machine — sending a diagnostic packet is still sending your data somewhere.</small></div>`}
+   <small class="mono dim">${escapeHtml(d.packet.size_kb)} KB for trace ${escapeHtml(d.packet.trace_id)}.</small></div>`
+    :banner('No diagnostic packet has been assembled',
+      'Nothing has asked for one yet. When a diagnostics run builds a packet this card '
+      +'shows exactly what it would contain and what it would leave out.','info')}`}
 
 /* Keep the newest message in view, without fighting the reader.
  *
@@ -5740,12 +5467,8 @@ async function sirvisResults(){
    <div class="trace-step"><b>warmups</b><span>${escapeHtml(rn.warmups)} · discarded</span></div>
    <div class="trace-step"><b>parallel</b><span>${escapeHtml(rn.parallel)}</span></div>
    <div class="trace-step"><b>raw takes</b><span>${escapeHtml(rn.raw_runs)}</span></div>
-   <small class="mono dim">${rn.source==='live'?`the takes are kept beside the run at <b>${escapeHtml(rn.raw_runs)}</b> — this card names them rather than drawing bars it would have to fetch. <b>No control re-measurement:</b> a control is a property of a sweep, not of one run, and this engine records runs. Today's sweep bracketed itself with one and the two ends came back 26% apart, which is the number this card would otherwise be quietly missing.`:`the individual takes exist in the harness output and are not in this snapshot, so this card says that rather than drawing three bars it does not have. The control re-run — ${escapeHtml(rn.control.generation_tok_s)} tok/s against ${escapeHtml(rn.generation_tok_s.median)}, ${escapeHtml(rn.control.drift_pct)}% apart — is the retained evidence that the later rows are comparable with the earlier ones.`}</small>`)}
-   ${explains('how rate falls off with size',`
-   <div class="table-row head"><span>Build</span><span>Size</span><span>Rate</span><span>Accuracy</span></div>
-   <div class="table-row"><span>qwen2.5-coder-7b-instruct</span><span class="mono">4.3 GB</span><span class="mono">29.5 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
-   <div class="table-row"><span>qwen2.5-coder-14b-instruct-mlx</span><span class="mono">8.3 GB</span><span class="mono">9.6 tok/s</span><span class="mono">6/6 · 6/6 · 3/3</span></div>
-   <small class="mono dim">the same family, twice the weights, identical on every accuracy measure in this document and three times slower. That comparison is invisible on time-to-first-token — 0.22 s against 0.62 s — because first token measures how quickly a build <i>starts</i>, not how quickly it finishes. On a long answer this is four seconds against twelve.</small>`)}`,'sirvis')}</div>
+   <small class="mono dim">${rn.source==='live'?`the takes are kept beside the run at <b>${escapeHtml(rn.raw_runs)}</b> — this card names them rather than drawing bars it would have to fetch. <b>No control re-measurement:</b> a control is a property of a sweep, not of one run, and this engine records runs. Today's sweep bracketed itself with one and the two ends came back 26% apart, which is the number this card would otherwise be quietly missing.`:`SIRVIS has recorded no benchmark run, so there is nothing to show here yet. Run one from the Benchmarks screen and this card fills in with the takes, the medians and the control comparison for that run.`}</small>`)}
+`,'sirvis')}</div>
   
   
   <!-- Keyed on ev.source, as the two cards above it already are. These rows
@@ -5816,11 +5539,16 @@ async function sirvisDownloads(){
    <div class="trace-step"><b>on reload</b><span>jobs continue</span></div>
    <div class="trace-step"><b>on cancel</b><span>idempotent</span></div>
    <small class="mono dim">a download is a job in the service with an id, not a fetch in this tab. That is the difference between a progress bar and a progress <i>report</i>.</small>`)}
-   ${explains('what a failed download records',`
+   ${/* **Only when a download has actually failed.** This block read
+        `failed.variant`, `.bytes` and `.total` unconditionally, which was safe
+        only because the fabricated job list always contained one. It is an
+        explanation of what a failure records, and with no failure there is
+        nothing to explain. */
+     failed?explains('what a failed download records',`
    <div class="trace-step"><b>variant</b><span>${escapeHtml(failed.variant)}</span></div>
    <div class="trace-step"><b>transferred</b><span>${escapeHtml(failed.bytes)} of ${escapeHtml(failed.total)} GB</span></div>
    <div class="trace-step"><b>error</b><span>${escapeHtml(failed.error)}</span></div>
-   <small class="mono dim">the file downloaded and then did not fit — with ${escapeHtml(d.disk_free_gb)} GB free the next attempt fails the same way, so the honest report is the specific condition rather than "download failed". Retrying it is a user's decision with the numbers in front of them.</small>`)}`,'sirvis')}</div>
+   <small class="mono dim">the file downloaded and then did not fit — with ${escapeHtml(d.disk_free_gb)} GB free the next attempt fails the same way, so the honest report is the specific condition rather than "download failed". Retrying it is a user's decision with the numbers in front of them.</small>`):''}`,'sirvis')}</div>
   
   `}
 
@@ -5961,41 +5689,11 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
  if(usage.live)return liveRavisDashboard(decisions.items,usage,prof);
- const [rd,req]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests()]);
- const active=defaultProfile(prof.items);
- const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
- $('#content').innerHTML=kpis([['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`],
-   ['Routing P50',usage.routing_p50_ms+' ms','cached · rule-based'],['Local',usage.local_pct+'%','of today'],
-   ['Spend',money(usage.spend_estimated,usage.spend_currency),`estimated · ${usage.spend_window||'24h'} ${stamp(SERVICES.ravis.age)}`]],'ravis')
- +`<div class="card full"><h3>Routing profile <span class="chip">every client</span></h3>${cell(`
-   <div class="profile-row">${prof.items.map(x=>`<button class="mode-chip${escapeHtml(x.profile_id===active.profile_id?' on':'')}${escapeHtml(ARMED===x.profile_id?' armed':'')}" onclick="armProfile('${jsAttr(x.profile_id)}')" title="${escapeHtml(x.profile_id)} · rev ${escapeHtml(x.revision)}">${escapeHtml(x.label)}</button>`).join('')}
-    <span class="mono dim" style="margin:0 0 0 auto">${escapeHtml(prof.items.length)} published by RAVIS</span></div>
-   ${ARMED&&ARMED!==active.profile_id?(()=>{const t=prof.items.find(x=>x.profile_id===ARMED);
-    return banner(`Activate ${t.profile_id}?`,
-     `This is not a preference for this page — it changes the router's default for <b>every client</b>, including Clarvis's agent and chat pools and any application already holding a session. Sessions with affinity keep their current target until they end; every decision after that uses <b>${escapeHtml(t.label)}</b>. Sent with <b>If-Match rev ${escapeHtml(active.revision)}</b>, so it fails rather than racing another operator, and it is audited with actor, target, precondition and result.
-      <br>${control(`Activate ${escapeHtml(t.label)}`,'activateProfile',' primary')}
-      <button class="btn" onclick="ARMED=null;render()">Cancel</button>`)})():''}
-   <small class="mono dim">the chips on NERVIS's chat screen look like these and are not the same control: those set a profile <b>for one conversation</b>, as a parameter on that request, and change nothing for anyone else. This one is a stored state change under <b>routing-control</b>, which is why it asks first. Profiles are published by RAVIS and cannot be invented by a client — ${escapeHtml(prof.items.map(x=>x.profile_id).join(', '))}.</small>`,'ravis')}</div>`
- +`<div class="card wide"><h3>${escapeHtml(rd.pool)} · candidates</h3>
-  <small class="mono dim">eligible after hard constraints — ranked by preference</small>
-  <div class="route-lanes">${rd.eligible.map(c=>`<div class="lane${escapeHtml(c.selected?' selected':'')}" onclick="selectOne(this,'.lane')"><b>${escapeHtml(c.location)} / ${escapeHtml(c.target)}</b><span>${c.score===null?'<small style="opacity:.5">no evidence</small>':c.score.toFixed(2)}</span><small>${escapeHtml(c.notes.join(' · '))} ${escapeHtml(c.ttft_s?' · TTFT '+c.ttft_s+'s':'')}${escapeHtml(c.cost_eur?' · €'+c.cost_eur+' est':'')} ${prov(ekind[c.evidence.kind],c.evidence.samples?'SIRVIS n='+c.evidence.samples:c.evidence.kind==='PROVIDER_METADATA'?'provider metadata':'')}</small></div>`).join('')}</div>
-  <small class="mono dim">removed before scoring — a constraint, not a ranking</small>
-  <div class="route-lanes">${rd.excluded.map(x=>`<div class="lane excluded"><b>${escapeHtml(x.target)}</b><span>—</span><small>${escapeHtml(x.constraint)}</small></div>`).join('')}</div></div>
- <div class="card narrow"><h3>Decision trace</h3>
-  <div class="trace-step"><b>requirements</b><span>tools · ${escapeHtml(rd.requirements.minimum_context/1024)}K</span></div>
-  <div class="trace-step"><b>hard constraints</b><span>${escapeHtml(rd.eligible.length+rd.excluded.length)} → ${escapeHtml(rd.eligible.length)}</span></div>
-  <div class="trace-step"><b>pool invariant</b><span>tools ${escapeHtml(rd.requirements.tools)}</span></div>
-  <div class="trace-step"><b>scoring</b><span>${escapeHtml(rd.eligible.length)} ranked</span></div>
-  <div class="trace-step"><b>session affinity</b><span>${escapeHtml(rd.affinity)}</span></div>
-  <div class="trace-step"><b>execute</b><span>${escapeHtml(rd.execution_path)}</span></div>
-  <small class="mono dim">total ${escapeHtml(rd.timings_ms.total)} ms</small></div>
- <div class="card narrow"><h3>Fallback chain</h3>
-  <div class="trace-step"><b>primary</b><span>${escapeHtml(rd.eligible.find(c=>c.selected).target.split(' · ')[0])}</span></div>
-  ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${escapeHtml(f.split(' · ')[0])}</span></div>`).join('')}
-  <small class="mono dim">every fallback satisfies the same hard constraints and pool invariant. Cancellation is not a failure and never triggers one.</small></div>
- <div class="card wide"><h3>Recent requests</h3><div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-  ${req.items.map(r=>`<div class="table-row five"><span>${escapeHtml(r.pool)}</span><span>${escapeHtml(dash(r.model))}</span><span class="mono">${escapeHtml(dash(r.execution_path))}</span><span>${escapeHtml(r.ttft_s?r.ttft_s+'s':'—')}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${escapeHtml(r.result)}</span></div>`).join('')}
-  <small class="mono dim">${noRouteNote(req)}— a no-route is a first-class outcome, not an error: it failed closed rather than reaching for a provider.</small></div>`}
+ $('#content').innerHTML=banner('RAVIS has recorded no route decision',
+  'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
+  +'this screen explains exactly which model was chosen and why every other candidate was '
+  +'eliminated.','info');
+}
 
 /* ── RAVIS SCREENS ─────────────────────────────────────────────────────────
    RAVIS owns every figure on these pages except the benchmark evidence, which is
@@ -6008,18 +5706,6 @@ async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
 /* Routes — one decision, in full. The funnel is derived from the record itself
    (eligible + excluded → eligible) rather than captioned, so it cannot drift away
    from the data underneath it. */
-/* The Recent-decisions caption, which used to assume a NO_ROUTE row was present.
-
-   It always was in the mock — the fixture carries one deliberately — and it never
-   is against a service that is working, so wiring the real endpoint made the
-   Routes screen throw. Derived from the rows actually in hand rather than from
-   one the fixture happened to include. */
-function noRouteNote(req){
- const refused=req.items.find(r=>r.result==='NO_ROUTE');
- if(refused&&refused.reason)return refused.reason+'. ';
- const refusals=req.items.filter(r=>r.result==='NO_ROUTE').length;
- return refusals?`${refusals} of these were refused. `:'None of these were refused. ';
-}
 /* The Routes screen, from RAVIS's own decision records.
  *
  * What the live record carries and the mock invented are different sets, and
@@ -6135,43 +5821,11 @@ async function ravisRoutes(){
     RAVIS does not publish, so mixing them would put invented numbers beside
     measured ones on the same screen. */
  if(live.live)return liveRoutesScreen(live.items,prof);
- const [rd,req]=await Promise.all([API.ravis.routeDecision(),API.ravis.requests()]);
- const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
- const considered=rd.eligible.length+rd.excluded.length;
- const phases=Object.entries(rd.timings_ms).filter(([k])=>k!=='total');
- /* **`defaultProfile` is the fallback, not a second `find`.** Both `find`s return
-    undefined when RAVIS publishes no profiles at all, and the very next line
-    reads `active.label` — which blanked this screen the moment the invented
-    profiles stopped being supplied. The helper three thousand lines up exists
-    for exactly this and carries the same comment; this call site was written
-    without it. */
- const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)
-   ||defaultProfile(prof.items);
- $('#content').innerHTML=kpis([
-   ['Profile',active.label||'none published',`${active.profile_id?active.profile_id+' · rev '+active.revision:'RAVIS has published no routing profile'}`,'ravis'],
-   ['Candidates',`${considered} → ${rd.eligible.length}`,'after hard constraints','ravis',false],
-   ['Decision',rd.timings_ms.total+' ms','rule-based · no model call','ravis',false],
-   ['Affinity',rd.affinity.split(' · ')[0],rd.affinity.split(' · ')[1]||'','ravis',false]])
- +`<div class="card wide"><h3>${escapeHtml(rd.pool)} · decision ${escapeHtml(rd.decision_id)}</h3>${cell(`
-   <div class="table-row head"><span>Requirement</span><span>Value</span><span style="grid-column:3/-1">Effect</span></div>
-   <div class="table-row"><span>tools</span><span class="mono">${escapeHtml(rd.requirements.tools)}</span><span style="grid-column:3/-1;opacity:.75">a candidate that failed the tool probe is removed, not down-ranked</span></div>
-   <div class="table-row"><span>minimum_context</span><span class="mono">${escapeHtml(rd.requirements.minimum_context.toLocaleString())}</span><span style="grid-column:3/-1;opacity:.75">a smaller context window is ineligible — the request is never truncated to fit one</span></div>
-   <small class="mono dim">eligible after hard constraints, ranked by preference</small>
-   <div class="route-lanes">${rd.eligible.map(c=>`<div class="lane${escapeHtml(c.selected?' selected':'')}" onclick="selectOne(this,'.lane')"><b>${escapeHtml(c.location)} / ${escapeHtml(c.target)}</b><span>${c.score===null?'<small style="opacity:.5">no evidence</small>':c.score.toFixed(2)}</span><small>${escapeHtml(c.notes.join(' · '))} ${escapeHtml(c.ttft_s?' · TTFT '+c.ttft_s+'s':'')}${escapeHtml(c.cost_eur?' · €'+c.cost_eur+' est':'')} ${prov(ekind[c.evidence.kind],c.evidence.samples?'SIRVIS n='+c.evidence.samples:c.evidence.kind==='PROVIDER_METADATA'?'provider metadata':'')}</small></div>`).join('')}</div>
-   <small class="mono dim">removed before scoring — a constraint, not a ranking</small>
-   <div class="route-lanes">${rd.excluded.map(x=>`<div class="lane excluded"><b>${escapeHtml(x.target)}</b><span>—</span><small>${escapeHtml(x.constraint)}</small></div>`).join('')}</div>
-   <small class="mono dim">${escapeHtml(rd.excluded.length)} of ${considered} candidates never reached the scoring phase, so none of them has a score to show. Selected: <b>${escapeHtml(rd.eligible.find(c=>c.selected).target)}</b> over ${escapeHtml(rd.execution_path)} — and note that it is not the top score. <b>${escapeHtml(rd.eligible.reduce((a,b)=>(b.score||0)>(a.score||0)?b:a).target)}</b> scores higher on provider metadata, costs €0.004 a call, crosses the network and is currently behind a half-open breaker. The Auto profile weighs those against a local build that is already resident; a different profile reaches a different answer from the same candidates.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Where the ${escapeHtml(rd.timings_ms.total)} ms went</h3>${cell(
-   phases.map(([k,v])=>`<div class="wf"><span>${k}</span><div class="track"><i style="left:0;width:${escapeHtml(Math.round(v/rd.timings_ms.total*100))}%"></i><b style="left:8px">${v} ms</b></div></div>`).join('')
-   +`<small class="mono dim">routing is rules and cached evidence, not a model deciding about models. The whole decision costs ${escapeHtml(rd.timings_ms.total)} ms against a ${escapeHtml(rd.eligible.find(c=>c.selected).ttft_s)}s time to first token — three orders of magnitude below the thing it is choosing.</small>`,'ravis')}</div>
-  <div class="card narrow"><h3>Fallback chain</h3>${cell(`
-   <div class="trace-step"><b>primary</b><span>${escapeHtml(rd.eligible.find(c=>c.selected).target.split(' · ')[0])}</span></div>
-   ${rd.fallbacks.map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span>${escapeHtml(f.split(' · ')[0])}</span></div>`).join('')}
-   <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed rule. A user cancelling is not a failure and never advances this chain.</small>`,'ravis')}</div>
-  <div class="card wide"><h3>Recent decisions</h3>${cell(`
-   <div class="table-row head five"><span>Pool</span><span>Model</span><span>Path</span><span>TTFT</span><span>Result</span></div>
-   ${req.items.map(r=>`<div class="table-row five"><span class="mono">${escapeHtml(r.pool)}</span><span>${escapeHtml(dash(r.model))}</span><span class="mono">${escapeHtml(dash(r.execution_path))}</span><span>${escapeHtml(r.ttft_s?r.ttft_s+'s':'—')}</span><span class="chip${warnUnless(['OK','CANCELLED'].includes(r.result))}">${escapeHtml(r.result)}</span></div>`).join('')}
-   <small class="mono dim">${noRouteNote(req)}NO_ROUTE is a first-class result: it failed closed on a constraint rather than reaching for a provider that would have satisfied the request and broken the promise.</small>`,'ravis')}</div>`}
+ $('#content').innerHTML=banner('RAVIS has recorded no route decision',
+  'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
+  +'this screen explains exactly which model was chosen and why every other candidate was '
+  +'eliminated.','info');
+}
 
 /* Pools — a pool is its invariants, and on this machine every one of them has a
    member, so the interesting question is not which pool is empty but who is in

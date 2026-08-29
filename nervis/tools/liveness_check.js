@@ -39,7 +39,7 @@ const FILE = path.join(__dirname, "..", "index.html");
  * the same reason: it is the CLI invocation, which is a reference rather than a
  * reading, and a liveness badge on a command would be claiming a service
  * answered for it. */
-const CEILING = 57;
+const CEILING = 48;
 
 const source = fs.readFileSync(FILE, "utf8");
 
