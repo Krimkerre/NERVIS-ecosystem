@@ -143,7 +143,11 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=DEGRADED,
         reason="reads shipped at M18a, plus pool membership and provider "
-        "configuration writes; §15.1's Idempotency-Key and audit event are M18b",
+        "configuration writes, each audited to the hub and returning its "
+        "post-state (M18b). Still degraded for one reason: §15.1 asks a "
+        "mutation to be *separately* authorized, and `_may_write` is inert on "
+        "a loopback bind and distinguishes only anonymous from authenticated "
+        "elsewhere — the same authorization as ordinary inference",
     ),
     "ravis.events@1": Capability(
         version="1.0.0",

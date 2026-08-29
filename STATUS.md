@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1596 tests, no network, no live service
+.venv/bin/pytest                      # part of 1607 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1596 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1607 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2124,6 +2124,47 @@ to both producers: two lanes in one trace, RAVIS with two events and a measured
 3550 ms bar, SIRVIS with one event drawn correctly as a point. Both producers
 now publish, and both were checked by reading what actually arrived in the hub
 rather than by trusting the tests.
+
+**RAVIS M18b's management half — audited mutations and `If-Match`.** §15.1 asks
+five things of every mutation. Three now hold that did not; one was already
+there; and one is deliberately not implemented, which is the entry worth reading.
+
+*Audited* — all five mutations publish an audit event to the hub, built from
+named non-secret facts rather than from the request, so §15.1's "never expose
+credential values" holds by construction rather than by a redaction somebody has
+to remember. An audit event mints a trace when the caller sent none: `emit`
+drops a trace-less event on purpose, which is right for telemetry and wrong for
+an audit record, since a browser sends no `traceparent` and the dashboard is
+where these mutations come from — honouring that rule unchanged would have fired
+the audit for everything except the ordinary case.
+
+*`If-Match` and a returned revision* — on the pool mutation, where the revision
+needed no inventing: `revision_with` already hashes the pool's definition folded
+with the operator's narrowing, and already excludes the catalogue so installing
+a model does not invalidate somebody's open editor. The lost update it prevents
+is real rather than theoretical: every one of these stores is a read-modify-write
+over a whole JSON file, so two overlapping editors silently discard one edit.
+Optional, because making it mandatory would break every existing client to guard
+against a race most never run.
+
+*`Idempotency-Key` is deliberately absent*, and that is a finding rather than an
+omission. Four of the five mutations are full replacements and therefore
+idempotent by nature — a replay leaves identical state — so a replay cache would
+change no observable outcome, and a mechanism that changes nothing is worse than
+its absence because it implies a guarantee elsewhere. A test pins the property
+instead. The one genuine non-idempotent effect is `set_credential`'s live
+catalogue refresh, where the honest fix is a refresh cooldown rather than a
+replay cache, and it is not built.
+
+**`ravis.management@1` stays degraded, for a reason worth stating.** §15.1 asks
+that mutations be *separately* authorized. `_may_write` returns early on a
+loopback bind — the default, and the deployment these endpoints exist for — so
+the guard is inert on the ordinary install; elsewhere it distinguishes only
+anonymous from authenticated, which is the same authorization as ordinary
+inference. Any credential that can call `/v1/chat/completions` can rewrite every
+provider key. Closing that needs a permission model RAVIS does not have, which
+is a design decision rather than an implementation detail, so it is named here
+rather than quietly satisfied.
 
 **SIRVIS M14 — the benchmark queue.** Submit, poll and cancel, which is what
 `sirvis.benchmarks.jobs@1` had been promising since M6 ran synchronously, and

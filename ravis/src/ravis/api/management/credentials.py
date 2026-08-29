@@ -31,6 +31,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ravis.api.management import audit
 from ravis.credentials import CredentialStore
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
@@ -194,6 +195,13 @@ async def set_credential(name: str, body: CredentialInput, request: Request) -> 
             status_code=400,
         )
     refreshed = await _recatalogue(request, name)
+    # Named facts only: which provider, and whether it is now configured. The
+    # secret is in scope one line above and is deliberately not passed — §15.1's
+    # "never expose credential values" held by construction rather than by a
+    # redaction somebody has to remember.
+    audit.record(request, audit.ACTION_CREDENTIAL_SET,
+                 provider=name, configured=status.configured,
+                 source=status.source, catalogue_total=refreshed)
     return {**status.as_dict(), "catalogue_total": refreshed}
 
 
@@ -241,7 +249,15 @@ async def forget_credential(name: str, request: Request) -> Any:
     refusal = _may_write(request)
     if refusal:
         return _refused(refusal)
-    return _store(request).forget(name).as_dict()
+    status = _store(request).forget(name)
+    # `still_configured` is the fact worth auditing: a delete that leaves the
+    # credential in place from the environment or the Keychain is not a failed
+    # delete, and an audit trail recording only "forgotten" would describe a
+    # state the deployment is not in.
+    audit.record(request, audit.ACTION_CREDENTIAL_FORGOTTEN,
+                 provider=name, still_configured=status.configured,
+                 source=status.source)
+    return status.as_dict()
 
 
 @router.put("/{name}/enabled")
@@ -258,7 +274,9 @@ async def set_enabled(name: str, body: EnabledInput, request: Request) -> Any:
     if refusal:
         return _refused(refusal)
     state: ProviderState = request.app.state.provider_state
-    return {"name": name, "enabled": state.set_enabled(name, body.enabled)}
+    enabled = state.set_enabled(name, body.enabled)
+    audit.record(request, audit.ACTION_PROVIDER_ENABLED, provider=name, enabled=enabled)
+    return {"name": name, "enabled": enabled}
 
 
 async def _catalogue(request: Request, name: str) -> list[str]:
@@ -416,4 +434,9 @@ async def set_model_filter(name: str, body: FilterInput, request: Request) -> An
     filters.set_for(
         name, ModelFilter(include=tuple(body.include), exclude=tuple(body.exclude))
     )
+    # Counts rather than the patterns. A filter is operator configuration and
+    # not a secret, but an audit line is a summary — and the endpoint returns
+    # the whole filter to the caller who asked for it anyway.
+    audit.record(request, audit.ACTION_PROVIDER_MODELS, provider=name,
+                 include=len(body.include), exclude=len(body.exclude))
     return await read_model_filter(name, request)

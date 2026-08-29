@@ -40,6 +40,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ravis.api.management import audit
 from ravis.api.management.credentials import _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
@@ -553,6 +554,34 @@ async def read_pool_members(pool_key: str, request: Request) -> Any:
     }
 
 
+def _if_match_refusal(request: Request, current: str) -> JSONResponse | None:
+    """§15.1's `If-Match`, or None when the caller did not ask for one.
+
+    Optional by design. A dashboard that has not been taught to send one keeps
+    working exactly as before — making it mandatory would break every existing
+    client to protect against a race most of them never run. A caller that
+    *does* send one gets the guarantee, which is the useful half.
+
+    `*` matches anything, per the HTTP definition: it means "I know this exists
+    and I do not care which version", which is a different and weaker claim than
+    naming one.
+    """
+    wanted = request.headers.get("if-match", "").strip()
+    if not wanted or wanted == "*":
+        return None
+    if wanted.strip('"') == current:
+        return None
+    return JSONResponse(
+        {"error": {
+            "message": "the pool changed since you read it; re-read and try again",
+            "type": "conflict",
+            "expected": wanted.strip('"'),
+            "current": current,
+        }},
+        status_code=412,
+    )
+
+
 @router.put("/pools/{pool_key}/members")
 async def set_pool_members(
     pool_key: str, body: PoolMembersInput, request: Request
@@ -586,11 +615,30 @@ async def set_pool_members(
     # and "I ticked everything" plainly means the pool should keep qualifying
     # models on its own.
     stored = () if len(asked) == len(eligible) else tuple(asked)
+    # §15.1's `If-Match`, and the one endpoint where the revision needed no
+    # inventing: `revision_with` already hashes the pool's behavioural
+    # definition folded with the operator's narrowing, and it is already
+    # published on the read. It deliberately excludes the catalogue, so
+    # installing a model does not invalidate somebody's open editor.
+    #
+    # **The lost update this prevents is real, not theoretical.** Every one of
+    # these stores is a read-modify-write over a whole JSON file, so two
+    # overlapping editors silently discard one of the two edits — no error,
+    # no trace, and the second reader sees a selection nobody chose.
+    held = request.app.state.pool_membership.for_pool(pool_id)
+    conflict = _if_match_refusal(request, pool.revision_with(held))
+    if conflict is not None:
+        return conflict
     request.app.state.pool_membership.set_for(pool_id, stored)
+    audit.record(request, audit.ACTION_POOL_MEMBERS, pool=pool_id,
+                 chosen=len(stored), refused=len(refused), narrowed=bool(stored))
     return {
         "pool_id": pool_id,
         "chosen": list(stored),
         "narrowed": bool(stored),
+        # The post-state's revision, so the next edit can send it back. §15.1
+        # asks a mutation to return "the actual post-state plus revision".
+        "revision": pool.revision_with(stored),
         # Named rather than silently dropped, because a picker that reported
         # success on a selection it did not keep would teach an operator that
         # the invariants are advisory.
