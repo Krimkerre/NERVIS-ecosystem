@@ -2652,11 +2652,16 @@ sixty seconds — twenty after a failure, so a service that has just come back i
 not treated as absent for a minute. Without that, a chat screen with RAVIS down
 would wait out the same timeout before every reply.
 
-**The browser prints the reading under a reply, but only when it moved.** It
-used to be greeting furniture; it now travels on every turn, because the model
-is given the same figures and a paraphrase needs something to be checked
-against. Printing an identical line under every message trains the eye to skip
-it, and the one time it matters is the time it changed.
+**The browser prints the reading under the greeting, and nowhere else.** It
+travels on every turn — the model is given it, and a paraphrase needs something
+to be checked against — but *printing* it under every reply is a different
+decision and was the wrong one. It shipped with a dedupe: show the line only
+when it changed. That held while the reading was three counts; it stopped
+holding when the reading grew event tallies and ages, which move every minute,
+so "only when it changed" became "every time" and every answer arrived wearing a
+status bar. The welcome is where it earns its place — NERVIS is speaking first,
+the figures are the reason it has anything to say, and the model is told to
+state no numbers at all.
 
 **Verified against the real ecosystem, not a mock.** A second NERVIS was started
 on 8791 against the running SIRVIS, LM Studio, Ollama and code-server, with a

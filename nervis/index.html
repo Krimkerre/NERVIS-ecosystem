@@ -8145,22 +8145,28 @@ async function runOffer(index){
  render();
 }
 
-/* NERVIS's own figures, attached to a reply only when they have moved.
-   The reading now travels with every turn rather than only the greeting,
-   because the model is given it and a paraphrase needs something to be checked
-   against. Printing the identical line under every message trains the eye to
-   skip it — and the one time it matters is the time it changed. */
-let LAST_READING='';
+/* NERVIS's own figures, printed under the greeting and nowhere else.
+
+   They travel on every turn — the model is given them, and a paraphrase needs
+   something to be checked against — but *printing* them under every reply is a
+   different decision, and the wrong one. It was first written that way with a
+   dedupe: only show the line when it changed. That reasoning held while the
+   reading was three counts; it stopped holding when the reading grew event
+   tallies and ages, which change every minute, so "only when it changed" became
+   "every time" and the answer arrived wearing a status bar.
+
+   The welcome is where it earns its place: NERVIS is speaking first, the figures
+   are the reason it has anything to say, and the model is told to state no
+   numbers at all. Everywhere else the reply is the answer and the reading is
+   furniture. */
 function withReading(message,reading){
- if(!reading||reading===LAST_READING)return message;
- LAST_READING=reading;
- return {...message,reading};
+ return reading?{...message,reading}:message;
 }
 
 /* Both of the things that ride beside a reply: what NERVIS read, and what it
    offered to do about what was asked. */
 function withExtras(outcome){
- const message=withReading(replyMessage(outcome),outcome.reading);
+ const message=replyMessage(outcome);
  return outcome.offer?{...message,offer:outcome.offer}:message;
 }
 
