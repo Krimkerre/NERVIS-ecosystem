@@ -455,6 +455,11 @@ FACTS_TIMEOUT_SECONDS = 4.0
 # the read rather than what is said about it.
 EVENT_SAMPLE = 200
 
+# How many benchmark jobs are read when the question is about them. The queue
+# runs one at a time (§4.2), so anything past the recent handful is history the
+# Benchmarks screen holds.
+JOB_SAMPLE = 25
+
 # How long RAVIS's catalogue is reused before it is read again. The registry,
 # the leases and the hub are already in memory and cost nothing per turn; the
 # catalogue is one HTTP call, and doing it on every message would put a remote
@@ -558,7 +563,10 @@ async def send(request: Request) -> Any:
     # forbids model output becoming an action, and the way that rule survives a
     # refactor is for the proposal to be built before the model has seen
     # anything at all. `offer` is a value; nothing here can carry it out.
-    offer = commands.propose(content, await _catalogue(request)) if not greeting else None
+    offer = (
+        commands.propose(content, await _catalogue(request), await _jobs(request, content))
+        if not greeting else None
+    )
     if offer is not None:
         awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
     system = _house_system(
@@ -865,6 +873,33 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
         services, windows, events, catalogue, request.app.state.chat_clock(),
         question=asked, models=models,
     )
+
+
+async def _jobs(request: Request, question: str) -> list[dict[str, Any]]:
+    """SIRVIS's benchmark queue, read only when the question is about it.
+
+    Not cached and not read on every turn: it changes minute to minute, so a
+    stale answer to "is a benchmark running" is worse than no answer, and most
+    turns have nothing to do with the queue. Reads are open on SIRVIS — the
+    scope is on the *mutation* — so this needs no credential.
+    """
+    if not any(word in question.lower() for word in ("bench", "job", "queue")):
+        return []
+    entry: RegistryEntry | None = request.app.state.registry.get("sirvis")
+    if entry is None:
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            entry.declaration.base_url + "/api/v1/benchmark-jobs",
+            params={"limit": JOB_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
+        )
+        if answered.status_code >= 400:
+            return []
+        items = answered.json().get("items") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+    return [item for item in items if isinstance(item, dict)]
 
 
 async def _catalogue(request: Request) -> list[dict[str, Any]]:

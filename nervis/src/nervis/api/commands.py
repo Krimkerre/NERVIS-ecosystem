@@ -25,6 +25,7 @@ free-form path §12 exists to prevent, dressed as a parameter.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request
@@ -89,11 +90,17 @@ async def run(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError(f"no such operation {operation!r}")
     if not target:
         raise InvalidConfigurationError("an operation needs a target")
+    if operation == "sirvis.benchmark.cancel":
+        return await _cancel_benchmark(request, target)
     return await _submit_benchmark(request, target)
 
 
-async def _submit_benchmark(request: Request, model: str) -> dict[str, Any]:
-    """Queue one benchmark of one model, with NERVIS's own narrow credential."""
+def _peer(request: Request) -> tuple[RegistryEntry, Any]:
+    """SIRVIS, negotiated and credentialled, or a refusal saying which is missing.
+
+    Shared by both operations because both fail the same two ways, and a second
+    copy of this is how one of them ends up skipping the capability check.
+    """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("sirvis")
     verdict = negotiate(
@@ -109,13 +116,18 @@ async def _submit_benchmark(request: Request, model: str) -> dict[str, Any]:
         # this token; an install that starts SIRVIS some other way has not been
         # given one, and saying so beats a 401 the person has to interpret.
         raise InvalidConfigurationError(
-            "NERVIS holds no benchmark credential for SIRVIS, so it cannot queue "
-            "one. The launcher mints a `benchmark`-scoped token at start; if "
-            "SIRVIS was started another way, mint one with "
+            "NERVIS holds no benchmark credential for SIRVIS, so it cannot act "
+            "on the queue. The launcher mints a `benchmark`-scoped token at "
+            "start; if SIRVIS was started another way, mint one with "
             '`sirvis token --mint nervis --scopes "benchmark"` and set '
             "NERVIS_SIRVIS_CLIENT_CREDENTIAL."
         )
+    return entry, settings
 
+
+async def _submit_benchmark(request: Request, model: str) -> dict[str, Any]:
+    """Queue one benchmark of one model, with NERVIS's own narrow credential."""
+    entry, settings = _peer(request)
     specification = {
         **BENCHMARK_SPECIFICATION,
         "target": {**BENCHMARK_SPECIFICATION["target"], "model": model},
@@ -142,6 +154,39 @@ async def _submit_benchmark(request: Request, model: str) -> dict[str, Any]:
     return {"job": job}
 
 
+async def _cancel_benchmark(request: Request, job_id: str) -> dict[str, Any]:
+    """Ask SIRVIS to stop one job, by the id it issued.
+
+    **A cancel is a request, not a kill.** §4.2 has a running job wind itself
+    down — `cancel_requested` is set and the worker stops at its next boundary —
+    so what comes back is the job's state, which may still be `running` for a
+    moment. Reporting it as stopped would be inventing an outcome; the queue's
+    own answer travels instead.
+    """
+    entry, settings = _peer(request)
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.post(
+            entry.declaration.base_url
+            + f"/api/v1/benchmark-jobs/{quote(job_id, safe='')}/cancel",
+            json={},
+            headers={"Authorization": f"Bearer {settings.sirvis_client_credential}"},
+            timeout=SUBMIT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        _audit(request, job_id, "unreachable", type(failure).__name__, "cancel")
+        raise InvalidConfigurationError(f"SIRVIS did not answer: {failure}") from failure
+
+    payload = _body_of(answered)
+    if answered.status_code >= 400:
+        detail = str((payload.get("error") or {}).get("message") or answered.status_code)
+        _audit(request, job_id, "refused", detail, "cancel")
+        raise InvalidConfigurationError(f"SIRVIS refused it: {detail}")
+    job = payload.get("job") or {}
+    _audit(request, job_id, "cancelled", str(job.get("state") or ""), "cancel")
+    return {"job": job}
+
+
 def _body_of(answered: httpx.Response) -> dict[str, Any]:
     """SIRVIS's body, or an empty one — a refusal without JSON is still a refusal."""
     try:
@@ -151,7 +196,9 @@ def _body_of(answered: httpx.Response) -> dict[str, Any]:
     return found if isinstance(found, dict) else {}
 
 
-def _audit(request: Request, model: str, outcome: str, detail: str) -> None:
+def _audit(
+    request: Request, target: str, outcome: str, detail: str, verb: str = "submit"
+) -> None:
     """Every attempt, published — §12 asks for audit and this is the whole of it.
 
     Failures too, and for the more important reason: a control surface that
@@ -163,8 +210,8 @@ def _audit(request: Request, model: str, outcome: str, detail: str) -> None:
         severity="info" if outcome == "queued" else "warning",
         subject={"type": "service", "id": "sirvis"},
         data={
-            "operation": "sirvis.benchmark.submit",
-            "target": model,
+            "operation": f"sirvis.benchmark.{verb}",
+            "target": target,
             "outcome": outcome,
             "detail": detail,
         },

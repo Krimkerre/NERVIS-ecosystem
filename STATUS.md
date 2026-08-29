@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1641 tests, no network, no live service
+.venv/bin/pytest                      # part of 1646 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 354 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1641 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1646 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,31 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**Cancel is the second operation, and "cancel the benchmark" resolves itself.**
+The person almost never says the job id, and NERVIS knows which job is live: the
+queue is read when the question mentions a benchmark or a job, and the offer
+names the one that is running. Nothing running is not an offer — it says so.
+*Two* running is not an offer either, because guessing there stops work somebody
+is waiting on. Cancel is matched before submit, since *"cancel the benchmark of
+qwen3-4b"* contains a perfectly good submit request inside it, and reading it as
+one would answer "stop that" by starting another.
+
+The button's verb lives on the operation rather than in the summary handed to
+the model — the summary is the sentence that came back conjugated into a claim
+that the work had already happened. And what comes back from a cancel is
+SIRVIS's own state: §4.2 winds a running job down at its next boundary, so a job
+may still read `running` for a moment, and reporting "stopped" would be
+inventing the outcome.
+
+**Verified end to end, by the operator rather than by a test.** Asked in chat for
+a benchmark of qwen3-4b, the Run button under the reply queued `bj_57fdc3b8f6fb`
+through `/api/v1/commands/run`, and SIRVIS ran it: 21:12:24 to 21:13:28,
+`succeeded`, five samples, 19.4 tok/s median, marked `SUSPECT` with its two
+reasons stated — the model was already resident so no load time was measured,
+and the machine reported thermal pressure `fair` throughout. That is the whole
+chain: a sentence, an offer, a person pressing a button, a narrow credential, a
+real measurement with its own caveats attached.
 
 **Pressing Run said "forbidden — a token with benchmark scope is required".**
 The API was exactly right and the product was wrong. §4.5 separates SIRVIS's

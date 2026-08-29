@@ -48,9 +48,19 @@ class Operation:
     service: str
     summary: str
     """How the offer reads to the person, with `{target}` filled in."""
+    action: str = "Run"
+    """What the button says. The verb lives here rather than in `summary`,
+    because the summary is handed to a model and a verb in it comes back
+    conjugated into a claim that the thing has already happened."""
 
 
 OPERATIONS: tuple[Operation, ...] = (
+    Operation(
+        id="sirvis.benchmark.cancel",
+        service="sirvis",
+        summary="the benchmark {target}",
+        action="Cancel",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
@@ -64,6 +74,16 @@ OPERATIONS: tuple[Operation, ...] = (
 )
 
 BY_ID = {operation.id: operation for operation in OPERATIONS}
+
+# Stopping one. Narrower than the submit pattern on purpose: "cancel" and "stop"
+# are ordinary words, so they only count when a benchmark or a job id is named
+# in the same breath. "stop" on its own is what somebody types to interrupt a
+# *reply*, and that button is already on the screen.
+CANCEL = re.compile(
+    r"\b(?:cancel|stop|abort|kill)\b[^.?!]*?\b(?:bench|benchmark|job|run|"
+    r"(?P<job>bj_[0-9a-f]{6,}))",
+    re.IGNORECASE,
+)
 
 # What a benchmark request looks like in a sentence. Deliberately narrow: the
 # cost of missing one phrasing is that nothing is offered and the person says it
@@ -86,6 +106,11 @@ NOT_A_MODEL = frozenset({
 
 MAX_CANDIDATES = 6
 
+# §4.2's job states that are still stoppable. A terminal job cannot be
+# cancelled, and offering to cancel one is offering something that will be
+# refused — the same reason an unknown model never becomes an offer.
+STOPPABLE = ("queued", "running")
+
 
 @dataclass(frozen=True)
 class Proposal:
@@ -104,6 +129,7 @@ class Proposal:
     ready: bool
     detail: str = ""
     candidates: tuple[str, ...] = ()
+    action: str = "Run"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -114,17 +140,29 @@ class Proposal:
             "ready": self.ready,
             "detail": self.detail,
             "candidates": list(self.candidates),
+            "action": self.action,
         }
 
 
-def propose(question: str, models: Sequence[Mapping[str, Any]]) -> Proposal | None:
+def propose(
+    question: str,
+    models: Sequence[Mapping[str, Any]],
+    jobs: Sequence[Mapping[str, Any]] = (),
+) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
     `None` for anything else, which is almost everything — this is a control
-    surface with one operation on it, not an intent classifier.
+    surface with two operations on it, not an intent classifier.
+
+    **Cancel is tried first.** "cancel the benchmark of qwen3-4b" contains a
+    perfectly good submit request inside it, and reading it as one would answer
+    "stop that" by starting another.
     """
     if not question:
         return None
+    stopping = CANCEL.search(question)
+    if stopping:
+        return _cancel_proposal(stopping.group("job") or "", jobs)
     found = BENCHMARK.search(question)
     if not found:
         return None
@@ -173,6 +211,61 @@ def _benchmark_proposal(asked: str, models: Sequence[Mapping[str, Any]]) -> Prop
     )
 
 
+def _cancel_proposal(
+    job_id: str, jobs: Sequence[Mapping[str, Any]]
+) -> Proposal:
+    """Which benchmark to stop, named rather than assumed.
+
+    **The person almost never says the job id**, and that is the interesting
+    case: "cancel the benchmark" means the one that is running, and NERVIS knows
+    which that is. When it is not one — nothing running, or two of them — the
+    offer is not ready and says which, because guessing here stops work somebody
+    is waiting on.
+    """
+    operation = BY_ID["sirvis.benchmark.cancel"]
+    live = [job for job in jobs if str(job.get("state") or "") in STOPPABLE]
+    if job_id:
+        named = [job for job in live if str(job.get("job_id") or "") == job_id]
+        if not named:
+            return Proposal(
+                operation=operation.id, service=operation.service, target=job_id,
+                summary=operation.summary.format(target=job_id), ready=False,
+                action=operation.action,
+                detail=f"no queued or running job with the id {job_id!r}",
+                candidates=tuple(_label(job) for job in live[:MAX_CANDIDATES]),
+            )
+        live = named
+    if not live:
+        return Proposal(
+            operation=operation.id, service=operation.service, target="", ready=False,
+            summary="a benchmark", action=operation.action,
+            detail="no benchmark is queued or running, so there is nothing to stop",
+        )
+    if len(live) > 1:
+        return Proposal(
+            operation=operation.id, service=operation.service, target="", ready=False,
+            summary="a benchmark", action=operation.action,
+            detail=f"{len(live)} benchmarks are queued or running — say which",
+            candidates=tuple(_label(job) for job in live[:MAX_CANDIDATES]),
+        )
+    target = str(live[0].get("job_id") or "")
+    return Proposal(
+        operation=operation.id, service=operation.service, target=target,
+        summary=operation.summary.format(target=_label(live[0])), ready=True,
+        action=operation.action,
+    )
+
+
+def _label(job: Mapping[str, Any]) -> str:
+    """A job as a person would recognise it: its id, its model and its state."""
+    parts = [str(job.get("job_id") or "?")]
+    model = str(job.get("model") or "")
+    if model:
+        parts.append(model)
+    parts.append(str(job.get("state") or "?"))
+    return " · ".join(parts)
+
+
 def _name(model: Mapping[str, Any]) -> str:
     """A model's id under either spelling RAVIS uses."""
     return str(model.get("model_id") or model.get("id") or "")
@@ -197,11 +290,12 @@ def told(proposal: Proposal | None) -> str:
         # model reads as an afterthought, and "never say X" leaves it composing
         # a synonym.
         return (
-            f"The person asked about {proposal.summary}. There is an unpressed Run "
-            "button under your reply. It is the only thing that can start this, and "
-            "it has not been pressed, so this benchmark does not exist yet — it is "
-            "an offer on screen and nothing more. Tell them the button is there and "
-            "that it is theirs to press. Describe it in the future tense only."
+            f"The person asked about {proposal.summary}. There is an unpressed "
+            f"{proposal.action} button under your reply. It is the only thing that "
+            "can do this, and it has not been pressed, so nothing has changed yet — "
+            "it is an offer on screen and nothing more. Tell them the button is "
+            "there and that it is theirs to press. Describe it in the future tense "
+            "only."
         )
     return (
         f"The person asked for something NERVIS can offer — {proposal.summary} — but "

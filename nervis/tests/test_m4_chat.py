@@ -971,6 +971,125 @@ def test_every_attempt_is_published_including_the_refused_ones() -> None:
     assert attempts[-1]["data"]["target"] == "phi-4-mini-instruct"
 
 
+def _with_queue(
+    client: TestClient, sent: list[dict[str, Any]], jobs: list[dict[str, Any]]
+) -> None:
+    """A SIRVIS whose queue holds these jobs, and a RAVIS that answers chat."""
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/benchmark-jobs" in url:
+            return httpx.Response(200, json={"items": jobs})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+
+
+def test_cancel_the_benchmark_means_the_one_that_is_running() -> None:
+    """The person almost never says the job id, and NERVIS knows which it is."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_queue(client, sent, [
+        {"job_id": "bj_aaa111", "state": "running", "model": "phi-4-mini-instruct"},
+        {"job_id": "bj_old", "state": "succeeded", "model": "qwen/qwen3-4b-2507"},
+    ])
+
+    answered = turn(client, "cancel the benchmark", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["operation"] == "sirvis.benchmark.cancel"
+    assert offer["target"] == "bj_aaa111"
+    assert offer["ready"] is True
+    # The button says what it does. The verb lives on the operation rather than
+    # in the summary, because a verb in the summary comes back out of the model
+    # conjugated into a claim that it already happened.
+    assert offer["action"] == "Cancel"
+
+
+def test_nothing_running_is_not_something_to_offer_to_stop() -> None:
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_queue(client, sent, [{"job_id": "bj_old", "state": "succeeded", "model": "m"}])
+
+    answered = turn(client, "stop that benchmark", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["ready"] is False
+    assert "nothing to stop" in offer["detail"]
+
+
+def test_two_live_jobs_are_not_picked_between() -> None:
+    """Guessing here stops work somebody is waiting on."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_queue(client, sent, [
+        {"job_id": "bj_one", "state": "running", "model": "a"},
+        {"job_id": "bj_two", "state": "queued", "model": "b"},
+    ])
+
+    answered = turn(client, "cancel the benchmark", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["ready"] is False
+    assert "say which" in offer["detail"]
+    assert any("bj_one" in candidate for candidate in offer["candidates"])
+
+
+def test_cancelling_a_named_benchmark_is_not_read_as_starting_one() -> None:
+    """"cancel the benchmark of qwen3-4b" contains a perfectly good submit
+    request inside it, and reading it as one answers "stop that" by starting
+    another."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_queue(client, sent, [
+        {"job_id": "bj_live", "state": "running", "model": "qwen/qwen3-4b-2507"},
+    ])
+
+    answered = turn(client, "cancel the benchmark of qwen3-4b", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["operation"] == "sirvis.benchmark.cancel"
+
+
+def test_a_confirmed_cancel_reaches_sirvis_with_the_credential() -> None:
+    sent: list[httpx.Request] = []
+    client = an_api()
+    client.app.state.settings.sirvis_client_credential = "benchmark-scoped"  # type: ignore[attr-defined]
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={"job": {"job_id": "bj_aaa111", "state": "running"}})
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = client.post(
+        "/api/v1/commands/run",
+        json={"operation": "sirvis.benchmark.cancel", "target": "bj_aaa111"},
+    )
+
+    assert answered.status_code == 200
+    assert str(sent[0].url).endswith("/api/v1/benchmark-jobs/bj_aaa111/cancel")
+    assert sent[0].headers["authorization"] == "Bearer benchmark-scoped"
+    # SIRVIS's own state travels: a cancel is a request and a running job winds
+    # down at its next boundary, so "stopped" would be an invented outcome.
+    assert answered.json()["job"]["state"] == "running"
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

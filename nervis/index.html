@@ -5277,8 +5277,10 @@ async function submitBenchmark(){
 }
 
 async function cancelBenchmark(jobId){
- const out=await RUNTIME._send('/api/v1/benchmark-jobs/'+encodeURIComponent(jobId)+'/cancel','POST',{});
- if(out&&out.job)notify(`${out.job.job_id} is ${out.job.state}`);
+ /* Through NERVIS, like the submit above it: cancelling needs the same
+    `benchmark` scope, and this tab deliberately holds no token that has it. */
+ const out=await runCommand('sirvis.benchmark.cancel',jobId);
+ notify(out.job?`${out.job.job_id} is ${out.job.state}`:out.error);
  repaint();
 }
 
@@ -7943,7 +7945,7 @@ function offerRow(offer,index){
     and the product being wrong. NERVIS holds its own `benchmark`-scoped
     credential now, minted by the launcher, so the person presses Run. */
  return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-   <button class="btn primary" onclick="runOffer(${index})">Run</button>
+   <button class="btn primary" onclick="runOffer(${index})">${escapeHtml(offer.action||'Run')}</button>
    <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}</span>
   </div>`;
 }
@@ -7979,16 +7981,18 @@ async function runOffer(index){
  const message=CHAT_SESSION.messages[index];
  const offer=message&&message.offer;
  if(!offer||offer.done||!offer.ready)return;
- if(offer.operation!=='sirvis.benchmark.submit'){
-  offer.done='NERVIS does not know how to carry that out';return render()}
- offer.done='queueing…';
+ const stopping=offer.operation==='sirvis.benchmark.cancel';
+ offer.done=stopping?'asking SIRVIS to stop it…':'queueing…';
  render();
  const out=await runCommand(offer.operation,offer.target);
- /* SIRVIS's own job id, or the reason it refused — neither composed here,
-    because the queue is the only thing that knows the state of a job. */
+ /* SIRVIS's own job and state, or the reason it refused — neither composed
+    here, because the queue is the only thing that knows the state of a job.
+    **A cancel is a request, not a kill** (§4.2): a running job winds down at its
+    next boundary, so the state that comes back may still be `running` for a
+    moment and saying "stopped" would be inventing the outcome. */
  offer.done=out.job
-   ?`queued on SIRVIS · job ${String(out.job.job_id).slice(0,12)} · ${out.job.state||'pending'}`
-   :`nothing was queued — ${out.error}`;
+   ?`${stopping?'cancel asked of SIRVIS':'queued on SIRVIS'} · job ${String(out.job.job_id).slice(0,12)} · ${out.job.state||'pending'}`
+   :`${stopping?'nothing was cancelled':'nothing was queued'} — ${out.error}`;
  render();
 }
 
