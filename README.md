@@ -75,7 +75,19 @@ SIRVIS's Resource Manager rather than a launcher. Their state is reported
 instead, because "nothing is routing" and "no runtime is running" look identical
 from the dashboard and have very different fixes.
 
-Logs are in `.run/`, one file per service.
+Logs are in `.run/`, one file per service, and so are the credentials the
+launcher mints so that nothing has to be pasted anywhere:
+
+| File | What it is |
+|---|---|
+| `.run/dashboard.token` | SIRVIS, `read runtime` — handed to the page in the URL fragment so it can load and release models |
+| `.run/nervis-benchmark.token` | SIRVIS, `benchmark` — held by NERVIS, never by the browser, so a confirmed "bench this model" can be carried out |
+| `.run/nervis-ravis.token` | NERVIS's identity to RAVIS, stored on both sides, so its reads are named rather than anonymous |
+
+All three are mode `0600`, minted once and reused. They are local credentials
+for services the person running the launcher already controls; the reason each
+exists is in `NERVIS.md` §12.1, and the reason the second one is not in the
+browser is the whole of that section.
 
 ## How these relate to the products
 
@@ -126,6 +138,12 @@ the same number is how one of them starts lying.
 That sentence previously said SIRVIS and NERVIS were still specifications, which stopped being
 true many milestones ago and stayed on the front page — the exact failure the paragraph above
 warns about, in the file that warns about it.
+
+**NERVIS chat can be talked to about the machine, and asked to do a short list of
+things to it.** It reads the registry, the queue, the runtime and RAVIS's routing
+record, and offers — never performs — an enumerated set of operations that a
+person confirms with a button. The contract for both halves is `NERVIS.md` §7.0;
+the credentials that make the second half possible are §12.1.
 
 The single most useful verified fact in this set, because it determines the build order:
 

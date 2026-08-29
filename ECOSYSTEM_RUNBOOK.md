@@ -170,6 +170,14 @@ changing payloads. Default exposure is loopback only; no endpoint is remotely re
 by default. WebSocket/JSONL adapters are extensions, never substitutes for the v1 SSE
 contract.
 
+**MEP is a contract between the services this ecosystem builds.** LM Studio, code-server and
+Ollama are somebody else's programs and owe it nothing. An observer may *translate* what such a
+service publishes in its own dialect into this vocabulary — see `NERVIS.md` §5.2.1 — under one
+cross-product rule: **a translated observation is never presented as a published one.** It
+carries a marker saying it was derived, it contains nothing the service did not actually answer,
+and it never counts toward MEP conformance. A third-party service that is described accurately
+is still a third-party service.
+
 ### 4.1 Required metadata endpoints
 
 Every service endpoint exposes:

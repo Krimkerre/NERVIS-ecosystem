@@ -32,9 +32,9 @@ cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 386 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 386 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency

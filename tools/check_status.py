@@ -106,6 +106,26 @@ def claimed(pattern: str, text: str) -> int:
     return int(match.group(1)) if match else -1
 
 
+def check_package_counts(text: str, failures: list[str]) -> None:
+    """Each package's own asserted count, not just the total.
+
+    **The total hid three wrong numbers.** The verify block names a count per
+    package — `cd sirvis && … # 407 tests` — and nothing checked them, so an
+    editing session that kept the *total* right while moving numbers between
+    lines passed this gate with protocol, sirvis and nervis all misreported. A
+    reader running the command in front of them would have been the one to find
+    it, which is the failure mode this whole file exists to prevent.
+    """
+    for package, stated in re.findall(r"cd (\w+)\s+&&[^#\n]*#\s*(\d+) tests", text):
+        actual = _counted_in(ROOT / package)
+        if actual < 0:
+            failures.append(f"STATUS.md names a test count for {package}, which cannot be collected")
+        elif int(stated) != actual:
+            failures.append(
+                f"STATUS.md says {stated} tests for {package}; it has {actual}."
+            )
+
+
 def check_numbers(text: str, failures: list[str]) -> None:
     """Compare every number STATUS.md asserts against the real one."""
     for label, pattern, actual in (
@@ -312,6 +332,7 @@ def main() -> int:
     text = STATUS.read_text()
     failures: list[str] = self_test()
     check_numbers(text, failures)
+    check_package_counts(text, failures)
     check_referenced_paths(text, failures)
     check_next_milestone_is_not_already_done(text, failures)
 

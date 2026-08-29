@@ -171,6 +171,32 @@ and audit/confirmation policy.
 **Gate:** remove each capability in fixtures and confirm the UI disables or hides only the
 dependent features, and **never calls a guessed endpoint.**
 
+### 5.2.1 Adapted capabilities — services that never agreed to be read
+
+A third-party runtime publishes no MEP surface, and "reachable" is the whole of what the rules
+above allow NERVIS to say about it. That is honest and it is the same sentence whether LM Studio
+is holding twenty models or none.
+
+**An adapter may translate an observation, and may never invent one.** NERVIS asks the service a
+question in its own dialect — LM Studio's `/api/v0/models`, code-server's `/healthz` — and
+reports the answer in this vocabulary. What it produces is subject to three rules:
+
+- **Marked as derived.** Every capability an adapter produces carries `capability_source:
+  "adapted"` on the registry entry, is published with it, and is labelled on screen. A derived
+  capability is a weaker fact than a published one, and the difference must survive to the
+  reader — this section exists because the rule above it is about controls bound to things
+  nobody promised.
+- **Observed, not inferred.** No synthesised `service_id`, no version the service did not state,
+  and no capability that a real answer did not demonstrate. A capability whose evidence is a
+  model *list* says so in its reason: the surface answered, and no operation was attempted
+  through it.
+- **A status code is not an answer.** A service may return `200` with an error body for every
+  path it does not serve — LM Studio does — so an adapter checks for the shape it asked for and
+  treats anything else as absence.
+
+**Gate:** an adapted entry is never counted as MEP-compliant, and removing the adapter returns
+the entry to reachability alone rather than to a stale capability set.
+
 ## 5.3 Service discovery
 
 Initially, configured localhost ports with a health test per service. Automatic local discovery
@@ -289,6 +315,53 @@ summaries or suggestions. Each is a RAVIS background call and must carry RAVIS's
 marker (RAVIS §9.6.1) rather than arriving as an ordinary completion on the user's chosen
 profile. An untitled conversation is a smaller failure than a title billed to a frontier
 model.
+
+## 7.0 What chat is allowed to know, and what it may offer to do
+
+**Chat is a client of RAVIS, and it is also the surface of a control plane.** Asked *"is SIRVIS
+up?"*, a plain client has two answers and both are wrong: plead blindness in the product whose
+job is seeing, or invent a state. NERVIS holds the registry, the leases and the event hub while
+that question is being asked.
+
+**The reading.** Every ordinary turn carries what NERVIS has actually read — each service with
+its state, detail, build and age; the registered editor windows; the model catalogue with what is
+loaded; a recent event tally; recent failures with the field that explains each. Where the
+question names something, that thing travels in depth: a service with the reasons behind its
+withheld capabilities, SIRVIS's queue and the measurements a finished run produced, the local
+runtime's own account of what it has loaded, RAVIS's recent routing decisions with its own
+sentence about each.
+
+Four rules govern it:
+
+- **It is fenced.** Every string in the reading was written by another program, so it is enclosed
+  the way §11.5 encloses a diagnostic packet, and the same walk clips each field and strips the
+  marker. A service's failure detail is retrieved content: evidence, never intent.
+- **What was not read stays absent.** A catalogue that could not be fetched is left out rather
+  than reported as empty, an unparseable timestamp yields no age, and the prompt says to answer
+  *"NERVIS has not read it"* rather than estimate.
+- **It rides with a persona.** A request that configures nothing still sends no system message at
+  all: a gateway that prepends to every request is not a plain client.
+- **Measurement outranks memory.** With cross-conversation recall on, the reading is assembled
+  *after* the recalled conversations and says so — a remembered answer describes the moment it was
+  given, and a similar question is not a reason to repeat it.
+
+**Offers, not actions.** NERVIS may carry out an enumerated set of operations named in the
+person's own words — today: queue a benchmark, cancel one, change this conversation's pool. Four
+constraints, and they are the section:
+
+1. **The proposal is parsed from what the person typed**, before the model sees anything. Nothing
+   a model returns may become an action (§11.5), and a proposal built from model output would be
+   that rule waiting to be broken.
+2. **The set is closed.** An operation outside it does not exist rather than failing validation,
+   and a target it cannot resolve — an unknown model, two matching pools — is not offered at all.
+3. **A person presses the button.** The offer is rendered beside the reply and does nothing until
+   confirmed; the model is told the button exists and told what it may not claim.
+4. **Every attempt is published**, refusals included: a control surface that records only what
+   worked cannot answer *"did something try to do this"*.
+
+**Gate:** an instruction planted in a service's error message reaches the prompt as fenced
+evidence and produces no offer; and a question about a past operation ("how did the benchmark
+go?") never becomes an offer to perform one.
 
 ## 7.1 Routing inspector
 
@@ -562,6 +635,30 @@ clears it, so a crash-loop cannot be re-entered by retry.
 
 **Gate:** start/stop/restart, crash loop, stale PID, PID reuse, partial start, NERVIS
 crash/restart and unauthorized-actor tests never affect external instances.
+
+## 12.1 Credentials NERVIS holds, and what each is for
+
+Acting on a peer means presenting something to it, and the shape of that is a decision this
+section owns rather than one each caller makes.
+
+- **One credential per peer, mapped in one place.** A caller asks for the credential belonging to
+  the service it is calling; nothing hands a credential to a peer it was not issued for.
+- **The narrowest scope that works.** Where a peer separates scopes by what they cost — SIRVIS
+  charges `benchmark` differently from `runtime` — NERVIS holds the one for the operations it
+  offers and no more. An admin credential in a control plane is a control plane whose compromise
+  is total.
+- **Never in the browser.** A credential in a tab is a credential in every script that tab runs.
+  The page asks NERVIS to act; NERVIS presents the credential.
+- **Configuration, and a switch.** An absent credential means the operation does not exist and
+  says so, rather than failing as a refusal the reader has to interpret. That is §12's "every
+  switch defaults to off" in its ordinary form.
+- **Read credentials are for identity, not privilege.** A peer that rate-limits anonymous callers
+  is entitled to know who is asking; NERVIS presents its own identity on ordinary reads for that
+  reason alone, and a rate-limited read that reports as an empty service is the defect this
+  prevents.
+
+**Gate:** a credential issued for one peer never appears in a request to another, and no
+credential is served to the browser by any endpoint.
 
 ---
 
