@@ -37,6 +37,7 @@ import json
 import os
 import pathlib
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -86,18 +87,79 @@ def code_server_binary() -> str:
     return shutil.which("code-server") or ""
 
 
-def code_server_password() -> str:
-    """A password for this deployment's code-server, minted once and kept.
+USER_CONFIG = Path.home() / ".config" / "code-server" / "config.yaml"
 
-    **Auth is left on, deliberately.** `--auth none` on loopback is defensible
-    and it is also a decision this launcher should not make quietly: the Stage 9
-    matrix grades authentication as one of its axes, and a deployment that
-    turned it off would make that cell untestable while looking like it passed.
-    So a password is generated, stored at `0600` beside the logs, and printed by
-    `start` — the convenience is in not having to find it, not in removing it.
+
+def _yaml_value(text: str, key: str) -> str:
+    """One `key: value` line out of code-server's config.
+
+    A three-line regex rather than a YAML dependency: this file has four keys,
+    code-server writes it itself, and adding pyyaml to a launcher that currently
+    needs nothing but the standard library would be a poor trade.
+    """
+    found = re.search(rf"^{re.escape(key)}:\s*(.+)$", text, re.MULTILINE)
+    return found.group(1).strip() if found else ""
+
+
+def code_server_settings() -> tuple[list[str], int, str]:
+    """(extra arguments, port, how it was decided).
+
+    **The user's own config wins, completely.** If `~/.config/code-server/config.yaml`
+    exists, this launcher passes no `--config` at all and code-server reads it the
+    way it always would — same port, same password, same everything. Starting a
+    program is not a licence to reconfigure it, and the first version of this
+    function got that wrong in both directions at once: it refused to *write*
+    the user's file, which was right, and then ignored what was in it, which
+    meant a password they had deliberately set was replaced by a generated one
+    they had no reason to expect.
+
+    It also forced `XDG_DATA_HOME` to a private directory, on the theory that
+    the ecosystem's extensions should not land in a code-server somebody runs
+    for their own work. The immediate consequence was that
+    `code-server --install-extension` — which does not read that variable from
+    anywhere — installed Clarvis into the default directory while the running
+    server looked in the private one, and the extension simply was not there.
+    One data directory, the ordinary one, is both simpler and what somebody
+    reading the install line would expect it to mean.
+
+    A config is written only when there is none to respect.
+    """
+    if USER_CONFIG.exists():
+        text = USER_CONFIG.read_text(encoding="utf-8")
+        bind = _yaml_value(text, "bind-addr")
+        port = int(bind.rsplit(":", 1)[-1]) if ":" in bind else CODE_SERVER_PORT
+        return [], port, f"your own {USER_CONFIG}"
+    return ["--config", str(_written_config())], CODE_SERVER_PORT, "written by this launcher"
+
+
+def _written_config() -> Path:
+    """A config for a machine that has none, kept under `.run/` and rewritten each start.
+
+    **Auth is left on, deliberately.** `--auth none` on loopback is defensible and
+    it is also a decision this launcher should not make quietly: the Stage 9
+    matrix grades authentication as one of its axes, and a deployment that turned
+    it off would make that cell untestable while looking like it passed.
+    """
+    RUN.mkdir(parents=True, exist_ok=True)
+    config = RUN / "code-server.yaml"
+    handle = os.open(config, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(
+            f"bind-addr: 127.0.0.1:{CODE_SERVER_PORT}\n"
+            "auth: password\n"
+            f"password: {_generated_password()}\n"
+            "cert: false\n"
+        )
+    return config
+
+
+def _generated_password() -> str:
+    """A password for a machine with no code-server config, minted once and kept.
 
     Same idiom as `dashboard_token`, and for the same reason: the manual step
-    nobody exercises is the step whose instructions go stale.
+    nobody exercises is the step whose instructions go stale. Never consulted
+    when the user has a config of their own — that file's password is the one
+    that is in effect, and printing a different one would be a lie.
     """
     cached = RUN / "code-server.password"
     try:
@@ -112,32 +174,6 @@ def code_server_password() -> str:
     with os.fdopen(handle, "w", encoding="utf-8") as out:
         out.write(minted + "\n")
     return minted
-
-
-def code_server_config() -> Path:
-    """This deployment's own config file, rewritten on every start.
-
-    **Not `~/.config/code-server/config.yaml`.** That file belongs to the person
-    using the machine, and a launcher that rewrote it would change the port and
-    password of a code-server they run for their own reasons. Keeping ours under
-    `.run/` means the two can both exist, and means `stop` plus deleting `.run/`
-    leaves nothing behind.
-
-    Rewritten rather than created-if-absent, so an edited port here cannot drift
-    from the port NERVIS proxies to — the failure that produces is a Code tab
-    that is blank for a reason three files away from what it shows.
-    """
-    RUN.mkdir(parents=True, exist_ok=True)
-    config = RUN / "code-server.yaml"
-    handle = os.open(config, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(handle, "w", encoding="utf-8") as out:
-        out.write(
-            f"bind-addr: 127.0.0.1:{CODE_SERVER_PORT}\n"
-            "auth: password\n"
-            f"password: {code_server_password()}\n"
-            "cert: false\n"
-        )
-    return config
 
 
 def venv_bin(name: str) -> Path:
@@ -288,23 +324,16 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     walks the services — `start`, `stop`, `status` — gains it without knowing it
     is conditional. The alternative is a flag threaded through three functions,
     and the third one to forget it is the bug.
-
-    `--config` rather than a pile of flags: code-server reads its own file for
-    everything else, and passing half the settings on the command line and half
-    in a file is how the two end up disagreeing.
     """
     binary = code_server_binary()
     if not binary:
         return []
-    env = dict(os.environ)
-    # Its own state directory, so this deployment's extensions and settings do
-    # not land in a code-server the person already runs for their own work.
-    env["XDG_DATA_HOME"] = str(RUN / "code-server-data")
+    extra, port, _ = code_server_settings()
     return [(
         "code-server",
-        [binary, "--config", str(code_server_config())],
+        [binary, *extra],
         # **The program name, checked against a real 4.135.0 rather than reasoned
-        # about.** The first version used the config path, on the theory that it
+        # about.** An earlier version used the config path, on the theory that it
         # was unique to this deployment and had to still be on the command line
         # for the process to know its port. It is not: code-server re-execs into
         # `lib/node out/node/entry` and its arguments do not survive, so `stop`
@@ -316,8 +345,8 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # so the marker only has to rule out PID *reuse*, never somebody else's
         # code-server.
         "code-server",
-        env,
-        f"http://127.0.0.1:{CODE_SERVER_PORT}/healthz",
+        dict(os.environ),
+        f"http://127.0.0.1:{port}/healthz",
     )]
 
 
@@ -490,12 +519,17 @@ def start() -> int:
         print(f"  {name:<11} {'ready' if answering else 'NOT ready — see .run/' + name.lower() + '.log'}")
 
     if code_server_binary():
-        print(f"\ncode-server: http://127.0.0.1:{CODE_SERVER_PORT}")
-        print(f"  password   {code_server_password()}")
-        print(f"  also in    {RUN / 'code-server.password'} (mode 0600)")
+        extra, port, source = code_server_settings()
+        print(f"\ncode-server: http://127.0.0.1:{port}")
+        print(f"  config     {source}")
+        if extra:
+            # Only when this launcher wrote the config. When the user has one of
+            # their own, the password in it is theirs and printing anything here
+            # would either leak it or contradict it.
+            print(f"  password   {_generated_password()}")
+            print(f"  also in    {RUN / 'code-server.password'} (mode 0600)")
         print("  install Clarvis into it with:")
-        print(f"    code-server --config {RUN / 'code-server.yaml'} \\")
-        print("      --install-extension ../clarvis/clarvis.vsix")
+        print(f"    code-server --install-extension {ROOT.parent / 'clarvis' / 'clarvis.vsix'}")
     else:
         # Named, not silent. Stage 9 grades code-server, so "it is not here" is
         # a fact somebody needs, and a launcher that simply omitted the line
