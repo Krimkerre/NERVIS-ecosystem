@@ -62,6 +62,36 @@ def an_api() -> TestClient:
 # ── An invalid event cannot crash the hub ──────────────────────────────────
 
 
+def test_a_restart_is_not_an_outage() -> None:
+    """The sweep can land after uvicorn has begun closing the socket, and NERVIS
+    then observes *itself* as unreachable. That reached the hub as a warning and
+    came back out of a chat answer as "a ConnectError indicating no response
+    from the nervis service" — reported by the process answering the question.
+    """
+    import asyncio
+
+    from nervis.app import _announce_transitions
+    from nervis.registry import RegistryState
+
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    api = create_app(settings)
+    before = {entry.key: entry.state for entry in api.state.registry.all()}
+    for entry in api.state.registry.all():
+        entry.state = RegistryState.UNREACHABLE
+
+    api.state.stopping = asyncio.Event()
+    api.state.stopping.set()
+    _announce_transitions(api, before)
+
+    assert not api.state.hub.query(latest=True, limit=10), "shutdown published events"
+
+    # And with the service running, the same transitions are published.
+    api.state.stopping.clear()
+    _announce_transitions(api, before)
+
+    assert api.state.hub.query(latest=True, limit=10)
+
+
 def test_nothing_a_producer_sends_raises() -> None:
     """The headline clause, against everything worth throwing at it.
 

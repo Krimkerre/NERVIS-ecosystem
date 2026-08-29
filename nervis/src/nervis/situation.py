@@ -296,17 +296,31 @@ def printed_line(
     return "; ".join(parts) if parts else "nothing has been read yet"
 
 
-def _recent_failures(events: Sequence[Mapping[str, Any]], now: datetime) -> list[str]:
+def _recent_failures(
+    events: Sequence[Mapping[str, Any]],
+    now: datetime,
+    ignore: frozenset[str] = frozenset(),
+) -> list[str]:
     """The last few things that actually went wrong, with what each said.
 
     Separate from the tally above, because the tally is the shape of the last
     fifteen minutes and this is the content of the part that matters. Warnings
     are included: a breaker opening is a warning, and it is exactly the thing a
     person means by "is anything wrong".
+
+    **Two filters that were missing, and both were visible in one answer.** This
+    read the newest failures *of any age* while the line above it said "last 15
+    minutes" — so a machine quiet for an hour was told about warnings from
+    twenty-three minutes ago under a heading claiming otherwise. And it listed
+    warnings about peers that are absent rather than broken; those stopped being
+    emitted, but the ones already in the hub kept being read, which is how a
+    fixed alarm goes on ringing for its retention period.
     """
     bad = [
         event for event in events
         if str(event.get("severity") or "") in ("error", "critical", "warning")
+        and _within(event, now)
+        and _source_of(event) not in ignore
     ]
     if not bad:
         return ["nothing has failed in the hub's recent window"]
@@ -553,7 +567,14 @@ def block(
     if catalogue:
         lines.append(f"models: {catalogue}")
     lines += _event_summary(events, now)
-    lines += _recent_failures(events, now)
+    # Peers that have never answered are absent rather than broken (§5.1), so a
+    # warning about one is not something that went wrong.
+    absent = frozenset(
+        str(service.get("key") or "")
+        for service in services
+        if service.get("awaiting_first_contact")
+    )
+    lines += _recent_failures(events, now, absent)
     for name in _loaded(models):
         lines.append(f"loaded in the runtime right now: {name}")
     lines += _model_names(models, question)

@@ -301,6 +301,16 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
     hub = getattr(api.state, "hub", None)
     if hub is None:
         return
+    # **Nothing observed during shutdown is news.** The sweep can land after
+    # uvicorn has begun closing the socket, and NERVIS then observes *itself*
+    # as unreachable — which reached the hub as a warning and came back out in
+    # a chat answer as "a ConnectError indicating no response from the nervis
+    # service", reported by the very process that was answering the question.
+    # A restart is not an outage, and this is the only place that can tell the
+    # difference.
+    stopping = getattr(api.state, "stopping", None)
+    if stopping is not None and stopping.is_set():
+        return
     for entry in api.state.registry.all():
         was = before.get(entry.key)
         if was is None or was == entry.state:

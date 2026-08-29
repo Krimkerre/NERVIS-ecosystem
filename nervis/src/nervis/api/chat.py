@@ -697,15 +697,21 @@ def _house_system(
     # load-bearing, and it would have been the one place without a clock.
     if any(parts) or speaking_first:
         parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
-        # Under the same condition as the clock, and for the same reason: a
-        # request with no persona, no name and no house style still sends no
-        # system message at all. Ecosystem awareness is something NERVIS adds to
-        # its own assistant, not something it injects into a plain client of
-        # RAVIS's API. Empty when there is nothing read or when this is a
-        # greeting — the join drops it either way.
-        parts.append(situation)
     if _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
+    # **Last, and after the recall.** Under the same condition as the clock, and
+    # for the same reason: a request with no persona, no name and no house style
+    # still sends no system message at all — ecosystem awareness is something
+    # NERVIS adds to its own assistant, not something it injects into a plain
+    # client of RAVIS's API.
+    #
+    # It goes *after* the recalled conversations because of what happened when
+    # it went before them: asked the same question twice, an 8B build answered
+    # word for word the same both times, quoting its own earlier reply out of
+    # the recall instead of reading the fresh figures above it. Memory outranked
+    # measurement, and position is half of what decides that.
+    if any(parts) or speaking_first:
+        parts.append(situation)
     return "\n\n".join(part for part in parts if part)
 
 
@@ -760,7 +766,13 @@ def _recall(database: Any, conversation_id: str) -> str:
     return (
         "Earlier conversations on this machine, most recent first. Refer to them "
         "only when they are relevant, and never claim to remember something that "
-        "is not written here.\n\n" + "\n\n".join(lines)
+        "is not written here.\n\n"
+        "**They are memories, not measurements.** Anything below about the state "
+        "of this machine — which services were up, what was loaded, what had "
+        "failed — describes the moment it was said and may be hours stale. The "
+        "ecosystem reading in this message is current and wins wherever the two "
+        "disagree. Do not repeat an earlier answer because the question is "
+        "similar: answer from the reading.\n\n" + "\n\n".join(lines)
     )
 
 

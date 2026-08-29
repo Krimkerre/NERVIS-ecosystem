@@ -1492,6 +1492,77 @@ def test_a_peer_nobody_installed_is_absent_rather_than_broken() -> None:
     )
 
 
+def test_the_failures_list_obeys_its_own_window() -> None:
+    """It said "last 15 minutes" above a list that read the newest failures of
+    any age — so a machine quiet for an hour was told about a warning from
+    twenty-three minutes ago, under a heading claiming otherwise."""
+    now = datetime.now(timezone.utc).astimezone()
+    # Stamped in UTC, because the `Z` says UTC: formatting a local clock and
+    # labelling it Z puts every event two hours in the future in this timezone,
+    # which the window then filters out for the wrong reason.
+    utc = now.astimezone(timezone.utc)
+    old = (utc - timedelta(minutes=40)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh = (utc - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    events = [
+        {"severity": "warning", "event_type": "ravis.old.trouble", "occurred_at": old,
+         "subject": {"id": "ravis"}, "data": {"detail": "forty minutes ago"}},
+        {"severity": "warning", "event_type": "ravis.fresh.trouble", "occurred_at": fresh,
+         "subject": {"id": "ravis"}, "data": {"detail": "two minutes ago"}},
+    ]
+
+    lines = "\n".join(situation._recent_failures(events, now))
+
+    assert "two minutes ago" in lines
+    assert "forty minutes ago" not in lines
+
+
+def test_a_stale_warning_about_an_absent_peer_stops_being_read() -> None:
+    """The warnings stopped being emitted; the ones already in the hub kept
+    being read, which is how a fixed alarm goes on ringing for the length of its
+    retention."""
+    now = datetime.now(timezone.utc).astimezone()
+    recent = (now.astimezone(timezone.utc) - timedelta(minutes=3)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    events = [{
+        "severity": "warning", "event_type": "nervis.service.state_changed",
+        "occurred_at": recent, "subject": {"id": "ollama"},
+        "data": {"detail": "no response: ConnectError"},
+    }]
+
+    listed = "\n".join(situation._recent_failures(events, now, frozenset({"ollama"})))
+    unfiltered = "\n".join(situation._recent_failures(events, now))
+
+    assert "nothing has failed" in listed
+    assert "ConnectError" in unfiltered, "the filter is what removes it, not the window"
+
+
+def test_the_reading_comes_after_the_recalled_conversations() -> None:
+    """Asked the same question twice, an 8B build answered word for word the
+    same both times — quoting its own earlier reply out of the recall instead of
+    reading the fresh figures above it. Memory outranked measurement, and
+    position is half of what decides that."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    database = client.app.state.database  # type: ignore[attr-defined]
+    database.connection.execute(
+        "INSERT OR REPLACE INTO setting (key, value) VALUES ('chat.memory', ?)", ('"all"',)
+    )
+    database.connection.commit()
+    # An earlier conversation, so there is something to recall.
+    turn(client, "an earlier question", system="Be someone.")
+
+    turn(client, "how is everything?", system="Be someone.")
+
+    system = sent[-1]["messages"][0]["content"]
+    assert "Earlier conversations on this machine" in system
+    assert "They are memories, not measurements" in system
+    assert system.index("Earlier conversations") < system.index(FENCE), (
+        "the current reading has to come after the remembered ones"
+    )
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

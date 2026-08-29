@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1669 tests, no network, no live service
+.venv/bin/pytest                      # part of 1673 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 382 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 386 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1669 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1673 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2297,6 +2297,36 @@ and the second question is why somebody opens a log line. Each group is now its
 own disclosure onto the models it names, scrolled rather than inlined: forty ids
 in the flow turn the interesting line, the one attempt that ran, into
 scrollback.
+
+## Memory outranked measurement, and three smaller lies with it (30 Aug)
+
+**Asked the same question twice, an 8B build answered word for word the same
+both times.** Not a cache: `chat.memory` is set to `all` on this machine, so
+every turn carries a digest of the last five conversations — including the
+identical question and the answer given to it — and the model quoted its own
+earlier reply instead of reading the fresh figures. It had already done this
+once, in the benchmark offer that insisted the work "has been queued", and both
+times the diagnosis was the same: the recall was the last thing in the prompt
+and the reading was not.
+
+Two changes, because either alone leaves it possible. The recalled block now
+says what it is: *"They are memories, not measurements… the ecosystem reading in
+this message is current and wins wherever the two disagree. Do not repeat an
+earlier answer because the question is similar."* And **the reading moved after
+the recall**, because position decides more of this than instruction does.
+
+**The failures list ignored its own window.** It printed the newest warnings of
+any age under a heading that said "last 15 minutes", so a quiet machine was
+told about something from twenty-three minutes ago. It also kept reading
+warnings about peers that had stopped producing them — which is how a fixed
+alarm goes on ringing for the length of its retention.
+
+**And NERVIS warned about itself.** The registry sweep can land after uvicorn
+has begun closing the socket, so NERVIS observes its own port as unreachable and
+publishes a warning about it — which came back out of a chat answer as *"a
+ConnectError indicating no response from the nervis service"*, reported by the
+process that was answering the question. A restart is not an outage;
+`_announce_transitions` returns early once `stopping` is set.
 
 ## Software nobody installed stops reporting as a fault (30 Aug)
 
