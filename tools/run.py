@@ -262,17 +262,17 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # all three and wires none of them together would leave the one
             # thing Stage 7 exists for switched off by default.
             env["RAVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
-        if package == "sirvis":
-            # The same wiring for the second producer. A benchmark mints its own
-            # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
-            # what makes it appear inside somebody else's is the recommendation
-            # endpoint, which is reached over HTTP and inherits the caller's.
-            env["SIRVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
             # And at a runtime, when the operator has not named one. RAVIS with
-            # no upstream has no models, therefore no candidates, therefore
-            # nothing to ask SIRVIS about — so the evidence store reads "fresh,
-            # 0 records" and every screen downstream looks empty for a reason
-            # that is three steps away from what it shows.
+            # no upstream refuses every completion with `upstream_not_configured`,
+            # which reaches Clarvis as a 503 and reads there as "the model is
+            # down" rather than "nobody told RAVIS where any model is".
+            #
+            # **This block used to sit in the SIRVIS branch**, four lines below,
+            # where it set RAVIS's variable in SIRVIS's environment and therefore
+            # did nothing at all. The launcher printed "RAVIS upstream defaulted
+            # to LM Studio" on every start while RAVIS had no upstream — a false
+            # message that made the real cause invisible. Found from the other
+            # end: a Clarvis running under code-server logged the 503 verbatim.
             #
             # Only as a default: anything the operator set in the environment
             # wins, because guessing over a stated choice would be worse than
@@ -281,6 +281,12 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
                 env["RAVIS_UPSTREAM_BASE_URL"] = LM_STUDIO
                 env["RAVIS_UPSTREAM_KIND"] = "lmstudio"
                 env["RAVIS_DEFAULTED_UPSTREAM"] = "1"
+        if package == "sirvis":
+            # The same wiring for the second producer. A benchmark mints its own
+            # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
+            # what makes it appear inside somebody else's is the recommendation
+            # endpoint, which is reached over HTTP and inherits the caller's.
+            env["SIRVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
         if prefix == "NERVIS":
             # Where its peers are. Nothing is probed until M2, but `doctor`
             # prints these and getting them wrong here would make the first
