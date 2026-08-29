@@ -2323,6 +2323,16 @@ to apply. Filtered twice, once on each side: the Bridge publishes an allowlist
 and NERVIS repeats an allowlist, because the port is dynamic and anything on
 this machine can bind one.
 
+**And it says where the control is, not which setting to search for.** The first
+version answered *"how do I change the model"* with `clarvis.chat.model`, which
+is true and nearly useless: the model has a picker behind the bowtie to the left
+of the prompt, the mode is the button above it, and the theme belongs to VS
+Code's own switcher. Clarvis publishes a route per setting, authored beside the
+affordance it describes because Clarvis is the only thing that knows what its
+panel looks like — and every command title in those routes is checked against
+the manifest, since an instruction naming a command that does not exist is worse
+than no instruction.
+
 **And the answer always ends the same way**, which is why the line is assembled
 by NERVIS rather than left to the model: *NERVIS cannot change any of these —
 the Bridge is read-only by contract. They are changed in the editor: open

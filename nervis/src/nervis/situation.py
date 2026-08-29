@@ -554,6 +554,8 @@ def clarvis_config(windows: Sequence[Mapping[str, Any]]) -> list[str]:
             continue
         ids = window.get("setting_ids")
         ids = ids if isinstance(ids, Mapping) else {}
+        howto = window.get("guidance")
+        howto = howto if isinstance(howto, Mapping) else {}
         label = clip(str(window.get("label") or "a Clarvis window"))
         lines.append(f"{label} is configured as:")
         for field in sorted(settings):
@@ -562,6 +564,13 @@ def clarvis_config(windows: Sequence[Mapping[str, Any]]) -> list[str]:
             shown = "on" if value is True else "off" if value is False else clip(str(value))
             line = f"  {clip(str(field))}: {shown}"
             lines.append(line + (f" — setting `{named}`" if named else ""))
+            # **Clarvis's own words about its own panel.** Almost none of these
+            # are meant to be typed into a settings file — the model has a
+            # picker, the mode is a button — and "search for the id" is the
+            # worst true answer to "how do I change it".
+            route = clip(str(howto.get(field) or ""))
+            if route:
+                lines.append(f"    to change it: {route}")
     if not lines:
         return []
     # **Said once, and said as a limit rather than as help.** The instruction is
@@ -569,10 +578,10 @@ def clarvis_config(windows: Sequence[Mapping[str, Any]]) -> list[str]:
     # it for me" is the same sentence every time: NERVIS cannot, and this is
     # where you can.
     lines.append(
-        "NERVIS cannot change any of these — the Bridge is read-only by contract. "
-        "They are changed in the editor: open Settings and search for the setting id, "
-        "or edit the workspace's settings JSON. In the embedded Clarvis tab that is "
-        "the same Settings screen as a desktop editor."
+        "NERVIS cannot change any of these — the Bridge is read-only by contract. Each "
+        "line above says where the control is; give the person that route rather than "
+        "offering to do it. The Clarvis panel is in the Clarvis tab of this dashboard, "
+        "and the command palette there is the editor's own."
     )
     return lines
 

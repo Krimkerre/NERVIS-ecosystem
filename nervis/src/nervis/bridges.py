@@ -155,6 +155,34 @@ def interpret_setting_ids(body: Mapping[str, Any]) -> dict[str, str]:
     return ids
 
 
+# How long one instruction may be. Clarvis writes these; the cap is for the case
+# where the answer is not from Clarvis.
+MAX_GUIDANCE_CHARS = 400
+
+
+def interpret_guidance(body: Mapping[str, Any]) -> dict[str, str]:
+    """How to change each setting, in Clarvis's own words.
+
+    **Clarvis is the only thing that knows what its panel looks like**, so the
+    instructions are authored there and repeated here. Same allowlist on the
+    field names, and a length cap on the text — this is the one free-form string
+    in the document, and the reason it is allowed at all is that "search for
+    `clarvis.chat.model` in Settings" is the worst true answer to "how do I
+    change the model".
+
+    It is retrieved content like any other, and it reaches a model inside the
+    reading's fence.
+    """
+    found = body.get("guidance")
+    if not isinstance(found, Mapping):
+        return {}
+    return {
+        str(field): value.strip()[:MAX_GUIDANCE_CHARS]
+        for field, value in found.items()
+        if str(field) in CONFIG_FIELDS and isinstance(value, str) and value.strip()
+    }
+
+
 async def read_config(
     client: httpx.AsyncClient, instance: Instance, now: float
 ) -> dict[str, Any]:
@@ -199,6 +227,7 @@ async def read_config(
         "detail": "",
         "settings": interpret_config(body),
         "setting_ids": interpret_setting_ids(body),
+        "guidance": interpret_guidance(body),
     }
 
 

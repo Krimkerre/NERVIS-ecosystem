@@ -1572,14 +1572,18 @@ def test_asking_about_clarvis_settings_gets_values_and_where_to_change_them() ->
         "settings": {"chat.model": "ravis/clarvis-chat", "voice.enabled": True},
         "setting_ids": {"chat.model": "clarvis.chat.model",
                         "voice.enabled": "clarvis.voice.enabled"},
+        "guidance": {"chat.model": "Click the bowtie to the left of the prompt…"},
     }]
 
     lines = "\n".join(situation.clarvis_config(windows))
 
     assert "chat.model: ravis/clarvis-chat — setting `clarvis.chat.model`" in lines
     assert "voice.enabled: on" in lines
+    # **The route, not just the id.** "Search for `clarvis.chat.model` in
+    # Settings" is the worst true answer: the model has a picker behind the
+    # bowtie, and Clarvis is the only thing that knows that.
+    assert "to change it: Click the bowtie to the left of the prompt" in lines
     assert "NERVIS cannot change any of these" in lines
-    assert "open Settings and search for the setting id" in lines
 
 
 def test_only_what_the_bridge_publishes_is_repeated() -> None:
