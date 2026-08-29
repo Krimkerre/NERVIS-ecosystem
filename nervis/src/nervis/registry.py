@@ -58,7 +58,7 @@ USABLE_STATES = frozenset({RegistryState.HEALTHY, RegistryState.DEGRADED})
 OBSERVABLE = frozenset({
     "state", "detail", "service_id", "instance_id", "machine_id",
     "build_version", "protocol_version", "api_version",
-    "capabilities", "capability_revision",
+    "capabilities", "capability_reasons", "capability_revision",
 })
 
 
@@ -124,6 +124,10 @@ class RegistryEntry:
     protocol_version: str = ""
     api_version: str = ""
     capabilities: dict[str, str] = field(default_factory=dict)
+    # Why the withheld ones are withheld, straight from the peer (§4.1). Kept
+    # beside the states rather than derived from them: a reason is a sentence
+    # its owner wrote, and NERVIS has no business paraphrasing one.
+    capability_reasons: dict[str, str] = field(default_factory=dict)
     capability_revision: int = 0
     last_seen: float = 0.0
     checked_at: float = 0.0
@@ -174,6 +178,7 @@ class RegistryEntry:
             "protocol_version": self.protocol_version,
             "api_version": self.api_version,
             "capabilities": dict(self.capabilities),
+            "capability_reasons": dict(self.capability_reasons),
             "capability_revision": self.capability_revision,
             "last_seen": self.last_seen or None,
             "checked_at": self.checked_at or None,

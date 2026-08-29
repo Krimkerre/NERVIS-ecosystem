@@ -553,7 +553,7 @@ async def send(request: Request) -> Any:
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
     asked = content
-    reading, awareness = await _situation(request, greeting)
+    reading, awareness = await _situation(request, greeting, content)
     system = _house_system(
         body, database, greeting, conversation_id, nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
@@ -818,7 +818,7 @@ def _display_name(database: Any) -> str:
     return str(found).strip() if isinstance(found, str) else ""
 
 
-async def _situation(request: Request, greeting: bool) -> tuple[str, str]:
+async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple[str, str]:
     """What NERVIS prints about the ecosystem, and what it hands the model.
 
     **Two products from one reading**, assembled together so they cannot
@@ -840,58 +840,63 @@ async def _situation(request: Request, greeting: bool) -> tuple[str, str]:
     """
     services = [entry.as_dict() for entry in request.app.state.registry.all()]
     windows = len(request.app.state.instances.live("clarvis"))
-    catalogue = await _catalogue_line(request)
+    models = await _catalogue(request)
+    catalogue = situation.catalogue_line(models)
     printed = situation.printed_line(services, windows, catalogue)
     if greeting:
         return printed, ""
     events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
+    # The question travels so the reading can go deep on what it named. Nothing
+    # in it reaches the prompt — it is matched against the registry's own keys
+    # and labels and then dropped, which is why a crafted question cannot select
+    # anything NERVIS does not already publish about itself.
     return printed, situation.block(
-        services, windows, events, catalogue, request.app.state.chat_clock()
+        services, windows, events, catalogue, request.app.state.chat_clock(),
+        question=asked, models=models,
     )
 
 
-async def _catalogue_line(request: Request) -> str:
-    """RAVIS's model counts, read at most once a minute.
+async def _catalogue(request: Request) -> list[dict[str, Any]]:
+    """RAVIS's models, read at most once a minute.
 
-    Cached on the app rather than recomputed per turn, because this is the one
-    part of the reading that leaves the process. A failure is cached too, for a
-    shorter time: without that, every message to a chat screen with RAVIS down
-    would wait out the same timeout before starting.
+    The list rather than a count, because "which models do I have" is asked as
+    often as "how many" and only the names answer it. Cached on the app rather
+    than fetched per turn: this is the one part of the reading that leaves the
+    process, and a reply should not wait on a remote read. A failure is cached
+    too, for less time, so a service that has just come back is not treated as
+    absent for a minute.
     """
     state = request.app.state
-    taken, text = state.chat_catalogue or (0.0, "")
+    taken, items = state.chat_catalogue or (0.0, [])
     now = time.monotonic()
-    fresh = CATALOGUE_TTL_SECONDS if text else CATALOGUE_RETRY_SECONDS
+    fresh = CATALOGUE_TTL_SECONDS if items else CATALOGUE_RETRY_SECONDS
     if state.chat_catalogue and now - taken < fresh:
-        return text
-    text = await _model_counts(request)
-    state.chat_catalogue = (now, text)
-    return text
+        return list(items)
+    items = await _model_items(request)
+    state.chat_catalogue = (now, items)
+    return items
 
 
-async def _model_counts(request: Request) -> str:
-    """How many models RAVIS offers, and how many of them run here.
+async def _model_items(request: Request) -> list[dict[str, Any]]:
+    """What RAVIS says it can route, or an empty list.
 
-    Empty on any failure. This is decoration on a greeting, and a greeting is
-    not worth failing — or delaying past a few seconds — over.
+    Empty on any failure, which the reading then reports as absence rather than
+    as zero models — the distinction the whole invented-data sweep was about.
     """
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if entry is None:
-        return ""
+        return []
     client: httpx.AsyncClient = request.app.state.probe_client
     try:
         response = await client.get(
             entry.declaration.base_url + "/api/v1/models", timeout=FACTS_TIMEOUT_SECONDS
         )
         if response.status_code >= 400:
-            return ""
+            return []
         items = response.json().get("items") or []
     except (httpx.HTTPError, ValueError, AttributeError):
-        return ""
-    if not items:
-        return ""
-    local = sum(1 for item in items if item.get("local") is True)
-    return f"{len(items)} models routable, {local} of them on this machine"
+        return []
+    return [item for item in items if isinstance(item, dict)]
 
 
 def _placement(

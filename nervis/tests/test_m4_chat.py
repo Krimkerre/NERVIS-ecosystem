@@ -22,6 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nervis import chat as store
+from nervis import situation
 from nervis.api.chat import _first_user_message, _forwarded, _title_from
 from nervis.app import create_app
 from nervis.config import Settings
@@ -630,24 +631,131 @@ def test_a_figure_that_cannot_be_read_is_left_out_of_the_reading() -> None:
     assert "services (" in system
 
 
-def test_the_reading_carries_event_types_and_never_an_event_body() -> None:
-    """An envelope can hold a log line, a model response or a configuration
-    value. §7.2 lists what a conversation stores and none of those is on it —
-    the fence guards against injection; it is not a licence to include more."""
+def test_a_failure_travels_with_what_it_said() -> None:
+    """The rule changed on purpose, and this is where it changed.
+
+    The reading first carried event *types* and no bodies at all, which is
+    honest and useless: "ravis.upstream.failed ×1" reports that something broke
+    and refuses to say what. "It has run into an error, and explain it" is the
+    question, so the explaining field travels — bounded, redacted, and chosen
+    from a closed list rather than from whatever `data` happens to hold.
+    """
     sent: list[dict[str, Any]] = []
     client = an_api()
     _capture_into(client, sent)
     client.app.state.hub.emit(  # type: ignore[attr-defined]
         event_type="ravis.request.failed",
         severity="error",
-        data={"message": "swordfish-in-the-log-line"},
+        subject={"type": "service", "id": "ravis"},
+        data={"message": "upstream returned 503", "conversation": "not on the list"},
     )
 
     turn(client, "anything wrong?", system="Be someone.")
 
     system = sent[0]["messages"][0]["content"]
     assert "ravis.request.failed" in system
-    assert "swordfish-in-the-log-line" not in system
+    assert "upstream returned 503" in system
+    # And still only the named fields: everything else in `data` stays behind.
+    assert "not on the list" not in system
+
+
+def test_asking_about_one_service_gets_that_service_in_depth() -> None:
+    """"How is RAVIS" is the question the whole product exists to answer.
+
+    A tally of six services is not an answer to it. §7 gives chat no tools, so
+    the model cannot go and look — which leaves noticing what was asked and
+    sending that deeply, before the model sees anything.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    entry = client.app.state.registry.get("ravis")  # type: ignore[attr-defined]
+    assert entry is not None
+    # The chat capability stays available — removing it refuses the turn, which
+    # is M3's negotiation working and not what this test is about.
+    entry.capabilities = {
+        "ravis.openai_compatible.chat_completions": "available",
+        "ravis.cost.reporting": "unavailable",
+    }
+    entry.capability_reasons = {"ravis.cost.reporting": "M15 is not built"}
+
+    turn(client, "how is ravis doing?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "in detail, because the question named it" in system
+    # The sentence RAVIS wrote about its own limitation, quoted rather than
+    # paraphrased — the difference between "it cannot" and "it cannot, because".
+    assert "M15 is not built" in system
+    # And a service nobody asked about does not get the same treatment.
+    assert system.count("in detail, because the question named it") == 1
+
+
+def test_an_error_is_explained_and_not_merely_counted() -> None:
+    """"It has run into an error" has to come with what the error was."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    client.app.state.hub.emit(  # type: ignore[attr-defined]
+        event_type="ravis.upstream.failed",
+        severity="error",
+        subject={"type": "service", "id": "ravis"},
+        data={"detail": "no upstream declared; set RAVIS_UPSTREAM_BASE_URL"},
+    )
+
+    turn(client, "is ravis erroring?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "ravis.upstream.failed" in system
+    assert "no upstream declared" in system
+
+
+def test_only_a_closed_list_of_fields_is_ever_quoted_from_an_event() -> None:
+    """`data` is open-ended by design, and a failing service is the producer
+    most likely to put a credential or a whole prompt in it. So the reading
+    quotes named fields rather than whatever happens to be there — and redacts
+    what it reads, which covers the day somebody adds a field to that list."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    client.app.state.hub.emit(  # type: ignore[attr-defined]
+        event_type="ravis.upstream.failed",
+        severity="error",
+        subject={"type": "service", "id": "ravis"},
+        data={
+            "api_key": "sk-live-4242",
+            "prompt": "everything the user typed last time",
+            "detail": "rejected by the upstream",
+        },
+    )
+
+    turn(client, "how is ravis?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "rejected by the upstream" in system
+    assert "sk-live-4242" not in system
+    assert "everything the user typed last time" not in system
+
+
+def test_a_service_is_recognised_however_it_is_spelled() -> None:
+    """Nobody should have to know which spelling NERVIS filed it under."""
+    for asked in ("how is code-server", "hows CODE SERVER", "is codeserver ok"):
+        assert situation.named_in(
+            asked, [{"key": "codeserver", "label": "code-server"}]
+        ) == ["codeserver"]
+    assert situation.named_in("how is everything", [{"key": "codeserver"}]) == []
+
+
+def test_the_name_it_is_addressed_by_is_not_the_subject() -> None:
+    """"NERVIS, how is RAVIS doing" is a question about RAVIS.
+
+    Reading the addressee as a subject spends the deep half describing the one
+    service the person can already see is working — it just replied.
+    """
+    services = [{"key": "nervis", "label": "NERVIS"}, {"key": "ravis", "label": "RAVIS"}]
+
+    assert situation.named_in("NERVIS, how is ravis doing?", services) == ["ravis"]
+    # And a real question about NERVIS is still one.
+    assert situation.named_in("how is nervis holding up?", services) == ["nervis"]
 
 
 def test_a_plain_client_is_still_sent_no_system_message() -> None:

@@ -161,6 +161,12 @@ async def _probe_mep(
         "protocol_version": declared,
         "api_version": str(identity.get("api_version") or ""),
         "capabilities": advertised,
+        # §4.1 requires a reason on every capability that is not `available`,
+        # and NERVIS was reading the state and dropping the sentence next to it.
+        # That sentence is the answer to "why can it not do that" — the one
+        # question a status screen cannot answer from a state alone, and the one
+        # chat is asked in words.
+        "capability_reasons": _capability_reasons(capabilities),
         "capability_revision": int(capabilities.get("revision") or 0),
     }
 
@@ -260,6 +266,26 @@ def _detail_from(health: Mapping[str, Any]) -> str:
     if not failed:
         return ""
     return "failing: " + ", ".join(failed)
+
+
+def _capability_reasons(body: Mapping[str, Any]) -> dict[str, str]:
+    """Capability id → why it is not available, for the ones that are not.
+
+    Only the withheld ones: §4.1 makes the reason mandatory exactly there, and
+    an `available` capability's reason is the empty string it has to send to
+    satisfy the schema. Keeping those would be keeping a column of blanks.
+    """
+    entries = body.get("capabilities")
+    if not isinstance(entries, list):
+        return {}
+    return {
+        wire_identifier(str(entry["id"])): str(entry.get("reason") or "")
+        for entry in entries
+        if isinstance(entry, Mapping)
+        and entry.get("id")
+        and str(entry.get("state") or "") != "available"
+        and str(entry.get("reason") or "")
+    }
 
 
 def _capabilities(body: Mapping[str, Any]) -> dict[str, str]:

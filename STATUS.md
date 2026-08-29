@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1626 tests, no network, no live service
+.venv/bin/pytest                      # part of 1631 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 339 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 344 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1626 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1631 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2249,7 +2249,31 @@ the prompt says in as many words: if it is not in the reading, say NERVIS has
 not read it. That is the invented-data sweep's rule applied to the one surface
 that can talk back.
 
-**Event types travel; event bodies do not.** An envelope can hold a log line, a
+**Asked about one service, it answers about that service.** A tally of six
+services is not an answer to "how is RAVIS". When the question names a service —
+matched on its key and its published label with the punctuation removed, so
+"code-server", "code server" and "codeserver" are one question — the reading
+carries that service in depth: state and detail, endpoint, how many capabilities
+are available, and **the reason its owner wrote for every withheld one**. A
+leading address is stripped first: *"NERVIS, how is RAVIS doing"* is a question
+about RAVIS, and reading the addressee as the subject spent the deep half
+describing the one service the person can already see is working.
+
+**NERVIS was throwing the reasons away.** §4.1 makes a `reason` mandatory on
+every capability that is not `available`, and the probe read the state and
+dropped the sentence beside it. That sentence is the answer to "why can it not
+do that" — the question a state alone cannot answer, and the one chat is asked
+in words. `capability_reasons` is now kept on the entry and published with it.
+
+**A failure travels with what it said.** The first version carried event types
+and no bodies, which is honest and useless: `ravis.upstream.failed ×1` reports
+that something broke and refuses to say what. The explaining field now travels —
+chosen from a closed list (`detail`, `reason`, `message`, `error`, `code`,
+`status`) rather than from whatever `data` holds, redacted with the same walk
+M12 uses, and clipped. A test puts a key and a whole prompt in the same event
+and checks that neither is what gets quoted.
+
+**Event types travel; event bodies do not, unless they explain something.** An envelope can hold a log line, a
 model response or a configuration value. §7.2 lists what a conversation stores
 and none of those is on it — the fence guards against injection, it is not a
 licence to include more. The reading says `ravis.request.failed ×3`; the Events
