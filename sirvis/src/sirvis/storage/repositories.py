@@ -88,7 +88,7 @@ def create_experiment(database: Database, spec_payload: dict[str, Any], *,
 
 def start_run(database: Database, experiment_id: str, *, runtime_key: str,
               runtime_snapshot: dict[str, Any], machine_snapshot_id: str | None,
-              results_path: str | None) -> str:
+              results_path: str | None, trace_id: str = "") -> str:
     """Open a run in `RUNNING` and return its ID.
 
     Written before the work rather than after it, so a run interrupted by a
@@ -100,13 +100,27 @@ def start_run(database: Database, experiment_id: str, *, runtime_key: str,
     with database.connection as connection:
         connection.execute(
             "INSERT INTO benchmark_run (run_id, experiment_id, machine_snapshot_id,"
-            " state, detail, runtime_key, runtime_snapshot, results_path)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " state, detail, runtime_key, runtime_snapshot, results_path, trace_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (run_id, experiment_id, machine_snapshot_id, RunState.RUNNING.value,
              "preparing", runtime_key, json.dumps(runtime_snapshot, sort_keys=True),
-             results_path),
+             results_path, trace_id or None),
         )
     return run_id
+
+
+def trace_of_run(database: Database, run_id: str) -> str:
+    """The trace this run belongs to, or empty.
+
+    Read back rather than carried, so the closing event joins the same trace as
+    the opening one even when the two are emitted from different places — and
+    so a run recorded before migration 7, which has no trace, reports the
+    absence rather than a fresh id that would correlate with nothing.
+    """
+    row = database.connection.execute(
+        "SELECT trace_id FROM benchmark_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    return str(row["trace_id"]) if row and row["trace_id"] else ""
 
 
 def finish_run(database: Database, run_id: str, *, state: RunState, detail: str,

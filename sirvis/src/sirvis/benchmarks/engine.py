@@ -39,8 +39,12 @@ from __future__ import annotations
 
 import statistics
 import time
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Mapping, Protocol, Sequence
+
+from ecosystem_protocol import EventPublisher, stable_event_id
 
 from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, suppressed
 from sirvis.core.evidence import (
@@ -360,6 +364,8 @@ async def run_experiment(
     snapshot: SystemSnapshot | None = None,
     clock: Callable[[], float] = time.perf_counter,
     thermal: Callable[[], str | None] = read_thermal_pressure,
+    events: EventPublisher | None = None,
+    trace_id: str = "",
 ) -> ExperimentOutcome:
     """Run one single-model experiment end to end and persist its result.
 
@@ -385,11 +391,49 @@ async def run_experiment(
     directory.write_system(machine)
     directory.write_runtime({"runtime_key": RUNTIME_KEY, "installed": len(inventory.installed)})
 
+    # **Minted here when nobody supplied one, and stored on the row.**
+    # A benchmark is not an HTTP request: it is started from the CLI, so there
+    # is no inbound `traceparent` to inherit. A run without a trace publishes
+    # nothing that can be correlated, so the id is created rather than left
+    # empty — and it goes onto `benchmark_run` rather than into a local, so
+    # that M14's enqueue-over-HTTP can populate the same column from the
+    # caller's trace and change nothing here.
+    trace = trace_id or uuid.uuid4().hex
+    # Disabled unless a caller passed a configured one. Coalesced once so every
+    # `emit` below is a single unconditional line — SIRVIS is gated at ruff's
+    # complexity 8 and this function is already branchy.
+    publisher = events or EventPublisher(service_type="sirvis")
+
     run_id = start_run(
         database, experiment_id, runtime_key=RUNTIME_KEY,
         runtime_snapshot={"runtime_key": RUNTIME_KEY},
         machine_snapshot_id=machine["snapshot_id"],
         results_path=str(directory.path),
+        trace_id=trace,
+    )
+    # The opening event. Paired with a terminal one below so the span is an
+    # interval: `traces.Span` refuses to derive a duration from a single event,
+    # and a benchmark drawn as a point is exactly the wrong shape for the one
+    # operation in this ecosystem that takes minutes.
+    #
+    # `machine_snapshot_id` and never the snapshot: `SystemSnapshot` labels
+    # `hostname` sensitive and returns it anyway, and a hostname is very often
+    # a person's first name. A consumer that wants the conditions dereferences
+    # the id through `GET /machines/{id}`.
+    publisher.emit(
+        "sirvis.benchmark.started",
+        trace_id=trace,
+        data={
+            "run_id": run_id,
+            "experiment_id": experiment_id,
+            "model_key": spec.model_key,
+            "runtime_key": RUNTIME_KEY,
+            "machine_snapshot_id": machine["snapshot_id"],
+            "suite": spec.suite_id,
+            "suite_version": spec.suite_version,
+            "tests": len(spec.tests),
+        },
+        event_id=stable_event_id(run_id, "sirvis.benchmark.started"),
     )
     outcome = ExperimentOutcome(
         experiment_id=experiment_id, run_id=run_id, state=RunState.RUNNING,
@@ -406,6 +450,24 @@ async def run_experiment(
         directory.write_telemetry([sample.as_dict() for sample in outcome.telemetry])
         finish_run(database, run_id, state=RunState.FAILED, detail=str(failure))
         outcome.state, outcome.detail = RunState.FAILED, str(failure)
+        # The class rather than a pasted message, plus a detail with the
+        # operator's home directory folded back to `~`. A runtime failure string
+        # is composed from a base URL, a subprocess invocation or a path, and
+        # the default `lms` path expands to one containing the username. The
+        # full text stays in the database, which is local; this crosses a wire.
+        publisher.emit(
+            "sirvis.benchmark.failed",
+            trace_id=trace,
+            severity="error",
+            data={
+                "run_id": run_id,
+                "experiment_id": experiment_id,
+                "model_key": spec.model_key,
+                "failure": type(failure).__name__,
+                "detail": _without_home(str(failure)),
+            },
+            event_id=stable_event_id(run_id, "sirvis.benchmark.failed"),
+        )
         return outcome
 
     record = _evidence(spec, build, outcome, machine)
@@ -422,7 +484,37 @@ async def run_experiment(
         )],
     )
     outcome.state, outcome.detail = RunState.SUCCEEDED, "completed"
+    publisher.emit(
+        "sirvis.benchmark.completed",
+        trace_id=trace,
+        data={
+            "run_id": run_id,
+            "experiment_id": experiment_id,
+            "model_key": spec.model_key,
+            # The evidence's identity, not the evidence. A consumer follows the
+            # id to `/results`; the record itself carries measurements, and the
+            # raw takes behind them stay on disk for rescoring.
+            "evidence_id": record.identity.evidence_id,
+            "validity": record.validity.value,
+            "results": len(outcome.result_ids),
+        },
+        event_id=stable_event_id(run_id, "sirvis.benchmark.completed"),
+    )
     return outcome
+
+
+def _without_home(detail: str) -> str:
+    """A message with the operator's home directory folded back to `~`.
+
+    Not a general redaction — it closes the one leak that is actually reachable
+    here. `settings.lmstudio_cli_path` defaults to `~/.lmstudio/bin/lms`, which
+    expands to a path containing the username, and a runtime failure quotes it.
+    """
+    try:
+        home = str(Path.home())
+    except (RuntimeError, OSError):
+        return detail
+    return detail.replace(home, "~") if home else detail
 
 
 async def _execute(

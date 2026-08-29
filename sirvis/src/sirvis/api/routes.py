@@ -597,7 +597,28 @@ async def make_recommendation(request: Request) -> dict[str, Any]:
         generated_at=datetime.now(timezone.utc).isoformat(),
         matrices=_interaction_matrices(database),
     )
-    return result.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+    body = result.as_dict() | {"snapshot_revision": SNAPSHOT_REVISION}
+    # M21, and the one emission point in this service where a *caller's* trace
+    # already exists. A benchmark mints its own, so a benchmark trace has only
+    # SIRVIS in it; this endpoint is reached over HTTP through the correlation
+    # middleware, so an event here puts SIRVIS into a trace somebody else
+    # started — which is the literal reading of Stage 7's "a real cross-service
+    # request produces linked spans".
+    #
+    # The roles and the mode, never the evidence: a recommendation body carries
+    # measurements for every candidate and the timeline is not where that
+    # belongs.
+    request.app.state.events.emit(
+        "sirvis.recommendation.created",
+        trace_id=getattr(request.state, "trace_id", ""),
+        data={
+            "roles": [str(role) for role in roles],
+            "mode": str(mode),
+            "records": len(records),
+            "snapshot_revision": SNAPSHOT_REVISION,
+        },
+    )
+    return body
 
 
 def _interaction_matrices(database: Any) -> list[dict[str, Any]]:

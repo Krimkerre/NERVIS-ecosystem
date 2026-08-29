@@ -8,11 +8,14 @@ Stage 4 cannot start until it does.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
-from typing import Any, Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Awaitable, Callable
 
-from ecosystem_protocol import new_request_id, trace_id_from
+import httpx
+from ecosystem_protocol import EventPublisher, new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -20,6 +23,7 @@ from fastapi.responses import JSONResponse, Response
 from sirvis.api import router as api_router
 from sirvis.api.security import cors_headers, ensure_bootstrap_token, is_preflight
 from sirvis.config import Settings
+from sirvis.core.machine import machine_identity
 from sirvis.ecosystem import sirvis_surface
 from sirvis.errors import SirvisError, to_response
 from sirvis.resources import ResourceManager
@@ -43,7 +47,10 @@ def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> Fa
     developer's machine. Passing the runtime in closes the window: there is no
     moment at which a live adapter exists to be left behind.
     """
-    api = FastAPI(title="SIRVIS", version="0.0.1", docs_url=None, redoc_url=None)
+    api = FastAPI(
+        title="SIRVIS", version="0.0.1", docs_url=None, redoc_url=None,
+        lifespan=_lifespan,
+    )
     _attach_shared_state(api, settings, runtime)
     _register_correlation(api)
     _register_error_handling(api)
@@ -51,6 +58,35 @@ def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> Fa
     api.include_router(ecosystem_router)
     api.include_router(api_router)
     return api
+
+
+@asynccontextmanager
+async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
+    """Drain the event queue while the service is up, and once on the way out.
+
+    SIRVIS had no lifespan at all, which was fine while nothing here outlived a
+    request. M21 gives it one thing that does: `emit` only queues, so without a
+    loop the events sit in memory and are never sent — the failure mode being
+    that everything looks correct and the hub stays empty.
+
+    The client is opened here rather than shared, because SIRVIS's only other
+    outbound client belongs to the LM Studio adapter and borrowing it would tie
+    a telemetry timeout to a model load.
+    """
+    publisher: EventPublisher = api.state.events
+    if not publisher.enabled:
+        yield
+        return
+    async with httpx.AsyncClient() as client:
+        pump = asyncio.create_task(publisher.run(client))
+        try:
+            yield
+        finally:
+            pump.cancel()
+            # Bounded, so a hub that stopped answering cannot hold a shutdown
+            # open. The closing event of a benchmark is the one worth waiting a
+            # moment for.
+            await publisher.drain(client)
 
 
 def _attach_shared_state(
@@ -80,7 +116,26 @@ def _attach_shared_state(
     # SystemSnapshot; this is only who *this service* is.
     installation = uuid.uuid5(uuid.NAMESPACE_DNS, settings.database_path).hex[:12]
     api.state.service_id = f"sirvis-{installation}"
-    api.state.machine_id = uuid.uuid5(uuid.NAMESPACE_DNS, "sirvis-machine").hex
+    # **The stored identity, not a constant.** This was
+    # `uuid5(NAMESPACE_DNS, "sirvis-machine")` — the same value on every SIRVIS
+    # in existence — while `machine_identity` sat two modules away holding
+    # exactly what §4.1 asks for: locally generated, opaque, not derived from
+    # hardware, stored so it survives a restart, and resettable by deleting a
+    # row. The comment above distinguished "who this service is" from "which
+    # machine this is" and then used the machine field for the former.
+    #
+    # It goes into `source.machine_id` on every event from M21 on, where a
+    # constant would have every installation's events claiming to be one
+    # machine's.
+    api.state.machine_id = machine_identity(api.state.database)
+    # M21. Always present so `state.events.emit(...)` is unconditional at every
+    # call site; disabled unless an operator points SIRVIS at a hub.
+    api.state.events = EventPublisher(
+        service_type="sirvis",
+        service_id=api.state.service_id,
+        machine_id=api.state.machine_id,
+        base_url=settings.nervis_base_url,
+    )
     # Built once, holds no state about what is loaded: the runtime is the
     # authority on that (§7), and a cache would be wrong the first time anything
     # else on this machine loaded something.

@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     tls_certificate_path: str = ""
     tls_key_path: str = ""
 
+    # ── Ecosystem events (runbook §4.4 — M21) ───────────────────────────────
+    # Where NERVIS's hub answers. Empty means SIRVIS publishes nothing, which
+    # SIRVIS.md requires to keep working: telemetry export is optional, and a
+    # benchmark must run on a laptop with no collector installed.
+    #
+    # Read here rather than probed: `inspect_configuration` contacts nothing by
+    # design, and `doctor` has to be usable before anything is running.
+    nervis_base_url: str = ""
+
     # Origins allowed to make browser requests. An empty allowlist fails closed;
     # an absent check fails open, which is why this is a list and not a flag.
     #

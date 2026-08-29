@@ -25,14 +25,17 @@ import logging
 import os
 import pathlib
 import sys
-from typing import TYPE_CHECKING, Sequence
+import uuid
+from typing import TYPE_CHECKING, Awaitable, Sequence
 
+import httpx
 import uvicorn
-from ecosystem_protocol import configure_logging
+from ecosystem_protocol import EventPublisher, configure_logging
 
 from sirvis.app import create_app
 from sirvis.config import ConfigurationReport, Settings, inspect_configuration
-from sirvis.storage import prepare_database
+from sirvis.core.machine import machine_identity
+from sirvis.storage import Database, prepare_database
 from sirvis.telemetry import detect_system
 
 if TYPE_CHECKING:  # imported for types only — see `_run_benchmark` on why the
@@ -377,10 +380,14 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
         default_lease_seconds=settings.default_lease_seconds,
         max_loaded=settings.max_loaded_models,
     )
+    events = _publisher(settings, database)
     try:
-        outcome = asyncio.run(run_experiment(
-            spec, runtime=adapter, resources=resources, database=database,
-            results_root=settings.results_path,
+        outcome = asyncio.run(_run_and_publish(
+            events,
+            run_experiment(
+                spec, runtime=adapter, resources=resources, database=database,
+                results_root=settings.results_path, events=events,
+            ),
         ))
     except SirvisError as failure:
         print(f"error: {failure.message}", file=sys.stderr)
@@ -503,6 +510,46 @@ def _confirm_load(spec: ExperimentSpec, settings: Settings, assume_yes: bool) ->
         return False
     answer = input("\nproceed? [y/N] ").strip().lower()
     return answer in ("y", "yes")
+
+
+def _publisher(settings: Settings, database: Database) -> EventPublisher:
+    """This benchmark's event publisher, disabled unless a hub is configured.
+
+    The CLI has no application and therefore none of the identity `create_app`
+    derives, so it is derived the same way here — the installation from the
+    database path, the machine from the stored identity. Deriving it differently
+    would put one machine's runs under two identities on the same timeline.
+    """
+    installation = uuid.uuid5(uuid.NAMESPACE_DNS, settings.database_path).hex[:12]
+    return EventPublisher(
+        service_type="sirvis",
+        service_id=f"sirvis-{installation}",
+        machine_id=machine_identity(database),
+        base_url=settings.nervis_base_url,
+    )
+
+
+async def _run_and_publish(
+    events: EventPublisher, work: Awaitable[ExperimentOutcome]
+) -> ExperimentOutcome:
+    """Run the benchmark, then send what it queued before the process ends.
+
+    **A benchmark process is short-lived, and that is the whole reason this
+    exists.** There is no lifespan to drain on and no loop that outlives the
+    run: a fire-and-forget POST issued after the last `await` dies with the
+    interpreter, and the event it loses is the *closing* one — precisely the
+    event that turns SIRVIS's span from a point into the interval a benchmark
+    actually is.
+
+    Bounded, and its failure never reaches the exit code. SIRVIS.md is explicit
+    that telemetry export is optional and never blocks a benchmark, so a hub
+    that is not answering costs a couple of seconds at the end and nothing else.
+    """
+    outcome = await work
+    if events.enabled:
+        async with httpx.AsyncClient() as client:
+            await events.drain(client)
+    return outcome
 
 
 def _print_outcome(outcome: ExperimentOutcome) -> None:

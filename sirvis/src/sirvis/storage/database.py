@@ -210,6 +210,27 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON runtime_set_revision (runtime_set_id, definition_hash);
         """,
     ),
+    (
+        7,
+        "a trace id per benchmark run, per the runbook's Stage 7",
+        """
+        -- **On the row, not in a local variable.** A benchmark is not an HTTP
+        -- request: it is started from the CLI, so there is no inbound
+        -- `traceparent` to inherit and the id has to be minted. Storing it here
+        -- rather than passing it down the call stack is what lets M14's
+        -- enqueue-over-HTTP later populate the same column from
+        -- `request.state.trace_id` without the engine or the events changing at
+        -- all — the caller's trace becomes the run's trace by writing one
+        -- field.
+        --
+        -- Nullable, because every run recorded before this migration has no
+        -- trace and inventing one would claim a correlation that never existed.
+        ALTER TABLE benchmark_run ADD COLUMN trace_id TEXT;
+
+        CREATE INDEX IF NOT EXISTS benchmark_run_by_trace
+            ON benchmark_run (trace_id);
+        """,
+    ),
 ]
 
 

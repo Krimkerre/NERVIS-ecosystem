@@ -145,6 +145,12 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # all three and wires none of them together would leave the one
             # thing Stage 7 exists for switched off by default.
             env["RAVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
+        if package == "sirvis":
+            # The same wiring for the second producer. A benchmark mints its own
+            # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
+            # what makes it appear inside somebody else's is the recommendation
+            # endpoint, which is reached over HTTP and inherits the caller's.
+            env["SIRVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
             # And at a runtime, when the operator has not named one. RAVIS with
             # no upstream has no models, therefore no candidates, therefore
             # nothing to ask SIRVIS about — so the evidence store reads "fresh,

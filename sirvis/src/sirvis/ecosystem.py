@@ -115,8 +115,9 @@ DECLARED: dict[str, Capability] = {
     ),
     "sirvis.events@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="event publication lands at M21 (runbook Stage 7)",
+        state=AVAILABLE,
+        reason="a benchmark run publishes started and completed or failed under a "
+        "trace of its own, and a recommendation under the caller's (M21)",
     ),
 }
 

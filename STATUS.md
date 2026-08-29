@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1542 tests, no network, no live service
+.venv/bin/pytest                      # part of 1555 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 287 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1542 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1555 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2097,7 +2097,28 @@ defect. Two of the six are partial and named as such above.
 
 ### After that
 
-**Stage 7 is half done.** The shared publisher and RAVIS M18b have shipped and
+**Stage 7's first exit clause is met.** *"A real cross-service request produces
+linked spans"* — verified against the running NERVIS with one `traceparent` sent
+to both producers: two lanes in one trace, RAVIS with two events and a measured
+3550 ms bar, SIRVIS with one event drawn correctly as a point. Both producers
+now publish, and both were checked by reading what actually arrived in the hub
+rather than by trusting the tests.
+
+**Stage 7's remaining clauses.** *"Collector outage leaves every product
+healthy"* is built and tested at the publisher — bounded buffer, counted drops,
+nothing raising, a disabled publisher when no hub is configured — but not yet
+exercised against a hub that dies mid-run. *"Redaction and retention tests
+pass"* has the redaction half; retention is NERVIS's and predates this.
+
+**Two things left deliberately.** A runtime-set run (`sirvis/src/sirvis/benchmarks/multi.py`) still records no
+trace: `start_run` defaults it to NULL, which is honest — that path mints
+nothing and publishes nothing — but it means only the single-model benchmark is
+externally visible. And SIRVIS's per-test events were considered and dropped:
+retention is count-bounded, so a chatty producer evicts its own opening event,
+and a benchmark that emitted per repetition would be the one thing capable of
+doing that to itself.
+
+**Stage 7 was half done.** The shared publisher and RAVIS M18b have shipped and
 were verified against the running ecosystem: a request carrying a `traceparent`
 produced one RAVIS span of two events with a measured duration of 3087 ms, which
 is `is_point: false` — a bar rather than a dot. SIRVIS M21 is what remains
@@ -2113,7 +2134,6 @@ and `bool()` of a bound method is always True.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **SIRVIS M21** — the second producer | Stage 7's remaining half. Harder than RAVIS's was, and for one reason: a benchmark is not an HTTP request. It is started from the CLI, so there is no inbound `traceparent` to inherit and no `trace_id` anywhere — it has to be minted and stored on the `benchmark_run` row rather than held in a local, so that M14's enqueue-over-HTTP can later populate the same column from `request.state.trace_id` without touching the engine. The process is also short-lived, so the closing event needs a bounded flush before exit or the span stays a point | The one thing NERVIS cannot finish alone. Its half is built — the hub at M6, correlation and the waterfall at M7 — and the Traces screen has been reporting "cross-service spans unavailable" ever since, which is the honest answer while it is the only producer. `traces.assemble` groups events into spans by `source.service_type`, so "linked spans" is exactly: RAVIS and SIRVIS emitting into the hub under the same `trace_id`. Both already derive one from an inbound `traceparent`; neither emits anything |
 
 **Stage 5 is complete.** All five of the runbook's exit criteria for it are
 met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —

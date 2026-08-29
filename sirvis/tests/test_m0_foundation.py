@@ -141,7 +141,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "sirvis.benchmarks.results": "available",   # M6 + M7 + M16
         "sirvis.runtime_sets": "available",         # M9
         "sirvis.recommendations": "available",      # M15
-        "sirvis.events": "unavailable",             # M21
+        "sirvis.events": "available",               # M21
     }
     # Every entry still says why, available or not: "not yet, because M15" tells
     # a peer when to look again, and a bare refusal tells it nothing.
