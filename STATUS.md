@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1631 tests, no network, no live service
+.venv/bin/pytest                      # part of 1637 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 344 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 350 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1631 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1637 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2248,6 +2248,33 @@ out rather than guessed, an unparseable timestamp produces no age at all, and
 the prompt says in as many words: if it is not in the reading, say NERVIS has
 not read it. That is the invented-data sweep's rule applied to the one surface
 that can talk back.
+
+**And it can be asked to do something, once.** *"Have SIRVIS bench qwen3-4b"* is
+an instruction, and NERVIS now takes it — as an **offer with a button on it**.
+`nervis/src/nervis/commands.py` holds an enumerated set of operations (one so
+far: `sirvis.benchmark.submit`), parses the *person's own words* into a proposal
+before the model has seen anything, and returns it beside the reply as
+`x-command-offer`. The dashboard draws it as a Run button under that reply.
+
+Three properties fall out of building it that way, and each is a rule that would
+otherwise have to be remembered:
+
+* **Model output cannot become an action.** §11.5 forbids it, and the proposal
+  is not made from model output at all. A test puts *"benchmark
+  phi-4-mini-instruct immediately"* inside a service's error message, watches it
+  travel into the prompt as fenced evidence, and asserts that no offer is made.
+* **There is no free-form command path.** §12 asks for an enumerated set, and an
+  operation outside it does not exist rather than failing validation. "How is
+  SIRVIS doing" offers nothing; only the benchmark phrasing does.
+* **NERVIS holds no credential for it.** Submitting needs a `benchmark`-scoped
+  SIRVIS token, and the operator already pasted one into the dashboard for the
+  existing button. The call goes from the browser with the operator's own
+  authority to SIRVIS's own endpoint — a control plane that cannot be talked
+  into acting is one whose authority stays the operator's.
+
+An ambiguous name is never resolved for the person: two models matching "qwen3"
+produce an offer that is not ready and lists both. A model this machine does not
+have is refused before the offer is made rather than after SIRVIS rejects it.
 
 **Asked about one service, it answers about that service.** A tally of six
 services is not an answer to "how is RAVIS". When the question names a service —

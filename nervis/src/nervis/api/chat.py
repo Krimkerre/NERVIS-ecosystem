@@ -34,7 +34,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
-from nervis import situation
+from nervis import commands, situation
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -554,6 +554,13 @@ async def send(request: Request) -> Any:
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
     asked = content
     reading, awareness = await _situation(request, greeting, content)
+    # **Made from what the person typed, not from what the model says.** §11.5
+    # forbids model output becoming an action, and the way that rule survives a
+    # refactor is for the proposal to be built before the model has seen
+    # anything at all. `offer` is a value; nothing here can carry it out.
+    offer = commands.propose(content, await _catalogue(request)) if not greeting else None
+    if offer is not None:
+        awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
     system = _house_system(
         body, database, greeting, conversation_id, nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
@@ -596,6 +603,10 @@ async def send(request: Request) -> Any:
             # Header-safe: assembled from counts, and newlines would break the
             # framing rather than merely look wrong.
             "x-ecosystem-reading": reading.replace("\n", " "),
+            # The offer, for the page to draw as a button the person presses.
+            # It travels beside the reply rather than inside it: a control the
+            # model could write into its own text is a control the model has.
+            "x-command-offer": json.dumps(offer.as_dict()) if offer else "",
         },
     )
 
