@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1652 tests, no network, no live service
+.venv/bin/pytest                      # part of 1655 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 365 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 368 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1652 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1655 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,25 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+**It can ask the runtime itself.** RAVIS reports what it can *route*, which is
+the right answer to "what can I use" and the wrong one to "what is LM Studio
+doing": the runtime knows the quantisation it loaded, the context window it
+actually opened, and whether the build takes tools, and none of that reaches
+RAVIS's catalogue. When the question mentions the runtime — or asks what is
+loaded — NERVIS reads LM Studio's own `/api/v0/models` and reports the loaded
+builds by name, counting the rest. Live, that reads *"LM Studio holds 20 local
+build(s), 1 loaded right now: qwen/qwen3-4b-2507 · qwen3 · 4bit · mlx · context
+8192 of 262144 · tool_use"*. Both context numbers, because a 262144-token model
+opened at 8192 is the ordinary cause of a refused long prompt and looks like a
+model limitation from the outside.
+
+**A 429 is asked again rather than believed.** RAVIS allows an anonymous caller
+sixty reads a minute and NERVIS is not its only one — the dashboard polls
+through it — so the catalogue read was intermittently rate-limited, and giving
+up on the first refusal turned *"ask again"* into *"this machine has no
+models"*. One retry, 400ms later, and only for a 429; every other status is an
+answer and is taken as one.
 
 **The bubble renders markdown now**, which §7's MVP asked for and it never did.
 A model answering *"how did the benchmark go"* replies in headings, bold labels

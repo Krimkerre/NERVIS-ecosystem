@@ -1242,6 +1242,95 @@ def test_a_request_wearing_a_question_mark_is_still_a_request() -> None:
     assert offer["target"] == "qwen/qwen3-4b-2507"
 
 
+def test_asking_what_is_loaded_reads_the_runtime_itself() -> None:
+    """RAVIS reports what it can route. Only the runtime knows the quantisation
+    it loaded and the context window it actually opened — and that gap is the
+    ordinary answer to "why did it refuse my long prompt"."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    entry = client.app.state.registry.get("lmstudio")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    # Far future, like the RAVIS entry above: `Registry.get` ages an entry on
+    # read, and a never-probed one goes STALE — which is correct in production
+    # and would make this test about staleness instead.
+    entry.checked_at = 1e12
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v0/models" in url:
+            return httpx.Response(200, json={"data": [
+                {"id": "qwen/qwen3-4b-2507", "state": "loaded", "arch": "qwen3",
+                 "quantization": "4bit", "loaded_context_length": 8192,
+                 "max_context_length": 262144, "capabilities": ["tool_use"]},
+                {"id": "smollm3-3b", "state": "not-loaded"},
+            ]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "what is loaded in lm studio?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "2 local build(s), 1 loaded" in system
+    assert "qwen/qwen3-4b-2507" in system
+    assert "4bit" in system
+    # Both numbers: a 262144-token model opened at 8192 looks like a model
+    # limitation from the outside, and is not one.
+    assert "context 8192 of 262144" in system
+
+
+def test_the_runtime_is_not_asked_on_an_unrelated_turn() -> None:
+    seen: list[str] = []
+    client = an_api()
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "/api/v1/models" in str(request.url):
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "how is ravis?", system="Be someone.")
+
+    assert not [url for url in seen if "/api/v0/models" in url]
+
+
+def test_a_rate_limited_catalogue_read_is_asked_again() -> None:
+    """RAVIS allows an anonymous caller 60 reads a minute and NERVIS is not its
+    only one — the dashboard polls through it. A caller that gives up on the
+    first 429 turns "ask again" into "this machine has no models"."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    tries = {"n": 0}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        if "/api/v1/models" in str(request.url):
+            tries["n"] += 1
+            if tries["n"] == 1:
+                return httpx.Response(429, json={"error": {"message": "slow down"}})
+            return httpx.Response(200, json={"items": [{"model_id": "m", "local": True}]})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    answered = turn(client, "how many models?", system="Be someone.")
+
+    assert tries["n"] == 2
+    assert "1 models routable" in answered.headers["x-ecosystem-reading"]
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

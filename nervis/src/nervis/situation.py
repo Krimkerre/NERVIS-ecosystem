@@ -78,6 +78,11 @@ MAX_VALIDITY_NOTES = 2
 # Which measurements are worth a line, in the order a person asks about them.
 # A closed list for the same reason the event fields are one: a result carries
 # whatever the suite measured, and all of it does not belong in every prompt.
+# How many of the runtime's own models are named. It holds every build on the
+# disk; the interesting ones are the loaded ones, and those are counted in
+# single figures because a runtime loads two or three at a time.
+MAX_RUNTIME_MODELS = 8
+
 HEADLINE_METRICS = (
     "generation_tokens_per_second",
     "time_to_first_token_seconds",
@@ -417,6 +422,51 @@ def _metric_lines(metrics: Any) -> list[str]:
     return lines
 
 
+def runtime_lines(models: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What the local runtime itself says it is holding.
+
+    **Read from the runtime rather than inferred from the router.** RAVIS
+    reports residency for what it can *route*, which is the right answer to
+    "what can I use" and the wrong one to "what is LM Studio doing" — the
+    runtime knows the quantisation it loaded, the context window it actually
+    opened, and whether the build supports tools, and none of that reaches
+    RAVIS's catalogue.
+
+    Loaded first and named; the rest are counted. A runtime holds every build on
+    the disk, and listing them is a directory listing rather than an answer.
+    """
+    if not models:
+        return []
+    loaded = [model for model in models if str(model.get("state") or "") == "loaded"]
+    lines = [
+        f"LM Studio holds {len(models)} local build(s), {len(loaded)} loaded right now:"
+    ]
+    if not loaded:
+        lines.append("  nothing is loaded — the first request will load a model")
+    for model in loaded[:MAX_RUNTIME_MODELS]:
+        lines.append("  " + _runtime_model(model))
+    return lines
+
+
+def _runtime_model(model: Mapping[str, Any]) -> str:
+    """One loaded build, in the runtime's own words."""
+    parts = [clip(str(model.get("id") or "?"))]
+    for field in ("arch", "quantization", "compatibility_type"):
+        value = clip(str(model.get(field) or ""))
+        if value:
+            parts.append(value)
+    opened, most = model.get("loaded_context_length"), model.get("max_context_length")
+    if isinstance(opened, int) and isinstance(most, int) and most:
+        # Both numbers, because the gap is the answer to "why did it refuse my
+        # long prompt": a 262144-token model loaded at 8192 is the ordinary
+        # cause and looks like a model limitation from the outside.
+        parts.append(f"context {opened} of {most}")
+    abilities = model.get("capabilities")
+    if isinstance(abilities, list) and abilities:
+        parts.append(", ".join(clip(str(a)) for a in abilities[:3]))
+    return " · ".join(parts)
+
+
 def block(
     services: Sequence[Mapping[str, Any]],
     windows: int,
@@ -427,6 +477,7 @@ def block(
     models: Sequence[Mapping[str, Any]] = (),
     jobs: Sequence[Mapping[str, Any]] = (),
     runs: Sequence[Mapping[str, Any]] = (),
+    runtime: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """The fenced reading a model is given, or nothing when there is none.
 
@@ -455,6 +506,7 @@ def block(
         lines.append(f"loaded in the runtime right now: {name}")
     lines += _model_names(models, question)
     lines += benchmarks(jobs, runs)
+    lines += runtime_lines(runtime)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong

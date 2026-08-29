@@ -465,6 +465,11 @@ JOB_SAMPLE = 25
 # figures of the most recent one rather than the history.
 RUN_SAMPLE = 3
 
+# When the local runtime is worth asking directly. "lm studio" and "lmstudio"
+# both appear because the registry key and the product name differ, and a person
+# types whichever they are looking at.
+RUNTIME_WORDS = ("lm studio", "lmstudio", "loaded", "runtime", "context window")
+
 # How long RAVIS's catalogue is reused before it is read again. The registry,
 # the leases and the hub are already in memory and cost nothing per turn; the
 # catalogue is one HTTP call, and doing it on every message would put a remote
@@ -473,6 +478,11 @@ RUN_SAMPLE = 3
 # minute.
 CATALOGUE_TTL_SECONDS = 60.0
 CATALOGUE_RETRY_SECONDS = 5.0
+
+# How long to wait before asking RAVIS a second time after a 429. Short enough
+# that a reply is not visibly delayed, long enough to leave the burst that
+# tripped the limit behind.
+RATE_LIMIT_PAUSE_SECONDS = 0.4
 
 
 @router.get("/conversations")
@@ -877,6 +887,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
         return printed, ""
     events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
     jobs = await _jobs(request, asked)
+    runtime = await _runtime(request, asked)
     # Only alongside the queue: a run is what a job became, so a question that
     # did not mention benchmarks does not need either.
     runs = await _runs(request) if jobs else []
@@ -886,7 +897,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     # anything NERVIS does not already publish about itself.
     return printed, situation.block(
         services, windows, events, catalogue, request.app.state.chat_clock(),
-        question=asked, models=models, jobs=jobs, runs=runs,
+        question=asked, models=models, jobs=jobs, runs=runs, runtime=runtime,
     )
 
 
@@ -912,6 +923,37 @@ async def _jobs(request: Request, question: str) -> list[dict[str, Any]]:
         if answered.status_code >= 400:
             return []
         items = answered.json().get("items") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+async def _runtime(request: Request, question: str) -> list[dict[str, Any]]:
+    """What LM Studio itself is holding, when the question is about it.
+
+    **The runtime, not the router.** RAVIS reports what it can route; LM Studio
+    knows the quantisation it loaded, the context window it opened and whether
+    the build takes tools — and none of that is in RAVIS's catalogue. Asked
+    "what is loaded", the honest source is the process holding the weights.
+
+    Read on the same terms as the queue: only when the question is about it,
+    never cached, and absent rather than guessed on any failure. LM Studio
+    publishes no MEP surface, so there is no capability to negotiate — the
+    registry's own state is the whole of what NERVIS knows before asking.
+    """
+    if not any(word in question.lower() for word in RUNTIME_WORDS):
+        return []
+    entry: RegistryEntry | None = request.app.state.registry.get("lmstudio")
+    if entry is None or not entry.is_usable:
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            entry.declaration.base_url + "/api/v0/models", timeout=FACTS_TIMEOUT_SECONDS
+        )
+        if answered.status_code >= 400:
+            return []
+        items = answered.json().get("data") or []
     except (httpx.HTTPError, ValueError, AttributeError):
         return []
     return [item for item in items if isinstance(item, dict)]
@@ -988,16 +1030,28 @@ async def _model_items(request: Request) -> list[dict[str, Any]] | None:
     if entry is None:
         return None
     client: httpx.AsyncClient = request.app.state.probe_client
-    try:
-        response = await client.get(
-            entry.declaration.base_url + "/api/v1/models", timeout=FACTS_TIMEOUT_SECONDS
-        )
-        if response.status_code >= 400:
+    for attempt in (0, 1):
+        try:
+            response = await client.get(
+                entry.declaration.base_url + "/api/v1/models",
+                timeout=FACTS_TIMEOUT_SECONDS,
+            )
+            # **One retry, and only for a rate limit.** RAVIS allows an
+            # anonymous caller 60 reads a minute and NERVIS is not its only
+            # one — the dashboard polls through it. A 429 means "ask again",
+            # which is exactly what a caller that gives up turns into "this
+            # machine has no models". Every other status is an answer and is
+            # taken as one.
+            if response.status_code == 429 and attempt == 0:
+                await asyncio.sleep(RATE_LIMIT_PAUSE_SECONDS)
+                continue
+            if response.status_code >= 400:
+                return None
+            items = response.json().get("items") or []
+        except (httpx.HTTPError, ValueError, AttributeError):
             return None
-        items = response.json().get("items") or []
-    except (httpx.HTTPError, ValueError, AttributeError):
-        return None
-    return [item for item in items if isinstance(item, dict)]
+        return [item for item in items if isinstance(item, dict)]
+    return None
 
 
 def _placement(
