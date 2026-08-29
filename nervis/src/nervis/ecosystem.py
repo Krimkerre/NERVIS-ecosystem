@@ -79,8 +79,10 @@ DECLARED: dict[str, Capability] = {
     "nervis.dashboard@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="the shell, this machine's telemetry and live peer data are served; "
-        "some screens still render prototype data until Stage 6 rebuilds them",
+        reason="the shell, this machine's telemetry, live peer data and §25's "
+        "rebuilt render layer are served (Stage 6). Degraded because some cards "
+        "still draw a transcription when their service has nothing to say — and "
+        "are faded and labelled when they do",
     ),
     # Available: the hub itself is complete — §4.4's envelope, HTTP ingestion,
     # bounded persistence with retention, §11.2's filters and an SSE broadcast
@@ -138,8 +140,9 @@ DECLARED: dict[str, Capability] = {
     "nervis.sirvis_views@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="§9's read surfaces are served with provenance intact; "
-        "launching and streaming a benchmark waits for SIRVIS M14's job queue",
+        reason="§9's read surfaces are served with provenance intact, and a "
+        "benchmark can be submitted, polled and cancelled through SIRVIS's M14 "
+        "queue. Degraded because a run is not streamed while it happens",
     ),
     # Degraded, not unavailable, and the distinction is the whole point of
     # publishing a reason. M8a shipped the receiving half: a Bridge registers
