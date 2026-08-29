@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request
 
 from nervis.errors import NotFoundError
 from nervis.peers import ravis as ravis_peer
+from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.traces import assemble, summarise
 
@@ -76,6 +77,7 @@ async def _note_silent_peers(request: Request, trace: Any) -> None:
         ravis_peer.BY_KEY["routes"],
         service=ravis_peer.SERVICE,
         params={"limit": 100},
+        credential=peer_credential(request, ravis_peer.SERVICE),
     )
     if not decisions.available or not isinstance(decisions.data, dict):
         return

@@ -254,6 +254,9 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         package = prefix.lower()
         env[f"{prefix}_DATABASE_PATH"] = str(ROOT / package / f"{package}.db")
         if prefix == "NERVIS":
+            # Named rather than anonymous, which is worth 600 reads a minute
+            # instead of 60. See nervis_ravis_credential.
+            env["NERVIS_RAVIS_CLIENT_CREDENTIAL"] = nervis_ravis_credential()
             # So a confirmed "bench this model" can actually be carried out.
             # Minted here rather than asked of the operator: see benchmark_token.
             token = benchmark_token()
@@ -465,6 +468,66 @@ def benchmark_token() -> str:
     return _sirvis_token("nervis-benchmark.token", "nervis-benchmark", "benchmark")
 
 
+def nervis_ravis_credential() -> str:
+    """The secret NERVIS presents to RAVIS, minted here and known to both.
+
+    **Why NERVIS needs one at all.** RAVIS gives an anonymous caller sixty reads
+    a minute and a named one six hundred, and NERVIS is the busiest reader it
+    has — the dashboard polls several screens through NERVIS's peer reader, and
+    chat reads the catalogue on every turn that mentions models. That tripped
+    the limit routinely, and a rate-limited read is indistinguishable from an
+    empty service at the screen: "no models" about a machine holding 591.
+
+    Minted locally rather than fetched, because RAVIS has no minting endpoint —
+    a client credential is simply a stored secret whose name begins with
+    `client.`, and both halves have to know the same string. This writes it
+    once at `0600` and hands it to both sides on every start.
+    """
+    cached = RUN / "nervis-ravis.token"
+    try:
+        existing = cached.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    RUN.mkdir(parents=True, exist_ok=True)
+    handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(token + "\n")
+    return token
+
+
+def teach_ravis_the_credential() -> str:
+    """Store NERVIS's credential in RAVIS, so the two agree on it.
+
+    Idempotent: a PUT replaces, and the value is the same one every time because
+    it is cached. Failure is reported and not fatal — an unnamed NERVIS still
+    works, it is merely rate-limited like any other anonymous caller, and a
+    launcher that refused to finish over a rate limit would be worse than the
+    problem it was fixing.
+
+    Returns a short description of what happened, for the start banner.
+    """
+    secret = nervis_ravis_credential()
+    if not secret:
+        return "could not be minted"
+    body = json.dumps({"secret": secret}).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{RAVIS_PORT}/api/v1/providers/credentials/client.nervis",
+        data=body, method="PUT", headers={"content-type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as answered:
+            if answered.status >= 400:
+                return f"RAVIS answered HTTP {answered.status}"
+    except urllib.error.HTTPError as failure:
+        return f"RAVIS refused it: HTTP {failure.code}"
+    except Exception as failure:  # noqa: BLE001 - a launcher never dies of this
+        return f"RAVIS could not be told: {failure}"
+    return "stored"
+
+
 def _sirvis_token(filename: str, label: str, scopes: str) -> str:
     """Mint one SIRVIS token, cache it at 0600, and reuse it next time.
 
@@ -577,6 +640,7 @@ def start() -> int:
     running = status(quiet=True)
     if all(running.values()):
         print("Already running.")
+        print(f"  NERVIS's RAVIS credential: {teach_ravis_the_credential()}")
         print(f"Dashboard: {DASHBOARD}")
         webbrowser.open(dashboard_url())
         return 0
@@ -603,6 +667,10 @@ def start() -> int:
         answering = responds(url)
         ready = ready and answering
         print(f"  {name:<11} {'ready' if answering else 'NOT ready — see .run/' + name.lower() + '.log'}")
+
+    # After RAVIS answers, because storing a credential is a request to it. Both
+    # halves already hold the same string — this is the half RAVIS keeps.
+    print(f"\nNERVIS is a named caller to RAVIS: {teach_ravis_the_credential()}")
 
     if code_server_binary():
         extra, port, source = code_server_settings()

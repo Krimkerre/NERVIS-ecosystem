@@ -37,6 +37,7 @@ async def probe(
     client: httpx.AsyncClient,
     declaration: ServiceDeclaration,
     known: RegistryEntry | None = None,
+    credential: str = "",
 ) -> dict[str, Any]:
     """One observation, as fields the registry can write straight onto an entry.
 
@@ -49,11 +50,16 @@ async def probe(
     The saving is not cosmetic. Four calls per service per pass against three MEP
     services is twelve requests a pass; RAVIS's anonymous limit is sixty a
     minute, and NERVIS exceeded it by shortening its own interval.
+
+    `credential` is the other half of that fix. A named caller gets six hundred
+    a minute, and the probe loop is the steadiest reader NERVIS has — a probe
+    refused with 429 records the peer as *degraded*, which is a rate limit
+    displayed as an outage.
     """
     try:
         if not declaration.mep:
-            return await _probe_runtime(client, declaration)
-        return await _probe_mep(client, declaration, known)
+            return await _probe_runtime(client, declaration, credential)
+        return await _probe_mep(client, declaration, known, credential)
     except ProbeFailed as decided:
         # One place turns a failed read into an entry state, rather than five
         # call sites each re-checking whether what they got back was a body or
@@ -61,8 +67,13 @@ async def probe(
         return decided.observation
 
 
+def _named(credential: str) -> dict[str, str]:
+    """NERVIS's identity for one peer, or no header at all."""
+    return {"authorization": f"Bearer {credential}"} if credential else {}
+
+
 async def _probe_runtime(
-    client: httpx.AsyncClient, declaration: ServiceDeclaration
+    client: httpx.AsyncClient, declaration: ServiceDeclaration, credential: str = ""
 ) -> dict[str, Any]:
     """A service with no MEP surface: reachable, or not.
 
@@ -73,7 +84,9 @@ async def _probe_runtime(
     """
     url = declaration.base_url + (declaration.probe_path or "/")
     try:
-        response = await client.get(url, timeout=PROBE_TIMEOUT_SECONDS)
+        response = await client.get(
+            url, timeout=PROBE_TIMEOUT_SECONDS, headers=_named(credential)
+        )
     except httpx.HTTPError as failure:
         return _unreachable(failure)
     if response.status_code in (401, 403):
@@ -106,6 +119,7 @@ async def _probe_mep(
     client: httpx.AsyncClient,
     declaration: ServiceDeclaration,
     known: RegistryEntry | None = None,
+    credential: str = "",
 ) -> dict[str, Any]:
     """Identity, version and capabilities, in the order that lets each fail usefully.
 
@@ -122,7 +136,7 @@ async def _probe_mep(
         version: Any = {"protocol_version": known.protocol_version,
                         "build_version": known.build_version}
     else:
-        version = await _read(client, declaration.base_url + "/ecosystem/version")
+        version = await _read(client, declaration.base_url + "/ecosystem/version", credential)
     declared = str(version.get("protocol_version") or "")
     if declared and not is_supported_protocol(declared):
         return {
@@ -140,11 +154,13 @@ async def _probe_mep(
             "api_version": known.api_version,
         }
     else:
-        identity = await _read(client, declaration.base_url + "/ecosystem/identity")
+        identity = await _read(client, declaration.base_url + "/ecosystem/identity", credential)
 
-    health = await _read(client, declaration.base_url + "/ecosystem/health")
+    health = await _read(client, declaration.base_url + "/ecosystem/health", credential)
 
-    capabilities = await _read(client, declaration.base_url + "/ecosystem/capabilities")
+    capabilities = await _read(
+        client, declaration.base_url + "/ecosystem/capabilities", credential
+    )
     advertised = _capabilities(capabilities)
 
     return {
@@ -188,10 +204,14 @@ class ProbeFailed(Exception):  # noqa: N818 - not an error; a probe outcome
         self.observation = observation
 
 
-async def _read(client: httpx.AsyncClient, url: str) -> Mapping[str, Any]:
+async def _read(
+    client: httpx.AsyncClient, url: str, credential: str = ""
+) -> Mapping[str, Any]:
     """One MEP read. Raises `ProbeFailed` carrying the state its failure means."""
     try:
-        response = await client.get(url, timeout=PROBE_TIMEOUT_SECONDS)
+        response = await client.get(
+            url, timeout=PROBE_TIMEOUT_SECONDS, headers=_named(credential)
+        )
     except httpx.HTTPError as failure:
         raise ProbeFailed(_unreachable(failure)) from failure
     if response.status_code in (401, 403):

@@ -28,6 +28,7 @@ from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
 from nervis.peers import ravis as ravis_peer
 from nervis.peers import sirvis as sirvis_peer
+from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.telemetry import sample_system
 
@@ -277,6 +278,7 @@ async def _read_peer(service: str, surface: str, request: Request) -> dict[str, 
         params=parameters,
         request_id=getattr(request.state, "request_id", ""),
         trace_id=getattr(request.state, "trace_id", ""),
+        credential=peer_credential(request, service),
     )
     return result.as_dict()
 

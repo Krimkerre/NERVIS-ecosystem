@@ -82,6 +82,20 @@ class PeerRead:
         }
 
 
+def peer_credential(request: Any, service: str) -> str:
+    """The credential NERVIS presents to one peer, if it holds one.
+
+    Keyed by service rather than passed at every call site, so a new reader
+    cannot forget it and — more importantly — cannot present RAVIS's credential
+    to SIRVIS by copying a line. NERVIS holds one credential per peer for one
+    purpose, and this is the only place the mapping exists.
+    """
+    settings = request.app.state.settings
+    if service == "ravis":
+        return str(getattr(settings, "ravis_client_credential", "") or "")
+    return ""
+
+
 async def read(
     client: httpx.AsyncClient,
     entry: RegistryEntry | None,
@@ -91,6 +105,7 @@ async def read(
     params: Mapping[str, Any] | None = None,
     request_id: str = "",
     trace_id: str = "",
+    credential: str = "",
 ) -> PeerRead:
     """One negotiated read of one peer surface.
 
@@ -111,7 +126,7 @@ async def read(
         )
 
     assert entry is not None  # `may_attempt` is false without one
-    headers = _context_headers(request_id, trace_id)
+    headers = _context_headers(request_id, trace_id, credential)
     try:
         response = await client.request(
             surface.method,
@@ -177,7 +192,7 @@ def _refusal(response: httpx.Response) -> str:
 
 
 
-def _context_headers(request_id: str, trace_id: str) -> dict[str, str]:
+def _context_headers(request_id: str, trace_id: str, credential: str = "") -> dict[str, str]:
     """§4.3's context, forwarded to a peer.
 
     `traceparent` is a **new span within the same trace**, never the caller's
@@ -186,6 +201,15 @@ def _context_headers(request_id: str, trace_id: str) -> dict[str, str]:
     shape.
     """
     headers: dict[str, str] = {}
+    # **What makes NERVIS a named caller rather than an anonymous one.** RAVIS
+    # allows an anonymous caller sixty reads a minute and a named one six
+    # hundred (§14.4's identity policy), and NERVIS is the busiest reader it
+    # has: a dashboard polling several screens through this reader tripped that
+    # limit routinely, and a rate-limited read is indistinguishable from an
+    # empty service at the screen. The credential is NERVIS's own identity, not
+    # the user's, and it travels only to the peer it belongs to.
+    if credential:
+        headers["authorization"] = f"Bearer {credential}"
     if request_id:
         headers["x-request-id"] = request_id
     if trace_id:

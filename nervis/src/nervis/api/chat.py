@@ -1035,6 +1035,7 @@ async def _model_items(request: Request) -> list[dict[str, Any]] | None:
             response = await client.get(
                 entry.declaration.base_url + "/api/v1/models",
                 timeout=FACTS_TIMEOUT_SECONDS,
+                headers=_named(request),
             )
             # **One retry, and only for a rate limit.** RAVIS allows an
             # anonymous caller 60 reads a minute and NERVIS is not its only
@@ -1383,6 +1384,17 @@ async def _json_body(request: Request) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise InvalidConfigurationError("body must be a JSON object")
     return body
+
+
+def _named(request: Request) -> dict[str, str]:
+    """NERVIS's own identity for a plain read, or nothing.
+
+    The same credential the completion path presents. Reads carry it for the
+    rate limit rather than for privilege: anonymous is sixty a minute, and this
+    read is taken on every turn that asks about models.
+    """
+    credential = str(request.app.state.settings.ravis_client_credential or "")
+    return {"authorization": f"Bearer {credential}"} if credential else {}
 
 
 def _forwarded(request_id: str, trace_id: str, credential: str = "") -> dict[str, str]:

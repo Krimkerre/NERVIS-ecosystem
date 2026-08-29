@@ -1331,6 +1331,49 @@ def test_a_rate_limited_catalogue_read_is_asked_again() -> None:
     assert "1 models routable" in answered.headers["x-ecosystem-reading"]
 
 
+def test_nervis_reads_ravis_as_a_named_caller() -> None:
+    """Anonymous is sixty reads a minute and named is six hundred (RAVIS §14.4).
+    NERVIS is the busiest reader RAVIS has — a dashboard polling several screens
+    plus a catalogue read on every turn that mentions models — and a
+    rate-limited read is indistinguishable from an empty service at the screen.
+    """
+    seen: list[httpx.Request] = []
+    client = an_api()
+    client.app.state.settings.ravis_client_credential = "nervis-is-named"  # type: ignore[attr-defined]
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if "/api/v1/models" in str(request.url):
+            return httpx.Response(200, json={"items": [{"model_id": "m", "local": True}]})
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    turn(client, "how many models?", system="Be someone.")
+
+    catalogue = [r for r in seen if "/api/v1/models" in str(r.url)]
+    assert catalogue, "the catalogue was never read"
+    assert catalogue[0].headers["authorization"] == "Bearer nervis-is-named"
+
+
+def test_a_peer_credential_travels_only_to_the_peer_it_belongs_to() -> None:
+    """One credential per peer, mapped in one place — so a new reader cannot
+    present RAVIS's credential to SIRVIS by copying a line."""
+    from nervis.peers.reader import peer_credential
+
+    client = an_api()
+    client.app.state.settings.ravis_client_credential = "ravis-only"  # type: ignore[attr-defined]
+
+    class _Request:
+        app = client.app
+
+    assert peer_credential(_Request(), "ravis") == "ravis-only"
+    assert peer_credential(_Request(), "sirvis") == ""
+    assert peer_credential(_Request(), "clarvis") == ""
+
+
 def test_a_plain_client_is_still_sent_no_system_message() -> None:
     """§7 makes NERVIS a plain client of RAVIS's published API. Awareness is
     something it adds to its own assistant, not something it injects into every

@@ -176,6 +176,45 @@ def test_a_refused_declaration_is_dropped_rather_than_fatal() -> None:
 # ── Unsupported major: the feature, not the dashboard (§5.2) ─────────────────
 
 
+def test_a_probe_presents_nervis_own_credential_when_it_has_one() -> None:
+    """RAVIS gives an anonymous caller sixty reads a minute and a named one six
+    hundred. The probe loop is the steadiest reader NERVIS has, and a probe
+    refused with 429 records the peer as *degraded* — a rate limit displayed as
+    an outage."""
+    seen: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("authorization", ""))
+        bodies = mep()
+        if request.url.path not in bodies:
+            return httpx.Response(404, json={"detail": "Not Found"})
+        return httpx.Response(200, json=bodies[request.url.path])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(probe(client, RAVIS, None, "nervis-is-named"))
+
+    assert seen, "the probe made no request"
+    assert all(header == "Bearer nervis-is-named" for header in seen)
+
+
+def test_a_probe_without_a_credential_sends_no_authorization() -> None:
+    """A peer NERVIS holds no credential for is read anonymously, and sending an
+    empty bearer would be a header that means nothing and looks like something."""
+    seen: list[str | None] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("authorization"))
+        bodies = mep()
+        if request.url.path not in bodies:
+            return httpx.Response(404, json={"detail": "Not Found"})
+        return httpx.Response(200, json=bodies[request.url.path])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    asyncio.run(probe(client, RAVIS))
+
+    assert seen and all(header is None for header in seen)
+
+
 def test_an_unsupported_major_is_incompatible_not_unreachable() -> None:
     """Two different problems needing two different actions.
 

@@ -256,7 +256,20 @@ async def refresh_registry(api: FastAPI) -> None:
     registry: Registry = api.state.registry
     entries = registry.all()
     observations = await asyncio.gather(
-        *(probe(api.state.probe_client, entry.declaration, entry) for entry in entries),
+        *(
+            probe(
+                api.state.probe_client, entry.declaration, entry,
+                # Named to RAVIS, anonymous to everyone else: the credential
+                # belongs to one peer, and the probe loop is the steadiest
+                # reader NERVIS has. A probe refused with 429 records the peer
+                # as degraded, which is a rate limit displayed as an outage.
+                credential=(
+                    api.state.settings.ravis_client_credential
+                    if entry.key == "ravis" else ""
+                ),
+            )
+            for entry in entries
+        ),
         return_exceptions=True,
     )
     before = {entry.key: entry.state for entry in entries}
