@@ -24,6 +24,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
+from nervis.bridges import read_config as read_bridge_config
 from nervis.bridges import read_status as read_bridge_status
 from nervis.enrollment import matches, presented_secret
 from nervis.errors import NotFoundError, RefusedError, UnauthorizedError
@@ -114,6 +115,30 @@ async def read_status(service: str, instance_id: str, request: Request) -> dict[
     if instance is None:
         raise NotFoundError(f"no registered {service} instance {instance_id}")
     return await read_bridge_status(
+        request.app.state.probe_client, instance, request.app.state.instances_clock()
+    )
+
+
+@router.get("/{service}/{instance_id}/config")
+async def read_config(service: str, instance_id: str, request: Request) -> dict[str, Any]:
+    """One Bridge's published settings (`CLARVIS.md` §6.2), and where each lives.
+
+    **A read, and the only kind there will be.** §6.7 forbids NERVIS changing a
+    Clarvis setting, and this endpoint is what makes that restriction bearable
+    rather than merely enforced: NERVIS can say what Clarvis is configured to do
+    and name the setting to change, which is the whole of what a reader wanted
+    when they asked whether the dashboard could manage the editor.
+
+    Its own endpoint rather than a field on `/status` for the same reason status
+    has one: what Clarvis is *doing* changes by the second and what it is
+    *configured to do* changes when somebody edits a setting, and a poll should
+    not carry both.
+    """
+    instances: Instances = request.app.state.instances
+    instance = instances.find(service, instance_id)
+    if instance is None:
+        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    return await read_bridge_config(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
     )
 

@@ -21,8 +21,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from nervis import bridges, situation
 from nervis import chat as store
-from nervis import situation
 from nervis.api.chat import _first_user_message, _forwarded, _title_from
 from nervis.app import create_app
 from nervis.config import Settings
@@ -1561,6 +1561,48 @@ def test_the_reading_comes_after_the_recalled_conversations() -> None:
     assert system.index("Earlier conversations") < system.index(FENCE), (
         "the current reading has to come after the remembered ones"
     )
+
+
+def test_asking_about_clarvis_settings_gets_values_and_where_to_change_them() -> None:
+    """§6.7 forbids NERVIS changing a Clarvis setting. This is the read that
+    makes the restriction bearable rather than merely enforced: the value in
+    force, and the exact id to search for in the editor."""
+    windows = [{
+        "label": "Clarvis Bridge · f726d98a",
+        "settings": {"chat.model": "ravis/clarvis-chat", "voice.enabled": True},
+        "setting_ids": {"chat.model": "clarvis.chat.model",
+                        "voice.enabled": "clarvis.voice.enabled"},
+    }]
+
+    lines = "\n".join(situation.clarvis_config(windows))
+
+    assert "chat.model: ravis/clarvis-chat — setting `clarvis.chat.model`" in lines
+    assert "voice.enabled: on" in lines
+    assert "NERVIS cannot change any of these" in lines
+    assert "open Settings and search for the setting id" in lines
+
+
+def test_only_what_the_bridge_publishes_is_repeated() -> None:
+    """The Bridge refuses to publish a path, a URL or a secret; this is the
+    second half of that promise, kept on the side doing the repeating."""
+    body = {"config": {
+        "chat.model": "ravis/clarvis-chat",
+        "bridge.enrolment_configured": True,
+        "chat.apiKey": "sk-live-4242",
+        "workspace.path": "/Users/someone/code",
+    }, "settings": {
+        "chat.model": "clarvis.chat.model",
+        "chat.apiKey": "clarvis.chat.apiKey",
+        "theme": "some.other.extension.theme",
+    }}
+
+    settings = bridges.interpret_config(body)
+    ids = bridges.interpret_setting_ids(body)
+
+    assert settings == {"chat.model": "ravis/clarvis-chat", "bridge.enrolment_configured": True}
+    # And an id belonging to another extension is dropped: "search for this in
+    # settings" is an instruction, and a wrong one sends somebody elsewhere.
+    assert ids == {"chat.model": "clarvis.chat.model"}
 
 
 def test_a_plain_client_is_still_sent_no_system_message() -> None:

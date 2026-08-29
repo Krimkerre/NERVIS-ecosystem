@@ -87,6 +87,10 @@ MAX_RUNTIME_MODELS = 8
 # happening", short of pasting the Logs screen into a prompt.
 MAX_DECISIONS = 6
 
+# How many editor windows' configurations travel. One is the ordinary case; two
+# is a person comparing; past that it is a list rather than an answer.
+MAX_WINDOWS = 2
+
 HEADLINE_METRICS = (
     "generation_tokens_per_second",
     "time_to_first_token_seconds",
@@ -532,6 +536,47 @@ def _ending_of(decision: Mapping[str, Any]) -> str:
     return "no route" if not decision.get("selected") else "not attempted"
 
 
+def clarvis_config(windows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What Clarvis is configured to do, and where each setting lives.
+
+    **The read that exists because the write must not.** `CLARVIS.md` §6.7
+    forbids NERVIS changing a Clarvis setting, so the useful half is naming
+    them: the value in force, and the exact id to search for in the editor's own
+    settings UI. A control plane that cannot touch a setting can still stop the
+    person hunting for it.
+    """
+    if not windows:
+        return []
+    lines: list[str] = []
+    for window in list(windows)[:MAX_WINDOWS]:
+        settings = window.get("settings")
+        if not isinstance(settings, Mapping) or not settings:
+            continue
+        ids = window.get("setting_ids")
+        ids = ids if isinstance(ids, Mapping) else {}
+        label = clip(str(window.get("label") or "a Clarvis window"))
+        lines.append(f"{label} is configured as:")
+        for field in sorted(settings):
+            named = clip(str(ids.get(field) or ""))
+            value = settings[field]
+            shown = "on" if value is True else "off" if value is False else clip(str(value))
+            line = f"  {clip(str(field))}: {shown}"
+            lines.append(line + (f" — setting `{named}`" if named else ""))
+    if not lines:
+        return []
+    # **Said once, and said as a limit rather than as help.** The instruction is
+    # true on every host Clarvis runs on, and it is here so the answer to "change
+    # it for me" is the same sentence every time: NERVIS cannot, and this is
+    # where you can.
+    lines.append(
+        "NERVIS cannot change any of these — the Bridge is read-only by contract. "
+        "They are changed in the editor: open Settings and search for the setting id, "
+        "or edit the workspace's settings JSON. In the embedded Clarvis tab that is "
+        "the same Settings screen as a desktop editor."
+    )
+    return lines
+
+
 def block(
     services: Sequence[Mapping[str, Any]],
     windows: int,
@@ -544,6 +589,7 @@ def block(
     runs: Sequence[Mapping[str, Any]] = (),
     runtime: Sequence[Mapping[str, Any]] = (),
     decisions: Sequence[Mapping[str, Any]] = (),
+    editors: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """The fenced reading a model is given, or nothing when there is none.
 
@@ -581,6 +627,7 @@ def block(
     lines += benchmarks(jobs, runs)
     lines += runtime_lines(runtime)
     lines += route_lines(decisions)
+    lines += clarvis_config(editors)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong

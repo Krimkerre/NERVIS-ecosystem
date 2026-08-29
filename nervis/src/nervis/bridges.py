@@ -50,6 +50,24 @@ STATES = frozenset({
 # reasoning applies: an unrecognised category is dropped rather than shown.
 AWAITING = frozenset({"command", "sensitive_read", "step", "other"})
 
+# What a configuration summary may contain (`CLARVIS.md` §6.2's
+# `clarvis.config.summary@1`). The Bridge decides what to publish; this decides
+# what NERVIS will repeat, which is the same allowlist argument the status read
+# makes: the port is dynamic, anything on this machine can bind one, and a field
+# NERVIS has never heard of should not reach a screen wearing NERVIS's
+# authority.
+CONFIG_FIELDS = frozenset({
+    "chat.provider", "chat.model", "chat.mode", "chat.endpoint",
+    "agent.provider", "agent.model",
+    "voice.enabled", "voice.selected",
+    "bridge.enabled", "bridge.nervis", "bridge.enrolment_configured",
+    "theme",
+})
+
+# One field's worth of characters. A model id is short; the cap is for the case
+# where the answer is not from a Bridge at all.
+MAX_CONFIG_CHARS = 120
+
 
 def _int_or_none(value: Any) -> int | None:
     """A whole number, or nothing at all.
@@ -90,6 +108,98 @@ def interpret(body: Mapping[str, Any]) -> dict[str, Any]:
             reported[name] = value
 
     return reported
+
+
+def interpret_config(body: Mapping[str, Any]) -> dict[str, Any]:
+    """One Bridge's published settings, as NERVIS may repeat them.
+
+    Field by field from `CONFIG_FIELDS`, primitives only, strings clipped. The
+    Bridge already refuses to publish a path, a URL or anything from
+    SecretStorage — this is the second half of that promise, kept on the side
+    that would be doing the repeating.
+    """
+    found = body.get("config")
+    if not isinstance(found, Mapping):
+        return {}
+    settings: dict[str, Any] = {}
+    for name, value in found.items():
+        if str(name) not in CONFIG_FIELDS:
+            continue
+        if isinstance(value, bool):
+            settings[str(name)] = value
+        elif isinstance(value, str) and value.strip():
+            settings[str(name)] = value.strip()[:MAX_CONFIG_CHARS]
+    return settings
+
+
+def interpret_setting_ids(body: Mapping[str, Any]) -> dict[str, str]:
+    """Where each published field lives, so an answer can say how to change it.
+
+    Kept because §6.7 forbids NERVIS changing a setting: the most useful thing a
+    control plane can do about a setting it may not touch is name it exactly.
+    Filtered the same way as the values — a field NERVIS does not publish gets
+    no id, and an id belonging to another extension is dropped rather than
+    repeated, since "search for this in settings" is an instruction and a wrong
+    one sends somebody somewhere else.
+    """
+    found = body.get("settings")
+    if not isinstance(found, Mapping):
+        return {}
+    ids: dict[str, str] = {}
+    for field, setting in found.items():
+        if str(field) not in CONFIG_FIELDS or not isinstance(setting, str):
+            continue
+        clean = setting.strip()[:MAX_CONFIG_CHARS]
+        if clean.startswith("clarvis.") or clean == "workbench.colorTheme":
+            ids[str(field)] = clean
+    return ids
+
+
+async def read_config(
+    client: httpx.AsyncClient, instance: Instance, now: float
+) -> dict[str, Any]:
+    """Read one live Bridge's configuration summary, or say why not.
+
+    Same shape and same rules as `read_status`, and separate from it because the
+    two answer different questions at different rates: what Clarvis is *doing*
+    changes by the second, and what it is *configured to do* changes when
+    somebody edits a setting. A dashboard poll should not carry both.
+    """
+    if not instance.is_live(now):
+        return {"reachable": False, "detail": "the lease has lapsed; this window is not answering"}
+    try:
+        response = await client.get(
+            instance.base_url + "/v1/config",
+            headers={"Authorization": f"Bearer {instance.token}"},
+            timeout=READ_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        return {"reachable": False, "detail": f"no response: {type(failure).__name__}"}
+    if response.status_code == 404:
+        # A Bridge that predates the capability. Named rather than reported as a
+        # failure: §5.2's "unknown capabilities are unavailable" is about exactly
+        # this, and an older window is not a broken one.
+        return {
+            "reachable": True,
+            "detail": "this Clarvis does not publish a configuration summary",
+        }
+    if response.status_code >= 400:
+        return {"reachable": True, "detail": f"the Bridge answered HTTP {response.status_code}"}
+    try:
+        body = response.json()
+    except ValueError:
+        return {"reachable": True, "detail": "the Bridge answered with something that is not JSON"}
+    if not isinstance(body, Mapping):
+        return {
+            "reachable": True,
+            "detail": "the Bridge answered with something that is not an object",
+        }
+    return {
+        "reachable": True,
+        "detail": "",
+        "settings": interpret_config(body),
+        "setting_ids": interpret_setting_ids(body),
+    }
 
 
 async def read_status(

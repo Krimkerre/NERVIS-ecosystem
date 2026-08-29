@@ -33,8 +33,8 @@ from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from nervis import bridges, commands, situation
 from nervis import chat as store
-from nervis import commands, situation
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.peers import ravis as ravis_peer
@@ -486,6 +486,17 @@ DECISION_SAMPLE = 10
 # When a sentence might be asking to change where this conversation routes.
 POOL_WORDS = ("pool", "profile", "switch", "route this", "use ravis/")
 
+# When a question is about the editor rather than about the ecosystem around it.
+EDITOR_WORDS = (
+    "clarvis", "editor", "setting", "settings", "configured", "configuration",
+    "theme", "code-server", "code server", "vscode", "vs code",
+)
+
+# How many windows are asked. Each is an HTTP round trip into an extension host
+# that may be busy running an agent; §6.3's per-window rule means there is no
+# aggregate read to make instead.
+EDITOR_SAMPLE = 2
+
 # How long RAVIS's catalogue is reused before it is read again. The registry,
 # the leases and the hub are already in memory and cost nothing per turn; the
 # catalogue is one HTTP call, and doing it on every message would put a remote
@@ -922,6 +933,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     jobs = await _jobs(request, asked)
     runtime = await _runtime(request, asked)
     decisions = await _decisions(request, asked)
+    editors = await _editors(request, asked)
     # Only alongside the queue: a run is what a job became, so a question that
     # did not mention benchmarks does not need either.
     runs = await _runs(request) if jobs else []
@@ -932,7 +944,7 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     return printed, situation.block(
         services, windows, events, catalogue, request.app.state.chat_clock(),
         question=asked, models=models, jobs=jobs, runs=runs, runtime=runtime,
-        decisions=decisions,
+        decisions=decisions, editors=editors,
     )
 
 
@@ -988,6 +1000,30 @@ async def _pools(request: Request, question: str) -> list[dict[str, Any]]:
         return []
     items = found.get("items") if isinstance(found, dict) else found
     return [item for item in (items or []) if isinstance(item, dict)]
+
+
+async def _editors(request: Request, question: str) -> list[dict[str, Any]]:
+    """What each open Clarvis window is configured to do, when asked.
+
+    §6.7 forbids NERVIS changing a Clarvis setting, and this is the read that
+    makes the restriction bearable: asked "which model is Clarvis using" or "how
+    do I change the theme", the answer is the value in force and the setting id
+    to search for, rather than a trip into the editor to look.
+
+    One request per live window, and only when the question is about the editor
+    — a window running an agent should not be asked for its settings because
+    somebody asked how RAVIS was doing.
+    """
+    if not any(word in question.lower() for word in EDITOR_WORDS):
+        return []
+    client: httpx.AsyncClient = request.app.state.probe_client
+    now = request.app.state.instances_clock()
+    found: list[dict[str, Any]] = []
+    for instance in request.app.state.instances.live("clarvis")[:EDITOR_SAMPLE]:
+        read = await bridges.read_config(client, instance, now)
+        if read.get("settings"):
+            found.append({"label": instance.label, **read})
+    return found
 
 
 async def _decisions(request: Request, question: str) -> list[dict[str, Any]]:

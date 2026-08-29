@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1673 tests, no network, no live service
+.venv/bin/pytest                      # part of 1675 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 386 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1673 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1675 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2297,6 +2297,36 @@ and the second question is why somebody opens a log line. Each group is now its
 own disclosure onto the models it names, scrolled rather than inlined: forty ids
 in the flow turn the interesting line, the one attempt that ran, into
 scrollback.
+
+## The read that exists so a write does not have to (30 Aug)
+
+**Asked whether chat could change a Clarvis setting, the answer is no — and
+§6.7 says so at agents specifically**: *"an agent asked to add such control must
+stop."* The Bridge refuses every non-GET before it looks at the path, and
+code-server has no settings-write API at all; the file on disk is reachable and
+writing it would be the bypass §6.7 names, invisible to Clarvis's own audit and
+racing the editor's in-memory copy.
+
+**So the useful half was built instead.** `clarvis.config.summary@1` publishes
+what Clarvis is configured to do — the values in force and the setting id for
+each — so an operator is told where to change a thing rather than sent to hunt
+for it. NERVIS reads it at `/api/v1/registry/instances/{service}/{id}/config`,
+and chat carries it when the question is about the editor.
+
+**The allowlist is the security argument.** Model names, provider ids, modes,
+booleans and the theme travel. A path never does — whether an enrolment secret
+is configured travels, the path to it does not. A URL somebody typed never does
+— a base URL can carry a token in its query string and can name an internal
+host, so what travels is `loopback`, `remote` or `unreadable`. Nothing from
+SecretStorage, which is not a setting and so is not a rule anybody must remember
+to apply. Filtered twice, once on each side: the Bridge publishes an allowlist
+and NERVIS repeats an allowlist, because the port is dynamic and anything on
+this machine can bind one.
+
+**And the answer always ends the same way**, which is why the line is assembled
+by NERVIS rather than left to the model: *NERVIS cannot change any of these —
+the Bridge is read-only by contract. They are changed in the editor: open
+Settings and search for the setting id.*
 
 ## Memory outranked measurement, and three smaller lies with it (30 Aug)
 

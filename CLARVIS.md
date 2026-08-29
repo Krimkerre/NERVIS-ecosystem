@@ -277,11 +277,32 @@ The token authenticates the *channel*; it grants nothing beyond what §6.2 alrea
 
 ```text
 clarvis.status.read@1
+clarvis.config.summary@1
 clarvis.events@1
 clarvis.diagnostics.summary@1
 clarvis.logs.reference@1        only where M13 log tailing exists and is approved
 clarvis.ravis_provider@1
 ```
+
+**`clarvis.config.summary@1` is the read that exists so a write does not have to.**
+§6.7 forbids NERVIS changing a Clarvis setting and the Bridge has no write path to extend, so
+the useful half of *"can the dashboard manage Clarvis"* is answered by publishing the
+configuration instead of accepting one: the values in force, and the setting id for each, so an
+operator is told where to change a thing rather than sent to look for it.
+
+It publishes an **allowlist**, and the list is the security argument rather than a convenience:
+
+- model names, provider ids, modes, booleans and the theme id — values whose purpose is to be
+  shown to the person who set them;
+- **never a path.** Whether an enrolment secret is configured travels; the path to it does not;
+- **never a URL somebody typed.** A base URL can carry a token in a query string and can name an
+  internal host, so what travels is *loopback*, *remote* or *unreadable* — the fact a peer wants,
+  without the string;
+- **nothing from SecretStorage**, which is not settings at all and so is not a rule anybody has
+  to remember to apply.
+
+A setting that does not fit that description is not added to the list. A summary is a document
+about configuration, and §6.4's prohibitions apply to it exactly as they apply to an event.
 
 > **There is no `clarvis.gates.approve`, and no unrestricted tool or command capability.**
 
