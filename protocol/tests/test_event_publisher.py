@@ -1,0 +1,242 @@
+"""Stage 7's second exit clause: "collector outage leaves every product healthy".
+
+The publisher exists to make a NERVIS outage a non-event for RAVIS and SIRVIS,
+and every test here is one way that could fail to be true. The redaction tests
+are the other half — §9 puts the obligation on the producer because a collector
+cannot un-leak a secret it has already received.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import pytest
+
+from ecosystem_protocol import EventPublisher, envelope, redact_deep, stable_event_id
+from ecosystem_protocol.publisher import DEFAULT_BUFFER
+
+
+class Collector:
+    """A NERVIS that answers, or does not."""
+
+    def __init__(self, *, status: int = 202, fail: bool = False) -> None:
+        self.status, self.fail, self.batches = status, fail, []
+
+    async def post(self, url: str, *, json: Any, timeout: float) -> Any:
+        # Named to match the Protocol the publisher borrows a client through;
+        # this double only cares about the body.
+        del url, timeout
+        if self.fail:
+            raise ConnectionError("nervis is not running")
+        self.batches.append(json)
+        return type("R", (), {"status_code": self.status})()
+
+
+def a_publisher(**kwargs: Any) -> EventPublisher:
+    return EventPublisher(
+        service_type="ravis", service_id="ravis-1", machine_id="m1",
+        base_url="http://127.0.0.1:8790", **kwargs,
+    )
+
+
+# ── The outage ──────────────────────────────────────────────────────────────
+
+
+def test_emitting_never_raises_when_the_collector_is_gone() -> None:
+    """The product may not learn that the dashboard is down."""
+    publisher = a_publisher()
+
+    for n in range(10):
+        publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    assert publisher.snapshot()["queued"] == 10
+
+
+def test_a_failed_flush_keeps_the_events_and_says_so() -> None:
+    publisher = a_publisher()
+    publisher.emit("ravis.route.selected", trace_id="t1")
+
+    sent = asyncio.run(publisher.flush(Collector(fail=True)))
+
+    assert sent == 0
+    state = publisher.snapshot()
+    assert state["queued"] == 1, "a failed publish must not lose the event"
+    assert state["failures"] == 1
+    assert "nervis is not running" in state["last_error"]
+
+
+def test_a_failed_flush_preserves_order() -> None:
+    """A timeline assembled from events that arrived out of order is one a
+    reader has to distrust."""
+    publisher = a_publisher()
+    for n in range(3):
+        publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    asyncio.run(publisher.flush(Collector(fail=True)))
+    collector = Collector()
+    asyncio.run(publisher.flush(collector))
+
+    assert [event["data"]["n"] for event in collector.batches[0]] == [0, 1, 2]
+
+
+def test_the_buffer_is_bounded_and_a_drop_is_counted() -> None:
+    """An unbounded queue is the outage taking the product down by a slower
+    route. A drop nobody counted is a hole in a timeline nothing can explain."""
+    publisher = a_publisher(buffer=4)
+
+    for n in range(10):
+        publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    state = publisher.snapshot()
+    assert state["queued"] == 4
+    assert state["dropped"] == 6
+
+
+def test_the_oldest_is_dropped_not_the_newest() -> None:
+    """The recent history is the half somebody looking at a live problem wants."""
+    publisher = a_publisher(buffer=3)
+    for n in range(6):
+        publisher.emit("ravis.route.selected", trace_id="t1", data={"n": n})
+
+    collector = Collector()
+    asyncio.run(publisher.flush(collector))
+
+    assert [event["data"]["n"] for event in collector.batches[0]] == [3, 4, 5]
+
+
+def test_a_5xx_is_retried_and_a_202_is_not() -> None:
+    publisher = a_publisher()
+    publisher.emit("ravis.route.selected", trace_id="t1")
+
+    asyncio.run(publisher.flush(Collector(status=503)))
+    assert publisher.snapshot()["queued"] == 1, "a hub error is worth retrying"
+
+    asyncio.run(publisher.flush(Collector(status=202)))
+    assert publisher.snapshot()["queued"] == 0
+    assert publisher.snapshot()["published"] == 1
+
+
+def test_no_collector_configured_is_a_no_op_rather_than_a_failure() -> None:
+    """Running RAVIS on its own is the ordinary case, not a degraded one."""
+    publisher = EventPublisher(service_type="ravis")
+
+    publisher.emit("ravis.route.selected", trace_id="t1")
+
+    assert not publisher.enabled
+    assert publisher.snapshot()["queued"] == 0
+    assert publisher.snapshot()["dropped"] == 0, "a no-op is not a loss"
+
+
+def test_the_drain_is_bounded_when_the_collector_hangs() -> None:
+    """A shutdown that hangs on a collector is the outage taking the product
+    down at the last possible moment."""
+
+    class Hanging:
+        async def post(self, url: str, *, json: Any, timeout: float) -> Any:
+            del url, json, timeout
+            await asyncio.sleep(30)
+
+    publisher = a_publisher()
+    publisher.emit("ravis.route.selected", trace_id="t1")
+
+    async def exercise() -> float:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await publisher.drain(Hanging(), deadline=0.2)
+        return loop.time() - started
+
+    assert asyncio.run(exercise()) < 3.0
+
+
+# ── What must never leave the process ───────────────────────────────────────
+
+
+def test_redaction_reaches_nested_values() -> None:
+    """`redact` is a comprehension over top-level keys, which is right for a log
+    record and wrong for an event: a prompt one level down walks through it."""
+    payload = {"spec": {"tests": [{"prompt": "the secret question", "id": "t1"}]}}
+
+    cleaned = redact_deep(payload)
+
+    assert cleaned["spec"]["tests"][0]["prompt"] == "[redacted]"
+    assert cleaned["spec"]["tests"][0]["id"] == "t1", "only the named keys go"
+
+
+def test_an_event_redacts_on_the_way_in() -> None:
+    built = envelope(
+        event_type="ravis.route.selected", service_type="ravis", trace_id="t1",
+        data={"api_key": "sk-live-1234", "messages": [{"content": "hello"}]},
+    )
+
+    assert built["data"]["api_key"] == "[redacted]"
+    assert built["data"]["messages"] == "[redacted]"
+
+
+def test_a_long_string_is_truncated_and_marked() -> None:
+    """A stack trace or a pasted document must not ride out inside a message,
+    and a silently shortened string is one a reader quotes back as complete."""
+    built = envelope(
+        event_type="x.y", service_type="ravis", trace_id="t1",
+        data={"detail": "a" * 5000},
+    )
+
+    assert len(built["data"]["detail"]) < 400
+    assert built["data"]["detail"].endswith("… [truncated]")
+
+
+def test_redaction_survives_a_cycle_rather_than_taking_the_process_down() -> None:
+    """The one thing telemetry may never do is kill its producer."""
+    cyclic: dict[str, Any] = {}
+    cyclic["self"] = cyclic
+
+    assert redact_deep(cyclic) is not None
+
+
+# ── The envelope ────────────────────────────────────────────────────────────
+
+
+def test_an_event_with_no_trace_is_not_queued() -> None:
+    """NERVIS accepts it, stores it, counts it against retention — and
+    `summarise` drops it, so it is stored and invisible."""
+    publisher = a_publisher()
+
+    publisher.emit("ravis.route.selected", trace_id="")
+
+    assert publisher.snapshot()["queued"] == 0
+
+
+def test_the_service_type_is_what_makes_a_lane() -> None:
+    """`traces.assemble` groups events into spans by exactly this field."""
+    built = envelope(event_type="x.y", service_type="ravis", trace_id="t1")
+
+    assert built["source"]["service_type"] == "ravis"
+
+
+def test_a_stable_id_makes_a_retry_one_event_rather_than_two() -> None:
+    """The hub dedupes on `event_id`, so a uuid4 per attempt is stored twice and
+    inflates `span.events` — the number that decides whether a span is drawn as
+    an interval or as a point."""
+    first = stable_event_id("run_1", "sirvis.benchmark.started")
+    again = stable_event_id("run_1", "sirvis.benchmark.started")
+    other = stable_event_id("run_2", "sirvis.benchmark.started")
+
+    assert first == again
+    assert first != other
+
+
+def test_an_unknown_severity_is_refused_at_the_producer() -> None:
+    """Otherwise it is discovered as a quarantined event, hours later."""
+    with pytest.raises(ValueError):
+        envelope(event_type="x.y", service_type="ravis", trace_id="t1", severity="warn")
+
+
+def test_a_built_event_carries_every_field_the_hub_requires() -> None:
+    built = envelope(event_type="x.y", service_type="ravis", trace_id="t1")
+
+    for field in ("event_id", "event_type", "occurred_at"):
+        assert str(built.get(field) or "").strip(), f"{field} is required by the hub"
+
+
+def test_the_default_buffer_matches_the_hub_s_own() -> None:
+    assert DEFAULT_BUFFER == 256

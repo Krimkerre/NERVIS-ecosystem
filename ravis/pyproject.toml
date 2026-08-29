@@ -9,6 +9,10 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "httpx>=0.27",
+  # Imported since M0 (`app.py` reads its correlation helpers) and never
+  # declared — RAVIS was getting the shared package by accident of the
+  # environment, which works until somebody installs RAVIS on its own.
+  "ecosystem-protocol",
 ]
 
 [project.optional-dependencies]

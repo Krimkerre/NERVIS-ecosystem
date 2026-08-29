@@ -18,6 +18,7 @@ from ecosystem_protocol.capabilities import (
     capability_snapshot,
     wire_identifier,
 )
+from ecosystem_protocol.events import envelope, redact_deep, stable_event_id
 from ecosystem_protocol.observability import (
     JsonLineFormatter,
     configure_logging,
@@ -26,6 +27,7 @@ from ecosystem_protocol.observability import (
     redact,
     trace_id_from,
 )
+from ecosystem_protocol.publisher import EventPublisher
 from ecosystem_protocol.routes import router
 from ecosystem_protocol.surface import EcosystemSurface
 from ecosystem_protocol.version import (
@@ -53,5 +55,9 @@ __all__ = [
     "trace_id_from",
     "is_supported_protocol",
     "redact",
+    "redact_deep",
+    "envelope",
+    "stable_event_id",
+    "EventPublisher",
     "router",
 ]
