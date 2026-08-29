@@ -38,10 +38,6 @@
 .chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
 .model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
-.frame-bar{display:flex;align-items:center;gap:10px;padding:7px 11px;border-bottom:1px solid var(--line);background:#0a0f15;font-size:11px;color:var(--muted)}
-.frame-bar .chip{margin-left:0}
-.frame-open{margin-left:auto;color:var(--cyan);text-decoration:none;font-family:"JetBrains Mono",monospace;font-size:11px}
-.frame-open:hover{text-decoration:underline}
 /* Sized rather than intrinsic: an iframe has no content height of its own, and
    `height:auto` collapses it to nothing. Tall enough to be an editor rather than
    a preview of one. */
@@ -207,7 +203,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .side{display:none}
 .app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
 .app[data-app="clarvis"] .main{padding:0;min-height:0}
-.app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px - 33px) / var(--code-scale,1))}
+/* The tab bar is the only thing above it now. */
+.app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px) / var(--code-scale,1))}
 
 
 
@@ -8796,22 +8793,6 @@ const EDITOR_PREVIEW={
   ['Leave it','No change. It keeps sharing.']]
 };
 
-/* The Bridge chips for the frame strip: what the registered windows are doing,
-   said once per distinct answer.
-
-   Returns an empty string when nothing could be read, rather than a placeholder.
-   The banner above the frame already says the Bridge is absent, and a second
-   sentence about it beside the address would be the same fact twice. */
-function bridgeChips(windows){
- const read=windows.filter(c=>c.activity&&c.activity!=='unknown');
- if(!read.length)return '';
- const tally=new Map();
- for(const one of read){const said=bridgeDoing(one);tally.set(said,(tally.get(said)||0)+1)}
- return [...tally].map(([said,count])=>
-   `<span class="chip" title="${escapeHtml(count)} editor window(s) reporting this">`
-   +`${count>1?escapeHtml(count)+'× ':''}${escapeHtml(said)}</span>`).join('');
-}
-
 async function clarvis(){
  /* **No `heading()` here, deliberately.** Every other screen opens with one; this
     one is a full-bleed editor, and a hero with an avatar above it made the tab a
@@ -8850,37 +8831,22 @@ async function clarvis(){
   return;
  }
 
- $('#content').innerHTML=bridge+`
-  <div class="card full live" style="padding:0;overflow:hidden">
-   <div class="frame-bar">
-    <span class="mono">${escapeHtml(editor.endpoint)}</span>
-    ${/* **Grouped, and counted.** One chip per window read as `idle idle idle`
-          on a machine with three editors open — the same word three times, which
-          tells a reader nothing they could not have guessed, and crowds out the
-          one window that is doing something. Identical states collapse to a
-          count; differing ones stay separate, because that is the case worth
-          seeing.
+ /* **Nothing of NERVIS's between the tab bar and the editor.** There was a strip
+    here carrying the framed address, a Bridge chip and an "Open separately"
+    link. It went because it was the same class of thing as the hero header and
+    the side nav: NERVIS chrome stacked on top of an application that has its
+    own. The tab is the editor.
 
-          Only windows NERVIS actually reached. A registration holds its lease
-          for 45 seconds after its window is gone, so a closed editor keeps a row
-          whose status read comes back `unknown · no response`. That is the right
-          answer on the instances card, where the row is the subject, and noise
-          here, where the subject is the editor in the frame. */
-      bridgeChips(windows)}
-    <a class="frame-open" href="${escapeHtml(editor.endpoint)}" target="_blank" rel="noopener"
-       title="Open the editor in its own tab">Open separately ↗</a>
-   </div>
-   <iframe id="clarvis-frame" class="code-frame" src="${escapeHtml(editor.endpoint)}"
-     title="code-server"></iframe>
-  </div>
-  <small class="mono dim">Everything inside the frame — the file tree, the editor, the terminal
-   and Clarvis's own panel — is rendered by <b>code-server</b>, not by NERVIS. It is a separate
-   document on a separate origin, so this page cannot read or drive it, which is the same
-   boundary <b>CLARVIS.md §6.7</b> draws for the Bridge: NERVIS observes and never acts.
-   The chip above is read from the Bridge; the address is the one in NERVIS's own registry,
-   never assumed. If the framing ever breaks, <b>Open separately</b> is the supported fallback —
-   §7.3 says an external tab is an acceptable product, and Clarvis is never contorted to fit
-   an iframe.</small>`;
+    What it carried is not lost, only moved to where it was already better said.
+    The address and each window's state are on the Overview's Clarvis instances
+    card, which is the screen whose subject they are. The editor's own address is
+    the user's own configuration. And the framing fallback §7.3 asks for — open
+    it in a tab of its own — is a URL they already have; a permanent link on
+    every visit is a heavy way to carry an escape hatch for a case that has not
+    happened. If framing ever does break, the honest banner above is what the
+    reader gets, and it names the address. */
+ $('#content').innerHTML=bridge+`<iframe id="clarvis-frame" class="code-frame"
+   src="${escapeHtml(editor.endpoint)}" title="code-server"></iframe>`;
 }
 
 /* async because the views await real endpoints. With mocks these resolve on the
