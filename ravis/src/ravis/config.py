@@ -163,6 +163,13 @@ class Settings(BaseSettings):
     # model failing.
     anthropic_max_output_tokens: int = 16000
 
+    # ── Ecosystem events (runbook §4.4 — M18b) ──────────────────────────────
+    # Where NERVIS's hub answers. Empty means RAVIS publishes nothing, which is
+    # the ordinary state for RAVIS running on its own and is deliberately not a
+    # degraded one — Stage 7 requires a collector outage to leave every product
+    # healthy, and "no collector at all" is the strongest form of that.
+    nervis_base_url: str = ""
+
     # ── SIRVIS evidence (§13 — M13) ─────────────────────────────────────────
     # Where SIRVIS answers. Empty means RAVIS runs without it, which §13.4
     # requires to keep working: provider metadata and RAVIS's own observations

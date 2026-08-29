@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from importlib import metadata
 
-from ecosystem_protocol import AVAILABLE, DEGRADED, UNAVAILABLE, Capability, EcosystemSurface
+from ecosystem_protocol import AVAILABLE, DEGRADED, Capability, EcosystemSurface
 
 from ravis.core.pools import DEFAULT_POOLS
 
@@ -147,8 +147,9 @@ DECLARED: dict[str, Capability] = {
     ),
     "ravis.events@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
-        reason="event publication lands at M18b (runbook Stage 7)",
+        state=AVAILABLE,
+        reason="route selected, refused and completed, published to NERVIS's hub "
+        "under the request's trace_id (M18b)",
     ),
 }
 

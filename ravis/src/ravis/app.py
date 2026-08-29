@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 import httpx
-from ecosystem_protocol import new_request_id, trace_id_from
+from ecosystem_protocol import EventPublisher, new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -128,12 +128,24 @@ def _lifespan(settings: Settings) -> Any:
             _refresh_evidence_periodically(api, settings.models_cache_ttl_seconds)
         )
         recorder = asyncio.create_task(_flush_observations_periodically(api))
+        # Runbook Stage 7. Borrows the upstream client rather than opening a
+        # pool of its own, and is cancelled like the others — a publisher that
+        # outlived the app would hold the process open on a queue nobody reads.
+        publisher = asyncio.create_task(
+            api.state.events.run(api.state.upstream_client)
+        )
         try:
             yield
         finally:
             refresher.cancel()
             evidence_refresher.cancel()
             recorder.cancel()
+            publisher.cancel()
+            # Bounded, on the way out. The last thing RAVIS publishes about a
+            # request is the event that closes its span, and a fire-and-forget
+            # POST issued as the loop is torn down dies with it — losing exactly
+            # the event that turns a bar into a bar rather than a point.
+            await api.state.events.drain(api.state.upstream_client)
             # Written on the way out as well as on the timer, so a clean restart
             # keeps the samples taken since the last flush rather than the ones
             # that happened to fall on a tick.
@@ -344,11 +356,31 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # from hardware, a serial number or a username (runbook §4.1).
     installation = uuid.uuid5(uuid.NAMESPACE_DNS, settings.database_path).hex[:12]
     api.state.service_id = f"ravis-{installation}"
-    api.state.machine_id = uuid.uuid5(uuid.NAMESPACE_DNS, "ravis-machine").hex
+    # **Per installation, not per product.** This was
+    # `uuid5(NAMESPACE_DNS, "ravis-machine")` — a constant, so every RAVIS in
+    # existence reported the same machine. §4.1 asks for an id "stable per local
+    # installation"; a constant satisfies "stable" and nothing else, and it
+    # passed the test beside it because that test only asks whether the value is
+    # hardware-derived. Harmless while it was published to a registry that also
+    # knew the address it came from, and not harmless from M18b on: it goes into
+    # `source.machine_id` on every event, where two machines' events would claim
+    # to be one machine's.
+    api.state.machine_id = uuid.uuid5(
+        uuid.NAMESPACE_DNS, f"ravis-machine:{settings.database_path}"
+    ).hex
     # What the shared MEP router publishes on RAVIS's behalf. Attached under the
     # name that package looks for; everything service-specific in it — identity,
     # capability declarations, the readiness check — is supplied from here, and
     # nothing about RAVIS leaks into the protocol package.
+    # M18b. Disabled unless an operator points RAVIS at a hub; see
+    # `nervis_base_url`. Constructed here so `app.state.events.emit(...)` is
+    # always safe to call, whether or not anything is listening.
+    api.state.events = EventPublisher(
+        service_type="ravis",
+        service_id=api.state.service_id,
+        machine_id=api.state.machine_id,
+        base_url=settings.nervis_base_url,
+    )
     api.state.ecosystem = ravis_surface(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,

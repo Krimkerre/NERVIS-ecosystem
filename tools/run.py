@@ -138,6 +138,13 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # told RAVIS where SIRVIS is". §13.4 makes the source optional, so
             # nothing errors; it just quietly does less.
             env["RAVIS_SIRVIS_BASE_URL"] = f"http://127.0.0.1:{SIRVIS_PORT}"
+            # Runbook Stage 7. Where RAVIS publishes what it routed, so a
+            # request that crosses services shows both lanes on the Traces
+            # screen. Empty is a supported state — RAVIS on its own publishes
+            # nothing and is not degraded for it — but a launcher that starts
+            # all three and wires none of them together would leave the one
+            # thing Stage 7 exists for switched off by default.
+            env["RAVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
             # And at a runtime, when the operator has not named one. RAVIS with
             # no upstream has no models, therefore no candidates, therefore
             # nothing to ask SIRVIS about — so the evidence store reads "fresh,

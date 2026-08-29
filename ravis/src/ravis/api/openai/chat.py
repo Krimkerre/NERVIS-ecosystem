@@ -186,7 +186,9 @@ async def create_chat_completion(request: Request) -> Response:
 
     decision = await _route(request, parsed, body)
     if not decision.routed:
+        _emit_refused(request, decision)
         return _no_route(decision)
+    _emit_selected(request, decision)
 
     chain = _chain_for(request, decision)
     call = _Call(
@@ -197,6 +199,7 @@ async def create_chat_completion(request: Request) -> Response:
         chain=chain,
         recorded=getattr(request.state, "recorded_decision", None),
         note_usage=_usage_writer(request, decision),
+        note_finished=_finished_writer(request, decision),
     )
 
     # §6's fork, and the only place it is decided. A provider whose upstream
@@ -457,6 +460,7 @@ class _Call:
         chain: AttemptChain,
         recorded: RecordedDecision | None,
         note_usage: Callable[[str, Usage | None, float | None], None] | None = None,
+        note_finished: Callable[[AttemptChain], None] | None = None,
     ) -> None:
         self.client = client
         self._destination = destination
@@ -469,6 +473,10 @@ class _Call:
         # state, and the ledger needs the identity and the price book, neither
         # of which a request carrier should know about.
         self._note_usage = note_usage
+        # M18b's closing event, injected for the same reason as the usage
+        # writer above: this class performs no I/O and holds no app state, and
+        # publishing needs both. Called on every exit path because `finish` is.
+        self._note_finished = note_finished
 
     def note_usage(self, model: str, usage: Usage | None, latency_ms: float | None) -> None:
         """Record what this call consumed, if anything is listening."""
@@ -503,6 +511,8 @@ class _Call:
         """
         if self.recorded is not None:
             self.recorded.attempts = self.chain.summary()
+        if self._note_finished is not None:
+            self._note_finished(self.chain)
 
 
 def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
@@ -724,6 +734,130 @@ def _harvest_prices(request: Request, candidates: dict[str, ModelCapabilities]) 
     for model, known in candidates.items():
         if known.price is not None:
             prices.record(model, known.price)
+
+
+def _events(request: Request) -> Any:
+    """RAVIS's publisher, or a disabled one. Never absent, so no caller branches."""
+    return request.app.state.events
+
+
+def _emit_selected(request: Request, decision: RouteDecision) -> None:
+    """M18b: the moment that answers "why this model?", while it is still now.
+
+    **A pointer plus a summary, not the explanation.** `RouteDecision.as_dict()`
+    carries `considered` — every candidate id, which against an OpenRouter
+    catalogue is hundreds of strings — and `excluded` with a reason for each.
+    NERVIS already fetches the full explanation itself through the routes peer
+    surface, so the event carries `decision_id` and the reader follows it.
+
+    The summary rides along anyway, because the pointer dangles: the decision
+    log is bounded at 200 entries in memory, so two hundred requests later the
+    id resolves to nothing and a timeline with only an id on it says nothing at
+    all.
+    """
+    _events(request).emit(
+        "ravis.route.selected",
+        trace_id=getattr(request.state, "trace_id", ""),
+        data={
+            "decision_id": getattr(request.state, "decision_id", ""),
+            "request_id": getattr(request.state, "request_id", ""),
+            "requested": decision.requested,
+            "pool": decision.pool_id,
+            "selected": decision.selected,
+            "fallbacks": len(decision.fallbacks),
+            "considered": len(decision.considered),
+            "excluded": len(decision.excluded),
+            "reason": decision.reason,
+        },
+    )
+
+
+def _emit_refused(request: Request, decision: RouteDecision) -> None:
+    """M18b: a no-route, which is an explainable outcome and not a failure.
+
+    Its own type rather than `selected` with a null model: a type whose name
+    asserts a selection that did not happen is one every consumer has to
+    defensively re-check.
+
+    `blocked_only_by_circuits` is the field worth crossing a service boundary
+    for. A pool nothing satisfies and a pool whose candidates are all in
+    cooldown look identical from outside and have different fixes, and this is
+    the only place that distinction exists.
+    """
+    _events(request).emit(
+        "ravis.route.refused",
+        trace_id=getattr(request.state, "trace_id", ""),
+        severity="warning",
+        data={
+            "decision_id": getattr(request.state, "decision_id", ""),
+            "request_id": getattr(request.state, "request_id", ""),
+            "requested": decision.requested,
+            "pool": decision.pool_id,
+            "reason": decision.reason,
+            "blocked_only_by_circuits": decision.blocked_only_by_circuits,
+            "excluded": len(decision.excluded),
+        },
+    )
+
+
+def _finished_writer(
+    request: Request, decision: RouteDecision
+) -> Callable[[AttemptChain], None]:
+    """M18b's closing event — the one funnel every exit path passes through.
+
+    `_Call.finish` is called from nine places: both execution paths, the
+    streaming relay, cancellation and every exhaustion. Emitting anywhere else
+    means writing this event nine times or missing a path.
+
+    It is also what gives RAVIS a *bar* rather than a dot. `traces.assemble`
+    makes a service's span the interval its events cover and refuses to draw a
+    duration from a single event, so without a second event RAVIS appears as a
+    point at whatever moment it happened to finish.
+    """
+
+    def note(chain: AttemptChain) -> None:
+        # `summary()` is a dict whose `attempts` key holds the list — the shape
+        # §9.7 publishes. Treating the whole thing as the list is a mistake that
+        # only shows up once a request is actually made, which is why every
+        # proxy test caught it at once and no unit test did.
+        recorded = getattr(request.state, "recorded_decision", None)
+        summary = chain.summary()
+        attempts = [one for one in summary.get("attempts", []) if isinstance(one, dict)]
+        succeeded = any(one.get("outcome") == "succeeded" for one in attempts)
+        _events(request).emit(
+            "ravis.request.completed",
+            trace_id=getattr(request.state, "trace_id", ""),
+            severity="info" if succeeded else "error",
+            data={
+                "decision_id": getattr(request.state, "decision_id", ""),
+                "request_id": getattr(request.state, "request_id", ""),
+                "selected": decision.selected,
+                # From the recorded decision, which is where `_record_path`
+                # writes it — `request.state` never had it, so this published
+                # an empty string for §6's execution path on every event. Found
+                # by reading what actually arrived in the hub rather than by
+                # any test, because "" is a plausible value for a field that is
+                # genuinely unset early in a request.
+                "execution_path": getattr(recorded, "execution_path", "") or "",
+                "attempts": len(attempts),
+                "provider": summary.get("provider", ""),
+                "stopped_because": summary.get("stopped_because", ""),
+                # The outcome of each attempt, not its body. `summary()` carries
+                # the provider, the outcome and the timing; a response body
+                # would carry the completion, which §9 forbids.
+                "outcomes": [str(one.get("outcome") or "") for one in attempts],
+                "succeeded": succeeded,
+                # `AttemptChain.cancelled` is a *method*, so `bool(...)` on it
+                # is always True — this reported every successful request as
+                # cancelled, which is the one thing §9.7 says a route
+                # explanation must never blur. The evidence is in the attempts.
+                "cancelled": any(
+                    one.get("outcome") == "cancelled" for one in attempts
+                ),
+            },
+        )
+
+    return note
 
 
 def _usage_writer(
