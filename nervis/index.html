@@ -7938,7 +7938,7 @@ function offerRow(offer,index){
  const armed=RUNTIME_TOKEN?'':' disabled title="a benchmark-scoped SIRVIS token is required — paste one on the Runtime screen" style="opacity:.45;cursor:not-allowed"';
  return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
    <button class="btn primary" onclick="runOffer(${index})"${armed}>Run</button>
-   <span class="mono dim" style="font-size:11px">${escapeHtml(offer.summary)}${RUNTIME_TOKEN?'':' · needs a benchmark-scoped SIRVIS token'}</span>
+   <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}${RUNTIME_TOKEN?'':' · needs a benchmark-scoped SIRVIS token'}</span>
   </div>`;
 }
 

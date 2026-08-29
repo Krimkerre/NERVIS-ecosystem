@@ -792,7 +792,11 @@ def test_asking_for_a_benchmark_offers_one() -> None:
     assert offer["ready"] is True
     # And the model is told an offer exists, and told what it may not claim.
     system = sent[0]["messages"][0]["content"]
-    assert "never say it has started" in system
+    # The prohibition is a *fact* rather than a list of forbidden words: told
+    # "queue a benchmark of X", an 8B build answered "a benchmark of X has been
+    # queued" — conjugating the only verb it was given rather than disobeying.
+    assert "has not been pressed" in system
+    assert "queue" not in system.lower().split("<<<")[0]
 
 
 def test_an_ordinary_question_offers_nothing() -> None:

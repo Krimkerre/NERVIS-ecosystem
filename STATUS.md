@@ -2272,6 +2272,18 @@ otherwise have to be remembered:
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
 
+**The model will still say it has been queued, and the screen says otherwise.**
+Told *"queue a benchmark of X"* and instructed not to claim it had started, an
+8B build answered *"a benchmark of X has been queued and is waiting for your
+confirmation"* — the false half first. Removing the verb from the sentence it is
+handed (`a benchmark of X on SIRVIS`, and a prohibition stated as a fact rather
+than as a word list) did not fix it: the model has a strong prior and says it
+anyway. So the same rule as §18.1's figures applies here — **NERVIS states, the
+model narrates**. The button row under the reply reads *"not run yet · a
+benchmark of X on SIRVIS"*, drawn by the page from NERVIS's own offer, and it is
+the authority. Nothing has run until a person presses it, whatever the sentence
+above it says.
+
 An ambiguous name is never resolved for the person: two models matching "qwen3"
 produce an offer that is not ready and lists both. A model this machine does not
 have is refused before the offer is made rather than after SIRVIS rejects it.

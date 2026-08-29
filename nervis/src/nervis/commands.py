@@ -54,7 +54,12 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
-        summary="queue a benchmark of {target} on SIRVIS",
+        # **No verb in the tense that becomes a lie.** This sentence is handed
+        # to the model, and "queue a benchmark of X" came back as "a benchmark
+        # of X has been queued" — the model was not disobeying an instruction,
+        # it was conjugating the one verb in the text it was given. Naming the
+        # thing rather than the act leaves nothing to conjugate.
+        summary="a benchmark of {target} on SIRVIS",
     ),
 )
 
@@ -184,12 +189,19 @@ def told(proposal: Proposal | None) -> str:
     if proposal is None:
         return ""
     if proposal.ready:
+        # **The prohibition comes first, and names the words.** Told to mention
+        # a button and not to claim the work had started, an 8B build answered
+        # "a benchmark of qwen/qwen3-4b-2507 has been queued and is waiting for
+        # your confirmation" — both halves in one sentence, the false half
+        # first. A rule stated after the thing it restricts is a rule a small
+        # model reads as an afterthought, and "never say X" leaves it composing
+        # a synonym.
         return (
-            f"The person asked for something NERVIS can offer: {proposal.summary}. "
-            "NERVIS has put a button under your reply for them to confirm it. "
-            "Nothing has run and nothing will run unless they press it — say it is "
-            "ready and waiting for them, and never say it has started, been queued "
-            "or finished."
+            f"The person asked about {proposal.summary}. There is an unpressed Run "
+            "button under your reply. It is the only thing that can start this, and "
+            "it has not been pressed, so this benchmark does not exist yet — it is "
+            "an offer on screen and nothing more. Tell them the button is there and "
+            "that it is theirs to press. Describe it in the future tense only."
         )
     return (
         f"The person asked for something NERVIS can offer — {proposal.summary} — but "
