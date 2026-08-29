@@ -3728,7 +3728,7 @@ async function nervis(){
  /* From the rows NERVIS just published, not from the fallback `SERVICES` map
     and not against a hardcoded four. §5.1 declares six entries and the map
     holds four, so the two disagreed the moment the registry went live. */
- const live=svc.items.filter(x=>['healthy','degraded'].includes(x.state)).length;
+ const reach=reachability(svc);
  const bar=sp=>spanBar(sp,tr.window_ms);
  $('#content').innerHTML=kpis([...measured,
    /* `local_share`, not `local_pct`. The mock defines `local_pct` and RAVIS
@@ -3740,7 +3740,7 @@ async function nervis(){
     usage.executed?`of ${usage.executed} executed`:'nothing routed yet','ravis',Boolean(usage.live)],
    /* `true` was written here literally, so the tile counted mock rows as
       reachable services on a page with nothing running. */
-   ['Services',`${live} / ${svc.items.length}`,'reachable · observer-side','nervis',svc.live]])
+   ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
  +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
@@ -4622,6 +4622,26 @@ const VOICE={
    fixed positions regardless of what the registry said, which is why that card
    carried a PROTOTYPE badge while the tab beside it was live. A diagram that
    ignores the registry is not a smaller version of one that reads it. */
+/* How many peers are answering, out of how many were ever expected to.
+
+   **An optional peer that has never answered is not counted against you.** The
+   denominator used to be every registry entry, so a machine without Ollama and
+   without a Bridge on the assumed port read `5 / 7` for ever — two of them
+   absent by design rather than broken. That is the same distinction the map
+   already draws with `awaiting_first_contact`, and the two disagreeing about the
+   same registry was the confusing part: the diagram said all clear and the tile
+   beside it said five out of seven.
+
+   A peer that answered once and then stopped still counts. `awaiting_first_contact`
+   is false the moment `last_seen` is set, so an outage is an outage. */
+function reachability(svc){
+ const expected=svc.items.filter(s=>!s.awaiting_first_contact);
+ const live=expected.filter(s=>['healthy','degraded'].includes(s.state));
+ const absent=svc.items.length-expected.length;
+ return{live:live.length,expected:expected.length,absent,
+   note:absent?`reachable · ${absent} optional peer(s) never configured`:'reachable · observer-side'};
+}
+
 function ecosystemNodes(svc,inst){
  /* Nodes sit on a circle so the count can change without a layout rewrite. The
     inline position beats the `.node:nth-of-type` rules a fixed map relies on. */
@@ -4719,7 +4739,7 @@ function topologyMap(pts,height,compact){
 async function mapView(){
  heading('Ecosystem map','Every node is a registry entry. Every edge is a connection NERVIS itself holds.');
  const [svc,inst]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances()]);
- const live=svc.items.filter(s=>['healthy','degraded'].includes(s.state)).length;
+ const reach=reachability(svc);
  const pts=ecosystemNodes(svc,inst);
  $('#content').innerHTML=kpis([
    /* Stated rather than derived from `SOURCE`, which is a global the next
@@ -4727,7 +4747,7 @@ async function mapView(){
       two reads, and the three cards below hardcoded their class — so a live
       registry rendered a live topology under a PROTOTYPE badge. */
    ['Registered',String(svc.items.length),'one row per identity','nervis',svc.live],
-   ['Reachable',`${live} / ${svc.items.length}`,'observer-side','nervis',svc.live],
+   ['Reachable',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live],
    ['Protocol','major 1','negotiated with every peer','nervis',svc.live],
    ['Editor hosts',String(inst.items.length),inst.live?'extension hosts · never merged':'Clarvis Bridge is not running','clarvis',inst.live]])
  +`<div class="card full${escapeHtml(liveClass(svc.live))}"><h3>Topology <span class="chip">as observed</span></h3>

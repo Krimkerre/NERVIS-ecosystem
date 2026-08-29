@@ -284,8 +284,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # wins, because guessing over a stated choice would be worse than
             # not guessing at all.
             if not env.get("RAVIS_UPSTREAM_BASE_URL") and not env.get("RAVIS_UPSTREAMS"):
-                env["RAVIS_UPSTREAM_BASE_URL"] = LM_STUDIO
-                env["RAVIS_UPSTREAM_KIND"] = "lmstudio"
+                env.update(_default_upstreams())
                 env["RAVIS_DEFAULTED_UPSTREAM"] = "1"
         if package == "sirvis":
             # The same wiring for the second producer. A benchmark mints its own
@@ -360,6 +359,48 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         dict(os.environ),
         f"http://127.0.0.1:{port}/healthz",
     )]
+
+
+def _default_upstreams() -> dict[str, str]:
+    """The local runtime, plus every hosted provider this machine has a key for.
+
+    **Declared, not merely warned about.** RAVIS persists two things per provider
+    — the credential and whether it is enabled — and does *not* persist which
+    upstreams are declared. That lives only in `RAVIS_UPSTREAMS`. So a restart
+    from a shell without it came up healthy, authenticated and silently smaller:
+    the key still on disk, the provider simply absent from the Providers screen.
+
+    This function used to be a paragraph of output telling the reader to export
+    the variable themselves — the launcher detected the exact problem, printed
+    the exact fix, and then did not apply it. Reading a stored credential is
+    already what the warning did; declaring the upstream it belongs to is the
+    same read with the obvious next step attached.
+
+    Only as a default. Anything the operator set in the environment wins, because
+    guessing over a stated choice would be worse than not guessing at all — this
+    is only reached when neither `RAVIS_UPSTREAM_BASE_URL` nor `RAVIS_UPSTREAMS`
+    is present.
+
+    **No credential is read, only the name of each provider that has one.** The
+    file is opened to list its keys and never its values.
+    """
+    upstreams: list[dict[str, str]] = [
+        {"name": "default", "base_url": LM_STUDIO, "kind": "lmstudio"}
+    ]
+    try:
+        stored = json.loads(
+            (pathlib.Path.home() / ".config" / "ravis" / "credentials.json").read_text()
+        )
+    except (OSError, ValueError):
+        stored = {}
+    for kind in TRANSPARENT_KINDS:
+        if kind in stored:
+            upstreams.append({"name": kind, "kind": kind})
+    if len(upstreams) == 1:
+        # One upstream and no hosted keys: keep the simpler pair of variables,
+        # which is what every existing message and doc about this refers to.
+        return {"RAVIS_UPSTREAM_BASE_URL": LM_STUDIO, "RAVIS_UPSTREAM_KIND": "lmstudio"}
+    return {"RAVIS_UPSTREAMS": json.dumps(upstreams)}
 
 
 def _with_results(env: dict[str, str]) -> dict[str, str]:
@@ -554,9 +595,12 @@ def start() -> int:
         print(f"  {name:<10} {'answering' if responds(url, 1.0) else 'not running'}")
 
     if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
-        print(f"\nRAVIS upstream defaulted to LM Studio at {LM_STUDIO}.")
-        print("  Set RAVIS_UPSTREAM_BASE_URL (or RAVIS_UPSTREAMS) to override.")
-        _warn_about_undeclared_providers()
+        declared = _default_upstreams()
+        named = [one["name"] for one in json.loads(declared["RAVIS_UPSTREAMS"])] \
+            if "RAVIS_UPSTREAMS" in declared else ["default"]
+        print(f"\nRAVIS upstreams defaulted to: {', '.join(named)}.")
+        print(f"  Local runtime at {LM_STUDIO}; hosted ones are the providers this")
+        print("  machine already holds a key for. Set RAVIS_UPSTREAMS to override.")
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
     if ready:
@@ -615,44 +659,10 @@ def stop() -> int:
 
 
 # Hosted providers reachable as a transparent upstream, and the kind name that
-# knows its own address. A credential here with no upstream declared is the
-# gap this warning exists for.
+# knows its own address. A credential for one of these is only usable if the
+# upstream is *declared* — RAVIS persists the key and not the declaration — which
+# is why `_default_upstreams` reads this list rather than trusting the store.
 TRANSPARENT_KINDS = ("openrouter", "openai")
-
-
-def _warn_about_undeclared_providers() -> None:
-    """Say when a stored credential has no upstream to use it.
-
-    RAVIS persists two things about a provider -- the credential, and whether it
-    is enabled -- and does not persist *which upstreams are declared*. That
-    lives only in `RAVIS_UPSTREAMS`. So a restart from a shell without it comes
-    up healthy, authenticated, and silently smaller: the key is still on disk,
-    the provider is simply not there.
-
-    That is exactly what happened here. OpenRouter vanished from the Providers
-    screen across a restart, with its credential untouched in
-    `~/.config/ravis/credentials.json`, and nothing said so -- the ecosystem
-    reported three services ready and one fewer provider than the last run.
-    """
-    try:
-        stored = json.loads(
-            (pathlib.Path.home() / ".config" / "ravis" / "credentials.json").read_text()
-        )
-    except (OSError, ValueError):
-        return
-    undeclared = [kind for kind in TRANSPARENT_KINDS if kind in stored]
-    if not undeclared:
-        return
-    print(f"\n  You have a stored credential for: {', '.join(undeclared)}.")
-    print("  Those are transparent upstreams and are NOT started by this default,")
-    print("  so they will be absent from the Providers screen. To include them:")
-    entries = ", ".join(
-        f'{{"name":"{kind}","kind":"{kind}"}}' for kind in undeclared
-    )
-    print(
-        f'\n    export RAVIS_UPSTREAMS=\'[{{"name":"default",'
-        f'"base_url":"{LM_STUDIO}","kind":"lmstudio"}}, {entries}]\''
-    )
 
 
 def status(quiet: bool = False) -> dict[str, bool]:
