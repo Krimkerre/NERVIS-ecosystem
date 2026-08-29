@@ -2097,9 +2097,23 @@ defect. Two of the six are partial and named as such above.
 
 ### After that
 
+**Stage 7 is half done.** The shared publisher and RAVIS M18b have shipped and
+were verified against the running ecosystem: a request carrying a `traceparent`
+produced one RAVIS span of two events with a measured duration of 3087 ms, which
+is `is_point: false` — a bar rather than a dot. SIRVIS M21 is what remains
+before the stage's first exit clause ("a real *cross-service* request produces
+linked spans") is met, since one producer cannot make a crossing.
+
+Two defects were found by reading what actually arrived in the hub rather than
+by any test, and both are the kind a test would not have caught: `execution_path`
+published as the empty string on every event, because it was read from
+`request.state` and lives on the recorded decision; and `cancelled: true` on a
+request that had just succeeded, because `AttemptChain.cancelled` is a method
+and `bool()` of a bound method is always True.
+
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 7 — events and tracing rollout** *(RAVIS M18b, SIRVIS M21)* | The one thing NERVIS cannot finish alone. Its half is built — the hub at M6, correlation and the waterfall at M7 — and the Traces screen has been reporting "cross-service spans unavailable" ever since, which is the honest answer while it is the only producer. `traces.assemble` groups events into spans by `source.service_type`, so "linked spans" is exactly: RAVIS and SIRVIS emitting into the hub under the same `trace_id`. Both already derive one from an inbound `traceparent`; neither emits anything |
+| 1 | **SIRVIS M21** — the second producer | Stage 7's remaining half. Harder than RAVIS's was, and for one reason: a benchmark is not an HTTP request. It is started from the CLI, so there is no inbound `traceparent` to inherit and no `trace_id` anywhere — it has to be minted and stored on the `benchmark_run` row rather than held in a local, so that M14's enqueue-over-HTTP can later populate the same column from `request.state.trace_id` without touching the engine. The process is also short-lived, so the closing event needs a bounded flush before exit or the span stays a point | The one thing NERVIS cannot finish alone. Its half is built — the hub at M6, correlation and the waterfall at M7 — and the Traces screen has been reporting "cross-service spans unavailable" ever since, which is the honest answer while it is the only producer. `traces.assemble` groups events into spans by `source.service_type`, so "linked spans" is exactly: RAVIS and SIRVIS emitting into the hub under the same `trace_id`. Both already derive one from an inbound `traceparent`; neither emits anything |
 
 **Stage 5 is complete.** All five of the runbook's exit criteria for it are
 met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —

@@ -3807,7 +3807,7 @@ async function eventsView(){
    <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Why</span></div>
    ${row('RAVIS',rv)}
    ${row('SIRVIS',sv)}
-   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests; <b>neither peer publishes yet</b>, so every event in the feed above is NERVIS's own — mostly registry transitions. RAVIS events land at its M18b and SIRVIS's at its M21, and until then a feed implying otherwise would be inventing traffic.</small>`,'nervis')}</div>
+   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests, and <b>RAVIS publishes since its M18b</b> — a routed request emits a selection and a completion under the caller's trace_id, which is what gives RAVIS a lane on the Traces screen rather than a note saying it has none. <b>SIRVIS lands at its M21</b>, so a benchmark still shows no lane. Whether RAVIS actually publishes depends on it being configured with a hub to reach; the table above reads that from each service rather than assuming it.</small>`,'nervis')}</div>
 
   <div class="card wide${liveClass(quarantineLive)}"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${escapeHtml(quarantine.items.length)}</span></h3>${cell(`
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>

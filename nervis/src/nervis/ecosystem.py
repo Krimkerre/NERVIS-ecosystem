@@ -104,7 +104,7 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=DEGRADED,
         reason="§11.2's correlation, waterfall and gap marking are served; "
-        "cross-service traces need RAVIS M18b and SIRVIS M21 to publish events",
+        "RAVIS publishes since M18b; cross-service traces still need SIRVIS M21",
     ),
     # **The named gap has closed, and this is now a fact about configuration.**
     # It read "generated titles wait for RAVIS to honour §9.6.1's marker" —

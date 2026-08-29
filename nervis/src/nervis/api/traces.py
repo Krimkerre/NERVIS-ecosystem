@@ -83,11 +83,19 @@ async def _note_silent_peers(request: Request, trace: Any) -> None:
         d for d in decisions.data.get("items") or []
         if isinstance(d, dict) and d.get("trace_id") == trace.trace_id
     ]
-    if matched:
+    # **Only when RAVIS genuinely has no lane.** This warning was
+    # unconditional, which was right while RAVIS published nothing at all and
+    # became a false claim the moment M18b shipped: it told a reader that RAVIS
+    # "published no events" while its two events sat in the span above the
+    # sentence. A note that contradicts the picture beside it is worse than no
+    # note, because one of them has to be wrong and the reader cannot tell
+    # which.
+    if matched and not any(span.service == "ravis" for span in trace.spans):
         trace.warnings.append(
             f"RAVIS routed this request — decision {matched[0].get('decision_id')}, "
-            f"selected {matched[0].get('selected') or 'nothing'} — and published no events, "
-            "so it has no lane. Its ravis.events@1 capability lands at M18b."
+            f"selected {matched[0].get('selected') or 'nothing'} — and published no "
+            "events for it, so it has no lane. Either it is not configured with a "
+            "hub to publish to, or the events have not arrived yet."
         )
 
 
