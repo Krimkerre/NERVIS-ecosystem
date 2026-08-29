@@ -36,7 +36,7 @@
    it had less room than the panel needed. `--chat-h` is set on render from the
    card's own top offset; the fallback matters only for the first paint. */
 .chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
-.model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}details.log-line{border-bottom:1px solid rgba(255,255,255,.05)}details.log-line>summary{cursor:pointer;list-style:none;user-select:none}details.log-line>summary::-webkit-details-marker{display:none}details.log-line>summary:hover{background:rgba(255,255,255,.04)}details.log-line[open]>summary{background:rgba(var(--rgb),.07)}details.log-line>summary>span:first-child::before{content:"▸ ";opacity:.5}details.log-line[open]>summary>span:first-child::before{content:"▾ "}.log-detail{padding:6px 12px 12px;display:flex;flex-direction:column;gap:4px}.log-detail p{margin:2px 0;line-height:1.6}
+.model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}details.log-line{border-bottom:1px solid rgba(255,255,255,.05)}details.log-line>summary{cursor:pointer;list-style:none;user-select:none}details.log-line>summary::-webkit-details-marker{display:none}details.log-line>summary:hover{background:rgba(255,255,255,.04)}details.log-line[open]>summary{background:rgba(var(--rgb),.07)}details.log-line>summary>span:first-child::before{content:"▸ ";opacity:.5}details.log-line[open]>summary>span:first-child::before{content:"▾ "}.log-detail{padding:6px 12px 12px;display:flex;flex-direction:column;gap:4px}details.excluded-group{border-left:2px solid var(--accent);background:#0a1118;margin:5px 0}details.excluded-group>summary{cursor:pointer;list-style:none;user-select:none;padding:8px 12px;display:flex;gap:8px;align-items:baseline}details.excluded-group>summary::-webkit-details-marker{display:none}details.excluded-group>summary::before{content:"\25B8 ";opacity:.5}details.excluded-group[open]>summary::before{content:"\25BE "}details.excluded-group>summary span{color:#738396}details.excluded-group>div{padding:0 12px 10px 26px;max-height:220px;overflow-y:auto;line-height:1.7}.log-detail p{margin:2px 0;line-height:1.6}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
 /* Sized rather than intrinsic: an iframe has no content height of its own, and
    `height:auto` collapses it to nothing. Tall enough to be an editor rather than
@@ -1507,9 +1507,15 @@ function exclusionsOf(excluded){
    groups.set(reason,seen);
   }
  }
- const lines=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length).slice(0,6)
-  .map(([reason,models])=>`<div class="trace-step"><b>${models.length} excluded</b><span>${escapeHtml(reason)}${models.length<=3?' — '+escapeHtml(models.join(', ')):''}</span></div>`).join('');
- return `<small class="mono dim">why the rest were not chosen:</small>${lines}`;
+ /* Each reason opens onto the models it excluded. The group answers "why
+    were most of them out"; the list answers "was *mine* one of them", and that
+    second question is the reason somebody opens a log line at all. Nested
+    disclosures rather than one long list, because forty model ids inline turn
+    the interesting line — the one attempt that ran — into scrollback. */
+ const lines=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length).slice(0,8)
+  .map(([reason,models])=>`<details class="excluded-group"><summary><b>${models.length} excluded</b> <span>${escapeHtml(reason)}</span></summary>
+    <div class="mono dim">${models.slice(0,60).map(m=>escapeHtml(String(m))).join('<br>')}${models.length>60?`<br>… and ${models.length-60} more`:''}</div></details>`).join('');
+ return `<small class="mono dim">why the rest were not chosen — open one for the models it names:</small>${lines}`;
 }
 
 function recentDecisions(payload){
@@ -2591,6 +2597,11 @@ const API={
         publishes ten and offers none should read as offering none. */
      capability:Object.entries(e.capabilities||{}).find(([,st])=>st==='available')?.[0]
        ||(e.publishes_mep?'none available':'no MEP surface'),
+     /* Published or derived, kept apart all the way to the screen. A capability
+        NERVIS worked out by asking LM Studio's own API is a weaker fact than one
+        a service published, and flattening the two into one column is how a
+        control ends up bound to something nobody promised (SS5.2). */
+     capability_source:e.capability_source||'',
      capabilities_available:Object.values(e.capabilities||{}).filter(st=>st==='available').length,
      capabilities_total:Object.keys(e.capabilities||{}).length,
      key:e.key,state:e.state,detail:e.detail,age:0,
@@ -3388,7 +3399,7 @@ async function nervis(){
    ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
  +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
+   ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}${r.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
   <!-- Read from the registry, like the Ecosystem map tab it is a smaller
        version of. It was five fixed nodes at fixed positions — RAVIS, SIRVIS,
@@ -4426,7 +4437,7 @@ async function mapView(){
    <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
   <div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(s=>`<div class="table-row five caps"><span>${escapeHtml(s.label)}</span><span class="mono">${escapeHtml(s.build_version)}</span><span class="mono">${escapeHtml(s.protocol_version?'proto '+s.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(s.capability)}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':s.state}</span></div>`).join('')}
+   ${svc.items.map(s=>`<div class="table-row five caps"><span>${escapeHtml(s.label)}</span><span class="mono">${escapeHtml(s.build_version)}</span><span class="mono">${escapeHtml(s.protocol_version?'proto '+s.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(s.capability)}${s.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':s.state}</span></div>`).join('')}
    <small class="mono dim">an unknown capability is unavailable, not disabled-and-hopeful. An unsupported required major marks that one <b>feature</b> incompatible — never the whole dashboard, while other surfaces still negotiate.</small></div>
   <div class="card narrow${escapeHtml(liveClass(svc.live))}"><h3>Observer-side state</h3>
    ${svc.items.map(s=>`<div class="trace-step"><b>${escapeHtml(s.label)}</b><span>${escapeHtml(s.state)}${REASON[s.state]?' · '+REASON[s.state]:''} ${stamp(s.age ?? 0)}</span></div>`).join('')}
@@ -7721,10 +7732,50 @@ function historyPane(){
 
 function historyRow(c){
  const armedHere=ARMED_ACTION==='conversation:'+c.conversation_id;
+ const renaming=RENAMING===c.conversation_id;
  return `<div class="trace-step" style="align-items:flex-start">
-   <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.open('${jsAttr(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a></b>
+   <b style="min-width:0">${renaming
+     ?`<input id="rename-${jsAttr(c.conversation_id)}" class="mono" value="${escapeHtml(c.title||'')}"
+         style="width:100%;background:#0b1118;border:1px solid #2a3541;color:#cfe;border-radius:5px;padding:4px 6px"
+         onkeydown="if(event.key==='Enter')renameConversation('${jsAttr(c.conversation_id)}');if(event.key==='Escape'){RENAMING='';render()}">`
+     :`<a href="#" onclick="CHAT_SESSIONS.open('${jsAttr(c.conversation_id)}');return false" style="color:inherit">${escapeHtml(c.title||c.conversation_id)}</a>`}</b>
    <span class="mono dim">${escapeHtml(String(c.updated_at||'').slice(0,16).replace('T',' '))} · ${escapeHtml((c.messages||[]).length)} msg
+   <button class="btn" style="margin-left:6px" onclick="${renaming
+     ?`renameConversation('${jsAttr(c.conversation_id)}')`
+     :`RENAMING='${jsAttr(c.conversation_id)}';render()`}">${renaming?'Save':'Rename'}</button>
    <button class="btn"${armedHere?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'} onclick="CHAT_SESSIONS.remove('${jsAttr(c.conversation_id)}')">${armedHere?'Confirm':'Delete'}</button></span></div>`;
+}
+
+/* Which conversation is being renamed, if any.
+
+   **A title is generated and then owned.** NERVIS asks RAVIS for one as a
+   background call (SS7, and RAVIS SS9.6.1's marker) — that is a stand-in, not a
+   decision, and the person who had the conversation is the one who knows what it
+   was about. `PUT /conversations/{id}/title` has existed since M4 with nothing
+   on the screen to call it. */
+let RENAMING='';
+
+async function renameConversation(id){
+ const box=document.getElementById('rename-'+id);
+ const title=(box&&box.value||'').trim();
+ RENAMING='';
+ if(!title)return render();
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat/conversations/'+encodeURIComponent(id)+'/title',
+    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
+  if(!r.ok){notify('NERVIS refused the rename');return render()}
+  /* Both copies, because the browser keeps its own list: NERVIS stores the
+     conversation and this tab stores the row it draws from. Updating one leaves
+     the drawer showing the old name until something else reloads it. */
+  /* `write` takes the whole list — handing it one row emptied the drawer on the
+     first rename, which is the kind of mistake a typed store would have caught
+     and a JSON blob cannot. */
+  const list=CHAT_STORE.read();
+  const kept=list.find(c=>c.conversation_id===id);
+  if(kept){kept.title=title;CHAT_STORE.write(list)}
+  if(CHAT_SESSION.id===id)CHAT_SESSION.title=title;
+ }catch(failure){notify('NERVIS did not answer: '+failure.message)}
+ render();
 }
 
 /* What NERVIS holds beyond what this browser can name.

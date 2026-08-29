@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1662 tests, no network, no live service
+.venv/bin/pytest                      # part of 1667 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 22 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 375 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 380 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 359 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1662 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1667 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2271,6 +2271,49 @@ otherwise have to be remembered:
   existing button. The call goes from the browser with the operator's own
   authority to SIRVIS's own endpoint — a control plane that cannot be talked
   into acting is one whose authority stays the operator's.
+
+## Adapters: reading a service that never agreed to be read (30 Aug)
+
+**"Answering; publishes no MEP surface, so no capabilities are known" is true,
+useless, and the same sentence whether LM Studio is holding twenty models or
+none.** `nervis/src/nervis/adapters.py` translates an *observation* instead: it
+asks each third-party service a question in its own dialect and reports the
+answer in the ecosystem's vocabulary. LM Studio now reads *"20 local build(s),
+loaded: qwen/qwen3-4b-2507"* with two capabilities; code-server reads *"serving
+the workbench; a browser session is connected"* at **v4.135.0**.
+
+**Everything an adapter produces is marked `adapted`, and the marker reaches the
+screen.** §5.2's rule guards against a control wired to something nobody
+promised, so a capability NERVIS derived must stay distinguishable from one a
+service published — it travels as `capability_source` on the entry, is published
+by `/api/v1/services`, and the registry tables print *· adapted* beside it.
+Every derived capability's reason ends in *"derived by NERVIS from the service's
+own API; not published by it"*.
+
+**Nothing is invented.** There is no synthesised `service_id`, no guessed
+version, and no capability that a real answer did not demonstrate. code-server's
+version comes from the `codeServerVersion` field it publishes in its own
+unauthenticated login page — not from `/version`, which wants the password, and
+not from the install directory's name, which would be a lie the moment NERVIS
+pointed at a code-server on another machine. **LM Studio publishes no version
+anywhere unauthenticated**, so its column stays a dash.
+
+**A 200 is not an answer.** LM Studio returns HTTP 200 with
+`{"error": "Unexpected endpoint or method. (GET /healthz)"}` for every path it
+does not serve, so a status-code check would report every endpoint as present —
+including the ones that do not exist. Each adapter checks for the shape it asked
+for. The test that pins this passes an envelope carrying *both* an error and a
+partial list, because a body with no list at all would have been rejected
+anyway; the first version of that test passed for the wrong reason and a
+mutation proved it.
+
+**What the adapters do not claim.** `lmstudio.openai.chat_completions` says the
+OpenAI-compatible surface answered a model list, and its reason says *"no
+completion was attempted"* — reporting "chat works" from a model list is exactly
+the claim §5.2 exists to prevent. code-server's `/healthz` `status` describes
+whether a *browser session* is heartbeating rather than whether the process is
+well, and it is reported in those words: "expired" on a healthy server means
+nobody has the tab open.
 
 **Chat reads the routing record and says what happened in words.** The Logs
 screen tabulates RAVIS's decisions; the question is asked as *"what happened

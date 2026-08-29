@@ -22,6 +22,7 @@ import httpx
 import pytest
 from ecosystem_protocol import PROTOCOL_VERSION
 
+from nervis import adapters
 from nervis.negotiation import Availability, Operation, negotiate
 from nervis.probes import probe
 from nervis.registry import (
@@ -213,6 +214,84 @@ def test_a_probe_without_a_credential_sends_no_authorization() -> None:
     asyncio.run(probe(client, RAVIS))
 
     assert seen and all(header is None for header in seen)
+
+
+def test_lm_studio_is_described_from_its_own_api() -> None:
+    """"Answering; publishes no MEP surface" is true, useless, and the same
+    sentence whether the runtime holds twenty models or none."""
+    translated = adapters.lmstudio(
+        {"data": [
+            {"id": "qwen/qwen3-4b-2507", "state": "loaded"},
+            {"id": "phi-4-mini-instruct", "state": "not-loaded"},
+        ]},
+        {"data": [{"id": "qwen/qwen3-4b-2507"}]},
+    )
+
+    assert translated["capability_source"] == "adapted"
+    assert translated["capabilities"]["lmstudio.models.list"] == "available"
+    assert "2 local build(s)" in translated["detail"]
+    assert "qwen/qwen3-4b-2507" in translated["detail"]
+    # The OpenAI surface answered a model list. That is not a completion, and
+    # the reason says so rather than letting the state imply it.
+    assert "no completion was attempted" in (
+        translated["capability_reasons"]["lmstudio.openai.chat_completions"]
+    )
+
+
+def test_a_two_hundred_carrying_an_error_is_not_an_answer() -> None:
+    """LM Studio returns HTTP 200 with `{"error": "Unexpected endpoint…"}` for
+    every path it does not serve. Reading the status alone would report every
+    endpoint as present, including the ones that do not exist."""
+    translated = adapters.lmstudio(
+        {"error": "Unexpected endpoint or method. (GET /api/v0/models)"},
+        {"error": "Unexpected endpoint or method. (GET /v1/models)"},
+    )
+
+    assert "capabilities" not in translated
+    assert "did not answer in the shape expected" in translated["detail"]
+
+    # And an envelope that carries *both* — an error and a partial list — is
+    # refused on the error, not read for the list. That is the case the check
+    # exists for: a body with no `data` at all would be rejected anyway.
+    both = adapters.lmstudio(
+        {"error": "partial catalogue", "data": [{"id": "m", "state": "loaded"}]},
+        {"data": [{"id": "m"}]},
+    )
+
+    assert "lmstudio.models.list" not in both.get("capabilities", {})
+
+
+def test_an_adapter_never_invents_a_version() -> None:
+    """A derived fact is only defensible while it is derived from an answer."""
+    silent = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, "")
+    page = (
+        '<meta id="coder-options" data-settings="'
+        '{&quot;codeServerVersion&quot;:&quot;4.135.0&quot;}" />'
+    )
+    spoken = adapters.codeserver({"status": "expired"}, {"name": "code-server"}, page)
+
+    assert "build_version" not in silent
+    assert spoken["build_version"] == "4.135.0"
+    # And the health endpoint's own word is reported as what it is: a browser
+    # session heartbeat, not the health of the process.
+    assert "no browser session" in spoken["detail"]
+    assert "a browser session is connected" in silent["detail"]
+
+
+def test_an_adapted_capability_says_it_was_derived() -> None:
+    """§5.2 is about controls bound to things nobody promised. A capability
+    NERVIS worked out is a weaker fact than one a service published, and the
+    difference has to survive to the screen."""
+    translated = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, "")
+
+    assert translated["capability_source"] == "adapted"
+    assert "not published by it" in translated["capability_reasons"]["codeserver.workbench"]
+
+
+def test_a_service_with_no_adapter_still_says_only_what_is_known() -> None:
+    """Two adapters exist. Everything else keeps the honest empty answer."""
+    assert "ollama" not in adapters.ADAPTERS
+    assert set(adapters.ADAPTERS) == {"lmstudio", "codeserver"}
 
 
 def test_an_unsupported_major_is_incompatible_not_unreachable() -> None:

@@ -26,11 +26,16 @@ from typing import Any, Mapping
 import httpx
 from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol, wire_identifier
 
+from nervis import adapters
 from nervis.registry import RegistryEntry, RegistryState, ServiceDeclaration
 
 # Long enough for a service that is starting, short enough that six of them in
 # sequence still finish inside a dashboard's patience.
 PROBE_TIMEOUT_SECONDS = 2.0
+
+# How much of a page an adapter may read. A version lives in a meta tag near the
+# top; the rest of a workbench's HTML is not evidence about anything.
+PAGE_CHARS = 8_000
 
 
 async def probe(
@@ -111,8 +116,65 @@ async def _probe_runtime(
         }
     return {
         "state": RegistryState.HEALTHY,
-        "detail": "answering; publishes no MEP surface, so no capabilities are known",
+        **await _adapted(client, declaration, credential),
     }
+
+
+async def _adapted(
+    client: httpx.AsyncClient, declaration: ServiceDeclaration, credential: str
+) -> dict[str, Any]:
+    """What an adapter can establish about a service that publishes no MEP.
+
+    **Two extra reads for two services, and nothing for the rest.** A machine
+    with LM Studio and code-server on it gets four requests a pass it did not
+    make before; a machine with neither gets none. That is the trade, and it is
+    worth it because the alternative sentence — "answering; publishes no MEP
+    surface, so no capabilities are known" — is the same whether the runtime is
+    holding twenty models or none.
+
+    Falls back to exactly that sentence when there is no adapter, or when the
+    adapter cannot recognise what came back. An adapter that guessed would be
+    worse than no adapter: §5.2's rule is about controls bound to capabilities
+    nobody promised, and a derived capability is only defensible while it is
+    derived from an answer.
+    """
+    adapter = adapters.ADAPTERS.get(declaration.key)
+    if adapter is None:
+        return {"detail": "answering; publishes no MEP surface, so no capabilities are known"}
+    bodies = [
+        await _optional(client, declaration.base_url + path, credential, kind)
+        for path, kind in adapter["paths"]
+    ]
+    translated: dict[str, Any] = adapter["translate"](*bodies)
+    if not translated.get("capabilities"):
+        return {"detail": str(translated.get("detail") or "answering")}
+    return translated
+
+
+async def _optional(
+    client: httpx.AsyncClient, url: str, credential: str, kind: str = "json"
+) -> Mapping[str, Any] | str | None:
+    """One adapter read, where failure is an ordinary answer.
+
+    `None` rather than a raise: an adapter is describing a service that never
+    agreed to be described, so a path that is absent, refused or slow is a fact
+    about what can be said rather than a probe failure. The state was already
+    decided by the probe path above.
+    """
+    try:
+        response = await client.get(
+            url, timeout=PROBE_TIMEOUT_SECONDS, headers=_named(credential)
+        )
+        if response.status_code >= 400:
+            return None
+        if kind == "text":
+            # Bounded: this is a web page, and the only thing wanted from it is a
+            # version in a meta tag near the top.
+            return response.text[:PAGE_CHARS]
+        found = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    return found if isinstance(found, Mapping) else None
 
 
 async def _probe_mep(

@@ -58,7 +58,7 @@ USABLE_STATES = frozenset({RegistryState.HEALTHY, RegistryState.DEGRADED})
 OBSERVABLE = frozenset({
     "state", "detail", "service_id", "instance_id", "machine_id",
     "build_version", "protocol_version", "api_version",
-    "capabilities", "capability_reasons", "capability_revision",
+    "capabilities", "capability_reasons", "capability_revision", "capability_source",
 })
 
 
@@ -129,6 +129,13 @@ class RegistryEntry:
     # its owner wrote, and NERVIS has no business paraphrasing one.
     capability_reasons: dict[str, str] = field(default_factory=dict)
     capability_revision: int = 0
+    # Whether the capabilities above were *published* by the service or
+    # *derived* by NERVIS from its own API (see `adapters.py`). Empty for the
+    # ordinary case. It travels as a field rather than as a footnote because a
+    # derived capability is a weaker fact than a published one and the
+    # difference has to survive all the way to the screen — §5.2's rule is about
+    # controls bound to things nobody promised.
+    capability_source: str = ""
     last_seen: float = 0.0
     checked_at: float = 0.0
 
@@ -180,6 +187,7 @@ class RegistryEntry:
             "capabilities": dict(self.capabilities),
             "capability_reasons": dict(self.capability_reasons),
             "capability_revision": self.capability_revision,
+            "capability_source": self.capability_source,
             "last_seen": self.last_seen or None,
             "checked_at": self.checked_at or None,
         }
