@@ -2805,6 +2805,44 @@ RAVIS's reach.
 
 ---
 
+## Stretch goal — chat that can do more than talk (30 Aug)
+
+**Proposed, not started.** NERVIS.md §7 already names the direction — *"Later: images, files,
+voice, search, artifacts"* — and three of those now have a plausible shape, because the pieces
+they need exist for other reasons.
+
+**What makes it cheap enough to consider.** Chat already assembles a fenced reading from real
+sources, already resolves a person's words into an enumerated operation, and already has a
+confirm-before-acting path with an audit trail. A tool is the same shape as an operation: a
+closed set, a target NERVIS can resolve, a button somebody presses, an attempt published. What
+changes is *who proposes* — and that is the line this section exists to draw.
+
+The candidates, roughly in order of how much of the ground is already laid:
+
+- **Reading a document.** A file the person points at, chunked and fenced like any retrieved
+  content, answered from. The fence and the "absent rather than guessed" rule already exist. The
+  new question is scope: which files, chosen how, and never a path the model picked.
+- **Vision.** RAVIS already routes to models with image capability and SIRVIS records what each
+  build supports, so "which of my models can see" is answerable today. What is missing is the
+  transport — an image in a completion body — and a bound on what leaves the machine.
+- **Research.** Genuinely the hard one, and the one where the ecosystem's own rules bite: a web
+  fetch is retrieved content from an untrusted producer, so §11.5's fencing is the *floor*, and
+  every SSRF argument the registry makes about configured endpoints applies to a URL a model
+  proposed. Almost certainly a NERVIS-side fetcher with an allowlist rather than a model-side
+  tool.
+- **Image generation.** Needs a provider that does it and a place to put the result; NERVIS has
+  no artifact store, and §7.2's storage list does not include files.
+
+**Three rules that come with it, and they are not negotiable by convenience.** Nothing a model
+returns may become an action (§11.5) — a tool call is a proposal, and the model proposing one is
+different from the model performing it. Every tool's output is retrieved content and is fenced.
+And the operation set stays closed and enumerated (§12): "the model may call any tool it likes"
+is the design this whole surface was built to avoid.
+
+**Not scheduled.** It sits behind Stage 9's last cells, the audio fix and NERVIS M11, and it is
+written down here so the shape is agreed before anybody is tempted to bolt a tool loop onto a
+chat client.
+
 ## Stretch goal — a second consumer: WWAH
 
 **Not scheduled, and deliberately outside the stage plan.** WWAH is a separate
