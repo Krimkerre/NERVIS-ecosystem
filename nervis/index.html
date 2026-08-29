@@ -5451,6 +5451,26 @@ async function sirvisDiscover(){
    on; `detail` carries the internal phase and is display-only. A partial result is
    kept and labelled, because three good runs are evidence of something and
    throwing them away to keep the table tidy loses real measurement. */
+/* How to actually run one, on the screen where somebody looks for it.
+ 
+   The New benchmark button is correctly disabled: SIRVIS answers 404 for
+   `/api/v1/benchmark-jobs` and advertises `sirvis.benchmarks.jobs` as
+   unavailable until its M14 builds the queue. But "disabled with a stated
+   reason" was satisfied by a tooltip naming an endpoint that does not exist,
+   which tells a reader what is missing and not one thing about what to do —
+   and a greyed-out primary button reads as broken whatever the tooltip says.
+   Reported as "the benchmark button does not work", which is fair: from the
+   outside, an honest dead end and a bug look the same.
+ 
+   Benchmarks do run today, from the CLI, so the screen says how. */
+function howToBenchmark(){
+ return `<div class="card full"><h3>Running a benchmark</h3>
+  <small class="mono dim">There is no submit endpoint yet — <b>sirvis.benchmarks.jobs</b> is advertised as unavailable until SIRVIS's M14 builds the queue, so the button above is disabled rather than hopeful. Benchmarks run from the command line, and their results appear on this screen and in Results:</small>
+  <pre class="editor" style="margin-top:9px;white-space:pre-wrap">sirvis benchmark run sirvis/examples/basic.yaml --model &lt;model-id&gt;</pre>
+  <small class="mono dim"><b>--clarvis-role clarvis-agent</b> runs Clarvis's own workload and the tool-call trials instead of the file's tests; <b>--runtime-set</b> measures every member of a set alone and then co-resident. Add <b>-y</b> to skip the confirmation before the model is loaded — a benchmark loads it for real, which is the whole point of the measurement.</small>
+  </div>`;
+}
+
 async function sirvisBenchmarks(){
  const j=await API.sirvis.jobs();
  /* The button is a demo everywhere, but only says so when the rest of the
@@ -5465,7 +5485,7 @@ async function sirvisBenchmarks(){
    :control('New benchmark','runBenchmark',' primary'));
  const by=s=>j.items.filter(x=>x.state===s).length;
  const partial=j.items.find(x=>x.state==='partial');
- $('#content').innerHTML=kpis([
+ $('#content').innerHTML=howToBenchmark()+kpis([
    ['Running',String(by('running')),'warmups are not scored','sirvis'],
    ['Succeeded',String(by('succeeded')),'complete run sets','sirvis'],
    ['Partial',String(by('partial')),'kept, never discarded','sirvis'],

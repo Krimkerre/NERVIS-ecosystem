@@ -33,8 +33,13 @@ const FILE = path.join(__dirname, "..", "index.html");
  * there is nothing live to express: it renders precisely when the trace index
  * did *not* answer, so a liveness class on it would be claiming a source it
  * does not have. That is the "genuinely static — an empty state" case this
- * check's own message names, and the count moves because the card is new. */
-const CEILING = 56;
+ * check's own message names, and the count moves because the card is new.
+ *
+ * 56 → 57 for the Benchmarks screen's "Running a benchmark" card. Static for
+ * the same reason: it is the CLI invocation, which is a reference rather than a
+ * reading, and a liveness badge on a command would be claiming a service
+ * answered for it. */
+const CEILING = 57;
 
 const source = fs.readFileSync(FILE, "utf8");
 
