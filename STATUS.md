@@ -2090,7 +2090,16 @@ doing it early rather than last: a queue view counts states, and a log does not.
 | A NERVIS restart loses no owned product state | **Done**, verified by restarting it: conversations, settings, voice profiles and the stored credential all survived, and the event sequence continued rather than resetting |
 | A product restart is reflected without manual refresh | **Done.** The registry poll repaints on a state transition, and again when the screen it drew fell back on a service that is now healthy — bounded at three attempts, because the first repaint after a service returns can still land before it is serving |
 
+**Stage 6 is complete**, and §25's render-layer rebuild with it — the runbook's
+visible increment for the stage is "the prototype stops being one", and the six
+things §25.2 says must be rebuilt were, each behind a check that can see the
+defect. Two of the six are partial and named as such above.
+
 ### After that
+
+| # | Milestone | Why here |
+|---|---|---|
+| 1 | **Stage 7 — events and tracing rollout** *(RAVIS M18b, SIRVIS M21)* | The one thing NERVIS cannot finish alone. Its half is built — the hub at M6, correlation and the waterfall at M7 — and the Traces screen has been reporting "cross-service spans unavailable" ever since, which is the honest answer while it is the only producer. `traces.assemble` groups events into spans by `source.service_type`, so "linked spans" is exactly: RAVIS and SIRVIS emitting into the hub under the same `trace_id`. Both already derive one from an inbound `traceparent`; neither emits anything |
 
 **Stage 5 is complete.** All five of the runbook's exit criteria for it are
 met, and every milestone its table assigns to it — M3b, M4, M7, M8, M13, M16 —
