@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1762 tests, no network, no live service
+.venv/bin/pytest                      # part of 1765 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 409 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 412 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1762 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1765 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2301,6 +2301,36 @@ worth recording: the first harness fed SIRVIS's inventory to `propose`, which
 filters on `model.get("local") is True` — a field that shape does not carry — and
 got *"the model catalogue could not be read"* for every input. That looked like a
 third bug and was the harness. Checked before it was claimed.
+
+**The same report, twice more — and the second half was the serious one.** After
+the preposition fix, *"do a benchmark on the deepseek model"* still made no
+offer. `do` was in the question-word guard, which exists for *"do we have
+results"* and swallowed the imperative sharing its first word. `do`/`does`/`did`
+now suppress only when a pronoun follows.
+
+**That loosening reopened the bug the guard was written for**, and the regression
+test caught it rather than a person: *"did the benchmark for qwen3-4b finish?"*
+stopped matching `ASKING`, the preposition fix resolved `qwen3-4b`, and a
+question about finished work became an offer to run it again. Both changes were
+right on their own and wrong together. A trailing question mark is now its own
+guard, checked after `ASKING_FOR` so *"can you benchmark X?"* is still a request.
+
+**And chat denied a power it has.** Asked for that benchmark, it answered *"I
+can't queue that — NERVIS doesn't have a benchmark endpoint. You'd need to hit
+the hub's benchmark API yourself."* Every clause false: the operation is in
+`OPERATIONS`, NERVIS holds a benchmark-scoped token, and SIRVIS advertises
+`sirvis.benchmarks.jobs` as available. With no offer the model was told nothing
+about the operations, so it filled the gap.
+
+`capabilities_line()` is now on every turn, generated from `OPERATIONS` so an
+operation added later cannot be one the model still denies. It names what can be
+offered, says there is no endpoint to send anybody to, and says that a missing
+offer means the request did not resolve to one thing. `sirvis.result.delete` is
+excluded: it has no phrase that reaches it by design, and naming it would invite
+the proposal that design refuses.
+
+A matcher that misses a phrasing is a bug somebody reports. A system that denies
+a power it has is worse — the person stops asking, and nothing looks broken.
 
 ### Next — in this order
 

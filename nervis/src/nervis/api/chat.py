@@ -684,6 +684,12 @@ async def send(request: Request) -> Any:
         if not greeting
         else None
     )
+    # The standing statement first, then the specific offer if there is one.
+    # Unconditional on purpose: the failure it exists for happens precisely when
+    # no offer was made, which is when `told` has nothing to say.
+    awareness = "\n\n".join(
+        part for part in (awareness, commands.capabilities_line()) if part
+    )
     if offer is not None:
         awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
     system = _house_system(

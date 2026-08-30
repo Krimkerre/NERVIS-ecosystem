@@ -163,11 +163,37 @@ NOT_A_MODEL = frozenset({
 # about the past was a button that starts work. Two guards rather than one,
 # because either alone leaks: the word list above catches the common tails, and
 # this catches the shape of a question whatever noun follows it.
+# `do`, `does` and `did` only ask a question when a pronoun follows them.
+# **"do a benchmark on the deepseek model" is an instruction**, and this guard
+# swallowed it — the sentence opens with `do`, the guard called it a question,
+# and no offer was made. Reported from use twice: once as the preposition bug
+# above, and once as this, which the preposition fix did not touch.
+#
+# "did you run one", "does it support tools", "do we have results" stay
+# questions. "do a benchmark", "do the qwen run" are not English as questions,
+# so requiring the pronoun costs nothing and returns the imperative.
 ASKING = re.compile(
-    r"^\s*(?:so\s+)?(?:how|what|whats|what's|did|does|do|is|are|was|were|when|"
-    r"why|where|which|who|any|anything|show|tell)\b",
+    r"^\s*(?:so\s+)?(?:"
+    r"(?:did|does|do)\s+(?:you|we|i|it|they|he|she|that|this)\b"
+    r"|(?:how|what|whats|what's|is|are|was|were|when|"
+    r"why|where|which|who|any|anything|show|tell)\b"
+    r")",
     re.IGNORECASE,
 )
+
+# A sentence that ends in a question mark is a question, whatever it opens with.
+#
+# **This is the guard the pronoun rule above needed and did not have.** Requiring
+# a pronoun after `did` returned the imperative *"do a benchmark on …"* and also
+# returned *"did the benchmark for qwen3-4b finish?"*, which is a question about
+# work that already ran — and with the preposition fix in place it resolved to a
+# real model and offered to run it again. The two changes were each right and
+# together reopened exactly the bug the word list exists for, which is why the
+# regression test for that bug is worth more than either fix.
+#
+# `ASKING_FOR` still wins: "can you benchmark X?" is a request wearing a question
+# mark, and it is checked before this.
+QUESTION_MARK = re.compile(r"\?\s*$")
 
 # …unless it is a question that asks for the work to be done. "can you bench X"
 # and "could you benchmark X" are requests wearing a question mark.
@@ -238,7 +264,8 @@ def propose(
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
-    if ASKING.search(question) and not ASKING_FOR.search(question):
+    interrogative = ASKING.search(question) or QUESTION_MARK.search(question)
+    if interrogative and not ASKING_FOR.search(question):
         return None
     found = BENCHMARK.search(question)
     if not found:
@@ -394,6 +421,40 @@ def _label(job: Mapping[str, Any]) -> str:
 def _name(model: Mapping[str, Any]) -> str:
     """A model's id under either spelling RAVIS uses."""
     return str(model.get("model_id") or model.get("id") or "")
+
+
+def capabilities_line() -> str:
+    """What NERVIS can be asked to do, stated whether or not an offer was made.
+
+    **Because a model with no offer in front of it invents a reason.** Asked to
+    *"do a benchmark on the deepseek model"* — a request the matcher was
+    swallowing at the time — the reply was *"I can't queue that, NERVIS doesn't
+    have a benchmark endpoint. You'd need to hit the hub's benchmark API
+    yourself."* Every clause of that is false: the operation is in this module's
+    own set, NERVIS holds a benchmark-scoped token, and SIRVIS advertises the
+    capability as available.
+
+    A matcher that misses a phrasing is a bug somebody reports. A system that
+    denies a power it has is worse, because the person stops asking — so what
+    NERVIS can do is stated on every turn rather than only when a phrase happened
+    to match.
+
+    Generated from `OPERATIONS` rather than written out, so an operation added
+    later cannot be one the model still denies.
+    """
+    offerable = sorted(
+        operation.action.lower() + " " + operation.summary.replace("{target}", "…")
+        for operation in OPERATIONS
+        if operation.id != "sirvis.result.delete"
+    )
+    return (
+        "NERVIS can offer these, as buttons under your reply, when the person names "
+        "a specific target: " + "; ".join(offerable) + ". You never perform them and "
+        "there is no endpoint for the person to call instead. If you cannot see an "
+        "offer, the request did not resolve to one thing — say that you need the "
+        "exact model or job named. Never say NERVIS lacks the ability, and never "
+        "send them elsewhere to do it."
+    )
 
 
 def told(proposal: Proposal | None) -> str:

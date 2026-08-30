@@ -779,6 +779,70 @@ def _with_models(client: TestClient, sent: list[dict[str, Any]], names: list[str
     )
 
 
+def test_do_a_benchmark_is_an_instruction_not_a_question() -> None:
+    """Reported from use, after the preposition fix and untouched by it.
+
+    *"do a benchmark on the deepseek model"* made no offer because `do` was in
+    the question-word guard — the list exists for *"do we have results"*, and it
+    swallowed the imperative that shares its first word. Requiring a pronoun
+    after do/does/did costs nothing: "do a benchmark" is not a question anybody
+    writes.
+    """
+    for phrasing in ("do a benchmark on the deepseek model",
+                     "do a benchmark of qwen3-4b",
+                     "do a benchmark of the deepseek model"):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["qwen/qwen3-4b-2507", "deepseek-r1-distill-qwen-1.5b"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        offer = json.loads(answered.headers["x-command-offer"])
+        assert offer["operation"] == "sirvis.benchmark.submit", phrasing
+
+
+def test_a_question_starting_with_do_is_still_a_question() -> None:
+    """The falsifier for the loosening above. `do` was in that list for a
+    reason, and the reason still holds for the shapes that are questions."""
+    for phrasing in ("do we have benchmark results",
+                     "did you benchmark qwen3-4b",
+                     "does it support tools"):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        assert answered.headers.get("x-command-offer", "") == "", phrasing
+
+
+def test_the_model_is_told_what_nervis_can_do_even_with_no_offer() -> None:
+    """The worse half of the same report.
+
+    Asked for a benchmark it could not match, chat replied *"NERVIS doesn't have
+    a benchmark endpoint — you'd need to hit the hub's benchmark API yourself"*.
+    Every clause false. With no offer the model was told nothing about the
+    operations and filled the gap itself, and a system that denies a power it
+    has is worse than one that misses a phrasing: the person stops asking.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "benchmark something vague that matches nothing", system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "benchmark" in prompt.lower()
+    assert "Never say NERVIS lacks the ability" in prompt
+    # Delete stays out of it: that operation has no phrase that reaches it on
+    # purpose, and naming it here would invite the proposal that design refuses.
+    assert "delete" not in prompt.lower().split("never say")[0][-400:]
+
+
 def test_a_preposition_after_the_verb_is_not_the_model() -> None:
     """Reported from use: chat refused to queue a benchmark.
 
