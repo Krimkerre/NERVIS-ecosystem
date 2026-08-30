@@ -7745,6 +7745,48 @@ inside code-server (`bridge: registered with NERVIS as 27708bcc-… on port
 50691`), and NERVIS lists that instance. Stage 8's Bridge works under Stage 9's
 host.
 
+## Stage 9 — the Firefox pass, and two cells that needed a different instrument
+
+`NOT_TESTED` went 11 → 3 over three passes on 30 August. The second and third
+are the interesting ones, because both settled cells that the obvious method
+could not.
+
+**The webview cells took Firefox and nothing else.** The panel renders, posts
+back (`audio probe: {"speechSynthesis":true,…}`), takes the keyboard, and a
+typed message reached RAVIS and came back rendered. An earlier attempt in a
+Chromium-based agent failed with `Could not register service worker` and was
+deliberately left ungraded: the script returns 200 with the right MIME in a
+secure top-level context and registration fails for *every* script, so service
+workers are blocked in that agent and no webview of any kind can load. A
+browser-axis fact, not a verdict.
+
+**Containment could not be settled through chat at all, and that is the
+finding.** Three escape attempts, three different avoidance behaviours, no gate
+reached. The cause is by design: `toolRegistry.ts` tells the model "paths are
+relative to the workspace root", so a compliant model relativises an absolute
+path *before* calling and never produces one the gate would refuse. The refusal
+that came back was a plain not-found — which looks exactly like a containment
+refusal from outside, and was very nearly recorded as one.
+
+The gate is now exercised at the host level instead, on the four cases chat
+cannot produce, with every refusal asserting `reason === 'outside-workspace'`
+rather than merely that something was thrown. One of those tests was wrong in
+its first draft and the run said so, which is the argument for writing it.
+
+**Tier 0 audio was settled without deleting anything.** SecretStorage under
+code-server is origin-scoped browser storage, so reopening the same server
+through the spike proxy is an empty key store while the real key stays put. The
+fallback fired for the stated reason and the utterance came out of the browser
+rather than the server — which is the route that would fix the split-host audio
+`FAIL`, demonstrated working.
+
+The operator had already reported hearing that during the first proxy run. It
+was re-run anyway, which cost time the record would have saved.
+
+**What remains: 3.** Two audio cells (mic capture, which needs a permission
+decision, and the split-host `FAIL` itself) and localhost LM Studio, which needs
+LM Studio running.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
