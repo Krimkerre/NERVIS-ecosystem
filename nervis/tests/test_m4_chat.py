@@ -2682,6 +2682,11 @@ def test_only_the_benchmark_offer_carries_that_sentence() -> None:
     assert "starts the benchmark straight away" not in prompt
 
 
+# The four that exercise the specificity rule: `ravis/chat` sits inside
+# `ravis/clarvis-chat`, so one sentence names both.
+POOLS_FOR_SWITCHING = ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"]
+
+
 def _with_pools(client: TestClient, sent: list[dict[str, Any]], pools: list[str]) -> None:
     """A RAVIS publishing these pools and no models.
 
@@ -2718,7 +2723,7 @@ def test_a_pool_is_named_however_the_person_says_it() -> None:
     ):
         sent: list[dict[str, Any]] = []
         client = an_api()
-        _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+        _with_pools(client, sent, POOLS_FOR_SWITCHING)
 
         answered = turn(client, phrasing, system="Be someone.")
 
@@ -2733,7 +2738,7 @@ def test_the_longer_pool_name_wins_over_the_one_inside_it() -> None:
     same specificity rule the models use."""
     sent: list[dict[str, Any]] = []
     client = an_api()
-    _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+    _with_pools(client, sent, POOLS_FOR_SWITCHING)
 
     answered = turn(client, "switch to ravis/clarvis-chat", system="Be someone.")
 
@@ -2762,13 +2767,19 @@ def test_a_question_about_cancelling_does_not_offer_a_cancel() -> None:
         assert answered.headers.get("x-command-offer", "") == "", phrasing
 
 
-def test_a_request_wearing_a_question_mark_is_still_a_request() -> None:
-    """The falsifier for moving that test earlier: "can you switch to
+def test_a_pool_switch_wearing_a_question_mark_is_still_a_request() -> None:
+    """The falsifier for moving the question test earlier: "can you switch to
     reasoning?" is an instruction with punctuation on it, and the rescue that
-    already existed has to keep working now that the guard runs sooner."""
+    already existed has to keep working now that the guard runs sooner.
+
+    Named for the *pool* case deliberately: this first shared a name with the
+    benchmark test at the top of the file, and Python takes the later definition
+    silently — so that older test stopped running the moment this was added, and
+    `ruff` is what noticed.
+    """
     sent: list[dict[str, Any]] = []
     client = an_api()
-    _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+    _with_pools(client, sent, POOLS_FOR_SWITCHING)
 
     answered = turn(client, "can you switch to reasoning?", system="Be someone.")
 

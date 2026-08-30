@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1774 tests, no network, no live service
+.venv/bin/pytest                      # part of 1776 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 421 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 422 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1774 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1776 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2419,6 +2419,51 @@ a fix lands in the wrong layer and reads as no fix at all.
 Eight phrasings across all three operations checked against intent: three offer,
 five decline, including every reported failure and each regression the fixes
 caused in one another.
+
+**Actions is disabled on both repositories, and not for a code reason.** Every
+job since 30 Aug 02:34 was blocked before starting — *"the job was not started
+because recent account payments have failed or your spending limit needs to be
+increased"* — thirty runs red, none of them having compiled anything. The last
+green run was 02:18 that morning. The workflow files are untouched, so
+re-enabling is the only step once billing is settled.
+
+So the same checks were run against **fresh clones of both repositories**, with a
+virtual environment built only from committed declarations. That found three
+things a local run cannot.
+
+**`ruff` and `mypy` were failing in three packages.** All of it from the day's
+own work: scripted import insertions put `from pathlib import Path` outside the
+sorted block, `DatabaseTooNewError` needed the suffix its convention asks for,
+and two lines ran past 100. Also `F811` — a test added tonight shared a name with
+one at line 1375, and Python takes the later definition silently, so the older
+test had stopped running the moment the new one was added. The linter is what
+noticed.
+
+**The Clarvis conformance suite was reading this machine.** §8.9 makes it the
+release gate for claiming Clarvis compatibility, and its verdict depended on
+`~/.config/ravis`. `_app_against` had already pointed `PoolMembership` at an
+unreadable path for exactly that reason, with the reason written down — and
+`models.json`, `prices.json`, `policies.json` and `observations.json` were all
+still read, because each store finds its own way to the config directory. The
+whole suite now runs under an `XDG_CONFIG_HOME` that does not exist, which closes
+every store at once including the next one somebody adds.
+
+**It was found by a check that had been passing for the wrong reason.**
+`clarvis-chat` resolved to the fixture's `chat-only-model` because that sorted
+first alphabetically among hundreds of hosted models cached on this machine — not
+because the pool was confined to the catalogue under test. Curating the chat pool
+changed which cached model won, the request left for the real Anthropic API, and
+a 502 came back. The pool change was correct; the suite was certifying an
+installation. Green for months, and only red when something moved.
+
+**And two gates cannot run in CI, which is not an oversight.** Twelve
+`*_check.js` exist and `.github/workflows/checks.yml` invokes ten:
+`honesty_check.js` and `recovery_check.js` drive the page against a live NERVIS
+on `127.0.0.1:8790`, and §14.5 keeps that workflow off the network. This was
+"fixed" first and reverted — the clean-checkout run then sat thirty-one minutes
+on `recovery_check` with 1.7 seconds of CPU and three sockets open to a service
+the clone had never started. The reason is a comment beside the ten now, because
+a gap that looks like an oversight gets closed again by whoever notices it next.
 
 ### Next — in this order
 

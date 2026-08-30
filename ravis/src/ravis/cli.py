@@ -12,8 +12,8 @@ dependency (runbook §14.2, and the ladder — stdlib before anything else).
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from ecosystem_protocol import configure_logging
@@ -23,6 +23,7 @@ from ravis.cost import PriceConfigurationError, load_prices
 from ravis.credentials import CredentialStore
 from ravis.policy import PolicyConfigurationError, load_policies
 from ravis.providers_map import resolve_provider_map, shared_provider_names
+from ravis.storage.database import available_backups, resolved_path, restore_backup
 from ravis.upstreams import UpstreamConfigurationError, upstream_specs
 
 EXIT_OK = 0
@@ -30,9 +31,6 @@ EXIT_FATAL_CONFIGURATION = 1
 # Distinct from a configuration failure so CI can tell "RAVIS will not start"
 # apart from "RAVIS starts but would break Clarvis" — different people fix those.
 EXIT_CONFORMANCE_FAILED = 2
-
-
-from ravis.storage.database import available_backups, restore_backup, resolved_path
 
 
 def main(argv: Sequence[str] | None = None) -> int:

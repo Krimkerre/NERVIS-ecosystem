@@ -358,7 +358,8 @@ def list_tombstones(database: Database, limit: int = 100, *,
     returned nothing there, or — worse, since an empty filter reads as no filter
     — every deletion this machine has ever made.
     """
-    where, values = [], []
+    where: list[str] = []
+    values: list[Any] = []
     if target_keys:
         where.append(f"target_key IN ({','.join('?' * len(target_keys))})")
         values.extend(target_keys)

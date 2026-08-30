@@ -21,12 +21,12 @@ it happens rather than after. `--yes` skips the prompt for scripted use.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import logging
 import os
 import pathlib
 import sys
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Sequence
 
 import httpx
@@ -37,6 +37,7 @@ from sirvis.app import create_app
 from sirvis.config import ConfigurationReport, Settings, inspect_configuration
 from sirvis.core.machine import machine_identity
 from sirvis.storage import Database, prepare_database
+from sirvis.storage.database import available_backups, resolved_path, restore_backup
 from sirvis.telemetry import detect_system
 
 if TYPE_CHECKING:  # imported for types only — see `_run_benchmark` on why the
@@ -52,10 +53,6 @@ EXIT_OK = 0
 # apart: one is worth retrying, the other is not.
 EXIT_BENCHMARK_FAILED = 1
 EXIT_FATAL_CONFIGURATION = 2
-
-
-from sirvis.storage.database import (
-    available_backups, resolved_path, restore_backup)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

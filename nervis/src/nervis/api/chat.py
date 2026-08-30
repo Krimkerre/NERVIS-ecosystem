@@ -1379,7 +1379,7 @@ def _traces(request: Request, question: str) -> list[dict[str, Any]]:
     """
     if not any(word in question.lower() for word in TRACE_WORDS):
         return []
-    from nervis.api.traces import summarise
+    from nervis.traces import summarise
 
     events = request.app.state.hub.events_of_recent_traces(TRACE_SAMPLE)
     return list(summarise(events))[:TRACE_SAMPLE]

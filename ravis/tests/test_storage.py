@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import sqlite3
-import pytest
 import shutil
+import sqlite3
 import threading
 
-from ravis.storage import prepare_database
+import pytest
+
 from ravis.storage import database as module
+from ravis.storage import prepare_database
 from ravis.storage.database import MIGRATIONS, current_version
 
 
@@ -245,7 +246,7 @@ def test_a_database_from_a_newer_build_is_refused_rather_than_used(tmp_path) -> 
     connection.commit()
     connection.close()
 
-    with pytest.raises(module.DatabaseIsNewerThanThisBuild) as refusal:
+    with pytest.raises(module.DatabaseTooNewError) as refusal:
         prepare_database(str(database))
 
     said = str(refusal.value)

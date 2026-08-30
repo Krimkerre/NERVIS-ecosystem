@@ -61,3 +61,30 @@ async def test_a_failing_check_fails_the_whole_suite() -> None:
     result.record("deliberately failing check", passed=False)
 
     assert result.passed is False
+
+
+def test_the_suite_ignores_this_machine_s_config_directory() -> None:
+    """§8.9 makes this suite the release gate for claiming Clarvis
+    compatibility, so its verdict must be about the build and not the machine.
+
+    `_app_against` already pointed `PoolMembership` at an unreadable path for
+    exactly this reason — and `models.json`, `prices.json`, `policies.json` and
+    `observations.json` were still read from `~/.config/ravis`, because each
+    store finds its own way there. One env var closes all of them, including the
+    next store somebody adds.
+
+    Asserted rather than trusted because the failure it prevents is silent: the
+    suite went green for months while reading a real catalogue, and only turned
+    red when a pool change altered which of those cached models sorted first.
+    """
+    from ravis.compatibility.clarvis.conformance import _no_operator_state
+    from ravis.credentials import config_directory
+
+    before = config_directory()
+    with _no_operator_state():
+        during = config_directory()
+    after = config_directory()
+
+    assert during != before, "the suite must not read the operator's config"
+    assert not during.exists(), "and the path it uses must not exist"
+    assert after == before, "and it must put the environment back"

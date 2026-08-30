@@ -218,6 +218,16 @@ jobs:
         run: node tools/preserve_check.js
         working-directory: nervis
 
+      # **Ten of the twelve gate scripts, and the other two are not an
+      # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
+      # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
+      # watch screens survive a service that stops answering, which needs a
+      # service to stop. §14.5 above keeps this workflow off the network, so
+      # both belong to a local run against a started ecosystem, not here.
+      #
+      # Written down because the gap looks like a mistake: it was "fixed" once,
+      # which would have hung a CI job on a socket that never opens.
+
   nervis:
     name: nervis — lint, types, tests
     runs-on: ubuntu-latest

@@ -10,8 +10,8 @@ being diagnosed is that something will not answer.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Sequence
 
 import uvicorn
@@ -22,13 +22,11 @@ from nervis.config import ConfigurationReport, Settings, inspect_configuration
 from nervis.ecosystem import DECLARED
 from nervis.registry import admissible, declared_services
 from nervis.storage import prepare_database
+from nervis.storage.database import available_backups, resolved_path, restore_backup
 from nervis.web import DASHBOARD
 
 EXIT_OK = 0
 EXIT_FATAL_CONFIGURATION = 2
-
-
-from nervis.storage.database import available_backups, restore_backup, resolved_path
 
 
 def main(argv: Sequence[str] | None = None) -> int:

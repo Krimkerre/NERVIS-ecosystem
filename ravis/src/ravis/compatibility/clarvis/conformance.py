@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -225,6 +227,40 @@ def _compare(result: ConformanceResult, name: str, direct: ReadStream, proxied: 
     )
 
 
+@contextmanager
+def _no_operator_state() -> Iterator[None]:
+    """Run with a config directory that does not exist.
+
+    **The suite certified this installation, not the build.** `_app_against`
+    already pointed `PoolMembership` at a path that cannot be read, for exactly
+    this reason and with the reason written down — and then `models.json`,
+    `prices.json`, `policies.json` and `observations.json` were all still read
+    from `~/.config/ravis`, because each store finds its own way there.
+
+    Isolating one env var closes all of them at once, including the next one
+    somebody adds. That is the difference that matters: the previous fix had to
+    be repeated per store and duly was not.
+
+    Found by a check that passed for the wrong reason. `clarvis-chat` resolved to
+    the fixture's `chat-only-model` because it sorted first alphabetically among
+    hundreds of hosted models this machine had cached — not because the pool had
+    been narrowed to the catalogue under test. Curating the chat pool changed the
+    winner to a real hosted model, the request left for the Anthropic API, and a
+    502 came back. The pool change was correct; the suite was reading a machine.
+    """
+    original = os.environ.get("XDG_CONFIG_HOME")
+    os.environ["XDG_CONFIG_HOME"] = str(
+        Path(tempfile.gettempdir()) / "ravis-conformance-no-such-config"
+    )
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = original
+
+
 async def run_suite() -> ConformanceResult:
     """Run every scenario §8.8 lists, Stage 2 and Stage 3, and return what held.
 
@@ -236,6 +272,13 @@ async def run_suite() -> ConformanceResult:
     fallback checks below make a real primary genuinely fail rather than
     configuring a second model as the answer.
     """
+    with _no_operator_state():
+        return await _run_every_check()
+
+
+async def _run_every_check() -> ConformanceResult:
+    """Every scenario, in order. Split out so the isolation above wraps all of
+    them rather than each one remembering to ask for it."""
     result = ConformanceResult()
     await _check_models_endpoint(result)
     await _check_stream("chat stream", fixtures.PLAIN_CHAT, result, "text")

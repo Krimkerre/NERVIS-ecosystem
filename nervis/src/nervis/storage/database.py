@@ -323,7 +323,7 @@ def _back_up_before_migrating(connection: sqlite3.Connection, database: Path,
     return target
 
 
-class DatabaseIsNewerThanThisBuild(RuntimeError):
+class DatabaseTooNewError(RuntimeError):
     """Raised when the database has migrations this build has never heard of.
 
     Its own type rather than a bare `RuntimeError` so the traceback's last line
@@ -351,7 +351,7 @@ def _refuse_a_newer_database(database: Path, version: int, service: str) -> None
     known = MIGRATIONS[-1][0]
     if version <= known:
         return
-    raise DatabaseIsNewerThanThisBuild(
+    raise DatabaseTooNewError(
         f"{database} was written by a newer build (schema {version}); "
         f"this one understands {known}. Run the newer {service}, or "
         f"`{service} restore-database --version {known}` to go back — "
@@ -400,7 +400,9 @@ def restore_backup(database: Path, version: int | None = None) -> int:
         match = [(number, path) for number, path in backups if number == version]
         if not match:
             offer = ", ".join(str(number) for number, _ in backups)
-            raise FileNotFoundError(f"no backup at version {version} beside {database}; have {offer}")
+            raise FileNotFoundError(
+                f"no backup at version {version} beside {database}; have {offer}"
+            )
         restored, source = match[0]
 
     origin = sqlite3.connect(source)
