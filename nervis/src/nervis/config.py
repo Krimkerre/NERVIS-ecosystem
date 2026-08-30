@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # say it has no credential, which is the honest answer and not a silent
     # refusal.
     sirvis_client_credential: str = ""
+    # **Separate from the one above, and used on exactly one call.** Deleting a
+    # measurement needs `admin` on SIRVIS, and `admin` implies every other scope
+    # — so folding it into the benchmark credential would silently upgrade the
+    # queue path to total access. Two settings means the credential that spends
+    # machine time cannot also erase what it produced, and an install that
+    # configures neither can do neither.
+    sirvis_admin_credential: str = ""
     sirvis_base_url: str = "http://127.0.0.1:8721"
     # The Clarvis Bridge is per extension host, so this is only the first
     # instance. §5.1 lists it among the initial registry entries because an

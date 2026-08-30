@@ -285,3 +285,89 @@ def _run_with_results(database: Database, row: Any) -> dict[str, Any]:
             for result in results
         ],
     }
+
+
+def delete_result(database: Database, result_id: str, *, reason: str,
+                  requested_by: str = "") -> dict[str, Any] | None:
+    """Delete one stored result and leave a tombstone. None when there is none.
+
+    **The row is removed, not flagged.** A soft delete would leave the payload
+    in the database and every query carrying a `WHERE deleted_at IS NULL` that
+    one reader eventually forgets — and an operator who asks for a measurement
+    to be gone has asked for it to be gone.
+
+    What survives is the tombstone: §15.1 promises RAVIS that evidence
+    references stay resolvable during the retention window, and a consumer
+    holding `ev_…` must be able to tell a deletion from a benchmark that was
+    never run. Those lead to different decisions — the first says the evidence
+    was withdrawn, the second says nobody has measured this yet.
+
+    **The run row stays, and so do the raw takes on disk.** The run happened;
+    deleting the record of it would remove the audit trail of the very action
+    this function is taking. §11.9's per-run directory is not touched either,
+    because it is per *experiment* rather than per result and removing files is
+    a different, less reversible decision than removing a row. The caller is
+    told where they are so an operator can make that decision deliberately.
+    """
+    row = database.connection.execute(
+        "SELECT result_id, run_id, evidence_id, target_key, payload"
+        " FROM benchmark_result WHERE result_id = ?",
+        (result_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    payload = json.loads(row["payload"])
+    tombstone = {
+        "result_id": row["result_id"],
+        "evidence_id": row["evidence_id"],
+        "run_id": row["run_id"],
+        "target_key": row["target_key"],
+        "role": str(payload.get("role") or ""),
+        "measured_at": str(payload.get("created_at") or ""),
+        "reason": reason,
+    }
+    with database.connection as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO evidence_tombstone"
+            " (result_id, evidence_id, run_id, target_key, role, measured_at, reason)"
+            " VALUES (:result_id, :evidence_id, :run_id, :target_key, :role,"
+            " :measured_at, :reason)",
+            tombstone,
+        )
+        connection.execute("DELETE FROM benchmark_result WHERE result_id = ?", (result_id,))
+    # Whether anything is still filed under this evidence identity. Two runs of
+    # one suite against one build share an id, so "the record is gone" and "this
+    # result is gone" are different answers and the caller publishes both.
+    remaining = database.connection.execute(
+        "SELECT COUNT(*) AS n FROM benchmark_result WHERE evidence_id = ?",
+        (row["evidence_id"],),
+    ).fetchone()["n"]
+    return {**tombstone, "requested_by": requested_by,
+            "remaining_under_evidence_id": remaining}
+
+
+def list_tombstones(database: Database, limit: int = 100, *,
+                    target_keys: tuple[str, ...] = (),
+                    role: str = "") -> list[dict[str, Any]]:
+    """Deleted results, newest first — §15.1's tombstones.
+
+    Narrowed by the same two things a consumer filters evidence on, and **not**
+    by which records survived: the case that matters most is a build whose only
+    result was deleted, where the evidence list is empty and the tombstone is
+    the entire answer. Deriving the filter from the surviving items would have
+    returned nothing there, or — worse, since an empty filter reads as no filter
+    — every deletion this machine has ever made.
+    """
+    where, values = [], []
+    if target_keys:
+        where.append(f"target_key IN ({','.join('?' * len(target_keys))})")
+        values.extend(target_keys)
+    if role:
+        where.append("role = ?")
+        values.append(role)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    rows = database.connection.execute(
+        f"SELECT * FROM evidence_tombstone{clause} ORDER BY deleted_at DESC LIMIT ?",
+        (*values, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]

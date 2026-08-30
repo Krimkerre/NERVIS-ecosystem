@@ -92,10 +92,12 @@ async def run(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError("an operation needs a target")
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
+    if operation == "sirvis.result.delete":
+        return await _delete_result(request, target, str(body.get("reason") or ""))
     return await _submit_benchmark(request, target)
 
 
-def _peer(request: Request) -> tuple[RegistryEntry, Any]:
+def _peer(request: Request, credential: str = "benchmark") -> tuple[RegistryEntry, Any]:
     """SIRVIS, negotiated and credentialled, or a refusal saying which is missing.
 
     Shared by both operations because both fail the same two ways, and a second
@@ -111,7 +113,19 @@ def _peer(request: Request) -> tuple[RegistryEntry, Any]:
             verdict.reason or "SIRVIS cannot take a benchmark right now",
             availability=verdict.availability.value,
         )
-    if not settings.sirvis_client_credential:
+    if credential == "admin" and not settings.sirvis_admin_credential:
+        # The same switch in its off position, for the other family. Deleting a
+        # measurement needs `admin` on SIRVIS and NERVIS holds that separately
+        # from its benchmark token on purpose — so this install can queue work
+        # and still be unable to erase the results of it.
+        raise InvalidConfigurationError(
+            "NERVIS holds no admin credential for SIRVIS, so it cannot delete a "
+            "result. The launcher mints an `admin`-scoped token at start; if "
+            "SIRVIS was started another way, mint one with "
+            '`sirvis token --mint nervis-admin --scopes "admin"` and set '
+            "NERVIS_SIRVIS_ADMIN_CREDENTIAL."
+        )
+    if credential != "admin" and not settings.sirvis_client_credential:
         # §12's switch, in its off position, said out loud. The launcher mints
         # this token; an install that starts SIRVIS some other way has not been
         # given one, and saying so beats a 401 the person has to interpret.
@@ -187,6 +201,43 @@ async def _cancel_benchmark(request: Request, job_id: str) -> dict[str, Any]:
     return {"job": job}
 
 
+async def _delete_result(request: Request, result_id: str, reason: str) -> dict[str, Any]:
+    """Delete one stored benchmark result, with NERVIS's admin credential.
+
+    **The credential never reaches the browser.** The Results screen has no
+    token and cannot get one; it names a result and NERVIS makes the call, which
+    is the same shape as every other operation here and the reason §12 wants
+    them enumerated rather than proxied.
+
+    The reason travels because SIRVIS records it on the tombstone. Nothing here
+    reads or requires it — an operator who deletes without explaining has still
+    deleted something, and a mandatory field would only ever be filled with a
+    dot.
+    """
+    entry, settings = _peer(request, "admin")
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.request(
+            "DELETE",
+            entry.declaration.base_url
+            + f"/api/v1/benchmark-results/{quote(result_id, safe='')}",
+            json={"reason": reason[:500]},
+            headers={"Authorization": f"Bearer {settings.sirvis_admin_credential}"},
+            timeout=SUBMIT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        _audit(request, result_id, "unreachable", type(failure).__name__, "delete")
+        raise InvalidConfigurationError(f"SIRVIS did not answer: {failure}") from failure
+
+    payload = _body_of(answered)
+    if answered.status_code >= 400:
+        detail = str((payload.get("error") or {}).get("message") or answered.status_code)
+        _audit(request, result_id, "refused", detail, "delete")
+        raise InvalidConfigurationError(f"SIRVIS refused it: {detail}")
+    _audit(request, result_id, "deleted", str(payload.get("evidence_id") or ""), "delete")
+    return {"deleted": payload}
+
+
 def _body_of(answered: httpx.Response) -> dict[str, Any]:
     """SIRVIS's body, or an empty one — a refusal without JSON is still a refusal."""
     try:
@@ -194,6 +245,11 @@ def _body_of(answered: httpx.Response) -> dict[str, Any]:
     except ValueError:
         return {}
     return found if isinstance(found, dict) else {}
+
+
+# The outcomes that mean the operation happened. Anything else — refused,
+# unreachable, malformed — is worth a warning.
+_SUCCEEDED = frozenset({"queued", "cancelled", "deleted"})
 
 
 def _audit(
@@ -207,10 +263,17 @@ def _audit(
     """
     request.app.state.hub.emit(
         "nervis.command.attempted",
-        severity="info" if outcome == "queued" else "warning",
+        # An operation that did what it was asked is not a warning. Only
+        # `queued` was treated as success, so a cancel that worked — and, once
+        # this file grew a third operation, a delete that worked — published at
+        # warning and landed in the error log the operator reads for problems.
+        severity="info" if outcome in _SUCCEEDED else "warning",
         subject={"type": "service", "id": "sirvis"},
         data={
-            "operation": f"sirvis.benchmark.{verb}",
+            # `delete` is not in the benchmark family — it acts on a result
+            # rather than on the queue — so the id it audits under says so.
+            "operation": "sirvis.result.delete" if verb == "delete"
+            else f"sirvis.benchmark.{verb}",
             "target": target,
             "outcome": outcome,
             "detail": detail,

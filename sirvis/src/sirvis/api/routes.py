@@ -63,7 +63,13 @@ from sirvis.runtimes import (
     RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
-from sirvis.storage import list_runs, read_result, read_run
+from sirvis.storage import (
+    delete_result,
+    list_runs,
+    list_tombstones,
+    read_result,
+    read_run,
+)
 from sirvis.storage.evidence import (
     FILTERS,
     EvidenceQuery,
@@ -453,6 +459,51 @@ async def read_benchmark_result(request: Request, result_id: str) -> dict[str, A
         raise BenchmarkNotFoundError(f"no benchmark result {result_id!r}", result_id=result_id)
     return found | {"snapshot_revision": SNAPSHOT_REVISION}
 
+
+
+@router.delete("/benchmark-results/{result_id}")
+async def remove_benchmark_result(request: Request, result_id: str) -> dict[str, Any]:
+    """Delete one result and leave §15.1's tombstone behind.
+
+    **`admin`, not `benchmark`.** The scopes are graded by what they cost:
+    `benchmark` spends time, `runtime` spends memory, and `admin` is for things
+    whose effect outlives the request. Deleting a measurement is irreversible,
+    and RAVIS admits and excludes builds on the evidence it removes — a client
+    trusted to spend an hour of machine time is not thereby trusted to erase
+    what that hour produced.
+
+    **A missing result is a 404, and stays one.** Not a silent 200: an operator
+    deleting the wrong id and an operator deleting an id twice want to be told
+    apart, and the tombstone is where the second one looks.
+
+    `reason` is optional and recorded verbatim. Nothing here validates or
+    interprets it — the point of the field is that six months from now a
+    tombstone with no reason is the one that cannot be explained.
+    """
+    caller = require(request, Scope.ADMIN)
+    body: dict[str, Any] = {}
+    if await request.body():
+        parsed = await request.json()
+        if isinstance(parsed, dict):
+            body = parsed
+    removed = delete_result(
+        request.app.state.database,
+        result_id,
+        reason=str(body.get("reason") or "")[:500],
+        requested_by=caller.label,
+    )
+    if removed is None:
+        raise BenchmarkNotFoundError(
+            f"no benchmark result {result_id!r}", result_id=result_id
+        )
+    return removed | {
+        # Said plainly, because "deleted" would otherwise be read as covering
+        # them. The run row and §11.9's raw takes are still there; removing
+        # files is a separate decision and this endpoint does not make it.
+        "run_kept": True,
+        "raw_takes_kept": True,
+        "snapshot_revision": SNAPSHOT_REVISION,
+    }
 
 
 # ── Runtime Sets (§10) ───────────────────────────────────────────────────────
@@ -871,12 +922,22 @@ async def read_evidence_index(request: Request) -> dict[str, Any]:
         # question — leaving it to match on names, which §15.1 forbids and this
         # endpoint exists to prevent.
         "candidate_variants": by_key,
-        # §15.1 asks for tombstones. There are none, and there is no mechanism
-        # to produce one: evidence is append-only and nothing in SIRVIS deletes
-        # a result. Reported as an empty list rather than omitted so a consumer
-        # can code against the field before deletion exists — and so that
-        # whoever adds retention knows exactly what they have to start filling.
-        "tombstones": [],
+        # §15.1's tombstones, filled now that `DELETE /benchmark-results/{id}`
+        # exists. Narrowed by the same candidates and role the caller filtered
+        # evidence on — deliberately not by which records survived, because the
+        # case that matters is a build whose only result was deleted, where the
+        # items list is empty and the tombstone is the whole answer.
+        #
+        # A tombstone here does not mean the evidence is gone. Two runs of one
+        # suite against one build are two results under one evidence id, so a
+        # deleted result can sit beside a live one — which is why the record
+        # says which *result* went, and why a consumer must read the items list
+        # rather than infer absence from this one.
+        "tombstones": list_tombstones(
+            request.app.state.database,
+            target_keys=tuple(sorted(candidates)),
+            role=parameters.get("role") or "",
+        ),
     }
     if parameters.get("role") and not answer.items:
         # A role that matched nothing is reported *with the roles that exist*,

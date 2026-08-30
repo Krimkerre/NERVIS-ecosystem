@@ -274,6 +274,49 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON benchmark_job (state, submitted_at);
         """,
     ),
+    (
+        9,
+        "tombstones for deleted evidence, per SIRVIS.md §15.1",
+        """
+        -- **§15.1 asks for tombstones and there were none**, because nothing
+        -- deleted a result. The evidence surface has published `tombstones: []`
+        -- since M16 with a comment saying whoever added retention would have to
+        -- start filling it. This is that.
+        --
+        -- A tombstone is not a soft delete. The result is gone — the payload,
+        -- the metrics, the validity notes — and what stays is the fact that it
+        -- existed and no longer does. RAVIS caches evidence by reference and
+        -- §15.1 promises those references stay resolvable during a retention
+        -- window; a consumer that finds nothing cannot tell a deletion from a
+        -- benchmark that never happened, and those lead to different decisions.
+        --
+        -- Keyed on `result_id` because that is what is deleted. `evidence_id`
+        -- is not unique: §12.2 makes two runs of one suite against one build
+        -- two results under one evidence identity, so a deleted result may
+        -- leave a live one behind under the same id — which is exactly the case
+        -- a consumer must not read as "this evidence is gone".
+        CREATE TABLE IF NOT EXISTS evidence_tombstone (
+            result_id   TEXT PRIMARY KEY,
+            evidence_id TEXT NOT NULL,
+            run_id      TEXT NOT NULL,
+            target_key  TEXT NOT NULL,
+            role        TEXT NOT NULL DEFAULT '',
+            -- When the deleted result was measured, kept so a consumer can tell
+            -- whether the record it holds is the one that was removed.
+            measured_at TEXT NOT NULL DEFAULT '',
+            deleted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            -- Who asked and why, in their words. An unexplained deletion of a
+            -- measurement is the one thing this table cannot reconstruct later.
+            reason      TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS evidence_tombstone_by_deleted
+            ON evidence_tombstone (deleted_at DESC);
+
+        CREATE INDEX IF NOT EXISTS evidence_tombstone_by_evidence
+            ON evidence_tombstone (evidence_id);
+        """,
+    ),
 ]
 
 

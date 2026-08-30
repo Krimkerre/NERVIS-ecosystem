@@ -188,6 +188,15 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .table-row.head .sortable{cursor:pointer;user-select:none}
 .table-row.head .sortable:hover{color:var(--accent)}
 .table-row.head .sorted{color:var(--accent)}
+/* The one destructive control on this page, and it looks like one. */
+.btn.danger{border-color:#5c2b2b;background:#1d1113;color:#ff9c8f}
+.btn.danger:hover{border-color:#ff6b57;color:#fff}
+.delete-row{display:flex;align-items:center;gap:9px;margin:7px 0;flex-wrap:wrap}
+.delete-ask{display:flex;flex-direction:column;gap:7px;border:1px solid #5c2b2b;
+  border-radius:7px;padding:10px;background:rgba(92,43,43,.09)}
+.delete-ask input{background:#0b1118;border:1px solid #2a3541;border-radius:6px;
+  padding:8px;color:#d9e3ed;width:100%}
+.delete-ask>div{display:flex;gap:7px}
 /* A record opened inside a twelve-row box would be read through a slot. The
    box keeps its height for scanning and gives it up for reading. */
 .scroller:has(details[open]){max-height:none;resize:none}
@@ -5533,6 +5542,56 @@ async function sirvisRuntimeSets(){
    Two of the four accuracy measures did not discriminate at all, and saying so is
    the result: eight identical scores presented as a ranking would be a table that
    looks like evidence and contains none. */
+/* Deleting one measurement.
+
+   **Two steps, because this one does not come back.** A single button next to
+   twelve rows of numbers is a button somebody presses while reading, so the
+   first press only asks — it names what goes, what stays, and offers the reason
+   that ends up on the tombstone. The second press is the one that acts.
+
+   NERVIS makes the call, not this page. Deleting a result needs `admin` on
+   SIRVIS, and a credential in a browser tab is a credential in every script
+   that tab runs — so the page names a result and NERVIS, which holds the token,
+   carries out the enumerated operation and audits it (§12). */
+function deleteControl(r){
+ const id=r.result_id;
+ if(!id)return '';
+ return `<div class="delete-row" id="del-${escapeHtml(id)}">
+   <button class="btn danger" onclick="askDelete('${escapeHtml(id)}')">Delete this result</button>
+   <small class="mono dim">removes the record from every surface and leaves a tombstone in its place. The run row and the raw takes on disk are kept.</small>
+  </div>`}
+
+/* The ask. Nothing has happened yet, and the wording says which parts are
+   permanent — a confirmation that only says "are you sure" makes the reader
+   guess at the scope of what they are agreeing to. */
+function askDelete(id){
+ const box=document.getElementById('del-'+id);
+ if(!box)return;
+ box.innerHTML=`<div class="delete-ask">
+   <b>Delete this result permanently?</b>
+   <small class="mono dim">the measurement goes — metrics, spread, provenance, validity notes. A tombstone keeps the fact that it existed, so RAVIS can tell a withdrawn measurement from one nobody took. The run and the raw takes stay on disk.</small>
+   <input id="why-${escapeHtml(id)}" placeholder="why, for the tombstone — optional but the field nobody can reconstruct later">
+   <div><button class="btn danger" onclick="confirmDelete('${escapeHtml(id)}')">Delete permanently</button>
+   <button class="btn" onclick="sirvisResults()">Keep it</button></div>
+  </div>`;
+ const field=document.getElementById('why-'+id);
+ if(field)field.focus()}
+
+/* The act, and then a full re-read rather than a row removed from the DOM: the
+   record count, the grouping, the rate spread and the bar chart are all derived
+   from what SIRVIS holds, and patching one row would leave four summaries
+   describing a result that is gone. */
+async function confirmDelete(id){
+ const box=document.getElementById('del-'+id);
+ if(box)box.innerHTML='<small class="mono dim">deleting…</small>';
+ const answer=await runCommand('sirvis.result.delete',id,
+   (document.getElementById('why-'+id)||{}).value||'');
+ if(answer.error){
+  if(box)box.innerHTML=`<small class="mono" style="color:#ffb648">${escapeHtml(answer.error)}</small>
+    <button class="btn" onclick="askDelete('${escapeHtml(id)}')">Try again</button>`;
+  return}
+ sirvisResults()}
+
 /* What one benchmark result actually holds, under the row it made.
 
    Six columns are a summary of a record with far more in it, and every part
@@ -5590,6 +5649,7 @@ function runFacts(e,group){
  return `<div class="fact-grid">${facts.filter(([,v])=>v!==null&&v!==undefined&&v!=='')
     .map(([k,v])=>`<div class="trace-step"><b>${escapeHtml(k)}</b><span class="mono">${escapeHtml(String(v))}</span></div>`).join('')}</div>
   ${columnsFrom(e,group)}
+  ${deleteControl(r)}
   ${validityBlock(r)}
   ${measureTable(r.metrics||{})}
   ${trialBlocks(r.metrics||{})}`}
@@ -8354,11 +8414,14 @@ function offerRow(offer,index){
    token and pasting it is the manual step the launcher exists to remove. NERVIS
    holds the narrow credential now, checks the operation against its own closed
    set, and publishes every attempt to the hub. */
-async function runCommand(operation,target){
+async function runCommand(operation,target,reason){
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
     headers:{'content-type':'application/json'},
-    body:JSON.stringify({operation,target})});
+    /* `reason` only where an operation has one. Sent as an empty string rather
+       than omitted would put a blank line on a tombstone that is supposed to
+       say why. */
+    body:JSON.stringify(reason?{operation,target,reason}:{operation,target})});
   const payload=await r.json().catch(()=>({}));
   if(!r.ok)return{error:((payload.error||{}).message)||('NERVIS answered HTTP '+r.status)};
   return payload;

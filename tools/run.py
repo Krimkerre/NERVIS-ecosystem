@@ -262,6 +262,12 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             token = benchmark_token()
             if token:
                 env["NERVIS_SIRVIS_CLIENT_CREDENTIAL"] = token
+            # And the narrower one for deleting a result. Absent is a working
+            # state: the button says NERVIS holds no admin credential rather
+            # than failing at the call.
+            administrative = admin_token()
+            if administrative:
+                env["NERVIS_SIRVIS_ADMIN_CREDENTIAL"] = administrative
         if prefix == "RAVIS":
             # Point RAVIS at SIRVIS. Without this RAVIS starts healthy with an
             # empty evidence store, its Evidence screen reads zero records, and
@@ -466,6 +472,23 @@ def benchmark_token() -> str:
     operation with it and publishes every attempt to the hub (§12).
     """
     return _sirvis_token("nervis-benchmark.token", "nervis-benchmark", "benchmark")
+
+
+def admin_token() -> str:
+    """An `admin`-scoped token for the one operation that needs it.
+
+    **Separate from the benchmark one, and that is the whole point.** SIRVIS's
+    `admin` implies every other scope, so a single token covering both would
+    quietly give the queue path total access. Deleting a benchmark result is the
+    only thing NERVIS does with this, and the Results screen is the only thing
+    that asks — the credential itself never leaves NERVIS, exactly as the
+    benchmark one does not.
+
+    Minted here for the same reason as the others: the alternative is telling
+    somebody to open a terminal, work out which of four scopes a delete button
+    needs, and paste 43 characters.
+    """
+    return _sirvis_token("nervis-admin.token", "nervis-admin", "admin")
 
 
 def nervis_ravis_credential() -> str:

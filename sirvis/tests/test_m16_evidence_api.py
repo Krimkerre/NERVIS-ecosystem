@@ -552,3 +552,156 @@ def test_a_configuration_key_that_is_not_an_identifier_matches_nothing() -> None
     )
 
     assert answer.items == []
+
+
+# ── Deletion and §15.1's tombstones ──────────────────────────────────────────
+#
+# The evidence surface published `tombstones: []` from the day it shipped, with
+# a comment saying nothing in SIRVIS deleted a result and whoever added
+# retention would have to fill it. These are that field's first tests.
+
+
+def _result_ids(database: Database) -> list[str]:
+    return [row["result_id"] for row in database.connection.execute(
+        "SELECT result_id FROM benchmark_result ORDER BY created_at"
+    ).fetchall()]
+
+
+def test_deleting_a_result_removes_it_and_leaves_a_tombstone() -> None:
+    """The row is gone rather than flagged, and what survives is the fact that
+    it existed — which is what lets a consumer holding `ev_…` tell a withdrawn
+    measurement from one that was never taken."""
+    from sirvis.storage import delete_result, list_tombstones
+
+    database = a_database(a_record(role="agent"))
+    [result_id] = _result_ids(database)
+
+    removed = delete_result(database, result_id, reason="benched the wrong build")
+
+    assert removed is not None
+    assert removed["result_id"] == result_id
+    assert removed["remaining_under_evidence_id"] == 0
+    assert _result_ids(database) == []
+    [tombstone] = list_tombstones(database)
+    assert tombstone["evidence_id"] == "ev_one"
+    assert tombstone["reason"] == "benched the wrong build"
+    # The run itself stays: it happened, and deleting the record of it would
+    # erase the audit trail of the deletion's own subject.
+    assert database.connection.execute(
+        "SELECT COUNT(*) AS n FROM benchmark_run"
+    ).fetchone()["n"] == 1
+
+
+def test_a_tombstone_does_not_mean_the_evidence_is_gone() -> None:
+    """Two runs of one suite against one build are two results under one
+    evidence id. Deleting one leaves the other, and a consumer that read the
+    tombstone as "this evidence is withdrawn" would be wrong."""
+    from sirvis.storage import delete_result
+
+    database = a_database(a_record(evidence_id="ev_same"), a_record(evidence_id="ev_same"))
+    first, second = _result_ids(database)
+
+    removed = delete_result(database, first, reason="")
+
+    assert removed is not None
+    assert removed["remaining_under_evidence_id"] == 1
+    assert _result_ids(database) == [second]
+
+
+def test_deleting_something_that_is_not_there_is_not_a_deletion() -> None:
+    """None rather than a cheerful success. Deleting the wrong id and deleting
+    the same id twice are different mistakes and the caller is told apart."""
+    from sirvis.storage import delete_result, list_tombstones
+
+    database = a_database(a_record())
+
+    assert delete_result(database, "res_nothing", reason="") is None
+    assert list_tombstones(database) == []
+
+
+def test_tombstones_are_narrowed_by_what_the_caller_asked_about() -> None:
+    """**Not by which records survived.** The case that matters is a build whose
+    only result was deleted: the items list is empty, and deriving the filter
+    from it would return either nothing or — since an empty filter reads as no
+    filter — every deletion on the machine."""
+    from sirvis.storage import delete_result, list_tombstones
+
+    database = a_database(a_record(role="agent"), a_record(role="chat"))
+    agent, chat = _result_ids(database)
+    delete_result(database, agent, reason="")
+    delete_result(database, chat, reason="")
+
+    only_agent = list_tombstones(database, role="agent")
+
+    assert [t["role"] for t in only_agent] == ["agent"]
+    assert len(list_tombstones(database)) == 2
+
+
+def test_deleting_a_result_over_http_needs_admin() -> None:
+    """`benchmark` spends machine time; deleting what that time produced is
+    irreversible and RAVIS routes on it. A client trusted with the first is not
+    thereby trusted with the second."""
+    client, read_token = an_app(a_record())
+    [result_id] = _result_ids(client.app.state.database)  # type: ignore[attr-defined]
+    path = f"/api/v1/benchmark-results/{result_id}"
+    benchmark = mint_token(
+        client.app.state.database,  # type: ignore[attr-defined]
+        "queue", {Scope.BENCHMARK},
+    )
+
+    # The content type travels on every one of these: §4.5 requires a non-simple
+    # one on mutations as a CSRF defence, and it is checked before the token —
+    # so a bare DELETE is refused for the media type and never reaches the
+    # question this test is asking.
+    json_type = {"content-type": "application/json"}
+
+    assert client.delete(path, headers=json_type).status_code == 401
+    assert client.delete(
+        path, headers={**json_type, "authorization": f"Bearer {read_token}"}
+    ).status_code == 403
+    assert client.delete(
+        path, headers={**json_type, "authorization": f"Bearer {benchmark}"}
+    ).status_code == 403
+
+    admin = mint_token(
+        client.app.state.database,  # type: ignore[attr-defined]
+        "operator", {Scope.ADMIN},
+    )
+    answered = client.delete(path, headers={**json_type, "authorization": f"Bearer {admin}"})
+
+    assert answered.status_code == 200
+    assert answered.json()["result_id"] == result_id
+    # Said out loud rather than left to be assumed either way.
+    assert answered.json()["run_kept"] is True
+    assert answered.json()["raw_takes_kept"] is True
+    # And a second delete of the same id is a 404, not a silent success.
+    assert client.delete(
+        path, headers={**json_type, "authorization": f"Bearer {admin}"}
+    ).status_code == 404
+
+
+def test_the_evidence_surface_publishes_the_tombstone() -> None:
+    """§15.1 promises tombstones on the surface RAVIS reads, not only in the
+    database. A build whose only result was deleted answers with an empty items
+    list *and* the record saying why it is empty."""
+    client, read_token = an_app(a_record(role="agent"))
+    [result_id] = _result_ids(client.app.state.database)  # type: ignore[attr-defined]
+    admin = mint_token(
+        client.app.state.database,  # type: ignore[attr-defined]
+        "operator", {Scope.ADMIN},
+    )
+    # `request` rather than `delete`, because httpx's DELETE shorthand takes no
+    # body — and the reason is a body field, since it is the operator's words
+    # rather than something to put in a URL.
+    client.request(
+        "DELETE",
+        f"/api/v1/benchmark-results/{result_id}",
+        headers={"authorization": f"Bearer {admin}", "content-type": "application/json"},
+        json={"reason": "measured against the wrong context"},
+    )
+
+    body = get(client, read_token, f"{EVIDENCE}?role=agent").json()
+
+    assert body["items"] == []
+    assert [t["result_id"] for t in body["tombstones"]] == [result_id]
+    assert body["tombstones"][0]["reason"] == "measured against the wrong context"

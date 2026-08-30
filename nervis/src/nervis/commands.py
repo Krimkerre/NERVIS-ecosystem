@@ -67,6 +67,18 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the benchmark {target}",
         action="Cancel",
     ),
+    # **In the set, and deliberately without a phrase that reaches it.** Every
+    # other operation here is matched from something a person typed; this one is
+    # only ever named by a button on the Results screen, next to the record it
+    # would delete. A phrase matcher would mean "delete the gemma results" could
+    # be *proposed* from a sentence, and a measurement is not a thing to offer
+    # to destroy on the strength of a parse.
+    Operation(
+        id="sirvis.result.delete",
+        service="sirvis",
+        summary="the benchmark result {target}",
+        action="Delete",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
