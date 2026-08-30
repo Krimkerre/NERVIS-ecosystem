@@ -97,11 +97,16 @@ BY_ID = {operation.id: operation for operation in OPERATIONS}
 # ask: naming the pool ("use ravis/coding", "switch to the local pool") and
 # naming what they want from it ("route this through reasoning"). The pool has
 # to be named either way — NERVIS does not interpret "make it better".
-SWITCH = re.compile(
-    r"\b(?:use|switch|change|route|move|set)\b[^.?!]*?"
-    r"(?P<pool>ravis/[a-z0-9-]+|\b[a-z0-9-]+\s+pool\b|\bpool\s+[a-z0-9-]+)",
-    re.IGNORECASE,
-)
+# The verb says a route change is wanted. *Which* pool is asked of the pool
+# list, for the same reason the benchmark target is asked of the inventory:
+# RAVIS publishes fifteen of them and their names are the vocabulary.
+#
+# **The old pattern required a pool-shaped token** — `ravis/x`, `x pool` or
+# `pool x` — and its own comment claimed it handled *"route this through
+# reasoning"*, which it did not: that sentence names a pool with no marker
+# around it, and nothing matched. A comment describing behaviour the code does
+# not have is worse than no comment, so the code now has it.
+SWITCH = re.compile(r"\b(?:use|switch|change|route|move|set)\b", re.IGNORECASE)
 
 # Stopping one. Narrower than the submit pattern on purpose: "cancel" and "stop"
 # are ordinary words, so they only count when a benchmark or a job id is named
@@ -223,17 +228,23 @@ def propose(
     """
     if not question:
         return None
+    # **The question test comes first, for every operation.** It used to sit
+    # between cancel and submit, so *"did you cancel the benchmark?"* reached
+    # the cancel branch and proposed one — a Cancel button offered in reply to a
+    # question about the past, which is the same fault as offering to run a
+    # benchmark when asked how the last one went. Whether a sentence is a
+    # question has nothing to do with which operation it mentions.
+    if (ASKING.search(question) or QUESTION_MARK.search(question)) \
+            and not ASKING_FOR.search(question):
+        return None
     switching = SWITCH.search(question)
     if switching and pools:
-        switched = _switch_proposal(switching.group("pool"), pools)
+        switched = _switch_proposal(question, pools)
         if switched is not None:
             return switched
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
-    interrogative = ASKING.search(question) or QUESTION_MARK.search(question)
-    if interrogative and not ASKING_FOR.search(question):
-        return None
     if not BENCHMARK.search(question):
         return None
     return _benchmark_proposal(question, models)
@@ -337,6 +348,41 @@ def _benchmark_proposal(question: str,
     )
 
 
+def _pools_named(question: str, known: Sequence[str]) -> list[str]:
+    """Which published pools this sentence names, in any position.
+
+    A pool id is `ravis/<name>`, and people say the name three ways: written out
+    in full, as *"the cheap pool"*, or bare — *"route this through reasoning"*.
+    All three name the same thing, so all three are matched against the list
+    RAVIS publishes rather than recognised by their shape.
+
+    The bare form is why this reads the last word of the id rather than the
+    whole of it: nobody types `ravis/` in a sentence unless they are quoting.
+    """
+    # Lowercased, not squashed. `_squash` removes spaces as well as punctuation,
+    # so "the cheap pool" becomes "thecheappool" and a word-boundary match can
+    # never fire — which is exactly what happened on the first attempt here.
+    said = question.lower()
+    named: list[tuple[int, str]] = []
+    for pool in known:
+        tail = pool.rsplit("/", 1)[-1].lower()
+        if not tail:
+            continue
+        # A hyphen in an id is a space in a sentence: people write
+        # "clarvis chat" for `ravis/clarvis-chat`. Whole words either way, so
+        # `ravis/fast` is not named by "fastest" in an unrelated clause.
+        pattern = r"[\s\-]?".join(re.escape(part) for part in tail.split("-"))
+        if re.search(rf"\b{pattern}\b", said):
+            named.append((len(tail), pool))
+    if not named:
+        return []
+    # The most specifically named wins, exactly as it does for models:
+    # `ravis/clarvis-chat` contains the whole of `chat` with a word boundary in
+    # front of it, so both are named and only one was meant.
+    best = max(length for length, _ in named)
+    return sorted(pool for length, pool in named if length == best)
+
+
 def _switch_proposal(
     asked: str, pools: Sequence[Mapping[str, Any]]
 ) -> Proposal | None:
@@ -349,13 +395,9 @@ def _switch_proposal(
     about something else far more often than it is a routing instruction.
     """
     operation = BY_ID["nervis.chat.profile"]
-    wanted = _squash(asked.replace("pool", " "))
-    if not wanted:
-        return None
     known = [str(pool.get("pool_id") or "") for pool in pools]
     known = [name for name in known if name]
-    exact = [name for name in known if _squash(name) == wanted]
-    near = exact or [name for name in known if wanted and wanted in _squash(name)]
+    near = _pools_named(asked, known)
     if len(near) == 1:
         target = near[0]
         return Proposal(

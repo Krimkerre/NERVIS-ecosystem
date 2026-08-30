@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1771 tests, no network, no live service
+.venv/bin/pytest                      # part of 1774 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 418 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 421 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1771 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1774 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2389,6 +2389,36 @@ And the offer itself now says what pressing does, before it is pressed: the
 model is told the press starts the benchmark straight away unless another is
 running, and that it is not put in a queue to run later. Only the benchmark
 offer carries it — that sentence above a Cancel button would be wrong.
+
+**The same defect lived in the other two operations, so they were checked
+rather than assumed sound.** Cancel and switch still extracted their target by
+shape, and the sweep found three more faults of the same family.
+
+`SWITCH` required a pool-shaped token — `ravis/x`, `x pool` or `pool x` — while
+its own comment claimed it handled *"route this through reasoning"*. It did not:
+that names a pool with no marker around it. A comment describing behaviour the
+code lacks is worse than none, so the pool list decides now, matching whole
+words with hyphens read as spaces, and the longest name wins — `ravis/chat` sits
+inside `ravis/clarvis-chat` with a word boundary in front of it, so both were
+named by one sentence and only one was meant.
+
+**A question about cancelling offered a Cancel button.** The interrogative test
+sat *between* the cancel branch and the submit one, so *"did you cancel the
+benchmark?"* reached cancel and proposed one — the same fault as offering a
+benchmark when asked how the last one went, in the operation where pressing
+stops work somebody is waiting on. Whether a sentence is a question has nothing
+to do with which operation it mentions, so it now runs before all three.
+
+**And a second word list, one layer up, was quietly defeating the first fix.**
+`POOL_WORDS` in `chat.py` decided whether the pool list was *fetched at all*, and
+`"use cheap"` matched none of its five entries — so the improved matcher never
+saw a pool to match against. It gates on the same verb pattern the proposal uses
+now. One list deciding whether to look and another deciding what was found is how
+a fix lands in the wrong layer and reads as no fix at all.
+
+Eight phrasings across all three operations checked against intent: three offer,
+five decline, including every reported failure and each regression the fixes
+caused in one another.
 
 ### Next — in this order
 

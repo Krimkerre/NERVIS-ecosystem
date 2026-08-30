@@ -540,7 +540,13 @@ ROUTING_WORDS = (
 DECISION_SAMPLE = 10
 
 # When a sentence might be asking to change where this conversation routes.
-POOL_WORDS = ("pool", "profile", "switch", "route this", "use ravis/")
+# **The same verbs the proposal itself matches on, not a second list.**
+# This was `("pool", "profile", "switch", "route this", "use ravis/")` and it
+# decided whether the pool list was fetched at all — so "use cheap" never
+# reached the matcher that would have resolved it, and improving the matcher
+# changed nothing. One list deciding whether to look and another deciding what
+# was found is how a fix lands in the wrong layer.
+POOL_WORDS_PATTERN = commands.SWITCH
 
 # When a question is about the editor rather than about the ecosystem around it.
 EDITOR_WORDS = (
@@ -1068,7 +1074,7 @@ async def _pools(request: Request, question: str) -> list[dict[str, Any]]:
     switch offer is only ever made against this list. Read on the same terms as
     the rest — when the words suggest it, and absent rather than guessed.
     """
-    if not any(word in question.lower() for word in POOL_WORDS):
+    if not POOL_WORDS_PATTERN.search(question):
         return []
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if entry is None or not entry.is_usable:

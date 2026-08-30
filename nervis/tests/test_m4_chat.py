@@ -2680,3 +2680,97 @@ def test_only_the_benchmark_offer_carries_that_sentence() -> None:
         for message in body.get("messages", [])
     )
     assert "starts the benchmark straight away" not in prompt
+
+
+def _with_pools(client: TestClient, sent: list[dict[str, Any]], pools: list[str]) -> None:
+    """A RAVIS publishing these pools and no models.
+
+    `_with_models` stubs only `/api/v1/models`, so a switch test written with it
+    gets an empty pool list and no offer at all — the branch is skipped rather
+    than failing, which is a quiet way for a test to prove nothing.
+    """
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/api/v1/pools" in url:
+            return httpx.Response(200, json={"items": [{"pool_id": p} for p in pools]})
+        if "/api/v1/models" in url:
+            return httpx.Response(200, json={"items": []})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+def test_a_pool_is_named_however_the_person_says_it() -> None:
+    """The switch pattern required a pool-shaped token — `ravis/x`, `x pool` or
+    `pool x` — while its own comment claimed it handled *"route this through
+    reasoning"*. It did not: that names a pool with no marker around it, and
+    nothing matched. A comment describing behaviour the code lacks is worse than
+    none, so the pool list decides now, the same way the inventory decides which
+    model was named."""
+    for phrasing, expected in (
+        ("use ravis/cheap for this", "ravis/cheap"),
+        ("switch to the cheap pool", "ravis/cheap"),
+        ("route this through reasoning", "ravis/reasoning"),
+        ("use cheap", "ravis/cheap"),
+    ):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        offer = json.loads(answered.headers["x-command-offer"])
+        assert offer["operation"] == "nervis.chat.profile", phrasing
+        assert offer["target"] == expected, phrasing
+
+
+def test_the_longer_pool_name_wins_over_the_one_inside_it() -> None:
+    """`ravis/clarvis-chat` contains the whole of `chat` with a word boundary in
+    front of it, so both are named by one sentence and only one was meant. The
+    same specificity rule the models use."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+
+    answered = turn(client, "switch to ravis/clarvis-chat", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["target"] == "ravis/clarvis-chat"
+
+
+def test_a_question_about_cancelling_does_not_offer_a_cancel() -> None:
+    """The question test used to sit *between* the cancel branch and the submit
+    one, so "did you cancel the benchmark?" reached cancel and proposed one — a
+    Cancel button offered in reply to a question about the past, which is the
+    same fault as offering a benchmark when asked how the last one went.
+
+    Whether a sentence is a question has nothing to do with which operation it
+    mentions, so the test now runs before all three.
+    """
+    for phrasing in ("did you cancel the benchmark?",
+                     "which pool are we using?",
+                     "was the benchmark cancelled?"):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["phi-4-mini-instruct"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        assert answered.headers.get("x-command-offer", "") == "", phrasing
+
+
+def test_a_request_wearing_a_question_mark_is_still_a_request() -> None:
+    """The falsifier for moving that test earlier: "can you switch to
+    reasoning?" is an instruction with punctuation on it, and the rescue that
+    already existed has to keep working now that the guard runs sooner."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_pools(client, sent, ["ravis/cheap", "ravis/reasoning", "ravis/chat", "ravis/clarvis-chat"])
+
+    answered = turn(client, "can you switch to reasoning?", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["target"] == "ravis/reasoning"
