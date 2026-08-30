@@ -7820,8 +7820,27 @@ compliant model strips a leading slash and the refusal that comes back is a
 plain not-found. It is exercised at the host level now, asserting the refusal's
 *reason* rather than merely that something was thrown.
 
-**Where it stands: 32 `PASS`, 16 `PASS_WITH_LIMITATION`, 3 `FAIL`, 0
-`NOT_TESTED`.** Not a support statement — three failures remain and sixteen
+**And then capture was fixed the same way.** Recording spawned ffmpeg on the
+extension host, so under code-server it captured whoever was sitting at the
+server. It now records through the panel: 48 000 Hz where the host recorder
+wrote 16 000, and `ffmpeg -af volumedetect` agrees with the extension's own
+figure to a tenth of a decibel.
+
+Whether that was buildable at all was established before building it. A webview
+is a cross-origin iframe and `getUserMedia` is refused there unless the parent
+grants `allow="microphone"` — an attribute on an iframe the workbench owns.
+Firefox does not expose `document.permissionsPolicy`, so introspection answers
+`unknown` and only calling it settles the question. A user-triggered probe asked
+first; the answer justified the route rather than an assumption doing it.
+
+It uses raw PCM rather than `MediaRecorder`, which would have been much less
+code and produced Opus that `peakDbfs` cannot read — giving back the silence
+check repaired hours earlier. The webview builds a WAV instead, so the clip is
+measured by exactly the same code as the host path. What changes is the
+microphone, not the analysis.
+
+**Where it stands: 33 `PASS`, 15 `PASS_WITH_LIMITATION`, 3 `FAIL`, 0
+`NOT_TESTED`.** Not a support statement — three failures remain and fifteen
 cells carry limitations — but every gap is now named rather than unexamined.
 
 ## Starting the thing
