@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1724 tests, no network, no live service
+.venv/bin/pytest                      # part of 1727 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 397 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1724 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1727 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2076,6 +2076,30 @@ unwired rather than unwirable, and that is a NERVIS task.
 Live wiring is why the reconciliation above exists, and that is the argument for
 doing it early rather than last: a queue view counts states, and a log does not.
 
+**M11's metadata half, 30 Aug.** §11.4 asks an inspector for the upstream
+destination and the stream's own numbers, and an attempt recorded neither — it
+was `{model, outcome, detail}`, so the record could say a route succeeded but not
+where it went or how long it took. `elapsed_ms` and `ttft_ms` were already being
+computed on the success path to feed the health registry and then discarded;
+keeping them costs two floats. Failures are timed too, because "refused
+instantly" and "refused after thirty seconds" are different faults wearing the
+same outcome string, and the timing is the only thing that separates a rejection
+from a timeout. A skipped candidate keeps `None` for both: nothing was measured,
+and 0 ms would read as an instant answer rather than as one that never came.
+
+Verified against live traffic rather than fixtures. Two requests through
+`ravis/chat` produced `provider: openrouter, elapsed_ms: 888.76` for a
+non-streamed call — `ttft_ms` null, correctly, since there is no first byte to
+time — and `ttft_ms: 828.54` for a streamed one. The Routes screen renders it:
+*anthropic/claude-haiku-4.5 → succeeded · via openrouter · first byte 928 ms ·
+929 ms total*.
+
+**Metadata only, by decision.** The record holds no prompt and no completion, and
+a test asserts the exact field set so a later change has to argue with that rather
+than drift past it. Two existing tests pinned the whole attempt dict and failed on
+the new keys — which is the shape change they exist to catch, so both were updated
+to the full shape rather than loosened to a subset.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
@@ -2136,9 +2160,10 @@ as a check having been made.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **NERVIS M11 — the API inspector** | The strongest remaining NERVIS-side piece and it needs nothing from Clarvis. The material already exists: route decisions carry an explanation, RAVIS publishes selection and completion events under the caller's trace, and traces assemble into spans. M11 turns what is already being produced into the one screen that answers *"what happened to this request"*. Chat can narrate that record in prose today; the screen is where it becomes navigable |
-| 2 | **NERVIS's own proxy, if the Code tab is ever to move** | Stage 9 graded the proxied axis through a spike that does none of §13.3's work — no auth, no CSRF, no redaction, no timeouts, no published browser matrix. Two findings belong in the real build: a proxy must *perform* the origin check rather than let the upstream skip it when `Origin` is absent, and moving the tab to a new origin empties every user's browser-backed key store. Neither is a reason not to build it; both are reasons it is not a weekend |
-| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
+| 1 | **NERVIS M11 — content stages, if they are ever wanted** | The metadata half landed 30 Aug (below). What is still unbuilt is §11.4's content: the client request, the normalized request, the native provider request, and the event streams either side of translation. None of it is recorded anywhere, and recording it is a privacy decision rather than a coding one — retention, redaction, and where prompts would live on disk. Deliberately deferred, not overlooked |
+| 2 | **NERVIS M11 — the API inspector** | The strongest remaining NERVIS-side piece and it needs nothing from Clarvis. The material already exists: route decisions carry an explanation, RAVIS publishes selection and completion events under the caller's trace, and traces assemble into spans. M11 turns what is already being produced into the one screen that answers *"what happened to this request"*. Chat can narrate that record in prose today; the screen is where it becomes navigable |
+| 3 | **NERVIS's own proxy, if the Code tab is ever to move** | Stage 9 graded the proxied axis through a spike that does none of §13.3's work — no auth, no CSRF, no redaction, no timeouts, no published browser matrix. Two findings belong in the real build: a proxy must *perform* the origin check rather than let the upstream skip it when `Origin` is absent, and moving the tab to a new origin empties every user's browser-backed key store. Neither is a reason not to build it; both are reasons it is not a weekend |
+| 4 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
 
 **Stage 6's exit, one criterion at a time.** The runbook asks for four things:
 

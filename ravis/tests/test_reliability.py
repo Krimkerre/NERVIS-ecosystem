@@ -452,6 +452,12 @@ def test_the_chain_skips_a_candidate_behind_an_open_circuit_and_says_so() -> Non
         "model": "primary",
         "outcome": "skipped",
         "detail": health.of(HealthScope.MODEL, "primary").refusal(),
+        # A skipped candidate names the upstream it would have used and carries
+        # no timings: no connection was opened, so there is nothing measured to
+        # report and `None` says that rather than claiming 0 ms.
+        "provider": "upstream",
+        "elapsed_ms": None,
+        "ttft_ms": None,
     }
 
 
@@ -566,3 +572,55 @@ def test_the_chain_attributes_each_attempt_to_its_own_upstream() -> None:
 
     assert not health.allows(HealthScope.PROVIDER, "lmstudio")
     assert health.allows(HealthScope.PROVIDER, "ollama"), "untouched by another's failure"
+
+
+def test_a_successful_attempt_records_its_destination_and_timings() -> None:
+    """§11.4 asks an inspector for the upstream destination and the stream's own
+    numbers. Both were computed on this path already — `succeeded` needs them for
+    the health registry — and then thrown away, so an attempt said only that it
+    had worked. "Succeeded" and "succeeded, first byte in 240 ms" are different
+    facts, and only the second one lets somebody see a route getting slower."""
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock)
+    chain = _chain(clock, health)
+
+    started = clock()
+    clock.advance(3.0)
+    chain.succeeded("only", started, ttft=0.24)
+
+    recorded = chain.summary()["attempts"][0]
+    assert recorded["provider"] == "upstream"
+    assert recorded["ttft_ms"] == pytest.approx(240.0)
+    assert recorded["elapsed_ms"] == pytest.approx(3000.0)
+
+
+def test_a_failed_attempt_is_timed_because_how_long_it_took_is_the_fault() -> None:
+    """"Refused instantly" and "refused after thirty seconds" are different
+    faults with the same outcome string. Without the timing the record cannot
+    separate a rejection from a timeout."""
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock)
+    chain = _chain(clock, health)
+
+    started = clock()
+    clock.advance(30.0)
+    chain.failed("only", started, FailureClass.TIMEOUT, "no response")
+
+    recorded = chain.summary()["attempts"][0]
+    assert recorded["elapsed_ms"] == pytest.approx(30_000.0)
+    # No first byte ever arrived, and `None` says so. A 0 here would read as a
+    # stream that started instantly and then produced nothing.
+    assert recorded["ttft_ms"] is None
+
+
+def test_the_attempt_record_holds_no_prompt_and_no_completion() -> None:
+    """The scope decision behind M11's first half, pinned so a later change has
+    to argue with it. Metadata only: what was asked and what came back are not in
+    this record and are not meant to be."""
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock)
+    chain = _chain(clock, health)
+    chain.succeeded("only", clock(), ttft=0.1)
+
+    fields = set(chain.summary()["attempts"][0])
+    assert fields == {"model", "outcome", "detail", "provider", "elapsed_ms", "ttft_ms"}

@@ -1506,6 +1506,20 @@ function listOf(label,values){
  return `<small class="mono dim"><b>${escapeHtml(label)}:</b> ${shown}${values.length>6?` … +${values.length-6}`:''}</small>`;
 }
 
+/* An attempt's destination and its two measurements, where they exist.
+
+   `elapsed_ms` and `ttft_ms` are absent rather than zero when nothing was
+   measured — a skipped candidate never opened a connection, and a non-streamed
+   response has no first byte to time. Printing 0 ms for either would read as an
+   instant answer, which is the opposite of what happened. */
+function attemptFacts(a){
+ const bits=[];
+ if(a.provider)bits.push('via '+escapeHtml(a.provider));
+ if(typeof a.ttft_ms==='number')bits.push('first byte '+Math.round(a.ttft_ms)+' ms');
+ if(typeof a.elapsed_ms==='number')bits.push(Math.round(a.elapsed_ms)+' ms total');
+ return bits.length?` <span class="dim">· ${bits.join(' · ')}</span>`:'';
+}
+
 /* What actually ran, which is the half a routing table cannot tell you.
 
    Named for the markup rather than the data, because `attemptsOf` already
@@ -1514,7 +1528,7 @@ function listOf(label,values){
 function attemptLines(execution){
  const attempts=(execution&&execution.attempts)||[];
  if(!attempts.length)return '';
- const lines=attempts.map(a=>`<div class="trace-step"><b>${escapeHtml(a.model||'?')}</b><span>${escapeHtml(a.outcome||'?')}${a.detail?' — '+escapeHtml(a.detail):''}</span></div>`).join('');
+ const lines=attempts.map(a=>`<div class="trace-step"><b>${escapeHtml(a.model||'?')}</b><span>${escapeHtml(a.outcome||'?')}${a.detail?' — '+escapeHtml(a.detail):''}${attemptFacts(a)}</span></div>`).join('');
  const provider=execution.provider?`<small class="mono dim">through ${escapeHtml(execution.provider)}</small>`:'';
  const stopped=execution.stopped_because
    ?`<small class="mono dim">stopped: ${escapeHtml(execution.stopped_because)}</small>`:'';
@@ -6167,7 +6181,7 @@ function attemptsCard(d){
    <div class="trace-step"><b>primary</b><span class="mono">${escapeHtml(d.selected||'—')}</span></div>
    ${(d.fallbacks||[]).map((f,i)=>`<div class="trace-step"><b>fallback ${i+1}</b><span class="mono">${f}</span></div>`).join('')}
    ${attempts.length?`<div class="trace-step" style="margin-top:6px"><b>attempted</b><span></span></div>
-   ${attempts.map((a,i)=>`<div class="trace-step"><b>${i+1}</b><span class="mono">${escapeHtml(a.model)} → <span class="chip${warnUnless(a.outcome==='succeeded')}">${escapeHtml(a.outcome)}</span>${a.detail?' · '+escapeHtml(a.detail):''}</span></div>`).join('')}`:''}
+   ${attempts.map((a,i)=>`<div class="trace-step"><b>${i+1}</b><span class="mono">${escapeHtml(a.model)} → <span class="chip${warnUnless(a.outcome==='succeeded')}">${escapeHtml(a.outcome)}</span>${a.detail?' · '+escapeHtml(a.detail):''}${attemptFacts(a)}</span></div>`).join('')}`:''}
    ${stopped?`<div class="trace-step"><b>stopped</b><span style="opacity:.75">${stopped}</span></div>`:''}
    <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed one. The attempts below are what actually happened, which is not always the chain above.</small>`,'ravis')}</div>`;
 }

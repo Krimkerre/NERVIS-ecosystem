@@ -68,14 +68,40 @@ class RetryBudget:
 
 @dataclass
 class Attempt:
-    """One target and what became of it — the history a failure explains with."""
+    """One target and what became of it — the history a failure explains with.
+
+    **The measurements are metadata and never content.** §11.4 asks an inspector
+    to show the upstream destination and the stream's own numbers; none of that
+    requires a prompt or a completion, and this record deliberately holds
+    neither. What a model was *asked* is not here and is not meant to be.
+
+    `elapsed_ms` and `ttft_ms` were already computed on the success path to feed
+    the health registry and then discarded. Keeping them costs two floats and is
+    the difference between "this attempt succeeded" and "this attempt succeeded,
+    first byte in 240 ms, done in 3.1 s".
+    """
 
     model: str
     outcome: str
     detail: str = ""
+    # Which upstream actually served it. A chain can cross providers, so the
+    # destination belongs to the attempt rather than to the request.
+    provider: str = ""
+    # Wall time for this attempt alone, and time to first byte where there was
+    # a stream. `None` means not measured rather than zero — a skipped candidate
+    # never opened a connection, and 0 ms would read as an instant answer.
+    elapsed_ms: float | None = None
+    ttft_ms: float | None = None
 
-    def as_dict(self) -> dict[str, str]:
-        return {"model": self.model, "outcome": self.outcome, "detail": self.detail}
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "outcome": self.outcome,
+            "detail": self.detail,
+            "provider": self.provider,
+            "elapsed_ms": self.elapsed_ms,
+            "ttft_ms": self.ttft_ms,
+        }
 
 
 @dataclass
@@ -200,7 +226,13 @@ class AttemptChain:
             self.observations.record(
                 target, elapsed_ms, ttft * 1000 if ttft is not None else None
             )
-        self._attempts.append(Attempt(model=target, outcome="succeeded"))
+        self._attempts.append(Attempt(
+            model=target,
+            outcome="succeeded",
+            provider=self.provider_for(target),
+            elapsed_ms=(self.health.clock() - started_at) * 1000,
+            ttft_ms=ttft * 1000 if ttft is not None else None,
+        ))
         self._last_class = None
 
     def failed(self, target: str, started_at: float, failure_class: FailureClass,
@@ -212,7 +244,14 @@ class AttemptChain:
         two places.
         """
         self.health.record(failure_class, target, self.provider_for(target), started_at)
-        self._attempts.append(Attempt(target, failure_class.value, detail))
+        # Measured on failure too: "refused after 30 s" and "refused instantly"
+        # are different faults, and the timing is the only thing that separates
+        # a timeout from a rejection in the record.
+        self._attempts.append(Attempt(
+            target, failure_class.value, detail,
+            provider=self.provider_for(target),
+            elapsed_ms=(self.health.clock() - started_at) * 1000,
+        ))
         self._last_class = failure_class
         # At most one same-target retry, ever. The policy says this class of
         # failure proves the request never arrived, which justifies a second
@@ -236,7 +275,7 @@ class AttemptChain:
         hanging for four minutes" are the two readings a person most needs to
         tell apart.
         """
-        self._attempts.append(Attempt(target, "cancelled"))
+        self._attempts.append(Attempt(target, "cancelled", provider=self.provider_for(target)))
         self._stopped = "the client disconnected; cancellation is never a failure (§10)"
 
     def interrupted(self, target: str) -> None:
@@ -248,7 +287,8 @@ class AttemptChain:
         """
         self.health.of(HealthScope.MODEL, target).interrupted()
         self.health.of(HealthScope.PROVIDER, self.provider_for(target)).interrupted()
-        self._attempts.append(Attempt(target, "stream_interrupted"))
+        self._attempts.append(Attempt(target, "stream_interrupted",
+                                      provider=self.provider_for(target)))
         self._stopped = "the stream had already begun; a fallback would corrupt it"
 
     @property
@@ -366,11 +406,13 @@ class AttemptChain:
                 # cases differ in which circuit opened, not in what should
                 # happen next.
                 skipped = self.health.refusal(HealthScope.PROVIDER, provider)
-                self._attempts.append(Attempt(candidate, "skipped", skipped))
+                self._attempts.append(Attempt(candidate, "skipped", skipped,
+                                              provider=self.provider_for(candidate)))
                 continue
             if not self.health.allows(HealthScope.MODEL, candidate):
                 skipped = self.health.refusal(HealthScope.MODEL, candidate)
-                self._attempts.append(Attempt(candidate, "skipped", skipped))
+                self._attempts.append(Attempt(candidate, "skipped", skipped,
+                                              provider=self.provider_for(candidate)))
                 continue
             return candidate
         if not self._stopped:

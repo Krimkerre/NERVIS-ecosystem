@@ -557,6 +557,14 @@ async def test_a_cancelled_stream_records_that_it_was_cancelled() -> None:
         "model": "coder-a",
         "outcome": "cancelled",
         "detail": "",
+        # Whole-dict equality on purpose: it is what caught M11's metadata fields
+        # being added, which is exactly the silent shape change this record
+        # cannot afford. A cancelled attempt carries its destination but no
+        # timings — nothing was measured, and 0 ms would read as an instant
+        # answer rather than as one that never came.
+        "provider": "upstream",
+        "elapsed_ms": None,
+        "ttft_ms": None,
     }
 
 
