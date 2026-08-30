@@ -2208,6 +2208,32 @@ repository root, which is the same trap this repository has already paid for onc
 Left in place rather than deleted: they are data, and which of them is worth
 keeping is the operator's call.
 
+**Stage 10's acceptance list, scored honestly.** §8 names twelve required
+end-to-end scenarios and nothing had ever gone through them one at a time. Most
+turn out to be met by work already done, which is worth knowing precisely — the
+value here is the four that are not.
+
+| # | Scenario | Standing |
+|---|---|---|
+| 1 | Discover, negotiate, truthful readiness | **Met.** The registry, `/ecosystem/*` and capability negotiation, exercised continuously |
+| 2 | SIRVIS benchmarks and publishes `MEASURED` evidence | **Met.** Real runs, visible on the Results screen with their validity notes |
+| 3 | RAVIS ingests it, routes, explains, reports usage | **Met.** The Routes screen renders one decision end to end — 543 candidates to 159, the eliminations, the ranking |
+| 4 | Clarvis chat and agent on their own pools, one session and trace lineage | **Partly.** The pools exist and were differentiated on 30 Aug; the *lineage* half has not been walked as a scenario |
+| 5 | A fragmented tool call completes through RAVIS | **Met.** `test_clarvis_conformance` and the Anthropic translation suite |
+| 6 | Clarvis Stop cancels upstream inference | **Met.** A cancelled attempt is recorded as its own outcome, tested |
+| 7 | NERVIS shows the chain without exposing prompt, key, raw path or sensitive data | **Met.** Credentials are presence flags, `sensitive_fields` is stripped, the Bridge has no content |
+| 8 | A gate reaches NERVIS; NERVIS cannot approve or bypass it | **Met.** The Bridge is read-only — `POST` returns 405, *"it has no write path at all"* |
+| 9 | Two Clarvis instances, no crossover | **Met, and exceeded 30 Aug.** Four windows, four ports, four instance IDs, one machine ID |
+| 10 | Fallback on local failure with a reason; fail closed if privacy forbids cloud | **Half.** The fallback chain records every attempt with its reason. The fail-closed half is **unproven**: no policy sets a local-only constraint, and no test asserts that one refuses rather than reaching for cloud |
+| 11 | SIRVIS vanishes mid-request; RAVIS continues on labelled stale evidence | **Met.** `test_a_sirvis_that_will_not_answer_the_second_read_is_not_degraded` and its neighbours |
+| 12 | Either of RAVIS and SIRVIS surviving the other's outage | **Met, one half by absence.** SIRVIS holds no reference to RAVIS anywhere — no client, no URL, no setting — so it cannot be affected by RAVIS being down. The other direction is the evidence suite above |
+
+**So Stage 10's acceptance work is two items, not twelve**: scenario 4's session and
+trace lineage walked as a scenario rather than assumed from its parts, and
+scenario 10's fail-closed half, which needs a local-only policy to exist before
+anything can assert that it refuses. Neither is large. Both were invisible while
+the list had never been scored.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
