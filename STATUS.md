@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1757 tests, no network, no live service
+.venv/bin/pytest                      # part of 1760 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1757 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1760 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2224,15 +2224,25 @@ value here is the four that are not.
 | 7 | NERVIS shows the chain without exposing prompt, key, raw path or sensitive data | **Met.** Credentials are presence flags, `sensitive_fields` is stripped, the Bridge has no content |
 | 8 | A gate reaches NERVIS; NERVIS cannot approve or bypass it | **Met.** The Bridge is read-only — `POST` returns 405, *"it has no write path at all"* |
 | 9 | Two Clarvis instances, no crossover | **Met, and exceeded 30 Aug.** Four windows, four ports, four instance IDs, one machine ID |
-| 10 | Fallback on local failure with a reason; fail closed if privacy forbids cloud | **Half.** The fallback chain records every attempt with its reason. The fail-closed half is **unproven**: no policy sets a local-only constraint, and no test asserts that one refuses rather than reaching for cloud |
+| 10 | Fallback on local failure with a reason; fail closed if privacy forbids cloud | **Met, 30 Aug.** The fallback half was already covered; the fail-closed half is now proven — a `LOCAL_ONLY` caller whose only candidates are remote gets a structured no-route rather than a cloud model, and the refusal names the cause |
 | 11 | SIRVIS vanishes mid-request; RAVIS continues on labelled stale evidence | **Met.** `test_a_sirvis_that_will_not_answer_the_second_read_is_not_degraded` and its neighbours |
 | 12 | Either of RAVIS and SIRVIS surviving the other's outage | **Met, one half by absence.** SIRVIS holds no reference to RAVIS anywhere — no client, no URL, no setting — so it cannot be affected by RAVIS being down. The other direction is the evidence suite above |
 
-**So Stage 10's acceptance work is two items, not twelve**: scenario 4's session and
-trace lineage walked as a scenario rather than assumed from its parts, and
-scenario 10's fail-closed half, which needs a local-only policy to exist before
-anything can assert that it refuses. Neither is large. Both were invisible while
-the list had never been scored.
+**Scenario 10 was closed the same day it was found.** The mechanism was already
+there — `policy_refusals` marks a model remote when it is known-remote *or*
+unknown to the local catalogue, and the engine refuses rather than substituting:
+*"refused by policy; RAVIS does not route around a policy constraint"*. What was
+missing was any assertion that it does. Three tests now cover it, and the first
+carries its own falsifier: the same two cloud candidates are shown routable
+*without* the policy before being refused with it, so the test cannot pass on an
+unrelated unroutability. The refusal reads `policy is LOCAL_ONLY and openrouter
+is not this machine`, which is the distinction §9.7 asks for — a missing
+capability is a catalogue problem and a policy refusal is a decision somebody
+made, and "no route" alone does not separate them.
+
+**So Stage 10's acceptance work is one item, not twelve**: scenario 4's session
+and trace lineage, walked as a scenario rather than assumed from its parts. It
+was invisible while the list had never been scored.
 
 ### Next — in this order
 

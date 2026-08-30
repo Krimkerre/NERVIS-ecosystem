@@ -18,6 +18,7 @@ from ravis.core.capabilities import (
     Provenance,
 )
 from ravis.core.requests import NormalizedRequest
+from ravis.policy import PrivacyLevel, RoutingPolicy, policy_refusals
 from ravis.routing.engine import RoutingEngine
 from ravis.routing.requirements import CONTEXT_ESTIMATE_FLOOR, analyse
 
@@ -170,3 +171,74 @@ def test_requirements_appear_in_the_explanation_with_their_cause() -> None:
     decision = RoutingEngine().select(CHAT, {"a": _capable("a")}, request=TOOL_REQUEST)
 
     assert any("supplies tools" in item for item in decision.requirements)
+
+
+def _local_only_refusals(candidates: dict[str, ModelCapabilities],
+                         remote: frozenset[str]) -> dict[str, list[str]]:
+    """What policy refuses for a LOCAL_ONLY caller over this candidate set."""
+    return policy_refusals(
+        RoutingPolicy(privacy=PrivacyLevel.LOCAL_ONLY),
+        candidates,
+        addressed=CHAT,
+        provider_of=lambda model: "openrouter" if model in remote else "lmstudio",
+        remote=remote,
+    )
+
+
+def test_local_only_fails_closed_rather_than_reaching_for_cloud() -> None:
+    """Runbook §8, scenario 10's second half: *"if privacy forbids cloud, it
+    fails closed instead"*.
+
+    The first half — fall back and record why — has been covered since the
+    attempt chain existed. This half never was, and it is the half that matters:
+    a fallback that quietly widens to cloud under a LOCAL_ONLY policy is not a
+    degraded answer, it is the exact disclosure the level exists to prevent.
+
+    Every candidate here is remote, so routing *around* the constraint is the
+    only way to answer at all. Refusing is the required behaviour.
+    """
+    candidates = {"cloud-a": _capable("cloud-a"), "cloud-b": _capable("cloud-b")}
+    remote = frozenset(candidates)
+
+    # The same set without the policy, first. Without this the assertion below
+    # would pass just as well if these candidates were unroutable for some
+    # unrelated reason — a pool invariant, a missing capability — and the test
+    # would claim policy enforcement it had never demonstrated.
+    unconstrained = RoutingEngine().select(CHAT, candidates)
+    assert unconstrained.routed is True, "these candidates must be routable without the policy"
+
+    decision = RoutingEngine().select(
+        CHAT, candidates, policy_refusals=_local_only_refusals(candidates, remote)
+    )
+
+    assert decision.routed is False, "LOCAL_ONLY must not be satisfied by a cloud model"
+    assert decision.selected is None
+
+
+def test_the_refusal_says_it_was_policy_and_not_a_missing_capability() -> None:
+    """"No route" has two very different causes and the operator's next action
+    differs for each: a missing capability is a catalogue problem, and a policy
+    refusal is a decision somebody made. §9.7 requires the explanation to say
+    which, and the two read identically without it."""
+    candidates = {"cloud-a": _capable("cloud-a")}
+    remote = frozenset(candidates)
+
+    decision = RoutingEngine().select(
+        CHAT, candidates, policy_refusals=_local_only_refusals(candidates, remote)
+    )
+
+    said = " ".join(reason for excluded in decision.excluded for reason in excluded.reasons)
+    assert "local" in said.lower() or "privacy" in said.lower(), said
+
+
+def test_a_local_candidate_is_still_routed_under_local_only() -> None:
+    """The falsifier. Both assertions above would hold just as well if
+    LOCAL_ONLY refused everything, or if the engine were broken and routed
+    nothing — so one local candidate has to still win."""
+    candidates = {"cloud-a": _capable("cloud-a"), "on-this-machine": _capable("on-this-machine")}
+
+    decision = RoutingEngine().select(
+        CHAT, candidates, policy_refusals=_local_only_refusals(candidates, frozenset({"cloud-a"}))
+    )
+
+    assert decision.selected == "on-this-machine"
