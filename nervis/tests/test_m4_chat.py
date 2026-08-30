@@ -2639,3 +2639,44 @@ def test_an_adverb_inside_a_model_name_is_not_a_model() -> None:
     answered = turn(client, "is the benchmark still running", system="Be someone.")
 
     assert answered.headers.get("x-command-offer", "") == ""
+
+
+def test_the_offer_says_pressing_starts_it_rather_than_queues_it() -> None:
+    """Reported from use: *"it says benchmark queued, which made me think it
+    was put in a waiting line — instead it started it."*
+
+    SIRVIS runs one benchmark at a time, so with nothing else running the press
+    loads a model immediately. "Queued" is the right word only for the case
+    where something else is already running, and it was being used for both.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "benchmark qwen3-4b", system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "starts the benchmark straight away" in prompt
+    assert "not put in a queue to run later" in prompt
+
+
+def test_only_the_benchmark_offer_carries_that_sentence() -> None:
+    """Cancelling and switching a pool are immediate and have no queue to be
+    confused with, so the clause would be noise on them — and a sentence about
+    starting work is actively wrong above a Cancel button."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "use ravis/cheap for this", system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "starts the benchmark straight away" not in prompt

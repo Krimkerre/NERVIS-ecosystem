@@ -8496,6 +8496,31 @@ async function runCommand(operation,target,reason){
  }catch(failure){return{error:'NERVIS did not answer: '+failure.message}}
 }
 
+/* What actually became of the submission, in the words of the state SIRVIS
+   returned.
+
+   **"queued" was a fixed word with the real state appended after it**, so a job
+   that started immediately read `queued on SIRVIS · job abc123 · running` —
+   which says both things at once and leads with the wrong one. Reported: it read
+   as work put in a waiting line, and the benchmark had already begun loading a
+   model.
+
+   SIRVIS runs one benchmark at a time, so the difference is real and worth the
+   words: `queued` means something else is running and this waits, `running`
+   means the machine is busy with it now. Neither is guessed — the job's own
+   state decides which sentence is used, the same rule the cancel path already
+   follows for the same reason. */
+function submitted(stopping,job){
+ if(stopping)return 'cancel asked of SIRVIS';
+ const state=String(job.state||'').toLowerCase();
+ if(state==='running')return 'started on SIRVIS — running now';
+ if(state==='queued')return 'queued on SIRVIS — waiting for the current job to finish';
+ /* Any other state is SIRVIS's own word and is shown rather than translated:
+    inventing a sentence for a state this page has not seen is how the bug above
+    happened in the first place. */
+ return `accepted by SIRVIS · ${state||'pending'}`;
+}
+
 /* Carry out exactly what the button says, through the service's own API.
 
    The token belongs to this tab, not to NERVIS: the operator pasted it, and
@@ -8518,7 +8543,10 @@ async function runOffer(index){
   return render();
  }
  const stopping=offer.operation==='sirvis.benchmark.cancel';
- offer.done=stopping?'asking SIRVIS to stop it…':'queueing…';
+ /* "submitting" rather than "queueing": at this point the request has been
+    sent and nothing yet knows whether it will wait or start, and naming one of
+    them here is the same guess the finished message used to make. */
+ offer.done=stopping?'asking SIRVIS to stop it…':'submitting to SIRVIS…';
  render();
  const out=await runCommand(offer.operation,offer.target);
  /* SIRVIS's own job and state, or the reason it refused — neither composed
@@ -8527,8 +8555,8 @@ async function runOffer(index){
     next boundary, so the state that comes back may still be `running` for a
     moment and saying "stopped" would be inventing the outcome. */
  offer.done=out.job
-   ?`${stopping?'cancel asked of SIRVIS':'queued on SIRVIS'} · job ${String(out.job.job_id).slice(0,12)} · ${out.job.state||'pending'}`
-   :`${stopping?'nothing was cancelled':'nothing was queued'} — ${out.error}`;
+   ?`${submitted(stopping,out.job)} · job ${String(out.job.job_id).slice(0,12)}`
+   :`${stopping?'nothing was cancelled':'nothing was started'} — ${out.error}`;
  render();
 }
 

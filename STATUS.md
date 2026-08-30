@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1769 tests, no network, no live service
+.venv/bin/pytest                      # part of 1771 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 416 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 418 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1769 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1771 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2367,6 +2367,28 @@ model must be named, and it holds the catalogue to answer from.
 
 Fourteen phrasings checked against intent, six offering, two asking which, six
 declining — including all three reported failures and both regressions.
+
+**"Queued" meant two different things and was used for both.** Reported from
+use: *"it says benchmark queued, which made me think it was put in a waiting
+line — instead it started it."* SIRVIS runs one benchmark at a time, so with
+nothing else running a press loads the model immediately.
+
+The chip led with a fixed word and appended the real state after it, so a job
+that started read `queued on SIRVIS · job abc123 · running` — both things at
+once, wrong one first. The verb now follows the state SIRVIS returned:
+*started on SIRVIS — running now*, or *queued on SIRVIS — waiting for the
+current job to finish*, and any state this page has not seen is shown in
+SIRVIS's own word rather than translated into a sentence. That is the rule the
+cancel path already followed, and the reason it gives — *"reporting it as
+stopped would be inventing an outcome"* — is the same one.
+
+The in-flight text stopped guessing too: *submitting to SIRVIS…* rather than
+*queueing…*, since at that moment nothing knows which it will be.
+
+And the offer itself now says what pressing does, before it is pressed: the
+model is told the press starts the benchmark straight away unless another is
+running, and that it is not put in a queue to run later. Only the benchmark
+offer carries it — that sentence above a Cancel button would be wrong.
 
 ### Next — in this order
 

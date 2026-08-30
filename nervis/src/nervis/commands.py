@@ -504,6 +504,17 @@ def told(proposal: Proposal | None) -> str:
             "it is an offer on screen and nothing more. Tell them the button is "
             "there and that it is theirs to press. Describe it in the future tense "
             "only."
+            + (
+                # **What pressing actually does, because "queued" was read as a
+                # waiting line.** SIRVIS runs one benchmark at a time: with
+                # nothing else running it starts immediately and loads the
+                # model, and only otherwise does it wait. Somebody who expects a
+                # queue and gets a busy machine has been misled by one word.
+                " Pressing it starts the benchmark straight away unless another "
+                "is already running, in which case it waits for that one. It is "
+                "not put in a queue to run later."
+                if proposal.operation == "sirvis.benchmark.submit" else ""
+            )
         )
     return (
         f"The person asked for something NERVIS can offer — {proposal.summary} — but "
