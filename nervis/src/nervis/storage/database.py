@@ -275,6 +275,7 @@ def prepare_database(path: str) -> Database:
     resolved = resolved_path(path)
     connection = _connect(resolved)
     version = _apply_migrations(connection, Path(resolved))
+    _refuse_a_newer_database(Path(resolved), version, "nervis")
     # Only an in-memory database needs the anchor; a file survives on its own.
     anchor = connection if resolved != path else None
     return Database(path=resolved, version=version, anchor=anchor)
@@ -320,6 +321,42 @@ def _back_up_before_migrating(connection: sqlite3.Connection, database: Path,
     with sqlite3.connect(target) as copy:
         connection.backup(copy)
     return target
+
+
+class DatabaseIsNewerThanThisBuild(RuntimeError):
+    """Raised when the database has migrations this build has never heard of.
+
+    Its own type rather than a bare `RuntimeError` so the traceback's last line
+    names the condition — that line is what an operator reads, and "RuntimeError"
+    is not a diagnosis.
+    """
+
+
+def _refuse_a_newer_database(database: Path, version: int, service: str) -> None:
+    """Stop before a downgrade corrupts what it does not understand (§13).
+
+    Migrations are forward-only, so an older build opening a newer database
+    applies nothing and carries on — measured, and it opened without complaint
+    against two migrations it had never seen. It then reads and writes a schema
+    whose shape it is wrong about: a renamed column reads as absent, a widened
+    one is written narrow, and nothing surfaces until the data is already mixed.
+
+    §13 says never to downgrade across an incompatible migration *without a
+    restore*, which is exactly the instruction this carries — and the restore now
+    exists, so the message names the command rather than the principle.
+
+    Refusing to start is the right failure. The alternative is a service that
+    runs and quietly damages evidence the same runbook calls immutable.
+    """
+    known = MIGRATIONS[-1][0]
+    if version <= known:
+        return
+    raise DatabaseIsNewerThanThisBuild(
+        f"{database} was written by a newer build (schema {version}); "
+        f"this one understands {known}. Run the newer {service}, or "
+        f"`{service} restore-database --version {known}` to go back — "
+        f"which discards anything the newer build recorded."
+    )
 
 
 def available_backups(database: Path) -> list[tuple[int, Path]]:

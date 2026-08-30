@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1748 tests, no network, no live service
+.venv/bin/pytest                      # part of 1754 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 438 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 404 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 440 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 406 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1748 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1754 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2156,6 +2156,27 @@ the versions it has, and says to stop the service first rather than probing for 
 lock — a lock probe is a second thing to get wrong, and the honest ordering fits
 in one line. SIRVIS's carries the extra note that restoring is the one operation
 that can remove benchmark evidence §15.1 calls immutable.
+
+**The downgrade guard, which is what the restore is for.** §13 says never to
+downgrade across an incompatible migration *without a restore*, and nothing
+enforced the first half. Migrations are forward-only, so an older build opening a
+newer database applies nothing and carries on — measured, and it opened without
+complaint against two migrations it had never heard of, reporting the newer
+version as its own. It would then read and write a schema it is wrong about: a
+renamed column reads as absent, a widened one is written narrow, and nothing
+surfaces until the data is already mixed.
+
+`prepare_database` now refuses, with its own exception type so the traceback's
+last line names the condition rather than saying `RuntimeError`. The message
+carries both numbers and the way out — *"`ravis restore-database --version 5` to
+go back — which discards anything the newer build recorded"* — because "schema
+incompatible" alone sends somebody to read source at the moment they can least
+afford to. Refusing to start is the right failure here: the alternative is a
+service that runs and quietly damages evidence this runbook calls immutable.
+
+That completes a cluster rather than three separate items. A migration takes a
+backup, the backup can be restored, and the case that most needs a restore is now
+the case that stops and names the command.
 
 ### Next — in this order
 

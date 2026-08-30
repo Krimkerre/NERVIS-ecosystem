@@ -221,3 +221,43 @@ def test_a_restore_with_nothing_to_restore_refuses(tmp_path) -> None:
     # version 5" without saying what there *is* sends somebody to `ls`.
     with pytest.raises(FileNotFoundError, match="have 2"):
         module.restore_backup(database, 5)
+
+
+def test_a_database_from_a_newer_build_is_refused_rather_than_used(tmp_path) -> None:
+    """Runbook §13: never downgrade across an incompatible migration without a
+    restore.
+
+    Migrations are forward-only, so an older build opening a newer database
+    applies nothing and carries on. Measured before the guard existed: it opened
+    without complaint against two migrations it had never seen, then read and
+    wrote a schema it was wrong about. Nothing surfaces until the data is mixed.
+    """
+    database = tmp_path / "under-test.db"
+    prepare_database(str(database))
+    known = MIGRATIONS[-1][0]
+
+    connection = module._connect(str(database))
+    for ahead in (known + 1, known + 2):
+        connection.execute(
+            "INSERT INTO applied_migration (version, description) VALUES (?, ?)",
+            (ahead, "written by a newer build"),
+        )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(module.DatabaseIsNewerThanThisBuild) as refusal:
+        prepare_database(str(database))
+
+    said = str(refusal.value)
+    # The message has to carry both numbers and the way out. "Incompatible
+    # schema" alone sends somebody to read source at the moment they can least
+    # afford to.
+    assert str(known + 2) in said and str(known) in said
+    assert "restore-database" in said
+
+
+def test_a_database_at_the_build_s_own_version_is_not_refused(tmp_path) -> None:
+    """The guard must not fire on the ordinary case, which is every start."""
+    database = tmp_path / "under-test.db"
+    prepare_database(str(database))
+    prepare_database(str(database))
