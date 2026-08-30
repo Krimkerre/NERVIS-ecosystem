@@ -116,6 +116,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     run.add_argument(
+        "--role", default=None,
+        help=(
+            "the role this run is filed under, overriding the specification's. "
+            "Evidence is keyed on a role (§12.2) and consumers ask by one, so "
+            "measuring a build *for* a role means saying which — and with "
+            "--tool-trials this is how a trial is recorded for any role rather "
+            "than only the one a product workload happens to declare"
+        ),
+    )
+    run.add_argument(
         "--clarvis-role", default=None, choices=["clarvis-chat", "clarvis-agent"],
         help="run Clarvis's own role workload instead of the specification's tests (M13); "
              "the agent role also runs the tool-call trials",
@@ -324,6 +334,42 @@ def _run_token(settings: Settings, mint_label: str | None, scope_names: str) -> 
     return EXIT_OK
 
 
+def _with_role(spec: Any, arguments: argparse.Namespace) -> Any:
+    """Apply the three flags that decide what a run measures and files it under.
+
+    Lifted out of `_run_benchmark` when adding `--role` took it past ruff's
+    complexity 8. They belong together anyway: all three answer one question —
+    what is being measured, and about which role.
+    """
+    import dataclasses
+
+    if arguments.tool_trials:
+        # **Independent of the role, deliberately.** A tool-call trial counts
+        # whether a build emits a well-formed call for eight phrasings of one
+        # request; that is a fact about the build, not about Clarvis's agent
+        # workload. Requiring a product role to obtain it is how "which roles
+        # can this build do" became unanswerable without picking one first.
+        spec = dataclasses.replace(spec, tool_trials=True)
+
+    if arguments.role:
+        # Applied before `--clarvis-role`, which replaces the whole
+        # specification and names its own role. Passing both would be asking for
+        # two different runs, and the one that supplies the workload wins.
+        spec = dataclasses.replace(spec, role=arguments.role)
+
+    if arguments.clarvis_role:
+        # The role supplies the whole experiment — Clarvis's own scenes, and the
+        # tool-call trials for the agent — so the specification file contributes
+        # only the model and the repetition counts.
+        from sirvis.benchmarks.clarvis_roles import role_spec
+
+        spec = role_spec(
+            arguments.clarvis_role, spec.model_key,
+            warmups=spec.warmups, repetitions=spec.repetitions,
+        )
+    return spec
+
+
 def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
     """M6's exit criterion: run one specification and persist a valid result.
 
@@ -358,24 +404,7 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
     }
     spec = dataclasses.replace(spec, **overrides)
 
-    if arguments.tool_trials:
-        # **Independent of the role, deliberately.** A tool-call trial counts
-        # whether a build emits a well-formed call for eight phrasings of one
-        # request; that is a fact about the build, not about Clarvis's agent
-        # workload. Requiring a product role to obtain it is how "which roles
-        # can this build do" became unanswerable without picking one first.
-        spec = dataclasses.replace(spec, tool_trials=True)
-
-    if arguments.clarvis_role:
-        # The role supplies the whole experiment — Clarvis's own scenes, and the
-        # tool-call trials for the agent — so the specification file contributes
-        # only the model and the repetition counts.
-        from sirvis.benchmarks.clarvis_roles import role_spec
-
-        spec = role_spec(
-            arguments.clarvis_role, spec.model_key,
-            warmups=spec.warmups, repetitions=spec.repetitions,
-        )
+    spec = _with_role(spec, arguments)
 
     if arguments.runtime_set:
         return _run_multi_benchmark(settings, arguments, spec)

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1718 tests, no network, no live service
+.venv/bin/pytest                      # part of 1719 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 430 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 431 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 392 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1718 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1719 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -7661,6 +7661,41 @@ five roles, where it used to read one role. `mlx-community/granite-4.0-h-tiny`
 carries `tools UNSUPPORTED MEASURED` from its 3/24 trial and is gone from every
 tool-requiring pool; the `lmstudio-community` build carries `SUPPORTED` from
 24/24 and stays. Neither claim depended on which role happened to be configured.
+
+## A trial under a second role, and the gate that forbade a cold start
+
+`sirvis benchmark run … --role chat --tool-trials` files a tool-call trial under
+any role, which is what step one's separation was for: the trial is a fact about
+the build, and until now the only way to obtain one was to declare Clarvis's
+agent role.
+
+Running it surfaced a defect nothing had hit. **The variant gate was asked
+before the load.** §12.2 requires evidence to name the build that answered, and
+only the runtime's CLI knows which of several variants is resident — but the
+confirmation ran *before* acquiring the model, when nothing is loaded and
+nothing can be named. Every run on a machine that had to load its own model was
+refused. It went unnoticed because every run in this corpus was made against a
+model somebody had already loaded by hand: each one carries the validity note
+*"was already resident, so no load time was measured"*, which is the same fact
+recorded as a caveat rather than read as a symptom.
+
+Confirming with nothing resident is a deferral now, and the gate is re-asked
+with the model loaded, where the question has an answer. The first run after the
+fix reports `load_time_seconds 2.024` — the first cold load this machine has
+measured.
+
+The result: `lmstudio-community/granite-4.0-h-tiny`, 24/24 well-formed calls
+under `chat`, `MEASURED`, `SUSPECT` for thermal pressure alone. RAVIS now reports
+that build as `{'chat': 'SUPPORTED', 'clarvis-agent': 'SUPPORTED', 'agent':
+'UNKNOWN', 'general': 'UNKNOWN'}` — two role verdicts on one build, derived from
+measurement rather than declared.
+
+What this run does **not** demonstrate: admission. Granite matches `granite-4` in
+the declared chat families, so the evidence confirms a membership it already had.
+The interesting cases are a build no family names joining on a passing trial, and
+one a family does name leaving on a failing one — the second is a chat trial away,
+since `mlx-community/granite-4.0-h-tiny` matches `granite-4` and scores 3/24 on
+the agent trial.
 
 ## Starting the thing
 

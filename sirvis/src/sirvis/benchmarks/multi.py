@@ -928,6 +928,12 @@ class _OutcomeView:
         self.effective_configuration = dict(outcome.effective_by_role.get(member.role, {}))
         self.thermal_before: str | None = None
         self.thermal_after: str | None = None
+        # A multi-model run confirms each member's variant through its own
+        # lifecycle, so the identity here already carries the settled build and
+        # there is nothing for `_evidence` to override. None rather than absent,
+        # because a view that falls behind the dataclass is the failure this
+        # class exists to avoid.
+        self.confirmed_variant: Any = None
         # M13's trials do not run under a multi-model experiment: the tool-call
         # question is about one build, and asking it while a second model is
         # resident measures the pair. None rather than an empty result, so the

@@ -712,3 +712,41 @@ def test_the_cli_and_the_catalogue_agree_on_what_mlx_is_called() -> None:
 
     assert variant is not None
     assert variant.runtime_format == "mlx"
+
+
+def test_the_variant_gate_does_not_refuse_a_cold_machine() -> None:
+    """**The gate was asked before the load and made a cold start impossible.**
+
+    §12.2 requires evidence to name the build that answered, and the runtime's
+    CLI is the only thing that knows which of several variants is resident. That
+    confirmation was taken *before* acquiring the model — when nothing is loaded,
+    so nothing can be named — and every run on a machine that had to load its
+    own model was refused. It went unnoticed because the runs that produced this
+    corpus were all against a model somebody had already loaded by hand.
+
+    Confirming with nothing resident is now a deferral rather than a refusal;
+    the gate is re-asked with the build loaded, where the question has an answer.
+    """
+    from sirvis.benchmarks.engine import _confirmed_variant
+    from sirvis.core.models import ModelFamily, ModelVariant
+    from sirvis.errors import VariantUnconfirmedError
+
+    family = ModelFamily.derive(display_name="granite-4.0-h-tiny",
+                                architecture="granitehybrid", parameter_billions=7.0)
+    variant = ModelVariant.derive(family=family, publisher="lmstudio-community",
+                                  runtime_format="gguf", quantization="Q4_K_M",
+                                  architecture="granitehybrid")
+
+    class ColdRuntime:
+        def confirm_variant(self, model_key: str) -> None:
+            del model_key
+            return None
+
+    # Before the load: the catalogue's answer stands, and the run proceeds.
+    assert _confirmed_variant(
+        ColdRuntime(), variant, "granite", required=False
+    ) is variant
+
+    # After it: nothing resident is a refusal, because by then something should be.
+    with pytest.raises(VariantUnconfirmedError):
+        _confirmed_variant(ColdRuntime(), variant, "granite", required=True)

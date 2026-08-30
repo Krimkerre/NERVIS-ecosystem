@@ -342,6 +342,10 @@ class ExperimentOutcome:
     # written. Part of the evidence identity rather than a footnote, because a
     # measurement taken under a changed prompt is evidence about a different
     # question and must not collide with the one the suite asked.
+    # The build the runtime confirmed while it was resident, when it could be
+    # confirmed. Recorded here because the confirmation has to happen *during*
+    # the run — see `_measure_model` — while the identity is written after it.
+    confirmed_variant: Any = None
     thinking_suppression: str | None = None
     suppressions_tried: list[str] = field(default_factory=list)
     # What the runtime actually loaded, for the settings the experiment asked
@@ -388,7 +392,17 @@ async def run_experiment(
     telemetry = [sampler.sample(BASELINE)]
     inventory = await _inventory(runtime)
     build = _resolve(inventory, spec.model_key)
-    build["variant"] = _confirmed_variant(runtime, build["variant"], spec.model_key)
+    # **Attempted here and enforced after the load.** A cold machine has nothing
+    # resident, so `lms ps` names nothing and this refused every run that had to
+    # load its own model — the guard made a cold start impossible, and only a
+    # machine that happened to be warm could benchmark at all. Confirming what
+    # is loaded before loading it was the wrong moment to ask: nothing has
+    # answered yet. The real gate is in `_measure_model`, with the model
+    # resident; this pass takes the answer when a warm runtime can already give
+    # one, so the identity is right from the start of the record.
+    build["variant"] = _confirmed_variant(
+        runtime, build["variant"], spec.model_key, required=False
+    )
 
     machine = record_snapshot(database, snapshot or detect_system())
     experiment_id = create_experiment(
@@ -565,6 +579,15 @@ async def _execute(
     directory.append_log(
         f"acquired {spec.model_key} (session {lease.session_id}, "
         f"{'warm' if was_warm else f'loaded in {load_seconds:.2f}s'})"
+    )
+
+    # **The variant gate, with the build actually resident.** §12.2 makes format
+    # and quantization part of evidence identity, and this is the first moment
+    # the runtime can say which build is answering. Raising here rather than
+    # before the load costs one load on a machine that cannot confirm — and
+    # saves every run on a machine that can.
+    outcome.confirmed_variant = _confirmed_variant(
+        runtime, None, spec.model_key, required=True
     )
 
     resident = await runtime.list_loaded_models()
@@ -837,8 +860,8 @@ async def _inventory(runtime: GenerationRuntime) -> Inventory:
 
 
 def _confirmed_variant(
-    runtime: Any, variant: ModelVariant, model_key: str
-) -> ModelVariant:
+    runtime: Any, variant: ModelVariant | None, model_key: str, required: bool = True
+) -> Any:
     """The build actually loaded, or a refusal to measure one nobody can name.
 
     **Asked of the runtime, because only the runtime knows.** A runtime that can
@@ -860,6 +883,11 @@ def _confirmed_variant(
     if not callable(resolve):
         return variant
     confirmed = resolve(model_key)
+    if confirmed is None and not required:
+        # Nothing resident to confirm *yet*. Not an error at this point: the
+        # model has not been loaded, so there is nothing for the runtime to
+        # name. The caller asks again once it is.
+        return variant
     if confirmed is None:
         raise VariantUnconfirmedError(
             f"cannot confirm which build of {model_key!r} is loaded, so the "
@@ -868,6 +896,10 @@ def _confirmed_variant(
             "rather than the loaded one; `lms ps --json` resolves it. Install "
             "the CLI, or address the build by its qualified key."
         )
+    if variant is None:
+        # Asked purely as a gate — the caller wants the confirmation to happen
+        # and holds the identity elsewhere.
+        return confirmed
     if (
         confirmed.runtime_format == (variant.runtime_format or "")
         and confirmed.quantization == (variant.quantization or "")
@@ -1033,7 +1065,25 @@ def _evidence(
     if outcome.thinking_suppression:
         configuration["thinking_suppression"] = outcome.thinking_suppression
 
+    # **What the runtime confirmed while resident wins.** The catalogue's answer
+    # is what the pre-load pass could see, and on a cold machine that is all it
+    # could see; §12.2's identity must name the build that actually answered.
     variant = build["variant"]
+    settled = outcome.confirmed_variant
+    if settled is not None and (
+        settled.runtime_format != (variant.runtime_format or "")
+        or settled.quantization != (variant.quantization or "")
+    ):
+        logger.warning(
+            "the runtime catalogue describes %s as %s/%s; the loaded build was %s/%s (%s)",
+            spec.model_key, variant.runtime_format, variant.quantization,
+            settled.runtime_format, settled.quantization, settled.model_key,
+        )
+        variant = replace(
+            variant,
+            runtime_format=settled.runtime_format,
+            quantization=settled.quantization,
+        )
     identity = EvidenceIdentity(
         machine_id=str(machine["machine_id"]),
         model_family=build["family"].display_name,
