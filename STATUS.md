@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1736 tests, no network, no live service
+.venv/bin/pytest                      # part of 1748 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 434 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 400 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 438 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 404 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1736 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1748 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2132,6 +2132,30 @@ deployable and share no storage library — and tested three times for the same
 reason rather than assumed to hold from one. Nine tests: the backup exists and
 holds the *pre*-migration version, an up-to-date database is not copied on every
 start, and an in-memory one does not throw.
+
+**And its restore half, the same day — which turned out to be the dangerous one.**
+A backup nobody can put back is half of §13, and the obvious way to put one back
+is wrong. In WAL mode committed rows can still live in the `-wal` sidecar, so
+copying a backup over the database leaves that sidecar in place and SQLite
+replays it over the restored file. Measured rather than feared: a naive
+`shutil.copyfile` in exactly this shape returned `after` when the operator had
+just restored a backup taken at `before`. **No error anywhere.** A restore that
+appears to work and does not is worse than one that fails, and it is what a
+runbook would have told somebody to do.
+
+`restore_backup` goes through SQLite's own backup API in reverse — open the
+backup, copy it *into* the live path — which writes through the same journal the
+database uses, so a stale WAL cannot outlive it. The same setup then returns
+`before`. Both cases are pinned as tests, the bad one included: the hazard is the
+reason the function exists, so it is asserted rather than described.
+
+Reachable as `nervis restore-database`, `ravis restore-database` and
+`sirvis restore-database`, each taking an optional `--version` naming the schema
+version to go back to. It refuses to choose when several backups exist, prints
+the versions it has, and says to stop the service first rather than probing for a
+lock — a lock probe is a second thing to get wrong, and the honest ordering fits
+in one line. SIRVIS's carries the extra note that restoring is the one operation
+that can remove benchmark evidence §15.1 calls immutable.
 
 ### Next — in this order
 

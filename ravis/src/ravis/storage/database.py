@@ -253,6 +253,60 @@ def _back_up_before_migrating(connection: sqlite3.Connection, database: Path,
     return target
 
 
+def available_backups(database: Path) -> list[tuple[int, Path]]:
+    """Every backup beside this database, newest version first.
+
+    Sorted by the version they restore *to*, not by modification time: a file's
+    mtime says when it was written, and after two upgrades in a row that is not
+    the same ordering as "how far back does this take me".
+    """
+    found: list[tuple[int, Path]] = []
+    for candidate in database.parent.glob(f"{database.name}.v*.bak"):
+        tail = candidate.name[len(database.name) + 2 : -4]
+        if tail.isdigit():
+            found.append((int(tail), candidate))
+    return sorted(found, reverse=True)
+
+
+def restore_backup(database: Path, version: int | None = None) -> int:
+    """Put a backup back, and return the version the database is left at.
+
+    **Through SQLite rather than by copying the file, and this is the whole
+    point of the function.** Copying a backup over the database appears to work
+    and does not: in WAL mode the live `-wal` survives the copy and replays over
+    the restored file, so the operator is handed back the state they were trying
+    to roll away from, with no error anywhere. Measured, not feared — a naive
+    copy in this exact shape returned the post-migration value.
+
+    The backup API writes through the same journal the database uses, so the
+    stale WAL cannot outlive the restore. `version=None` takes the newest
+    backup, which is the one an interrupted upgrade wants.
+
+    Refuses rather than guesses when there is nothing to restore. A restore that
+    silently does nothing is the same failure as the copy above.
+    """
+    backups = available_backups(database)
+    if not backups:
+        raise FileNotFoundError(f"no backup beside {database}")
+    if version is None:
+        restored, source = backups[0]
+    else:
+        match = [(number, path) for number, path in backups if number == version]
+        if not match:
+            offer = ", ".join(str(number) for number, _ in backups)
+            raise FileNotFoundError(f"no backup at version {version} beside {database}; have {offer}")
+        restored, source = match[0]
+
+    origin = sqlite3.connect(source)
+    target = sqlite3.connect(database)
+    try:
+        origin.backup(target)
+    finally:
+        target.close()
+        origin.close()
+    return restored
+
+
 def _apply_migrations(connection: sqlite3.Connection,
                       database: Path | None = None) -> int:
     """Apply every migration this database has not yet seen, returning its version.

@@ -21,6 +21,7 @@ it happens rather than after. `--yes` skips the prompt for scripted use.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import logging
 import os
 import pathlib
@@ -53,6 +54,10 @@ EXIT_BENCHMARK_FAILED = 1
 EXIT_FATAL_CONFIGURATION = 2
 
 
+from sirvis.storage.database import (
+    available_backups, resolved_path, restore_backup)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Returns a process exit code rather than calling sys.exit.
 
@@ -67,6 +72,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # JSON log lines interleaved through it obscure the thing the operator ran
     # it to read. The service keeps them; the CLI does not.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    if arguments.command == "restore-database":
+        return _restore(settings, arguments.version)
     if arguments.command == "doctor":
         return _run_doctor(settings)
     if arguments.command == "token":
@@ -81,6 +88,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sirvis", description="Local model evidence plane")
     subcommands = parser.add_subparsers(dest="command", required=True)
+    restore = subcommands.add_parser(
+        "restore-database",
+        help="put back the backup taken before a migration (runbook §13)")
+    restore.add_argument(
+        "--version", type=int, default=None,
+        help="which backup, by the schema version it restores to")
     subcommands.add_parser(
         "doctor", help="check configuration and the database, and report what the runtime says"
     )
@@ -675,4 +688,38 @@ def _run_serve(settings: Settings) -> int:
         print("\nrefusing to serve: fix the fatal findings above", file=sys.stderr)
         return EXIT_FATAL_CONFIGURATION
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)
+    return EXIT_OK
+
+
+def _restore(settings: Settings, version: int | None) -> int:
+    """Put a database backup back (runbook §13's rollback half).
+
+    A command rather than a documented `cp`, because the documented `cp` is
+    wrong: in WAL mode the live sidecar replays over a copied-in file and hands
+    the operator back the state they were rolling away from, without an error.
+    `restore_backup` goes through SQLite's own backup API, which a stale WAL
+    cannot outlive.
+
+    SIRVIS holds benchmark evidence, which §15.1 calls immutable — so a restore
+    here is the one operation that can remove measurements, and it refuses to
+    choose between several backups on the operator's behalf.
+    """
+    database = Path(resolved_path(settings.database_path))
+    if not database.exists():
+        print(f"no database at {database}")
+        return EXIT_FATAL_CONFIGURATION
+
+    backups = available_backups(database)
+    if not backups:
+        print(f"no backup beside {database}; nothing to restore")
+        return EXIT_FATAL_CONFIGURATION
+
+    if version is None and len(backups) > 1:
+        offer = ", ".join(str(number) for number, _ in backups)
+        print(f"several backups exist ({offer}); name one with --version")
+        return EXIT_FATAL_CONFIGURATION
+
+    print("stop the service before restoring; a running one holds its own connection")
+    restored = restore_backup(database, version)
+    print(f"{database} restored to schema version {restored}")
     return EXIT_OK

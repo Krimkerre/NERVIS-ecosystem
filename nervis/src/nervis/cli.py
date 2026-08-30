@@ -10,6 +10,7 @@ being diagnosed is that something will not answer.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import sys
 from typing import Sequence
 
@@ -27,15 +28,26 @@ EXIT_OK = 0
 EXIT_FATAL_CONFIGURATION = 2
 
 
+from nervis.storage.database import available_backups, restore_backup, resolved_path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="nervis", description="Ecosystem control plane")
     commands = parser.add_subparsers(dest="command", required=True)
+    restore = commands.add_parser(
+        "restore-database",
+        help="put back the backup taken before a migration (runbook §13)")
+    restore.add_argument(
+        "--version", type=int, default=None,
+        help="which backup, by the schema version it restores to")
     commands.add_parser("serve", help="run the API and serve the dashboard")
     commands.add_parser("doctor", help="report on this configuration without needing a peer")
 
     arguments = parser.parse_args(argv)
     settings = Settings()
     configure_logging(settings.log_level)
+    if arguments.command == "restore-database":
+        return _restore(settings, arguments.version)
     if arguments.command == "doctor":
         return _doctor(settings)
     return _serve(settings)
@@ -148,3 +160,39 @@ def _print_peers(settings: Settings) -> None:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def _restore(settings: Settings, version: int | None) -> int:
+    """Put a database backup back (runbook §13's rollback half).
+
+    A command rather than a documented `cp`, because the documented `cp` is
+    wrong: in WAL mode the live sidecar replays over a copied-in file and hands
+    the operator back the state they were rolling away from, without an error.
+    `restore_backup` goes through SQLite's own backup API, which cannot be
+    outlived by a stale WAL.
+
+    Refuses to run against a live service by *saying* so rather than checking:
+    a lock probe would be a second thing to get wrong, and the honest ordering —
+    stop the service, restore, start it — is one line of output away.
+    """
+    database = Path(resolved_path(settings.database_path))
+    if not database.exists():
+        print(f"no database at {database}")
+        return EXIT_FATAL_CONFIGURATION
+
+    backups = available_backups(database)
+    if not backups:
+        print(f"no backup beside {database}; nothing to restore")
+        return EXIT_FATAL_CONFIGURATION
+
+    if version is None and len(backups) > 1:
+        # More than one is the case where guessing is worst: the newest is
+        # usually right and "usually" is not good enough for a restore.
+        offer = ", ".join(str(number) for number, _ in backups)
+        print(f"several backups exist ({offer}); name one with --version")
+        return EXIT_FATAL_CONFIGURATION
+
+    print("stop the service before restoring; a running one holds its own connection")
+    restored = restore_backup(database, version)
+    print(f"{database} restored to schema version {restored}")
+    return EXIT_OK
