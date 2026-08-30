@@ -24,16 +24,18 @@ free-form path §12 exists to prevent, dressed as a parameter.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import commands
+from nervis import chat, commands, pdf
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
+from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
 
 router = APIRouter(prefix="/api/v1/commands", tags=["commands"])
 
@@ -90,6 +92,8 @@ async def run(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError(f"no such operation {operation!r}")
     if not target:
         raise InvalidConfigurationError("an operation needs a target")
+    if operation == "nervis.document.write":
+        return _write_document(request, target, str(body.get("conversation_id") or ""))
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
@@ -290,3 +294,55 @@ async def _json_body(request: Request) -> dict[str, Any]:
     if not isinstance(found, dict):
         raise InvalidConfigurationError("the body must be a JSON object")
     return found
+
+
+def _write_document(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
+    """Save the last reply of a conversation to a file the person named.
+
+    **The boundary is enforced here, once.** `_write_proposal` deliberately does
+    not check whether the name sits inside the workspace: a proposal is a
+    suggestion and this is the act, and putting the same rule in both places
+    gives two copies that disagree eventually. The path comparison that governs
+    reading governs writing, and for the stronger reason — a write leaves
+    something behind.
+
+    The content is the conversation's own last assistant message, read from
+    NERVIS's store. Never text the caller supplied: a request body that carried
+    its own content would make this an arbitrary file-write endpoint wearing a
+    chat operation's name.
+    """
+    settings = request.app.state.settings
+    root = str(getattr(settings, "workspace_path", "") or "").strip()
+    if not root:
+        raise InvalidConfigurationError(
+            "NERVIS has no workspace configured, so it cannot write a file. "
+            "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
+        )
+
+    written = [
+        message for message in chat.messages(request.app.state.database, conversation_id)
+        if message.role == "clarvis" or message.role == "assistant"
+    ]
+    if not written:
+        raise InvalidConfigurationError("this conversation has no reply to save yet")
+
+    try:
+        resolved = resolve_in_workspace(Path(root), named)
+    except OutsideWorkspaceError as refusal:
+        raise InvalidConfigurationError(str(refusal)) from refusal
+
+    text = written[-1].content
+    if resolved.path.suffix.lower() == ".pdf":
+        rendered = pdf.render(resolved.shown, text)
+        payload, detail = rendered.data, f"{rendered.pages} page(s)"
+        if rendered.unsupported:
+            # Said rather than silently substituted: a `?` where a character
+            # should be is a defect the reader cannot see and the writer can.
+            detail += f"; {len(rendered.unsupported)} character(s) Latin-1 could not carry"
+    else:
+        payload, detail = text.encode("utf-8"), f"{len(text):,} characters"
+
+    resolved.path.parent.mkdir(parents=True, exist_ok=True)
+    resolved.path.write_bytes(payload)
+    _audit(request, resolved.shown, "written", detail)
+    return {"file": {"name": resolved.shown, "bytes": len(payload), "detail": detail}}

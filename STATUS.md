@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1804 tests, no network, no live service
+.venv/bin/pytest                      # part of 1818 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 442 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1804 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1818 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2632,6 +2632,45 @@ Writing is the other half and is next: it produces an effect, so it belongs in
 the enumerated-operation path — the model proposes, a button confirms, the
 attempt is audited — and it needs an artifact store §7.2's storage list does not
 have.
+
+**And chat can write one, 31 Aug — NERVIS 0.11.0.** The other half, and a
+different shape: reading is a *source* and writing is an *effect*, so it takes
+the path every other change takes — the model proposes, a person presses a
+button, the attempt is published. §11.5 read from the other end: a filename a
+model suggested is exactly the thing that must not become an action on its own.
+
+**The content is the conversation's own last reply, read from NERVIS's store.**
+Never text the request body carried — a body that supplied its own content would
+make this an arbitrary file-write endpoint wearing a chat operation's name, and
+a test asserts that a caller trying to smuggle text in gets it ignored.
+
+**The boundary is enforced once, at the act.** `_write_proposal` deliberately
+does not check the name: a proposal is a suggestion, this is the deed, and two
+copies of a rule disagree eventually. The same path comparison that governs
+reading governs writing, for the stronger reason that a write leaves something
+behind.
+
+**A PDF writer rather than a dependency.** The ladder says never add one for
+what a few lines can do, and a single-font text PDF is a few lines: mostly
+ASCII, base-14 fonts need no embedding, and everything hard about the format is
+unused. What it cannot do is written into the module rather than discovered —
+one font, no images, Latin-1 only, and wrapping by character count rather than
+measured width. Characters Latin-1 cannot carry are *reported*, because a silent
+`?` in somebody's report is a defect only the writer can see.
+
+Ten tests check it against the format rather than against itself: the
+cross-reference offsets must land on their objects, `startxref` must point at
+the table, and escaping must survive a `)` — unescaped it closes the string
+early and the file opens and renders garbage, which is worse than failing. One
+of them found a test bug rather than a code bug: `rindex(b"xref")` matches
+inside `startxref`.
+
+Verified end to end on the running stack. A workspace at
+`~/Documents/nervis-workspace`, a notes file in it, and chat asked to summarise
+it answered *"Q3 revenue dropped 12%, with two enterprise renewals pushed to Q4
+and a mid-quarter pricing change."* Saving that reply produced a 692-byte file
+that macOS reads as *"PDF document, version 1.4, 1 pages"*, and
+`../escaped.pdf` was refused with `422` naming the workspace.
 
 ### Next — in this order
 

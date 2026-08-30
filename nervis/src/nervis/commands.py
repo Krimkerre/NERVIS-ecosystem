@@ -79,6 +79,19 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the benchmark result {target}",
         action="Delete",
     ),
+    # **Writing is an effect, so it is an operation rather than a tool.**
+    # Reading a document is a source — NERVIS opens it before the model sees
+    # anything and the model chooses nothing. Writing one changes the machine,
+    # so it takes the path every other change takes: a proposal, a button
+    # somebody presses, an attempt published to the hub. §11.5 is the same rule
+    # read from the other end — nothing a model returns may become an action,
+    # and a filename it suggested is exactly that until a person confirms it.
+    Operation(
+        id="nervis.document.write",
+        service="nervis",
+        summary="the last reply to {target}",
+        action="Save",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
@@ -137,6 +150,17 @@ CANCEL = re.compile(
 # invent a model called `for`, and it does not care where in the sentence the
 # name appears.
 BENCHMARK = re.compile(r"\b(?:bench|benchmark|benchmarks|benchmarking)\b", re.IGNORECASE)
+
+# Saving the last reply to a file. The verb and the *name* are both required:
+# "save that" names no file, and a proposal whose target NERVIS invented is the
+# thing §12 exists to prevent — the person supplies the filename or there is no
+# offer.
+WRITE = re.compile(
+    r"\b(?:save|write|export|put)\b[^.?!]{0,60}?"
+    r"(?:\bas\b|\bto\b|\binto\b)?\s*"
+    r"[\"'`]?(?P<file>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?",
+    re.IGNORECASE,
+)
 
 # The shortest run of characters allowed to name a model on its own.
 #
@@ -245,6 +269,9 @@ def propose(
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
+    writing = WRITE.search(question)
+    if writing:
+        return _write_proposal(writing.group("file"))
     if not BENCHMARK.search(question):
         return None
     return _benchmark_proposal(question, models)
@@ -306,6 +333,23 @@ def _models_named(question: str, local: Sequence[str]) -> list[str]:
     # answer to a sentence that already said which.
     best = max(reach.values())
     return sorted(name for name, length in reach.items() if length == best)
+
+
+def _write_proposal(named: str) -> Proposal:
+    """Save the last reply to a file the person named.
+
+    Ready as soon as a name exists: unlike a benchmark, there is nothing to
+    resolve against an inventory — the target is a filename, and whether it sits
+    inside the workspace is decided when the button is pressed, by the same path
+    comparison that governs reading. Deciding it here as well would put the
+    boundary in two places, and two copies of a boundary disagree eventually.
+    """
+    operation = BY_ID["nervis.document.write"]
+    return Proposal(
+        operation=operation.id, service=operation.service, target=named,
+        summary=operation.summary.format(target=named), ready=True,
+        action=operation.action,
+    )
 
 
 def _benchmark_proposal(question: str,

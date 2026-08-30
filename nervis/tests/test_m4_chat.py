@@ -2869,3 +2869,84 @@ def test_an_ordinary_sentence_opens_nothing(tmp_path: Path) -> None:
         for message in body.get("messages", [])
     )
     assert "should not appear" not in prompt
+
+
+def test_saving_a_reply_writes_the_file_and_nothing_the_caller_supplied(tmp_path: Path) -> None:
+    """Writing is an operation, not a tool: the model proposes, a person
+    presses, NERVIS acts. And the content is the conversation's own last reply
+    read from NERVIS's store — never text the request body carried, which would
+    make this an arbitrary file-write endpoint wearing a chat operation's name.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    answered = turn(client, "tell me something", system="Be someone.")
+    conversation = answered.headers["x-conversation-id"]
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.document.write",
+        "target": "summary.pdf",
+        "conversation_id": conversation,
+        # Ignored on purpose: if this reached the file, the endpoint would write
+        # whatever any caller asked it to.
+        "content": "text the caller tried to smuggle in",
+    })
+
+    assert ran.status_code == 200, ran.text
+    written = (tmp_path / "summary.pdf").read_bytes()
+    assert written.startswith(b"%PDF-1.4")
+    assert b"smuggle" not in written
+
+
+def test_a_write_outside_the_workspace_is_refused(tmp_path: Path) -> None:
+    """The same path comparison that governs reading, and for the stronger
+    reason: a write leaves something behind."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    answered = turn(client, "tell me something", system="Be someone.")
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.document.write",
+        "target": "../escaped.pdf",
+        "conversation_id": answered.headers["x-conversation-id"],
+    })
+
+    assert ran.status_code >= 400
+    assert not (tmp_path.parent / "escaped.pdf").exists()
+
+
+def test_writing_is_refused_when_no_workspace_is_configured() -> None:
+    """Off by default, like reading. An install never asked to write a person's
+    files does not, and the refusal says which setting turns it on."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    answered = turn(client, "tell me something", system="Be someone.")
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.document.write",
+        "target": "summary.pdf",
+        "conversation_id": answered.headers["x-conversation-id"],
+    })
+
+    assert ran.status_code >= 400
+    assert "NERVIS_WORKSPACE_PATH" in ran.text
+
+
+def test_a_named_file_produces_an_offer_with_a_button(tmp_path: Path) -> None:
+    """The proposal half. "save that" names no file and must not offer: a target
+    NERVIS invented is the thing §12 exists to prevent."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    offered = turn(client, "save that as summary.pdf", system="Be someone.")
+    vague = turn(client, "save that somewhere", system="Be someone.")
+
+    offer = json.loads(offered.headers["x-command-offer"])
+    assert offer["operation"] == "nervis.document.write"
+    assert offer["target"] == "summary.pdf"
+    assert offer["ready"] is True
+    assert vague.headers.get("x-command-offer", "") == ""

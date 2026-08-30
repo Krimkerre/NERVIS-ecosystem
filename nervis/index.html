@@ -8482,14 +8482,19 @@ function offerRow(offer,index){
    token and pasting it is the manual step the launcher exists to remove. NERVIS
    holds the narrow credential now, checks the operation against its own closed
    set, and publishes every attempt to the hub. */
-async function runCommand(operation,target,reason){
+async function runCommand(operation,target,reason,conversationId){
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
     headers:{'content-type':'application/json'},
     /* `reason` only where an operation has one. Sent as an empty string rather
        than omitted would put a blank line on a tombstone that is supposed to
        say why. */
-    body:JSON.stringify(reason?{operation,target,reason}:{operation,target})});
+    /* `conversation_id` only where an operation reads from one. Writing a
+       reply to a file takes its content from NERVIS's own store rather than
+       from this body — the browser says *which* conversation, never *what* to
+       write, or the endpoint would write whatever any caller asked it to. */
+    body:JSON.stringify(Object.assign({operation,target},
+      reason?{reason}:{}, conversationId?{conversation_id:conversationId}:{}))});
   const payload=await r.json().catch(()=>({}));
   if(!r.ok)return{error:((payload.error||{}).message)||('NERVIS answered HTTP '+r.status)};
   return payload;
@@ -8541,6 +8546,19 @@ async function runOffer(index){
   offer.done=`this conversation now routes through ${offer.target}`;
   persistPrivate();
   return render();
+ }
+ /* Saving a reply to a file is NERVIS's own operation and answers in its own
+    shape — a file, not a job — so it is handled before the SIRVIS wording
+    below rather than sharing a sentence with a queue it never touches. */
+ if(offer.operation==='nervis.document.write'){
+  offer.done='writing…';
+  render();
+  const saved=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.id);
+  offer.done=saved.file
+    ?`saved ${saved.file.name} · ${saved.file.detail}`
+    :`nothing was written — ${saved.error}`;
+  render();
+  return;
  }
  const stopping=offer.operation==='sirvis.benchmark.cancel';
  /* "submitting" rather than "queueing": at this point the request has been
