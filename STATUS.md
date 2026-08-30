@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1719 tests, no network, no live service
+.venv/bin/pytest                      # part of 1724 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 431 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 392 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 397 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1719 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1724 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2082,23 +2082,46 @@ doing it early rather than last: a queue view counts states, and a log does not.
 a real-host test for the standalone clause, and a four-window registry snapshot
 for the multi-instance one.
 
-**Stage 9 is not closed, and its matrix being finished is why that is now clear.**
-The matrix is 36 `PASS` / 15 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0 `NOT_TESTED`
-across 51 cells, which satisfies the first half of the exit: one combination
-passes install, activation, chat, agent, workspace boundary, gate, streaming,
-cancellation, persistence and teardown, direct and proxied. The second half —
-*"unsupported combinations are blocked in the UI"* — has nothing behind it.
-NERVIS reads code-server's version from the `coder-options` blob on its login
-page (`adapters.py:103`) and displays it; no supported set exists anywhere, and
-nothing consults the number. A grade of `PASS` on 4.135.0 says nothing about
-4.90, and today the UI would embed either without comment.
+**Stage 9's second clause is now built, 30 Aug.** The gate lives in the
+capability rather than in a field invented for the screen, so blocking reads the
+same mechanism every other capability does and carries §4.1's mandatory reason —
+which is the part worth showing, since "blocked" without "why" is indistinguishable
+from broken. `adapters.py` grades the version it already reads into three answers:
+`4.135.0` is `available` because it is what the matrix graded; anything older is
+`unavailable` and the Clarvis tab draws no frame at all; anything newer, or a
+version whose login page could not be read, is `degraded` and embeds behind a
+banner saying which of the two it is.
+
+Three answers rather than two on purpose. A hard allowlist of the single graded
+version would take the editor away the first time somebody upgrades code-server,
+which punishes the user for a gap in NERVIS's testing rather than a fault in
+theirs — while an older host is a case nothing was ever run against, and
+presenting that as a working editor is exactly what the clause exists to prevent.
+Comparison is numeric, not textual: `"4.9.0" > "4.135.0"` as strings, and an
+unreadable version reduces to `()` which would sort below everything, so both are
+handled explicitly rather than falling through to "old".
+
+`workbenchGate` is its own function because the Clarvis view was already at the
+complexity ratchet and two more branches took it to 15.
+
+**What remains before Stage 9 closes.** The gate has not run against a live
+NERVIS: the running process holds the pre-change module, so it needs a restart to
+take effect. Nothing else is outstanding.
+
+**Why the clause went unnoticed until now, which is the more useful part.**
+The matrix reaching 36 `PASS` / 15 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0
+`NOT_TESTED` across 51 cells satisfies the *first* half of the exit and feels
+like the whole of it. It is not: the matrix answers "does this combination work",
+and the second clause answers "what happens with the ones nobody graded". NERVIS
+had been reading code-server's version from the `coder-options` blob on its login
+page since Stage 9 began and doing nothing with it — a number on a screen reads
+as a check having been made.
 
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 9's remaining exit clause — block unsupported hosts in the UI** | The smallest piece of real work on this list and the only one standing between Stage 9 and closed. A supported set, checked against the version NERVIS already reads, and a Code tab that refuses rather than embeds when the answer is no. The matrix is the evidence for what belongs in that set: it grades exactly one combination, so the honest first version is an allowlist of one with a clear message for everything else |
-| 2 | **NERVIS M11 — the API inspector** | The strongest remaining NERVIS-side piece and it needs nothing from Clarvis. The material already exists: route decisions carry an explanation, RAVIS publishes selection and completion events under the caller's trace, and traces assemble into spans. M11 turns what is already being produced into the one screen that answers *"what happened to this request"*. Chat can narrate that record in prose today; the screen is where it becomes navigable |
-| 3 | **NERVIS's own proxy, if the Code tab is ever to move** | Stage 9 graded the proxied axis through a spike that does none of §13.3's work — no auth, no CSRF, no redaction, no timeouts, no published browser matrix. Two findings belong in the real build: a proxy must *perform* the origin check rather than let the upstream skip it when `Origin` is absent, and moving the tab to a new origin empties every user's browser-backed key store. Neither is a reason not to build it; both are reasons it is not a weekend |
-| 4 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
+| 1 | **NERVIS M11 — the API inspector** | The strongest remaining NERVIS-side piece and it needs nothing from Clarvis. The material already exists: route decisions carry an explanation, RAVIS publishes selection and completion events under the caller's trace, and traces assemble into spans. M11 turns what is already being produced into the one screen that answers *"what happened to this request"*. Chat can narrate that record in prose today; the screen is where it becomes navigable |
+| 2 | **NERVIS's own proxy, if the Code tab is ever to move** | Stage 9 graded the proxied axis through a spike that does none of §13.3's work — no auth, no CSRF, no redaction, no timeouts, no published browser matrix. Two findings belong in the real build: a proxy must *perform* the origin check rather than let the upstream skip it when `Origin` is absent, and moving the tab to a new origin empties every user's browser-backed key store. Neither is a reason not to build it; both are reasons it is not a weekend |
+| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
 
 **Stage 6's exit, one criterion at a time.** The runbook asks for four things:
 

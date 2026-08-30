@@ -949,3 +949,70 @@ def test_an_observation_cannot_rewrite_what_a_service_is() -> None:
     entry = registry.get("ravis")
     assert entry is not None
     assert entry.declaration.base_url == RAVIS.base_url
+
+
+def test_the_graded_version_is_embeddable_and_says_which_it_is() -> None:
+    """Stage 9's exit asks that unsupported combinations be blocked in the UI.
+    The gate lives in the capability rather than in a bespoke field, so the
+    screen reads the same mechanism every other capability uses."""
+    page = (
+        '<meta id="coder-options" data-settings="'
+        '{&quot;codeServerVersion&quot;:&quot;4.135.0&quot;}" />'
+    )
+    graded = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, page)
+
+    assert graded["capabilities"]["codeserver.workbench"] == "available"
+    assert "Stage 9's matrix graded" in graded["capability_reasons"]["codeserver.workbench"]
+    # The identification caveat survives alongside the new answer rather than
+    # being replaced by it — §5.2's point is that a derived fact stays labelled.
+    assert "not published by it" in graded["capability_reasons"]["codeserver.workbench"]
+
+
+def test_an_older_code_server_is_refused_rather_than_embedded() -> None:
+    """Nothing was ever run against it, and an untested editor presented as a
+    working one is the failure this clause exists to prevent."""
+    page = (
+        '<meta id="coder-options" data-settings="'
+        '{&quot;codeServerVersion&quot;:&quot;4.100.2&quot;}" />'
+    )
+    old = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, page)
+
+    assert old["capabilities"]["codeserver.workbench"] == "unavailable"
+    assert "older than 4.135.0" in old["capability_reasons"]["codeserver.workbench"]
+
+
+def test_a_newer_code_server_is_embedded_but_labelled_untested() -> None:
+    """Newer is not evidence of breakage. Blocking every version but the graded
+    one would take the editor away the first time somebody upgrades, which
+    punishes the user for a gap in NERVIS's testing rather than a fault in
+    theirs."""
+    page = (
+        '<meta id="coder-options" data-settings="'
+        '{&quot;codeServerVersion&quot;:&quot;4.140.0&quot;}" />'
+    )
+    newer = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, page)
+
+    assert newer["capabilities"]["codeserver.workbench"] == "degraded"
+    assert "newer than 4.135.0" in newer["capability_reasons"]["codeserver.workbench"]
+
+
+def test_an_unreadable_version_is_a_gap_in_reading_not_an_old_host() -> None:
+    """`_as_numbers` returns () for anything that does not start with a number,
+    which would sort below every real version. Treating that as "older than the
+    floor" would block a working host because NERVIS could not parse a page."""
+    silent = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, "")
+
+    assert silent["capabilities"]["codeserver.workbench"] == "degraded"
+    assert "did not publish a version" in silent["capability_reasons"]["codeserver.workbench"]
+    # And still no invented version, which the adapter's older test also guards.
+    assert "build_version" not in silent
+
+
+def test_version_numbers_compare_by_number_and_not_as_text() -> None:
+    """`"4.9.0" > "4.135.0"` as strings, which would embed a host two years
+    older than anything tested."""
+    assert adapters._as_numbers("4.135.0") == (4, 135, 0)
+    assert adapters._as_numbers("4.136.1+deadbeef") == (4, 136, 1)
+    assert adapters._as_numbers("") == ()
+    assert adapters._as_numbers("nightly") == ()
+    assert adapters._workbench_state("4.9.0")[0] == "unavailable"

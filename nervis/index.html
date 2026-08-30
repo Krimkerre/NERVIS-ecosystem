@@ -2644,6 +2644,11 @@ const API={
      capability_source:e.capability_source||'',
      capabilities_available:Object.values(e.capabilities||{}).filter(st=>st==='available').length,
      capabilities_total:Object.keys(e.capabilities||{}).length,
+     /* **The states themselves, not just how many are available.** Stage 9's
+        exit asks that unsupported hosts be blocked in the UI, and the answer
+        for code-server lives in `codeserver.workbench` — a count cannot say
+        *which* capability is down, and the reason is the whole message. */
+     capabilities:e.capabilities||{},capability_reasons:e.capability_reasons||{},
      key:e.key,state:e.state,detail:e.detail,age:0,
      /* **Carried through, because one screen needs the address itself.** The
         Clarvis tab embeds code-server in an iframe and takes the `src` from
@@ -9054,8 +9059,37 @@ async function clarvis(){
     every visit is a heavy way to carry an escape hatch for a case that has not
     happened. If framing ever does break, the honest banner above is what the
     reader gets, and it names the address. */
- $('#content').innerHTML=bridge+`<iframe id="clarvis-frame" class="code-frame"
+ const gate=workbenchGate(editor);
+ if(gate.blocked){$('#content').innerHTML=bridge+gate.notice;return;}
+
+ $('#content').innerHTML=bridge+gate.notice+`<iframe id="clarvis-frame" class="code-frame"
    src="${escapeHtml(editor.endpoint)}" title="code-server"></iframe>`;
+}
+
+/* **Stage 9's second exit clause: unsupported combinations are blocked here.**
+   The matrix graded exactly one code-server, and a `PASS` on that one says
+   nothing about a version nobody ran. The answer arrives as an ordinary
+   capability state rather than a field invented for this screen, so blocking
+   reads the same mechanism every other capability does — and carries the same
+   mandatory reason, which is the part worth showing.
+
+   Blocked means blocked: the caller draws no frame at all. Embedding an untested
+   editor behind a warning would leave the reader looking at something that
+   appears to work right up until the moment it does not.
+
+   Its own function because the Clarvis view was at the complexity ratchet
+   already, and two more branches took it over. */
+function workbenchGate(editor){
+ const state=(editor.capabilities||{})['codeserver.workbench']||'';
+ const why=escapeHtml((editor.capability_reasons||{})['codeserver.workbench']||'');
+ if(state==='unavailable')return{blocked:true,notice:banner('This code-server was never tested',
+  why+' Nothing else on the dashboard depends on this tab, and the editor is still reachable at '
+  +`<b>${escapeHtml(editor.endpoint)}</b> in a tab of its own.`,'warn')};
+ /* Untested but not refused. The reason says *which way* it is untested — newer
+    than the graded version, or a version NERVIS could not read — because those
+    are different situations and only one of them is the user's to fix. */
+ if(state==='degraded')return{blocked:false,notice:banner('Untested code-server',why,'info')};
+ return{blocked:false,notice:''};
 }
 
 /* async because the views await real endpoints. With mocks these resolve on the

@@ -100,6 +100,73 @@ def lmstudio(catalogue: Any, openai_models: Any) -> dict[str, Any]:
     }
 
 
+# **The versions Stage 9's matrix actually graded.** One entry, because one
+# combination was tested — an allowlist that claimed more would be a promise no
+# evidence backs. `GRADED_FLOOR` is the same version read as a tuple: at or above
+# it the host is untested rather than known-bad, and below it nothing was ever
+# run at all.
+GRADED_CODE_SERVER = ("4.135.0",)
+GRADED_FLOOR = (4, 135, 0)
+
+
+def _as_numbers(version: str) -> tuple[int, ...]:
+    """The leading numeric run of a version, for comparison and nothing else.
+
+    `4.135.0` and `4.136.1+abc` both reduce to comparable tuples; anything that
+    does not start with a number reduces to `()`, which sorts below every real
+    version and is treated as unreadable rather than as old.
+    """
+    parts: list[int] = []
+    for piece in version.split("."):
+        digits = ""
+        for character in piece:
+            if not character.isdigit():
+                break
+            digits += character
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def _workbench_state(version: str) -> tuple[str, str]:
+    """Whether NERVIS will embed this code-server, and why.
+
+    Stage 9's exit asks that unsupported combinations be blocked in the UI. Three
+    answers rather than two, because "not the version we graded" and "older than
+    anything we graded" are different claims and only the second is evidence of
+    anything.
+
+    Deliberately *not* a hard allowlist. Blocking every version but `4.135.0`
+    would take the editor away the first time somebody upgrades code-server,
+    which punishes the user for a gap in NERVIS's testing rather than for a fault
+    in theirs.
+    """
+    if version in GRADED_CODE_SERVER:
+        return "available", f"code-server {version} is the version Stage 9's matrix graded"
+    numbers = _as_numbers(version)
+    if not numbers:
+        return (
+            "degraded",
+            "code-server did not publish a version its login page could be read for, so "
+            "whether this host was ever graded is unknown; embedded anyway, because an "
+            "unreadable version is a gap in NERVIS's reading and not a fault in the host",
+        )
+    if numbers < GRADED_FLOOR:
+        return (
+            "unavailable",
+            f"code-server {version} is older than {GRADED_CODE_SERVER[0]}, the oldest "
+            "version Stage 9's matrix graded; nothing was ever run against it, so NERVIS "
+            "refuses to embed it rather than presenting an untested editor as a working one",
+        )
+    return (
+        "degraded",
+        f"code-server {version} is newer than {GRADED_CODE_SERVER[0]}, the version Stage 9's "
+        "matrix graded; embedded because newer is not evidence of breakage, but nothing here "
+        "has been tested against it",
+    )
+
+
 def _code_server_version(page: Any) -> str:
     """code-server's own version, from the settings blob it puts in its login page.
 
@@ -146,15 +213,18 @@ def codeserver(health: Any, manifest: Any, page: Any = None) -> dict[str, Any]:
         else f"; no browser session connected (heartbeat {session})"
     )
     version = _code_server_version(page)
-    capabilities = {"codeserver.workbench": "available"}
-    reasons = {
-        "codeserver.workbench": (
-            "identified by its own web manifest and health endpoint; "
-            + DERIVED if named else
-            "health endpoint answered, but the manifest did not name code-server — "
-            + DERIVED
-        )
-    }
+    state, supported = _workbench_state(version)
+    capabilities = {"codeserver.workbench": state}
+    identified = (
+        "identified by its own web manifest and health endpoint; "
+        + DERIVED if named else
+        "health endpoint answered, but the manifest did not name code-server — "
+        + DERIVED
+    )
+    # Both halves, in this order: whether NERVIS will embed it is what a reader
+    # is asking, and how NERVIS knows it is code-server at all is the caveat on
+    # the answer rather than the answer.
+    reasons = {"codeserver.workbench": f"{supported}. {identified}"}
     adapted = {
         "detail": detail,
         "capabilities": capabilities,
