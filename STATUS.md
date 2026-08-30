@@ -2104,9 +2104,26 @@ handled explicitly rather than falling through to "old".
 `workbenchGate` is its own function because the Clarvis view was already at the
 complexity ratchet and two more branches took it to 15.
 
-**What remains before Stage 9 closes.** The gate has not run against a live
-NERVIS: the running process holds the pre-change module, so it needs a restart to
-take effect. Nothing else is outstanding.
+**Settled by falsification, on a throwaway stack.** A live NERVIS reporting
+`available` for the one version that *is* graded proves only that the pass branch
+runs — the clause is about blocking, and "it worked" is what made an earlier
+Stage 9 pass worthless. So the refusing branches were driven directly, without
+touching the operator's services: a fake code-server answering the three paths the
+adapter reads (`/healthz`, `/manifest.json`, `/login`) with a version of its
+choosing, and a second NERVIS on port 8796 with its own database pointed at it.
+
+| what it reported | state | reason |
+|---|---|---|
+| `4.100.0` | `unavailable` | older than 4.135.0, nothing was ever run against it |
+| `4.200.0` | `degraded` | newer than 4.135.0, embedded but untested |
+| `4.135.0` (the real one) | `available` | the version the matrix graded |
+
+All three observed through `/api/v1/services` on a running NERVIS, which is the
+whole chain the screen reads. Both throwaway processes were stopped afterwards
+and the real stack verified back up on its own code-server.
+
+**Stage 9's exit is met.** One graded combination passes the ten behaviours direct
+and proxied, and unsupported combinations are now blocked in the UI.
 
 **Why the clause went unnoticed until now, which is the more useful part.**
 The matrix reaching 36 `PASS` / 15 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0
