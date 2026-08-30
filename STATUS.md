@@ -2078,11 +2078,27 @@ doing it early rather than last: a queue view counts states, and a log does not.
 
 ### Next — in this order
 
+**Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
+a real-host test for the standalone clause, and a four-window registry snapshot
+for the multi-instance one.
+
+**Stage 9 is not closed, and its matrix being finished is why that is now clear.**
+The matrix is 36 `PASS` / 15 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0 `NOT_TESTED`
+across 51 cells, which satisfies the first half of the exit: one combination
+passes install, activation, chat, agent, workspace boundary, gate, streaming,
+cancellation, persistence and teardown, direct and proxied. The second half —
+*"unsupported combinations are blocked in the UI"* — has nothing behind it.
+NERVIS reads code-server's version from the `coder-options` blob on its login
+page (`adapters.py:103`) and displays it; no supported set exists anywhere, and
+nothing consults the number. A grade of `PASS` on 4.135.0 says nothing about
+4.90, and today the UI would embed either without comment.
+
 | # | Milestone | Why here |
 |---|---|---|
-| 1 | **Stage 9 — code-server compatibility spike** | Stage 8 closed on 29 Aug bar two items that need a real extension host, and the runbook's ladder puts Stage 9 next. It is a *spike*: test the current `.vsix` under pinned code-server versions and classify each matrix cell, rather than assuming. A compatibility adapter may be proposed only after a failure is reproduced |
-| 2 | **Stage 8's two remaining exit items** | Both need a real editor, so neither is a code change: two VS Code windows with `clarvis.bridge.enabled` on against a running NERVIS, and the "disabled restores exact standalone behaviour" check. Everything they would exercise is verified from node against the compiled output, which is the same code and not the same environment |
-| 3 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
+| 1 | **Stage 9's remaining exit clause — block unsupported hosts in the UI** | The smallest piece of real work on this list and the only one standing between Stage 9 and closed. A supported set, checked against the version NERVIS already reads, and a Code tab that refuses rather than embeds when the answer is no. The matrix is the evidence for what belongs in that set: it grades exactly one combination, so the honest first version is an allowlist of one with a clear message for everything else |
+| 2 | **NERVIS M11 — the API inspector** | The strongest remaining NERVIS-side piece and it needs nothing from Clarvis. The material already exists: route decisions carry an explanation, RAVIS publishes selection and completion events under the caller's trace, and traces assemble into spans. M11 turns what is already being produced into the one screen that answers *"what happened to this request"*. Chat can narrate that record in prose today; the screen is where it becomes navigable |
+| 3 | **NERVIS's own proxy, if the Code tab is ever to move** | Stage 9 graded the proxied axis through a spike that does none of §13.3's work — no auth, no CSRF, no redaction, no timeouts, no published browser matrix. Two findings belong in the real build: a proxy must *perform* the origin check rather than let the upstream skip it when `Origin` is absent, and moving the tab to a new origin empties every user's browser-backed key store. Neither is a reason not to build it; both are reasons it is not a weekend |
+| 4 | **Stage 6 — NERVIS core** | The runbook's Stage 6 is mostly NERVIS, and most of NERVIS's own ladder is already behind it — M0 through M7 and M8a, now listed in their own table above. RAVIS's half (M11, M15) has shipped. **All four exit criteria are met**, and §25's render-layer rebuild has landed across its six dimensions — see below for what each one did and what it did not |
 
 **Stage 6's exit, one criterion at a time.** The runbook asks for four things:
 
@@ -2712,14 +2728,55 @@ contains no `client.post`, `put`, `patch` or `delete` — because widening the
 allowlist is a deliberate act somebody writes down, while adding a verb inside a
 file already on it is a two-word edit that looks like the lines around it.
 
-**What is not done.** Stage 8's exit also asks that disabling the Bridge restore
-exact standalone behaviour. `clarvis.bridge.enabled` is false by default and off
-means nothing is bound rather than a socket that refuses, and the Clarvis side
-proves the constructor commits to nothing — but the settings read that returns
-before it is one line of `vscode`-importing code, checked by reading. Nor has any
-of this run inside a real extension host: every Bridge exercised so far was
-driven from node against the compiled output, which is the same code and not the
-same environment.
+**Now done, 30 Aug — and it took a real extension host to do it.** Stage 8's exit
+also asks that disabling the Bridge restore exact standalone behaviour. That was
+true by reading and unverifiable from node: the line that returns before anything
+is constructed is `vscode.workspace.getConfiguration`, which only exists inside a
+host. `src/test/bridgeDisabled.spec.ts` now runs there, under `npm run test:host`,
+against real VS Code 1.135.0.
+
+Three assertions, and the third is what makes the other two mean anything. The
+shipped default is off. With it off, `startBridge` returns no handle, binds
+nothing and writes no log line — silence, because a Bridge announcing that it
+declined is still a difference from standalone, and the clause says *exact*. Then
+the same call with the setting on, in the same file and against the same real
+settings object, must bind a port that accepts a TCP connection and release it on
+`stop()`. Without that third case the off assertions would pass just as happily if
+`startBridge` were broken, renamed or never called — "nothing happened" is what a
+no-op looks like too.
+
+Two details keep the test from touching the operator's machine: `nervisUrl` points
+at a dead port so a real lease is never created in a running NERVIS, and the
+context carries its own in-memory `globalState` so the Bridge mints a throwaway
+identity rather than reading or writing the real installation's.
+
+**And the two-window clause, settled the same day with four.** The operator opened
+three browser windows and one desktop VS Code client against the running NERVIS.
+One registry snapshot then showed all four at once:
+
+| instance | endpoint | machine |
+|---|---|---|
+| `159e8a29` | `127.0.0.1:57370` | `7b6a391b` |
+| `01c463ba` | `127.0.0.1:60472` | `7b6a391b` |
+| `1b8257c4` | `127.0.0.1:60589` | `7b6a391b` |
+| `41162cdd` | `127.0.0.1:60604` | `7b6a391b` |
+
+Four ports, four instance IDs, one machine ID — the shape §6.1 asks for, since
+`machine_id` identifies the installation and not the window. Two clients rather
+than one makes it a stronger result than the clause wanted: port assignment and
+identity minting do not collide across *kinds* of client, not merely across
+windows of one.
+
+Two checks beyond the snapshot, because a registry row is a claim NERVIS stores
+rather than evidence anything is listening. Every one of the four ports answered
+`401 UNAUTHORIZED` — a live Bridge refusing an unauthenticated caller, where a
+stale row would give a connection refusal instead. And across a full 45-second
+lease window all four `renewed_at` values advanced with the count holding at four,
+which is what closes the gap the earlier log-based reading left: `expires_in` was
+staggered at 44.1 / 38.7 / 45.0 / 34.6, so these are four independent renewal
+clocks and not one shared timer keeping four rows alive.
+
+**Stage 8 has no open exit items.**
 
 ---
 
