@@ -608,7 +608,7 @@ def _rank(
         thinking = _reasoning_rank(model, reasoning, requirements.output_budget)
         if not pool.prefer:
             return (*lead, thinking, 1, 0.0, model)
-        return (*lead, thinking, *size_rank(model))
+        return (*lead, thinking, *_cost_rank(model, candidates, remote))
 
     return sorted(members, key=key)
 
@@ -1008,6 +1008,36 @@ def _selection_reason(
         f"build above another on how good it is. {cost}, and health is used to exclude "
         f"rather than to rank{tail}"
     )
+
+
+def _cost_rank(
+    model: str,
+    candidates: Mapping[str, ModelCapabilities],
+    remote: frozenset[str],
+) -> tuple[int, float, str]:
+    """The tiebreak between equals: cheaper to run first, in the currency that applies.
+
+    **Parameter count is a cost only where the parameters are yours.** For a
+    model on this machine, smaller means less memory and a shorter load, which
+    is what `size_rank` has always meant. For a hosted one it means nothing: the
+    bill is per token, a larger model is routinely cheaper than a smaller one,
+    and a 7B beat a frontier build on a tiebreak that was measuring the wrong
+    thing — which is how a greeting came back answered by a 7B.
+
+    So hosted candidates are ordered by published price, which is their actual
+    cost to run. An unpriced one sorts after every priced one rather than ahead
+    of them: `None` means nobody published a figure, not that it is free, which
+    is the same rule the cheap pool's ceiling already applies.
+
+    Local and hosted rarely meet here — reach is ranked in `lead`, well above
+    this — so the two currencies are compared within their own kind almost
+    always, and the model name keeps the order total either way.
+    """
+    if model in remote:
+        published = candidates.get(model)
+        price = published.price_per_million if published is not None else None
+        return (0, price, model) if price is not None else (1, 0.0, model)
+    return size_rank(model)
 
 
 def _cost_note(pool: VirtualModelPool, budget_leans_cheap: bool) -> str:

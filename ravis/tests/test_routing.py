@@ -636,3 +636,60 @@ def test_a_general_preference_still_decides_what_the_list_does_not_name() -> Non
     assert pool.preference_rank("anthropic/claude-haiku-4.5") < pool.preference_rank(
         "meta-llama-8b-instruct"
     )
+
+
+def _priced(name: str, price: float | None) -> ModelCapabilities:
+    """A candidate with a published price, or none at all."""
+    return ModelCapabilities(model_id=name, price_per_million=price)
+
+
+def test_a_hosted_tiebreak_is_on_price_not_parameter_count() -> None:
+    """Reported: *"model size is only of importance when using local models —
+    price/performance is more important when we have api at our disposal."*
+
+    Exactly right, and the reason string admitted it: the tiebreak called
+    itself "a tiebreak on cost to run" while measuring parameter count for a
+    model whose parameters are somebody else's. A hosted 7B is not cheaper than
+    a hosted frontier build by virtue of being small; the bill is per token.
+    """
+    candidates = {
+        "vendor/small-7b": _priced("vendor/small-7b", 9.0),
+        "vendor/large-200b": _priced("vendor/large-200b", 1.0),
+    }
+    remote = frozenset(candidates)
+
+    decision = RoutingEngine().select(
+        "ravis/clarvis-chat", candidates, remote_models=remote
+    )
+
+    assert decision.selected == "vendor/large-200b"
+
+
+def test_a_local_tiebreak_is_still_on_size() -> None:
+    """The falsifier. On this machine the parameters *are* the cost — memory
+    and a load — so nothing about the hosted case should reach a local one."""
+    candidates = {
+        "local-small-7b": _priced("local-small-7b", None),
+        "local-large-70b": _priced("local-large-70b", None),
+    }
+
+    decision = RoutingEngine().select("ravis/clarvis-chat", candidates)
+
+    assert decision.selected == "local-small-7b"
+
+
+def test_an_unpriced_hosted_model_does_not_win_by_saying_nothing() -> None:
+    """`None` means nobody published a figure, not that it is free — the same
+    rule the cheap pool's ceiling already applies. Otherwise every catalogue
+    that publishes least wins most."""
+    candidates = {
+        "vendor/priced": _priced("vendor/priced", 5.0),
+        "vendor/silent": _priced("vendor/silent", None),
+    }
+    remote = frozenset(candidates)
+
+    decision = RoutingEngine().select(
+        "ravis/clarvis-chat", candidates, remote_models=remote
+    )
+
+    assert decision.selected == "vendor/priced"
