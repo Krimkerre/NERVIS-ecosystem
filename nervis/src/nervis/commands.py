@@ -117,48 +117,30 @@ CANCEL = re.compile(
 # cost of missing one phrasing is that nothing is offered and the person says it
 # again; the cost of matching too eagerly is an offer to occupy the machine for
 # ten minutes because somebody used the word "benchmark" in passing.
-# **The preposition has to be stepped over, or it becomes the model.** The two
-# most natural ways to ask — *"queue a benchmark for qwen3-4b"* and *"run a
-# benchmark on qwen3-4b"* — put a word between the verb and the target, and this
-# pattern took the next word whatever it was. The first produced *"no model on
-# this machine matches 'for'"* and the second matched two models called
-# something-`on` and asked which was meant. Reported from use, not from reading:
-# a refusal that names `'for'` as a model reads as the feature being broken,
-# which is what it was.
+# **The verb only says what kind of request this is. The model name is found by
+# looking for models.**
 #
-# The determiner group stays *after* the preposition so *"benchmark for the
-# qwen3-4b"* resolves too — that is the shape "for" invites.
-BENCHMARK = re.compile(
-    r"\b(?:bench|benchmark)"
-    r"(?:\s+(?:for|on|of|against|with|using))?"
-    r"(?:\s+(?:the|a|an))?(?:\s+model)?\s+"
-    r"[\"'“‘]?(?P<target>[A-Za-z0-9][\w\-./:]*)",
-    re.IGNORECASE,
-)
+# This pattern used to capture the target too — "the word after the verb" — and
+# that is where two reported bugs lived: a preposition became the model in
+# *"queue a benchmark for qwen3-4b"*, and no word order but one ever worked.
+# Every guard bolted on afterwards was compensating for reading English instead
+# of reading the inventory.
+#
+# What replaced it is `_models_named`: the machine already knows exactly which
+# models exist, and their names are distinctive strings. Matching against that
+# closed set is both stricter and looser in the right directions — it cannot
+# invent a model called `for`, and it does not care where in the sentence the
+# name appears.
+BENCHMARK = re.compile(r"\b(?:bench|benchmark|benchmarks|benchmarking)\b", re.IGNORECASE)
 
-# Words that follow the verb but are not a model. "benchmark it", "benchmark
-# that one" — a pronoun is a reference this module cannot resolve, and guessing
-# which model it meant is exactly the kind of interpretation that must not sit
-# between a sentence and a machine doing work.
-NOT_A_MODEL = frozenset({
-    "it", "that", "this", "these", "those", "them", "one", "something",
-    "everything", "again", "please", "now", "the", "model", "models",
-    # Observed live, and the reason the guard below exists: "how did the
-    # benchmark go?" offered to benchmark a model called "go".
-    "go", "went", "going", "do", "did", "done", "run", "runs", "result",
-    "results", "yesterday", "today", "finish", "finished",
-    # The prepositions the pattern above now steps over. Listed here as well
-    # because the two guards protect against different mistakes: the pattern
-    # stops them being captured, and this stops them being *offered* if some
-    # future phrasing gets one past it. The file already carries two guards for
-    # the "benchmark go" bug for the same reason.
-    "for", "on", "of", "against", "with", "using",
-    # Left here after `ASKING` lost them: these open questions *and*
-    # instructions, so they cannot decide the sentence — but as a captured
-    # target they are always wrong. "do we have benchmark results" reaches this
-    # list at `results`, not at `do`.
-    "show", "tell", "any", "anything", "is", "are", "was", "were",
-})
+# The shortest run of characters allowed to name a model on its own.
+#
+# Three would let `r1` and `4b` match half the catalogue, and one-word English
+# collides with model names below four: checked against 53 common words, only
+# `small` (devstral-**small**) and `still` (di**still**) overlapped at all, and
+# `still` is not a name *segment* — which is why matching is by segment rather
+# than by raw substring.
+MIN_NAME_FRAGMENT = 4
 
 # **A question mark is the signal. The word list is the fallback.**
 #
@@ -252,16 +234,71 @@ def propose(
     interrogative = ASKING.search(question) or QUESTION_MARK.search(question)
     if interrogative and not ASKING_FOR.search(question):
         return None
-    found = BENCHMARK.search(question)
-    if not found:
+    if not BENCHMARK.search(question):
         return None
-    asked = found.group("target").strip("\"'“”‘’.,!?")
-    if not asked or asked.lower() in NOT_A_MODEL:
-        return None
-    return _benchmark_proposal(asked, models)
+    return _benchmark_proposal(question, models)
 
 
-def _benchmark_proposal(asked: str, models: Sequence[Mapping[str, Any]]) -> Proposal:
+def _segments(name: str) -> set[str]:
+    """A model name broken where its punctuation breaks it.
+
+    `deepseek-r1-distill-qwen-1.5b` yields `deepseek`, `distill`, `qwen` and the
+    rest. Segments rather than raw substrings because "is it still running"
+    contains `still`, which sits inside `distill` and is not a name — a substring
+    test would offer to benchmark a model because somebody used an adverb.
+    """
+    return {piece for piece in re.split(r"[/:._\-]", name.lower())
+            if len(piece) >= MIN_NAME_FRAGMENT}
+
+
+def _models_named(question: str, local: Sequence[str]) -> list[str]:
+    """Which local models this sentence names, in any position.
+
+    Three ways to name one, in decreasing confidence: the whole id written out,
+    a word matching one of its segments, or a word appearing inside it — the
+    last covers `qwen3` against `qwen3-4b-2507`, which no segment split produces.
+
+    Word order is not consulted at all. *"qwen3-4b, benchmark it please"* names a
+    model as plainly as *"benchmark qwen3-4b"*, and a reader who has to put the
+    words in a particular sequence has been asked to learn a syntax.
+    """
+    said = question.lower()
+    # Hyphens stay inside the token. Splitting on them turned `qwen3-4b` into
+    # `qwen3`, which names every qwen3 build on the machine — the request was
+    # specific and the match was not.
+    words = {word for word in re.findall(r"[a-z0-9][\w.\-]*", said)
+             if len(word) >= MIN_NAME_FRAGMENT}
+
+    # How specifically each model was named, by the longest word that reached
+    # it. `qwen3-4b` reaches `qwen/qwen3-4b-2507` with eight characters and
+    # `qwen/qwen3-8b` with five, so the two are not equally named.
+    reach: dict[str, int] = {}
+    for name in local:
+        low = name.lower()
+        # A segment match, or a *compound* word found inside the id. The
+        # compound test is what lets `qwen3-4b` reach `qwen/qwen3-4b-2507`,
+        # which no segment split produces — and restricting it to words
+        # carrying a separator is what stops `still` reaching `distill`. A
+        # plain English word must be a whole segment or it is not a name.
+        compound = [word for word in words
+                    if any(mark in word for mark in "-/._") and word in low]
+        matched = [word for word in words if word in _segments(name)] + compound
+        if low in said:
+            matched.append(low)
+        if matched:
+            reach[name] = max(len(word) for word in matched)
+    if not reach:
+        return []
+
+    # Only the most specifically named survive. Without this every ambiguity is
+    # reported to somebody who was not ambiguous, and "say which" is a strange
+    # answer to a sentence that already said which.
+    best = max(reach.values())
+    return sorted(name for name, length in reach.items() if length == best)
+
+
+def _benchmark_proposal(question: str,
+                        models: Sequence[Mapping[str, Any]]) -> Proposal | None:
     """Resolve the name against what is actually on this machine.
 
     **Local models only.** A benchmark loads the model and measures it here;
@@ -272,8 +309,7 @@ def _benchmark_proposal(asked: str, models: Sequence[Mapping[str, Any]]) -> Prop
     operation = BY_ID["sirvis.benchmark.submit"]
     local = [_name(model) for model in models if model.get("local") is True]
     local = [name for name in local if name]
-    exact = [name for name in local if name.lower() == asked.lower()]
-    near = exact or [name for name in local if asked.lower() in name.lower()]
+    near = _models_named(question, local)
 
     if len(near) == 1:
         target = near[0]
@@ -281,21 +317,22 @@ def _benchmark_proposal(asked: str, models: Sequence[Mapping[str, Any]]) -> Prop
             operation=operation.id, service=operation.service, target=target,
             summary=operation.summary.format(target=target), ready=True,
         )
+    # **Nothing named means no offer at all**, rather than an offer of the whole
+    # catalogue. "do we have benchmark results" mentions benchmarking and names
+    # no model, and proposing one there answers a question about the past by
+    # offering to start work — the same class of mistake as the old
+    # "benchmark go". The model is told on every turn (`capabilities_line`) that
+    # a missing offer means naming the model, and it holds the catalogue to
+    # answer with, so this loses nothing a person sees.
     if not near:
-        return Proposal(
-            operation=operation.id, service=operation.service, target=asked,
-            summary=operation.summary.format(target=asked), ready=False,
-            detail=(
-                f"no model on this machine matches {asked!r}"
-                if local else
-                "the model catalogue could not be read, so nothing can be matched"
-            ),
-            candidates=tuple(sorted(local)[:MAX_CANDIDATES]),
-        )
+        return None
+    # Several named, which is an answerable question rather than a refusal —
+    # the candidates go back so the reply can list them instead of saying "be
+    # more specific" to somebody who does not know the full ids.
     return Proposal(
-        operation=operation.id, service=operation.service, target=asked,
-        summary=operation.summary.format(target=asked), ready=False,
-        detail=f"{len(near)} models match {asked!r} — say which",
+        operation=operation.id, service=operation.service, target="",
+        summary=operation.summary.format(target="a model"), ready=False,
+        detail=f"{len(near)} models on this machine match — say which",
         candidates=tuple(sorted(near)[:MAX_CANDIDATES]),
     )
 

@@ -816,7 +816,7 @@ def test_a_question_is_recognised_by_its_punctuation_not_by_its_verb() -> None:
     """
     for phrasing in ("do we have benchmark results",
                      "did the benchmark for qwen3-4b finish?",
-                     "show me the benchmark results",
+                     "how did the last benchmark go",
                      "is qwen3-4b benchmarked?"):
         sent: list[dict[str, Any]] = []
         client = an_api()
@@ -895,7 +895,8 @@ def test_stepping_over_a_preposition_did_not_reopen_the_go_bug() -> None:
     in opposite directions, so the old bug is asserted still closed rather than
     assumed to be.
     """
-    for phrasing in ("how did the benchmark go?", "benchmark it", "what about the benchmark"):
+    for phrasing in ("how did the benchmark go?", "benchmark it",
+                     "what about the benchmark", "is it still running"):
         sent: list[dict[str, Any]] = []
         client = an_api()
         _with_models(client, sent, ["qwen/qwen3-4b-2507", "phi-4-mini-instruct"])
@@ -958,16 +959,27 @@ def test_an_ambiguous_model_is_not_chosen_for_the_person() -> None:
 
 def test_a_model_this_machine_does_not_have_is_refused_before_it_is_offered() -> None:
     """SIRVIS would refuse it; refusing here means the offer is never made
-    rather than made and then broken."""
+    rather than made and then broken.
+
+    **The refusal is now silence, and that is a trade worth naming.** While the
+    target was extracted from the sentence, this could answer *"no model on this
+    machine matches 'gpt-5-turbo'"*. Matching against the inventory instead means
+    there is no extracted name to quote back — a sentence naming nothing NERVIS
+    has is indistinguishable from one naming nothing at all, which is what makes
+    *"do we have benchmark results"* stop proposing a benchmark.
+
+    What replaced it is not nothing: the model is told on every turn that a
+    missing offer means the model must be named, and it holds the catalogue, so
+    it can say which builds exist. The guarantee this test exists for — never
+    offer a model that cannot be benchmarked — is unchanged and asserted here.
+    """
     sent: list[dict[str, Any]] = []
     client = an_api()
     _with_models(client, sent, ["phi-4-mini-instruct"])
 
     answered = turn(client, "bench gpt-5-turbo please", system="Be someone.")
 
-    offer = json.loads(answered.headers["x-command-offer"])
-    assert offer["ready"] is False
-    assert "no model on this machine matches" in offer["detail"]
+    assert answered.headers.get("x-command-offer", "") == ""
 
 
 def test_an_injected_instruction_cannot_propose_anything() -> None:
@@ -2556,3 +2568,74 @@ def test_a_sentence_is_not_a_name() -> None:
     assert _title_from({"choices": [{"message": {
         "content": '"Gemma build comparison"'
     }}]}) == "Gemma build comparison"
+
+
+def test_a_model_is_found_wherever_it_appears_in_the_sentence() -> None:
+    """The point of matching the inventory rather than the word order.
+
+    Every earlier bug here was a position bug: the target had to be the word
+    after the verb, so a preposition broke it, and no other arrangement worked
+    at all. The machine already knows which models exist, and their names are
+    distinctive — so the question is which of *those* the sentence mentions,
+    which has no word order in it.
+    """
+    for phrasing in ("do a benchmark on the deepseek-r1 model",
+                     "queue a benchmark for deepseek-r1",
+                     "deepseek-r1, benchmark it please",
+                     "please bench deepseek-r1 when you can"):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["deepseek-r1-distill-qwen-1.5b", "phi-4-mini-instruct"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        offer = json.loads(answered.headers["x-command-offer"])
+        assert offer["target"] == "deepseek-r1-distill-qwen-1.5b", phrasing
+        assert offer["ready"] is True, phrasing
+
+
+def test_the_more_specific_name_wins_over_the_family() -> None:
+    """`qwen3-4b` names one build; `qwen3` names several.
+
+    Found while building this: splitting tokens on the hyphen turned `qwen3-4b`
+    into `qwen3`, which reached every qwen3 on the machine and answered "say
+    which" to somebody who had already said which. The longest word that reaches
+    a model decides how specifically it was named, and only the best survive.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507", "qwen/qwen3-8b", "qwen/qwen3-1.7b"])
+
+    answered = turn(client, "benchmark qwen3-4b", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["target"] == "qwen/qwen3-4b-2507"
+    assert offer["ready"] is True
+
+
+def test_an_ambiguous_family_comes_back_as_candidates_not_a_refusal() -> None:
+    """A person who says "benchmark gemma" does not know the full ids, and
+    "be more specific" is a poor answer to that. The candidates were already in
+    `Proposal` and unused on this path."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["google/gemma-4-e2b", "google/gemma-4-e4b", "phi-4-mini-instruct"])
+
+    answered = turn(client, "benchmark gemma", system="Be someone.")
+
+    offer = json.loads(answered.headers["x-command-offer"])
+    assert offer["ready"] is False
+    assert set(offer["candidates"]) == {"google/gemma-4-e2b", "google/gemma-4-e4b"}
+
+
+def test_an_adverb_inside_a_model_name_is_not_a_model() -> None:
+    """`still` sits inside `distill`. Matching raw substrings would offer to
+    benchmark a model because somebody asked whether something was still
+    running, so names are matched by their segments."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["deepseek-r1-distill-qwen-1.5b"])
+
+    answered = turn(client, "is the benchmark still running", system="Be someone.")
+
+    assert answered.headers.get("x-command-offer", "") == ""

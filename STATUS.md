@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1765 tests, no network, no live service
+.venv/bin/pytest                      # part of 1769 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 412 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 416 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1765 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1769 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2331,6 +2331,42 @@ the proposal that design refuses.
 
 A matcher that misses a phrasing is a bug somebody reports. A system that denies
 a power it has is worse — the person stops asking, and nothing looks broken.
+
+**And then the approach was wrong, which the operator said plainly.** Three
+reported bugs in one evening — a preposition captured as a model, `do` read as a
+question word, and the regression between the two fixes — were all the same
+mistake: extracting the target by position, *the word after the verb*, and then
+bolting on a word list to catch what that produced. `do`, `does`, `show` and
+`tell` were in a list called `ASKING`. They are verbs.
+
+**The machine already knows every model that exists.** Their names are
+distinctive strings, so the question is not *what did this sentence mean* but
+*which of these does it mention* — and that has no word order in it.
+`_models_named` scans the sentence against the local inventory; `BENCHMARK`
+shrank to a bare verb detector with no capture group; `NOT_A_MODEL` is deleted
+outright, because a word list of things that are not models is unnecessary when
+the things that *are* models are enumerable.
+
+Four rules earn their place, each from a case that broke while building it:
+segments rather than raw substrings, since `still` sits inside `distill`; a
+compound-word exception, since `qwen3-4b` is not a segment of
+`qwen/qwen3-4b-2507`; longest-match wins, since splitting on the hyphen made
+`qwen3-4b` name every qwen3 build and answer *"say which"* to somebody who had;
+and nothing named means no offer, since *"do we have benchmark results"*
+mentions benchmarking and asks about the past.
+
+Ambiguity is now an answer rather than a refusal: *"benchmark gemma"* returns
+both gemma builds as candidates, using a `Proposal` field that had been carried
+and never populated on this path.
+
+One thing was traded and is recorded in the test that used to assert it: with no
+extracted name there is nothing to quote back, so *"bench gpt-5-turbo please"*
+makes no offer rather than saying *"no model on this machine matches
+'gpt-5-turbo'"*. The model is told every turn that a missing offer means the
+model must be named, and it holds the catalogue to answer from.
+
+Fourteen phrasings checked against intent, six offering, two asking which, six
+declining — including all three reported failures and both regressions.
 
 ### Next — in this order
 
