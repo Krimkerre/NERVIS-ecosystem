@@ -587,6 +587,16 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         # other `prefer` in this file — not a measurement. Real ranking is
         # SIRVIS's job, and a route explanation says which of the two decided.
         prefer=("instruct",),
+        # **Admitted on the same evidence as `clarvis-agent`, deliberately.**
+        # RAVIS asks SIRVIS about one role because a pool's invariant is usually
+        # role-specific — but the trial behind this requirement is not:
+        # `tool_call_well_formed` counts whether a build emits a well-formed
+        # call across eight phrasings of one request, which is a property of the
+        # build rather than of Clarvis. Measured on this machine the two
+        # `granite-4.0-h-tiny` builds score 24/24 and 3/24 while both advertise
+        # `tool_use`, and the failing one is excluded from this pool as well as
+        # from Clarvis's. Sharing the evidence is what makes that true; a second
+        # role would measure the same thing twice and let the answers drift.
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-chat",
