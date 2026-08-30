@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
 
-from ravis.core.capabilities import Capability, ModelCapabilities
+from ravis.core.capabilities import Capability, CapabilityState, ModelCapabilities
 
 # Every pool ID carries this prefix. Clarvis derives an owner label from the
 # vendor prefix, so these render as "by ravis" in its picker (§5).
@@ -189,6 +189,20 @@ class VirtualModelPool:
     # Order matters: `preference_rank` reads position, so this same tuple gives
     # the pool its ordering. An operator who disagrees replaces the list, and a
     # per-pool selection saved through the management API overrides it entirely.
+    # The SIRVIS role whose evidence is about *this pool's* work.
+    #
+    # **Membership derived rather than declared, where a measurement exists.**
+    # `curated` above is a judgement written by hand against a catalogue that
+    # turns over every few weeks — defensible, and exactly what §13's evidence
+    # is meant to replace. A build measured under this role and passing joins
+    # whether or not a family fragment matched it; one measured and failing is
+    # excluded whether or not one did. A build nobody has measured falls back to
+    # the families, which is where every pool was.
+    #
+    # Empty means no role measures this pool's work yet, and the families are
+    # the whole answer. Saying so is the point: the pools that can be evidenced
+    # are visibly different from the pools that cannot.
+    evidence_role: str = ""
     curated: tuple[str, ...] = ()
     # Fragments that disqualify a model even when a curated family matched it.
     # `gpt-5-codex` matches `gpt-5` and is not a conversational assistant;
@@ -306,6 +320,7 @@ class VirtualModelPool:
         self,
         candidates: list[str],
         prices: Mapping[str, float | None] | None = None,
+        evidence: Mapping[str, str] | None = None,
     ) -> tuple[str, ...]:
         """The curated members present in this catalogue, or everything.
 
@@ -326,13 +341,14 @@ class VirtualModelPool:
         # No pool wants these and every pool had them, which makes it a property
         # of routing rather than of any one pool's taste.
         routable = [model for model in candidates if self._is_routable(model)]
+        measured = evidence or {}
         if (not self.default_tier and self.max_price_per_million is None
-                and not self.curated and not self.excluded):
+                and not self.curated and not self.excluded and not measured):
             return tuple(routable)
         matched = [
             model for model in routable
             if (not self.default_tier or size_tier(model) == self.default_tier)
-            and self._is_curated(model)
+            and self._admits(model, measured)
         ]
         if self.max_price_per_million is not None and prices is not None:
             ceiling = self.max_price_per_million
@@ -364,6 +380,28 @@ class VirtualModelPool:
         if lowered.endswith(":batch"):
             return False
         return not any(_has_word(lowered, word) for word in NOT_CHAT)
+
+    def _admits(self, model: str, measured: Mapping[str, str]) -> bool:
+        """Whether this pool takes this build, measurement first.
+
+        **A measurement outranks the declared families in both directions.** A
+        build this pool's role measured and passed joins even if no family
+        fragment names it — which is the point: the families are a stand-in for
+        evidence, and a stand-in must lose to the thing it stands in for. A
+        build measured and failing is excluded even if a fragment does name it,
+        because a hand-written list cannot outvote a trial that ran.
+
+        `UNKNOWN` and absence both fall through to the families. Neither is a
+        failed measurement: one means the role was measured on some other axis,
+        the other that nobody has measured it at all, and §9.1 fails closed on
+        what is *not established* rather than treating silence as refusal.
+        """
+        verdict = measured.get(model, "")
+        if verdict == CapabilityState.SUPPORTED.value:
+            return True
+        if verdict == CapabilityState.UNSUPPORTED.value:
+            return False
+        return self._is_curated(model)
 
     def _is_curated(self, model: str) -> bool:
         """Whether this pool wants this model.
@@ -659,6 +697,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/chat",
+        evidence_role="chat",
         label="Chat",
         description="Conversation: a hosted model first, this machine's own underneath it",
         # Ordinary conversation is the one workload where §9.2's soft
@@ -766,6 +805,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/coding",
+        evidence_role="agent",
         label="Coding",
         description="Optimized for writing and reasoning about code",
         # See `CODE_FAMILIES`. The old value was `("coder", "code", "qwen")` with
@@ -802,6 +842,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/agent",
+        evidence_role="agent",
         label="Agent",
         description=(
             "Tool-capable models for any agentic caller. Tools are REQUIRED, and nothing "
@@ -835,6 +876,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-chat",
+        evidence_role="clarvis-chat",
         # The same families as `ravis/chat`, for the same reason: §5.1 asks this
         # pool for conversation and instruction following, and `prefer` alone
         # left every other model in the pool as an equal member.
@@ -857,6 +899,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-agent",
+        evidence_role="clarvis-agent",
         label="Clarvis Agent",
         description=(
             "Coding, tool use, repository reasoning, structured calls and long context. "

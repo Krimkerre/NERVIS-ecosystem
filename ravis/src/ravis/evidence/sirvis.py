@@ -402,7 +402,16 @@ class EvidenceStore:
         self._role = role
         self._max_age = max_age_seconds
         self._clock = clock
-        self._records: dict[str, EvidenceRecord] = {}
+        # runtime key → role → the freshest record filed under that role.
+        #
+        # **This was one record per build, for one role.** RAVIS asked SIRVIS
+        # only about `clarvis-agent`, on the reasoning that "a pool's invariant
+        # is role-specific". Half of that holds and half does not: a pool that
+        # wants a model measured *for its own work* does need its own role, and
+        # a tool-call trial is a fact about the build. Reading one role meant
+        # every other pool had no evidence at all, and the trials — all seven of
+        # them on this machine — were invisible to every pool but one.
+        self._records: dict[str, dict[str, EvidenceRecord]] = {}
         # Reasoning shares, keyed by runtime key and read across every role.
         # Separate from `_records` because they are gathered by a different
         # question — see `_absorb_shares`.
@@ -440,8 +449,12 @@ class EvidenceStore:
         """
         return self._context.get(runtime_key)
 
-    def record_for(self, runtime_key: str) -> EvidenceRecord | None:
+    def record_for(self, runtime_key: str, role: str = "") -> EvidenceRecord | None:
         """The freshest record for one build, or None.
+
+        `role` narrows to evidence filed under that role — what a pool asking
+        *"was this measured for my work"* needs. Empty takes the freshest record
+        under any role, which is what a question about the build itself wants.
 
         A record older than the staleness window returns None *and* degrades the
         source: §9.1 fails closed on what is not established, and a measurement
@@ -460,7 +473,7 @@ class EvidenceStore:
         reply, and the difference decides whether an operator looks at SIRVIS or
         at the clock.
         """
-        record = self._records.get(runtime_key)
+        record = self._pick(runtime_key, role)
         if record is None:
             return None
         if record.age_seconds is not None and record.age_seconds > self._max_age:
@@ -473,49 +486,69 @@ class EvidenceStore:
             return None
         return record
 
-    async def _absorb_shares(self, client: httpx.AsyncClient, candidates: Sequence[str]) -> None:
-        """Reasoning shares, read across every role rather than one.
+    def _pick(self, runtime_key: str, role: str) -> EvidenceRecord | None:
+        """One build's record: for a named role, or the freshest of any."""
+        by_role = self._records.get(runtime_key)
+        if not by_role:
+            return None
+        if role:
+            return by_role.get(role)
+        freshest: EvidenceRecord | None = None
+        for record in by_role.values():
+            if freshest is None or _fresher(record, freshest):
+                freshest = record
+        return freshest
 
-        **Found by running an actual benchmark.** The share was measured at
-        0.992 for a distill that returned no content at all in five
-        repetitions — exactly the build M16's tiebreak exists to demote — and
-        the tiebreak did not fire, because the run recorded `role: general`
-        while this store asks SIRVIS for `clarvis-agent` and nothing else.
+    def trial_record_for(self, runtime_key: str) -> EvidenceRecord | None:
+        """The freshest record that actually ran a tool-call trial, any role.
 
-        The role scope is right for what it was built for and wrong here.
-        §12.5 attaches verdicts to a build *and a role* because fitness is
-        role-specific: a tool-call pass rate for `clarvis-agent` says nothing
-        about `clarvis-chat`. How much of its output a build spends thinking
-        before it answers is not that kind of fact. It is a property of the
-        build's generation, and it is equally true whichever role asked — so
-        scoping its lookup to one role means the tiebreak fires only when
-        somebody happens to have benchmarked that build under exactly the role
-        this store is configured for.
-
-        Failures are swallowed rather than degrading the source. This is a
-        second, optional read; a SIRVIS that answers the first and not this one
-        has still given RAVIS everything eligibility depends on, and marking
-        evidence degraded over a ranking hint would be the tail wagging the dog.
+        **A trial is a fact about the build, not about the role it was filed
+        under.** §13.1 defines it as a pass rate over phrasings and repetitions
+        of one request — nothing in that is specific to Clarvis's agent
+        workload, and the suite that produced every trial on this machine was
+        run under `clarvis-agent` only because that was the flag that existed.
+        A record with no trial in it establishes nothing about tools and must
+        not shadow one that does, which is what picking "the freshest record"
+        did: a later throughput run under `general` hid the trial underneath it.
         """
-        self._shares = {}
-        try:
-            response = await client.get(
-                f"{self._base_url}/api/v1/evidence",
-                params=[("candidate", key) for key in candidates],
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError):
-            return
-        variants = _variant_map(payload)
-        for item in payload.get("items") or []:
-            if not isinstance(item, Mapping):
+        by_role = self._records.get(runtime_key) or {}
+        best: EvidenceRecord | None = None
+        for record in by_role.values():
+            if record.rate("tool_call_well_formed") is None:
                 continue
-            key = variants.get(str((item.get("target") or {}).get("variant") or ""), "")
-            share = _measured_share(item.get("metrics"))
-            if key and share is not None:
-                # Newest wins, and the API returns newest first.
-                self._shares.setdefault(key, share)
+            if best is None or _fresher(record, best):
+                best = record
+        if best is None:
+            return None
+        if best.age_seconds is not None and best.age_seconds > self._max_age:
+            self._state = SourceState.DEGRADED
+            self._detail = (
+                f"the newest tool-call trial for {runtime_key} is "
+                f"{int(best.age_seconds)}s old, past the {int(self._max_age)}s "
+                "staleness window"
+            )
+            return None
+        return best
+
+    def roles_measured(self, runtime_key: str) -> dict[str, str]:
+        """Which roles this build has been measured for, and how it did.
+
+        The answer to *"what is this build qualified for"*, derived rather than
+        declared. `SUPPORTED` where a role's evidence clears §13.1's bar,
+        `UNSUPPORTED` where it was measured and did not, and a role that was
+        never run does not appear at all — absence of a measurement is not a
+        failed one, and the two admit and exclude differently.
+        """
+        fit: dict[str, str] = {}
+        for role, record in (self._records.get(runtime_key) or {}).items():
+            if record.rate("tool_call_well_formed") is None:
+                # Measured for this role on some other axis. That is a real
+                # fact and it is not a verdict on the role, so it is reported
+                # as covered-without-a-verdict rather than as a pass.
+                fit[role] = CapabilityState.UNKNOWN.value
+                continue
+            fit[role] = tool_verdict(record).state.value
+        return fit
 
     def reasoning_share(self, runtime_key: str) -> float | None:
         """How much of this build's output is thinking rather than answer.
@@ -551,7 +584,7 @@ class EvidenceStore:
         slot a better-sourced claim should win, and `record()` resolves by
         provenance rather than by arrival.
         """
-        verdict = tool_verdict(self.record_for(runtime_key))
+        verdict = tool_verdict(self.trial_record_for(runtime_key))
         if verdict.state in (CapabilityState.UNKNOWN,):
             return []
         return [
@@ -568,9 +601,12 @@ class EvidenceStore:
 
     def explain(self, runtime_key: str) -> dict[str, Any]:
         """Why this build was or was not admitted, for a route explanation."""
-        verdict = tool_verdict(self.record_for(runtime_key))
+        verdict = tool_verdict(self.trial_record_for(runtime_key))
         return {
             "source": self._state.value,
+            # What this build has been measured *for*, which is a different
+            # question from whether it can call a tool.
+            "roles_measured": self.roles_measured(runtime_key),
             "source_detail": self._detail,
             "state": verdict.state.value,
             "detail": verdict.detail,
@@ -617,7 +653,12 @@ class EvidenceStore:
                 return
             response = await client.get(
                 f"{self._base_url}/api/v1/evidence",
-                params=[("role", self._role), *(("candidate", key) for key in candidates)],
+                # **No role filter.** Asking for one role returns evidence about
+                # one question and hides the rest; the role travels *on* each
+                # record, so filtering here threw away the field that makes the
+                # answer usable. `self._role` remains the role a pool falls back
+                # to when it declares none.
+                params=[("candidate", key) for key in candidates],
             )
             response.raise_for_status()
             payload = response.json()
@@ -636,7 +677,6 @@ class EvidenceStore:
             return
         self._absorb(payload)
         await self._absorb_context(client)
-        await self._absorb_shares(client, candidates)
 
     async def _negotiate(self, client: httpx.AsyncClient) -> str:
         """Check the protocol major and the capability before reading anything.
@@ -723,18 +763,38 @@ class EvidenceStore:
             if isinstance(variants, Mapping)
             else {}
         )
-        records: dict[str, EvidenceRecord] = {}
+        records: dict[str, dict[str, EvidenceRecord]] = {}
+        # **Read from the same payload, in the same walk.** Reasoning shares used
+        # to need a second request: the main read asked for one role, and how
+        # much of its output a build spends thinking is not a role-specific fact
+        # — it is a property of the build's generation and equally true whichever
+        # role asked. That read existed to work around the role filter. The
+        # filter is gone, so the round trip is too.
+        shares: dict[str, float] = {}
         for item in payload["items"]:
+            if isinstance(item, Mapping):
+                key = by_variant.get(str((item.get("target") or {}).get("variant") or ""), "")
+                share = _measured_share(item.get("metrics"))
+                if key and share is not None:
+                    # Newest wins, and the API returns newest first.
+                    shares.setdefault(key, share)
             record = _read_record(item, by_variant)
             if record is None:
                 continue
-            held = records.get(record.runtime_key)
+            by_role = records.setdefault(record.runtime_key, {})
+            held = by_role.get(record.role)
             if held is None or _fresher(record, held):
-                records[record.runtime_key] = record
+                by_role[record.role] = record
+        self._shares = shares
         self._records = records
         self._read_at = self._clock()
         self._state = SourceState.FRESH
-        self._detail = f"{len(records)} record(s) for role {self._role}"
+        roles = sorted({role for by_role in records.values() for role in by_role})
+        total = sum(len(by_role) for by_role in records.values())
+        self._detail = (
+            f"{total} record(s) for {len(records)} build(s)"
+            + (f" across role(s) {', '.join(roles)}" if roles else "")
+        )
 
 
 def _fresher(candidate: EvidenceRecord, held: EvidenceRecord) -> bool:

@@ -353,6 +353,22 @@ def _reasoning_shares(request: Request, models: Sequence[str]) -> dict[str, floa
     return {model: share for model, share in shares.items() if share is not None}
 
 
+def _role_evidence(request: Request, models: Sequence[str]) -> dict[str, dict[str, str]]:
+    """Which roles SIRVIS has measured each candidate for, and how it did.
+
+    The map a pool's membership is derived from: `{model: {role: state}}`. Only
+    the models this pass is considering, and only those with a record — a build
+    nobody has measured is absent rather than present with an UNKNOWN, because
+    `_admits` reads absence and UNKNOWN the same way and an empty dict is
+    cheaper to reason about than one full of nothings.
+    """
+    store = getattr(request.app.state, "evidence", None)
+    if store is None or not hasattr(store, "roles_measured"):
+        return {}
+    fit = {model: store.roles_measured(model) for model in models}
+    return {model: roles for model, roles in fit.items() if roles}
+
+
 def _record_path(call: _Call, path: str) -> None:
     """Note which of §6's two paths ran, on the record a diagnostic reads."""
     if call.recorded is not None:
@@ -690,6 +706,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # capped its output — a build that spends the budget thinking returns
         # less answer, or none. Dormant otherwise; see `_reasoning_rank`.
         reasoning_share=_reasoning_shares(request, list(candidates)),
+        role_evidence=_role_evidence(request, list(candidates)),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.

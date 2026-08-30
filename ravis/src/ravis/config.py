@@ -197,10 +197,16 @@ class Settings(BaseSettings):
     # requires to keep working: provider metadata and RAVIS's own observations
     # carry routing, with the degradation labelled rather than hidden.
     sirvis_base_url: str = ""
-    # The role RAVIS asks about. One role rather than all of them because a
-    # pool's invariant is role-specific — `ravis/clarvis-agent` is admitted on
-    # `clarvis-agent` evidence and nothing else, and evidence for a different
-    # role is about a different question.
+    # The role a pool falls back to when it declares none of its own.
+    #
+    # **RAVIS used to ask SIRVIS about this role and no other**, on the
+    # reasoning that a pool's invariant is role-specific. Half of that holds:
+    # a pool wanting a model measured *for its own work* does need its own
+    # role, and each pool now names one (§5.1.1's `evidence_role`). The other
+    # half does not — a tool-call trial is a fact about the build, and reading
+    # one role meant the seven trials on this machine were invisible to every
+    # pool but one. The read is role-agnostic now and the role travels on each
+    # record.
     sirvis_evidence_role: str = "clarvis-agent"
     # How long a measurement is believed (§13.3's staleness policy). Thirty days:
     # the evidence identity already pins machine, runtime and configuration, so

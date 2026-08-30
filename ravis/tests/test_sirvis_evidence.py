@@ -122,6 +122,9 @@ def store_with(
 
     mep = mep_surface() if surface is None else surface
 
+    # `candidate=` rather than `role=` marks the evidence read. RAVIS asked for
+    # one role and now asks for none — the role travels on each record, so
+    # filtering the request threw away the field that makes the answer usable.
     def handle(request: httpx.Request) -> httpx.Response:
         if request.url.path in mep:
             return httpx.Response(200, json=mep[request.url.path])
@@ -695,12 +698,23 @@ def test_a_reasoning_share_measured_under_another_role_is_still_read() -> None:
     §12.5 scopes verdicts to a build *and a role* because fitness is
     role-specific. How much of its output a build spends thinking before it
     answers is not that kind of fact — it is the same whichever role asked.
+
+    **This needed a second request and no longer does.** The workaround was a
+    role-agnostic read alongside the role-scoped one; the read is role-agnostic
+    now, so one response carries every role's records and the share is picked
+    out of the same walk. What the test asserts is unchanged and slightly
+    stronger: a share measured under `general` reaches a store that used to ask
+    only about `clarvis-agent`.
     """
     import asyncio
 
-    role_records = payload(record(kind="MEASURED"))
-    other_role = {
-        "items": [record(variant="var_gguf") | {"role": "general", "metrics": {
+    both_roles = {
+        # The clarvis-agent record this store always saw, and beside it the
+        # `general` run that carries the share — one response, as SIRVIS
+        # actually answers when nobody filters by role.
+        "items": [
+            record(kind="MEASURED"),
+            record(variant="var_gguf") | {"role": "general", "metrics": {
             "reasoning_token_share": {
                 "unit": "fraction", "direction": "lower", "samples": 5,
                 "median": 0.992,
@@ -716,11 +730,7 @@ def test_a_reasoning_share_measured_under_another_role_is_still_read() -> None:
         mep = mep_surface()
         if request.url.path in mep:
             return httpx.Response(200, json=mep[request.url.path])
-        # The role-scoped read gets records without a share; the second,
-        # role-agnostic read is the one carrying it.
-        if "role=" in str(request.url):
-            return httpx.Response(200, json=role_records)
-        return httpx.Response(200, json=other_role)
+        return httpx.Response(200, json=both_roles)
 
     store = EvidenceStore(base_url="http://sirvis.invalid")
     client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
@@ -752,7 +762,7 @@ def test_an_estimated_share_under_another_role_still_establishes_nothing() -> No
         mep = mep_surface()
         if request.url.path in mep:
             return httpx.Response(200, json=mep[request.url.path])
-        if "role=" in str(request.url):
+        if "candidate=" in str(request.url):
             return httpx.Response(200, json=payload(record()))
         return httpx.Response(200, json=estimated)
 
@@ -773,7 +783,7 @@ def test_a_sirvis_that_will_not_answer_the_second_read_is_not_degraded() -> None
         mep = mep_surface()
         if request.url.path in mep:
             return httpx.Response(200, json=mep[request.url.path])
-        if "role=" in str(request.url):
+        if "candidate=" in str(request.url):
             return httpx.Response(200, json=payload(record()))
         return httpx.Response(500, json={"error": "no"})
 
@@ -822,3 +832,78 @@ def test_a_record_without_a_tally_says_only_what_it_knows() -> None:
 
     assert verdict.state is CapabilityState.UNSUPPORTED
     assert "of them" not in verdict.detail
+
+
+# ── Every role, and a trial that belongs to the build ────────────────────────
+
+
+def test_a_tool_trial_is_read_whichever_role_filed_it() -> None:
+    """§13.1 defines a trial as a pass rate over phrasings and repetitions of one
+    request. Nothing in that is specific to Clarvis's agent workload — the suite
+    that produced every trial on this machine ran under `clarvis-agent` only
+    because that was the flag that existed.
+
+    A later record with no trial in it must not shadow one that has it, which is
+    what "the freshest record" did: a throughput run under `general` hid the
+    trial underneath it.
+    """
+    import asyncio
+
+    both = {
+        "items": [
+            # Newest first, as the API returns them: a throughput run with no
+            # trial, then the trial itself.
+            record(variant="var_gguf") | {"role": "general", "metrics": {}, "rates": {}},
+            record(kind="MEASURED"),
+        ],
+        "next_cursor": None, "snapshot_revision": 1,
+        "resolved_candidates": ["var_gguf"], "unresolved_candidates": [],
+        "candidate_variants": {GGUF: "var_gguf"}, "tombstones": [],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        mep = mep_surface()
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
+        return httpx.Response(200, json=both)
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    asyncio.run(store.refresh(httpx.AsyncClient(transport=httpx.MockTransport(handle)), [GGUF]))
+
+    assert store.trial_record_for(GGUF) is not None
+    assert store.claims_for(GGUF), "the trial establishes a capability claim"
+
+
+def test_which_roles_a_build_has_been_measured_for_is_reported() -> None:
+    """Derived rather than declared: the answer to *what is this build qualified
+    for* comes from the roles it was actually run under.
+
+    A role measured on some other axis reports UNKNOWN rather than a pass — it
+    was covered, and nothing about its fitness was established.
+    """
+    import asyncio
+
+    both = {
+        "items": [
+            record(kind="MEASURED"),
+            record(variant="var_gguf") | {"role": "chat", "metrics": {}, "rates": {}},
+        ],
+        "next_cursor": None, "snapshot_revision": 1,
+        "resolved_candidates": ["var_gguf"], "unresolved_candidates": [],
+        "candidate_variants": {GGUF: "var_gguf"}, "tombstones": [],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        mep = mep_surface()
+        if request.url.path in mep:
+            return httpx.Response(200, json=mep[request.url.path])
+        return httpx.Response(200, json=both)
+
+    store = EvidenceStore(base_url="http://sirvis.invalid")
+    asyncio.run(store.refresh(httpx.AsyncClient(transport=httpx.MockTransport(handle)), [GGUF]))
+
+    fit = store.roles_measured(GGUF)
+
+    assert fit["clarvis-agent"] == "SUPPORTED"
+    assert fit["chat"] == "UNKNOWN", "measured for the role, silent about fitness"
+    assert "general" not in fit, "a role nobody ran does not appear"

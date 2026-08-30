@@ -313,6 +313,39 @@ answer a chat completion, and neither can a reranker, a moderation classifier, a
 image model, or a batch endpoint — the same weights on an asynchronous queue. No pool wants
 these and every pool had them.
 
+### 5.1.2 Membership derived from role evidence
+
+A pool may also name the **SIRVIS role whose evidence is about its own work**. Where a
+measurement exists, it decides — in both directions:
+
+- a build measured under that role and **passing** is a member whether or not a declared
+  family names it, because the families are a stand-in for evidence and a stand-in has to
+  lose to the thing it stands in for;
+- a build measured and **failing** is not a member whether or not a family names it, because
+  a hand-written list cannot outvote a trial that ran.
+
+`UNKNOWN` and absence both fall through to the families, and they are not the same fact: one
+means the role was measured on some other axis, the other that nobody has measured it at all.
+Neither is a failed measurement, and §9.1 fails closed on what is *not established* rather
+than treating silence as refusal.
+
+**Evidence admits within the invariants, never past them.** §5.1's hard invariant still
+applies first: on this machine the passing `granite-4.0-h-tiny` is `SUPPORTED` for
+`clarvis-agent` and is still not a member of that pool, because its `structured_output` state
+is `UNKNOWN` and the pool requires it. A measurement can say a build is good at the work; it
+cannot say the build satisfies a requirement nobody has established.
+
+**And a trial belongs to the build, not to the role that filed it.** §13.1 defines it as a
+pass rate over phrasings and repetitions of one request; nothing in that is specific to any
+product's workload. RAVIS previously read evidence for **one configured role**, which meant
+every trial on this machine — all seven — was invisible to every pool but one. The read is
+role-agnostic now, the role travels on each record, and the tool-call verdict is taken from
+the freshest record that actually ran a trial rather than from the freshest record, which a
+later throughput run under another role would otherwise hide.
+
+That change also removed a request: reasoning shares needed a second, role-agnostic read
+purely to work around the role filter, and one response now carries every role's records.
+
 **Membership is derived, never stored.** An operator may pin a per-pool selection, and
 `POST /api/v1/pools/curate` removes every such pin so each pool follows its own default again.
 That endpoint deliberately writes nothing: a stored list is a snapshot of a catalogue that

@@ -79,6 +79,7 @@ class RoutingEngine:
         sticky: str = "",
         expected_session_requests: int | None = None,
         reasoning_share: Mapping[str, float] | None = None,
+        role_evidence: Mapping[str, Mapping[str, str]] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -143,6 +144,7 @@ class RoutingEngine:
                 sticky,
                 expected_session_requests,
                 reasoning_share,
+                role_evidence,
             )
 
         target = direct_target(requested)
@@ -247,6 +249,7 @@ class RoutingEngine:
         sticky: str = "",
         expected_session_requests: int | None = None,
         reasoning: Mapping[str, float] | None = None,
+        role_evidence: Mapping[str, Mapping[str, str]] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -271,14 +274,24 @@ class RoutingEngine:
         # only when they have made none. Resolved here rather than by the caller
         # because the default is expressed over *this* catalogue — "the small
         # ones" means nothing until you know what is present.
+        # **Evidence for this pool's role, where any exists.** A build measured
+        # under the role and passing is a member whether or not the pool's
+        # hand-written families name it; one measured and failing is not,
+        # whether or not they do. See `VirtualModelPool._admits`.
+        measured = {
+            model: fit[pool.evidence_role]
+            for model, fit in (role_evidence or {}).items()
+            if pool.evidence_role and pool.evidence_role in fit
+        }
         effective = chosen or pool.default_membership(
             sorted(candidates),
             {model: known.price_per_million for model, known in candidates.items()},
+            measured,
         )
         by_default = not chosen
         decision.excluded = _exclusions(
             pool, candidates, requirements, unavailable, remote, effective, by_default,
-            refusals,
+            refusals, measured,
         )
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
@@ -404,6 +417,7 @@ def _exclusions(
     chosen: tuple[str, ...] = (),
     by_default: bool = False,
     refusals: Mapping[str, list[str]] | None = None,
+    measured: Mapping[str, str] | None = None,
 ) -> list[ExcludedCandidate]:
     """Every candidate that failed, with all of its reasons.
 
@@ -421,8 +435,15 @@ def _exclusions(
         if chosen and model not in chosen:
             # Worded differently for the two cases on purpose: one is fixed by
             # ticking a box and the other by understanding what the pool is for.
+            # A measured failure is named as one. "Outside this pool's default
+            # tier" would be true and useless for a build that was benchmarked
+            # for this exact role and did not clear the bar — the fix for that
+            # is a different model, not a ticked box.
+            verdict = (measured or {}).get(model, "")
             reasons.append(
-                _default_exclusion(pool) if by_default
+                f"measured for {pool.evidence_role} and did not qualify"
+                if verdict == "UNSUPPORTED"
+                else _default_exclusion(pool) if by_default
                 else "not among the models chosen for this pool"
             )
         reasons += unmet_by(requirements, candidates[model])

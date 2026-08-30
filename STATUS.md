@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1711 tests, no network, no live service
+.venv/bin/pytest                      # part of 1718 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 392 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1711 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1718 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -7616,6 +7616,51 @@ literally `SUSPECT if warnings else VALID`, so the notes are the whole of the
 verdict's justification. Each result also says when it ran, because two runs of
 one build produced blocks identical character for character and a reader
 attributed one's swap warning to the other's build.
+
+## Pool membership derived from evidence, 2026-08-30
+
+The last of the three steps, and the one the other two existed for.
+
+**Step one** separated the tool trial from the product role: a trial counts
+whether a build emits a well-formed call for eight phrasings of one request,
+which is a fact about the build and not about Clarvis's agent workload. It got
+its own flag.
+
+**Step two** made role fit derivable — RAVIS reports which roles each build has
+been measured for and how it did, rather than one verdict for one configured
+role.
+
+**Step three** un-fixated RAVIS. It asked SIRVIS about `clarvis-agent` and
+nothing else, so every trial on this machine — all seven — was invisible to
+every pool but one. The read is role-agnostic now; the role travels on each
+record; and the tool verdict comes from the freshest record that actually ran a
+trial rather than the freshest record, which a later throughput run under
+`general` would otherwise hide. It also deleted a request: reasoning shares
+needed a second role-agnostic read purely to work around the role filter.
+
+**Then membership.** Each pool names the role whose evidence is about its work,
+and where a measurement exists it decides. A build measured and passing joins
+whether or not a declared family names it — the families are a stand-in for
+evidence, and a stand-in must lose to the thing it stands in for. A build
+measured and failing is out whether or not one does, and the exclusion says
+*"measured for agent and did not qualify"* rather than "outside this pool's
+default tier", because the fix for that is a different model rather than a
+ticked box.
+
+Absence is not failure. `UNKNOWN` and no record at all both fall through to the
+families, which is where every pool was.
+
+**And evidence admits within the invariants, never past them.** The passing
+`granite-4.0-h-tiny` is `SUPPORTED` for `clarvis-agent` and still not a member of
+that pool: its `structured_output` state is `UNKNOWN` and the pool requires it. A
+measurement can say a build is good at the work; it cannot establish a
+requirement nobody has measured.
+
+What this looks like on the machine: RAVIS reads 26 records across 19 builds and
+five roles, where it used to read one role. `mlx-community/granite-4.0-h-tiny`
+carries `tools UNSUPPORTED MEASURED` from its 3/24 trial and is gone from every
+tool-requiring pool; the `lmstudio-community` build carries `SUPPORTED` from
+24/24 and stays. Neither claim depended on which role happened to be configured.
 
 ## Starting the thing
 

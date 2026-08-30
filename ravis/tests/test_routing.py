@@ -508,3 +508,92 @@ def test_the_agent_pool_is_not_clarvis_agent_wearing_a_shorter_name() -> None:
     assert clarvis.requirements.minimum_context > agent.requirements.minimum_context
     assert "coder" in clarvis.prefer and "coder" not in agent.prefer
     assert "role" not in agent.description.lower() or "one product" in agent.description
+
+
+# ── Membership derived from role evidence, not from a hand-written list ──────
+#
+# The declared families in `pools.py` are a judgement written against a
+# catalogue that turns over every few weeks. They are a stand-in for evidence,
+# and a stand-in has to lose to the thing it stands in for.
+
+
+def _measured(**verdicts: str) -> dict[str, dict[str, str]]:
+    """Role verdicts as `EvidenceStore.roles_measured` produces them."""
+    return {model: {"agent": state} for model, state in verdicts.items()}
+
+
+def test_a_measured_build_joins_a_pool_no_family_named() -> None:
+    """`some-obscure-7b` matches no fragment in `CODE_FAMILIES` and would never
+    have been a member. It was benchmarked for the role and passed, which is a
+    stronger claim than any list of names."""
+    candidates = {name: _tool_model(name)
+                  for name in ("some-obscure-7b", "qwen3-coder-30b")}
+
+    decision = RoutingEngine().select(
+        "ravis/coding", candidates,
+        role_evidence=_measured(**{"some-obscure-7b": "SUPPORTED"}),
+    )
+
+    assert "some-obscure-7b" in [decision.selected, *decision.fallbacks]
+
+
+def test_a_build_measured_and_failing_is_excluded_though_a_family_names_it() -> None:
+    """`qwen3-coder-30b` leads the coding families. Measured for the role and
+    failing, it is out — a hand-written list cannot outvote a trial that ran,
+    and the exclusion says which."""
+    candidates = {name: _tool_model(name)
+                  for name in ("qwen3-coder-30b", "codestral-22b")}
+
+    decision = RoutingEngine().select(
+        "ravis/coding", candidates,
+        role_evidence=_measured(**{"qwen3-coder-30b": "UNSUPPORTED"}),
+    )
+
+    assert decision.selected == "codestral-22b"
+    refused = [e for e in decision.excluded if e.model == "qwen3-coder-30b"]
+    assert refused, "the failing build is reported, not silently dropped"
+    assert any("measured for agent and did not qualify" in reason
+               for reason in refused[0].reasons)
+
+
+def test_an_unmeasured_build_still_falls_back_to_the_families() -> None:
+    """Absence of a measurement is not a failed one. §9.1 fails closed on what is
+    not *established*, and treating silence as refusal would empty every pool on
+    a machine that has never run a benchmark."""
+    candidates = {name: _tool_model(name)
+                  for name in ("qwen3-coder-30b", "some-obscure-7b")}
+
+    decision = RoutingEngine().select("ravis/coding", candidates, role_evidence={})
+
+    assert decision.selected == "qwen3-coder-30b"
+    assert "some-obscure-7b" not in [decision.selected, *decision.fallbacks]
+
+
+def test_a_role_measured_on_another_axis_does_not_count_as_a_verdict() -> None:
+    """A throughput run under a role establishes nothing about fitness for it.
+    `UNKNOWN` falls through to the families exactly as absence does."""
+    candidates = {name: _tool_model(name)
+                  for name in ("qwen3-coder-30b", "some-obscure-7b")}
+
+    decision = RoutingEngine().select(
+        "ravis/coding", candidates,
+        role_evidence=_measured(**{"some-obscure-7b": "UNKNOWN"}),
+    )
+
+    assert decision.selected == "qwen3-coder-30b"
+    assert "some-obscure-7b" not in [decision.selected, *decision.fallbacks]
+
+
+def test_evidence_for_another_role_does_not_admit_this_pool() -> None:
+    """A build measured for `chat` is not thereby a coding model. The pool names
+    the role whose evidence is about *its* work, and evidence about a different
+    question is not an answer to this one."""
+    candidates = {name: _tool_model(name)
+                  for name in ("qwen3-coder-30b", "some-obscure-7b")}
+
+    decision = RoutingEngine().select(
+        "ravis/coding", candidates,
+        role_evidence={"some-obscure-7b": {"chat": "SUPPORTED"}},
+    )
+
+    assert "some-obscure-7b" not in [decision.selected, *decision.fallbacks]

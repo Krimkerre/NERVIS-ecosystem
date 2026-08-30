@@ -140,8 +140,24 @@ async def read_health(request: Request) -> dict[str, Any]:
     }
 
 
+def _role_evidence(request: Request, pool: Any, models: list[str]) -> dict[str, str]:
+    """What this pool's role has measured about each candidate.
+
+    Read here for the reason `read_pools` already gives about counts: the number
+    on a dashboard has to be the number the router uses. Membership is derived
+    from evidence where evidence exists (§5.1.1), so a listing computed without
+    it describes a different pool than the one that answers.
+    """
+    store = getattr(request.app.state, "evidence", None)
+    if store is None or not pool.evidence_role or not hasattr(store, "roles_measured"):
+        return {}
+    fit = {model: store.roles_measured(model).get(pool.evidence_role, "") for model in models}
+    return {model: state for model, state in fit.items() if state}
+
+
 def _members(
-    pool: Any, eligible: list[str], membership: Any, prices: dict[str, Any] | None = None
+    pool: Any, eligible: list[str], membership: Any, prices: dict[str, Any] | None = None,
+    evidence: dict[str, str] | None = None,
 ) -> list[str]:
     """What this pool is choosing among right now.
 
@@ -157,7 +173,7 @@ def _members(
     if stored:
         admitted = set(eligible)
         return [model for model in stored if model in admitted]
-    return list(pool.default_membership(eligible, prices))
+    return list(pool.default_membership(eligible, prices, evidence))
 
 
 @router.get("/pools")
@@ -194,7 +210,9 @@ async def read_pools(request: Request) -> dict[str, Any]:
         # Computed once. It was called twice for `members` and `member_count`,
         # which is how the two could in principle disagree, and it is the number
         # `available` has to be derived from.
-        members = _members(pool, eligible, membership, prices)
+        members = _members(
+            pool, eligible, membership, prices, _role_evidence(request, pool, eligible)
+        )
         items.append(
             {
                 "pool_id": pool.pool_id,
@@ -530,7 +548,8 @@ async def read_pool_members(pool_key: str, request: Request) -> Any:
     # What the pool would use right now: the operator's selection if they made
     # one, otherwise its own default tier over what is actually present.
     chosen = set(stored or pool.default_membership(
-        eligible, {m: k.price_per_million for m, k in candidates.items()}
+        eligible, {m: k.price_per_million for m, k in candidates.items()},
+        _role_evidence(request, pool, list(eligible)),
     ))
     return {
         "pool_id": pool_id,
@@ -634,7 +653,9 @@ async def curate_pools(request: Request) -> Any:
         # What the pool selects *right now*. Reported rather than stored, so the
         # number is a description of the current catalogue and not a promise
         # about the next one.
-        chosen = pool.default_membership(eligible, prices)
+        chosen = pool.default_membership(
+            eligible, prices, _role_evidence(request, pool, list(eligible))
+        )
         applied.append({
             "pool_id": pool.pool_id,
             "curated": bool(pool.curated),
