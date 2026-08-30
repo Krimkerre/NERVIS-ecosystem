@@ -2515,6 +2515,41 @@ parameter, so the URL contained a space. In the middle of an outage rehearsal
 that is the worst possible direction to be wrong in — it would have been read as
 the outage spreading. The probe is a Python script now.
 
+**Stage 10's load and long-running questions, asked of the control plane.**
+Deliberately not of the model path: driving `/v1/chat/completions` in a loop
+measures a provider's rate limiter and spends real money doing it. What this
+ecosystem owns is the hub, the registry and the read surfaces, and that is where
+an unbounded buffer would show.
+
+**The retention cap is exact.** 66,204 events pushed through NERVIS's hub;
+walking the cursor afterwards finds the oldest retained at sequence 16,205 and
+the newest at 66,204 — **50,000 held, to the event**, against a configured
+retention of 50,000. Ingest ran at ~18,200/s in batches of 500, and the process
+sat at 76 MB RSS with the buffer full.
+
+**Reads do not suffer while writes land.** Eighty concurrent reads against a full
+hub returned p50 2 ms, p95 2 ms, max 2 ms; `health`, `services` and
+`registry/instances` all answered in under a millisecond. A control plane that
+stops answering under its own telemetry would be worse than one that drops it,
+and this does neither.
+
+**One number stood out and was not a defect.** `ravis/api/v1/pools` took 5,083 ms
+— twenty times everything else — on the first call after a restart, and 104 ms on
+every call after. That is a cold catalogue of 591 models across four providers,
+not a hang. Worth knowing because it is the Pools screen's first paint after a
+restart; not worth fixing before somebody says it is slow.
+
+**And the decision log enforces its own limit.** A request for 1,000 records came
+back `422` naming the bound — *"Input should be less than or equal to 200"* —
+which is the cap being a rule rather than a comment.
+
+**Three of tonight's measurements were wrong before they were right**, all of
+them the probe rather than the service: a shell loop that reported three healthy
+services as unreachable, a `limit=1000` read that was a validation error rather
+than an empty log, and an `after=0` cursor that silently means *no cursor* and
+returns the newest window. The last one nearly produced "the hub holds one
+event". A measurement that agrees with a hypothesis is the one to check twice.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
