@@ -7697,6 +7697,54 @@ one a family does name leaving on a failing one — the second is a chat trial a
 since `mlx-community/granite-4.0-h-tiny` matches `granite-4` and scores 3/24 on
 the agent trial.
 
+## Stage 9 — four more cells, settled by running them (30 Aug)
+
+The spike's `NOT_TESTED` column went from 11 to 7. What settled them was opening
+a real folder in code-server, granting trust, and using the thing — which is the
+whole method the runbook asks for and the reason the earlier pass could not
+finish: every previous session ran in an empty window.
+
+**Shell-integration events — `PASS`.** `outcome terminal "…sleep 3…"
+exitCode=0 durationMs=3038`. Both events fired, the command line came through
+verbatim, and the duration matches the sleep rather than the keystroke, so VS
+Code's integration script is genuinely injected into zsh under this host.
+
+**Tasks — `PASS_WITH_LIMITATION`, and the cell predicted its own failure.** It
+said to check for "the double-count that `isTaskExecution` exists to prevent …
+exactly the kind of timing/naming detail a browser-hosted terminal could order
+differently." One task run produced both an `outcome task` and an
+`outcome terminal` line, 3 ms apart. The guard recognises a task's terminal by
+its name being empty — "how a brand-new task terminal looks before VS Code names
+it" — and code-server names it immediately. Fixed in Clarvis by also matching a
+running task's name, and the rule moved to a module with no `vscode` import,
+because it could not be tested where it lived.
+
+**SecretStorage persistence — `PASS`.** A key stored on 29 August was read back
+on 30 August by a different server process, with no key-storing event that day.
+
+**Tier 1 audio — `PASS_WITH_LIMITATION`.** `afplay` spawned from the extension
+host and exited 0. It works because browser and server are the same machine
+here, which is precisely why the split-host cell stays `FAIL`.
+
+**Two cells were attempted and deliberately left ungraded.** The Clarvis webview
+failed with `Could not register service worker` — and the honest answer is that
+this says nothing about Clarvis. The script returns 200 with the right MIME in a
+secure, top-level context, and registration fails for *every* script including
+`/manifest.json`: service workers are blocked in the browser used for this pass,
+and no webview of any kind can load without one. Recorded as a browser-axis
+fact, with Firefox as the other point. Grading it a failure would have been the
+error the matrix exists to prevent.
+
+**Workspace FS keeps `NOT_TESTED`** although its blocking premise is void — a
+folder is open and `workspace.fs` reads are running against a real root. The
+cell is *containment*, and the deliberate `../` and symlink escape need the
+agent, which needs the webview.
+
+One cross-check fell out of it: the Clarvis Bridge registered with NERVIS from
+inside code-server (`bridge: registered with NERVIS as 27708bcc-… on port
+50691`), and NERVIS lists that instance. Stage 8's Bridge works under Stage 9's
+host.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
