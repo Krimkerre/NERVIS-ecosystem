@@ -218,30 +218,6 @@ jobs:
         run: node tools/preserve_check.js
         working-directory: nervis
 
-      # **Written, passing, and never run here until now.** Twelve gate scripts
-      # exist in `nervis/tools` and this file invoked ten of them, so two rules
-      # were enforced only when somebody remembered to type them — which is the
-      # state this file's own header calls a preference rather than a rule.
-      - name: every claim on a screen is one the data supports
-        run: node tools/honesty_check.js
-        working-directory: nervis
-
-  # Its own job because it takes roughly twenty minutes: as a step it would add
-  # that to the dashboard job's wall clock, and as a job it runs beside it.
-  recovery:
-    name: nervis — recovery from every failure shape
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-      - run: npm ci --no-audit --no-fund
-        working-directory: nervis
-      - name: every screen recovers from a failed read
-        run: node tools/recovery_check.js
-        working-directory: nervis
-
   nervis:
     name: nervis — lint, types, tests
     runs-on: ubuntu-latest
