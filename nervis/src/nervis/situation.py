@@ -80,7 +80,14 @@ MAX_RESULTS = 2
 # of the reading is that it fits in a prompt.
 MAX_MATCHED_RESULTS = 4
 MAX_QUOTED_RESULTS = 6
-MAX_VALIDITY_NOTES = 2
+# **Every reason, not the first two.** `validity` is literally
+# `SUSPECT if warnings else VALID` in SIRVIS's engine and `validity_notes` is
+# those same warnings — so the notes are not colour beside the verdict, they are
+# the verdict's entire justification. Quoting two of three left chat able to say
+# a result was SUSPECT and unable to say why, which is the half that decides
+# whether a number means anything. Four covers every record on this machine and
+# the overflow is counted rather than dropped.
+MAX_VALIDITY_NOTES = 4
 
 # Which measurements are worth a line, in the order a person asks about them.
 # A closed list for the same reason the event fields are one: a result carries
@@ -508,19 +515,37 @@ def _run_lines(runs: Sequence[Mapping[str, Any]], question: str = "") -> list[st
                 str((target or {}).get("quantization") or ""),
             ) if part
         ) if isinstance(target, Mapping) else ""
+        # The verdict and its cause in one line. `SUSPECT` on its own is a
+        # label a reader can repeat and not explain — which is exactly what
+        # happened — so the count of reasons travels with it and the reasons
+        # follow underneath.
+        notes = [str(note) for note in (result.get("validity_notes") or [])]
+        validity = clip(str(result.get("validity") or "unknown"))
+        if notes:
+            validity += f", for {len(notes)} reason(s) listed below"
+        # **When, because one build gets measured more than once.** Two runs of
+        # `google/gemma-4-e4b` produced two blocks whose first lines were
+        # character-for-character identical, differing only in the reasons
+        # underneath — and a reader asked why the results were suspect
+        # attributed the second block's swap warning to the third block's
+        # build. Nothing in the reading could have told them apart.
+        when = clip(str(result.get("created_at") or ""))
         lines.append(
             f"measured for {clip(str(result.get('target_key') or '?'))}"
             + (f" ({clip(build)})" if build else "")
-            + f" ({clip(str(result.get('samples') or '?'))} samples, "
-            f"{clip(str(result.get('validity') or 'unknown'))}):"
+            + (f", run of {when}" if when else "")
+            + f" ({clip(str(result.get('samples') or '?'))} samples, {validity}):"
         )
         lines += _metric_lines(result.get("metrics"))
         lines += _trial_lines(result.get("metrics"))
-        for note in list(result.get("validity_notes") or [])[:MAX_VALIDITY_NOTES]:
-            # The reason a number might be wrong, in SIRVIS's own words. It
-            # is the half a summary drops and the half that decides whether
-            # the figure means anything.
-            lines.append(f"    caveat: {clip(str(note))}")
+        for note in notes[:MAX_VALIDITY_NOTES]:
+            # In SIRVIS's own words, and labelled as the cause rather than as a
+            # caveat: this *is* why the record is not VALID.
+            lines.append(f"    why {result.get('validity', 'suspect')}: {clip(note)}")
+        if len(notes) > MAX_VALIDITY_NOTES:
+            lines.append(
+                f"    … and {len(notes) - MAX_VALIDITY_NOTES} further reason(s) not quoted here"
+            )
     return lines
 
 
