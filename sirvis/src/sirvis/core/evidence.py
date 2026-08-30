@@ -234,12 +234,32 @@ class TrialRate:
     provenance: Provenance
     phrasings: int | None = None
     repetitions_each: int | None = None
+    # **How the failures failed, by name.**
+    #
+    # `3/24` reads as "cannot call tools". On this machine the build behind that
+    # number calls `readFile` every single time and sends empty arguments — it
+    # loses the filename, twenty-one times out of twenty-four. That is a
+    # different defect from never calling the tool at all, it has a different
+    # fix, and a rate cannot express either.
+    #
+    # The trial runner has always produced this tally; it stopped at the record
+    # boundary, so nothing downstream could tell the two apart. Optional and
+    # defaulting to empty because older records do not carry it and an absent
+    # tally is "nobody recorded it" rather than "there were no failures".
+    outcomes: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.total <= 0:
             raise ValueError("a trial rate needs at least one attempt")
         if not 0 <= self.passed <= self.total:
             raise ValueError("passed must be between zero and total")
+        counted = sum(self.outcomes.values())
+        if self.outcomes and counted != self.total:
+            # A tally that does not add up is worse than none: it would be read
+            # as a complete account of the attempts and is not one.
+            raise ValueError(
+                f"the outcome tally covers {counted} attempts, not {self.total}"
+            )
 
     @property
     def rate(self) -> float:
@@ -252,6 +272,11 @@ class TrialRate:
             "rate": self.rate,
             "phrasings": self.phrasings,
             "repetitions": self.repetitions_each,
+            # Sorted by count, because the first line of a failure report should
+            # be the failure that happened most.
+            "outcomes": dict(
+                sorted(self.outcomes.items(), key=lambda item: (-item[1], item[0]))
+            ),
             "provenance": self.provenance.as_dict(),
         }
 

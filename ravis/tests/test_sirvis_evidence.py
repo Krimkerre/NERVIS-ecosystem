@@ -47,6 +47,7 @@ def record(
     age: float = 60.0,
     version: str = "0.0.1",
     fmt: str = "gguf",
+    outcomes: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """One evidence item in the shape `/api/v1/evidence` actually returns."""
     del runtime_key
@@ -66,6 +67,9 @@ def record(
             "tool_call_well_formed": {
                 "passed": passed, "total": total, "rate": passed / total,
                 "phrasings": phrasings, "repetitions": total // max(1, phrasings),
+                # Absent unless a test asks for it: records written before the
+                # tally existed carry none, and the reader has to cope.
+                **({"outcomes": outcomes} if outcomes else {}),
                 "provenance": {"kind": kind, "method": "clarvis.tool_call.streamed.v1"},
             }
         },
@@ -779,3 +783,42 @@ def test_a_sirvis_that_will_not_answer_the_second_read_is_not_degraded() -> None
 
     assert store.state is SourceState.FRESH
     assert store.reasoning_share(GGUF) is None
+
+
+def test_a_refusal_names_the_failure_it_saw() -> None:
+    """"3/24 well-formed tool calls" sends a reader looking for a better model.
+    "3/24 — 21 of them lost-arguments" tells them the build calls the tool and
+    drops the filename, which is a quantisation or template problem and may have
+    a fix. Measured on this machine: the two granite builds differ exactly so.
+    """
+    store = store_with(payload(
+        record(passed=3, total=24, outcomes={"lost-arguments": 21, "used-result": 3}),
+        variants={GGUF: "var_gguf"},
+    ))
+
+    verdict = tool_verdict(store.record_for(GGUF))
+
+    assert verdict.state is CapabilityState.UNSUPPORTED
+    assert "21 of them lost-arguments" in verdict.detail
+
+
+def test_success_is_never_reported_as_the_complaint() -> None:
+    """`used-result` is the one outcome that is not a failure."""
+    store = store_with(payload(
+        record(passed=3, total=24, outcomes={"used-result": 3, "no-call": 21}),
+        variants={GGUF: "var_gguf"},
+    ))
+
+    verdict = tool_verdict(store.record_for(GGUF))
+
+    assert "no-call" in verdict.detail and "used-result" not in verdict.detail
+
+
+def test_a_record_without_a_tally_says_only_what_it_knows() -> None:
+    """Older records carry none. Inventing a cause is worse than a bare rate."""
+    store = store_with(payload(record(passed=3, total=24), variants={GGUF: "var_gguf"}))
+
+    verdict = tool_verdict(store.record_for(GGUF))
+
+    assert verdict.state is CapabilityState.UNSUPPORTED
+    assert "of them" not in verdict.detail

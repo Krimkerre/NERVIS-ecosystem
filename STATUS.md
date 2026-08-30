@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1676 tests, no network, no live service
+.venv/bin/pytest                      # part of 1681 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 409 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1676 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1681 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2833,14 +2833,25 @@ attempt per phrasing is a coin toss about a stochastic decoder. The corpus
 already held two records at one repetition per phrasing, and one of them had a
 1.00 rate and was being read as agent-capable outright.
 
-**The detail is recorded and then dropped at the record boundary.** Every attempt
-is written to `responses/__tools__-trial-000.json` with its prompt, the assembled
-call, whether it was well formed, and a named outcome from a closed vocabulary —
-`used-result`, `lost-arguments`, `no-call`, `retried`, `answered-in-prose`,
-`gave-up`. The evidence record keeps only `passed`/`total`, so nothing downstream
-can tell "never called it" from "called it with nothing in it". Putting the
-`outcomes` tally on the `TrialRate` beside `phrasings` and `repetitions` would
-close that, and it is additive to a contract RAVIS already reads by name.
+**The detail was recorded and then dropped at the record boundary; it now
+travels.** Every attempt has always been written to
+`responses/__tools__-trial-000.json` with its prompt, the assembled call, whether
+it was well formed, and a named outcome from a closed vocabulary — `used-result`,
+`lost-arguments`, `no-call`, `retried`, `answered-in-prose`, `gave-up`. The
+evidence record kept only `passed`/`total`, so nothing downstream could tell
+"never called it" from "called it with nothing in it".
+
+`TrialRate` carries the tally now, beside `phrasings` and `repetitions`, sorted
+so the first line of a failure report is the failure that happened most. It
+refuses a tally that does not add up to `total`: a partial count would be read
+as a complete account of the attempts. Old records carry none, and an absent
+tally stays absent rather than becoming "no failures".
+
+**And RAVIS relays it in the refusal.** A route explanation that reads *"3/24
+well-formed tool calls, below the 95% threshold for clarvis-agent — 21 of them
+lost-arguments"* sends a reader somewhere useful; the same sentence without the
+clause sends them looking for a different model. `used-result` is excluded by
+name, so success is never reported as the complaint.
 
 **Two of these runs are invisible to the service that would use them.** `sirvis
 benchmark run` resolves its database and results directory relative to the

@@ -64,6 +64,11 @@ MIN_REPETITIONS = 3
 # The metric names SIRVIS publishes for M13's trials.
 RATE_TOOL_CALLS = "tool_call_well_formed"
 
+# The one outcome in SIRVIS's vocabulary that is not a failure. Named here so a
+# reason never reports "21 of them used-result" as though success were the
+# complaint.
+OUTCOME_PASSED = "used-result"
+
 # §11.4's reasoning share, filed by SIRVIS M22b: the fraction of a build's
 # output that is thinking rather than answer. Named here rather than spelled
 # inline for the same reason as the rate above — the wire name is a contract
@@ -189,6 +194,31 @@ class EvidenceRecord:
             return None
         return passed, total
 
+    def outcomes(self, name: str) -> dict[str, int]:
+        """How the failures failed, by name, or nothing when unrecorded.
+
+        SIRVIS counts a closed vocabulary — `used-result`, `lost-arguments`,
+        `no-call`, `retried`, `answered-in-prose`, `gave-up` — and now publishes
+        the tally beside the rate. It is worth relaying because the rate hides
+        the distinction that matters: a build at 3/24 that calls the tool every
+        time and sends empty arguments has a different defect, and a different
+        fix, from one that never calls it.
+
+        Empty for older records, which carried no tally at all. Absent is not
+        "no failures" and this returns nothing rather than pretending otherwise.
+        """
+        body = self.metrics.get(name)
+        if not isinstance(body, Mapping):
+            return {}
+        found = body.get("outcomes")
+        if not isinstance(found, Mapping):
+            return {}
+        return {
+            str(outcome): int(count)
+            for outcome, count in found.items()
+            if isinstance(count, int) and count > 0
+        }
+
     def measured_share(self, name: str) -> float | None:
         """One measurement's headline, but only when it was actually measured.
 
@@ -257,6 +287,27 @@ class EvidenceVerdict:
     record: EvidenceRecord | None = None
 
 
+def _how_it_failed(record: EvidenceRecord) -> str:
+    """The dominant failure, named, when SIRVIS recorded one.
+
+    **A refusal that says why is a refusal somebody can act on.** "3/24 well-formed
+    tool calls" sends a reader to look for a better model; "3/24 — 21 of them
+    lost-arguments" tells them the build calls the tool and drops the filename,
+    which is a quantisation or template problem and may well have a fix. Empty
+    for records that predate the tally, because inventing a cause is worse than
+    reporting a rate.
+    """
+    failures = {
+        outcome: count
+        for outcome, count in record.outcomes(RATE_TOOL_CALLS).items()
+        if outcome != OUTCOME_PASSED
+    }
+    if not failures:
+        return ""
+    outcome, count = max(failures.items(), key=lambda item: (item[1], item[0]))
+    return f" — {count} of them {outcome}"
+
+
 def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
     """Apply §13.2's threshold to one record.
 
@@ -293,7 +344,7 @@ def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
         return EvidenceVerdict(
             CapabilityState.UNSUPPORTED,
             f"{passed}/{total} well-formed tool calls, below the {TOOL_CALL_PASS_RATE:.0%} "
-            f"threshold for {record.role}",
+            f"threshold for {record.role}" + _how_it_failed(record),
             record,
         )
     if phrasings < MIN_PHRASINGS or total < attempts_needed:

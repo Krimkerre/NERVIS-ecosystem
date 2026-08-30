@@ -522,3 +522,42 @@ def test_a_failed_trial_measures_nothing_rather_than_measuring_a_failure() -> No
     assert followup_rate(ToolReliability(trials=[], followup=TRIAL_FAILED)) is None, (
         "no evidence, rather than bad evidence"
     )
+
+
+def test_the_rate_carries_how_the_failures_failed() -> None:
+    """`3/24` reads as "cannot call tools". On this machine the build behind
+    that number calls `readFile` every time and sends empty arguments — it loses
+    the filename. Different defect, different fix, and a rate says neither."""
+    from sirvis.benchmarks.clarvis_roles import TOOL_PROMPTS, tool_rate
+
+    # The outcome is derived from what came back, not set: a call with empty
+    # arguments is `lost-arguments`, a well-formed one is `used-result`.
+    lost = AssembledCall(index=0, id="c", name="readFile", arguments="")
+    good = AssembledCall(index=0, id="c", name="readFile",
+                         arguments='{"path": "src/main.go"}')
+    reliability = ToolReliability(trials=[
+        ToolTrial(prompt=TOOL_PROMPTS[index % len(TOOL_PROMPTS)], calls=[call])
+        for index, call in enumerate([lost] * 21 + [good] * 3)
+    ])
+
+    rate = tool_rate(reliability, phrasings=len(TOOL_PROMPTS))
+
+    assert rate.passed == 3 and rate.total == 24
+    assert rate.outcomes == {"lost-arguments": 21, "used-result": 3}
+    # Sorted by count in the published shape: the first line of a failure report
+    # should be the failure that happened most.
+    assert list(rate.as_dict()["outcomes"]) == ["lost-arguments", "used-result"]
+
+
+def test_a_tally_that_does_not_add_up_is_refused() -> None:
+    """A partial tally would be read as a complete account of the attempts."""
+    import pytest
+
+    from sirvis.core.evidence import EvidenceKind, Provenance, TrialRate
+
+    with pytest.raises(ValueError, match="covers 5 attempts, not 24"):
+        TrialRate(
+            passed=3, total=24,
+            provenance=Provenance(kind=EvidenceKind.MEASURED, method="x"),
+            outcomes={"lost-arguments": 5},
+        )

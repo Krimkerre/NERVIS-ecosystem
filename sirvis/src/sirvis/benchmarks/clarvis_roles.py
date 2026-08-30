@@ -455,6 +455,10 @@ def tool_rate(reliability: ToolReliability, *, phrasings: int) -> TrialRate:
         provenance=Provenance(kind=EvidenceKind.MEASURED, method=METHOD_TOOL_CALL),
         phrasings=phrasings,
         repetitions_each=reliability.total // max(1, phrasings),
+        # The named outcomes, which the runner has always counted and the record
+        # used to drop. This is what turns "3/24" into "it called the tool every
+        # time and lost the filename".
+        outcomes=reliability.outcomes,
     )
 
 
