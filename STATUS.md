@@ -2481,6 +2481,40 @@ on `recovery_check` with 1.7 seconds of CPU and three sockets open to a service
 the clone had never started. The reason is a comment beside the ten now, because
 a gap that looks like an oversight gets closed again by whoever notices it next.
 
+**Stage 10's degradation drill, run rather than argued, 30 Aug.** §8's
+scenarios 11 and 12 are claims about what survives an outage, and neither had
+been watched. Both directions were driven by killing a process and reading what
+the others said.
+
+**RAVIS killed.** SIRVIS and NERVIS both stayed `healthy` and `ready`, and NERVIS
+named the loss rather than going quiet: `ravis state=unreachable, "no response:
+ConnectError"`. NERVIS's chat — which routes through RAVIS and cannot work
+without it — failed closed with the true reason, `"RAVIS stopped answering:
+ConnectError"`, and invented nothing. That is the shape §8 asks for: the services
+that do not depend on it are unaffected, and the one that does says why.
+
+**SIRVIS killed.** RAVIS stayed healthy and kept routing — a request through
+`ravis/clarvis-chat` was answered by `claude-haiku-4.5` with its evidence source
+gone. Scenario 11 asks for more than continuing, though: the evidence must be
+*labelled*. For the first three and a half minutes it was still labelled `fresh`,
+which looks wrong and is not: `_state` is assigned inside `refresh`, the interval
+is `models_cache_ttl_seconds` at 300s, and the next cycle set it to `degraded`.
+Watched rather than assumed — polled every fifteen seconds until it flipped,
+because the alternative was calling a timer a defect.
+
+The distinction the code draws is right and worth keeping: `degraded` is for a
+source that answered and whose records have aged, `absent` for one that is not
+configured or did not reply, *"and the difference decides whether an operator
+looks at SIRVIS or at the clock"*. Recovery is symmetric — NERVIS saw SIRVIS
+return immediately, and RAVIS's evidence label waits for the same 300s cycle.
+
+**A methodology note, because it nearly derailed the drill.** The first baseline
+reported all three services NOT ANSWERING while all three were healthy: the probe
+was a shell loop using `set -- $pair`, and zsh does not word-split an unquoted
+parameter, so the URL contained a space. In the middle of an outage rehearsal
+that is the worst possible direction to be wrong in — it would have been read as
+the outage spreading. The probe is a Python script now.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
