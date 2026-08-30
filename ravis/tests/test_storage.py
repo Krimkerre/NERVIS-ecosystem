@@ -261,3 +261,54 @@ def test_a_database_at_the_build_s_own_version_is_not_refused(tmp_path) -> None:
     database = tmp_path / "under-test.db"
     prepare_database(str(database))
     prepare_database(str(database))
+
+
+def _version_of(database) -> int:
+    """The schema version, whichever name this package's Database gives it."""
+    return getattr(database, "schema_version", None) or database.version
+
+
+def test_every_intermediate_version_migrates_to_latest(tmp_path) -> None:
+    """Runbook §13 asks each migration for forward proof.
+
+    Every other test builds a fresh database, which applies the whole list in
+    order — so the chain is only ever exercised from zero. Nothing covered the
+    case that actually happens to an operator: a database sitting at version 4
+    when a build carrying version 5 arrives. A migration that assumes the schema
+    it was written against, or that is appended out of order, passes the suite
+    and fails on the machine.
+
+    Every starting point rather than the newest one. The newest is the case
+    somebody just tested by hand; the old ones are the databases nobody has
+    opened in months, which is exactly where an upgrade breaks.
+
+    **What this does not cover, stated so it is not mistaken for coverage.** The
+    databases here are empty, so it catches ordering and idempotence faults and
+    not data-dependent ones — a `CREATE UNIQUE INDEX` over a column with
+    duplicate rows succeeds against no rows and fails against real ones. Proving
+    that needs representative data per migration, which is a per-migration job
+    rather than a generic one. The live databases are migrated by hand at release
+    time for the same reason.
+    """
+    full = list(module.MIGRATIONS)
+    latest = full[-1][0]
+
+    for step in range(1, len(full)):
+        started_at = full[step - 1][0]
+        database = tmp_path / f"from-v{started_at}.db"
+
+        original = module.MIGRATIONS
+        try:
+            module.MIGRATIONS = full[:step]
+            assert _version_of(prepare_database(str(database))) == started_at
+            module.MIGRATIONS = full
+            reached = _version_of(prepare_database(str(database)))
+        finally:
+            module.MIGRATIONS = original
+
+        assert reached == latest, (
+            f"a database at version {started_at} reached {reached}, not {latest}"
+        )
+        # The upgrade left a backup at the version it started from — the one an
+        # operator wants when the upgrade is the thing that went wrong.
+        assert (tmp_path / f"from-v{started_at}.db.v{started_at}.bak").exists()

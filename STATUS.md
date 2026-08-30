@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1754 tests, no network, no live service
+.venv/bin/pytest                      # part of 1757 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 440 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 406 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1754 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1757 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2177,6 +2177,36 @@ service that runs and quietly damages evidence this runbook calls immutable.
 That completes a cluster rather than three separate items. A migration takes a
 backup, the backup can be restored, and the case that most needs a restore is now
 the case that stops and names the command.
+
+**Forward proof, and an honest note about what it is not.** §13 asks each
+migration for forward proof, and every test built a fresh database — so the chain
+was only ever exercised from zero. The case that happens to an operator, a
+database sitting at version 4 when a build carrying 5 arrives, was uncovered. A
+test now walks every intermediate version to latest and asserts the upgrade left
+a backup at the version it started from.
+
+What it does not cover is written into the test rather than left to be assumed:
+the databases it migrates are **empty**, so it catches ordering and idempotence
+faults and not data-dependent ones. A `CREATE UNIQUE INDEX` over a column with
+duplicate rows succeeds against no rows and fails against real ones. Covering
+that needs representative data per migration, which is a per-migration job.
+
+**So the real databases were migrated by hand, and one of them actually moved.**
+Copies of all three, 2.4 MB of live content: NERVIS v6, RAVIS v5 and SIRVIS v9
+all opened at latest with no backup written, which is the designed behaviour when
+nothing is pending. A stale copy of `sirvis.db` found at the repository root was
+at v8 and migrated to v9 against real benchmark evidence — **and today's backup
+fired unprompted**, leaving `sirvis.db.v8.bak` at 143 KB. That is the feature
+working on real data in the case it was built for, rather than in a fixture.
+
+**Incidentally: the root-level `nervis.db`, `ravis.db` and `sirvis.db` are
+orphans.** The launcher points each service at `<package>/<package>.db`
+(`tools/run.py:569`), and the root copies were last written between 00:15 and
+04:48 while the live ones are hours newer — `sirvis/sirvis.db` is 1.4 MB against
+the root copy's 143 KB. They are the residue of services hand-started from the
+repository root, which is the same trap this repository has already paid for once.
+Left in place rather than deleted: they are data, and which of them is worth
+keeping is the operator's call.
 
 ### Next — in this order
 
