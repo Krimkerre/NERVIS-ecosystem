@@ -675,3 +675,40 @@ def test_an_unknown_family_is_still_a_404() -> None:
 
     with pytest.raises(ModelNotFoundError):
         _resolve(inventory, "someone/else@4bit")
+
+
+def test_two_variants_of_one_model_are_one_family() -> None:
+    """Once a variant is loaded by its qualified key, LM Studio lists it as an
+    entry of its own — so the same weights appear as `google/gemma-4-e4b` and
+    `google/gemma-4-e4b@4bit`. They are two builds of one family, which is what
+    §12.2's identity is for; left in the family name they would be two families
+    and no comparison between them would group."""
+    from sirvis.core.inventory import build_inventory
+
+    inventory = build_inventory([
+        {"id": "google/gemma-4-e4b", "compatibility_type": "gguf",
+         "quantization": "Q4_K_M", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "max_context_length": 131072},
+        {"id": "google/gemma-4-e4b@4bit", "compatibility_type": "mlx",
+         "quantization": "4bit", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "max_context_length": 131072},
+    ])
+
+    assert len(inventory.families) == 1
+    assert len(inventory.variants) == 2
+    formats = {variant.runtime_format for variant in inventory.variants.values()}
+    assert formats == {"gguf", "mlx"}
+
+
+def test_the_cli_and_the_catalogue_agree_on_what_mlx_is_called() -> None:
+    """`lms ps` says `safetensors` where the HTTP catalogue says `mlx`. One
+    build with two names is two identities, so the catalogue's word wins."""
+    from sirvis.runtimes.variants import _read
+
+    variant = _read({
+        "modelKey": "google/gemma-4-e4b@4bit", "format": "safetensors",
+        "quantization": {"name": "4bit", "bits": 4},
+    })
+
+    assert variant is not None
+    assert variant.runtime_format == "mlx"

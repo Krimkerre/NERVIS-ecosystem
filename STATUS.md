@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1686 tests, no network, no live service
+.venv/bin/pytest                      # part of 1688 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 414 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 416 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1686 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1688 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2852,11 +2852,33 @@ given. Warmth is compared on the family too, since a build loaded as `…@4bit` 
 reported by the catalogue under the plain name and would otherwise look cold
 while its own weights were resident.
 
-**The comparison that prompted this is half done.** The GGUF ran and is recorded
-as `gguf / Q4_K_M` — 21/24, three `no-call` — against a catalogue that would have
-said `mlx / 4bit`. The MLX run failed on its first attempt: benching by plain
-name pulled the *selected* variant in alongside the resident one, and the two
-evicted each other mid-stream. Nothing partial was written.
+**Both builds of `gemma-4-e4b`, measured, and the answer inverts granite's.**
+
+| build | tool calls | failures | tok/s | TTFT |
+|---|---|---|---|---|
+| MLX 4bit | **24/24** | — | 24.2 | 16.5s |
+| GGUF Q4_K_M | 21/24 | 3 × `no-call` | 12.9 | 29.6s |
+
+On granite the GGUF was flawless and the MLX build collapsed to 3/24; here the
+MLX build is the reliable one *and* the faster one. Quantisation and runtime
+effects are per-model, which is the argument for measuring builds rather than
+models — and neither result is predictable from the `tool_use` flag both carry.
+Both runs are `SUSPECT` on thermals, which bears on the timings more than on the
+rates.
+
+**Two identity wrinkles the comparison exposed, both fixed.** Loading a variant
+by its qualified key makes LM Studio list it as an entry of its own, so the same
+weights appeared as `gemma-4-e4b` and `gemma-4-e4b@4bit` — two *families*, which
+no comparison would ever group. The variant suffix is now stripped from the
+family name, leaving format and quantization to tell the builds apart, which is
+what §12.2's identity is for. And `lms ps` calls the MLX build `safetensors`
+where the catalogue calls it `mlx`: one build with two names is two identities,
+so the catalogue's vocabulary wins.
+
+**The MLX run failed on its first attempt**, and instructively: benching by plain
+name pulled the *selected* variant in alongside the resident one and the two
+evicted each other mid-stream. Nothing partial was written, and the qualified
+key is what made the second attempt address the build it meant.
 
 ## Six tool trials, and what "supports tools" turned out to mean (30 Aug)
 

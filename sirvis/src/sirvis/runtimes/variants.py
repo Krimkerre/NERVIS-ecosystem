@@ -42,6 +42,14 @@ DEFAULT_CLI = os.path.expanduser("~/.lmstudio/bin/lms")
 TIMEOUT_SECONDS = 5.0
 
 
+# The CLI and the HTTP catalogue use different words for one format: `lms ps`
+# reports `safetensors` where `/api/v0/models` says `mlx`. Evidence identity has
+# to be stable across runs, and a build that is `mlx` when read one way and
+# `safetensors` when read the other is two identities for one thing — so the
+# catalogue's vocabulary wins, because that is what every other reader sees.
+FORMAT_NAMES = {"safetensors": "mlx"}
+
+
 @dataclass(frozen=True)
 class LoadedVariant:
     """One resident build, as the runtime's own tooling names it."""
@@ -114,7 +122,7 @@ def _read(row: object) -> LoadedVariant | None:
         # `google/gemma-4-e4b@q4_k_m` → `google/gemma-4-e4b`, which is the id the
         # HTTP catalogue uses for the whole group.
         family=key.split("@", 1)[0],
-        runtime_format=runtime_format,
+        runtime_format=FORMAT_NAMES.get(runtime_format, runtime_format),
         quantization=name,
     )
 

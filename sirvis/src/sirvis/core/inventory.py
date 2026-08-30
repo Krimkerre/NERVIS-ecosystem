@@ -32,6 +32,15 @@ _PARAMETERS = re.compile(r"(\d+(?:\.\d+)?)\s*b\b", re.IGNORECASE)
 # `:3` … Those are instances of the same installed model, not separate models.
 _INSTANCE_SUFFIX = re.compile(r":(\d+)$")
 
+# And it names a *variant* with `@q4_k_m`, `@4bit` … Once a variant is loaded by
+# its qualified key the catalogue lists it as an entry of its own, so the same
+# weights appear twice under two ids — `google/gemma-4-e4b` and
+# `google/gemma-4-e4b@4bit`. They are two builds of one family, which is exactly
+# what §12.2's identity is for: the family is the same, and `runtime_format` and
+# `quantization` are what tell them apart. Left in the family name they would be
+# two families, and no comparison between them would group.
+_VARIANT_SUFFIX = re.compile(r"@[\w.-]+$")
+
 
 @dataclass
 class Inventory:
@@ -104,7 +113,7 @@ def build_inventory(records: list[dict[str, Any]], runtime: str = "lmstudio") ->
 def _absorb(inventory: Inventory, record: dict[str, Any], runtime_key: str,
             runtime: str) -> None:
     """Fold one runtime record into the four concepts."""
-    base_key = _INSTANCE_SUFFIX.sub("", runtime_key)
+    base_key = _VARIANT_SUFFIX.sub("", _INSTANCE_SUFFIX.sub("", runtime_key))
     family = _family_for(inventory, base_key, record)
     variant = ModelVariant.derive(
         family=family,
