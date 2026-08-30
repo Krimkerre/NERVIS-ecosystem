@@ -27,6 +27,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
@@ -34,12 +35,13 @@ from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from nervis import bridges, commands, situation
+from nervis import bridges, commands, documents, situation
 from nervis import chat as store
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.peers import ravis as ravis_peer
 from nervis.registry import RegistryEntry
+from nervis.workspace import OutsideWorkspaceError
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -690,6 +692,16 @@ async def send(request: Request) -> Any:
         if not greeting
         else None
     )
+    # A file the person named, read before the model sees anything (§11.5).
+    #
+    # **A source, not a tool.** The model never chooses what is opened: the
+    # person names a file, NERVIS reads it inside the configured workspace, and
+    # the content arrives fenced like every other retrieved thing. A document
+    # that says "now open ~/.ssh/id_rsa" is a document saying that, which is a
+    # sentence rather than an instruction — and the path comparison in
+    # `workspace.py` does not read English either way.
+    awareness = "\n\n".join(part for part in (awareness, _document(request, content)) if part)
+
     # The standing statement first, then the specific offer if there is one.
     # Unconditional on purpose: the failure it exists for happens precisely when
     # no offer was made, which is when `told` has nothing to say.
@@ -2004,3 +2016,45 @@ def _completion_payload(
         "stream": True,
         **{name: body[name] for name in FORWARDED if name in body},
     }
+
+
+# A file named the way people name one: in quotes, or after a reading verb.
+# Deliberately narrow — this decides whether NERVIS *opens* something, and a
+# pattern that fires on an ordinary sentence would read a file nobody asked for.
+_NAMES_A_FILE = re.compile(
+    r"""["'`]([\w./\- ]{1,120}\.\w{1,8})["'`]"""
+    r"""|\b(?:read|open|summari[sz]e|explain|check|look\s+at)\s+"""
+    r"""(?:the\s+|my\s+|this\s+)?([\w./\-]{1,120}\.\w{1,8})""",
+    re.IGNORECASE,
+)
+
+
+def _document(request: Request, question: str) -> str:
+    """The file this question names, read and fenced, or nothing.
+
+    **Off unless configured.** `workspace_path` is empty by default, because an
+    install that was never asked to read a person's files should not do it, and
+    a first request is a poor place to discover that it can.
+
+    Every failure is answered rather than swallowed: outside the workspace, not
+    there, and not text send a reader to three different places, and a silent
+    empty reading would make all three look like the model deciding not to
+    mention the file.
+    """
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        return ""
+    found = _NAMES_A_FILE.search(question or "")
+    if not found:
+        return ""
+    named = found.group(1) or found.group(2)
+    try:
+        return documents.read_document(Path(root), named).as_reading()
+    except OutsideWorkspaceError as refusal:
+        return f"The person named a file and it was refused: {refusal}. Say so plainly."
+    except FileNotFoundError as absent:
+        return f"The person named a file that is not there: {absent}. Say so rather than guessing."
+    except ValueError as unreadable:
+        return f"The person named a file chat cannot read: {unreadable}. Say which kinds it can."
+    except OSError as failure:
+        return f"The file could not be read ({type(failure).__name__}). Say so; do not invent it."

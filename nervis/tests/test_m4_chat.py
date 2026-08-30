@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -72,6 +73,7 @@ def freeze_gap(client: TestClient, conversation_id: str, *, seconds: int) -> Non
 
 def an_api(stream: list[bytes] | None = None, *, status: int = 200,
            capabilities: dict[str, str] | None = None,
+           workspace_path: str = "",
            state: RegistryState = RegistryState.HEALTHY) -> TestClient:
     """NERVIS with a RAVIS that streams exactly what the test says.
 
@@ -89,6 +91,10 @@ def an_api(stream: list[bytes] | None = None, *, status: int = 200,
         clarvis_base_url="http://127.0.0.1:9",
         lmstudio_base_url="http://127.0.0.1:9",
         ollama_base_url="http://127.0.0.1:9",
+        # Empty unless a test says otherwise: reading a person's files is off by
+        # default, and a fixture that turned it on for everything would hide
+        # exactly that.
+        workspace_path=workspace_path,
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)
@@ -2785,3 +2791,81 @@ def test_a_pool_switch_wearing_a_question_mark_is_still_a_request() -> None:
 
     offer = json.loads(answered.headers["x-command-offer"])
     assert offer["target"] == "ravis/reasoning"
+
+
+def test_a_named_file_reaches_the_reading(tmp_path: Path) -> None:
+    """A document is a *source*, not a tool. The person names a file, NERVIS
+    reads it inside the configured workspace, and the content arrives fenced
+    like every other retrieved thing — the model never chooses what is opened,
+    which is what makes reading one safe at all."""
+    (tmp_path / "notes.md").write_text("Revenue fell in Q3.", encoding="utf-8")
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, 'summarise "notes.md" for me', system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "Revenue fell in Q3." in prompt
+    assert "notes.md" in prompt
+
+
+def test_a_file_outside_the_workspace_is_refused_in_the_reading(tmp_path: Path) -> None:
+    """The refusal reaches the model as a fact to report, not as silence. A
+    quiet empty reading would look like the model choosing not to mention it."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    # With an extension, because the matcher requires one — an extensionless
+    # path like `/etc/passwd` never fires it and so is never opened at all,
+    # which is a narrower door than this test is about.
+    turn(client, 'read "../../outside/secrets.txt" please', system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "refused" in prompt
+    assert "outside the workspace" in prompt
+
+
+def test_nothing_is_read_when_no_workspace_is_configured(tmp_path: Path) -> None:
+    """Off by default. An install never asked to read a person's files does not,
+    and a first request is a poor place to discover that it can."""
+    (tmp_path / "notes.md").write_text("secret", encoding="utf-8")
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, 'summarise "notes.md"', system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "secret" not in prompt
+
+
+def test_an_ordinary_sentence_opens_nothing(tmp_path: Path) -> None:
+    """The falsifier. This decides whether NERVIS *opens* a file, so a pattern
+    that fires on ordinary conversation reads something nobody asked for."""
+    (tmp_path / "notes.md").write_text("should not appear", encoding="utf-8")
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "how is the machine doing today", system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "should not appear" not in prompt

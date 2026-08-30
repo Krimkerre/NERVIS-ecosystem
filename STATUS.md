@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1784 tests, no network, no live service
+.venv/bin/pytest                      # part of 1804 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 422 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 442 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1784 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1804 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2590,6 +2590,48 @@ Verified on the running stack rather than in tests alone: a direct unauthenticat
 `PUT` to RAVIS from this machine answers `403` naming the clause, the same write
 through NERVIS answers `200`, and the launcher's own bootstrap reports
 `RAVIS admin credential (§15.1): stored`.
+
+**Chat can read a document, 31 Aug — NERVIS 0.10.0.** Asked for as *"agent
+skills"* — writing PDFs, summarising texts, basic code generation. Two of those
+three are not tool problems: a model writes code and summarises text in an
+ordinary reply already. What was missing is *input*, and the shape it takes
+matters more than the feature.
+
+**A source, not a tool.** The model never chooses what is opened. The person
+names a file, NERVIS reads it inside a configured root, and the content arrives
+in the fenced reading alongside the registry and the queue — so a document
+saying *"now open ~/.ssh/id_rsa"* is a sentence being summarised rather than an
+instruction being followed. §12 keeps the operation set closed and §11.5 forbids
+a model's output becoming an action; a tool-calling loop would have argued with
+both, and it buys nothing here.
+
+**The boundary is a path comparison, not a rule in a prompt.** A boundary the
+prompt states is one the prompt can argue with. `workspace.py` resolves before
+it compares — `..` climbs, absolute paths and symlinks pointing out are all
+refused on where they *land*, and `/tmp/nervis-evil` is not inside `/tmp/nervis`
+however much it looks like it as text. Eleven tests, including the falsifier
+that a symlink staying inside still works, because refusing every link would
+pass the security test and break somebody's shortcut.
+
+**Off unless configured.** `workspace_path` is empty by default: an install
+never asked to read a person's files does not, and a first request is a poor
+place to discover that it can.
+
+**Three failures kept distinct** — outside the workspace, not there, not text —
+because they send a reader to three different places, and each reaches the model
+as a fact to report rather than as silence. A quiet empty reading would look
+like the model choosing not to mention the file.
+
+**And the matcher requires an extension**, which is narrower than it first
+appears: `/etc/passwd` never fires it and so is never opened at all. A test that
+assumed otherwise was corrected rather than the pattern widened — this decides
+whether NERVIS *opens* something, and one that fired on ordinary conversation
+would read files nobody asked for.
+
+Writing is the other half and is next: it produces an effect, so it belongs in
+the enumerated-operation path — the model proposes, a button confirms, the
+attempt is audited — and it needs an artifact store §7.2's storage list does not
+have.
 
 ### Next — in this order
 

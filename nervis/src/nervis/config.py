@@ -82,6 +82,19 @@ class Settings(BaseSettings):
     # launcher mints one and passes it, so an ordinary install has it.
     ravis_admin_credential: str = ""
 
+    # The one directory chat may read from and write into.
+    #
+    # **A wall rather than a rule the model follows.** A document is retrieved
+    # content (§11.5), and a file can ask to be given another file as easily as
+    # it can say anything else — so the boundary is a path comparison in
+    # `workspace.py` and not a sentence in a prompt.
+    #
+    # Empty means the feature is off, which is the right default for something
+    # that reads a person's files: an install that was never asked to do this
+    # does not do it, and the capability says so rather than the first request
+    # discovering it.
+    workspace_path: str = ""
+
     # The credential NERVIS presents to SIRVIS when it carries out a confirmed
     # command (§12). Narrow on purpose: `benchmark` scope, minted by the
     # launcher, and nothing else — §4.5 separates SIRVIS's scopes by what they
