@@ -107,6 +107,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repetitions", type=int, default=None, help="override measured repetitions"
     )
     run.add_argument(
+        "--tool-trials", action="store_true",
+        help=(
+            "run the tool-call trials alongside whatever this specification "
+            "measures, without declaring a product role. Tool-call reliability "
+            "is a property of the build rather than of one consumer's workload, "
+            "and this is how it is measured for a build nobody has assigned yet"
+        ),
+    )
+    run.add_argument(
         "--clarvis-role", default=None, choices=["clarvis-chat", "clarvis-agent"],
         help="run Clarvis's own role workload instead of the specification's tests (M13); "
              "the agent role also runs the tool-call trials",
@@ -348,6 +357,14 @@ def _run_benchmark(settings: Settings, arguments: argparse.Namespace) -> int:
         if value is not None
     }
     spec = dataclasses.replace(spec, **overrides)
+
+    if arguments.tool_trials:
+        # **Independent of the role, deliberately.** A tool-call trial counts
+        # whether a build emits a well-formed call for eight phrasings of one
+        # request; that is a fact about the build, not about Clarvis's agent
+        # workload. Requiring a product role to obtain it is how "which roles
+        # can this build do" became unanswerable without picking one first.
+        spec = dataclasses.replace(spec, tool_trials=True)
 
     if arguments.clarvis_role:
         # The role supplies the whole experiment — Clarvis's own scenes, and the

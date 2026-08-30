@@ -173,3 +173,114 @@ async def test_unload_all_drives_the_cli_and_is_reachable_nowhere_else() -> None
     await adapter.unload_all()
 
     assert ran == [["unload", "--all"]]
+
+
+# ── The builds the catalogue does not publish ────────────────────────────────
+#
+# Measured on this machine: two builds of `google/gemma-4-e4b` are installed,
+# and `/api/v0/models` lists both only while one of them is loaded. Unload it
+# and the catalogue publishes one entry describing whichever variant the app has
+# *selected* — the other build is still on disk, still loadable, still
+# benchmarkable, and unnameable. `lms ls --variants --json` names every one.
+
+
+def _build(key: str, fmt: str, quantization: str) -> object:
+    from sirvis.runtimes.variants import InstalledVariant
+
+    return InstalledVariant(
+        model_key=key, family=key.split("@", 1)[0], runtime_format=fmt,
+        quantization=quantization, publisher="google", architecture="gemma4",
+        max_context=131072, size_bytes=None, model_type="llm",
+    )
+
+
+def test_a_build_the_catalogue_omits_is_added_from_the_cli() -> None:
+    """The MLX build is on disk and absent from the catalogue. It arrives
+    `not-loaded`, because state is the one field the listing does not carry and
+    a build the running catalogue never mentions is not resident."""
+    from sirvis.runtimes.lmstudio import add_unpublished
+
+    merged = add_unpublished(
+        [{"id": "google/gemma-4-e4b", "compatibility_type": "gguf",
+          "quantization": "Q4_K_M", "state": "not-loaded"}],
+        [_build("google/gemma-4-e4b@q4_k_m", "gguf", "Q4_K_M"),
+         _build("google/gemma-4-e4b@4bit", "mlx", "4bit")],
+    )
+
+    assert [entry["id"] for entry in merged] == [
+        "google/gemma-4-e4b", "google/gemma-4-e4b@4bit"]
+    assert merged[1]["state"] == "not-loaded"
+    assert merged[1]["compatibility_type"] == "mlx"
+
+
+def test_a_build_the_catalogue_already_describes_is_not_added_twice() -> None:
+    """The plain key *is* one of these builds while it is the selected variant.
+    Matching on family plus format plus quantization is what keeps it from being
+    published a second time under its qualified name — and the loaded record,
+    which is the only one carrying a live state, is the one that survives."""
+    from sirvis.runtimes.lmstudio import add_unpublished
+
+    merged = add_unpublished(
+        [{"id": "google/gemma-4-e4b@4bit", "compatibility_type": "mlx",
+          "quantization": "4bit", "state": "loaded"},
+         {"id": "google/gemma-4-e4b", "compatibility_type": "gguf",
+          "quantization": "Q4_K_M", "state": "not-loaded"}],
+        [_build("google/gemma-4-e4b@q4_k_m", "gguf", "Q4_K_M"),
+         _build("google/gemma-4-e4b@4bit", "mlx", "4bit")],
+    )
+
+    assert len(merged) == 2
+    assert merged[0]["state"] == "loaded"
+
+
+def test_nothing_is_added_when_the_cli_cannot_be_asked() -> None:
+    """`None` is not `[]`. Nobody to ask means the catalogue is published exactly
+    as it arrived — inventing an absence here would report a machine as holding
+    nothing the moment the CLI went missing."""
+    from sirvis.runtimes.lmstudio import add_unpublished
+
+    catalogue = [{"id": "smollm3-3b", "compatibility_type": "gguf",
+                  "quantization": "Q4_K_M", "state": "not-loaded"}]
+
+    assert add_unpublished(catalogue, None) == catalogue
+    assert add_unpublished(catalogue, []) == catalogue
+
+
+def test_a_remote_runtime_is_not_described_by_this_machines_cli() -> None:
+    """The CLI reads *this* laptop's disk. An adapter pointed at LM Studio on
+    another host must not be handed these builds — that is one machine's
+    inventory filed as another's."""
+    from sirvis.runtimes.lmstudio import _is_local
+
+    assert _is_local("http://127.0.0.1:1234")
+    assert _is_local("http://localhost:1234/v1")
+    assert not _is_local("http://runtime.invalid")
+    assert not _is_local("http://192.168.1.40:1234")
+
+
+async def test_a_local_runtime_asks_the_cli_it_was_configured_with() -> None:
+    """The guard above returns before the binary is ever resolved, so a wrong
+    method name here type-checked, passed every test, and 500'd the models
+    endpoint the moment a real loopback runtime asked. This exercises the path
+    the guard skips."""
+    asked: list[str | None] = []
+    adapter = LMStudioAdapter("http://127.0.0.1:1234", client=httpx.AsyncClient(
+        transport=transport()
+    ))
+    adapter._resolve_lms = lambda: "/fake/lms"  # type: ignore[method-assign]
+
+    def record(binary: str | None = None) -> None:
+        asked.append(binary)
+        return None
+
+    import sirvis.runtimes.lmstudio as module
+
+    original = module.installed_variants
+    module.installed_variants = record  # type: ignore[assignment]
+    try:
+        models = await adapter.list_models()
+    finally:
+        module.installed_variants = original
+
+    assert asked == ["/fake/lms"]
+    assert len(models) == len(INSTALLED)

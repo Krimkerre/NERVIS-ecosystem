@@ -28,6 +28,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -40,7 +41,13 @@ from sirvis.runtimes.base import (
     RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
-from sirvis.runtimes.variants import LoadedVariant, confirm, loaded_variants
+from sirvis.runtimes.variants import (
+    InstalledVariant,
+    LoadedVariant,
+    confirm,
+    installed_variants,
+    loaded_variants,
+)
 
 RUNTIME_KEY = "lmstudio"
 
@@ -54,6 +61,83 @@ LMS_DEFAULT_PATH = "~/.lmstudio/bin/lms"
 # takes ten seconds is a failure wearing a success's clothes.
 LOAD_TIMEOUT_SECONDS = 600.0
 PROBE_TIMEOUT_SECONDS = 10.0
+
+
+
+def add_unpublished(published: list[dict[str, Any]],
+                    builds: list[InstalledVariant] | None) -> list[dict[str, Any]]:
+    """The catalogue, plus the installed builds it left out.
+
+    **Additive on purpose.** The CLI names every build of a group and the HTTP
+    catalogue does not, but the CLI also indexes *fewer models overall* on this
+    machine — 7 builds against 21 entries — so replacing one reading with the
+    other would trade a missing variant for fourteen missing models. Nothing
+    published is rewritten or dropped; a build the catalogue already describes
+    keeps the catalogue's record, including its state.
+
+    A build is treated as already published when its qualified key is listed, or
+    when an entry of the same family already carries its format and
+    quantization — which is how the plain key appears while that variant is the
+    selected one. What is left is installed, loadable, and was invisible.
+
+    Added records are `not-loaded` by construction: `state` is the one field the
+    CLI listing does not carry, and a build the running catalogue does not
+    mention is a build the runtime does not have resident.
+    """
+    if builds is None:
+        return published
+    listed = {str(entry.get("id") or "") for entry in published}
+    described = {
+        (
+            _family_of(str(entry.get("id") or "")),
+            str(entry.get("compatibility_type") or ""),
+            str(entry.get("quantization") or ""),
+        )
+        for entry in published
+    }
+    added = [
+        _as_entry(build) for build in builds
+        if build.model_key not in listed
+        and (build.family, build.runtime_format, build.quantization) not in described
+    ]
+    return published + added
+
+
+# Loopback only. A hostname that merely resolves to this machine is not the
+# same claim — the operator wrote an address to somewhere else, and the CLI has
+# no way to know whether the LM Studio answering there is this one.
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "[::1]", "localhost", "0.0.0.0"}
+
+
+def _is_local(base_url: str) -> bool:
+    """Whether this adapter is talking to LM Studio on the machine it runs on."""
+    return urlsplit(base_url).hostname in _LOCAL_HOSTS or (
+        urlsplit(base_url).netloc.split(":")[0] in _LOCAL_HOSTS
+    )
+
+
+def _family_of(runtime_key: str) -> str:
+    return runtime_key.split("@", 1)[0]
+
+
+def _as_entry(build: InstalledVariant) -> dict[str, Any]:
+    """One CLI build in the shape the catalogue publishes.
+
+    The same field names, because the domain reads records without caring which
+    reader produced them — and a second vocabulary here would be a second
+    mapping to keep in step with §6.
+    """
+    return {
+        "id": build.model_key,
+        "object": "model",
+        "type": build.model_type,
+        "publisher": build.publisher,
+        "arch": build.architecture,
+        "compatibility_type": build.runtime_format,
+        "quantization": build.quantization,
+        "state": "not-loaded",
+        "max_context_length": build.max_context,
+    }
 
 
 class LMStudioAdapter:
@@ -124,10 +208,10 @@ class LMStudioAdapter:
         entries = payload.get("data", [])
         if not isinstance(entries, list):
             raise RuntimeUnavailableError("model list was not a list")
+        published = [entry for entry in entries if isinstance(entry, dict)]
         return [
             {**entry, "runtime_key": RUNTIME_KEY}
-            for entry in entries
-            if isinstance(entry, dict)
+            for entry in add_unpublished(published, self._local_builds())
         ]
 
     def confirm_variant(self, model_key: str) -> LoadedVariant | None:
@@ -145,7 +229,8 @@ class LMStudioAdapter:
         two loaded builds of one family behind an unqualified key returns
         `None`, and the caller refuses to record evidence rather than choose.
         """
-        return confirm(model_key, loaded_variants())
+        binary = self._resolve_lms()
+        return confirm(model_key, loaded_variants(binary)) if binary else None
 
     async def list_loaded_models(self) -> list[LoadedModel]:
         """What is resident right now, with the configuration it actually has.
@@ -339,6 +424,23 @@ class LMStudioAdapter:
         if self._lms_path != LMS_DEFAULT_PATH:
             return None
         return shutil.which("lms")
+
+    def _local_builds(self) -> list[InstalledVariant] | None:
+        """Installed builds from the CLI — but only for a runtime on this machine.
+
+        The CLI describes *this* laptop's disk. An adapter pointed at LM Studio
+        on another host would otherwise be handed this machine's builds and file
+        them as the remote one's inventory: builds attributed to a machine that
+        does not hold them, which is §12.2's error in a different coordinate.
+
+        `None` for a remote runtime is the same `None` the CLI's absence gives,
+        and means the same thing — nobody could be asked — so the caller adds
+        nothing and publishes the catalogue exactly as it arrived.
+        """
+        if not _is_local(self.base_url):
+            return None
+        binary = self._resolve_lms()
+        return installed_variants(binary) if binary else None
 
     def _run_lms(
         self,

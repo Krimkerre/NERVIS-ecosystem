@@ -230,3 +230,78 @@ def test_the_model_listing_keeps_artifact_variant_and_instance_apart() -> None:
     assert coder["declared_context"]["value"] == 32768
     assert coder["instances"][0]["effective_context"] == 8192
     assert coder["family"]["family_id"].startswith("fam_")
+
+
+def test_two_builds_of_one_family_are_two_installed_records() -> None:
+    """One family, two variants — and **two installed builds**, which is the half
+    that was missing.
+
+    The installed map was keyed on the family, so `google/gemma-4-e4b@4bit`
+    (MLX, resident) and `google/gemma-4-e4b` (GGUF) collapsed into one record
+    and the first writer won. The machine held two builds and reported one: the
+    Models screen showed MLX and no GGUF, and a benchmark of the invisible build
+    had no identity to file under. §6 says these are separate artefacts, and a
+    domain that folds them is asserting an equivalence it was told not to.
+    """
+    from sirvis.core.inventory import build_inventory
+
+    inventory = build_inventory([
+        {"id": "google/gemma-4-e4b@4bit", "compatibility_type": "mlx",
+         "quantization": "4bit", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "state": "loaded", "max_context_length": 131072},
+        {"id": "google/gemma-4-e4b", "compatibility_type": "gguf",
+         "quantization": "Q4_K_M", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "state": "not-loaded", "max_context_length": 131072},
+    ])
+
+    assert len(inventory.families) == 1
+    assert len(inventory.installed) == 2
+    # Each addressable under the key the runtime itself publishes for it.
+    assert set(inventory.installed) == {"google/gemma-4-e4b@4bit", "google/gemma-4-e4b"}
+    formats = {
+        inventory.variants[build.variant_id].runtime_format
+        for build in inventory.installed.values()
+    }
+    assert formats == {"mlx", "gguf"}
+
+
+def test_an_instance_suffix_is_still_the_same_installed_build() -> None:
+    """`:2` marks a second loaded copy, not a second build — the distinction the
+    variant split must not have blurred."""
+    from sirvis.core.inventory import build_inventory
+
+    inventory = build_inventory([
+        {"id": "qwen/qwen3-1.7b", "compatibility_type": "mlx", "quantization": "8bit",
+         "arch": "qwen3", "publisher": "qwen", "type": "llm", "state": "loaded"},
+        {"id": "qwen/qwen3-1.7b:2", "compatibility_type": "mlx", "quantization": "8bit",
+         "arch": "qwen3", "publisher": "qwen", "type": "llm", "state": "loaded"},
+    ])
+
+    assert len(inventory.installed) == 1
+    assert len(inventory.instances) == 2
+
+
+def test_an_unqualified_key_resolves_only_when_one_build_answers_to_it() -> None:
+    """`google/gemma-4-e2b` and `google/gemma-4-e2b@4bit` are the runtime's two
+    names for one artefact, so resolving between them is not a guess. Two builds
+    under one family is a different case: the plain key is a question, and
+    answering it would file evidence about one build under the other's identity.
+    """
+    from sirvis.core.inventory import build_inventory
+
+    inventory = build_inventory([
+        {"id": "google/gemma-4-e2b@4bit", "compatibility_type": "mlx",
+         "quantization": "4bit", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "state": "not-loaded"},
+        {"id": "google/gemma-4-e4b@4bit", "compatibility_type": "mlx",
+         "quantization": "4bit", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "state": "not-loaded"},
+        {"id": "google/gemma-4-e4b@q4_k_m", "compatibility_type": "gguf",
+         "quantization": "Q4_K_M", "arch": "gemma4", "publisher": "google",
+         "type": "llm", "state": "not-loaded"},
+    ])
+
+    single = inventory.resolve("google/gemma-4-e2b")
+    assert single is not None and single.runtime_key == "google/gemma-4-e2b@4bit"
+    assert inventory.resolve("google/gemma-4-e4b") is None
+    assert inventory.by_runtime_key("google/gemma-4-e2b") is None

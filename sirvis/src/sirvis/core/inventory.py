@@ -66,6 +66,34 @@ class Inventory:
         """
         return self.installed.get(runtime_key)
 
+    def resolve(self, runtime_key: str) -> LocalModel | None:
+        """The build behind a key, allowing an unqualified one where it is exact.
+
+        `google/gemma-4-e2b` names one build on this machine and
+        `google/gemma-4-e2b@4bit` names the same build; resolving between them
+        is not a guess, it is the runtime's own two names for one artefact. So
+        an exact hit answers first, and a family key answers only when exactly
+        one build sits under it.
+
+        Two builds under one family returns None — the same refusal
+        `runtimes.variants` makes for a loaded model, and for the same reason:
+        `google/gemma-4-e4b` with an MLX and a GGUF installed is a question,
+        not an address, and choosing one would file evidence about one build
+        under the identity of another.
+        """
+        exact = self.installed.get(runtime_key)
+        if exact is not None:
+            return exact
+        under = self.builds_of(runtime_key)
+        return under[0] if len(under) == 1 else None
+
+    def builds_of(self, base_key: str) -> list[LocalModel]:
+        """Every installed build whose family key is `base_key`."""
+        return [
+            build for key, build in self.installed.items()
+            if _VARIANT_SUFFIX.sub("", key) == base_key
+        ]
+
     def instances_of(self, local_model_id: str) -> list[RuntimeModelInstance]:
         """Every loaded copy of one installed build.
 
@@ -113,7 +141,20 @@ def build_inventory(records: list[dict[str, Any]], runtime: str = "lmstudio") ->
 def _absorb(inventory: Inventory, record: dict[str, Any], runtime_key: str,
             runtime: str) -> None:
     """Fold one runtime record into the four concepts."""
-    base_key = _VARIANT_SUFFIX.sub("", _INSTANCE_SUFFIX.sub("", runtime_key))
+    # Two keys, because a build and its family are two different things and this
+    # function needs both. `build_key` keeps `@4bit` — it is what addresses one
+    # build and what makes two builds of one family separately loadable —
+    # while `base_key` drops it to group them.
+    #
+    # **They were the same key, and it cost a build.** LM Studio publishes a
+    # loaded variant under its qualified id and the rest of the group under the
+    # plain one, so `google/gemma-4-e4b@4bit` (MLX, resident) and
+    # `google/gemma-4-e4b` (GGUF) arrive as two records; keying the installed
+    # map on the family collapsed them, first writer won, and the machine
+    # reported one build where it holds two. The screen showed MLX and no GGUF,
+    # and a benchmark of the missing one had nowhere to file.
+    build_key = _INSTANCE_SUFFIX.sub("", runtime_key)
+    base_key = _VARIANT_SUFFIX.sub("", build_key)
     family = _family_for(inventory, base_key, record)
     variant = ModelVariant.derive(
         family=family,
@@ -128,11 +169,15 @@ def _absorb(inventory: Inventory, record: dict[str, Any], runtime_key: str,
     installed = LocalModel.derive(
         variant=variant,
         runtime=runtime,
-        runtime_key=base_key,
+        # The qualified key, because it is the one that addresses this build
+        # rather than whichever of its siblings the app has selected. The
+        # display name stays unqualified: `runtime_format` and `quantization`
+        # travel with every record and are what §12.2 says tell builds apart.
+        runtime_key=build_key,
         display_name=base_key,
         declared_context=_number(record.get("max_context_length")),
     )
-    inventory.installed.setdefault(base_key, installed)
+    inventory.installed.setdefault(build_key, installed)
 
     state = str(record.get("state") or "unknown")
     if state != "not-loaded":

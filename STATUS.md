@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1688 tests, no network, no live service
+.venv/bin/pytest                      # part of 1696 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 416 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 424 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1688 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1696 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:

@@ -184,6 +184,24 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .prov[data-kind="MEASURED"]{color:#3ddc97;background:rgba(61,220,151,.13)}
 .prov[data-kind="ESTIMATED"]{color:#ffb648;background:rgba(255,182,72,.13)}
 .prov[data-kind="UNKNOWN"]{color:#8b9bb0;background:rgba(139,155,176,.13)}
+.prov[data-kind="PARTIALLY_MEASURED"]{color:#55dcff;background:rgba(85,220,255,.13)}
+.table-row.head .sortable{cursor:pointer;user-select:none}
+.table-row.head .sortable:hover{color:var(--accent)}
+.table-row.head .sorted{color:var(--accent)}
+/* A record opened inside a twelve-row box would be read through a slot. The
+   box keeps its height for scanning and gives it up for reading. */
+.scroller:has(details[open]){max-height:none;resize:none}
+/* Two columns of short label/value pairs. Sized by `auto-fit` rather than
+   fixed at two, so a narrow window gets one column instead of clipping — the
+   320px floor is what makes it two here and not four. */
+.fact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:0 14px}
+.fact-grid .trace-step{margin:3px 0;padding:5px 9px;gap:10px}
+.fact-grid .trace-step span{overflow-wrap:anywhere;text-align:right}
+/* A run inside a build. Indented so the nesting is visible without a second
+   border competing with the row's own. */
+.run-line{border:0;margin-left:9px;border-left:1px solid rgba(255,255,255,.09);padding-left:9px}
+.run-head{display:grid;grid-template-columns:.8fr 1.2fr .5fr .9fr;gap:9px;padding:6px 2px;font-size:10px}
+
 .stamp{font:400 10px/1 ui-monospace,monospace;color:#5d6b7e;margin-left:6px}
 .stamp.stale{color:#ffb648}
 .top-status .dot[data-state="warn"]{background:#ffb648;box-shadow:0 0 8px #ffb648}
@@ -1609,7 +1627,15 @@ function sirvisEvidence(result){
            follow_up:followup()},
   validity:result.validity,warnings:result.validity_notes||[],
   evidence_id:result.evidence_id,measured_at:result.created_at,
-  caveat:null,note:null,live:true}}
+  caveat:null,note:null,live:true,
+  /* The record the row was made from, kept whole. Six columns are what fits on
+     a line; the record holds the spread behind every median, the provenance of
+     each axis — which is what makes a record *partly* measured rather than
+     measured — the trial's outcome tally, and the validity notes that say what
+     the run could not measure and why. Adapting those away and then writing a
+     footnote about them is how a screen ends up describing evidence it is not
+     showing. */
+  record:result}}
 
 
 
@@ -5507,6 +5533,184 @@ async function sirvisRuntimeSets(){
    Two of the four accuracy measures did not discriminate at all, and saying so is
    the result: eight identical scores presented as a ranking would be a table that
    looks like evidence and contains none. */
+/* What one benchmark result actually holds, under the row it made.
+
+   Six columns are a summary of a record with far more in it, and every part
+   below was already fetched and thrown away: the spread behind each median,
+   the provenance of each axis, the trial's outcome tally, and the notes saying
+   what the run could not measure. The last two are the ones worth clicking
+   for — a 24/24 whose failures are all one kind is a different build from a
+   24/24 that failed four different ways, and "no load time was measured
+   because the model was already resident" is the difference between a warm
+   number and a cold one. */
+function resultDetail(g){
+ const runs=g.runs||[g];
+ if(!runs.some(r=>r.record))return '<div class="log-detail"><small class="mono dim">this row was adapted from a transcription, which carries no record behind it.</small></div>';
+ return `<div class="log-detail">
+  ${g.merged?`<small class="mono dim"><b>${escapeHtml(runs.length)} runs of this build.</b> The row above takes each column from the newest run that measured it, because the newest run did not measure all of them — each run below says what it took.</small>`
+    :runs.length>1?`<small class="mono dim">${escapeHtml(runs.length)} runs of this build, newest first.</small>`:''}
+  ${runs.map((e,i)=>runBlock(e,g,runs.length>1,i)).join('')}
+ </div>`}
+
+/* One run inside a build. Collapsed when there is more than one, because the
+   point of grouping was to stop four runs of one build filling the screen —
+   and re-expanding all four inside the group would put them back. */
+function runBlock(e,group,grouped,index){
+ const body=runFacts(e,group);
+ if(!grouped)return body;
+ const r=e.record||{};
+ return `<details class="log-line run-line"${index?'':' open'}><summary class="run-head">
+   <span class="mono">${escapeHtml(r.role||'—')}</span>
+   <span class="mono dim">${escapeHtml((r.suite||{}).id||'')}</span>
+   <span class="mono dim">${escapeHtml(runContext(e))}</span>
+   <span class="mono dim">${escapeHtml(e.measured_at||'')}</span></summary>${body}</details>`}
+
+/* The context this run loaded the build with, where it was recorded. It sits on
+   the run rather than the build for the same reason role does: it is what the
+   run chose, and two runs of one build at 8K and at 118K are not the same
+   measurement. */
+function runContext(e){
+ const c=((e.record||{}).target||{}).runtime_config||{};
+ return c.context_length?Math.round(c.context_length/1024)+'K ctx':''}
+
+/* Two columns. These are short label-and-value pairs, and one per full-width
+   row turned thirteen facts into a page of scrolling. */
+function runFacts(e,group){
+ const r=e.record;
+ if(!r)return '<small class="mono dim">no record behind this run.</small>';
+ const t=r.target||{},suite=r.suite||{};
+ const facts=[
+  ['family',t.model_family],['format',t.format],
+  ['quantization',t.quantization],['runtime',t.runtime],
+  ['runtime version',t.runtime_version],['context',(t.runtime_config||{}).context_length],
+  ['role',r.role],['suite',suite.id?suite.id+' v'+suite.version:''],
+  ['samples',r.samples],['measured',r.measured_at||r.created_at],
+  ['evidence',r.evidence_id],['result',r.result_id],
+  ['sirvis',r.sirvis_version]];
+ return `<div class="fact-grid">${facts.filter(([,v])=>v!==null&&v!==undefined&&v!=='')
+    .map(([k,v])=>`<div class="trace-step"><b>${escapeHtml(k)}</b><span class="mono">${escapeHtml(String(v))}</span></div>`).join('')}</div>
+  ${columnsFrom(e,group)}
+  ${validityBlock(r)}
+  ${measureTable(r.metrics||{})}
+  ${trialBlocks(r.metrics||{})}`}
+
+/* Which columns of the row above came from this run. Only on a merged row,
+   where the question "where did that number come from" has more than one
+   answer. */
+function columnsFrom(e,group){
+ if(!group||!group.merged)return '';
+ const mine=Object.entries(group.from||{}).filter(([,id])=>id===e.evidence_id).map(([k])=>k);
+ return mine.length
+  ?`<div class="trace-step"><b>row above</b><span class="mono">${escapeHtml(mine.join(' · '))}</span></div>`
+  :'<div class="trace-step"><b>row above</b><span class="dim">nothing — every column had a newer measurement</span></div>'}
+
+/* Validity first, because it changes how every number under it reads. */
+function validityBlock(r){
+ const notes=r.validity_notes||[];
+ if(!r.validity&&!notes.length)return '';
+ return `<div class="trace-step"><b>validity</b><span class="${r.validity==='VALID'?'chip':'chip warn'}">${escapeHtml(r.validity||'unknown')}</span></div>
+  ${notes.map(n=>`<p class="mono dim">— ${escapeHtml(n)}</p>`).join('')}`}
+
+/* The spread, not just the median. A median with a 15–30 tok/s range behind it
+   is a different claim from one with a 24–25 range, and the table above has
+   room for exactly one number. */
+function measureTable(metrics){
+ const rows=Object.entries(metrics).filter(([,b])=>b&&b.median!==undefined);
+ if(!rows.length)return '';
+ return `<div class="table-row head five" style="margin-top:6px"><span>Axis</span><span>Median</span><span>Range</span><span>p10–p90</span><span>How</span></div>
+  ${rows.map(([name,b])=>`<div class="table-row five"><span class="mono">${escapeHtml(name)}</span>
+   <span class="mono">${escapeHtml(round(b.median))}</span>
+   <span class="mono dim">${escapeHtml(round(b.min))} – ${escapeHtml(round(b.max))}</span>
+   <span class="mono dim">${escapeHtml(round(b.p10))} – ${escapeHtml(round(b.p90))}</span>
+   <span>${prov((b.provenance||{}).kind||'UNKNOWN')} <small class="mono dim">${escapeHtml((b.provenance||{}).method||'')}</small></span></div>`).join('')}
+  <small class="mono dim">a record is <b>partly measured</b> when its axes disagree about their own provenance — the kinds in the last column are where that comes from, and the one that is not MEASURED is the reason.</small>`}
+
+/* Trials are counted, not averaged: §13.2. Eight phrasings times three
+   repetitions is the shape, and the tally says how the failures failed —
+   which is the difference between a build that declines to call a tool and one
+   that calls it with empty arguments. */
+function trialBlocks(metrics){
+ const trials=Object.entries(metrics).filter(([,b])=>b&&b.total!==undefined&&b.passed!==undefined);
+ return trials.map(([name,b])=>{
+  const outcomes=Object.entries(b.outcomes||{});
+  return `<div class="trace-step"><b>${escapeHtml(name)}</b><span class="mono">${escapeHtml(b.passed)}/${escapeHtml(b.total)}${b.phrasings?` · ${escapeHtml(b.phrasings)} phrasing(s) × ${escapeHtml(b.repetitions)} repetition(s)`:''}</span></div>
+   ${outcomes.length?`<p class="mono dim">${outcomes.map(([k,n])=>`${escapeHtml(k)} <b>${escapeHtml(n)}</b>`).join(' · ')}</p>`:''}
+   ${(b.provenance||{}).notes?`<p class="mono dim">— ${escapeHtml(b.provenance.notes)}</p>`:''}`}).join('')}
+
+/* Two decimals, and only where they mean something. */
+function round(v){
+ if(v===null||v===undefined)return '—';
+ if(typeof v!=='number')return String(v);
+ return String(Math.abs(v)>=100?Math.round(v):Math.round(v*100)/100)}
+
+/* One row per build, not per run — a build benchmarked four times is one thing
+   measured four times, and four rows of it push the twenty other builds off
+   the screen. The runs are kept whole underneath.
+
+   Grouped on the build, which is §12.2's identity minus what a run chooses:
+   family, format, quantization and runtime. Role, suite and context length are
+   *of the run*, so they belong to the rows inside rather than to the build. */
+function groupRuns(items){
+ const groups=new Map();
+ for(const e of items){
+  const key=[e.target.family,e.target.variant,e.target.runtime].join('|');
+  if(!groups.has(key))groups.set(key,[]);
+  groups.get(key).push(e)}
+ return [...groups.values()].map(mergeRuns)}
+
+/* Each column from the newest run that measured it — not from the newest run.
+
+   The difference is a real row on this machine: granite's most recent run is a
+   throughput suite with no tool trial in it, and the run that put 24/24 on the
+   board is a week older. Taking every column from the newest would have shown
+   that build as having no tool evidence at all, which is the failure this whole
+   screen keeps having. Mixing runs in one row is only honest if the row says
+   so, so a merged row carries its run count and every column names the run it
+   came from in the detail below. */
+function mergeRuns(runs){
+ const newest=runs[0],metrics={},from={};
+ for(const name of ['generation_tok_s','effective_tok_s','first_token_s','tool_calls','follow_up']){
+  const source=runs.find(r=>r.metrics[name]!=null&&r.metrics[name]!=='');
+  if(source){metrics[name]=source.metrics[name];from[name]=source.evidence_id}}
+ return {...newest,metrics,runs,from,
+         merged:runs.length>1&&new Set(Object.values(from)).size>1}}
+
+/* The Results table sorts in the browser over the records already fetched. A
+   column click is a question about the same evidence, not a reason to read it
+   again — a refetch would let rows move for reasons that have nothing to do
+   with the column that was clicked. */
+const RESULT_COLUMNS=[
+ ['build','Build',e=>e.target.family+' '+e.target.variant],
+ ['rate','Generating',e=>e.metrics.generation_tok_s],
+ ['effective','Effective',e=>e.metrics.effective_tok_s],
+ ['first','First token',e=>e.metrics.first_token_s],
+ /* Sorted as a rate, not as the count: 21/24 beats 3/8, and a column that
+    ordered by passes alone would put the worse build on top. */
+ ['tools','Tools',e=>e.metrics.tool_calls?e.metrics.tool_calls[0]/e.metrics.tool_calls[1]:null],
+ ['follow','Follow-up',e=>e.metrics.follow_up]];
+let RESULTS={items:[],key:'rate',dir:-1,row:()=>''};
+
+/* Records with nothing in the sorted column go to the bottom in *both*
+   directions rather than to whichever end the arithmetic puts them. They stay
+   on the table — a build that produced no output is a result — but reversing
+   a column must not promote a blank to the top of it. */
+function resultOrder(){
+ const col=RESULT_COLUMNS.find(c=>c[0]===RESULTS.key)||RESULT_COLUMNS[1],read=col[2];
+ const seen=[],absent=[];
+ RESULTS.items.forEach(e=>{const v=read(e);(v==null||v===''?absent:seen).push(e)});
+ seen.sort((a,b)=>{const x=read(a),y=read(b);
+   return RESULTS.dir*(typeof x==='string'?x.localeCompare(y):x-y)});
+ return seen.concat(absent)}
+
+/* Text reads best ascending and every measure best descending, so a first
+   click on a column opens it the way that column is worth reading; clicking
+   the one already sorted reverses it. */
+function sortResults(key){
+ RESULTS.dir=RESULTS.key===key?-RESULTS.dir:(key==='build'||key==='follow'?1:-1);
+ RESULTS.key=key;
+ $('#result-head').innerHTML=RESULTS.head();
+ $('#result-rows').innerHTML=resultOrder().map(RESULTS.row).join('')}
+
 async function sirvisResults(){
  const [ev,rn]=await Promise.all([API.sirvis.evidence(),API.sirvis.runs()]);
  /* Which SIRVIS answered is part of the result, not a footnote. A screen that
@@ -5515,13 +5719,21 @@ async function sirvisResults(){
  heading('Results',ev.source==='live'
    ?'Live from SIRVIS on this machine. Rate and first token are measured; the accuracy suites are not built yet.'
    :'Rate, first token and behaviour. Two of the four accuracy measures found no difference at all — that is a result.');
- const m=ev.items.filter(e=>e.evidence_type==='MEASURED');
- /* Sorted by rate, then the builds that have no rate — appended rather than
-    filtered out. A build that produced no visible output is a result, and
+ /* PARTIALLY_MEASURED belongs on this table. The kind means *some axes
+    measured, some not*, which is exactly what a tool-call trial is — it counts
+    calls and measures nothing else — so filtering on MEASURED alone hid every
+    trial ever run behind a screen whose whole subject is what the suite found.
+    The two gemma builds this page exists to compare were both invisible here.
+    They are marked rather than flattened: each row carries its own kind. */
+ const m=ev.items.filter(e=>e.evidence_type==='MEASURED'||e.evidence_type==='PARTIALLY_MEASURED');
+ const partly=m.filter(e=>e.evidence_type==='PARTIALLY_MEASURED');
+ /* The default order: by rate, then the builds that have no rate — appended
+    rather than filtered out. A build that produced no visible output is a result, and
     dropping it from the table because it has no bar to draw would turn the
     worst outcome in the run into a blank space nobody counts. */
- const withRate=m.filter(e=>e.metrics.generation_tok_s).sort((a,b)=>b.metrics.generation_tok_s-a.metrics.generation_tok_s);
- const noRate=m.filter(e=>!e.metrics.generation_tok_s);
+ const builds=groupRuns(m);
+ const withRate=builds.filter(e=>e.metrics.generation_tok_s).sort((a,b)=>b.metrics.generation_tok_s-a.metrics.generation_tok_s);
+ const noRate=builds.filter(e=>!e.metrics.generation_tok_s);
  const rated=[...withRate,...noRate];
  const top=withRate[0],caveats=m.filter(e=>e.caveat);
  const warned=m.filter(e=>e.warnings&&e.warnings.length);
@@ -5529,8 +5741,13 @@ async function sirvisResults(){
  /* A record either carries a capability measure or it does not, and the two
     live side by side once a live run sits next to a transcribed one. */
  const carrying=n=>m.filter(e=>e.metrics[n]);
- /* The context is printed only where one build appears at more than one of
-    them. Two rows for a build are not a duplicate — the runtime loaded it
+ /* Only for a build with a single run. Once runs are grouped the context
+    belongs to the run — two runs of one build at 8K and 118K are two different
+    measurements — so it is printed on the run heads inside, and the row says
+    how many runs there are instead.
+
+    Kept for the single-run case, where it is still the field that explains two
+    rows that otherwise look identical. Two rows for a build are not a duplicate — the runtime loaded it
     differently, which §12.2 makes a different identity and a different result —
     but two rows that *look* identical and disagree read as a bug, and the field
     that explains them is the one nobody thought to print. */
@@ -5540,8 +5757,25 @@ async function sirvisResults(){
    return c&&contexts[e.target.family+e.target.variant].size>1
      ? ' · '+Math.round(c/1024)+'K ctx' : ''};
  const consistent=(e,n)=>e.metrics[n]&&e.metrics[n][0]===e.metrics[n][1];
+ /* One row, drawn by a function rather than an inline template, because a
+    column click repaints the rows without refetching and both paths have to
+    draw the same row. The evidence kind rides on the build cell: a partly
+    measured record is a different claim from a measured one and must not be
+    readable as one. */
+ const resultRow=e=>`<details class="log-line"><summary class="table-row six"><span>${escapeHtml(e.target.family)} <small class="mono" style="opacity:.5">${escapeHtml(e.target.variant)}${e.runs&&e.runs.length>1?` · ${e.runs.length} runs`:ctx(e)}</small>${e.evidence_type==='PARTIALLY_MEASURED'?prov(e.evidence_type):''}</span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${escapeHtml(dash(e.metrics.effective_tok_s))}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${escapeHtml(dash(e.metrics.follow_up))}</span></summary>${resultDetail(e)}</details>`;
+ /* Held for the sort, which is a question about these records rather than a
+    reason to read them again. */
+ RESULTS={items:rated,key:'rate',dir:-1,row:resultRow,head:()=>resultHead()};
+ const resultHead=()=>RESULT_COLUMNS.map(([k,label])=>`<span class="sortable${RESULTS.key===k?' sorted':''}" onclick="sortResults('${k}')">${label}${RESULTS.key===k?(RESULTS.dir<0?' \u2193':' \u2191'):''}</span>`).join('');
  $('#content').innerHTML=kpis([
-   ['Measured',String(m.length),'builds through the suite','sirvis'],
+   /* Two numbers, because they are two different claims. A partly measured
+      record is a real measurement of the axes it took and silent about the
+      rest, and rolling it into one "measured" tally would overstate what the
+      suite has actually covered. */
+   /* Builds, then runs. The table has one row per build and the two numbers
+      differ whenever anything was measured twice, so printing only the record
+      count would make the row count look wrong. */
+   ['Builds',String(builds.length),`${m.length} run${m.length===1?'':'s'}${partly.length?` · ${partly.length} partly measured`:''}`,'sirvis'],
    ['Rate spread',withRate.length?`${withRate[withRate.length-1].metrics.generation_tok_s}–${top.metrics.generation_tok_s}`:'—',`tok/s · ${noRate.length} produced none`,'sirvis'],
    /* Absent, not zero. `0 / 0` reads as "measured and found nothing"; the
       truth is that no suite here measures tool calls yet (M13) or code (M18),
@@ -5554,9 +5788,13 @@ async function sirvisResults(){
      always reported whether SIRVIS answered and the card never read it. */
  +`<div class="card full${escapeHtml(liveClass(ev.source==='live'))}"><h3>Generation rate</h3>${cell(`
    <div class="benchmark-stage" style="height:170px;gap:7px">${withRate.map(e=>`<i style="--h:${escapeHtml(Math.round(e.metrics.generation_tok_s/top.metrics.generation_tok_s*100))}%" title="${escapeHtml(e.target.family)} · ${escapeHtml(e.metrics.generation_tok_s)} tok/s"></i>`).join('')}${noRate.map(e=>`<i style="--h:2%;opacity:.35" title="${escapeHtml(e.target.family)} · no visible output"></i>`).join('')}</div>
-   <div class="table-row head six"><span>Build</span><span>Generating</span><span>Effective</span><span>First token</span><span>Tools</span><span>Follow-up</span></div>
-   ${rated.map(e=>`<div class="table-row six"><span>${escapeHtml(e.target.family)} <small class="mono" style="opacity:.5">${escapeHtml(e.target.variant)}${ctx(e)}</small></span><span class="mono">${e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'<span style="color:#ffb648">no output</span>'}</span><span class="mono">${escapeHtml(dash(e.metrics.effective_tok_s))}</span><span class="mono">${fastLine(e)}</span><span class="mono"${e.metrics.tool_calls&&!consistent(e,'tool_calls')?' style="color:#ffb648"':''}>${e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'<span class="dim">—</span>'}</span><span class="${e.metrics.follow_up?'chip'+(e.metrics.follow_up==='used-result'?'':' warn'):'dim'}">${escapeHtml(dash(e.metrics.follow_up))}</span></div>`).join('')}
-   <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. Here the two are within about 5% everywhere, which is itself the finding — none of these front-load. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.</small>
+   <!-- The same scroller the Models list uses: the head stays put, the box is
+        resizable, and ninety records no longer push every explanation on this
+        card below the fold. -->
+   <div class="scroller" style="--rows:12" tabindex="0">
+   <div class="table-row head six" id="result-head">${resultHead()}</div>
+   <div id="result-rows">${rated.map(resultRow).join('')}</div></div>
+   <small class="mono dim"><b>Generating</b> is the sustained rate once the model is talking. <b>Effective</b> counts from the request being sent, so it carries prompt processing and any preamble before visible content. The distinction exists because a rejected build had a healthy generating rate and <b>27 seconds</b> of silence in front of it, and a table with only the first column would have recommended it.${m.some(e=>e.metrics.effective_tok_s)?' Here the two are within about 5% everywhere, which is itself the finding — none of these front-load.':' <b>The effective column is empty on every live record, and that is the honest cell rather than a gap.</b> An effective rate is a token count over the total latency, and SIRVIS\'s evidence envelope publishes the <i>rate</i> and the latency but never the count — so the only way to fill this column from what SIRVIS actually says would be to reconstruct the count from three separate medians and print the result as a measurement. It stays here because the moment SIRVIS publishes a count it fills in, and because a column that quietly disappeared would take the question with it.'}</small>
    ${explains('what a run detail keeps',`
    <div class="trace-step"><b>samples</b><span>${escapeHtml(rn.samples)} · median reported</span></div>
    <div class="trace-step"><b>warmups</b><span>${escapeHtml(rn.warmups)} · discarded</span></div>

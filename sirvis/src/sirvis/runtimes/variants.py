@@ -78,23 +78,8 @@ def loaded_variants(binary: str | None = None) -> list[LoadedVariant] | None:
     difference: an empty list means the runtime holds nothing, and `None` means
     nobody could be asked, which is the case that must refuse rather than guess.
     """
-    executable = binary or cli_path()
-    if not executable:
-        return None
-    try:
-        finished = subprocess.run(
-            [executable, "ps", "--json"],
-            capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if finished.returncode != 0:
-        return None
-    try:
-        rows = json.loads(finished.stdout or "[]")
-    except ValueError:
-        return None
-    if not isinstance(rows, list):
+    rows = _run(binary, ["ps", "--json"])
+    if rows is None:
         return None
     return [variant for variant in map(_read, rows) if variant is not None]
 
@@ -109,12 +94,7 @@ def _read(row: object) -> LoadedVariant | None:
         return None
     key = str(row.get("modelKey") or "")
     runtime_format = str(row.get("format") or "")
-    quantization = row.get("quantization")
-    name = ""
-    if isinstance(quantization, dict):
-        name = str(quantization.get("name") or "")
-    elif isinstance(quantization, str):
-        name = quantization
+    name = _quantization_name(row.get("quantization"))
     if not key or not runtime_format or not name:
         return None
     return LoadedVariant(
@@ -125,6 +105,125 @@ def _read(row: object) -> LoadedVariant | None:
         runtime_format=FORMAT_NAMES.get(runtime_format, runtime_format),
         quantization=name,
     )
+
+
+@dataclass(frozen=True)
+class InstalledVariant:
+    """One build on disk, as the runtime's own tooling names it.
+
+    Separate from `LoadedVariant` because the two answer different questions —
+    *what is resident* and *what is installed* — and a type that served both
+    would need every field to be optional for one of them.
+    """
+
+    model_key: str
+    """The qualified key: `google/gemma-4-e4b@4bit`."""
+    family: str
+    runtime_format: str
+    quantization: str
+    publisher: str
+    architecture: str
+    max_context: int | None
+    size_bytes: int | None
+    model_type: str
+
+
+def installed_variants(binary: str | None = None) -> list[InstalledVariant] | None:
+    """Every build on disk, per the CLI — or `None` when it cannot be asked.
+
+    **The HTTP catalogue does not list them all.** It publishes a loaded build
+    under its qualified key and the rest of a group under the plain one, showing
+    whichever variant the app has *selected* — so a machine holding an MLX and a
+    GGUF of one model publishes two entries while one is loaded, and exactly one
+    once it is not. The build that vanishes is still installed, still loadable
+    and still benchmarkable; it is only unnameable.
+
+    `lms ls --variants --json` names every one of them, so that is what is
+    asked. It is not a superset of the catalogue — it indexes fewer models than
+    the HTTP API reports on this machine — which is why the caller adds from it
+    and never replaces with it.
+
+    `None` and `[]` are different answers, as with `loaded_variants`: nothing
+    installed is a fact, and nobody to ask is not.
+    """
+    rows = _run(binary, ["ls", "--variants", "--json"])
+    if rows is None:
+        return None
+    builds: list[InstalledVariant] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        # A group carries its builds in `variants`; an ungrouped model is its
+        # own single build and describes itself.
+        nested = row.get("variants")
+        for entry in (nested if isinstance(nested, list) and nested else [row]):
+            build = _read_installed(entry)
+            if build is not None:
+                builds.append(build)
+    return builds
+
+
+def _read_installed(row: object) -> InstalledVariant | None:
+    """One build from `lms ls --variants --json`, or nothing when malformed."""
+    if not isinstance(row, dict):
+        return None
+    key = str(row.get("modelKey") or "")
+    runtime_format = str(row.get("format") or "")
+    name = _quantization_name(row.get("quantization"))
+    if not key or not runtime_format or not name:
+        return None
+    return InstalledVariant(
+        model_key=key,
+        family=key.split("@", 1)[0],
+        runtime_format=FORMAT_NAMES.get(runtime_format, runtime_format),
+        quantization=name,
+        publisher=str(row.get("publisher") or ""),
+        architecture=str(row.get("architecture") or ""),
+        max_context=_int(row.get("maxContextLength")),
+        size_bytes=_int(row.get("sizeBytes")),
+        # `vision` is a separate flag in the CLI and folded into the type in the
+        # HTTP catalogue. Folded the same way here so one vocabulary reaches the
+        # domain, whichever reader produced the record.
+        model_type="vlm" if row.get("vision") and row.get("type") == "llm"
+        else str(row.get("type") or "llm"),
+    )
+
+
+def _int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _quantization_name(value: object) -> str:
+    """The quantization name, from either shape the CLI uses for it."""
+    if isinstance(value, dict):
+        return str(value.get("name") or "")
+    return str(value or "") if isinstance(value, str) else ""
+
+
+def _run(binary: str | None, arguments: list[str]) -> list[object] | None:
+    """A CLI call that returns a JSON list, or `None` for every way it can fail.
+
+    One place, because both readers here fail identically — no CLI, a non-zero
+    exit, a timeout, output that is not a JSON list — and a second copy of that
+    ladder is a second place for the None-versus-empty distinction to rot.
+    """
+    executable = binary or cli_path()
+    if not executable:
+        return None
+    try:
+        finished = subprocess.run(
+            [executable, *arguments],
+            capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if finished.returncode != 0:
+        return None
+    try:
+        rows = json.loads(finished.stdout or "[]")
+    except ValueError:
+        return None
+    return rows if isinstance(rows, list) else None
 
 
 def confirm(model_key: str, variants: list[LoadedVariant] | None) -> LoadedVariant | None:
