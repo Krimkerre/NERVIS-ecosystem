@@ -2218,7 +2218,7 @@ value here is the four that are not.
 | 1 | Discover, negotiate, truthful readiness | **Met.** The registry, `/ecosystem/*` and capability negotiation, exercised continuously |
 | 2 | SIRVIS benchmarks and publishes `MEASURED` evidence | **Met.** Real runs, visible on the Results screen with their validity notes |
 | 3 | RAVIS ingests it, routes, explains, reports usage | **Met.** The Routes screen renders one decision end to end — 543 candidates to 159, the eliminations, the ranking |
-| 4 | Clarvis chat and agent on their own pools, one session and trace lineage | **Partly.** The pools exist and were differentiated on 30 Aug; the *lineage* half has not been walked as a scenario |
+| 4 | Clarvis chat and agent on their own pools, one session and trace lineage | **Lineage built 30 Aug (Clarvis 0.10.0); the walk still wants a live window.** Clarvis sent no correlation at all — see below |
 | 5 | A fragmented tool call completes through RAVIS | **Met.** `test_clarvis_conformance` and the Anthropic translation suite |
 | 6 | Clarvis Stop cancels upstream inference | **Met.** A cancelled attempt is recorded as its own outcome, tested |
 | 7 | NERVIS shows the chain without exposing prompt, key, raw path or sensitive data | **Met.** Credentials are presence flags, `sensitive_fields` is stripped, the Bridge has no content |
@@ -2240,8 +2240,37 @@ is not this machine`, which is the distinction §9.7 asks for — a missing
 capability is a catalogue problem and a policy refusal is a decision somebody
 made, and "no route" alone does not separate them.
 
-**So Stage 10's acceptance work is one item, not twelve**: scenario 4's session
-and trace lineage, walked as a scenario rather than assumed from its parts. It
+**Scenario 4 turned out to be a missing feature rather than a missing test.**
+Clarvis's outbound model requests carried `content-type` and `authorization` and
+nothing else. RAVIS joins traces on W3C `traceparent` and keys model affinity on
+`x-session-id`, and Clarvis sent neither — so RAVIS minted an empty trace id and
+every request became its own island. A route decision could say *why this model*
+and never *for which conversation*, which are the two facts somebody holds
+together when they ask why an answer was slow.
+
+Both now travel. The session is minted once per window in `ModelService`:
+per-turn would make every question look like a new conversation, and one
+outliving the editor would steer tomorrow's routing from yesterday's choice. The
+trace is per *operation* — an agent run mints one before its loop so a dozen
+steps join into one story, and a chat turn mints its own — with a fresh span id
+per request, since reusing one collapses the waterfall into a single bar.
+
+Sent to any OpenAI-compatible endpoint rather than sniffing for RAVIS:
+`traceparent` is a W3C header carrying two random ids and no content, and
+sniffing would fail exactly where RAVIS is reached, through `custom` — Clarvis
+has no `ravis` provider of its own, which is itself worth knowing, since it makes
+scenario 4's *pool* half operator configuration rather than Clarvis behaviour.
+
+Two of the eight tests are the ones that matter: they stub `fetch` and assert the
+headers are on the outgoing request. Every unit around a lineage feature passes
+while the header is never attached, which is how this kind of thing dies quietly.
+
+**What still needs a live window** is the walk itself: one conversation and one
+agent run through a configured RAVIS, and the trace read back on the Traces
+screen. The machinery is now in place for it to work; nobody has watched it.
+
+**So Stage 10's acceptance list is eleven met and one half-open**: scenario 4's
+machinery exists as of today and wants one live walk to be called observed. It
 was invisible while the list had never been scored.
 
 ### Next — in this order
