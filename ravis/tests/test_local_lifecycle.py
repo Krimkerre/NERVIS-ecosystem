@@ -22,6 +22,20 @@ UNCONSTRAINED = "ravis/auto"
 # A pool that prefers coding models, so declared intent and residency compete.
 AGENT_POOL_PREFERENCE = "ravis/coding"
 
+# The resident, weaker candidate. Named as a coding build because the pool is
+# `ravis/coding` and its membership is now curated: it was `"chatty"`, which the
+# pool correctly no longer admits, and a general chat model inside a coding pool
+# was never what these tests were about. What they are about — whether paying a
+# load is worth it for the session ahead — is unchanged, and needs two members
+# of the pool under test rather than one member and one outsider.
+SMALL_CODER = "codegemma-2b"
+
+# The better, cold candidate. A named family rather than the bare `qwen-coder`
+# it was, so the pool's declared order puts it above the small resident one —
+# which is the premise every test below rests on and used to get from the
+# fixture's names alone.
+STRONG_CODER = "qwen3-coder-30b"
+
 
 def _candidates(*names: str) -> dict[str, ModelCapabilities]:
     return {name: ModelCapabilities(model_id=name) for name in names}
@@ -58,12 +72,12 @@ def test_declared_preference_still_beats_residency_normally() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.5),
     )
 
-    assert decision.selected == "qwen-coder"
+    assert decision.selected == STRONG_CODER
 
 
 def test_memory_pressure_inverts_that_order() -> None:
@@ -75,12 +89,12 @@ def test_memory_pressure_inverts_that_order() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.05),
     )
 
-    assert decision.selected == "chatty"
+    assert decision.selected == SMALL_CODER
 
 
 def test_pressure_never_changes_which_models_are_eligible() -> None:
@@ -120,8 +134,8 @@ def test_the_explanation_says_the_model_was_already_loaded() -> None:
 def test_the_explanation_says_when_pressure_changed_the_route() -> None:
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.05),
     )
 
@@ -154,13 +168,13 @@ def test_an_unmeasured_application_routes_exactly_as_before() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.5),
         expected_session_requests=None,
     )
 
-    assert decision.selected == "qwen-coder"
+    assert decision.selected == STRONG_CODER
 
 
 def test_a_measured_short_session_declines_to_pay_a_load() -> None:
@@ -173,13 +187,13 @@ def test_a_measured_short_session_declines_to_pay_a_load() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.5),
         expected_session_requests=1,
     )
 
-    assert decision.selected == "chatty"
+    assert decision.selected == SMALL_CODER
     assert "amortise" in decision.reason, decision.reason
 
 
@@ -194,13 +208,13 @@ def test_a_measured_long_session_pays_the_load_for_the_better_model() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.5),
         expected_session_requests=100,
     )
 
-    assert decision.selected == "qwen-coder"
+    assert decision.selected == STRONG_CODER
 
 
 def test_memory_pressure_still_refuses_a_load_for_a_long_session() -> None:
@@ -212,13 +226,13 @@ def test_memory_pressure_still_refuses_a_load_for_a_long_session() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.05),
         expected_session_requests=100,
     )
 
-    assert decision.selected == "chatty"
+    assert decision.selected == SMALL_CODER
 
 
 def test_a_hosted_model_is_never_penalised_as_a_load() -> None:
@@ -230,11 +244,11 @@ def test_a_hosted_model_is_never_penalised_as_a_load() -> None:
     """
     decision = RoutingEngine().select(
         AGENT_POOL_PREFERENCE,
-        _candidates("qwen-coder", "chatty"),
-        residency=_loaded("chatty"),
+        _candidates(STRONG_CODER, SMALL_CODER),
+        residency=_loaded(SMALL_CODER),
         memory=_memory(0.5),
-        remote_models=frozenset({"qwen-coder"}),
+        remote_models=frozenset({STRONG_CODER}),
         expected_session_requests=1,
     )
 
-    assert decision.selected == "qwen-coder"
+    assert decision.selected == STRONG_CODER

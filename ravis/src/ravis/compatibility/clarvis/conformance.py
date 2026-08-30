@@ -39,7 +39,16 @@ from ravis.reliability import AttemptChain, HealthRegistry
 # nothing else — the same position a real generic OpenAI-compatible endpoint is
 # in, which is why §5.2 makes operator configuration the source of truth until
 # probing (§8.7) or SIRVIS evidence (M13) exists.
-TOOL_CAPABLE = {"tools": "SUPPORTED", "context_window": "32768"}
+# Everything `ravis/clarvis-agent` requires, which §5.1 always named and the
+# pool only recently enforced: tools, structured calls and long context. A
+# fixture declaring tools alone describes a model that pool now refuses, and the
+# suite would report Clarvis's own pool as unroutable against a conformant
+# upstream.
+TOOL_CAPABLE = {
+    "tools": "SUPPORTED",
+    "structured_output": "SUPPORTED",
+    "context_window": "131072",
+}
 FALLBACK_CATALOGUE = {"coder-a": TOOL_CAPABLE, "coder-b": TOOL_CAPABLE}
 # One model that can hold a conversation and one that can also call tools. The
 # separation is the point: the chat pool may use either, the agent pool may only

@@ -12,7 +12,14 @@ import httpx
 from ravis.compatibility.clarvis.preflight import clarvis_settings, render, run_preflight
 from ravis.config import Settings
 
-TOOL_CAPABLE = {"tools": "SUPPORTED", "context_window": "32768"}
+# Every requirement `ravis/clarvis-agent` declares, which is now more than
+# tools: §5.1 asks it for structured calls and long context too, and a fixture
+# short of that resolves to an unavailable pool rather than to a route.
+TOOL_CAPABLE = {
+    "tools": "SUPPORTED",
+    "structured_output": "SUPPORTED",
+    "context_window": "131072",
+}
 
 
 def _settings(**overrides: object) -> Settings:

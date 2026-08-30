@@ -73,6 +73,13 @@ MAX_MODEL_NAMES = 14
 # not a table. Three jobs is the recent past; §4.2 runs one at a time.
 MAX_JOBS = 3
 MAX_RESULTS = 2
+
+# How many results a question that named a build may quote, and the ceiling on
+# the whole section. Larger than `MAX_RESULTS` because comparing two builds of
+# one model needs both of them and their context, and still bounded: the point
+# of the reading is that it fits in a prompt.
+MAX_MATCHED_RESULTS = 4
+MAX_QUOTED_RESULTS = 6
 MAX_VALIDITY_NOTES = 2
 
 # Which measurements are worth a line, in the order a person asks about them.
@@ -420,6 +427,7 @@ def _model_names(models: Sequence[Mapping[str, Any]], question: str,
 def benchmarks(
     jobs: Sequence[Mapping[str, Any]],
     runs: Sequence[Mapping[str, Any]],
+    question: str = "",
 ) -> list[str]:
     """The queue and what the last runs measured.
 
@@ -442,40 +450,115 @@ def benchmarks(
                 f"{clip(str(job.get('state') or '?'))}"
             )
             lines.append(line + (f" — {detail}" if detail else ""))
-    lines += _run_lines(runs)
+    lines += _run_lines(runs, question)
     return lines
 
 
-def _run_lines(runs: Sequence[Mapping[str, Any]]) -> list[str]:
-    """What the most recent runs measured, with their validity attached."""
-    lines: list[str] = []
-    for run in list(runs)[:MAX_RESULTS]:
-        for result in list(run.get("results") or [])[:MAX_RESULTS]:
+def _chosen_results(
+    runs: Sequence[Mapping[str, Any]], question: str
+) -> list[Mapping[str, Any]]:
+    """The results worth quoting: the ones asked about, then the newest.
+
+    **Recency alone was the whole selection, and it answered the wrong runs.**
+    Two of eighty-seven results reached the reading, always the latest two, so
+    "how did the GGUF gemma do" was answered from whatever happened to have run
+    most recently — a correct, current, and entirely unrelated pair of numbers.
+
+    Matched on the build's own names with the punctuation removed, the same way
+    `named_in` matches a service: `gemma-4-e4b`, `gemma 4 e4b` and
+    `google/gemma-4-e4b@4bit` are one question. The newest are still appended,
+    because a question that names nothing is asking what happened lately.
+    """
+    asked = _flatten(question)
+    matched: list[Mapping[str, Any]] = []
+    newest: list[Mapping[str, Any]] = []
+    for run in runs:
+        for result in run.get("results") or []:
             if not isinstance(result, Mapping):
                 continue
-            # The build, not just the key. §12.2 makes format and quantization
-            # part of the identity, and the payload carries both — without them
-            # two runs of one model read as a repeat of the same measurement
-            # rather than as the comparison they are.
-            target = result.get("target")
-            build = " ".join(
-                part for part in (
-                    str((target or {}).get("format") or ""),
-                    str((target or {}).get("quantization") or ""),
-                ) if part
-            ) if isinstance(target, Mapping) else ""
-            lines.append(
-                f"measured for {clip(str(result.get('target_key') or '?'))}"
-                + (f" ({clip(build)})" if build else "")
-                + f" ({clip(str(result.get('samples') or '?'))} samples, "
-                f"{clip(str(result.get('validity') or 'unknown'))}):"
-            )
-            lines += _metric_lines(result.get("metrics"))
-            for note in list(result.get("validity_notes") or [])[:MAX_VALIDITY_NOTES]:
-                # The reason a number might be wrong, in SIRVIS's own words. It
-                # is the half a summary drops and the half that decides whether
-                # the figure means anything.
-                lines.append(f"    caveat: {clip(str(note))}")
+            target = result.get("target") or {}
+            names = [str(result.get("target_key") or "")]
+            if isinstance(target, Mapping):
+                names.append(str(target.get("model_family") or ""))
+            # A name is a match when the question contains it, not the other way
+            # round: "gemma" must not select every gemma build on the machine
+            # when the question named one, and asking about `gemma-4-e4b` should
+            # still find `google/gemma-4-e4b@4bit`.
+            if asked and any(
+                _flatten(name) and _flatten(name.split("/")[-1]) in asked for name in names
+            ):
+                matched.append(result)
+            elif len(newest) < MAX_RESULTS:
+                newest.append(result)
+    return (matched[:MAX_MATCHED_RESULTS] + newest)[:MAX_QUOTED_RESULTS]
+
+
+def _run_lines(runs: Sequence[Mapping[str, Any]], question: str = "") -> list[str]:
+    """What the runs measured, with their validity attached."""
+    lines: list[str] = []
+    for result in _chosen_results(runs, question):
+        # The build, not just the key. §12.2 makes format and quantization
+        # part of the identity, and the payload carries both — without them
+        # two runs of one model read as a repeat of the same measurement
+        # rather than as the comparison they are.
+        target = result.get("target")
+        build = " ".join(
+            part for part in (
+                str((target or {}).get("format") or ""),
+                str((target or {}).get("quantization") or ""),
+            ) if part
+        ) if isinstance(target, Mapping) else ""
+        lines.append(
+            f"measured for {clip(str(result.get('target_key') or '?'))}"
+            + (f" ({clip(build)})" if build else "")
+            + f" ({clip(str(result.get('samples') or '?'))} samples, "
+            f"{clip(str(result.get('validity') or 'unknown'))}):"
+        )
+        lines += _metric_lines(result.get("metrics"))
+        lines += _trial_lines(result.get("metrics"))
+        for note in list(result.get("validity_notes") or [])[:MAX_VALIDITY_NOTES]:
+            # The reason a number might be wrong, in SIRVIS's own words. It
+            # is the half a summary drops and the half that decides whether
+            # the figure means anything.
+            lines.append(f"    caveat: {clip(str(note))}")
+    return lines
+
+
+# The trial rates, which are counted rather than averaged (§13.2) and so have
+# no median for `_metric_lines` to read. They were therefore absent from the
+# reading entirely — a question about tool calls was answered from throughput
+# and latency, which say nothing about tool calls.
+TRIAL_METRICS = (
+    ("tool_call_well_formed", "well-formed tool calls"),
+    ("tool_followup_used_result", "used the tool's result"),
+)
+
+
+def _trial_lines(metrics: Any) -> list[str]:
+    """A trial as its own count, with the shape of the evidence behind it.
+
+    `21/24` and `21/24 over 8 phrasings × 3 repetitions` are different claims:
+    §13.1 sets the bar as a rate *over* a minimum of each, and a rate quoted
+    without them cannot be checked against it. The outcome tally travels for the
+    same reason it was added to `TrialRate` — three failures of one kind and
+    three of three kinds are different builds.
+    """
+    if not isinstance(metrics, Mapping):
+        return []
+    lines = []
+    for name, described in TRIAL_METRICS:
+        found = metrics.get(name)
+        if not isinstance(found, Mapping) or not found.get("total"):
+            continue
+        line = f"    {described}: {found.get('passed')}/{found.get('total')}"
+        if found.get("phrasings") and found.get("repetitions"):
+            line += (f" over {found['phrasings']} phrasing(s)"
+                     f" × {found['repetitions']} repetition(s)")
+        lines.append(line)
+        outcomes = found.get("outcomes")
+        if isinstance(outcomes, Mapping) and outcomes:
+            tally = " · ".join(f"{key} {value}" for key, value in sorted(outcomes.items()))
+            lines.append(f"      outcomes: {clip(tally)}")
     return lines
 
 
@@ -676,7 +759,7 @@ def block(
     for name in _loaded(models):
         lines.append(f"loaded in the runtime right now: {name}")
     lines += _model_names(models, question, runtime)
-    lines += benchmarks(jobs, runs)
+    lines += benchmarks(jobs, runs, question)
     lines += runtime_lines(runtime)
     lines += route_lines(decisions)
     lines += clarvis_config(editors)

@@ -28,13 +28,22 @@ from ravis.routing.explain import RouteDecision
 
 AGENT_POOL = "ravis/clarvis-agent"
 
-# Both models declare tools, so both satisfy the agent pool's hard invariant and
-# a fallback between them is *valid* in §10's sense. The preference fragment
-# "coder" matches both, which leaves alphabetical order to decide — making
-# `coder-a` the primary and `coder-b` the fallback, predictably.
+# Both models satisfy the agent pool's hard invariant in full, so a fallback
+# between them is *valid* in §10's sense. The preference fragment "coder"
+# matches both, which leaves alphabetical order to decide — making `coder-a` the
+# primary and `coder-b` the fallback, predictably.
+#
+# **All four fields, because §5.1 asks for all four.** This declared tools and
+# 32K, which was the whole invariant while `ravis/clarvis-agent` was identical
+# to `ravis/agent`. The pool now also requires structured output and 128K —
+# Clarvis parses what comes back and reasons over a repository — and a fixture
+# short of that describes a model the pool refuses, which turns every test in
+# this file into a test of the refusal.
 TWO_CODERS = {
-    "coder-a": {"tools": "SUPPORTED", "context_window": "32768"},
-    "coder-b": {"tools": "SUPPORTED", "context_window": "32768"},
+    "coder-a": {"tools": "SUPPORTED", "structured_output": "SUPPORTED",
+                "context_window": "131072"},
+    "coder-b": {"tools": "SUPPORTED", "structured_output": "SUPPORTED",
+                "context_window": "131072"},
 }
 
 FRAMES = [

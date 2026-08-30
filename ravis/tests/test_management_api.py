@@ -64,7 +64,7 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
             assert client.post(path, json={}).status_code == 405, path
 
 
-def test_every_write_this_surface_serves_is_one_of_the_five_it_declares() -> None:
+def test_every_write_this_surface_serves_is_one_of_the_six_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
     RAVIS serves five writes: two on a provider credential, one on a provider's
@@ -94,6 +94,10 @@ def test_every_write_this_surface_serves_is_one_of_the_five_it_declares() -> Non
         "PUT /api/v1/providers/{name}/enabled",
         "PUT /api/v1/providers/{name}/models",
         "PUT /api/v1/pools/{pool_key}/members",
+        # Added deliberately: the same narrowing the line above writes for one
+        # pool, applied to every pool at once. It stores nothing a per-pool PUT
+        # could not, and its undo is the same endpoint with `{"clear": true}`.
+        "POST /api/v1/pools/curate",
     }, "a write appeared or vanished on the management surface"
 
 
@@ -315,3 +319,56 @@ def test_an_unconfigured_deployment_reports_no_policy() -> None:
     client.app.app.state.policies = ApplicationPolicies()
     with client:
         assert client.get("/api/v1/policies").json()["items"] == []
+
+
+def test_a_curated_pool_follows_a_catalogue_that_changes() -> None:
+    """The question this design exists to answer: what happens when a provider
+    ships a new model?
+
+    Membership is derived, never stored, so a model published tomorrow that
+    matches the pool's declared families is a member the first time anybody
+    asks — and one that is withdrawn stops being one, with no action from an
+    operator and nothing to re-run. Storing the computed list would break both:
+    a stored list is a snapshot of the catalogue at the moment it was written,
+    and this machine carried one of 549 models while the catalogue held 591.
+    """
+    from ravis.core.pools import POOLS_BY_ID
+
+    chat = POOLS_BY_ID["ravis/chat"]
+    before = ["anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5"]
+
+    # A provider adds a model in a family this pool already declares, and
+    # retires one it had.
+    after = ["anthropic/claude-haiku-9", "anthropic/claude-sonnet-5"]
+
+    assert "anthropic/claude-haiku-4.5" in chat.default_membership(before)
+    joined = chat.default_membership(after)
+    assert "anthropic/claude-haiku-9" in joined, "a new model in a declared family joins"
+    assert "anthropic/claude-haiku-4.5" not in joined, "a withdrawn one leaves"
+
+
+def test_curating_pins_nothing() -> None:
+    """`POST /pools/curate` removes narrowings rather than writing one.
+
+    The first version stored each pool's computed membership, which is the one
+    change that would stop it following the catalogue at all — the endpoint
+    would have frozen the very thing it exists to keep current.
+    """
+    client = _client()
+    with client:
+        # Pinned to a model the fixture catalogue actually holds — a PUT naming
+        # something ineligible stores nothing, and the test would then be
+        # asserting the release of a pin that was never made.
+        listed = client.get("/api/v1/pools/chat/members").json()["items"]
+        first = next(item["id"] for item in listed)
+        client.put("/api/v1/pools/chat/members", json={"models": [first]})
+        answered = client.post("/api/v1/pools/curate", json={})
+        after = client.get("/api/v1/pools").json()["items"]
+
+    assert answered.status_code == 200
+    body = answered.json()
+    assert body["stored"] is False
+    assert any(row["was_pinned"] for row in body["pools"]), "the pin was there to release"
+    pinned = [p for p in after if p["pool_id"] == "ravis/chat"][0]
+    # Following the default again, not stuck on the single model that was pinned.
+    assert pinned["member_count"] != 1

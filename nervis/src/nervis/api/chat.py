@@ -467,6 +467,43 @@ JOB_SAMPLE = 25
 # figures of the most recent one rather than the history.
 RUN_SAMPLE = 3
 
+# How many runs to fetch when the question names something in particular.
+#
+# **Three was the whole history chat could see.** A person asking "how did the
+# GGUF gemma do" was answered from the two most recent results on the machine,
+# and the run they meant was the fifteenth — so the reading was correct, current
+# and silent about the only thing being asked. Fifty is the window SIRVIS's own
+# Results screen reads, and the selection below narrows it to what was asked
+# about rather than sending fifty runs into a prompt.
+NAMED_RUN_SAMPLE = 50
+
+# When measurements are worth reading, which is not the same question as when
+# the *queue* is worth reading.
+#
+# The two were one condition — runs were fetched only if the queue read had
+# returned something — and the queue read only triggers on "bench", "job" or
+# "queue". So "how did the GGUF gemma do on tool calls" fetched no results at
+# all: not because the machine had none, but because the sentence did not
+# mention a queue. A finished measurement outlives the job that produced it and
+# is asked about in the words below.
+RESULT_WORDS = (
+    "bench", "job", "queue", "result", "measure", "measured", "score",
+    "tok/s", "tokens", "tool call", "compare", "faster", "slower",
+    "gguf", "mlx", "quant",
+)
+
+
+def _wants_results(question: str) -> bool:
+    """Whether this question is about what was measured."""
+    return any(word in question.lower() for word in RESULT_WORDS)
+
+
+def _run_window(question: str) -> int:
+    """How far back to read. Wider when the question names something specific,
+    because the run being asked about is rarely the most recent one — the pair
+    this was reported over sat fifteen runs deep."""
+    return NAMED_RUN_SAMPLE if _wants_results(question) else RUN_SAMPLE
+
 # When the local runtime is worth asking directly. "lm studio" and "lmstudio"
 # both appear because the registry key and the product name differ, and a person
 # types whichever they are looking at.
@@ -476,6 +513,9 @@ RUN_SAMPLE = 3
 # those is the GGUF. The runtime knows — so a question about models reads it
 # too, and the names below carry a format instead of a suffix nobody can
 # interpret.
+# The pool a conversation gets when the caller names none.
+DEFAULT_CHAT_POOL = "ravis/chat"
+
 RUNTIME_WORDS = (
     "lm studio", "lmstudio", "loaded", "runtime", "context window",
     "model", "gguf", "mlx", "variant", "quant",
@@ -589,7 +629,15 @@ async def send(request: Request) -> Any:
         nudge = 0
     if not content and not greeting and nudge <= 0:
         raise InvalidConfigurationError("content must be a non-empty string")
-    profile = str(body.get("profile") or "ravis/auto")
+    # **`ravis/chat`, not `ravis/auto`.** Auto declares no constraint by design
+    # — "let RAVIS decide, with no constraint beyond what the request needs" —
+    # and a pool that declares nothing has nothing to order candidates by, so
+    # the engine falls back to alphabetical. That is the documented behaviour
+    # and it is fine for a pool nobody names on purpose; it is the wrong
+    # default for the one surface where a person is talking to the thing. The
+    # chat pool exists, says what it is for, and is what a conversation should
+    # get when the caller expressed no preference.
+    profile = str(body.get("profile") or DEFAULT_CHAT_POOL)
 
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     verdict = negotiate(Operation("chat", "ravis", CHAT_CAPABILITY, "Chat"), entry)
@@ -944,9 +992,12 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     runtime = await _runtime(request, asked)
     decisions = await _decisions(request, asked)
     editors = await _editors(request, asked)
-    # Only alongside the queue: a run is what a job became, so a question that
-    # did not mention benchmarks does not need either.
-    runs = await _runs(request) if jobs else []
+    # **Not "only alongside the queue", which is what this said.** A run is
+    # what a job became, and it outlives it: the queue is empty most of the
+    # time and the measurements are the part anybody asks about later. Gating
+    # results on the queue having something in it meant a machine with 87
+    # recorded runs answered "how did the GGUF gemma do" with nothing.
+    runs = await _runs(request, asked) if _wants_results(asked) else []
     # The question travels so the reading can go deep on what it named. Nothing
     # in it reaches the prompt — it is matched against the registry's own keys
     # and labels and then dropped, which is why a crafted question cannot select
@@ -1101,7 +1152,7 @@ async def _runtime(request: Request, question: str) -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)]
 
 
-async def _runs(request: Request) -> list[dict[str, Any]]:
+async def _runs(request: Request, question: str = "") -> list[dict[str, Any]]:
     """The most recent benchmark runs, with the numbers they measured.
 
     Read only when the queue was read, and bounded to a handful: a person who
@@ -1116,7 +1167,7 @@ async def _runs(request: Request) -> list[dict[str, Any]]:
     try:
         answered = await client.get(
             entry.declaration.base_url + "/api/v1/benchmark-runs",
-            params={"limit": RUN_SAMPLE}, timeout=FACTS_TIMEOUT_SECONDS,
+            params={"limit": _run_window(question)}, timeout=FACTS_TIMEOUT_SECONDS,
         )
         if answered.status_code >= 400:
             return []

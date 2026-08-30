@@ -352,5 +352,11 @@ def test_a_faster_local_model_does_not_win_the_chat_pool() -> None:
     )
 
     assert decision.selected != LOCAL
-    # And speed still orders the hosted ones among themselves.
-    assert decision.selected == FREE_CLOUD
+    # **The pool's declared families order the hosted ones, ahead of speed.**
+    # This asserted `FREE_CLOUD` while the pool declared no preference at all —
+    # which is precisely what left the ordering alphabetical and let
+    # `amazon/nova-2-lite-v1` win real conversations on this machine.
+    # `claude-opus` leads `CHAT_FAMILIES`; `z-ai/glm:free` is not a member of
+    # the curated pool at all. Speed still breaks ties inside a family, which
+    # is where a measurement can mean something.
+    assert decision.selected == PAID

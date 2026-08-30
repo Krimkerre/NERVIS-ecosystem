@@ -167,6 +167,35 @@ class VirtualModelPool:
     # for how it is read. Empty means every eligible model, which is what every
     # other pool wants.
     default_tier: str = ""
+    # Curated membership: a model joins this pool only if its id contains one of
+    # these fragments.
+    #
+    # **Why a pool needs this at all.** `ravis/chat` admitted every model RAVIS
+    # knew — 549 of them, no requirement, no preference — and the engine's own
+    # comment says what happens then: "pools that say nothing fall back to
+    # alphabetical order, which is meaningless". So conversation on this machine
+    # was served by `amazon/nova-2-lite-v1`, which won on the letter A, and
+    # `size_rank` put every model whose *name* carries a parameter count ahead
+    # of every frontier model whose name does not — a 1B instruct outranking
+    # gpt-5 because "1b" parses and "gpt-5" does not.
+    #
+    # **This is a declared preference, not a measurement, and the distinction
+    # is the whole point.** §9.2 forbids inventing a quality ranking, and this
+    # does not claim one: it says which families are *general conversational
+    # assistants*, which is a statement about what a model is for rather than
+    # about how good it is. Ranking within the class stays where §13 leaves
+    # it — unmeasured, and honest about that.
+    #
+    # Order matters: `preference_rank` reads position, so this same tuple gives
+    # the pool its ordering. An operator who disagrees replaces the list, and a
+    # per-pool selection saved through the management API overrides it entirely.
+    curated: tuple[str, ...] = ()
+    # Fragments that disqualify a model even when a curated family matched it.
+    # `gpt-5-codex` matches `gpt-5` and is not a conversational assistant;
+    # `qwen2.5-vl-72b-instruct` matches an instruct family and is a vision
+    # model. Per pool, because the same marker that disqualifies a model here
+    # is what qualifies it next door.
+    excluded: tuple[str, ...] = ()
     # Whether a picker should offer this pool.
     #
     # The ID stays addressable either way — §5 requires it and a client may name
@@ -290,11 +319,20 @@ class VirtualModelPool:
         nothing is known about cost, and filtering on an absent fact would empty
         the pool for a reason nobody could read off the data.
         """
-        if not self.default_tier and self.max_price_per_million is None:
-            return tuple(candidates)
+        # **The baseline, before anything a pool declares.** An embedding model
+        # cannot answer a chat completion and neither can a moderation
+        # classifier, an image model or a batch endpoint — yet `ravis/auto` held
+        # 41 of them and `ravis/local` held `text-embedding-nomic-embed-text`.
+        # No pool wants these and every pool had them, which makes it a property
+        # of routing rather than of any one pool's taste.
+        routable = [model for model in candidates if self._is_routable(model)]
+        if (not self.default_tier and self.max_price_per_million is None
+                and not self.curated and not self.excluded):
+            return tuple(routable)
         matched = [
-            model for model in candidates
-            if not self.default_tier or size_tier(model) == self.default_tier
+            model for model in routable
+            if (not self.default_tier or size_tier(model) == self.default_tier)
+            and self._is_curated(model)
         ]
         if self.max_price_per_million is not None and prices is not None:
             ceiling = self.max_price_per_million
@@ -306,6 +344,40 @@ class VirtualModelPool:
                 if prices.get(model) is not None and prices[model] <= ceiling  # type: ignore[operator]
             ]
         return tuple(matched) or tuple(candidates)
+
+    @staticmethod
+    def _is_routable(model: str) -> bool:
+        """Whether this model can answer a chat completion at all.
+
+        Not a matter of taste and not per pool: an embedding model, a reranker,
+        a moderation classifier, a speech or image model and a batch endpoint
+        are all things that cannot serve the request RAVIS routes. `NOT_CHAT`
+        already named most of them for `size_tier`, which meant the knowledge
+        existed and membership did not consult it.
+
+        `:batch` is here rather than in a pool's own list for the same reason:
+        `anthropic/claude-opus-4:batch` is the same weights on an asynchronous
+        queue measured in hours, which cannot answer anybody waiting on a
+        reply — in any pool.
+        """
+        lowered = model.lower()
+        if lowered.endswith(":batch"):
+            return False
+        return not any(_has_word(lowered, word) for word in NOT_CHAT)
+
+    def _is_curated(self, model: str) -> bool:
+        """Whether this pool wants this model.
+
+        **The two halves are independent**, which the first version got wrong by
+        returning early when `curated` was empty: that made `excluded` dead on
+        every pool that declared exclusions and no family list — which was four
+        of them, including the three whose whole point is to differ from
+        `ravis/coding` on purpose.
+        """
+        lowered = model.lower()
+        if any(marker in lowered for marker in self.excluded):
+            return False
+        return not self.curated or any(fragment in lowered for fragment in self.curated)
 
     def preference_rank(self, model: str) -> int:
         """How well a model matches this pool's declared preference, lowest best.
@@ -450,6 +522,133 @@ def size_rank(model: str) -> tuple[int, float, str]:
     scale = parameter_scale(model)
     return (1, 0.0, model) if scale is None else (0, scale, model)
 
+# Specialists that a family fragment sweeps in by accident. `gpt-5-codex` is a
+# `gpt-5`, `qwen2.5-vl-72b-instruct` is a `qwen-2.5-…-instruct`, and
+# `deepseek-r1-distill-llama-70b` is a `llama-…`; each is a real model for a
+# real job that is not conversation. Checked as substrings after the family
+# match, because the alternative is spelling every good variant of every family
+# by hand and missing the next one released.
+#
+# **Per pool, never global.** A code specialist is noise in `ravis/chat` and the
+# entire point of `ravis/coding`, so this belongs to the pool that means it.
+NOT_CONVERSATION: tuple[str, ...] = (
+    "codex", "coder", "codestral", "devstral",   # code
+    "-vl-", "vision", "-image",                  # vision
+    "distill", "-deep", "thinking",              # reasoning-first
+    "guard", "moderat",                          # safety classifiers
+)
+
+# The families `ravis/chat` draws from, in the order it prefers them.
+#
+# **What this list is.** General conversational assistants — instruction-tuned
+# models built to be talked to. It is not a quality ranking and cannot be one:
+# §9.2 forbids RAVIS inventing quality it has not measured, and nothing here
+# has been measured for conversation. What it encodes is *what a model is for*,
+# which is knowable from the model itself, and a rough order of capability
+# within that — frontier assistants before small ones, because the failure this
+# fixes is a conversation served by whatever tiny thing sorted first.
+#
+# **What it deliberately leaves out**, each for a reason a person can check:
+#
+#   - reasoning-first builds (`r1-distill`, `deep`, `thinking`) — they spend the
+#     output budget thinking, which is why a 24-token title call on this machine
+#     came back as "Okay, let's tackle this user query"
+#   - code and vision specialists (`coder`, `codestral`, `-vl-`) — better served
+#     by `ravis/coding`, and a pool that admits them dilutes what naming this
+#     one means
+#   - embeddings, rerankers, moderation, audio and image models, which `NOT_CHAT`
+#     already excludes everywhere
+#   - batch endpoints, excluded by `_is_curated`: same model, asynchronous queue
+#
+# It ends with the local families so the pool keeps its stated shape — "a hosted
+# model first, this machine's own underneath it" — and still answers when no
+# provider is reachable.
+CHAT_FAMILIES: tuple[str, ...] = (
+    # **The cheap frontier tier leads, and that is a cost decision.** Ordering
+    # by capability alone put `claude-fable-5` on every unremarkable turn of
+    # every conversation, which is the most expensive way to answer "how is
+    # RAVIS doing". These are frontier-quality models at a fraction of the
+    # price, and the pool's job is to be the sane default rather than the best
+    # possible answer regardless of the bill.
+    "claude-haiku", "gemini-2.5-flash", "gpt-5-mini", "gpt-4o-mini",
+    "deepseek-chat", "qwen-plus", "ministral-14b",
+    # The capable middle, reached when nothing above it is available.
+    "claude-sonnet", "gpt-5", "gemini-2.5-pro", "gpt-4.1", "gpt-4o",
+    "mistral-large", "command-r", "nova-pro",
+    # **Last, and last is the whole specification.** An expensive model is a
+    # manual pick — named directly, or ticked into this pool in the picker —
+    # and never what a pool reaches for on an ordinary turn. Keeping them at
+    # the end of the order rather than out of the list makes them exactly one
+    # thing: the answer when everything above is unavailable, which is better
+    # than refusing the request. `preference_rank` reads position, so this is
+    # enforced by where these sit rather than by a rule somewhere else.
+    "claude-opus", "claude-fable", "grok-4", "qwen-max", "nova-premier",
+    # Open-weight assistants, hosted or local, largest families first.
+    "llama-3.3-70b-instruct", "qwen-2.5-72b-instruct", "llama-3.1-70b-instruct",
+    "mistral-small", "ministral-14b", "qwen3-4b", "gemma-4", "granite-4",
+    "llama-3.1-8b-instruct", "qwen-2.5-7b-instruct",
+)
+
+# What `ravis/coding` draws from, in the order it prefers them.
+#
+# **The pool declared `prefer=("coder", "code", "qwen")` and no membership**,
+# which means it admitted every model RAVIS knew and merely sorted three
+# fragments to the front — and `qwen` as a preference fragment promotes every
+# Qwen build there is, including a 1.7B that has never written a line of code
+# here. What a coding pool needs is the opposite: a membership that is about
+# coding, and an order inside it.
+#
+# Frontier general models lead rather than the specialists. That is a real
+# claim about this class of work and not a quality ranking: an assistant that
+# reads a repository, follows an instruction and writes a patch is doing
+# something a code-completion specialist is not built for, and the specialists
+# are kept because they are cheap, local and good at the narrower job.
+CODE_FAMILIES: tuple[str, ...] = (
+    # The capable middle leads, on the same cost reasoning as `CHAT_FAMILIES`:
+    # a pool that answers every "rename this variable" with the most expensive
+    # model in the catalogue is not a coding pool, it is a bill.
+    "claude-sonnet", "gpt-5-mini", "qwen3-coder", "qwen-2.5-coder",
+    "qwen2.5-coder", "codestral", "devstral", "deepseek-coder",
+    # Stronger general models next, reached when the above are unavailable.
+    "gpt-5", "gemini-2.5-pro", "deepseek-chat", "codellama", "starcoder",
+    "granite-code", "codegemma",
+    # Last-ditch only, for the reason `CHAT_FAMILIES` states at the same place.
+    "claude-opus", "grok-4", "claude-fable",
+    # Catch-alls, last on purpose. A build nobody has heard of that calls itself
+    # a coder belongs in this pool — the named families above are an ordering,
+    # not a gate, and a membership that admitted only models on a hand-kept list
+    # would go stale the week after it was written.
+    "coder", "codex", "code",
+)
+
+# What `ravis/reasoning` draws from. The pool already *requires* the `reasoning`
+# capability, which is a real gate — but the capability is advertised by the
+# provider, and "supports a reasoning parameter" is a different claim from
+# "built to reason". These are the families built for it, and the requirement
+# stays on top of them.
+REASONING_FAMILIES: tuple[str, ...] = (
+    "claude-sonnet", "gpt-5-mini", "o1", "o3", "o4", "deepseek-r1",
+    "deepseek-v4", "qwq", "magistral", "thinking", "-deep", "reason",
+    "r1-distill", "gpt-5", "gemini-2.5-pro",
+    # Last-ditch only. Reasoning is where an expensive model is most tempting
+    # and most costly, so it sits where it can still answer a request nothing
+    # else can and nowhere earlier.
+    "claude-opus", "grok-4",
+)
+
+# Specialists that a general-purpose pool should not reach for. `ravis/balanced`,
+# `ravis/fast` and `ravis/performance` differ from each other on size and from
+# `ravis/coding` on purpose — a "balanced" pool that answers with a code
+# completion model is not balanced, it is miscategorised.
+#
+# Not applied to `ravis/auto`, which is the one pool whose description promises
+# no constraint beyond what the request needs, and where a code request should
+# be able to reach a code model.
+GENERAL_PURPOSE_EXCLUSIONS: tuple[str, ...] = (
+    "coder", "codex", "codestral", "devstral", "starcoder", "codellama",
+    "-vl-", "vision",
+)
+
 # The required defaults from §5. `ravis/clarvis-chat` and `ravis/clarvis-agent`
 # are the two whose IDs must stay stable — Clarvis names them in configuration.
 DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
@@ -469,20 +668,36 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         # to. Preferred rather than required, so a machine with no reachable
         # provider still answers instead of refusing.
         prefer_remote=True,
-        # And among the hosted ones, whichever RAVIS has actually timed.
+        # **And a membership, which is what it had none of.** See
+        # `CHAT_FAMILIES`: without it this pool admitted every model RAVIS knew
+        # and, declaring no preference, ordered them alphabetically.
+        curated=CHAT_FAMILIES,
+        excluded=NOT_CONVERSATION,
+        # The same tuple as the ordering, so the pool prefers its members in the
+        # order it declared them rather than by name. `prefer` was empty, and an
+        # empty `prefer` is exactly what routes this pool alphabetically.
+        prefer=CHAT_FAMILIES,
+        # **`prefer_fast` was here and is deliberately gone.** It existed for
+        # one reason, in its own words: "without this the pool ranks six hundred
+        # remote models on nothing and settles them alphabetically". The curated
+        # families rank them on something now, and that job is done.
         #
-        # Without this the pool ranks six hundred remote models on nothing and
-        # settles them alphabetically, which is how an obscure build wins a
-        # conversation. Measured models sort ahead; unmeasured ones stay neutral
-        # rather than last, because last is the trap that closes — never chosen,
-        # so never measured, so never chosen.
-        prefer_fast=True,
+        # Leaving it would have inverted the new order, because
+        # `_preference_terms` consults speed *before* the pool's declared
+        # preference: any model RAVIS happened to have timed jumped ahead of the
+        # families, and the first pick after curation was still the most
+        # expensive model in the catalogue — measured once, and therefore
+        # "fast", against a cheap tier nobody had called yet.
     ),
     VirtualModelPool(
         pool_id="ravis/balanced",
         label="Balanced",
         description="A reasonable middle between speed, cost and quality",
         default_tier="mid",
+        # And not a code or vision specialist: this pool differs from
+        # `ravis/coding` on purpose, and a balanced pool answering with a
+        # completion model is miscategorised rather than balanced.
+        excluded=GENERAL_PURPOSE_EXCLUSIONS,
         # Mid-sized models, ordered by measured speed at a quarter-second
         # resolution, and the cheaper one wherever that ordering ties. All three
         # words in the description end up meaning something: size is the only
@@ -497,6 +712,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         description="Lowest latency, accepting weaker answers",
         prefer=("1.7b", "2b", "3b", "mini", "tiny"),
         default_tier="small",
+        excluded=GENERAL_PURPOSE_EXCLUSIONS,
         prefer_fast=True,
     ),
     VirtualModelPool(
@@ -505,6 +721,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         description="Best available answer, accepting latency and cost",
         prefer=("70b", "32b", "30b", "27b", "14b"),
         default_tier="large",
+        excluded=GENERAL_PURPOSE_EXCLUSIONS,
     ),
     VirtualModelPool(
         pool_id="ravis/cheap",
@@ -551,16 +768,34 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/coding",
         label="Coding",
         description="Optimized for writing and reasoning about code",
-        prefer=("coder", "code", "qwen"),
+        # See `CODE_FAMILIES`. The old value was `("coder", "code", "qwen")` with
+        # no membership at all: every model RAVIS knew was a member, and `qwen`
+        # promoted a 1.7B that has never written code here above every model
+        # that has.
+        curated=CODE_FAMILIES,
+        prefer=CODE_FAMILIES,
+        # Vision and audio variants of a coding family are not coding models,
+        # and a batch endpoint is excluded for every curated pool.
+        excluded=("-vl-", "vision", "-image", "guard", "moderat"),
     ),
     VirtualModelPool(
         pool_id="ravis/reasoning",
+        # See `REASONING_FAMILIES`. The capability requirement below is the hard
+        # gate and stays; this narrows what is left to the models actually built
+        # to reason, because "supports a reasoning parameter" is a claim the
+        # provider makes about an API and not about the model.
+        curated=REASONING_FAMILIES,
+        prefer=REASONING_FAMILIES,
         label="Reasoning",
         description="Models that reason before answering",
         requirements=PoolRequirements(required=frozenset({Capability.REASONING})),
     ),
     VirtualModelPool(
         pool_id="ravis/long-context",
+        # A long context is what this pool promises; it says nothing about
+        # answering with a code completion model, and the exclusions keep the
+        # promise from quietly becoming one.
+        excluded=GENERAL_PURPOSE_EXCLUSIONS,
         label="Long Context",
         description="Large context windows",
         requirements=PoolRequirements(minimum_context=131072),
@@ -600,6 +835,11 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-chat",
+        # The same families as `ravis/chat`, for the same reason: §5.1 asks this
+        # pool for conversation and instruction following, and `prefer` alone
+        # left every other model in the pool as an equal member.
+        curated=CHAT_FAMILIES,
+        excluded=NOT_CONVERSATION,
         label="Clarvis Chat",
         description=(
             "Conversation, planning and instruction following. Tool support is optional "
@@ -619,11 +859,35 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         pool_id="ravis/clarvis-agent",
         label="Clarvis Agent",
         description=(
-            "Coding, tool use and repository reasoning. Tools are REQUIRED: §5.1's hard "
-            "invariant forbids admitting a non-tool-capable model however well it codes."
+            "Coding, tool use, repository reasoning, structured calls and long context. "
+            "Tools are REQUIRED: §5.1's hard invariant forbids admitting a "
+            "non-tool-capable model however well it codes."
         ),
-        requirements=_TOOLS_REQUIRED,
-        prefer=("coder", "code"),
+        # **§5.1 names five things and this enforced two.** Its own sentence is
+        # "optimized for coding, tool use, repository reasoning, structured
+        # calls, long context and reliability", and the pool declared tools and
+        # 32K — which made it identical to `ravis/agent`, the general
+        # tool-capable pool, member for member. Two pools that select the same
+        # 295 models are one pool with two names, and Clarvis names this one
+        # because its needs are narrower.
+        #
+        # Structured output is a requirement rather than a preference for the
+        # reason tools are: Clarvis parses what comes back, and a model that
+        # cannot be asked for a shape fails the request rather than answering it
+        # worse. 128K rather than 32K because "repository reasoning" is the
+        # phrase — a file, its imports and a diff do not fit in 32K, and a pool
+        # that admits a model which will truncate them is promising something it
+        # cannot keep.
+        requirements=PoolRequirements(
+            required=frozenset({Capability.TOOLS, Capability.STRUCTURED_OUTPUT}),
+            minimum_context=131072,
+        ),
+        # And coding, which is the first word of its description. `ravis/agent`
+        # stays the general "anything that can call a tool" pool; this one is
+        # for the plugin that reads and edits a repository.
+        curated=CODE_FAMILIES,
+        prefer=CODE_FAMILIES,
+        excluded=("-vl-", "vision", "-image"),
     ),
 )
 

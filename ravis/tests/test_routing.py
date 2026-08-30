@@ -16,18 +16,39 @@ from ravis.core.capabilities import (
 from ravis.core.pools import POOLS_BY_ID, direct_target, is_pool_id
 from ravis.routing.engine import RoutingEngine
 
+# Comfortably above `ravis/clarvis-agent`'s bar, which these fixtures were
+# written to be and stopped being when §5.1's "long context" was finally
+# enforced as 128K rather than 32K. Named rather than repeated, so the next
+# change to the bar is one edit here instead of four in the file.
+CLARVIS_CONTEXT = 131072
+
 
 def _model(name: str, tools: bool | None = None, context: int | None = None) -> ModelCapabilities:
-    """A candidate. `tools=None` means nobody has said — the common real case."""
-    known = ModelCapabilities(model_id=name, context_window=context)
+    """A candidate. `tools=None` means nobody has said — the common real case.
+
+    **A tool-capable model here is also structured-output-capable and long.**
+    §5.1 asks `ravis/clarvis-agent` for coding, tool use, repository reasoning,
+    structured calls and long context; the pool enforced only the first two,
+    which made it identical to `ravis/agent`, and now enforces all of them. A
+    helper that declared tools alone would describe a model that pool refuses,
+    turning every test below into a test of the refusal rather than of the
+    ranking it is about.
+
+    They travel together because a real model that calls tools and cannot be
+    asked for a shape is rare, while a fixture that tests ordering wants a
+    candidate the pool admits.
+    """
+    known = ModelCapabilities(model_id=name, context_window=context or 131072)
     if tools is not None:
-        known.record(
-            CapabilityClaim(
-                capability=Capability.TOOLS,
-                state=CapabilityState.SUPPORTED if tools else CapabilityState.UNSUPPORTED,
-                provenance=Provenance.CONFIGURED,
+        state = CapabilityState.SUPPORTED if tools else CapabilityState.UNSUPPORTED
+        for capability in (Capability.TOOLS, Capability.STRUCTURED_OUTPUT):
+            known.record(
+                CapabilityClaim(
+                    capability=capability,
+                    state=state,
+                    provenance=Provenance.CONFIGURED,
+                )
             )
-        )
     return known
 
 
@@ -45,7 +66,7 @@ def test_the_agent_pool_refuses_a_model_with_unknown_tool_support() -> None:
     agent to a model that may not, and the failure would surface as a broken
     tool call far from this decision.
     """
-    candidates = {"mystery": _model("mystery", tools=None, context=65536)}
+    candidates = {"mystery": _model("mystery", tools=None, context=CLARVIS_CONTEXT)}
 
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
@@ -54,7 +75,7 @@ def test_the_agent_pool_refuses_a_model_with_unknown_tool_support() -> None:
 
 
 def test_the_agent_pool_refuses_a_model_that_cannot_use_tools() -> None:
-    candidates = {"chatty": _model("chatty", tools=False, context=65536)}
+    candidates = {"chatty": _model("chatty", tools=False, context=CLARVIS_CONTEXT)}
 
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
@@ -62,7 +83,7 @@ def test_the_agent_pool_refuses_a_model_that_cannot_use_tools() -> None:
 
 
 def test_the_agent_pool_accepts_a_tool_capable_model() -> None:
-    candidates = {"coder": _model("coder", tools=True, context=65536)}
+    candidates = {"coder": _model("coder", tools=True, context=CLARVIS_CONTEXT)}
 
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
@@ -80,11 +101,19 @@ def test_a_tool_capable_model_with_too_little_context_is_still_refused() -> None
 
 def test_an_exclusion_names_every_reason_not_just_the_first() -> None:
     """A model failing two ways needs a different fix from one failing once."""
+    # Fails every requirement the pool has, which is the point: the excluded
+    # entry must name all of them rather than stopping at the first.
     candidates = {"weak": _model("weak", tools=False, context=1024)}
 
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
-    assert len(decision.excluded[0].reasons) == 2
+    # Every requirement it fails, named. Asserted by content rather than by a
+    # count, which is what made this test break when the pool gained a third
+    # requirement — the subject is "names all of them", not "names two".
+    reasons = " · ".join(decision.excluded[0].reasons)
+    assert "tools is UNSUPPORTED" in reasons
+    assert "structured_output is UNSUPPORTED" in reasons
+    assert "context 1024" in reasons
 
 
 def test_the_chat_pool_does_not_require_tools() -> None:
@@ -109,7 +138,7 @@ def test_selection_is_predictable_across_repeated_calls() -> None:
 
 
 def test_a_declared_preference_beats_alphabetical_order() -> None:
-    candidates = {name: _model(name, tools=True, context=65536)
+    candidates = {name: _model(name, tools=True, context=CLARVIS_CONTEXT)
                   for name in ("alpha-model", "qwen-coder")}
 
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
@@ -231,7 +260,7 @@ def test_no_pool_id_contains_a_substring_clarvis_filters_out() -> None:
 
 def _tool_model(name: str) -> ModelCapabilities:
     """A candidate the agent pool will admit, so ranking is what is under test."""
-    return _model(name, tools=True, context=32768)
+    return _model(name, tools=True, context=CLARVIS_CONTEXT)
 
 
 def test_size_breaks_a_tie_between_equally_preferred_candidates() -> None:
@@ -332,7 +361,13 @@ def test_the_pool_listing_agrees_with_what_the_router_would_pick() -> None:
     }
     pool = POOLS_BY_ID["ravis/clarvis-agent"]
 
-    listed = pool.eligible(candidates)
+    # `default_membership` over `eligible`, which is what the management API's
+    # `_members` computes and therefore what the dashboard shows. Comparing the
+    # raw eligible set stopped being the listing the moment a pool could curate:
+    # `llama-8b` satisfies every requirement and is not one of the families
+    # `ravis/clarvis-agent` is for, so the router does not choose from it and
+    # the screen does not list it.
+    listed = list(pool.default_membership(pool.eligible(candidates)))
     decision = RoutingEngine().select("ravis/clarvis-agent", candidates)
 
     assert listed[0] == decision.selected
@@ -461,6 +496,15 @@ def test_the_agent_pool_is_not_clarvis_agent_wearing_a_shorter_name() -> None:
     agent = POOLS_BY_ID["ravis/agent"]
     clarvis = POOLS_BY_ID["ravis/clarvis-agent"]
 
-    assert agent.requirements == clarvis.requirements, "the hard invariant is the same"
+    # **Clarvis's is stricter, and that is the distinction.** These two were
+    # identical — same requirements, same 295 members — which made one of them a
+    # second name for the other. §5.1 asks this pool for "coding, tool use,
+    # repository reasoning, structured calls, long context and reliability", so
+    # it requires all of that; `ravis/agent` remains the pool for a caller who
+    # simply needs a model that can call a tool.
+    assert Capability.TOOLS in agent.requirements.required, "§5.1's hard invariant, both"
+    assert Capability.TOOLS in clarvis.requirements.required
+    assert clarvis.requirements.required > agent.requirements.required, "strictly more"
+    assert clarvis.requirements.minimum_context > agent.requirements.minimum_context
     assert "coder" in clarvis.prefer and "coder" not in agent.prefer
     assert "role" not in agent.description.lower() or "one product" in agent.description

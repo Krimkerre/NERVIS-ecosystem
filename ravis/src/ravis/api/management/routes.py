@@ -582,6 +582,73 @@ def _if_match_refusal(request: Request, current: str) -> JSONResponse | None:
     )
 
 
+def _curation_detail(pool: Any, dropped: int) -> str:
+    """What this pool's curated default currently leaves out, in its own terms."""
+    if not dropped:
+        return "nothing dropped — every eligible model belongs here"
+    if pool.curated:
+        return f"{dropped} not one of the families this pool is for"
+    if pool.excluded:
+        return f"{dropped} specialists and models that cannot hold a request"
+    return f"{dropped} cannot answer a chat completion at all"
+
+
+@router.post("/pools/curate")
+async def curate_pools(request: Request) -> Any:
+    """Hand every pool back to its own curated default.
+
+    **This deliberately stores nothing.** The first version wrote each pool's
+    computed membership in as an explicit selection, which is the one thing that
+    would break it: a stored list is a snapshot of the catalogue at the moment
+    it was written, and the catalogue is the part that moves. A provider adding
+    `claude-haiku-5` next week would publish a model that matches this pool's
+    declared families and still never be routed to, because a list written today
+    cannot contain it.
+
+    That is not hypothetical. The machine this was built on carried a stored
+    selection of 549 models, saved when 549 was the whole catalogue and stale by
+    42 models within a fortnight — while the pools screen reported it as the
+    membership and the router used it.
+
+    So what this does is *remove* the narrowings. Membership is then derived on
+    every read and every route from `default_membership`: the pool's
+    requirements, its declared families, and whatever the providers publish
+    right now. New models join the moment they appear and withdrawn ones leave
+    with no action from anybody, which is what §5.2 means by membership being
+    computed rather than stored.
+
+    Per-pool hand selections stay available in the picker for exactly the case
+    that needs one — pinning a model, or excluding one an operator disagrees
+    with — and this is how they are undone.
+    """
+    refusal = _may_write(request)
+    if refusal is not None:
+        return _refused(refusal)
+    candidates, remote = await _pool_candidates(request)
+    prices = {model: known.price_per_million for model, known in candidates.items()}
+    applied = []
+    for pool in POOLS_BY_ID.values():
+        eligible = pool.eligible(candidates, remote)
+        had = bool(request.app.state.pool_membership.for_pool(pool.pool_id))
+        request.app.state.pool_membership.set_for(pool.pool_id, ())
+        # What the pool selects *right now*. Reported rather than stored, so the
+        # number is a description of the current catalogue and not a promise
+        # about the next one.
+        chosen = pool.default_membership(eligible, prices)
+        applied.append({
+            "pool_id": pool.pool_id,
+            "curated": bool(pool.curated),
+            "selected": len(chosen),
+            "eligible": len(eligible),
+            "was_pinned": had,
+            "detail": _curation_detail(pool, len(eligible) - len(chosen)),
+        })
+    audit.record(request, audit.ACTION_POOL_MEMBERS, pool="*",
+                 chosen=len(applied), refused=0, narrowed=False)
+    return {"pools": applied, "stored": False,
+            "note": "membership is derived per request; nothing was pinned"}
+
+
 @router.put("/pools/{pool_key}/members")
 async def set_pool_members(
     pool_key: str, body: PoolMembersInput, request: Request

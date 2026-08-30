@@ -188,6 +188,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .table-row.head .sortable{cursor:pointer;user-select:none}
 .table-row.head .sortable:hover{color:var(--accent)}
 .table-row.head .sorted{color:var(--accent)}
+.curate-bar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:7px}
+.card.kpi #curate-note{display:block;line-height:1.5}
 /* The one destructive control on this page, and it looks like one. */
 .btn.danger{border-color:#5c2b2b;background:#1d1113;color:#ff9c8f}
 .btn.danger:hover{border-color:#ff6b57;color:#fff}
@@ -2176,9 +2178,12 @@ const API={
     description:p.description,
     revision:p.revision,
     /* RAVIS publishes no "default" flag — §9.3 makes a profile the human-facing
-       view of a pool, and `ravis/auto` is the one a request with no profile
-       resolves to. Derived here rather than invented upstream. */
-    default:p.profile_id==='ravis/auto'}))}))},
+       view of a pool, and this is the one a request with no profile resolves
+       to. Derived here rather than invented upstream, and it has to match
+       NERVIS's own `DEFAULT_CHAT_POOL`: a picker that marks a different pool
+       as the default than the one an unspecified request actually gets is
+       worse than no mark at all. */
+    default:p.profile_id==='ravis/chat'}))}))},
 
   async _profilesMock(){return{items:[]}},
 
@@ -6434,6 +6439,37 @@ const POOLEDIT={
  },
 };
 
+/* Curate every pool at once, or hand them all back to their own defaults.
+
+   The same narrowing the per-pool picker writes, applied across the set — and
+   its undo is the same call. Confirmed first, because it overwrites every
+   selection an operator made by hand, which is not something to discover
+   afterwards. */
+/* What it did, and what the numbers are *not*: a count of what each pool
+   selects from today's catalogue, rather than a list that was stored. Saying
+   "curated 161" without that reads as a snapshot somebody now has to maintain,
+   which is exactly the thing this stopped doing. */
+function curateOutcome(d){
+ const pools=d.pools||[],pinned=pools.filter(x=>x.was_pinned);
+ const narrowed=pools.filter(x=>x.selected<x.eligible);
+ return `${pools.length} pool(s) now follow their curated default`
+   +(pinned.length?`, ${pinned.length} released from a pinned selection`:'')
+   +`. Right now: `+narrowed.map(x=>`${x.pool_id.replace('ravis/','')} ${x.selected}/${x.eligible}`).join(', ')
+   +`. These are recomputed on every request, so a model a provider adds joins on its own.`}
+
+async function curatePools(){
+ const note=document.getElementById('curate-note');
+ if(!armed('pool:curate','This discards every per-pool selection you made by hand'))return;
+ if(note)note.textContent='resetting…';
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/pools/curate',
+    {method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  if(!r.ok){if(note)note.textContent='RAVIS refused: HTTP '+r.status;return}
+  if(note)note.textContent=curateOutcome(await r.json());
+ }catch(e){if(note)note.textContent='RAVIS is not reachable.';return}
+ setTimeout(ravisPools,1200);
+}
+
 function poolRow(x,inv){
  const key=x.pool_id.replace(/^ravis\//,'');
  return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${jsAttr(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${escapeHtml(x.pool_id)}</a>${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${escapeHtml(inv(x.requires))}</span><span>${escapeHtml(x.members)}</span><span class="chip${warnUnless(x.available)}">${escapeHtml(x.available?'yes':'no')}</span><span style="opacity:.7">${escapeHtml(dash(x.reason))}</span></div>
@@ -6504,14 +6540,27 @@ async function ravisPools(){
    ['Available',String(p.items.length-down.length),'have at least one member','ravis'],
    ['Strictest',agent.pool_id?`${agent.members} / ${mdl.items.length}`:'—',
     agent.pool_id||'no pool is published','ravis'],
-   ['Clarvis pools',String(p.items.filter(x=>x.pool_id.includes('clarvis')).length),'agent and chat','ravis']])
+   ])
+ /* The fourth cell of the KPI row is a control rather than a number. It held
+    "Clarvis pools · 2", which counted two rows of the table directly below it,
+    and then briefly a "Chat default" restatement of the same — both were a
+    tile spending a quarter of the row on something nobody could act on. These
+    are the two actions this screen actually offers. */
+ /* Keyed on `p.live` like every card on this screen: these buttons act on
+    RAVIS, so a RAVIS that is not answering makes them inert and the card
+    should say so rather than look operable. */
+ +`<div class="card kpi${escapeHtml(liveClass(p.live))}"><h3>Curation</h3>
+   <div class="curate-bar">
+    <button class="btn primary" onclick="curatePools()">Reset pools to their curated defaults</button>
+   </div>
+   <small class="mono dim" id="curate-note">membership is worked out per request from what the providers publish, so a pool follows a changing catalogue on its own. This clears any hand-picked selection that is overriding that.</small></div>`
  /* `p.live`, which the adapter has reported since the pools fix. The table
     below is §5's thirteen pools counted from what is actually installed, and
     it rendered under a PROTOTYPE badge against a live RAVIS. */
  +`<div class="card full${escapeHtml(liveClass(p.live))}"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
    ${p.items.map(x=>poolRow(x,inv)).join('')}
-   <small class="mono dim">the invariant column is the contract a caller gets by naming the pool. <b>${escapeHtml(agent.pool_id||'no pool')}</b> means ${escapeHtml(((agent.requires||{}).required||[]).join(' and ')||'no capability')} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${escapeHtml(agent.requires.minimum_context/1024)}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
+   <small class="mono dim"><b>Reason</b> is filled only when a pool cannot serve — it is why a request to it would be refused, so an empty column is every pool being able to answer. The invariant column is the contract a caller gets by naming the pool. <b>${escapeHtml(agent.pool_id||'no pool')}</b> means ${escapeHtml(((agent.requires||{}).required||[]).join(' and ')||'no capability')} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${escapeHtml(agent.requires.minimum_context/1024)}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   ${down.map(x=>`<div class="card wide${liveClass(p.live)}"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${escapeHtml(inv(x.requires))}</span></div>
    <div class="trace-step"><b>members</b><span>${escapeHtml(x.members)}</span></div>

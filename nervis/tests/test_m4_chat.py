@@ -377,7 +377,9 @@ def test_nothing_here_carries_a_clarvis_session_or_a_tool() -> None:
 
     body = sent[0]
     assert not (set(body) & {"tools", "tool_choice", "functions", "session_id", "workspace"})
-    assert body["model"] == "ravis/auto"
+    # The chat pool, not `ravis/auto`: auto declares no constraint by design, so
+    # nothing orders its candidates and the engine falls back to alphabetical.
+    assert body["model"] == "ravis/chat"
 
 
 def test_an_unknown_conversation_is_a_structured_404() -> None:
