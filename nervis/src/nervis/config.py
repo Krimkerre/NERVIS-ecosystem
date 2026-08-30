@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     # an expensive one.
     ravis_client_credential: str = ""
 
+    # The credential NERVIS presents to RAVIS when the operator saves or removes
+    # a provider key (§15.1). Separate from the one above on purpose and for the
+    # same reason SIRVIS's `admin` scope is separate from its `benchmark` one:
+    # calling the gateway and re-pointing the keys it calls with are different
+    # powers, and NERVIS holding one must not imply the other.
+    #
+    # Empty by default, and empty is a working state — the Credentials screen
+    # says NERVIS holds no admin credential rather than failing at the call. The
+    # launcher mints one and passes it, so an ordinary install has it.
+    ravis_admin_credential: str = ""
+
     # The credential NERVIS presents to SIRVIS when it carries out a confirmed
     # command (§12). Narrow on purpose: `benchmark` scope, minted by the
     # launcher, and nothing else — §4.5 separates SIRVIS's scopes by what they

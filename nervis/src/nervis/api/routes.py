@@ -22,6 +22,7 @@ from typing import Any
 
 from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, negotiate
@@ -310,6 +311,51 @@ def _peer_routes(service: str) -> None:
 
 for _service in PEERS:
     _peer_routes(_service)
+
+
+@router.put("/ravis/credentials/{name}")
+async def set_ravis_credential(name: str, request: Request) -> Any:
+    """Store a provider key in RAVIS, with NERVIS's admin credential (§15.1).
+
+    **The dashboard cannot do this itself any more, and that is the point.**
+    RAVIS used to accept a credential write from any loopback caller with no
+    header at all, so the Credentials screen `PUT` straight to it. §15.1 asks
+    that the power to re-point provider keys not come free with the ability to
+    call the gateway, so the bypass is gone and the write needs an
+    `admin.`-prefixed credential the launcher mints for NERVIS.
+
+    NERVIS is the right holder of it for the same reason it holds SIRVIS's admin
+    token: it is the one process an operator has already trusted with the
+    ecosystem, and a browser form is not a place to keep an administrative
+    secret.
+
+    The upstream status travels verbatim rather than being flattened to 200 —
+    "RAVIS refused it" and "NERVIS has no credential" send a reader to two
+    different places.
+    """
+    body = await _json_body(request)
+    secret = str(body.get("secret") or "")
+    status, answered = await ravis_peer.write_credential(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        name,
+        secret,
+        request.app.state.settings.ravis_admin_credential,
+    )
+    return JSONResponse(answered, status_code=status)
+
+
+@router.delete("/ravis/credentials/{name}")
+async def forget_ravis_credential(name: str, request: Request) -> Any:
+    """Remove a provider key from RAVIS. Same authorization as writing one:
+    §15.1 is about who may change key material, and removing it changes it."""
+    status, answered = await ravis_peer.forget_credential(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        name,
+        request.app.state.settings.ravis_admin_credential,
+    )
+    return JSONResponse(answered, status_code=status)
 
 
 @router.get("/ravis/routes/for/{request_id}")

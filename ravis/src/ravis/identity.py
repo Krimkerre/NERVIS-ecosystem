@@ -76,6 +76,18 @@ class ClientApplication:
     # relief by asserting it.
     may_declare_background_calls: bool = False
 
+    # §15.1's separate authorization: whether this caller may write or delete a
+    # provider credential. False everywhere except an `admin.`-prefixed match,
+    # including for an ordinary authenticated client — that is the whole point
+    # of the clause. Calling the gateway and re-pointing the keys it calls with
+    # are different powers, and one must not imply the other.
+    #
+    # Enforced in `api/management/credentials.py` on every bind rather than on
+    # non-loopback ones. A boundary that a default install does not apply is a
+    # field describing an unenforced boundary, which the note above says is
+    # worse than no field at all.
+    may_write_credentials: bool = False
+
     # The most *permissive* privacy posture this identity may operate at
     # (§9.6.0's "no privacy level above NORMAL" for anonymous). A request may
     # tighten past it and may never loosen below it — see `policy.py`, which
@@ -135,10 +147,13 @@ def _named_application(
     if credentials is None:
         return None
     matched: str | None = None
-    for name in credentials.names(CLIENT_PREFIX):
-        secret = credentials.resolve(name)
-        if secret and hmac.compare_digest(presented, secret.reveal()):
-            matched = name[len(CLIENT_PREFIX):]
+    administrative = False
+    for prefix in (CLIENT_PREFIX, ADMIN_PREFIX):
+        for name in credentials.names(prefix):
+            secret = credentials.resolve(name)
+            if secret and hmac.compare_digest(presented, secret.reveal()):
+                matched = name[len(prefix):]
+                administrative = administrative or prefix == ADMIN_PREFIX
     if not matched:
         return None
     return ClientApplication(
@@ -150,6 +165,10 @@ def _named_application(
         # application that may declare background calls still reaches only the
         # providers its policy allows.
         may_declare_background_calls=True,
+        # An `admin.` credential is a client credential that may also change
+        # keys — never a separate kind of caller, so everything else about it
+        # (rate limit, policy, privacy ceiling) is resolved exactly as before.
+        may_write_credentials=administrative,
         max_privacy_level=PrivacyLevel.NORMAL,
     )
 
@@ -172,6 +191,20 @@ def _presented_credential(headers: dict[str, str]) -> str:
 # caller to RAVIS — so the namespace is separated rather than left to whoever
 # names the next credential.
 CLIENT_PREFIX = "client."
+
+# **A separate authorization for changing credentials (§15.1).**
+#
+# The clause asks that the ability to rewrite provider keys not come free with
+# the ability to call the gateway, and until now it did: `_may_write` returned
+# early on a loopback bind, which is the default deployment, so any local
+# process — or any page the browser was visiting — could re-point every key.
+#
+# A second prefix rather than a permission model, because the ecosystem already
+# works this way and it is the smaller true thing: SIRVIS mints a `benchmark`
+# token and a separate `admin` one, and NERVIS holds both, *"so this install can
+# queue work and still be unable to erase the results of it"*. A credential
+# named `admin.<who>` is the same idea one service along.
+ADMIN_PREFIX = "admin."
 
 
 def resolve_identity(

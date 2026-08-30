@@ -48,6 +48,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _restore(settings, arguments.version)
     if arguments.command == "doctor":
         return _run_doctor(settings)
+    if arguments.command == "credential":
+        return _store_credential(settings, arguments.name)
     if arguments.command == "conformance":
         return _run_conformance()
     if arguments.command == "preflight":
@@ -67,6 +69,21 @@ def _build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser(
         "doctor", help="check configuration and print the resolved routing table"
     )
+    # **Bootstrap, and the reason it cannot be an HTTP call.** §15.1 puts
+    # credential writes behind an `admin.`-prefixed credential, so the first one
+    # cannot be stored through `PUT /api/v1/providers/credentials/…` — there is
+    # nothing to authorise it with yet. The command line is a different
+    # authority: whoever can run this already owns the config directory the
+    # store lives in, which is the same permission the file itself carries.
+    #
+    # Reads the value from stdin rather than an argument, so a secret never
+    # lands in a shell history or a process listing.
+    credential = subcommands.add_parser(
+        "credential",
+        help="store a credential from stdin, for bootstrapping an admin token",
+    )
+    credential.add_argument("name", help="credential name, e.g. admin.launcher")
+
     subcommands.add_parser("serve", help="run the gateway")
     conformance = subcommands.add_parser(
         "conformance", help="run a consumer's wire-contract suite"
@@ -315,4 +332,24 @@ def _restore(settings: Settings, version: int | None) -> int:
     print("stop the service before restoring; a running one holds its own connection")
     restored = restore_backup(database, version)
     print(f"{database} restored to schema version {restored}")
+    return EXIT_OK
+
+
+def _store_credential(settings: Settings, name: str) -> int:
+    """Put one credential in the store, reading the value from stdin.
+
+    Exists so a launcher can mint the first `admin.` credential §15.1 requires
+    without an HTTP call that would need that credential to already exist. It is
+    not a general management surface: one name, one value, no listing and no
+    deletion — those have an API, behind the authorization this bootstraps.
+    """
+    secret = sys.stdin.read().strip()
+    if not secret:
+        print("nothing on stdin; a credential needs a value", file=sys.stderr)
+        return EXIT_FATAL_CONFIGURATION
+    # The same construction `app.py` uses, so the CLI and the running gateway
+    # resolve one store rather than two that agree by coincidence.
+    store = CredentialStore(allow_environment=settings.credentials_allow_environment)
+    status = store.store(name, secret)
+    print(f"stored {name} ({status.source})")
     return EXIT_OK

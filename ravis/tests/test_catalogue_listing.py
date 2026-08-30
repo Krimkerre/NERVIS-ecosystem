@@ -10,11 +10,30 @@ exhaustively and carries `total` and a cursor on every page to say so.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 
 from ravis.app import create_app
 from ravis.config import Settings
+
+
+def _as_admin(client: Any) -> Any:
+    """Give this client §15.1's credential-write authorization.
+
+    Seeds an `admin.`-prefixed secret into whatever store the app is using and
+    presents it on every request. Writing a provider credential needs one, and
+    an ordinary client credential deliberately does not carry it — so a test
+    that means to exercise the *authorised* path has to say so.
+    """
+    inner = client.app
+    while not hasattr(inner, "state"):
+        inner = inner.app
+    inner.state.credentials.store("admin.tests", "admin-secret-for-tests")
+    client.headers.update({"Authorization": "Bearer admin-secret-for-tests"})
+    return client
+
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +44,7 @@ def _isolated(tmp_path, monkeypatch) -> None:
 def a_client(catalogue: list[str]) -> TestClient:
     client = TestClient(create_app(Settings()))
     client.__enter__()
+    _as_admin(client)
 
     class _Registry:
         def model_ids(self) -> list[str]:
@@ -167,6 +187,7 @@ def test_saving_a_credential_re_reads_the_catalogue() -> None:
 
     client = TestClient(create_app(Settings()))
     client.__enter__()
+    _as_admin(client)
     client.app.app.state.transparents = {"demo": _Built()}  # type: ignore[attr-defined]
 
     assert client.get("/api/v1/providers/demo/catalogue").json()["total"] == 0
@@ -186,6 +207,7 @@ def test_a_credential_for_a_provider_with_no_upstream_reports_no_catalogue() -> 
     "no catalogue to read" is a different fact from "the catalogue is empty"."""
     client = TestClient(create_app(Settings()))
     client.__enter__()
+    _as_admin(client)
     client.app.app.state.transparents = {}  # type: ignore[attr-defined]
 
     saved = client.put(

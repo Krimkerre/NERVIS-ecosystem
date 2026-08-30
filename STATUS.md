@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1781 tests, no network, no live service
+.venv/bin/pytest                      # part of 1784 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 422 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1781 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1784 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2549,6 +2549,47 @@ services as unreachable, a `limit=1000` read that was a validation error rather
 than an empty log, and an `after=0` cursor that silently means *no cursor* and
 returns the newest window. The last one nearly produced "the hub holds one
 event". A measurement that agrees with a hypothesis is the one to check twice.
+
+**§15.1 is closed, 31 Aug — RAVIS 0.20.0, NERVIS 0.9.0.** The clause asks that
+the ability to rewrite provider keys not come free with the ability to call the
+gateway. It did: `_may_write` returned early on a loopback bind, the default
+deployment, so any local process could re-point every key — and the dashboard's
+Credentials screen `PUT` straight to RAVIS with no `Authorization` header at all,
+which worked only because of that bypass.
+
+**A second credential prefix rather than a permission model.** `admin.<who>`
+alongside `client.<who>`, and `ClientApplication.may_write_credentials` set only
+by the first. That is the smaller true thing and it is already the ecosystem's
+shape: SIRVIS mints a `benchmark` token and a separate `admin` one, and NERVIS
+holds both, *"so this install can queue work and still be unable to erase the
+results of it"*.
+
+**Two guards, not one.** `_may_write` still governs configuration — a provider
+toggle, a pool narrowing, a catalogue filter — on the old loopback terms.
+`_may_write_credentials` governs key material and takes no bind as
+authorization. Holding both to the stricter bar would have taken the Providers
+screen away from a loopback install to close a gap about keys, which is a real
+cost for no gain in the thing being protected. A test pins the split.
+
+**The bootstrap needed a way in that is not the API.** The launcher stored
+`client.nervis` *through* the endpoint now behind the admin credential, so the
+first write had nothing to authorise it. `ravis credential <name>` reads a value
+from stdin and writes it to the store — the command line is a different
+authority, since whoever runs it already owns the config directory the store
+lives in, and stdin keeps the secret out of a shell history. The launcher plants
+it before RAVIS starts, so nothing is editing a JSON file the gateway already
+holds.
+
+**And the dashboard writes through NERVIS now.** It is the process an operator
+has already trusted with the ecosystem, and a browser form is not a place to keep
+an administrative secret. The upstream status travels verbatim rather than being
+flattened, because *"NERVIS holds no admin credential"* and *"RAVIS refused the
+value"* send a reader to two different places.
+
+Verified on the running stack rather than in tests alone: a direct unauthenticated
+`PUT` to RAVIS from this machine answers `403` naming the clause, the same write
+through NERVIS answers `200`, and the launcher's own bootstrap reports
+`RAVIS admin credential (§15.1): stored`.
 
 ### Next — in this order
 

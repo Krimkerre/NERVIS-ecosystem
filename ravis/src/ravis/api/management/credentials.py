@@ -105,13 +105,19 @@ def _refused(detail: str) -> JSONResponse:
 
 
 def _may_write(request: Request) -> str | None:
-    """Whether this request may change a credential, and why not if it may not.
+    """Whether this request may change RAVIS's *configuration*.
 
-    A loopback-bound RAVIS is reachable only from the machine it runs on, which
-    is the deployment this endpoint is for. A non-loopback bind already fails to
-    start without TLS *and* a client credential (§9.6.0), so reaching here on
-    one means an identity was presented — and an anonymous identity on a
-    published service must not be able to write keys.
+    Enabling a provider, narrowing a pool, filtering a catalogue: settings, not
+    key material. A loopback-bound RAVIS is reachable only from the machine it
+    runs on, which is the deployment this is for. A non-loopback bind already
+    fails to start without TLS *and* a client credential (§9.6.0), so reaching
+    here on one means an identity was presented — and an anonymous identity on a
+    published service must not be able to write settings.
+
+    **Credentials are not configuration and do not use this** — see
+    `_may_write_credentials`. §15.1 asks for a separate authorization for key
+    material specifically, and applying that bar to a provider toggle would take
+    the Providers screen away to close a gap about keys.
     """
     settings = request.app.state.settings
     if settings.is_loopback_bind():
@@ -123,7 +129,31 @@ def _may_write(request: Request) -> str | None:
     # caller could write, delete and re-point provider credentials. A missing
     # security predicate must raise, not resolve to "permitted".
     if identity is None or identity.is_anonymous:
-        return "credential changes require an authenticated client on a non-loopback bind"
+        return "configuration changes require an authenticated client on a non-loopback bind"
+    return None
+
+
+def _may_write_credentials(request: Request) -> str | None:
+    """§15.1's separate authorization, for key material and nothing else.
+
+    **The loopback bypass is gone here, and that is the whole change.** It used
+    to return early on a loopback bind — the default deployment — on the
+    reasoning that such a RAVIS is reachable only from the machine it runs on.
+    True, and not the boundary the clause asks for: any local process could
+    re-point every provider key, and the ability came free with the ability to
+    call the gateway.
+
+    So an ordinary client credential is refused too. The permission comes only
+    from an `admin.`-prefixed one, which the launcher mints and hands to NERVIS
+    — the same split SIRVIS already has, where a `benchmark` token can queue
+    work and only an `admin` one can erase a result.
+    """
+    identity = getattr(request.state, "identity", None)
+    if identity is None or not getattr(identity, "may_write_credentials", False):
+        return (
+            "changing a provider credential needs an admin credential (§15.1); "
+            "calling the gateway does not grant it"
+        )
     return None
 
 
@@ -177,7 +207,7 @@ def _routable(request: Request) -> set[str]:
 @router.put("/credentials/{name}")
 async def set_credential(name: str, body: CredentialInput, request: Request) -> Any:
     """Store one provider credential, replacing any previous value."""
-    refusal = _may_write(request)
+    refusal = _may_write_credentials(request)
     if refusal:
         return _refused(refusal)
     if not body.secret.strip():
@@ -246,7 +276,7 @@ async def forget_credential(name: str, request: Request) -> Any:
     environment or the Keychain. That is the truth rather than a failed delete:
     RAVIS does not remove things it did not put there.
     """
-    refusal = _may_write(request)
+    refusal = _may_write_credentials(request)
     if refusal:
         return _refused(refusal)
     status = _store(request).forget(name)

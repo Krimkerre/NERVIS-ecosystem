@@ -74,3 +74,92 @@ async def decision_for(
         if isinstance(item, Mapping) and item.get("request_id") == request_id:
             return dict(item)
     return None
+
+
+async def write_credential(
+    client: httpx.AsyncClient,
+    entry: RegistryEntry | None,
+    name: str,
+    secret: str,
+    credential: str,
+) -> tuple[int, dict[str, Any]]:
+    """Store one provider credential in RAVIS, on the operator's behalf.
+
+    **Why this goes through NERVIS at all (§15.1).** RAVIS no longer takes a
+    loopback bind as authorization for a credential write: calling the gateway
+    must not confer the power to re-point the keys it calls with. The dashboard
+    used to `PUT` straight to RAVIS with no header, which worked only because
+    that bypass existed.
+
+    So the write travels here, and NERVIS presents the `admin.`-prefixed
+    credential the launcher minted for it — the same shape as the SIRVIS
+    benchmark and admin tokens it already holds separately. The secret passes
+    through and is never stored, logged or echoed: RAVIS answers with a status
+    row carrying `configured`, not a value.
+
+    Returns the upstream status and body rather than raising, because every
+    failure here is something the screen must say rather than something NERVIS
+    can fix: no credential, RAVIS unreachable, RAVIS refusing.
+    """
+    if entry is None or not entry.declaration.base_url:
+        return 503, {"message": "RAVIS is not registered"}
+    if not credential:
+        return 403, {
+            "message": (
+                "NERVIS holds no admin credential for RAVIS, so it cannot change a "
+                "provider key. The launcher mints one at start; if RAVIS was started "
+                "another way, set NERVIS_RAVIS_ADMIN_CREDENTIAL."
+            )
+        }
+    return await _credential_call(
+        client, "PUT", f"{entry.declaration.base_url}/api/v1/providers/credentials/{name}",
+        credential, {"secret": secret},
+    )
+
+
+async def forget_credential(
+    client: httpx.AsyncClient,
+    entry: RegistryEntry | None,
+    name: str,
+    credential: str,
+) -> tuple[int, dict[str, Any]]:
+    """Remove one provider credential from RAVIS, on the operator's behalf.
+
+    The same authorization as writing one, and deliberately so: §15.1 is about
+    who may change key material, and removing a key changes it.
+    """
+    if entry is None or not entry.declaration.base_url:
+        return 503, {"message": "RAVIS is not registered"}
+    if not credential:
+        return 403, {"message": "NERVIS holds no admin credential for RAVIS"}
+    return await _credential_call(
+        client, "DELETE", f"{entry.declaration.base_url}/api/v1/providers/credentials/{name}",
+        credential, None,
+    )
+
+
+async def _credential_call(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    credential: str,
+    body: dict[str, Any] | None,
+) -> tuple[int, dict[str, Any]]:
+    """One authorised call to RAVIS's credential surface.
+
+    Shared by both operations because they fail the same three ways, and a
+    second copy is how one of them ends up without the authorization header.
+    """
+    try:
+        answered = await client.request(
+            method, url,
+            headers={"authorization": f"Bearer {credential}"},
+            json=body,
+            timeout=10.0,
+        )
+    except httpx.HTTPError as failure:
+        return 502, {"message": f"RAVIS did not answer: {type(failure).__name__}"}
+    try:
+        return answered.status_code, dict(answered.json())
+    except ValueError:
+        return answered.status_code, {"message": answered.text[:200]}

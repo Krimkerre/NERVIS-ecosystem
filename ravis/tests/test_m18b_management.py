@@ -25,6 +25,23 @@ from ravis.config import Settings
 TRACE = "c" * 32
 
 
+def _as_admin(client: Any) -> Any:
+    """Give this client §15.1's credential-write authorization.
+
+    Seeds an `admin.`-prefixed secret into whatever store the app is using and
+    presents it on every request. Writing a provider credential needs one, and
+    an ordinary client credential deliberately does not carry it — so a test
+    that means to exercise the *authorised* path has to say so.
+    """
+    inner = client.app
+    while not hasattr(inner, "state"):
+        inner = inner.app
+    inner.state.credentials.store("admin.tests", "admin-secret-for-tests")
+    client.headers.update({"Authorization": "Bearer admin-secret-for-tests"})
+    return client
+
+
+
 def a_client(**overrides: Any) -> TestClient:
     upstream = ScriptedUpstream(TWO_CODERS)
     settings = Settings(
@@ -37,7 +54,7 @@ def a_client(**overrides: Any) -> TestClient:
     client = httpx.AsyncClient(transport=upstream.transport())
     app.app.state.upstream_client = client
     app.app.state.model_registry.use_client(client)
-    return TestClient(app)
+    return _as_admin(TestClient(app))
 
 
 def published(client: TestClient) -> list[dict[str, Any]]:

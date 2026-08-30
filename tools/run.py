@@ -268,6 +268,11 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             administrative = admin_token()
             if administrative:
                 env["NERVIS_SIRVIS_ADMIN_CREDENTIAL"] = administrative
+            # §15.1's equivalent one service along: writing a provider key in
+            # RAVIS needs an admin credential, and calling the gateway does not
+            # grant it. NERVIS holds this so the Credentials screen can write
+            # through it rather than the browser writing to RAVIS unauthorised.
+            env["NERVIS_RAVIS_ADMIN_CREDENTIAL"] = ravis_admin_credential()
         if prefix == "RAVIS":
             # Point RAVIS at SIRVIS. Without this RAVIS starts healthy with an
             # empty evidence store, its Evidence screen reads zero records, and
@@ -521,6 +526,54 @@ def nervis_ravis_credential() -> str:
     return token
 
 
+def ravis_admin_credential() -> str:
+    """The `admin.`-prefixed secret §15.1 requires for a credential write.
+
+    Minted and cached exactly like NERVIS's client credential, and stored
+    through `ravis credential` rather than the HTTP endpoint — that endpoint now
+    requires this very credential, so the first one cannot be written through
+    it. The command line is a different authority: whoever runs the launcher
+    already owns the config directory the store lives in.
+    """
+    cached = RUN / "ravis-admin.token"
+    try:
+        existing = cached.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    RUN.mkdir(parents=True, exist_ok=True)
+    handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as out:
+        out.write(token + "\n")
+    return token
+
+
+def teach_ravis_the_admin_credential() -> str:
+    """Put the admin secret in RAVIS's own store, before anything needs it.
+
+    Runs before RAVIS starts rather than after: the CLI writes the file the
+    gateway reads at startup, and doing it while the gateway is running would be
+    two processes writing one JSON document. Nothing is racing here because
+    nothing else is up yet.
+    """
+    secret = ravis_admin_credential()
+    if not secret:
+        return "could not be minted"
+    executable = ROOT / "ravis" / ".venv" / "bin" / "ravis"
+    if not executable.exists():
+        return "ravis is not installed"
+    try:
+        finished = subprocess.run(
+            [str(executable), "credential", "admin.launcher"],
+            input=secret, text=True, capture_output=True, timeout=20,
+        )
+    except Exception as failure:  # noqa: BLE001 - a launcher never dies of this
+        return f"could not be stored: {failure}"
+    return "stored" if finished.returncode == 0 else f"refused: {finished.stderr.strip()[:60]}"
+
+
 def teach_ravis_the_credential() -> str:
     """Store NERVIS's credential in RAVIS, so the two agree on it.
 
@@ -538,7 +591,14 @@ def teach_ravis_the_credential() -> str:
     body = json.dumps({"secret": secret}).encode("utf-8")
     request = urllib.request.Request(
         f"http://127.0.0.1:{RAVIS_PORT}/api/v1/providers/credentials/client.nervis",
-        data=body, method="PUT", headers={"content-type": "application/json"},
+        data=body, method="PUT",
+        headers={
+            "content-type": "application/json",
+            # §15.1: this endpoint no longer takes a loopback bind as
+            # authorization, so the launcher presents the admin credential it
+            # planted before RAVIS started.
+            "authorization": f"Bearer {ravis_admin_credential()}",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=5) as answered:
@@ -660,6 +720,10 @@ def _recorded() -> dict[str, dict[str, object]]:
 
 def start() -> int:
     ensure_venv()
+    # **Before anything is up.** The admin credential has to exist in RAVIS's
+    # store before RAVIS reads that store at startup, and writing it afterwards
+    # would be a second process editing a JSON file the gateway already holds.
+    planted = teach_ravis_the_admin_credential()
     running = status(quiet=True)
     if all(running.values()):
         print("Already running.")
@@ -693,7 +757,8 @@ def start() -> int:
 
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
-    print(f"\nNERVIS is a named caller to RAVIS: {teach_ravis_the_credential()}")
+    print(f"\nRAVIS admin credential (§15.1): {planted}")
+    print(f"NERVIS is a named caller to RAVIS: {teach_ravis_the_credential()}")
 
     if code_server_binary():
         extra, port, source = code_server_settings()

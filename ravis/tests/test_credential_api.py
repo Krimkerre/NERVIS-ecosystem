@@ -18,6 +18,7 @@ from ravis.app import create_app
 from ravis.config import Settings
 from ravis.credentials import CredentialFile, CredentialStore
 
+ADMIN_SECRET = "admin-secret-for-tests"
 SECRET = "sk-must-never-be-echoed-12345"
 
 
@@ -33,7 +34,12 @@ def client(tmp_path: Path) -> Any:
         environment={},
         keychain=False,
     )
-    with TestClient(app) as ready:
+    # §15.1: writing a provider credential needs an `admin.`-prefixed one, and
+    # calling the gateway does not grant it. The store is seeded here and the
+    # client presents it, so these tests exercise the authorised path rather
+    # than the refusal — the refusal has tests of its own.
+    inner.state.credentials.store("admin.tests", ADMIN_SECRET)
+    with TestClient(app, headers={"Authorization": f"Bearer {ADMIN_SECRET}"}) as ready:
         yield ready
 
 
@@ -101,7 +107,10 @@ def test_forgetting_does_not_reach_into_the_environment(tmp_path: Path) -> None:
         environment={"RAVIS_GOOGLE_API_KEY": "from-env"},
         keychain=False,
     )
-    with TestClient(app) as client:
+    # Its own app rather than the shared fixture, so it needs the same §15.1
+    # authorization the fixture grants — both calls below are credential writes.
+    inner.state.credentials.store("admin.tests", ADMIN_SECRET)
+    with TestClient(app, headers={"Authorization": f"Bearer {ADMIN_SECRET}"}) as client:
         client.put("/api/v1/providers/credentials/google", json={"secret": SECRET})
         status = client.delete("/api/v1/providers/credentials/google").json()
 
@@ -209,3 +218,72 @@ def test_an_anonymous_caller_cannot_narrow_a_pool_on_a_published_bind() -> None:
         "a write that changes routing for every client must take the same "
         "boundary the credential writes take"
     )
+
+
+def test_calling_the_gateway_does_not_grant_rewriting_its_keys(tmp_path: Path) -> None:
+    """§15.1's separate authorization, which is the whole clause.
+
+    An ordinary client credential is a real, authenticated identity: it routes,
+    it carries a policy, it may declare background calls. What it must not do is
+    re-point the provider keys the gateway calls with, because those are two
+    different powers and one arriving with the other is the confused deputy the
+    clause exists to prevent.
+    """
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+    inner = app
+    while not hasattr(inner, "state"):
+        inner = inner.app  # type: ignore[attr-defined]
+    inner.state.credentials = CredentialStore(
+        file=CredentialFile(tmp_path / "credentials.json"), environment={}, keychain=False
+    )
+    inner.state.credentials.store("client.ordinary", "an-ordinary-client-secret")
+
+    with TestClient(app, headers={"Authorization": "Bearer an-ordinary-client-secret"}) as client:
+        refused = client.put(
+            "/api/v1/providers/credentials/google", json={"secret": SECRET}
+        )
+
+    assert refused.status_code == 403
+    assert "admin credential" in refused.json()["error"]["message"]
+
+
+def test_an_unauthenticated_caller_on_loopback_is_refused_too(tmp_path: Path) -> None:
+    """The bypass this replaced.
+
+    `_may_write` used to return early on a loopback bind — the default
+    deployment — so any local process could rewrite every key, and so could a
+    page the browser was visiting, since a form POST needs no permission to
+    reach 127.0.0.1. Being on the same machine is not an authorization.
+    """
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+    inner = app
+    while not hasattr(inner, "state"):
+        inner = inner.app  # type: ignore[attr-defined]
+    inner.state.credentials = CredentialStore(
+        file=CredentialFile(tmp_path / "credentials.json"), environment={}, keychain=False
+    )
+
+    with TestClient(app) as client:
+        assert client.put(
+            "/api/v1/providers/credentials/google", json={"secret": SECRET}
+        ).status_code == 403
+        assert client.delete("/api/v1/providers/credentials/google").status_code == 403
+
+
+def test_configuration_writes_are_not_held_to_the_credential_bar() -> None:
+    """The falsifier for the split.
+
+    §15.1 is about key material. Enabling a provider or narrowing a catalogue is
+    configuration, and holding those to the same bar would take the Providers
+    screen away from a loopback install to close a gap about keys — a real cost
+    for no gain in the thing being protected.
+    """
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        assert client.put(
+            "/api/v1/providers/openai/enabled", json={"enabled": False}
+        ).status_code != 403
