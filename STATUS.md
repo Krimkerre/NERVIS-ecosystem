@@ -2420,6 +2420,31 @@ Eight phrasings across all three operations checked against intent: three offer,
 five decline, including every reported failure and each regression the fixes
 caused in one another.
 
+**Two gates existed and CI never ran them.** `nervis/tools` holds twelve
+`*_check.js` scripts and `.github/workflows/checks.yml` invoked ten: `honesty_check.js` and
+`recovery_check.js` were enforced only when somebody remembered to type them.
+That is the state this workflow's own header calls a preference rather than a
+rule — *"a rule that only exists in a document is a preference; a rule that
+fails a build is a rule"* — and the file was in it.
+
+Both are wired now, `recovery_check` as its own job because it takes about
+twenty minutes and would otherwise add that to the dashboard job's wall clock.
+Twelve on disk, twelve invoked, checked by comparing the two lists rather than
+by counting them by eye.
+
+**GitHub Actions is disabled on both repositories**, and not for a code reason:
+every job since 30 Aug 02:34 was blocked before starting with *"the job was not
+started because recent account payments have failed or your spending limit needs
+to be increased"*. Thirty runs, all red, none of them having compiled anything.
+The last green run was 02:18 that morning. The workflow files are untouched, so
+turning Actions back on is the only step needed once billing is settled — and
+the fix above means that when it returns, it returns enforcing all twelve.
+
+In the meantime the same checks were run against **fresh clones of both
+repositories** in a scratch directory, with a virtual environment built only
+from committed declarations. That is the one thing local runs cannot cover: a
+file that works here because it is on disk and was never committed.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
