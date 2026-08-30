@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -469,7 +470,16 @@ RUN_SAMPLE = 3
 # When the local runtime is worth asking directly. "lm studio" and "lmstudio"
 # both appear because the registry key and the product name differ, and a person
 # types whichever they are looking at.
-RUNTIME_WORDS = ("lm studio", "lmstudio", "loaded", "runtime", "context window")
+# `model`, `gguf`, `mlx` and `variant` are here for a reason that is not about
+# the runtime at all: RAVIS names two builds of one model `google/gemma-4-e4b`
+# and `google/gemma-4-e4b@4bit`, and nothing in its catalogue says which of
+# those is the GGUF. The runtime knows — so a question about models reads it
+# too, and the names below carry a format instead of a suffix nobody can
+# interpret.
+RUNTIME_WORDS = (
+    "lm studio", "lmstudio", "loaded", "runtime", "context window",
+    "model", "gguf", "mlx", "variant", "quant",
+)
 
 # When the routing record is worth reading. "log" and "recently" are here
 # because that is how the question is actually asked — "what happened recently"
@@ -1225,7 +1235,17 @@ def _placement(
     if conversation_id and not store.exists(database, conversation_id):
         raise NotFoundError(f"no conversation {conversation_id!r}")
     if not conversation_id:
-        conversation_id = store.start_conversation(database, profile=profile)
+        # **Named from the person's own words before anything is asked of a
+        # model.** Every conversation in this list read "New conversation" until
+        # a background call came back, and when the call did come back it stored
+        # whatever the model said — which on this machine was a reasoning
+        # model's preamble, "Okay, let's tackle this user query…", eighty
+        # characters of it. A title taken from the opening question is never
+        # noise, costs nothing, and is already right; the model's attempt is an
+        # improvement on it and has to earn the replacement.
+        conversation_id = store.start_conversation(
+            database, profile=profile, title=opening_title(content)
+        )
     # Prior turns are read *before* the new question is stored, so the question
     # is not sent twice.
     prior = store.history(database, conversation_id)
@@ -1442,21 +1462,82 @@ async def _generate_title(
         store.rename(request.app.state.database, conversation_id, title)
 
 
-def _title_from(body: dict[str, Any]) -> str:
-    """The title in a completion, cleaned to one short line.
+# How a model starts a sentence *about* the task instead of doing it. Every one
+# of these was observed in this conversation list rather than imagined: the
+# stored title on this machine was "Okay, let\'s tackle this user query. They
+# want a short title for a conversation s".
+_NOT_A_TITLE = (
+    "okay", "ok,", "sure", "certainly", "here", "here's", "the user", "user wants",
+    "let's", "let me", "we need", "i need", "i'll", "first,", "alright", "title:",
+    "hmm", "so,", "this conversation", "based on",
+)
 
-    Trimmed rather than trusted. A small model asked for six words will
-    sometimes return a sentence, quotes around it, or a "Title:" prefix, and
-    storing that verbatim puts model noise in the conversation list where a
-    person expects a name.
+# Reasoning models put their thinking in the content, fenced. Removed rather
+# than reasoned about: what is inside is not the answer, and a title budget of
+# twenty-four tokens is spent before the model reaches one.
+_THINKING = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.IGNORECASE | re.DOTALL)
+_UNCLOSED_THINKING = re.compile(r"<(think|thinking|reasoning)>.*", re.IGNORECASE | re.DOTALL)
+
+
+def opening_title(question: str) -> str:
+    """A conversation name taken from its first message.
+
+    Not a summary and not trying to be. Six words of what the person actually
+    asked identifies a conversation in a list better than a model's guess at a
+    theme, and it is available the instant the conversation exists — which is
+    the difference between a list of names and a list of "New conversation".
+    """
+    words = " ".join(str(question or "").split())[:200].split(" ")
+    # A question mark is kept: "how is RAVIS doing today?" is a better name for
+    # a conversation than the same words with the question filed off. Only the
+    # punctuation that reads as a fragment is trimmed.
+    title = " ".join(words[:6]).strip(" ,.;:-—\"'")
+    return (title + ("…" if len(words) > 6 else ""))[:80]
+
+
+def _title_from(body: dict[str, Any]) -> str:
+    """The title in a completion — or nothing, when what came back is not one.
+
+    **Checked, not merely trimmed.** The old version cleaned quotes and a
+    "Title:" prefix and stored whatever remained, which on a reasoning model is
+    its thinking: `ravis/cheap` admits models that spend most of their output
+    reasoning, and with twenty-four tokens to work in they never reach the
+    title at all. RAVIS's own route explanation had already noticed the shape of
+    this — it ranked one candidate lower for "spending 99% of its output on
+    reasoning, which at max_tokens=24 leaves about 0 tokens for the answer" —
+    and NERVIS stored the answer from the next one along anyway.
+
+    An empty return is not a failure here. The conversation already carries a
+    name taken from its opening message, and keeping that is strictly better
+    than replacing it with a sentence about the request.
     """
     choices = body.get("choices") or []
     if not choices:
         return ""
-    text = str((choices[0].get("message") or {}).get("content") or "")
-    line = text.strip().splitlines()[0] if text.strip() else ""
+    message = choices[0].get("message") or {}
+    text = str(message.get("content") or "")
+    text = _THINKING.sub(" ", text)
+    # An unclosed block means the budget ran out mid-thought. Everything after
+    # the opening tag is thinking, and there is no title behind it.
+    text = _UNCLOSED_THINKING.sub(" ", text)
+    line = next((part.strip() for part in text.splitlines() if part.strip()), "")
     line = line.removeprefix("Title:").strip().strip("\"'").strip()
+    if not _is_a_title(line):
+        return ""
     return line[:80]
+
+
+def _is_a_title(line: str) -> bool:
+    """Whether a line is a name for a conversation rather than talk about one."""
+    if not line or len(line) < 3:
+        return False
+    lowered = line.lower()
+    if lowered.startswith(_NOT_A_TITLE):
+        return False
+    # Six words was the instruction; twelve is the generous reading of it. Past
+    # that it is a sentence, and a sentence in this column is what the person
+    # reported as broken.
+    return len(line.split()) <= 12
 
 
 def _delta(line: str) -> tuple[str, bool]:

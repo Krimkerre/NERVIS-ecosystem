@@ -2364,3 +2364,64 @@ def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
                 f"{name} defers to M{number}, and this build says it has "
                 f"completed {completed} milestones"
             )
+
+
+# ── Conversation names ───────────────────────────────────────────────────────
+#
+# Reported twice: first as every session reading "New conversation", then as the
+# list showing "Okay, let's tackle this user query. They want a short title for
+# a conversation s". Both are the same defect from two sides — the name was
+# whatever a background call happened to return, and nothing checked it.
+
+
+def test_a_conversation_is_named_from_its_first_message() -> None:
+    """Available the instant the conversation exists, so the list is never a
+    column of "New conversation" waiting on a model."""
+    from nervis.api.chat import opening_title
+
+    assert opening_title("how is RAVIS doing today?") == "how is RAVIS doing today?"
+    assert opening_title(
+        "can you compare the MLX and GGUF builds of gemma for tool calls"
+    ) == "can you compare the MLX and…"
+    assert opening_title("") == ""
+
+
+def test_a_reasoning_models_thinking_is_not_a_title() -> None:
+    """`ravis/cheap` admits models that spend their output reasoning, and with
+    twenty-four tokens they never reach the title. This is the string that was
+    actually stored on this machine."""
+    from nervis.api.chat import _title_from
+
+    stored = _title_from({"choices": [{"message": {"content": (
+        "Okay, let's tackle this user query. They want a short title for a "
+        "conversation s"
+    )}}]})
+
+    assert stored == ""
+
+
+def test_a_thinking_block_is_removed_rather_than_stored() -> None:
+    """Fenced reasoning is not the answer, and a block left unclosed by the
+    token budget has no answer behind it at all."""
+    from nervis.api.chat import _title_from
+
+    assert _title_from({"choices": [{"message": {
+        "content": "<think>the user wants a title</think>\nRAVIS health check"
+    }}]}) == "RAVIS health check"
+    assert _title_from({"choices": [{"message": {
+        "content": "<think>the user wants a title and I should"
+    }}]}) == ""
+
+
+def test_a_sentence_is_not_a_name() -> None:
+    """Six words was the instruction. Past twelve it is prose, and prose in this
+    column is what was reported as broken."""
+    from nervis.api.chat import _title_from
+
+    assert _title_from({"choices": [{"message": {"content": (
+        "This conversation appears to be about the user asking how to compare "
+        "two different builds of one model"
+    )}}]}) == ""
+    assert _title_from({"choices": [{"message": {
+        "content": '"Gemma build comparison"'
+    }}]}) == "Gemma build comparison"

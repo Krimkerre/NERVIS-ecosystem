@@ -194,6 +194,7 @@ async def create_chat_completion(request: Request) -> Response:
     call = _Call(
         client=request.app.state.upstream_client,
         destination=_destination_for(request, upstream),
+        ttl=_ttl_for(request),
         body=body,
         payload=parsed,
         chain=chain,
@@ -239,6 +240,43 @@ def _destination_for(
         )
 
     return destination
+
+
+# The upstream kinds that hold a model in this machine's memory until something
+# evicts it, and take a per-request TTL to say when. Ollama is deliberately not
+# here: it keeps models warm too, but through `keep_alive` with different units
+# and semantics, and guessing that they mean the same thing is how one runtime
+# ends up configured with another's number.
+_TTL_KINDS = frozenset({"lmstudio"})
+
+
+def _ttl_for(request: Request) -> Callable[[str], int]:
+    """How long the runtime behind a model should keep it, or 0 to say nothing.
+
+    Resolved per model for the same reason the destination is: §10's chain may
+    fall back onto a different upstream than the primary, and a TTL meant for
+    the local runtime must not travel to a hosted one that would either reject
+    the field or, worse, quietly accept it as something else.
+
+    The single-upstream case reads `upstream_kind` rather than the `Upstream`
+    itself, which carries a base URL and a credential but not what kind of
+    thing is at the other end.
+    """
+    settings = request.app.state.settings
+    seconds = int(getattr(settings, "local_model_idle_ttl_seconds", 0) or 0)
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
+    )
+    filters = _filters(request)
+
+    def ttl(model: str) -> int:
+        if seconds <= 0:
+            return 0
+        built = resolve(transparents, model, filters) if transparents else None
+        kind = built.spec.kind if built else str(getattr(settings, "upstream_kind", ""))
+        return seconds if kind.strip().lower() in _TTL_KINDS else 0
+
+    return ttl
 
 
 def _translating_for(
@@ -461,9 +499,14 @@ class _Call:
         recorded: RecordedDecision | None,
         note_usage: Callable[[str, Usage | None, float | None], None] | None = None,
         note_finished: Callable[[AttemptChain], None] | None = None,
+        # Defaulted so every existing construction — the conformance fixtures
+        # included — keeps working and simply sends no TTL, which is the
+        # behaviour before this existed.
+        ttl: Callable[[str], int] = lambda _model: 0,
     ) -> None:
         self.client = client
         self._destination = destination
+        self._ttl = ttl
         self.body = body
         self.payload = payload
         self.chain = chain
@@ -500,7 +543,7 @@ class _Call:
 
     def body_for(self, model: str) -> bytes:
         """The request body addressed to one particular model."""
-        return _with_model(self.body, self.payload, model)
+        return _with_model(self.body, self.payload, model, self._ttl(model))
 
     def finish(self) -> None:
         """Attach the attempt history to the recorded decision (§9.7).
@@ -1123,8 +1166,9 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
     return chain
 
 
-def _with_model(body: bytes, payload: dict[str, Any], model: str) -> bytes:
-    """Rewrite only the `model` field, leaving the request otherwise untouched.
+def _with_model(body: bytes, payload: dict[str, Any], model: str,
+                ttl_seconds: int = 0) -> bytes:
+    """Rewrite the `model` field — and, for a local runtime, how long it stays.
 
     This is the one place the transparent path modifies what the client sent,
     and the asymmetry is deliberate. A pool ID is not a model any upstream
@@ -1133,14 +1177,28 @@ def _with_model(body: bytes, payload: dict[str, Any], model: str) -> bytes:
     than by normalising and rebuilding the request. When the field already says
     what it should, the client's original bytes are forwarded verbatim.
 
+    **`ttl` is the second field, and only ever for a local runtime.** Left
+    alone, LM Studio holds a model until something evicts it, so residency
+    accumulates and then decides routing — a machine with 19% memory free
+    prefers whatever is already warm, and the pool's order stops applying. The
+    runtime has its own mechanism for this and takes `ttl` on the request, so
+    RAVIS names a number rather than running an eviction loop of its own.
+
+    **A client that set `ttl` itself keeps it.** This is a default for requests
+    that expressed no opinion, not an override of one that did — the same rule
+    the `model` field follows one line up.
+
     Note what is *not* symmetric: the response stream is never rewritten. §8.3's
     release-critical surfaces — tool-call indexes, fragmented arguments, finish
     reasons, `[DONE]` — are all downstream, and none of them are touched.
     """
-    if model == payload.get("model"):
+    wants_ttl = ttl_seconds > 0 and "ttl" not in payload
+    if model == payload.get("model") and not wants_ttl:
         return body
     rewritten = dict(payload)
     rewritten["model"] = model
+    if wants_ttl:
+        rewritten["ttl"] = ttl_seconds
     return json.dumps(rewritten).encode()
 
 

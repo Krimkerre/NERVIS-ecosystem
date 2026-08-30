@@ -354,7 +354,32 @@ def _source_of(event: Mapping[str, Any]) -> str:
     return ""
 
 
-def _model_names(models: Sequence[Mapping[str, Any]], question: str) -> list[str]:
+def _build_identities(runtime: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Runtime key → the format and quantization of that build.
+
+    **Two builds of one model are two identities (§12.2), and RAVIS's catalogue
+    cannot say which is which.** It lists `google/gemma-4-e4b` and
+    `google/gemma-4-e4b@4bit` — one GGUF, one MLX, distinguishable only by a
+    suffix whose meaning is a naming convention rather than a fact anyone can
+    read. Asked to compare them, a reader with only those two strings has to
+    guess, and guessing between two builds that measured 21/24 and 24/24 is
+    exactly the wrong place for it.
+
+    The runtime does know, so the two readings are joined on the key they share.
+    """
+    return {
+        str(item.get("id") or ""): " ".join(
+            part for part in (
+                str(item.get("compatibility_type") or ""),
+                str(item.get("quantization") or ""),
+            ) if part
+        )
+        for item in runtime if item.get("id")
+    }
+
+
+def _model_names(models: Sequence[Mapping[str, Any]], question: str,
+                 runtime: Sequence[Mapping[str, Any]] = ()) -> list[str]:
     """The model names, but only when the question is about models.
 
     A count answers "how many models are there"; nothing but the names answers
@@ -369,13 +394,19 @@ def _model_names(models: Sequence[Mapping[str, Any]], question: str) -> list[str
     # on their own disk. The hosted ones are counted rather than listed, which
     # is the honest version of a list that would not fit.
     local = [item for item in models if item.get("local") is True]
+    identities = _build_identities(runtime)
     named = []
     for item in local[:MAX_MODEL_NAMES]:
         name = _model_id(item)
         if not name:
             continue
         resident = str(item.get("residency") or "").upper() == "HOT"
-        named.append(f"  {name}" + (" · loaded now" if resident else ""))
+        build = identities.get(name, "")
+        named.append(
+            f"  {name}"
+            + (f" · {build}" if build else "")
+            + (" · loaded now" if resident else "")
+        )
     if not named:
         return []
     remote = len(models) - len(local)
@@ -422,9 +453,21 @@ def _run_lines(runs: Sequence[Mapping[str, Any]]) -> list[str]:
         for result in list(run.get("results") or [])[:MAX_RESULTS]:
             if not isinstance(result, Mapping):
                 continue
+            # The build, not just the key. §12.2 makes format and quantization
+            # part of the identity, and the payload carries both — without them
+            # two runs of one model read as a repeat of the same measurement
+            # rather than as the comparison they are.
+            target = result.get("target")
+            build = " ".join(
+                part for part in (
+                    str((target or {}).get("format") or ""),
+                    str((target or {}).get("quantization") or ""),
+                ) if part
+            ) if isinstance(target, Mapping) else ""
             lines.append(
-                f"measured for {clip(str(result.get('target_key') or '?'))} "
-                f"({clip(str(result.get('samples') or '?'))} samples, "
+                f"measured for {clip(str(result.get('target_key') or '?'))}"
+                + (f" ({clip(build)})" if build else "")
+                + f" ({clip(str(result.get('samples') or '?'))} samples, "
                 f"{clip(str(result.get('validity') or 'unknown'))}):"
             )
             lines += _metric_lines(result.get("metrics"))
@@ -632,7 +675,7 @@ def block(
     lines += _recent_failures(events, now, absent)
     for name in _loaded(models):
         lines.append(f"loaded in the runtime right now: {name}")
-    lines += _model_names(models, question)
+    lines += _model_names(models, question, runtime)
     lines += benchmarks(jobs, runs)
     lines += runtime_lines(runtime)
     lines += route_lines(decisions)

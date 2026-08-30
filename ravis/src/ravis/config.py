@@ -98,6 +98,28 @@ class Settings(BaseSettings):
     # back to "generic" rather than refusing to start: the cost of a typo here
     # should be capabilities RAVIS does not know about, not an outage.
     upstream_kind: str = "generic"
+    # **How long a local model stays resident after its last request.**
+    #
+    # A local runtime keeps a model loaded until something evicts it, so a
+    # machine that answered one chat turn an hour ago is still holding seven
+    # gigabytes. That is not a leak — it is the right default for a runtime,
+    # which cannot know whether another request is coming — but it is the wrong
+    # default for a *router*, which just finished the request and has a routing
+    # decision on this machine reading "memory is tight (19% free), so
+    # already-loaded models were preferred over the pool's usual ordering".
+    # Residency then decides routing: the model that happens to be warm wins,
+    # and the pool's own order stops mattering.
+    #
+    # LM Studio takes `ttl` on the request and unloads the model that many
+    # seconds after its last use, so this is the runtime's own mechanism rather
+    # than an eviction loop here. Ten minutes: long enough that a conversation
+    # never pays a reload between turns, short enough that a machine left alone
+    # comes back to its memory.
+    #
+    # **0 leaves it to the runtime**, which is what an operator who has set a
+    # TTL in LM Studio's own settings wants — RAVIS then sends nothing and does
+    # not overrule them.
+    local_model_idle_ttl_seconds: int = 600
     # More than one transparent upstream, as a JSON list (M8):
     #
     #   [{"name": "lmstudio", "base_url": "http://127.0.0.1:1234", "kind": "lmstudio"},
