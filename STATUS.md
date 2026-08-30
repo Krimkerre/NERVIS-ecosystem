@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1727 tests, no network, no live service
+.venv/bin/pytest                      # part of 1736 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 431 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 397 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 434 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 400 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1727 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1736 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2099,6 +2099,39 @@ a test asserts the exact field set so a later change has to argue with that rath
 than drift past it. Two existing tests pinned the whole attempt dict and failed on
 the new keys — which is the shape change they exist to catch, so both were updated
 to the full shape rather than loosened to a subset.
+
+**Stage 10, first piece: databases are backed up before a migration, 30 Aug.**
+Runbook §13 asks for it in as many words, and all three packages' `storage/database.py`
+docstrings cited the rule — *"the runbook (§13) requires a backup before a migration and
+rollback proof for each; this module supplies the version number that makes both
+checkable"*. That was accurate and it was not a backup. Migrations ran against
+live benchmark evidence, route history and the registry with no prior state kept
+anywhere, and §13's own rule elsewhere is that evidence is immutable.
+
+`sqlite3.Connection.backup` rather than copying the file: it is the online backup
+API, takes a read lock for its duration, and produces one consistent file in WAL
+mode — where the bytes on disk are split across `-wal` and `-shm` and a plain copy
+can miss committed transactions that have not been checkpointed. Demonstrated on a
+real database, which had both sidecars open at the time.
+
+Three decisions worth naming. It runs **only when a migration is pending**, so the
+ordinary start copies nothing. It runs **once before the first pending migration**
+rather than before each, because the state worth keeping is the one the operator
+started from and rewriting it between migrations would replace that with a
+half-upgraded database. And the name is deterministic — `ravis.db.v4.bak` is a
+database at version 4 — so re-running an upgrade overwrites its own backup instead
+of leaving a directory of near-identical files nobody can choose between.
+
+A failure to back up **stops the migration** rather than being logged and stepped
+over. The next statement is destructive; proceeding without the copy leaves the
+operator exactly where §13 exists to prevent, having paid the guarantee's cost for
+none of its benefit.
+
+Written three times, once per package, because the three are independently
+deployable and share no storage library — and tested three times for the same
+reason rather than assumed to hold from one. Nine tests: the backup exists and
+holds the *pre*-migration version, an up-to-date database is not copied on every
+start, and an in-memory one does not throw.
 
 ### Next — in this order
 

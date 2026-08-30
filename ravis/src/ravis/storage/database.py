@@ -204,14 +204,57 @@ def prepare_database(path: str) -> Database:
     """
     effective = resolved_path(path)
     connection = _connect(effective)
-    version = _apply_migrations(connection)
+    version = _apply_migrations(connection, Path(effective))
     # For an in-memory database the migrating connection is kept as an anchor, so
     # the schema just applied survives until this object is discarded.
     anchor = connection if effective != path else None
     return Database(path=effective, schema_version=version, anchor=anchor)
 
 
-def _apply_migrations(connection: sqlite3.Connection) -> int:
+# Where a pre-migration backup goes, and what it is called. Next to the database
+# and named for the version it restores *to*, so the file says what it is worth:
+# `nervis.db.v7.bak` is a database at version 7, which is the thing you want when
+# a migration to 8 went wrong.
+#
+# Deterministic rather than timestamped: re-running the same upgrade overwrites
+# its own backup instead of leaving a directory of near-identical files nobody
+# can choose between. A timestamp would preserve every attempt, and the one that
+# matters is the last state before the migration that is running now.
+def _backup_path(database: Path, version: int) -> Path:
+    return database.with_name(f"{database.name}.v{version}.bak")
+
+
+def _back_up_before_migrating(connection: sqlite3.Connection, database: Path,
+                              version: int) -> Path | None:
+    """Copy the database before a migration touches it (runbook §13).
+
+    **Only when something is about to change.** An up-to-date database is the
+    normal case on every start, and backing up there would rewrite a file on
+    every launch for no benefit.
+
+    `sqlite3.Connection.backup` rather than copying the file: it is the online
+    backup API, it takes a read lock for the duration, and it produces one
+    consistent file even in WAL mode — where the bytes on disk are split across
+    `-wal` and `-shm` and a plain copy can miss committed transactions that have
+    not yet been checkpointed.
+
+    A failure here stops the migration rather than being logged and stepped over.
+    The whole point of the backup is that the next statement is destructive, and
+    proceeding without one would leave the operator in exactly the position §13
+    exists to prevent — with the guarantee's cost paid and none of its benefit.
+    """
+    if version == 0 or not str(database) or database.name == ":memory:":
+        # Nothing to protect: a database being created has no prior state, and an
+        # in-memory one has no file to write beside.
+        return None
+    target = _backup_path(database, version)
+    with sqlite3.connect(target) as copy:
+        connection.backup(copy)
+    return target
+
+
+def _apply_migrations(connection: sqlite3.Connection,
+                      database: Path | None = None) -> int:
     """Apply every migration this database has not yet seen, returning its version.
 
     Idempotent: running it against an up-to-date database applies nothing and is
@@ -220,9 +263,13 @@ def _apply_migrations(connection: sqlite3.Connection) -> int:
     a database at a real version rather than an invented one.
     """
     version = current_version(connection)
-    for number, description, statements in MIGRATIONS:
-        if number <= version:
-            continue
+    pending = [entry for entry in MIGRATIONS if entry[0] > version]
+    if pending and database is not None:
+        # Before the first one, not before each: the backup's value is the state
+        # the operator started from, and rewriting it between migrations would
+        # replace that with a half-upgraded database.
+        _back_up_before_migrating(connection, database, version)
+    for number, description, statements in pending:
         with connection:
             connection.executescript(statements)
             connection.execute(
