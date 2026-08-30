@@ -78,6 +78,8 @@ MAX_RESULTS = 2
 # the whole section. Larger than `MAX_RESULTS` because comparing two builds of
 # one model needs both of them and their context, and still bounded: the point
 # of the reading is that it fits in a prompt.
+MAX_PROVIDERS = 8
+MAX_OBSERVATIONS = 6
 MAX_MATCHED_RESULTS = 4
 MAX_QUOTED_RESULTS = 6
 # **Every reason, not the first two.** `validity` is literally
@@ -607,6 +609,144 @@ def _metric_lines(metrics: Any) -> list[str]:
     return lines
 
 
+def machine_lines(machine: Mapping[str, Any]) -> list[str]:
+    """The hardware, and what it is doing right now.
+
+    **The pressure is the point, not the specification.** A route decision on
+    this machine reads "memory is tight (19% free), so already-loaded models
+    were preferred over the pool's usual ordering", and a benchmark result is
+    marked SUSPECT because "the machine reported thermal pressure 'fair'" —
+    both consequences chat could state and neither cause it could reach. Cores
+    and chip come along because "is this machine fast" is asked in the same
+    breath and costs one line.
+    """
+    if not machine:
+        return []
+    total = _gigabytes(machine.get("unified_memory_bytes"))
+    free = _gigabytes(machine.get("memory_available_bytes"))
+    lines = [
+        f"this machine: {clip(str(machine.get('chip') or machine.get('platform_name') or '?'))}"
+        f", {clip(str(machine.get('cpu_cores') or '?'))} CPU core(s)"
+        f", {clip(str(machine.get('gpu_cores') or '?'))} GPU core(s)"
+        f", {clip(str(machine.get('os_description') or ''))}".rstrip(", ")
+    ]
+    if total and free:
+        share = round(free / total * 100)
+        lines.append(f"  memory: {free} GB free of {total} GB ({share}%)")
+    thermal = clip(str(machine.get("thermal_state") or ""))
+    if thermal:
+        # Named as the reason it matters. `fair` on its own is a word; what a
+        # reader needs is that it is why a measurement is not comparable.
+        lines.append(
+            f"  thermal pressure: {thermal}"
+            + ("" if thermal == "nominal"
+               else " — measurements taken now are not comparable with ones from a rested machine")
+        )
+    swap = _gigabytes(machine.get("swap_used_bytes"))
+    if swap:
+        lines.append(f"  swap in use: {swap} GB — the machine is paging")
+    disk = _gigabytes(machine.get("disk_free_bytes"))
+    if disk:
+        lines.append(f"  disk free: {disk} GB")
+    return lines
+
+
+def spend_lines(usage: Mapping[str, Any]) -> list[str]:
+    """What routing has cost, with the reason it is an estimate.
+
+    §14 is explicit that this is "never an invoice", and the qualifier travels
+    with the number: a figure a person could mistake for a bill is worse than
+    no figure, and RAVIS states the distinction in its own response.
+    """
+    if not usage or not usage.get("cost_available"):
+        return []
+    lines = [
+        f"routing spend, last {clip(str(usage.get('spend_window') or '24h'))}: "
+        f"{usage.get('spend_estimated')} {clip(str(usage.get('spend_currency') or ''))}"
+        f" over {clip(str(usage.get('executed') or 0))} executed call(s)"
+    ]
+    detail = clip(str(usage.get("cost_detail") or ""))
+    if detail:
+        lines.append(f"  {detail}")
+    unpriced = usage.get("calls_unpriced")
+    if unpriced:
+        # The half a total hides: an unpriced call cost something and is not in
+        # the figure above.
+        lines.append(f"  {unpriced} call(s) had no published price and are not in that total")
+    if usage.get("budget"):
+        lines.append(f"  budget: {clip(str(usage.get('budget')))}")
+    return lines
+
+
+def provider_lines(providers: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Which upstreams are answering, and what is wrong with the ones that are not."""
+    if not providers:
+        return []
+    lines = [f"{len(providers)} upstream provider(s):"]
+    for provider in list(providers)[:MAX_PROVIDERS]:
+        name = clip(str(provider.get("provider") or provider.get("name") or "?"))
+        state = "reachable" if provider.get("reachable") else "not answering"
+        if not provider.get("enabled"):
+            state = "disabled"
+        parts = [state]
+        if provider.get("breaker"):
+            parts.append(f"circuit {clip(str(provider.get('breaker')))}")
+        if provider.get("credential_configured") is False and not provider.get("local"):
+            # The most common reason a provider is present and useless.
+            parts.append("no credential configured")
+        if provider.get("catalogue_size"):
+            parts.append(f"{provider['catalogue_size']} model(s)")
+        latency = provider.get("latency_ms")
+        if isinstance(latency, (int, float)):
+            parts.append(f"{round(latency)} ms to answer")
+        error = clip(str(provider.get("catalogue_error") or provider.get("detail") or ""))
+        lines.append(f"  {name}: " + " · ".join(parts) + (f" — {error}" if error else ""))
+    return lines
+
+
+def observation_lines(
+    observations: Sequence[Mapping[str, Any]], question: str
+) -> list[str]:
+    """Latency measured from real traffic, for the models actually asked about.
+
+    Bounded by the question rather than by a count. RAVIS has observed hundreds
+    of models and sending all of them would spend the whole prompt on a table;
+    sending none leaves "which of these is quicker" unanswerable from the one
+    source that measured it in production.
+    """
+    if not observations:
+        return []
+    asked = _flatten(question)
+    named = [
+        item for item in observations
+        if _flatten(str(item.get("model_id") or "").split("/")[-1]) in asked
+    ] if asked else []
+    chosen = named or sorted(
+        (item for item in observations if item.get("confident")),
+        key=lambda item: item.get("median_ttft_ms") or float("inf"),
+    )
+    if not chosen:
+        return []
+    lines = ["latency RAVIS has measured in production (§13.5, not a benchmark):"]
+    for item in list(chosen)[:MAX_OBSERVATIONS]:
+        samples = item.get("samples")
+        lines.append(
+            f"  {clip(str(item.get('model_id') or '?'))}: "
+            f"first token {round(item.get('median_ttft_ms') or 0)} ms, "
+            f"total {round(item.get('median_latency_ms') or 0)} ms "
+            f"over {clip(str(samples or '?'))} call(s)"
+            + ("" if item.get("confident") else " — too few calls to be confident")
+        )
+    return lines
+
+
+def _gigabytes(value: Any) -> float | None:
+    """Bytes as gigabytes to one decimal, or nothing when there is no number."""
+    if not isinstance(value, (int, float)) or not value:
+        return None
+    return round(value / 1024 ** 3, 1)
+
+
 def runtime_lines(models: Sequence[Mapping[str, Any]]) -> list[str]:
     """What the local runtime itself says it is holding.
 
@@ -750,6 +890,10 @@ def block(
     runtime: Sequence[Mapping[str, Any]] = (),
     decisions: Sequence[Mapping[str, Any]] = (),
     editors: Sequence[Mapping[str, Any]] = (),
+    machine: Mapping[str, Any] | None = None,
+    usage: Mapping[str, Any] | None = None,
+    providers: Sequence[Mapping[str, Any]] = (),
+    observations: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """The fenced reading a model is given, or nothing when there is none.
 
@@ -788,6 +932,12 @@ def block(
     lines += runtime_lines(runtime)
     lines += route_lines(decisions)
     lines += clarvis_config(editors)
+    # The four surfaces the reading could not reach. Each is fetched only when
+    # the question is about it, so an ordinary turn carries none of them.
+    lines += machine_lines(machine or {})
+    lines += spend_lines(usage or {})
+    lines += provider_lines(providers)
+    lines += observation_lines(observations, question)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong

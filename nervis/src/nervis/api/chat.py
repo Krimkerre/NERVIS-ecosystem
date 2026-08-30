@@ -998,6 +998,10 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     # results on the queue having something in it meant a machine with 87
     # recorded runs answered "how did the GGUF gemma do" with nothing.
     runs = await _runs(request, asked) if _wants_results(asked) else []
+    machine = await _machine(request, asked)
+    usage = await _spend(request, asked)
+    providers = await _providers(request, asked)
+    observations = await _observations(request, asked)
     # The question travels so the reading can go deep on what it named. Nothing
     # in it reaches the prompt — it is matched against the registry's own keys
     # and labels and then dropped, which is why a crafted question cannot select
@@ -1006,6 +1010,8 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
         services, windows, events, catalogue, request.app.state.chat_clock(),
         question=asked, models=models, jobs=jobs, runs=runs, runtime=runtime,
         decisions=decisions, editors=editors,
+        machine=machine, usage=usage, providers=providers,
+        observations=observations,
     )
 
 
@@ -1175,6 +1181,122 @@ async def _runs(request: Request, question: str = "") -> list[dict[str, Any]]:
     except (httpx.HTTPError, ValueError, AttributeError):
         return []
     return [item for item in items if isinstance(item, dict)]
+
+
+# When the machine itself is the subject. Route decisions on this machine
+# already say things like "memory is tight (19% free), so already-loaded models
+# were preferred" and benchmark results are marked SUSPECT for thermal pressure
+# — both are facts about the hardware that chat could not read, so it could
+# repeat the consequence and never explain the cause.
+MACHINE_WORDS = (
+    "memory", "ram", "thermal", "hot", "throttl", "swap", "disk", "machine",
+    "hardware", "cpu", "gpu", "slow", "pressure", "space",
+)
+
+# What a call costs. The one subject where being unable to answer is expensive
+# in the literal sense.
+SPEND_WORDS = (
+    "cost", "spend", "spent", "price", "pricing", "expensive", "cheap",
+    "bill", "budget", "money", "usage", "$",
+)
+
+# Whether an upstream is answering. "Is OpenRouter down" is a question RAVIS
+# knows the answer to and chat could not reach.
+PROVIDER_WORDS = (
+    "provider", "upstream", "openrouter", "anthropic", "openai", "google",
+    "breaker", "credential", "api key", "reachable", "down", "outage",
+)
+
+# Latency measured from real traffic, which is a different claim from SIRVIS's
+# benchmark: one is what happened in production, the other is a controlled run.
+OBSERVATION_WORDS = (
+    "latency", "ttft", "first token", "responsive", "fast", "faster",
+    "slow", "slower", "speed", "quick",
+)
+
+
+async def _machine(request: Request, question: str) -> dict[str, Any]:
+    """The machine SIRVIS is measuring on, when the question is about it.
+
+    **`sensitive_fields` is honoured rather than noticed.** SIRVIS publishes the
+    list of fields it considers sensitive — `hostname` today — and this reading
+    ends up inside a prompt that may be answered by a hosted model. A field the
+    producer flagged is a field that must not leave the machine, and reading the
+    flag is cheaper than remembering which field it was.
+    """
+    if not any(word in question.lower() for word in MACHINE_WORDS):
+        return {}
+    found = await _sirvis_read(request, "/api/v1/system")
+    if not found:
+        return {}
+    sensitive = {str(name) for name in (found.get("sensitive_fields") or [])}
+    return {key: value for key, value in found.items() if key not in sensitive}
+
+
+async def _spend(request: Request, question: str) -> dict[str, Any]:
+    """What routing has cost, per RAVIS's own accounting."""
+    if not any(word in question.lower() for word in SPEND_WORDS):
+        return {}
+    return await _ravis_read(request, "/api/v1/usage")
+
+
+async def _providers(request: Request, question: str) -> list[dict[str, Any]]:
+    """Upstream health: reachable, breaker state, error rate, credential."""
+    if not any(word in question.lower() for word in PROVIDER_WORDS):
+        return []
+    found = await _ravis_read(request, "/api/v1/providers")
+    items = found.get("items") or []
+    return [item for item in items if isinstance(item, dict)]
+
+
+async def _observations(request: Request, question: str) -> list[dict[str, Any]]:
+    """Latency RAVIS has measured from real traffic (§13.5).
+
+    Complements SIRVIS rather than repeating it: one is what production did, the
+    other is a controlled benchmark, and §13.5 is explicit that the two answer
+    different questions.
+    """
+    if not any(word in question.lower() for word in OBSERVATION_WORDS):
+        return []
+    found = await _ravis_read(request, "/api/v1/observations")
+    items = found.get("items") or []
+    return [item for item in items if isinstance(item, dict)]
+
+
+async def _sirvis_read(request: Request, path: str) -> dict[str, Any]:
+    """One GET against SIRVIS, or an empty answer. Never raises."""
+    return await _peer_read(request, "sirvis", path)
+
+
+async def _ravis_read(request: Request, path: str) -> dict[str, Any]:
+    """One GET against RAVIS, or an empty answer. Never raises."""
+    return await _peer_read(request, "ravis", path)
+
+
+async def _peer_read(request: Request, service: str, path: str) -> dict[str, Any]:
+    """A bounded read of one peer surface, absent rather than guessed on failure.
+
+    One implementation for both peers because every one of these fails the same
+    four ways — no registration, a non-200, a body that is not JSON, a timeout —
+    and a per-surface copy of that ladder is four places for "absent" to quietly
+    become "empty".
+    """
+    entry: RegistryEntry | None = request.app.state.registry.get(service)
+    if entry is None or not entry.is_usable:
+        return {}
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.get(
+            entry.declaration.base_url + path,
+            timeout=FACTS_TIMEOUT_SECONDS,
+            headers=_named(request) if service == "ravis" else None,
+        )
+        if answered.status_code >= 400:
+            return {}
+        found = answered.json()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 async def _catalogue(request: Request) -> list[dict[str, Any]]:
