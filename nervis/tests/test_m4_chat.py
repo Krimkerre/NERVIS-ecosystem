@@ -801,12 +801,23 @@ def test_do_a_benchmark_is_an_instruction_not_a_question() -> None:
         assert offer["operation"] == "sirvis.benchmark.submit", phrasing
 
 
-def test_a_question_starting_with_do_is_still_a_question() -> None:
-    """The falsifier for the loosening above. `do` was in that list for a
-    reason, and the reason still holds for the shapes that are questions."""
+def test_a_question_is_recognised_by_its_punctuation_not_by_its_verb() -> None:
+    """The falsifier for dropping the verbs out of `ASKING`.
+
+    `do`, `does`, `did`, `show` and `tell` were in a list called ASKING and are
+    not question words — which is what let *"do a benchmark on the deepseek
+    model"* be read as a question. They are gone, so the shapes that really are
+    questions have to be caught by something better: a question mark, a genuine
+    interrogative opener, or `NOT_A_MODEL` catching what the pattern grabbed.
+
+    *"do we have benchmark results"* survives on the last of those — the target
+    captured is `results`, not `do` — which is the point: the decision is made
+    where the evidence is, not by guessing intent from the first word.
+    """
     for phrasing in ("do we have benchmark results",
-                     "did you benchmark qwen3-4b",
-                     "does it support tools"):
+                     "did the benchmark for qwen3-4b finish?",
+                     "show me the benchmark results",
+                     "is qwen3-4b benchmarked?"):
         sent: list[dict[str, Any]] = []
         client = an_api()
         _with_models(client, sent, ["qwen/qwen3-4b-2507"])

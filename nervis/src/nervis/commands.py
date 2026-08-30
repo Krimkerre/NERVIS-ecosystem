@@ -153,47 +153,32 @@ NOT_A_MODEL = frozenset({
     # future phrasing gets one past it. The file already carries two guards for
     # the "benchmark go" bug for the same reason.
     "for", "on", "of", "against", "with", "using",
+    # Left here after `ASKING` lost them: these open questions *and*
+    # instructions, so they cannot decide the sentence — but as a captured
+    # target they are always wrong. "do we have benchmark results" reaches this
+    # list at `results`, not at `do`.
+    "show", "tell", "any", "anything", "is", "are", "was", "were",
 })
 
-# A question about benchmarks is not a request for one.
+# **A question mark is the signal. The word list is the fallback.**
 #
-# **This was live, and it was the embarrassing kind.** Asked *"how did the
-# benchmark go?"* NERVIS offered to benchmark a model named `go` — the pattern
-# matched, the word after the verb became a target, and the answer to a question
-# about the past was a button that starts work. Two guards rather than one,
-# because either alone leaks: the word list above catches the common tails, and
-# this catches the shape of a question whatever noun follows it.
-# `do`, `does` and `did` only ask a question when a pronoun follows them.
-# **"do a benchmark on the deepseek model" is an instruction**, and this guard
-# swallowed it — the sentence opens with `do`, the guard called it a question,
-# and no offer was made. Reported from use twice: once as the preposition bug
-# above, and once as this, which the preposition fix did not touch.
+# This was the other way round and it cost two reported bugs. The list held
+# `do`, `does`, `did`, `show` and `tell` — verbs, not question words — so
+# *"do a benchmark on the deepseek model"* was read as interrogative and
+# silently made no offer. Narrowing `do` to `do you`/`do we` then let
+# *"did the benchmark for qwen3-4b finish?"* through as a request to run one.
+# Both were the same mistake: inferring a question from a word that opens
+# plenty of instructions.
 #
-# "did you run one", "does it support tools", "do we have results" stay
-# questions. "do a benchmark", "do the qwen run" are not English as questions,
-# so requiring the pronoun costs nothing and returns the imperative.
+# Punctuation says it outright. Everything below is only for the sentences
+# people write without it — and those are genuine interrogatives that cannot
+# open an imperative, which is why the verbs are gone rather than qualified.
+QUESTION_MARK = re.compile(r"\?\s*$")
+
 ASKING = re.compile(
-    r"^\s*(?:so\s+)?(?:"
-    r"(?:did|does|do)\s+(?:you|we|i|it|they|he|she|that|this)\b"
-    r"|(?:how|what|whats|what's|is|are|was|were|when|"
-    r"why|where|which|who|any|anything|show|tell)\b"
-    r")",
+    r"^\s*(?:so\s+)?(?:how|what|whats|what's|why|when|where|which|who|whose)\b",
     re.IGNORECASE,
 )
-
-# A sentence that ends in a question mark is a question, whatever it opens with.
-#
-# **This is the guard the pronoun rule above needed and did not have.** Requiring
-# a pronoun after `did` returned the imperative *"do a benchmark on …"* and also
-# returned *"did the benchmark for qwen3-4b finish?"*, which is a question about
-# work that already ran — and with the preposition fix in place it resolved to a
-# real model and offered to run it again. The two changes were each right and
-# together reopened exactly the bug the word list exists for, which is why the
-# regression test for that bug is worth more than either fix.
-#
-# `ASKING_FOR` still wins: "can you benchmark X?" is a request wearing a question
-# mark, and it is checked before this.
-QUESTION_MARK = re.compile(r"\?\s*$")
 
 # …unless it is a question that asks for the work to be done. "can you bench X"
 # and "could you benchmark X" are requests wearing a question mark.
