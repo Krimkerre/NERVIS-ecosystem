@@ -2454,7 +2454,8 @@ first alphabetically among hundreds of hosted models cached on this machine — 
 because the pool was confined to the catalogue under test. Curating the chat pool
 changed which cached model won, the request left for the real Anthropic API, and
 a 502 came back. The pool change was correct; the suite was certifying an
-installation. Green for months, and only red when something moved.
+installation. Green every day since the suite was written on 23 Aug, and only
+red when something moved.
 
 **And two gates cannot run in CI, which is not an oversight.** Twelve
 `*_check.js` exist and `.github/workflows/checks.yml` invokes ten:
@@ -2823,7 +2824,7 @@ configured — and invited the model to explain a fault that does not exist.
 
 The entry already knew. `awaiting_first_contact` is §5.1's distinction — *an
 optional peer that has never answered is absent, not broken* — and the browser
-banner had read it for months (`quiet` rows are excluded from the status line).
+banner had read it since 26 Aug (`quiet` rows are excluded from the status line).
 Nothing on the server side did. Now the severity does: a never-contacted
 optional peer transitions at `info`, a peer that answered once and then stopped
 still warns, because that is an outage.
