@@ -477,6 +477,12 @@ RUN_SAMPLE = 3
 # about rather than sending fifty runs into a prompt.
 NAMED_RUN_SAMPLE = 50
 
+# Bounded because both are unbounded at the source: a hub holds every trace it
+# has seen, and a quarantine grows for as long as something keeps sending
+# malformed events.
+TRACE_SAMPLE = 5
+QUARANTINE_SAMPLE = 5
+
 # When measurements are worth reading, which is not the same question as when
 # the *queue* is worth reading.
 #
@@ -1002,6 +1008,11 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     usage = await _spend(request, asked)
     providers = await _providers(request, asked)
     observations = await _observations(request, asked)
+    policies = await _policies(request, asked)
+    residency = await _residency(request, asked)
+    sets = await _runtime_sets(request, asked)
+    records = await _spend_records(request, asked)
+    evidence = await _evidence(request, asked)
     # The question travels so the reading can go deep on what it named. Nothing
     # in it reaches the prompt — it is matched against the registry's own keys
     # and labels and then dropped, which is why a crafted question cannot select
@@ -1011,7 +1022,9 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
         question=asked, models=models, jobs=jobs, runs=runs, runtime=runtime,
         decisions=decisions, editors=editors,
         machine=machine, usage=usage, providers=providers,
-        observations=observations,
+        observations=observations, policies=policies, residency=residency,
+        runtime_sets=sets, spend_records=records, evidence=evidence,
+        traces=_traces(request, asked), quarantine=_quarantine(request, asked),
     )
 
 
@@ -1261,6 +1274,110 @@ async def _observations(request: Request, question: str) -> list[dict[str, Any]]
     found = await _ravis_read(request, "/api/v1/observations")
     items = found.get("items") or []
     return [item for item in items if isinstance(item, dict)]
+
+
+# What a request is *allowed* to do. "Why can't this route to OpenAI" has an
+# answer RAVIS holds and chat could not reach — and an empty policy set is an
+# answer too, not a silence.
+POLICY_WORDS = (
+    "policy", "policies", "privacy", "allowed", "blocked", "denied", "deny",
+    "exclude", "excluded", "restrict", "permitted", "why can't", "why cant",
+)
+
+# What is resident and who is holding it. Distinct from the runtime read: LM
+# Studio says what is loaded, SIRVIS says under whose lease — including models
+# it did not load itself, which is how a machine runs out of memory for reasons
+# nothing in SIRVIS asked for.
+RESIDENCY_WORDS = (
+    "loaded", "resident", "lease", "holding", "evict", "unload", "residency",
+    "who is using", "occupied",
+)
+
+# Combination evidence: a pair measured together rather than two models
+# measured apart (§10.1).
+SET_WORDS = ("runtime set", "runtime-set", "combination", "pair", "together", "set")
+
+# One call's cost rather than the day's total. "Which model cost me that" is a
+# different question from "what did today cost".
+RECORD_WORDS = ("which model cost", "per call", "per-call", "each call",
+                "breakdown", "itemis", "itemiz", "last call", "recent call")
+
+# The evidence index, which carries §15.1's tombstones. A withdrawn measurement
+# and one nobody ever took lead to different decisions, and only this surface
+# can tell them apart.
+EVIDENCE_WORDS = ("evidence", "tombstone", "deleted", "withdrawn", "removed",
+                  "capability", "capabilities")
+
+# NERVIS's own two: what a request did, and what arrived malformed.
+TRACE_WORDS = ("trace", "request id", "what happened to", "timeline", "span")
+QUARANTINE_WORDS = ("quarantine", "malformed", "rejected event", "bad event",
+                    "dropped event")
+
+
+async def _policies(request: Request, question: str) -> list[dict[str, Any]] | None:
+    """Routing policy: privacy levels, provider denials, model exclusions.
+
+    **`None` when nobody asked, `[]` when they asked and there are none.** The
+    reading prints "nothing is restricted by policy" for the second, because
+    that is the answer to "why can't this route to OpenAI" — and printing it for
+    the first would put a policy statement on every unrelated turn.
+    """
+    if not any(word in question.lower() for word in POLICY_WORDS):
+        return None
+    found = await _ravis_read(request, "/api/v1/policies")
+    return [item for item in (found.get("items") or []) if isinstance(item, dict)]
+
+
+async def _residency(request: Request, question: str) -> dict[str, Any]:
+    """What SIRVIS says is resident, and under whose lease."""
+    if not any(word in question.lower() for word in RESIDENCY_WORDS):
+        return {}
+    return await _sirvis_read(request, "/api/v1/runtime/residency")
+
+
+async def _runtime_sets(request: Request, question: str) -> list[dict[str, Any]]:
+    """Defined combinations of models, per §10.1."""
+    if not any(word in question.lower() for word in SET_WORDS):
+        return []
+    found = await _sirvis_read(request, "/api/v1/runtime-sets")
+    return [item for item in (found.get("items") or []) if isinstance(item, dict)]
+
+
+async def _spend_records(request: Request, question: str) -> list[dict[str, Any]]:
+    """Individual priced calls, newest first."""
+    if not any(word in question.lower() for word in RECORD_WORDS):
+        return []
+    found = await _ravis_read(request, "/api/v1/usage/records?limit=10")
+    return [item for item in (found.get("items") or []) if isinstance(item, dict)]
+
+
+async def _evidence(request: Request, question: str) -> dict[str, Any]:
+    """SIRVIS's evidence index — capability states and §15.1's tombstones."""
+    if not any(word in question.lower() for word in EVIDENCE_WORDS):
+        return {}
+    return await _sirvis_read(request, "/api/v1/evidence?limit=25")
+
+
+def _traces(request: Request, question: str) -> list[dict[str, Any]]:
+    """Recent traces, from NERVIS's own hub.
+
+    Read in process rather than over HTTP: the hub is right here, and a service
+    calling its own API through the network stack is a round trip that can fail
+    for reasons that have nothing to do with the data.
+    """
+    if not any(word in question.lower() for word in TRACE_WORDS):
+        return []
+    from nervis.api.traces import summarise
+
+    events = request.app.state.hub.events_of_recent_traces(TRACE_SAMPLE)
+    return list(summarise(events))[:TRACE_SAMPLE]
+
+
+def _quarantine(request: Request, question: str) -> list[dict[str, Any]]:
+    """Events the hub refused, from the hub itself."""
+    if not any(word in question.lower() for word in QUARANTINE_WORDS):
+        return []
+    return list(request.app.state.hub.quarantined(QUARANTINE_SAMPLE))
 
 
 async def _sirvis_read(request: Request, path: str) -> dict[str, Any]:

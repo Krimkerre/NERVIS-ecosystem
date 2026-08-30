@@ -78,6 +78,14 @@ MAX_RESULTS = 2
 # the whole section. Larger than `MAX_RESULTS` because comparing two builds of
 # one model needs both of them and their context, and still bounded: the point
 # of the reading is that it fits in a prompt.
+MAX_POLICIES = 6
+MAX_HOLDINGS = 4
+MAX_RUNTIME_SETS = 4
+MAX_SET_MEMBERS = 4
+MAX_SPEND_RECORDS = 6
+MAX_TOMBSTONES = 4
+MAX_TRACES = 5
+MAX_QUARANTINE = 4
 MAX_PROVIDERS = 8
 MAX_OBSERVATIONS = 6
 MAX_MATCHED_RESULTS = 4
@@ -740,6 +748,177 @@ def observation_lines(
     return lines
 
 
+def policy_lines(policies: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What routing is not allowed to do.
+
+    **An empty set is printed, not skipped.** Every other block here goes quiet
+    when it has nothing, because absence of a benchmark is not a fact worth a
+    line. A policy is the opposite: "nothing is restricted" is the answer to
+    "why can't this route to OpenAI", and silence there reads as a restriction
+    nobody can find.
+    """
+    if not policies:
+        return ["routing policy: none configured — nothing is restricted by policy"]
+    lines = [f"{len(policies)} routing policy/policies:"]
+    for policy in list(policies)[:MAX_POLICIES]:
+        described = " · ".join(
+            f"{key} {clip(str(value))}"
+            for key, value in sorted(policy.items())
+            if value not in (None, "", [], {})
+        )
+        lines.append(f"  {clip(described)}")
+    return lines
+
+
+def residency_lines(residency: Mapping[str, Any]) -> list[str]:
+    """What is resident, under whose lease, and what SIRVIS did not load.
+
+    `foreign` is the interesting field and the one nothing else reports: a model
+    loaded by somebody else still occupies the memory every routing decision on
+    this machine is made against, and it appears in no lease SIRVIS holds.
+    """
+    if not residency:
+        return []
+    holdings = residency.get("holdings") or []
+    leases = residency.get("leases") or []
+    foreign = residency.get("foreign") or []
+    lines = [
+        f"runtime residency: {len(holdings)} held by SIRVIS, {len(leases)} lease(s)"
+        f", at most {clip(str(residency.get('max_loaded') or '?'))} loaded at once"
+    ]
+    for holding in list(holdings)[:MAX_HOLDINGS]:
+        lines.append(f"  held: {clip(str(holding))}")
+    if foreign:
+        lines.append(
+            "  loaded by something other than SIRVIS: "
+            + clip(", ".join(str(name) for name in foreign[:MAX_HOLDINGS]))
+            + " — occupying memory no SIRVIS lease accounts for"
+        )
+    return lines
+
+
+def runtime_set_lines(sets: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Combinations measured together rather than models measured apart (§10.1)."""
+    if not sets:
+        return []
+    lines = [f"{len(sets)} runtime set(s) — models defined to run together:"]
+    for found in list(sets)[:MAX_RUNTIME_SETS]:
+        members = ", ".join(
+            f"{clip(str(member.get('role') or '?'))}={clip(str(member.get('model_id') or '?'))}"
+            for member in (found.get("members") or [])[:MAX_SET_MEMBERS]
+            if isinstance(member, Mapping)
+        )
+        lines.append(
+            f"  {clip(str(found.get('name') or found.get('runtime_set_id') or '?'))}"
+            f" (revision {clip(str(found.get('revision') or '?'))}): {members}"
+        )
+        purpose = clip(str(found.get("purpose") or ""))
+        if purpose:
+            lines.append(f"    {purpose}")
+    return lines
+
+
+def spend_record_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Individual calls and what each cost.
+
+    The state of each price travels with it: `ESTIMATED` from a published rate
+    is not the same claim as a figure from an invoice, and §14 forbids the
+    second being implied by the first.
+    """
+    if not records:
+        return []
+    lines = ["recent priced calls, newest first:"]
+    for record in list(records)[:MAX_SPEND_RECORDS]:
+        tokens = (
+            f"{clip(str(record.get('input_tokens') or 0))} in"
+            f" / {clip(str(record.get('output_tokens') or 0))} out"
+        )
+        reasoning = record.get("reasoning_tokens")
+        if reasoning:
+            # Paid for and never seen, which is the line item people query.
+            tokens += f" ({reasoning} of them reasoning)"
+        lines.append(
+            f"  {clip(str(record.get('model') or '?'))}"
+            f" via {clip(str(record.get('pool') or record.get('provider') or '?'))}: "
+            f"{record.get('cost')} {clip(str(record.get('currency') or ''))}"
+            f" ({clip(str(record.get('cost_state') or ''))}"
+            f", price from {clip(str(record.get('price_source') or 'unknown'))})"
+            f", {tokens}, {round(record.get('latency_ms') or 0)} ms"
+        )
+    return lines
+
+
+def evidence_lines(evidence: Mapping[str, Any]) -> list[str]:
+    """What the evidence index establishes — and what was withdrawn from it.
+
+    The tombstones are the half nothing else can supply: a build with no
+    evidence and a build whose evidence was deleted look identical everywhere
+    but here, and §15.1 exists because those lead to different decisions.
+    """
+    if not evidence:
+        return []
+    items = evidence.get("items") or []
+    tombstones = evidence.get("tombstones") or []
+    lines = [f"evidence index: {len(items)} record(s) held"]
+    states = evidence.get("capability_states") or {}
+    if isinstance(states, Mapping) and states:
+        supported = [key for key, value in states.items() if value == "SUPPORTED"]
+        unknown = [key for key, value in states.items() if value == "UNKNOWN"]
+        lines.append(
+            f"  capability established by trial: {len(supported)} supported"
+            f", {len(unknown)} not covered by enough evidence to say"
+        )
+    for tombstone in list(tombstones)[:MAX_TOMBSTONES]:
+        if not isinstance(tombstone, Mapping):
+            continue
+        lines.append(
+            f"  withdrawn: {clip(str(tombstone.get('target_key') or '?'))}"
+            f" ({clip(str(tombstone.get('role') or ''))})"
+            f" deleted {clip(str(tombstone.get('deleted_at') or ''))}"
+            + (f" — {clip(str(tombstone.get('reason')))}" if tombstone.get("reason") else "")
+        )
+    if tombstones:
+        lines.append(
+            "  a tombstone means the measurement was deleted, which is not the"
+            " same as never having been taken"
+        )
+    return lines
+
+
+def trace_lines(traces: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Recent requests as the hub recorded them."""
+    if not traces:
+        return []
+    lines = [f"{len(traces)} recent trace(s):"]
+    for trace in list(traces)[:MAX_TRACES]:
+        lines.append(
+            f"  {clip(str(trace.get('trace_id') or '?'))}: "
+            f"{clip(str(trace.get('events') or 0))} event(s) across "
+            f"{clip(', '.join(str(name) for name in (trace.get('services') or [])))}"
+            f" · {clip(str(trace.get('severity') or ''))}"
+        )
+    return lines
+
+
+def quarantine_lines(quarantined: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Events the hub refused, with what was wrong with them.
+
+    A refused event is a producer's bug and is invisible everywhere else: it
+    never reached the log it was meant for, so nothing downstream can report
+    that it is missing.
+    """
+    if not quarantined:
+        return []
+    lines = [f"{len(quarantined)} event(s) refused by the hub:"]
+    for entry in list(quarantined)[:MAX_QUARANTINE]:
+        lines.append(
+            f"  {clip(str(entry.get('reason') or '?'))}: "
+            f"{clip(str(entry.get('detail') or ''))}"
+            f" (at {clip(str(entry.get('received_at') or ''))})"
+        )
+    return lines
+
+
 def _gigabytes(value: Any) -> float | None:
     """Bytes as gigabytes to one decimal, or nothing when there is no number."""
     if not isinstance(value, (int, float)) or not value:
@@ -890,6 +1069,13 @@ def block(
     runtime: Sequence[Mapping[str, Any]] = (),
     decisions: Sequence[Mapping[str, Any]] = (),
     editors: Sequence[Mapping[str, Any]] = (),
+    policies: Sequence[Mapping[str, Any]] | None = None,
+    residency: Mapping[str, Any] | None = None,
+    runtime_sets: Sequence[Mapping[str, Any]] = (),
+    spend_records: Sequence[Mapping[str, Any]] = (),
+    evidence: Mapping[str, Any] | None = None,
+    traces: Sequence[Mapping[str, Any]] = (),
+    quarantine: Sequence[Mapping[str, Any]] = (),
     machine: Mapping[str, Any] | None = None,
     usage: Mapping[str, Any] | None = None,
     providers: Sequence[Mapping[str, Any]] = (),
@@ -938,6 +1124,16 @@ def block(
     lines += spend_lines(usage or {})
     lines += provider_lines(providers)
     lines += observation_lines(observations, question)
+    # `policies` is `None` when the question was not about them and `[]` when it
+    # was and there are none — the difference between not asking and asking and
+    # finding nothing, which is the whole point of `policy_lines`.
+    lines += policy_lines(policies) if policies is not None else []
+    lines += residency_lines(residency or {})
+    lines += runtime_set_lines(runtime_sets)
+    lines += spend_record_lines(spend_records)
+    lines += evidence_lines(evidence or {})
+    lines += trace_lines(traces)
+    lines += quarantine_lines(quarantine)
     # **And the deep half, when the question named something.** Asked "how is
     # RAVIS", a tally of six services is not an answer — the person wants that
     # one service's state, why anything is withheld, and what has gone wrong
