@@ -7537,6 +7537,86 @@ here. Google's free tier is real and cannot be derived: it is a quota on an
 account, not a property of a model. Size tiers are read from vendors' own product
 naming and are labelled a **default an operator overrules**, never a measurement.
 
+## Pools that mean something, 2026-08-30
+
+`ravis/chat` had 549 members, no requirement and no preference. The routing
+engine says in its own comment what happens then — "pools that say nothing fall
+back to alphabetical order, which is meaningless" — so ordinary conversation on
+this machine was served by `amazon/nova-2-lite-v1`, which won on the letter A.
+The size tiebreak made it worse: a model whose *name* carries a parameter count
+sorts ahead of every frontier model whose name does not, so a 1B instruct
+outranked `gpt-5` because "1b" parses and "gpt-5" does not.
+
+Every pool now declares what it draws from and what disqualifies a model even
+when a family matched. It is a claim about what a model is *for*, never about
+how good it is; ranking inside the class stays unmeasured and says so.
+
+**Cost is part of the order.** The cheap-capable tier leads and the expensive
+tier is last — in the list, so it answers when nothing above it is available,
+and never what an ordinary turn reaches for. Chat picked `claude-fable-5` for
+exactly one commit, which was the most expensive possible way to answer "how is
+RAVIS doing".
+
+`prefer_fast` came off the chat pool: it is consulted *before* a pool's declared
+preference, so any model RAVIS happened to have timed jumped the families. It
+existed to stop the alphabetical fallback, which the families now do properly.
+
+**A routable baseline applies everywhere.** `ravis/auto` held 41 image and
+moderation models and `ravis/local` held `text-embedding-nomic-embed-text`;
+none of them can answer a chat completion. `NOT_CHAT` already named them for
+size tiering and membership had never consulted it.
+
+**`ravis/agent` and `ravis/clarvis-agent` were one pool with two names** — same
+requirements, same 295 members. §5.1 asks the Clarvis one for structured calls
+and long context as well, so it requires them: 232 members against 295.
+
+**Curation stores nothing.** The first version of `POST /pools/curate` wrote each
+pool's computed membership in as a selection, which is the one change that would
+break it — a stored list is a snapshot of a catalogue that moves, and this
+machine carried one of 549 models saved when 549 was the whole catalogue and
+stale by 42 within a fortnight. It removes pins instead, and membership is
+computed per request.
+
+`tools/propose_pools.py` asks a model which of the 591 models belong where. It
+proposes and never routes: §11.5 makes a model's opinion retrieved content, every
+suggested fragment is checked against the real catalogue, and the ones matching
+nothing are printed rather than dropped — "it invented four of these" being the
+most useful thing to know about a proposal.
+
+## What chat can be asked, 2026-08-30
+
+A survey of every GET surface the three services publish against what the chat
+reading actually fetched found eleven it could not reach. All eleven are wired,
+each gated on the question being about it, so an ordinary turn carries none.
+
+The machine (memory, thermal, swap, disk), routing spend and its per-call
+records, upstream health, production latency, routing policy, residency, runtime
+sets, the evidence index with its tombstones, traces, and the event quarantine.
+
+Two of those close loops that were already visible. Route decisions were saying
+"memory is tight (19% free), so already-loaded models were preferred" and
+results were marked `SUSPECT` for thermal pressure — chat could repeat both
+consequences and reach neither cause. And a tombstone is the only way to tell a
+withdrawn measurement from one nobody ever took.
+
+Three defects were found by asking rather than by reading code:
+
+- **Results were fetched only when the job queue was non-empty**, and the queue
+  read triggers on "bench", "job" or "queue". "How did the GGUF gemma do" fetched
+  nothing — on a machine holding 87 runs.
+- **Three runs were read and two printed**, always the newest, so a question
+  about a build fifteen runs back was answered from unrelated numbers.
+- **Trial rates were absent entirely.** They are counted rather than averaged
+  (§13.2), so they carry no median and the metric reader skipped them without a
+  word: a question about tool calls was answered from throughput and latency.
+
+And the reason a result is `SUSPECT` is now stated as its cause rather than
+listed as a caveat, with every reason rather than the first two — validity is
+literally `SUSPECT if warnings else VALID`, so the notes are the whole of the
+verdict's justification. Each result also says when it ran, because two runs of
+one build produced blocks identical character for character and a reader
+attributed one's swap warning to the other's build.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
@@ -7591,6 +7671,10 @@ nervis/                the prototype — every screen, wired to mocks shaped lik
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 the routing gateway (M0–M18a, M12, M9, M3b, M4)
 sirvis/                the evidence plane (M0–M4, M6–M10)
+tools/                 run.py (the launcher), the STATUS and dead-code gates,
+                       and propose_pools.py — which asks a model which models
+                       belong in which pool and writes a proposal nobody applies
+                       automatically
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

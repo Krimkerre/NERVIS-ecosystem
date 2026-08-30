@@ -208,9 +208,15 @@ Google, OpenRouter, LM Studio, Ollama and generic OpenAI-compatible hosts, with 
 Instead of naming one physical model, a client asks for a policy:
 
 ```text
-ravis/auto  ravis/fast  ravis/performance  ravis/balanced  ravis/cheap
+ravis/auto  ravis/fast  ravis/performance  ravis/balanced  ravis/cheap  ravis/chat
 ravis/local  ravis/api  ravis/private  ravis/coding  ravis/reasoning  ravis/long-context
+ravis/agent
 ```
+
+Each pool declares what it is for. That is a statement about what a model is *for*, never
+about how good it is — but it has to be made: a pool that declares nothing has no basis to
+order its candidates on and falls back to alphabetical order, which is how ordinary
+conversation came to be served by whichever model id happened to sort first.
 
 RAVIS decides which actual model best represents that request at the moment, considering
 capability requirements, context length, tool use, vision, structured output, user policy,

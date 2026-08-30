@@ -140,10 +140,13 @@ true many milestones ago and stayed on the front page — the exact failure the 
 warns about, in the file that warns about it.
 
 **NERVIS chat can be talked to about the machine, and asked to do a short list of
-things to it.** It reads the registry, the queue, the runtime and RAVIS's routing
-record, and offers — never performs — an enumerated set of operations that a
-person confirms with a button. The contract for both halves is `NERVIS.md` §7.0;
-the credentials that make the second half possible are §12.1.
+things to it.** It reads the registry, the queue and its results, the runtime and
+what it holds, the machine's own memory and thermal state, what routing has cost,
+which upstreams are answering, RAVIS's routing record and policy, the evidence
+index and what has been withdrawn from it — each only when the question is about
+it — and offers, never performs, an enumerated set of operations that a person
+confirms with a button. The contract for both halves is `NERVIS.md` §7.0; the
+credentials that make the second half possible are §12.1.
 
 The single most useful verified fact in this set, because it determines the build order:
 

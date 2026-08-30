@@ -291,10 +291,19 @@ measured*, and a comparison view needs the second one.
 # 7. General chat
 
 NERVIS chat is a **normal client of RAVIS's published OpenAI-compatible API**, addressing the
-pools RAVIS already publishes. Default `ravis/auto`; the mode selector offers `ravis/balanced`,
-`ravis/fast`, `ravis/performance`, `ravis/cheap`, `ravis/local`, `ravis/api` and
-`ravis/private`, labelled from RAVIS §9.3's display names rather than spelled a third way here;
-optional explicit model selection.
+pools RAVIS already publishes. Default **`ravis/chat`**; the mode selector offers
+`ravis/balanced`, `ravis/fast`, `ravis/performance`, `ravis/cheap`, `ravis/local`, `ravis/api`
+and `ravis/private`, labelled from RAVIS §9.3's display names rather than spelled a third way
+here; optional explicit model selection.
+
+> **The default was `ravis/auto` and that was wrong for this surface.** Auto declares no
+> constraint by design — "let RAVIS decide, with no constraint beyond what the request needs" —
+> and a pool that declares nothing has nothing to order candidates by, so RAVIS falls back to
+> alphabetical (RAVIS §5.1.1). That is defensible for a pool nobody names on purpose and wrong
+> for the one surface where a person is talking to the thing. `ravis/chat` exists, says what it
+> is for, and is what a conversation should get when the caller expressed no preference. The
+> dashboard's profile picker marks the same pool as the default, because a picker that marks a
+> different one than an unspecified request actually gets is worse than no mark at all.
 
 > **Do not invent a `nervis-chat` profile.** RAVIS must publish and accept it before
 > implementation.
@@ -325,11 +334,33 @@ that question is being asked.
 
 **The reading.** Every ordinary turn carries what NERVIS has actually read — each service with
 its state, detail, build and age; the registered editor windows; the model catalogue with what is
-loaded; a recent event tally; recent failures with the field that explains each. Where the
-question names something, that thing travels in depth: a service with the reasons behind its
-withheld capabilities, SIRVIS's queue and the measurements a finished run produced, the local
-runtime's own account of what it has loaded, RAVIS's recent routing decisions with its own
-sentence about each.
+loaded; a recent event tally; recent failures with the field that explains each.
+
+**Where the question names something, that thing travels in depth.** The set of surfaces this
+can reach is the difference between a chat that reports and one that can be asked:
+
+| Asked about | Read from | What it answers |
+|---|---|---|
+| a service | the registry | the reasons behind each withheld capability |
+| a build, a measurement | SIRVIS runs and results | the numbers, the trial rates with their shape, and every reason a result is `SUSPECT` |
+| what is installed | RAVIS catalogue joined to the runtime | two builds of one model told apart by format and quantization |
+| what is loaded | the local runtime, and SIRVIS residency | including models loaded by something *other* than SIRVIS, which occupy memory no lease accounts for |
+| a route | RAVIS decisions | its own sentence about each |
+| the machine | SIRVIS system | memory free, thermal pressure, swap, disk — the causes behind "memory is tight" and a `SUSPECT` result |
+| cost | RAVIS usage, and per-call records | the estimate with §14's "never an invoice" attached, and the calls that had no published price |
+| an upstream | RAVIS providers | reachable, circuit state, latency, and whether a credential is configured |
+| latency | RAVIS observations | measured in production (§13.5), which is a different claim from a benchmark |
+| what is allowed | RAVIS policies | including that *nothing* is restricted, which is an answer |
+| a combination | SIRVIS runtime sets | §10.1's pairs, measured together |
+| evidence | the SIRVIS index | capability states, and §15.1's tombstones — a withdrawn measurement is not one nobody took |
+| a request | the NERVIS hub | traces, and the events the hub refused |
+| Clarvis | the bridges | the settings each window is running, and how to change them |
+
+Two properties of that table are load-bearing. **Each row is fetched only when the question is
+about it**, so an ordinary turn carries none of them and the prompt stays small. And **a field
+the producer marked sensitive is not read**: SIRVIS publishes `sensitive_fields` — `hostname`
+today — and this reading can end up in a prompt answered by a hosted model, so the producer's
+own flag is honoured rather than remembered.
 
 Four rules govern it:
 
@@ -346,8 +377,11 @@ Four rules govern it:
   given, and a similar question is not a reason to repeat it.
 
 **Offers, not actions.** NERVIS may carry out an enumerated set of operations named in the
-person's own words — today: queue a benchmark, cancel one, change this conversation's pool. Four
-constraints, and they are the section:
+person's own words — today: queue a benchmark, cancel one, change this conversation's pool. A
+fourth exists in the set and is deliberately unreachable from a sentence: **deleting a benchmark
+result** is named only by the button beside the record it would delete, because a measurement is
+not a thing to offer to destroy on the strength of a parse. Four constraints, and they are the
+section:
 
 1. **The proposal is parsed from what the person typed**, before the model sees anything. Nothing
    a model returns may become an action (§11.5), and a proposal built from model output would be
@@ -379,6 +413,20 @@ This makes ordinary chat a RAVIS debugging tool.
 
 Local only by default: conversation ID, title, timestamps, messages, RAVIS route IDs. Allow
 deletion. Future ephemeral chats store nothing after the session ends.
+
+**A conversation is named from its own first message, before anything is asked of a model.**
+The title generator (§7.0's background call) then *may* improve on that, and has to earn the
+replacement: its answer is checked before it is stored, and failing the check is not a failure
+— the name taken from the question stays.
+
+Both halves were found the same way. Without the first, every row of the list read "New
+conversation" until a background call returned. Without the second, what the call returned was
+stored verbatim — and `ravis/cheap` routes to whatever is cheapest, which on this machine is a
+reasoning model that spends its whole twenty-four-token budget thinking. The list held
+*"Okay, let's tackle this user query. They want a short title for a conversation s"*. So the
+check removes fenced thinking, rejects an opening that talks about the request rather than
+naming it, and rejects a sentence: six words was the instruction and prose in that column is
+the reported defect.
 
 **Gate:** stock and failure flows pass against a real RAVIS; a NERVIS session never appears as a
 Clarvis session and has no coding tools.
@@ -1062,7 +1110,7 @@ repairs.
 | Health state enum | Plan: `HEALTHY/DEGRADED/OFFLINE/STARTING/STOPPING/UNKNOWN`; addendum: 8 registry states; MEP: 3 | Services report the MEP status about themselves; NERVIS's 8 registry states are observer-side (§5.1) |
 | Trace headers | Plan proposed `X-Nervis-Trace-ID`; the MEP requires W3C `traceparent` | **W3C `traceparent` wins.** The vendor headers are dropped, not carried alongside |
 | Event envelope | Plan used a simpler `{timestamp, service, component, event, level, …}` shape | The MEP envelope is canonical; the plan's fields map onto it |
-| Chat profile | Plan defaulted to `ravis/auto`; the addendum forbids inventing a `nervis-chat` profile | `ravis/auto` for MVP; a dedicated profile only once RAVIS publishes and accepts one |
+| Chat profile | Plan defaulted to `ravis/auto`; the addendum forbids inventing a `nervis-chat` profile | **`ravis/chat`**, which RAVIS publishes and accepts. `ravis/auto` was the MVP default and orders nothing, so it fell back to alphabetical (§7) |
 | Milestone numbering | Plan M0–M19; addenda E-N0–E-N9 | M-numbers identify the work. The addenda's E-N gates are retired — those documents are not in this set — and §21.1 now maps the milestones onto the runbook's stages, which schedule them |
 | Dead citations | `fileciteturn…` markers throughout | Removed; Clarvis facts now point at `CLARVIS.md` §3, which cites real source |
 

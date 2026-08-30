@@ -210,9 +210,14 @@ Required defaults:
 
 ```text
 ravis/auto      ravis/balanced   ravis/local    ravis/coding        ravis/long-context
-ravis/fast      ravis/cheap      ravis/api      ravis/reasoning
-ravis/performance                ravis/private
+ravis/fast      ravis/cheap      ravis/api      ravis/reasoning     ravis/chat
+ravis/performance                ravis/private  ravis/agent
 ```
+
+`ravis/chat` and `ravis/agent` were implemented and missing from this list.
+`ravis/chat` is what a conversation with no stated profile resolves to;
+`ravis/agent` is the general "a model that can call a tool" pool, distinct from
+`ravis/clarvis-agent` (§5.1).
 
 Clarvis-specific pools — these IDs must be **stable**:
 
@@ -255,16 +260,64 @@ enforcement.
 
 ## 5.1 Pool semantics
 
+**`ravis/chat`** — ordinary conversation, and the pool a request with no profile gets.
+Draws from general conversational assistants, ordered cheap-capable first with the
+expensive tier last (§5.1.1). Prefers a hosted model with this machine's own underneath
+it, because "prefer local, prefer cheap, prefer already loaded" selects whatever small
+thing is resident — right for a classification call and poor for talking to.
+
+**`ravis/agent`** — a caller that needs a model which can call a tool, and nothing more
+specific. Tools REQUIRED, 32K minimum context. Deliberately weaker than
+`ravis/clarvis-agent`: a caller with tools in the request should not have to borrow a role
+pool and inherit a preference for code models it never asked for.
+
 **`ravis/clarvis-chat`** — optimized for conversation, planning, analysis, instruction
 following, personality quality and reasonable latency. Tool support is optional unless the
 request itself supplies tools.
 
 **`ravis/clarvis-agent`** — optimized for coding, tool use, repository reasoning, structured
-calls, long context and reliability.
+calls, long context and reliability. **All six are enforced**, not just the first two: tools
+and `structured_output` REQUIRED, 128K minimum context, and membership drawn from the coding
+families. It enforced tools and 32K for a long time, which made it member-for-member
+identical to `ravis/agent` — two pools that select the same models are one pool with two
+names, and Clarvis names this one because its needs are narrower.
 
 > **Hard invariant: every model eligible for `ravis/clarvis-agent` must satisfy the pool's
 > required tool capability.** Do not put a non-tool-capable model in the agent pool because it
 > scores well on coding.
+
+### 5.1.1 Curated membership
+
+A pool may declare the **families it draws from**, as ordered fragments of model ids, and the
+fragments that disqualify a model even when a family matched it. Both are per pool: a code
+specialist is noise in `ravis/chat` and the entire point of `ravis/coding`.
+
+This is a statement about **what a model is for**, never about how good it is — §9.2 forbids
+RAVIS inventing quality it has not measured, and nothing here claims any. Ranking *within* the
+class stays where §13 leaves it.
+
+**Order is the interface.** Preference rank reads position, so the same tuple that defines
+membership defines what the pool reaches for first. Two consequences are deliberate:
+
+- **The cheap-capable tier leads and the expensive tier is last.** An expensive model is a
+  manual pick — named directly, or ticked into the pool — and never what an ordinary turn
+  reaches for. It stays *in* the list so it can still answer when nothing above it is
+  available, which is better than refusing.
+- **A pool that declares nothing sorts alphabetically**, which the routing engine states in
+  its own comment and which is why this exists: with no requirements and no preference,
+  `ravis/chat` admitted every model RAVIS knew and conversation was served by whichever id
+  sorted first.
+
+**A routable baseline applies to every pool, declared or not.** An embedding model cannot
+answer a chat completion, and neither can a reranker, a moderation classifier, a speech or
+image model, or a batch endpoint — the same weights on an asynchronous queue. No pool wants
+these and every pool had them.
+
+**Membership is derived, never stored.** An operator may pin a per-pool selection, and
+`POST /api/v1/pools/curate` removes every such pin so each pool follows its own default again.
+That endpoint deliberately writes nothing: a stored list is a snapshot of a catalogue that
+moves, so a model a provider ships next week would match a pool's declared families and never
+be routed to. Computing membership per request is what §5.2 means by it being derived.
 
 ## 5.2 Pool capability invariants
 
@@ -557,6 +610,22 @@ than free. `prefer fast` reads RAVIS's own `OBSERVED_BY_RAVIS` timings and only
 above a sample floor — an unmeasured model sorts *neutral*, because RAVIS only
 measures a model by routing to it and sorting unmeasured last is a trap that
 closes.
+
+**And `prefer fast` is consulted before a pool's declared preference**, which is
+a trap of its own for a pool that has one. Any model RAVIS happens to have timed
+jumps ahead of the families the pool declared, so a curated pool (§5.1.1) either
+declares no speed preference or has its order silently inverted by whichever of
+its members was called once. `ravis/chat` declares none for that reason.
+
+**Residency is not left to accumulate.** A local runtime holds a model until
+something evicts it — right for a runtime, which cannot know whether another
+request is coming, and wrong for a router that has just finished one. Left alone
+it inverts the ordering above: residency is a soft preference until memory is
+tight, at which point already-loaded models are preferred over the pool's usual
+order and whatever happens to be warm decides the route. So RAVIS sends the
+runtime's own idle TTL on a local request — ten minutes by default,
+`RAVIS_LOCAL_MODEL_IDLE_TTL_SECONDS`, and `0` to leave it to an operator who
+configured their own. A client that sets its own TTL keeps it.
 
 `prefer SIRVIS-tested`, `prefer provider X`, `energy` and `evidence confidence`
 remain unimplemented.

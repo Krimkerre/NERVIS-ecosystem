@@ -160,6 +160,14 @@ List responses return `{items, next_cursor, snapshot_revision}` and accept `limi
 `cursor`. Detail responses return the entity plus `snapshot_revision`. Any path or state
 change requires a versioned contract change **before** consumer work begins.
 
+**One deletion exists: `DELETE /api/v1/benchmark-results/{result_id}`.** It removes the
+result and writes §15.1's tombstone in its place; the run row and §11.9's raw takes are kept,
+and the response says so rather than leaving it to be assumed. It requires **`admin`**, not
+`benchmark`: the scopes are graded by what they cost, deleting a measurement is irreversible,
+and RAVIS admits and excludes builds on the evidence it removes — a client trusted to spend an
+hour of machine time is not thereby trusted to erase what that hour produced. A missing result
+is a 404 and stays one, so deleting the wrong id and deleting the same id twice are told apart.
+
 `/api/v1/health` remains as a convenience alias carrying the same data as
 `/ecosystem/health` plus identity and capability summaries. The `/ecosystem/*` endpoints are
 canonical for negotiation.
@@ -650,6 +658,35 @@ is *different evidence* from:
 same base model / GGUF Q4_K_M / llama.cpp / clarvis-agent
 ```
 
+### 12.2.1 The runtime describes the wrong build
+
+**LM Studio groups several builds under one entry and its HTTP API describes whichever the
+app has selected, not the one that is loaded.** Measured on this machine, with an MLX and a
+GGUF of `google/gemma-4-e4b` installed:
+
+```text
+lms ps           google/gemma-4-e4b@q4_k_m   gguf   Q4_K_M   (loaded)
+/api/v0/models   google/gemma-4-e4b          mlx    4bit
+```
+
+It compounds it two ways. A completion addressed to `…@q4_k_m` is answered while
+`/api/v0/models/…@q4_k_m` returns "not found" — so the runtime will measure a build it
+refuses to describe. And a *non-selected* variant is not published at all unless it happens to
+be loaded: unload the MLX and it vanishes from the catalogue while still installed, loadable
+and benchmarkable.
+
+Filing a GGUF measurement under an MLX identity is not cosmetic. On this machine those two
+builds reach 21/24 and 24/24 on the same tool-call trial, and RAVIS admits and excludes on it.
+So SIRVIS asks the runtime's own CLI, which does know; **refuses to record evidence when
+nothing can confirm which build was measured**; enumerates installed builds from the CLI
+additively, never replacing the catalogue with it (the CLI indexes fewer models overall); and
+consults the CLI only for a loopback runtime, because it reads *this* machine's disk and an
+adapter pointed at another host must not be handed these builds.
+
+The domain keys an installed build on its qualified key for the same reason. Keyed on the
+family, the two collapsed into one record and the first writer won: the machine held two
+builds and reported one.
+
 ## 12.3 Evidence envelope
 
 ```json
@@ -874,6 +911,19 @@ Runtime Sets and recommendations. SIRVIS provides cursor- or revision-based incr
 reads, staleness timestamps and tombstones, stable evidence references resolvable during the
 retention window, events for inventory/runtime/job/result/recommendation changes, and **no
 RAVIS-specific mutation of historical evidence**.
+
+**Tombstones are real, and this is what one is for.** The evidence surface published an empty
+list for them until deletion existed. A tombstone records that a result was removed — its
+result id, evidence id, target, role, when it was measured, when it was deleted and why — and
+a consumer holding `ev_…` needs it because a build with no evidence and a build whose evidence
+was withdrawn are indistinguishable on every other surface, and lead to different decisions.
+
+A tombstone does **not** mean the evidence is gone. §12.2 makes two runs of one suite against
+one build two results under one evidence identity, so a deleted result can sit beside a live
+one; the record names the *result*, and the deletion response reports how many remain under
+that identity. Tombstones on the evidence index are narrowed by the same candidates and role
+the caller filtered evidence on — deliberately not by which records survived, since the case
+that matters is a build whose only result was deleted and whose item list is therefore empty.
 
 RAVIS must be able to ask:
 
