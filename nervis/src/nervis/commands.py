@@ -117,8 +117,21 @@ CANCEL = re.compile(
 # cost of missing one phrasing is that nothing is offered and the person says it
 # again; the cost of matching too eagerly is an offer to occupy the machine for
 # ten minutes because somebody used the word "benchmark" in passing.
+# **The preposition has to be stepped over, or it becomes the model.** The two
+# most natural ways to ask — *"queue a benchmark for qwen3-4b"* and *"run a
+# benchmark on qwen3-4b"* — put a word between the verb and the target, and this
+# pattern took the next word whatever it was. The first produced *"no model on
+# this machine matches 'for'"* and the second matched two models called
+# something-`on` and asked which was meant. Reported from use, not from reading:
+# a refusal that names `'for'` as a model reads as the feature being broken,
+# which is what it was.
+#
+# The determiner group stays *after* the preposition so *"benchmark for the
+# qwen3-4b"* resolves too — that is the shape "for" invites.
 BENCHMARK = re.compile(
-    r"\b(?:bench|benchmark)(?:\s+(?:the|a|an))?(?:\s+model)?\s+"
+    r"\b(?:bench|benchmark)"
+    r"(?:\s+(?:for|on|of|against|with|using))?"
+    r"(?:\s+(?:the|a|an))?(?:\s+model)?\s+"
     r"[\"'“‘]?(?P<target>[A-Za-z0-9][\w\-./:]*)",
     re.IGNORECASE,
 )
@@ -134,6 +147,12 @@ NOT_A_MODEL = frozenset({
     # benchmark go?" offered to benchmark a model called "go".
     "go", "went", "going", "do", "did", "done", "run", "runs", "result",
     "results", "yesterday", "today", "finish", "finished",
+    # The prepositions the pattern above now steps over. Listed here as well
+    # because the two guards protect against different mistakes: the pattern
+    # stops them being captured, and this stops them being *offered* if some
+    # future phrasing gets one past it. The file already carries two guards for
+    # the "benchmark go" bug for the same reason.
+    "for", "on", "of", "against", "with", "using",
 })
 
 # A question about benchmarks is not a request for one.

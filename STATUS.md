@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1760 tests, no network, no live service
+.venv/bin/pytest                      # part of 1762 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 407 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 409 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1760 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1762 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2272,6 +2272,35 @@ screen. The machinery is now in place for it to work; nobody has watched it.
 **So Stage 10's acceptance list is eleven met and one half-open**: scenario 4's
 machinery exists as of today and wants one live walk to be called observed. It
 was invisible while the list had never been scored.
+
+**A reported bug, and the phrasings nobody tries in a test.** Chat refused to
+queue a benchmark. Not a fluke: the matcher took the word immediately after the
+verb as the model, so the two most natural ways to ask —
+*"queue a benchmark **for** qwen3-4b"* and *"run a benchmark **on** qwen3-4b"* —
+captured the preposition. The first answered *"no model on this machine matches
+`'for'`"*; the second found two models containing `on` and asked which was meant.
+Both read as the feature being broken, which is what it was. *"benchmark
+qwen3-4b"* and *"benchmark the qwen3-4b model"* worked the whole time, which is
+why it survived: those are the phrasings somebody writing the tests reaches for.
+
+The pattern now steps over `for · on · of · against · with · using`, and the
+same words joined `NOT_A_MODEL`. Two guards for one fault, matching what the file
+already does for the *"how did the benchmark go?"* bug — the pattern stops them
+being captured, the list stops them being offered if a future phrasing gets one
+past it.
+
+**And the fix pulls against that older guard**, so the regression test asserts the
+`go` bug is still closed rather than assuming it. Widening what may follow the
+verb is precisely how *"how did the benchmark go?"* once became an offer to
+benchmark a model named `go`. Writing that test also corrected a wrong assumption
+in it: `x-command-offer` is always present and *empty* when there is no offer, so
+asserting the header's absence would have passed for the wrong reason.
+
+Diagnosed against the live catalogue rather than a fixture, and one wrong turn is
+worth recording: the first harness fed SIRVIS's inventory to `propose`, which
+filters on `model.get("local") is True` — a field that shape does not carry — and
+got *"the model catalogue could not be read"* for every input. That looked like a
+third bug and was the harness. Checked before it was claimed.
 
 ### Next — in this order
 

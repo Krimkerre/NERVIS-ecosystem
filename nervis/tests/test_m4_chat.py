@@ -779,6 +779,60 @@ def _with_models(client: TestClient, sent: list[dict[str, Any]], names: list[str
     )
 
 
+def test_a_preposition_after_the_verb_is_not_the_model() -> None:
+    """Reported from use: chat refused to queue a benchmark.
+
+    The two most natural phrasings put a word between the verb and the target —
+    *"queue a benchmark **for** qwen3-4b"* and *"run a benchmark **on**
+    qwen3-4b"* — and the pattern took the next word whatever it was. The first
+    answered *"no model on this machine matches 'for'"* and the second found two
+    models containing `on` and asked which was meant. Both read as the feature
+    being broken, which is what it was.
+
+    Parameterised over the prepositions rather than testing one: they fail
+    identically, and a fix that handled `for` and not `on` would look correct
+    against a single case.
+    """
+    for phrasing in (
+        "queue a benchmark for qwen3-4b",
+        "run a benchmark on qwen3-4b",
+        "benchmark of qwen3-4b",
+        "benchmark for the qwen3-4b",
+        "benchmark against qwen3-4b",
+    ):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["qwen/qwen3-4b-2507", "phi-4-mini-instruct"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        offer = json.loads(answered.headers["x-command-offer"])
+        assert offer["operation"] == "sirvis.benchmark.submit", phrasing
+        assert offer["target"] == "qwen/qwen3-4b-2507", phrasing
+        assert offer["ready"] is True, phrasing
+
+
+def test_stepping_over_a_preposition_did_not_reopen_the_go_bug() -> None:
+    """The falsifier for the fix above.
+
+    Widening what follows the verb is exactly how *"how did the benchmark go?"*
+    became an offer to benchmark a model named `go`. That guard and this fix pull
+    in opposite directions, so the old bug is asserted still closed rather than
+    assumed to be.
+    """
+    for phrasing in ("how did the benchmark go?", "benchmark it", "what about the benchmark"):
+        sent: list[dict[str, Any]] = []
+        client = an_api()
+        _with_models(client, sent, ["qwen/qwen3-4b-2507", "phi-4-mini-instruct"])
+
+        answered = turn(client, phrasing, system="Be someone.")
+
+        # The header is always present; an *empty* value is how "no offer" is
+        # said. Asserting absence passed for the wrong reason on the phrasings
+        # that do offer, and failed here for a reason that was not a bug.
+        assert answered.headers.get("x-command-offer", "") == "", phrasing
+
+
 def test_asking_for_a_benchmark_offers_one() -> None:
     """"Have SIRVIS bench qwen3-4b" is an instruction, and NERVIS takes it —
     as an offer with a button on it, never as something it just does."""
