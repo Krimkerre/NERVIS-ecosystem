@@ -2425,7 +2425,22 @@ job since 30 Aug 02:34 was blocked before starting — *"the job was not started
 because recent account payments have failed or your spending limit needs to be
 increased"* — thirty runs red, none of them having compiled anything. The last
 green run was 02:18 that morning. The workflow files are untouched, so
-re-enabling is the only step once billing is settled.
+**Actions is not coming back** — that decision was taken on 30 Aug rather
+than deferred, so `.github/workflows/checks.yml` is now a record of what the
+gates are rather than a thing that runs them.
+
+Which makes `tools/check_clean_clone.sh` the gate rather than a rehearsal of one.
+It clones both repositories from their remotes, builds a virtual environment from
+the packages' own metadata, and runs every check CI ran. That is the guarantee a
+local run cannot give on its own: a file works here whether or not anybody
+committed it, and a dependency resolves whether or not anybody declared it. The
+first time it ran it found lint and type failures in three packages, a test
+silently shadowed out of existence, and a release gate reading `~/.config`.
+
+Ten of the twelve dashboard gates are in it, for the same reason CI carried ten:
+`honesty_check.js` and `recovery_check.js` drive the page against a live NERVIS,
+so they belong to a run against a started ecosystem and would otherwise hang on a
+socket that never opens.
 
 So the same checks were run against **fresh clones of both repositories**, with a
 virtual environment built only from committed declarations. That found three

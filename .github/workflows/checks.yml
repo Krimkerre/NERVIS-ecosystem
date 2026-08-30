@@ -1,5 +1,15 @@
 # The gates from ECOSYSTEM_RUNBOOK.md §14.1.
 #
+# **This file does not run.** GitHub Actions is switched off on both
+# repositories and is not coming back, so what follows is a record of what the
+# gates are — the same list, in the same order, kept here because it is where
+# somebody looks for it. `tools/check_clean_clone.sh` is what executes them, and
+# it is the only thing that does: it clones from the remote and builds an
+# environment from the packages' own metadata, which is the guarantee a local run
+# cannot give.
+#
+# The header below is still true and is why this file was not simply deleted.
+#
 # §14.1 says the gate is the authority, not the prose describing it — so this
 # file is what that sentence means in practice. A rule that only exists in a
 # document is a preference; a rule that fails a build is a rule.
