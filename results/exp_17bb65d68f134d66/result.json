@@ -1,0 +1,198 @@
+{
+  "evidence_id": "ev_184d93451da85fa9",
+  "evidence_type": "PARTIALLY_MEASURED",
+  "machine_id": "c478dea78cd34e6b935ebfd0abdea9b5",
+  "machine_snapshot_id": "f411d98111b242bc88737368d6e47f29",
+  "metrics": {
+    "generation_tokens_per_second": {
+      "direction": "higher",
+      "max": 41.61299331057894,
+      "mean": 34.08041014233238,
+      "median": 32.42465837902782,
+      "min": 28.958541761791693,
+      "p10": 29.63736284021992,
+      "p90": 40.14460561734265,
+      "provenance": {
+        "confidence": null,
+        "kind": "ESTIMATED",
+        "method": "stream.generation_tokens_per_second.v1",
+        "notes": "derived from stream chunk count; the runtime reported no token usage",
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        33.476377032155945,
+        40.14460561734265,
+        36.42488030058413,
+        41.61299331057894,
+        37.86131801332463,
+        30.715089835899608,
+        29.63736284021992,
+        31.372939725899688,
+        28.958541761791693,
+        30.59999298552665
+      ],
+      "samples": 10,
+      "stddev": 4.599688661423678,
+      "unit": "tokens/second"
+    },
+    "load_time_seconds": {
+      "direction": "lower",
+      "max": 11.137399791972712,
+      "mean": 11.137399791972712,
+      "median": 11.137399791972712,
+      "min": 11.137399791972712,
+      "p10": null,
+      "p90": null,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "resource_manager.load_time.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        11.137399791972712
+      ],
+      "samples": 1,
+      "stddev": null,
+      "unit": "seconds"
+    },
+    "reasoning_token_share": {
+      "direction": "lower",
+      "max": 0.02,
+      "mean": 0.01657894736842105,
+      "median": 0.016578947368421054,
+      "min": 0.013157894736842105,
+      "p10": 0.013157894736842105,
+      "p90": 0.02,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "stream.reasoning_token_share.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.013157894736842105,
+        0.013157894736842105,
+        0.013157894736842105,
+        0.013157894736842105,
+        0.013157894736842105
+      ],
+      "samples": 10,
+      "stddev": 0.003606106103700784,
+      "unit": "fraction"
+    },
+    "time_to_first_token_seconds": {
+      "direction": "lower",
+      "max": 0.929845874896273,
+      "mean": 0.855135433585383,
+      "median": 0.8623675625422038,
+      "min": 0.7644802919821814,
+      "p10": 0.8021792919607833,
+      "p90": 0.9061109169851989,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "stream.time_to_first_token.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        0.929845874896273,
+        0.8021792919607833,
+        0.8954839999787509,
+        0.884896875009872,
+        0.9061109169851989,
+        0.8111512090545148,
+        0.8398382500745356,
+        0.8228969170013443,
+        0.8944707089103758,
+        0.7644802919821814
+      ],
+      "samples": 10,
+      "stddev": 0.054233865451821045,
+      "unit": "seconds"
+    },
+    "tool_call_well_formed": {
+      "passed": 19,
+      "phrasings": 8,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "clarvis.tool_call.streamed.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "rate": 0.475,
+      "repetitions": 5,
+      "total": 40
+    },
+    "total_latency_seconds": {
+      "direction": "lower",
+      "max": 3.449847999960184,
+      "mean": 2.715841658390127,
+      "median": 2.7726551669766195,
+      "min": 1.9978567500365898,
+      "p10": 2.03838275000453,
+      "p90": 3.3366865830030292,
+      "provenance": {
+        "confidence": null,
+        "kind": "MEASURED",
+        "method": "stream.total_latency.v1",
+        "notes": null,
+        "observed_at": null,
+        "source_run_id": null
+      },
+      "repetitions": [
+        2.363692791899666,
+        1.9978567500365898,
+        2.2132645830279216,
+        2.03838275000453,
+        2.1738956249319017,
+        3.2203904590569437,
+        3.3366865830030292,
+        3.181617542053573,
+        3.449847999960184,
+        3.182781499926932
+      ],
+      "samples": 10,
+      "stddev": 0.6017118318006047,
+      "unit": "seconds"
+    }
+  },
+  "role": "clarvis-agent",
+  "samples": 10,
+  "sirvis_version": "0.0.1",
+  "suite": {
+    "id": "clarvis-role-clarvis-agent",
+    "version": "1"
+  },
+  "target": {
+    "format": "mlx",
+    "model_family": "qwen3-1.7b",
+    "quantization": "8bit",
+    "runtime": "lmstudio",
+    "runtime_config": {},
+    "runtime_version": null,
+    "source_repository": null,
+    "source_revision": null,
+    "variant": "var_221828b43fac9f98"
+  },
+  "validity": "SUSPECT",
+  "validity_notes": [
+    "10 repetition(s) generated tokens that never arrived as content \u2014 a median of 1 of them. Those are reasoning, spent before the first answer token: the throughput here covers the answer only, and the time-to-first-token includes the thinking",
+    "the machine reported thermal pressure 'fair' throughout; these numbers describe a throttled machine and are not comparable with results taken from a rested one",
+    "swap grew by 1.8 GB during this run (baseline 1.3 GB, peak 3.1 GB at before_generation); these numbers measured the disk as well as the model"
+  ]
+}

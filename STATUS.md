@@ -2805,6 +2805,53 @@ RAVIS's reach.
 
 ---
 
+## Six tool trials, and what "supports tools" turned out to mean (30 Aug)
+
+**Every build below advertises `tool_use` to LM Studio. One of four families
+clears §13.1's bar.**
+
+| build | quantisation | well-formed | how the rest failed |
+|---|---|---|---|
+| `lmstudio-community/granite-4.0-h-tiny` | Q4_K_M | **24/24** | — |
+| `google/gemma-4-e2b` | 4bit | 21/24 | 3 × `no-call` |
+| `qwen/qwen3-1.7b` | 8bit | 19/40 | 21 × `no-call` |
+| `mlx-community/granite-4.0-h-tiny` | 4bit | 3/24 | **21 × `lost-arguments`** |
+
+**The last row is why a rate alone is not enough.** `3/24` reads as "cannot call
+tools". The per-attempt record says something sharper: it calls `readFile` every
+single time and sends **empty arguments** — it loses the filename. Same model
+family as the row above it, same machine, different quantisation and runtime;
+one is flawless and one never carries a path. A `tool_use` flag cannot express
+that, and neither can a pass rate.
+
+**The bar is not 24 runs.** §13.1 states it on three axes — `tool_call_pass_rate
+>= 0.95` over `>= 8 distinct phrasings` × `>= 3 repetitions each` — and a run
+covering fewer of either yields `UNKNOWN`, never a pass. So 8 × 3 = 24 is the
+*minimum sample*; 0.95 is the bar. Eight phrasings because one sentence tests a
+sentence rather than a capability, and three repetitions because a single
+attempt per phrasing is a coin toss about a stochastic decoder. The corpus
+already held two records at one repetition per phrasing, and one of them had a
+1.00 rate and was being read as agent-capable outright.
+
+**The detail is recorded and then dropped at the record boundary.** Every attempt
+is written to `responses/__tools__-trial-000.json` with its prompt, the assembled
+call, whether it was well formed, and a named outcome from a closed vocabulary —
+`used-result`, `lost-arguments`, `no-call`, `retried`, `answered-in-prose`,
+`gave-up`. The evidence record keeps only `passed`/`total`, so nothing downstream
+can tell "never called it" from "called it with nothing in it". Putting the
+`outcomes` tally on the `TrialRate` beside `phrasings` and `repetitions` would
+close that, and it is additive to a contract RAVIS already reads by name.
+
+**Two of these runs are invisible to the service that would use them.** `sirvis
+benchmark run` resolves its database and results directory relative to the
+working directory, so running it from the repository root created
+`NERVIS-ecosystem/sirvis.db` (4 runs) and `NERVIS-ecosystem/results/` alongside
+the real `sirvis/sirvis.db` (83 runs) and `sirvis/results/`. The measurements are
+real and RAVIS will never see them. This is the same failure the launcher already
+carries a fix for — it passes absolute database paths because relative ones
+orphaned 81 runs — and the CLI is its sibling case: a second store is created
+silently, and looks exactly like a working one.
+
 ## A pool for tool-capable models that is nobody's role (30 Aug)
 
 **`ravis/agent` exists, and it is not `ravis/clarvis-agent` under a shorter

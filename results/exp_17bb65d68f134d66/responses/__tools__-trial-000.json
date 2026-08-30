@@ -1,0 +1,463 @@
+{
+  "followup": "trial-failed",
+  "method": "clarvis.tool_call.streamed.v1",
+  "outcomes": {
+    "no-call": 21,
+    "used-result": 19
+  },
+  "passed": 19,
+  "total": 40,
+  "trials": [
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/main.go\"}",
+          "id": "559399335",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/main.go",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read src/main.go and tell me what package it declares.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"package.json\"}",
+          "id": "578280209",
+          "index": 0,
+          "name": "readFile",
+          "path": "package.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read package.json and tell me what the build script does.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/extension.ts\"}",
+          "id": "916496342",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/extension.ts",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Open src/extension.ts and tell me what it activates.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"README.md\"}",
+          "id": "459690825",
+          "index": 0,
+          "name": "readFile",
+          "path": "README.md",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the README and summarise the install steps.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Look at src/model/providers.ts and list the providers.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Check .eslintrc and tell me if no-console is on.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read docs/CURRENT_STATE.md and tell me what is built.",
+      "text": ""
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"config.json\"}",
+          "id": "633820963",
+          "index": 0,
+          "name": "readFile",
+          "path": "config.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the file config.json and tell me what is in it.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/main.go\"}",
+          "id": "528556720",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/main.go",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read src/main.go and tell me what package it declares.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"package.json\"}",
+          "id": "996516411",
+          "index": 0,
+          "name": "readFile",
+          "path": "package.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read package.json and tell me what the build script does.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/extension.ts\"}",
+          "id": "500971003",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/extension.ts",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Open src/extension.ts and tell me what it activates.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"README.md\"}",
+          "id": "380287602",
+          "index": 0,
+          "name": "readFile",
+          "path": "README.md",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the README and summarise the install steps.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Look at src/model/providers.ts and list the providers.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Check .eslintrc and tell me if no-console is on.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read docs/CURRENT_STATE.md and tell me what is built.",
+      "text": ""
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"config.json\"}",
+          "id": "207381631",
+          "index": 0,
+          "name": "readFile",
+          "path": "config.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the file config.json and tell me what is in it.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/main.go\"}",
+          "id": "499789126",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/main.go",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read src/main.go and tell me what package it declares.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"package.json\"}",
+          "id": "886763447",
+          "index": 0,
+          "name": "readFile",
+          "path": "package.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read package.json and tell me what the build script does.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/extension.ts\"}",
+          "id": "201092760",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/extension.ts",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Open src/extension.ts and tell me what it activates.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"README.md\"}",
+          "id": "261660931",
+          "index": 0,
+          "name": "readFile",
+          "path": "README.md",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the README and summarise the install steps.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Look at src/model/providers.ts and list the providers.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Check .eslintrc and tell me if no-console is on.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read docs/CURRENT_STATE.md and tell me what is built.",
+      "text": ""
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"config.json\"}",
+          "id": "152885985",
+          "index": 0,
+          "name": "readFile",
+          "path": "config.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the file config.json and tell me what is in it.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/main.go\"}",
+          "id": "263660107",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/main.go",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read src/main.go and tell me what package it declares.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"package.json\"}",
+          "id": "231143500",
+          "index": 0,
+          "name": "readFile",
+          "path": "package.json",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read package.json and tell me what the build script does.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"src/extension.ts\"}",
+          "id": "879308139",
+          "index": 0,
+          "name": "readFile",
+          "path": "src/extension.ts",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Open src/extension.ts and tell me what it activates.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [
+        {
+          "arguments": "{\"path\": \"README.md\"}",
+          "id": "373610424",
+          "index": 0,
+          "name": "readFile",
+          "path": "README.md",
+          "well_formed": true
+        }
+      ],
+      "outcome": "used-result",
+      "passed": true,
+      "prompt": "Read the README and summarise the install steps.",
+      "text": "\n\n"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Look at src/model/providers.ts and list the providers.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Check .eslintrc and tell me if no-console is on.",
+      "text": ""
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read docs/CURRENT_STATE.md and tell me what is built.",
+      "text": "runtime error: stream: {'message': 'Model unloaded.'}"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read the file config.json and tell me what is in it.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read src/main.go and tell me what package it declares.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read package.json and tell me what the build script does.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Open src/extension.ts and tell me what it activates.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read the README and summarise the install steps.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Look at src/model/providers.ts and list the providers.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Check .eslintrc and tell me if no-console is on.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read docs/CURRENT_STATE.md and tell me what is built.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    },
+    {
+      "calls": [],
+      "outcome": "no-call",
+      "passed": false,
+      "prompt": "Read the file config.json and tell me what is in it.",
+      "text": "runtime error: POST /v1/chat/completions (stream): Client error '400 Bad Request' for url 'http://127.0.0.1:1234/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400"
+    }
+  ]
+}

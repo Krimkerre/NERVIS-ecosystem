@@ -1,0 +1,18 @@
+{
+  "chunk_count": 64,
+  "completion_tokens": 76,
+  "content": "```python\ndef fib(n):\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    a, b = 0, 1\n    for _ in range(2, n + 1):\n        a, b = b, a + b\n    return b\n```",
+  "finish_reason": "stop",
+  "generation_tokens_per_second": 29.138768735969116,
+  "hidden_tokens": 1,
+  "index": 0,
+  "lowest_available_bytes": 4166205440,
+  "phase": "warmup",
+  "prompt_tokens": 45,
+  "reasoning_tokens": 1,
+  "test_id": "code2",
+  "thinking": "\n\n",
+  "token_source": "reported",
+  "total_seconds": 4.124002291937359,
+  "ttft_seconds": 1.5844303329940885
+}

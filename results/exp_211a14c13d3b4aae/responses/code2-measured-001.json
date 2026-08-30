@@ -1,0 +1,18 @@
+{
+  "chunk_count": 76,
+  "completion_tokens": 464,
+  "content": "```python\ndef fib(n):\n    if n == 0:\n        return 0\n    if n == 1:\n        return 1\n\n    a, b = 0, 1\n    for _ in range(2, n + 1):\n        a, b = b, a + b\n    return b\n```",
+  "finish_reason": "stop",
+  "generation_tokens_per_second": 25.87920680653853,
+  "hidden_tokens": 384,
+  "index": 1,
+  "lowest_available_bytes": 9313615872,
+  "phase": "measured",
+  "prompt_tokens": 54,
+  "reasoning_tokens": 384,
+  "test_id": "code2",
+  "thinking": "",
+  "token_source": "reported",
+  "total_seconds": 21.123162791947834,
+  "ttft_seconds": 18.07051899994258
+}

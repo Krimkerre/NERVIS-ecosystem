@@ -1,0 +1,46 @@
+{
+  "environment_mode": "shared",
+  "notes": "Clarvis role workload, wrapped from clarvis-firstrun/tools/suite2.py",
+  "ordering": "fixed",
+  "repetitions": 5,
+  "role": "clarvis-agent",
+  "seed": null,
+  "suite": {
+    "id": "clarvis-role-clarvis-agent",
+    "version": "1"
+  },
+  "suppress_thinking": [
+    "no_think_suffix",
+    "no_think_system",
+    "nothink_suffix",
+    "direct_system"
+  ],
+  "tags": [],
+  "target": {
+    "load": {},
+    "model_key": "qwen/qwen3-1.7b"
+  },
+  "tests": [
+    {
+      "generation": {
+        "max_tokens": 600,
+        "temperature": 0
+      },
+      "id": "code",
+      "prompt": "Write a Python function `dedupe(items)` that removes duplicates from a list while preserving order. Code only, no explanation.",
+      "system": null,
+      "version": "1"
+    },
+    {
+      "generation": {
+        "max_tokens": 600,
+        "temperature": 0
+      },
+      "id": "code2",
+      "prompt": "Write a Python function `fib(n)` returning the nth Fibonacci number, where fib(0) == 0 and fib(1) == 1. Code only, no explanation.",
+      "system": null,
+      "version": "1"
+    }
+  ],
+  "warmups": 2
+}
