@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1681 tests, no network, no live service
+.venv/bin/pytest                      # part of 1684 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 409 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 412 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1681 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1684 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2804,6 +2804,45 @@ came through LM Studio, which is a fact about the evidence rather than about
 RAVIS's reach.
 
 ---
+
+## The runtime describes the wrong build, so SIRVIS asks its CLI (30 Aug)
+
+**LM Studio groups several builds of one model under a single API entry, and
+reports the variant the app has selected rather than the one that is loaded.**
+Found while setting up an MLX-versus-GGUF comparison of `gemma-4-e4b`, and it is
+worth stating precisely because two of its three behaviours are individually
+reasonable:
+
+| asked | answer |
+|---|---|
+| `lms ps --json` | `google/gemma-4-e4b@q4_k_m` · `format: gguf` · `Q4_K_M` — loaded |
+| `GET /api/v0/models/google/gemma-4-e4b` | `compatibility_type: mlx` · `4bit` |
+| `POST /v1/chat/completions` with `…@q4_k_m` | answered |
+| `GET /api/v0/models/…@q4_k_m` | *"Model with identifier … not found"* |
+
+So the runtime will measure a build it refuses to describe, and describe a build
+that is not the one answering. **§12.2 makes format and quantization part of
+evidence identity** — a Qwen MLX 4-bit is not the GGUF Q4_K_M of the same
+weights, and on this machine two builds of one family reach 1/8 and 8/8 on the
+same tool-call trial. Filing one as the other is evidence about one build
+attributed to another, which RAVIS then admits and excludes on.
+
+**`runtimes/variants.py` asks the CLI, and the engine refuses when nothing can
+answer.** A runtime that can hold two builds under one name implements
+`confirm_variant`; the rest do not have the ambiguity and are untouched, which is
+why every existing benchmark test still passes without knowing this exists. Two
+loaded builds of one family behind an unqualified key returns nothing rather than
+picking the first — that guess is the whole thing being prevented. Where the
+catalogue and the runtime disagree, the record names **what answered**, and the
+disagreement is logged rather than silently corrected.
+
+The refusal uses `INVALID_CONFIGURATION` rather than a code of its own: §4.3's
+list is closed, a consumer enumerates it, and the name fits — a machine holding
+two builds under one entry with nothing able to say which is loaded is a
+configuration that cannot answer the question.
+
+**The comparison that prompted this has not run.** It should not have, until
+this landed: it would have filed the GGUF's numbers against the MLX identity.
 
 ## Six tool trials, and what "supports tools" turned out to mean (30 Aug)
 

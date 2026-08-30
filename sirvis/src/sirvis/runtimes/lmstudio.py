@@ -40,6 +40,7 @@ from sirvis.runtimes.base import (
     RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
+from sirvis.runtimes.variants import LoadedVariant, confirm, loaded_variants
 
 RUNTIME_KEY = "lmstudio"
 
@@ -128,6 +129,23 @@ class LMStudioAdapter:
             for entry in entries
             if isinstance(entry, dict)
         ]
+
+    def confirm_variant(self, model_key: str) -> LoadedVariant | None:
+        """Which build is actually loaded, or nothing when it cannot be told.
+
+        **This runtime describes the wrong build.** It groups several builds of
+        one model under a single `/api/v0/models` entry and reports whichever
+        variant the app has selected, not the one that is resident — so a
+        machine holding an MLX and a GGUF of the same weights is described as
+        `mlx / 4bit` while `gguf / Q4_K_M` is the build answering. It compounds
+        it by accepting `…@q4_k_m` on the completions route and returning
+        "not found" for that same key on the metadata route.
+
+        Its own CLI does know, so that is what is asked. Nothing is guessed:
+        two loaded builds of one family behind an unqualified key returns
+        `None`, and the caller refuses to record evidence rather than choose.
+        """
+        return confirm(model_key, loaded_variants())
 
     async def list_loaded_models(self) -> list[LoadedModel]:
         """What is resident right now, with the configuration it actually has.

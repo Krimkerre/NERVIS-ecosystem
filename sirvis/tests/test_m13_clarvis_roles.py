@@ -561,3 +561,71 @@ def test_a_tally_that_does_not_add_up_is_refused() -> None:
             provenance=Provenance(kind=EvidenceKind.MEASURED, method="x"),
             outcomes={"lost-arguments": 5},
         )
+
+
+def test_a_run_refuses_when_the_loaded_build_cannot_be_named() -> None:
+    """LM Studio groups variants under one entry and describes the selected one
+    rather than the loaded one — so with an MLX and a GGUF of the same weights
+    installed, the catalogue says `mlx / 4bit` while `gguf / Q4_K_M` answers.
+    Filing one as the other is evidence about one build attributed to another,
+    and RAVIS admits and excludes on exactly that."""
+    import pytest
+
+    from sirvis.benchmarks.engine import _confirmed_variant
+    from sirvis.core.models import ModelVariant
+    from sirvis.errors import VariantUnconfirmedError
+
+    variant = ModelVariant(
+        variant_id="var_1", family_id="fam_1", publisher="google",
+        runtime_format="mlx", quantization="4bit", architecture="gemma4",
+    )
+
+    class Ambiguous:
+        def confirm_variant(self, model_key: str) -> None:
+            del model_key
+            return None
+
+    with pytest.raises(VariantUnconfirmedError, match="cannot confirm which build"):
+        _confirmed_variant(Ambiguous(), variant, "google/gemma-4-e4b")
+
+
+def test_the_record_names_the_build_that_answered() -> None:
+    """When the catalogue and the runtime disagree, what answered the request is
+    what was measured."""
+    from sirvis.benchmarks.engine import _confirmed_variant
+    from sirvis.core.models import ModelVariant
+    from sirvis.runtimes.variants import LoadedVariant
+
+    variant = ModelVariant(
+        variant_id="var_1", family_id="fam_1", publisher="google",
+        runtime_format="mlx", quantization="4bit", architecture="gemma4",
+    )
+
+    class Knows:
+        def confirm_variant(self, model_key: str) -> LoadedVariant:
+            del model_key
+            return LoadedVariant(
+                model_key="google/gemma-4-e4b@q4_k_m", family="google/gemma-4-e4b",
+                runtime_format="gguf", quantization="Q4_K_M",
+            )
+
+    corrected = _confirmed_variant(Knows(), variant, "google/gemma-4-e4b")
+
+    assert corrected.runtime_format == "gguf"
+    assert corrected.quantization == "Q4_K_M"
+    # And nothing else about the build was rewritten.
+    assert corrected.variant_id == "var_1" and corrected.architecture == "gemma4"
+
+
+def test_a_runtime_with_no_ambiguity_is_left_alone() -> None:
+    """Only a runtime that can hold two builds under one name implements the
+    hook. The rest have nothing to disambiguate and must not be refused."""
+    from sirvis.benchmarks.engine import _confirmed_variant
+    from sirvis.core.models import ModelVariant
+
+    variant = ModelVariant(
+        variant_id="var_1", family_id="fam_1", publisher="x",
+        runtime_format="gguf", quantization="Q4_K_M", architecture="llama",
+    )
+
+    assert _confirmed_variant(object(), variant, "any/model") is variant

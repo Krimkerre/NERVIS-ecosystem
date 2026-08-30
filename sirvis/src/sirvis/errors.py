@@ -64,6 +64,29 @@ class ModelNotInstalledError(SirvisError):
     status = 404
 
 
+class VariantUnconfirmedError(SirvisError):
+    """The loaded build cannot be identified, so nothing may be recorded about it.
+
+    §12.2 makes format and quantization part of evidence identity: a measurement
+    of an MLX build filed as the GGUF build is evidence about one thing
+    attributed to another, and RAVIS admits and excludes on exactly that. LM
+    Studio groups variants under one entry and its HTTP API describes the
+    selected one rather than the loaded one, so when its CLI cannot be asked
+    there is nothing left that knows — and a benchmark that cannot name what it
+    measured is a record nobody can use twice.
+
+    **`INVALID_CONFIGURATION` rather than a code of its own.** §4.3's list is
+    closed and a consumer enumerates it; inventing an entry for one case is a
+    contract change nobody agreed to. And the name fits what happened: this
+    machine holds two builds under one runtime entry with nothing able to say
+    which is loaded, which is a configuration that cannot answer the question
+    rather than a failure of the model or the runtime.
+    """
+
+    code = "INVALID_CONFIGURATION"
+    status = 409
+
+
 class RuntimeUnreachableError(SirvisError):
     """The runtime is not answering.
 

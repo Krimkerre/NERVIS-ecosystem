@@ -37,10 +37,11 @@ facts, so the run completes and the record carries a validity warning.
 
 from __future__ import annotations
 
+import logging
 import statistics
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Mapping, Protocol, Sequence
 
@@ -58,7 +59,12 @@ from sirvis.core.evidence import (
 )
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import record_snapshot
-from sirvis.errors import ModelNotFoundError, RuntimeUnreachableError
+from sirvis.core.models import ModelVariant
+from sirvis.errors import (
+    ModelNotFoundError,
+    RuntimeUnreachableError,
+    VariantUnconfirmedError,
+)
 from sirvis.resources import ResourceManager
 from sirvis.runtimes.base import GenerationChunk, LoadedModel, RuntimeUnavailableError
 from sirvis.storage import (
@@ -84,6 +90,8 @@ from sirvis.telemetry import (
     is_compromised,
     read_thermal_pressure,
 )
+
+logger = logging.getLogger("sirvis.benchmarks")
 
 OWNER = "sirvis.benchmark"
 RUNTIME_KEY = "lmstudio"
@@ -380,6 +388,7 @@ async def run_experiment(
     telemetry = [sampler.sample(BASELINE)]
     inventory = await _inventory(runtime)
     build = _resolve(inventory, spec.model_key)
+    build["variant"] = _confirmed_variant(runtime, build["variant"], spec.model_key)
 
     machine = record_snapshot(database, snapshot or detect_system())
     experiment_id = create_experiment(
@@ -817,6 +826,58 @@ async def _inventory(runtime: GenerationRuntime) -> Inventory:
         raise RuntimeUnreachableError(
             f"the runtime is not answering, so nothing can be measured: {failure}"
         ) from failure
+
+
+def _confirmed_variant(
+    runtime: Any, variant: ModelVariant, model_key: str
+) -> ModelVariant:
+    """The build actually loaded, or a refusal to measure one nobody can name.
+
+    **Asked of the runtime, because only the runtime knows.** A runtime that can
+    hold two builds under one name implements `confirm_variant`; the rest do not
+    have the ambiguity and are left alone. LM Studio has it: it groups variants
+    under one entry and `/api/v0/models` reports whichever the app has selected
+    rather than the one that is loaded — with an MLX and a GGUF of the same
+    weights installed it says `mlx / 4bit` while the loaded build is
+    `gguf / Q4_K_M`, and it will complete a request addressed to `…@q4_k_m`
+    while returning "not found" for that same key on its metadata route.
+
+    Filing the one as the other is not cosmetic. §12.2 makes format and
+    quantization part of evidence identity, and on this machine two builds of a
+    single family reach 1/8 and 8/8 on the same tool-call trial. So an
+    unconfirmed variant stops the run: a wrong identity is worse than no
+    evidence, because RAVIS admits and excludes on it.
+    """
+    resolve = getattr(runtime, "confirm_variant", None)
+    if not callable(resolve):
+        return variant
+    confirmed = resolve(model_key)
+    if confirmed is None:
+        raise VariantUnconfirmedError(
+            f"cannot confirm which build of {model_key!r} is loaded, so the "
+            "measurement would be filed against a guess. LM Studio groups "
+            "variants under one entry and its HTTP API reports the selected one "
+            "rather than the loaded one; `lms ps --json` resolves it. Install "
+            "the CLI, or address the build by its qualified key."
+        )
+    if (
+        confirmed.runtime_format == (variant.runtime_format or "")
+        and confirmed.quantization == (variant.quantization or "")
+    ):
+        return variant
+    # The catalogue disagreed with the runtime. What answered the request is
+    # what was measured, so that is what the record says — and the disagreement
+    # is worth a line in the log rather than a silent correction.
+    logger.warning(
+        "the runtime catalogue describes %s as %s/%s; the loaded build is %s/%s (%s)",
+        model_key, variant.runtime_format, variant.quantization,
+        confirmed.runtime_format, confirmed.quantization, confirmed.model_key,
+    )
+    return replace(
+        variant,
+        runtime_format=confirmed.runtime_format,
+        quantization=confirmed.quantization,
+    )
 
 
 def _resolve(inventory: Inventory, model_key: str) -> dict[str, Any]:
