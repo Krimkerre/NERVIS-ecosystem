@@ -629,3 +629,49 @@ def test_a_runtime_with_no_ambiguity_is_left_alone() -> None:
     )
 
     assert _confirmed_variant(object(), variant, "any/model") is variant
+
+
+def test_a_qualified_key_finds_the_family_it_belongs_to() -> None:
+    """`google/gemma-4-e4b@4bit` names a build the catalogue has never heard
+    of — LM Studio lists the family and hides the variants — while the runtime
+    accepts that key for loading and completions. Without the strip, addressing
+    a build deliberately is a 404; with it, an operator can bench the build they
+    mean instead of whichever the application's dropdown selects."""
+    from sirvis.benchmarks.engine import _resolve
+    from sirvis.core.inventory import build_inventory
+
+    inventory = build_inventory([
+        {
+            "id": "google/gemma-4-e4b", "runtime_key": "lmstudio",
+            "compatibility_type": "gguf", "quantization": "Q4_K_M",
+            "arch": "gemma4", "publisher": "google", "type": "llm",
+            "max_context_length": 131072,
+        }
+    ])
+
+    qualified = _resolve(inventory, "google/gemma-4-e4b@4bit")
+    plain = _resolve(inventory, "google/gemma-4-e4b")
+
+    assert qualified["model"].runtime_key == plain["model"].runtime_key
+
+
+def test_an_unknown_family_is_still_a_404() -> None:
+    """The strip must not turn a missing model into a near match: §6 says 404 is
+    a correct answer and has to stay distinguishable from a guess."""
+    import pytest
+
+    from sirvis.benchmarks.engine import _resolve
+    from sirvis.core.inventory import build_inventory
+    from sirvis.errors import ModelNotFoundError
+
+    inventory = build_inventory([
+        {
+            "id": "google/gemma-4-e4b", "runtime_key": "lmstudio",
+            "compatibility_type": "gguf", "quantization": "Q4_K_M",
+            "arch": "gemma4", "publisher": "google", "type": "llm",
+            "max_context_length": 131072,
+        }
+    ])
+
+    with pytest.raises(ModelNotFoundError):
+        _resolve(inventory, "someone/else@4bit")

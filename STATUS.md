@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1684 tests, no network, no live service
+.venv/bin/pytest                      # part of 1686 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 412 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 414 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 388 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1684 passing across the four, conformance `PASS`. CI runs the same four on
+Expected: all clean, 1686 passing across the four, conformance `PASS`. CI runs the same four on
 every push (`.github/workflows/checks.yml`), plus `nervis/tools/check.py`.
 
 See it actually work, against a real model:
@@ -2841,8 +2841,22 @@ list is closed, a consumer enumerates it, and the name fits — a machine holdin
 two builds under one entry with nothing able to say which is loaded is a
 configuration that cannot answer the question.
 
-**The comparison that prompted this has not run.** It should not have, until
-this landed: it would have filed the GGUF's numbers against the MLX identity.
+**A build can now be addressed deliberately.** Knowing what was measured is only
+half of it: `--model google/gemma-4-e4b` asks LM Studio to load *the variant its
+dropdown has selected*, so which build gets benched was a UI setting rather than
+a decision. The catalogue lists the family and hides the variants, so a
+qualified key was a 404 — while the runtime itself accepts `…@4bit` for both
+loading and completions. `_resolve` falls back to the family when a qualified
+key does not match, and everything that talks to the runtime keeps the key as
+given. Warmth is compared on the family too, since a build loaded as `…@4bit` is
+reported by the catalogue under the plain name and would otherwise look cold
+while its own weights were resident.
+
+**The comparison that prompted this is half done.** The GGUF ran and is recorded
+as `gguf / Q4_K_M` — 21/24, three `no-call` — against a catalogue that would have
+said `mlx / 4bit`. The MLX run failed on its first attempt: benching by plain
+name pulled the *selected* variant in alongside the resident one, and the two
+evicted each other mid-stream. Nothing partial was written.
 
 ## Six tool trials, and what "supports tools" turned out to mean (30 Aug)
 

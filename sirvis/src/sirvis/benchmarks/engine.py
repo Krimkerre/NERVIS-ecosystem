@@ -541,7 +541,15 @@ async def _execute(
 ) -> None:
     """§11.2's lifecycle for a single model, between acquire and release."""
     resident_before = {model.model_key for model in await runtime.list_loaded_models()}
-    was_warm = spec.model_key in resident_before
+    # Compared on the family as well as the key: a build loaded as
+    # `google/gemma-4-e4b@4bit` is reported by the catalogue as
+    # `google/gemma-4-e4b`, so a qualified request would otherwise look cold
+    # while its own weights were already resident — and "no load time was
+    # measured" is a validity note that has to be true.
+    was_warm = (
+        spec.model_key in resident_before
+        or spec.model_key.split("@", 1)[0] in resident_before
+    )
 
     started = clock()
     lease = await resources.acquire(
@@ -881,8 +889,19 @@ def _confirmed_variant(
 
 
 def _resolve(inventory: Inventory, model_key: str) -> dict[str, Any]:
-    """The build behind a runtime's name for it (§6), or a 404 that stays one."""
-    model = inventory.by_runtime_key(model_key)
+    """The build behind a runtime's name for it (§6), or a 404 that stays one.
+
+    **A qualified key names a build; the catalogue only lists the family.** LM
+    Studio groups several builds under one entry, so `google/gemma-4-e4b@4bit`
+    identifies a build the inventory has never heard of — while the runtime
+    itself accepts that key for both loading and completions. Stripping the
+    suffix here is what lets an operator address a build deliberately instead of
+    getting whichever variant the application's dropdown happens to select.
+    Everything that talks to the runtime keeps the key as given.
+    """
+    model = inventory.by_runtime_key(model_key) or inventory.by_runtime_key(
+        model_key.split("@", 1)[0]
+    )
     if model is None:
         raise ModelNotFoundError(
             f"no installed build carries the runtime key {model_key!r}", runtime_key=model_key
