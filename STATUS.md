@@ -7787,6 +7787,43 @@ was re-run anyway, which cost time the record would have saved.
 decision, and the split-host `FAIL` itself) and localhost LM Studio, which needs
 LM Studio running.
 
+## Stage 9's matrix is fully graded — `NOT_TESTED` is zero (30 Aug)
+
+Eleven cells were open that morning. All eleven were settled by running them,
+and the day's two most useful results were defects in **Clarvis**, found because
+running a thing is not the same as reading it:
+
+- **The task double-count**, which the matrix had predicted in its own words —
+  a naming detail "a browser-hosted terminal could order differently". It does.
+- **The peak meter was measuring ffmpeg's version string.** `peakDbfs` skipped a
+  fixed 44 bytes; ffmpeg writes a `LIST`/`INFO` chunk first, so samples start at
+  byte 78 and the text `Lavf62.12.102` read as int16 peaks at -1.9 dBFS — the
+  same figure on every run. `hasAudio` therefore returned true for any clip
+  *including one from a denied microphone*, defeating the only check that exists
+  because a denied mic exits 0 with a well-formed file. The unit tests missed it
+  because their fixture built a header from 44 zero bytes, which has no chunk
+  structure to get wrong.
+
+**One `FAIL` was fixed the same day.** Tier 1 audio now plays through the webview
+where the workbench is a browser or the host is remote, and it was heard from
+the browser. Most of that path already existed and had never been used — the
+webview's `speak-audio` handler and the panel's `media-src data:` were both
+there; the sender was missing. The `clarvis.voice@1` capability was rewritten
+with it, because it still advertised the old defect and a peer acts on that.
+
+**Two cells needed instruments the obvious method could not provide.** Webviews
+cannot be graded in a browser with service workers blocked — no webview of any
+kind loads there — so that was recorded as a browser-axis fact rather than a
+Clarvis failure. And the path-containment gate cannot be reached through chat at
+all: the tool description tells the model paths are workspace-relative, so a
+compliant model strips a leading slash and the refusal that comes back is a
+plain not-found. It is exercised at the host level now, asserting the refusal's
+*reason* rather than merely that something was thrown.
+
+**Where it stands: 32 `PASS`, 16 `PASS_WITH_LIMITATION`, 3 `FAIL`, 0
+`NOT_TESTED`.** Not a support statement — three failures remain and sixteen
+cells carry limitations — but every gap is now named rather than unexamined.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
