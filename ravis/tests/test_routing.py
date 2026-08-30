@@ -597,3 +597,42 @@ def test_evidence_for_another_role_does_not_admit_this_pool() -> None:
     )
 
     assert "some-obscure-7b" not in [decision.selected, *decision.fallbacks]
+
+
+def test_the_curated_order_outranks_a_general_preference() -> None:
+    """Reported from use: *"hello again"* was answered *"Read my lips: short."*
+
+    A 7B had been handed a long system prompt and paraphrased its own brevity
+    instruction back. It won because `ravis/clarvis-chat` declared
+    `prefer=("instruct", "chat")` — fragments matching nearly every model in the
+    pool — so seven candidates tied and the size tiebreak took the smallest.
+
+    `CHAT_FAMILIES` was already written for this decision, cheap frontier first
+    and expensive last, and its own comment claimed `preference_rank` enforced
+    that ordering. It did not: the method read `prefer` alone, so the ordering
+    ranked nothing at all.
+    """
+    pool = POOLS_BY_ID["ravis/clarvis-chat"]
+
+    assert pool.preference_rank("anthropic/claude-haiku-4.5") < pool.preference_rank(
+        "qwen/qwen-2.5-7b-instruct"
+    )
+    # And the expensive tier stays late, which is the whole reason the list is
+    # ordered rather than merely populated.
+    assert pool.preference_rank("anthropic/claude-haiku-4.5") < pool.preference_rank(
+        "claude-fable-5"
+    )
+
+
+def test_a_general_preference_still_decides_what_the_list_does_not_name() -> None:
+    """The falsifier for putting `curated` first. §5.1 asks this pool for
+    instruction following, and against builds nobody enumerated `instruct` is
+    the only signal there is — so it must still rank them, just not ahead of a
+    family the list names explicitly."""
+    pool = POOLS_BY_ID["ravis/clarvis-chat"]
+
+    assert pool.preference_rank("meta-llama-8b-instruct") < pool.preference_rank("aardvark-2b")
+    # Both lose to anything the curated list actually names.
+    assert pool.preference_rank("anthropic/claude-haiku-4.5") < pool.preference_rank(
+        "meta-llama-8b-instruct"
+    )

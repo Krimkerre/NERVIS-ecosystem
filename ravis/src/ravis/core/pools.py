@@ -425,10 +425,36 @@ class VirtualModelPool:
         that makes selection *predictable* — M5's acceptance criterion, since a
         route explanation describing a coin toss explains nothing.
         """
-        for position, fragment in enumerate(self.prefer):
-            if fragment in model:
+        lowered = model.lower()
+
+        # **The curated order first, which several pools rely on and none got.**
+        # `CHAT_FAMILIES` is written cheap-frontier first and expensive last,
+        # and says so: *"`preference_rank` reads position, so this is enforced
+        # by where these sit rather than by a rule somewhere else."* It was not
+        # — this method read `prefer` alone, so that ordering ranked nothing.
+        #
+        # Seen live: `ravis/clarvis-chat` declared `prefer=("instruct", "chat")`,
+        # fragments that match nearly every chat model, so seven candidates tied
+        # and the size tiebreak picked the smallest. A 7B answered a greeting by
+        # paraphrasing its own brevity instruction.
+        #
+        # Before `prefer` rather than after it. The membership list is written
+        # for this exact decision — cheap frontier, capable middle, expensive,
+        # open-weight — while `prefer` holds fragments general enough to match
+        # most of the pool. A general fragment must not outrank a specific
+        # position, or the ordering is inert again.
+        #
+        # `prefer` still decides everything the curated list does not name,
+        # which is what §5.1's "instruction following" needs: against a
+        # catalogue of builds nobody enumerated, `instruct` beating a 2B with no
+        # such marker is the whole of the available signal.
+        for position, fragment in enumerate(self.curated):
+            if fragment in lowered:
                 return position
-        return len(self.prefer)
+        for position, fragment in enumerate(self.prefer):
+            if fragment in lowered:
+                return len(self.curated) + position
+        return len(self.curated) + len(self.prefer)
 
 
 _TOOLS_REQUIRED = PoolRequirements(required=frozenset({Capability.TOOLS}), minimum_context=32768)
@@ -895,6 +921,12 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         # It narrows the field to a defensible class without pretending to rank
         # inside it: which instruct model is *best* is evidence RAVIS does not
         # have until M13.
+        # **Kept, and no longer the primary signal.** These matched almost every
+        # model in the pool, which left the ranking to the size tiebreak and put
+        # the smallest build in front of a conversation. `CHAT_FAMILIES` now
+        # ranks first and these decide only what it does not name — a build from
+        # a family nobody enumerated, where `instruct` is the only evidence
+        # there is.
         prefer=("instruct", "chat"),
     ),
     VirtualModelPool(
