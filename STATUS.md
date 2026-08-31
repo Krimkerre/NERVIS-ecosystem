@@ -2978,6 +2978,31 @@ fastest stop being opposites when a capable machine is on the network; and that
 exposure is gated asymmetrically, since SIRVIS refuses a non-loopback bind
 without both TLS and a credential while the model runtime carries no such rule.
 
+### More than one measuring service — RAVIS M27, 1 Sep
+
+Asked whether several SIRVIS instances could report to one RAVIS. Not today, and
+the reason is a store rather than a field.
+
+`sirvis_base_url` is one string, which is the afternoon's half. Records are held
+`runtime_key → role → record` with the freshest winning, and `machine_id` rides
+along without taking part in the key — it could not, because one measuring
+service measures one machine and every record described the same hardware. With
+two sources, one build measured on a laptop's CPU and on a 16 GB card lands on
+one shelf, the later measurement displaces the earlier, and traffic then routes
+to *either* machine on a number taken on the other. The same error §7 of
+`SIRVIS.md` was just written to forbid, arriving through the front door.
+
+M27 is the work: key on machine as well, join through the upstream's own address
+since a base URL already names a host, and make `SourceState` per-source so one
+service going quiet degrades its own machine and not the whole store. It shares
+its central question with M25b — *what is a measurement a claim about?* —
+and answering it in the store likely answers both.
+
+**Scheduled as wanted-not-blocked.** One SIRVIS on whichever host carries the
+models, with the other host's models unmeasured and labelled under §13.4, is
+correct and cheaper. The second source earns its keep only when the second
+machine really serves models a pool would rank.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

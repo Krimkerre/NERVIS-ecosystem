@@ -123,3 +123,17 @@ open question rather than an oversight.
 
 One consequence is pleasant: on a laptop with a capable machine on the network,
 cheapest and fastest stop being opposite choices.
+
+### Two measuring services
+
+Planned, not built (RAVIS M27). The gateway reads measurements from exactly one
+measuring service today, and the shelf it files them on is labelled by model and
+job — not by machine. With two machines reporting, the same model measured on a
+fast card and on a slow laptop would land on one shelf and the newer answer
+would quietly push out the older, after which traffic could be sent to either
+machine on the strength of a number taken on the other.
+
+The fix is to label the shelf with the machine as well, which the records almost
+support already: each one carries the machine it came from, and the address of a
+model runtime says which machine it is without anyone configuring it. Worth
+doing when a second machine really serves models — not before.

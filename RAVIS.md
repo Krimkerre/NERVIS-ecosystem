@@ -1294,6 +1294,7 @@ and §20.1 maps these milestones onto its stages.
 | **M25a** | **Serverless GPU as a transparent upstream — RunPod.** A `kind: "runpod"` adapter over `https://api.runpod.ai/v2/{endpoint_id}/openai/v1`, which vLLM workers already expose OpenAI-compatibly. **Direct addressing only** — `ravis/runpod/<model>` — and deliberately *not* a pool candidate, the same position Anthropic holds. No new capability: it is Path A, so `ravis.openai_compatible.chat_completions@1` already covers it | A completion runs through a declared RunPod endpoint; no pool can select it; the key never leaves the credential store |
 | **M26** | **`ravis/background` — a pool for work with nobody watching.** Unattended callers (NERVIS's own thinking, M25 there) need a pool that runs *beside* interactive work rather than competing with it, and none of the existing thirteen expresses that. **The invariant is "must not contend", and it is deliberately not "must be hosted" or "must be free".** Both of those are answers to the question rather than the question, and each is wrong on some machine: on a laptop with a closed runtime, free resolves to a cold local load that fights chat for RAM — the exaone incident — while on a workstation with an idle 16 GB card, local is fast, costs nothing and contends with nobody, and a hosted-only rule would spend money to avoid a machine that was sitting there. So the pool's price ceiling is **operator configuration** and the invariant is expressed through what RAVIS already measures: residency, memory pressure and §12.2's load-versus-don't tradeoff. Prefer a model already resident, refuse to pay a load under pressure, and let the ceiling say what this machine is willing to spend | A background caller and an interactive one run concurrently without either paying a model load for the other; **the same RAVIS reaches opposite answers on two machines from configuration alone** — a resident local model where one is loaded and idle, a small hosted one where the local runtime is cold or the memory is tight — with the route explanation naming which and why; spend is attributable by pool in `/api/v1/usage`, so "what did unattended work cost this week" is a query; **§9.6.1's marker is not how this is used** — "must be free" is the same baked-in answer in a different place, and it resolves to local on exactly the machine where local is the wrong choice |
 | **M25b** | **Serverless GPU as a routing candidate.** Everything that must be true before a pool may pick one — see the four dependencies below | A cold endpoint warms without opening its circuit; a scaled-to-zero endpoint is distinguishable from a COLD local model in a route decision; spend on it is visible; a background call under the default profile never selects it |
+| **M27** | **More than one SIRVIS.** `sirvis_base_url` is one string and the evidence store is keyed `runtime_key → role → record`, so a second measuring service is not "configure another URL" — it is a store that can hold two machines' answers about the same build without one erasing the other. See below | The same build measured on two machines yields two records, both readable; a route decision names *which machine* its evidence came from; an upstream on machine A is never ranked on a measurement taken on machine B; one SIRVIS going away degrades only the machine it measured |
 
 ## 20.1 Ecosystem gate mapping
 
@@ -1308,6 +1309,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 7 — events and tracing | M18b |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
 | **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
+| **Unscheduled — wanted only with a second machine** | M27 (multi-source evidence). Blocked on nothing; the work is not worth doing until a second host actually serves models — see §20.3 |
 | **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
 
 ### M25 — why serverless splits in two
@@ -1351,6 +1353,44 @@ advertised capability alone. **Decide this before M25b, not during it.**
 OpenAI-compatible endpoint — Modal, Together, Fireworks, a self-hosted vLLM
 behind a scaler — has the same four problems, so M25b is the serverless
 *shape*, not one vendor's integration.
+
+### M27 — why a second SIRVIS is a store problem, not a config problem
+
+**The field is singular and that is the easy half.** `sirvis_base_url` is one
+string; making it a list costs an afternoon. The store underneath it is what
+makes this a milestone.
+
+Records are held `runtime_key → role → record` and **the freshest wins**.
+`machine_id` rides along on each record and takes no part in that key, because
+until now it could not: one SIRVIS measures one machine, so every record in the
+store described the same hardware and the field was provenance rather than
+identity. Point RAVIS at two, and `qwen3:14b` measured on a laptop's CPU and the
+same build measured on a 16 GB card land on the same shelf — the later
+measurement displacing the earlier one, then routing traffic to *either* machine
+on the strength of a number taken on the other. Wrong in the confident
+direction, and wrong the same way §7 of `SIRVIS.md` describes: a claim about one
+machine, applied to another.
+
+**What the work actually is.** Key on `(machine, runtime_key, role)`, and join
+through the upstream's own address, since a base URL already identifies a host —
+`localhost:11434` and `192.168.1.50:11434` are different machines by inspection
+and need no new configuration to say so. Each source names itself through
+`/ecosystem/identity`, so a multi-source store has an honest label per source
+and `SourceState` becomes per-source: one measuring service going quiet should
+degrade evidence for its machine and leave the other's alone, rather than
+flipping the whole store to `DEGRADED`.
+
+**It shares a question with M25b.** That milestone asks what provenance means
+when a serverless GPU is a different machine every invocation; this one asks what
+identity means when there are two honest machines at once. Both are the same
+question — *what is a measurement a claim about?* — and answering it once, in
+the store, likely answers both.
+
+**Do it when there are two machines, not before.** A single SIRVIS on whichever
+host carries the models, with the other host's models unmeasured and labelled as
+such under §13.4, is the cheaper arrangement and correct on its own terms. The
+second source earns its keep only once the second machine is really serving
+models a pool would rank.
 
 > **M18a moved to Stage 3, 2026-08-23.** The read-only half of the management API is what makes
 > the work visible while it is being done: the prototype's Routes and Pools screens read exactly

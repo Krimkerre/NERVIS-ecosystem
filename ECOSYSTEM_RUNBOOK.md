@@ -685,6 +685,13 @@ rule: it is an endpoint somebody chose to expose, not a control-plane service.
 That asymmetry is intended and is the first thing to explain to whoever debugs
 it.
 
+**One SIRVIS to start with, and RAVIS M27 if that changes.** The box's measuring
+service is the only one; the laptop's own models go unmeasured and are labelled
+as such under §13.4. A second measuring service is not a second URL — RAVIS's
+evidence store is keyed by build and role with the freshest record winning, so
+two machines' answers about the same build would overwrite each other and route
+traffic on a number taken elsewhere. `RAVIS.md` M27 carries that work.
+
 **Open, and what fleshing it out means:** certificate handling for a home
 network, whether "my LAN" earns a privacy tier, how the two halves are started
 and stopped together, and what a trace looks like when it crosses a machine.
