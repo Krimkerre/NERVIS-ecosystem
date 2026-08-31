@@ -3061,7 +3061,9 @@ def test_with_no_workspace_the_list_says_so_and_the_upload_refuses() -> None:
     client = an_api()
 
     listed = client.get("/api/v1/workspace/files?conversation_id=cv_abcd")
-    refused = client.put("/api/v1/workspace/files/notes.md?conversation_id=cv_abcd", content=b"text")
+    refused = client.put(
+        "/api/v1/workspace/files/notes.md?conversation_id=cv_abcd", content=b"text"
+    )
 
     assert listed.status_code == 200
     assert listed.json()["items"] == []
