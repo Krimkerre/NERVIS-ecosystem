@@ -1282,6 +1282,9 @@ function absorbRegistry(d){
    able to say "RAVIS has stopped answering". */
 const LAST_STATE={};
 let ANNOUNCED_ONCE=false;
+/* The most recent registry rows, so a welcome held back for a user gesture
+   describes the machine as it is when spoken rather than as it was on load. */
+let WELCOME_ITEMS=[];
 
 /* How a state reads out loud. The status bar's own words are for a glance;
    these are for a sentence, and a person hearing "stale" without seeing the
@@ -1300,6 +1303,7 @@ const SPOKEN_STATE={
    Traces or in another tab entirely. The status bar has always carried the same
    fact silently; this is for when nobody is looking at it. */
 function announceStates(items){
+ WELCOME_ITEMS=items||[];
  const changed=[];
  for(const e of items||[]){
   const was=LAST_STATE[e.key];
@@ -1313,9 +1317,17 @@ function announceStates(items){
   if(e.awaiting_first_contact===true)continue;
   changed.push({label:e.label||e.key,state:e.state});
  }
+ /* **Attempted on every read, not only the first.** Two paths absorb the
+    registry: the poll, which loads voice settings first, and the page-load
+    render, which does not. The load path wins the race, so a welcome tried
+    once was tried in the one moment it could not succeed — `announcing()` was
+    false because the settings had not arrived, and the single chance was
+    spent. `welcome()` guards itself with `welcomed`, so calling it every time
+    costs nothing and is the only version that survives whichever path is
+    first. */
+ SPEECH.welcome(items);
  if(!ANNOUNCED_ONCE){
   ANNOUNCED_ONCE=true;
-  SPEECH.welcome(items);
   return;
  }
  if(!changed.length)return;
@@ -4144,6 +4156,35 @@ const SPEECH={
  welcome(items){
   if(!this.announcing()||this.welcomed)return;
   this.welcomed=true;
+  /* **Held until the page has been touched.** A browser refuses to play audio
+     before a user gesture, and a freshly loaded dashboard has had none — so
+     this line was synthesised, refused, and thrown away: a speech call spent to
+     produce silence, on every refresh.
+
+     Recomposed at the moment it is finally spoken rather than captured now. A
+     welcome held for ten minutes and then read out is a report about ten
+     minutes ago, and the whole point of it is the current status. */
+  this.whenAudioIsAllowed(()=>{
+   if(this.announcing())this.say(this.welcomeLine(WELCOME_ITEMS),'');
+  });
+ },
+
+ /* Run this once the document is allowed to make noise.
+    Immediately where it already is — a click on the nav counts, so navigating
+    within the dashboard and then reloading does not wait for a second one. */
+ whenAudioIsAllowed(run){
+  const already=navigator.userActivation&&navigator.userActivation.hasBeenActive;
+  if(already)return run();
+  const once=()=>{
+   document.removeEventListener('pointerdown',once);
+   document.removeEventListener('keydown',once);
+   run();
+  };
+  document.addEventListener('pointerdown',once,{once:true});
+  document.addEventListener('keydown',once,{once:true});
+ },
+
+ welcomeLine(items){
   const live=(items||[]).filter(e=>e.awaiting_first_contact!==true);
   const well=live.filter(e=>e.state==='healthy');
   const off=live.filter(e=>e.state!=='healthy'&&e.state!=='degraded');
@@ -4157,7 +4198,7 @@ const SPEECH={
    line=`Good ${partOfDay()}, sir. All ${live.length} services are up, `
       +`${soft.map(e=>e.label).join(' and ')} running degraded.`;
   else line=`Good ${partOfDay()}, sir. All ${live.length} services are up and well.`;
-  this.say(line,'');
+  return line;
  },
  welcomed:false,
 

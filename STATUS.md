@@ -9149,6 +9149,23 @@ thing this line must not do is invent the count it exists to state. A sentence
 when a service changes state. And the avatar goes to `speaking` while audio
 plays, which it already did.
 
+**The welcome did not play on a refresh, for two reasons at once.**
+
+A browser refuses audio before a user gesture, and a freshly loaded page has had
+none — so the line was synthesised, refused by the browser, and thrown away. A
+speech call spent to produce silence, on every reload. It waits for the first
+click or keypress now, and is *recomposed* at that moment rather than captured
+on load: a welcome held for ten minutes and then read out is a report about ten
+minutes ago, and the current status is the whole point of it.
+
+And underneath that, a race. **Two paths absorb the registry** — the poll, which
+loads voice settings first, and the page-load render, which does not. The load
+path wins, so a welcome attempted once was attempted in the one moment it could
+not succeed: `announcing()` was false because the settings had not arrived, and
+the single chance was spent. It is attempted on every read now and guards itself
+with a flag, which is the only version that survives whichever path happens to
+be first.
+
 **The announcements ride the registry poll, which is the whole point.** The
 registry is fetched on a timer whatever screen is open, so a service falling
 over reaches somebody working in Traces or in another tab — which is what was
