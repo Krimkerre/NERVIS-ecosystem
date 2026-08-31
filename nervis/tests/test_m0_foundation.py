@@ -140,10 +140,15 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.traces": "available",                 # M7; both peers publish
         "nervis.ravis_chat": "degraded",              # M4, titles await RAVIS M16
         "nervis.sirvis_views": "degraded",            # M5a; jobs await SIRVIS M14
-        # M8a's registration is served; M8b needs a Bridge to exist. This read
-        # "unavailable" here for as long as M8a had been shipped -- the test
-        # was written beside the declaration and locked in its mistake.
-        "nervis.clarvis_visibility": "degraded",
+        # **Both halves ship, and this said otherwise twice.** It read
+        # "unavailable" for as long as M8a had been shipped, and then "degraded"
+        # for two days after Clarvis built the Bridge (M14, 29 Aug) and M8b
+        # landed to read it. Written beside the declaration each time, so it
+        # locked in the same mistake it exists to catch.
+        #
+        # Found by asking chat what it could not do and being told Clarvis had
+        # to finish building its Bridge first.
+        "nervis.clarvis_visibility": "available",
         "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike

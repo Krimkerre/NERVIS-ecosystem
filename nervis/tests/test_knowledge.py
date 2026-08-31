@@ -119,3 +119,26 @@ def test_a_short_word_is_not_stemmed_to_nothing() -> None:
     "uses" must not reduce a word to a stub that collides with everything."""
     for word in ("api", "log", "run", "key", "cpu"):
         assert len(knowledge._stem(word)) >= 3, word
+
+
+def test_a_question_about_you_is_a_question_about_nervis() -> None:
+    """**NERVIS is the assistant, and these notes are written in the third
+    person.** Asked in turn about RAVIS, SIRVIS and Clarvis, the next question
+    is "and you?" — which names nothing, matched nothing, and got the persona
+    reciting its own character instead of anything about the service.
+    """
+    for question in ("and you?", "what about you", "tell me about yourself",
+                     "how do you work", "what are you"):
+        hits = knowledge.search(f"{question} nervis") if knowledge._about_itself(question) else []
+        assert hits, question
+        assert hits[0].subject == "nervis", question
+        assert "nervis" in knowledge.reading(question).lower()
+
+
+def test_you_inside_a_question_about_a_peer_is_not_about_nervis() -> None:
+    """The falsifier. "Can you tell me about RAVIS" is a question about RAVIS
+    that happens to contain the word — and "you" is in most questions anybody
+    types, so firing on it would attach NERVIS to nearly every turn."""
+    for question in ("can you tell me about ravis", "what can you say about sirvis",
+                     "would you hook clarvis up to ravis"):
+        assert not knowledge._about_itself(question), question

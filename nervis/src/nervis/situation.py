@@ -36,6 +36,7 @@ wrong sentence in a chat reply.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
@@ -1174,7 +1175,33 @@ def named_in(question: str, services: Sequence[Mapping[str, Any]]) -> list[str]:
         names = {_flatten(key), _flatten(str(service.get("label") or ""))}
         if any(name and name in asked for name in names):
             found.append(key)
+    # **NERVIS is the one service that gets asked about in the second person.**
+    #
+    # It is the assistant, so a person who has just been told about RAVIS,
+    # SIRVIS and Clarvis asks *"and you?"* — which names nothing, matched
+    # nothing, and produced no detail at all. What came back was the persona
+    # describing itself, and a capability count invented from the nearest number
+    # in the conversation: "all 8 of my capabilities are running", when five of
+    # eleven were available and six were not.
+    #
+    # Only when nothing else was named. "Can you tell me about RAVIS" is a
+    # question about RAVIS that happens to contain the word "you", and adding a
+    # NERVIS block to it would put a paragraph nobody asked for on nearly every
+    # turn — "you" is in most questions anybody types.
+    if (not found and _asks_about_the_assistant(question)
+            and any(str(service.get("key") or "") == "nervis" for service in services)):
+        found.append("nervis")
     return found[:MAX_FOCUS_SERVICES]
+
+
+#: Second person, as a whole word. `\byou\b` rather than `you`, so "your" and
+#: "yourself" match and "young" does not.
+_SECOND_PERSON = re.compile(r"\b(you|your|yours|yourself|u)\b", re.IGNORECASE)
+
+
+def _asks_about_the_assistant(question: str) -> bool:
+    """Whether this question is about NERVIS itself rather than about a peer."""
+    return bool(_SECOND_PERSON.search(question or ""))
 
 
 def _without_address(question: str, services: Sequence[Mapping[str, Any]]) -> str:
@@ -1264,6 +1291,16 @@ def focus(
     if isinstance(states, Mapping) and states:
         available = [name for name, state in states.items() if state == "available"]
         lines.append(f"  capabilities: {len(available)} of {len(states)} available")
+        # **And which ones**, because the count alone invites a guess at the
+        # names. Asked what it could do, NERVIS said "five of my eleven
+        # capabilities are live — the dashboard itself, live peer data,
+        # telemetry, benchmark submission and result viewing". The number was
+        # right and every name was wrong: the dashboard is degraded, and
+        # benchmarks belong to SIRVIS. The withheld ones were listed below with
+        # their reasons and the working ones were not, so the only names in
+        # front of the model were the broken ones.
+        if available:
+            lines.append("    working: " + clip(", ".join(sorted(available))))
     if isinstance(reasons, Mapping) and reasons:
         # The sentence the peer wrote about its own limitation. §4.1 makes it
         # mandatory precisely so nobody downstream has to guess, and quoting it

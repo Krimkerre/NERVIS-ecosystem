@@ -11,10 +11,12 @@ number stops looking invented: a bar is a bar whether it was measured or guessed
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi.testclient import TestClient
 
+from nervis import situation
 from nervis.app import create_app
 from nervis.config import Settings
 from nervis.events import Hub
@@ -282,3 +284,46 @@ def test_a_trace_older_than_the_recent_events_is_still_listed() -> None:
     assert [item["trace_id"] for item in listed] == ["an-old-trace"], (
         "forty untraced events after it do not make the trace disappear"
     )
+
+
+def test_asking_the_assistant_about_itself_focuses_nervis() -> None:
+    """**The one service that gets asked about in the second person.**
+
+    Told about RAVIS, SIRVIS and Clarvis in turn, a person asks "and you?" —
+    which named nothing, so no detail was assembled and the answer invented a
+    capability count from the nearest number in the conversation: "all 8 of my
+    capabilities are running", when five of eleven were available.
+    """
+    services = [{"key": "nervis", "label": "NERVIS"}, {"key": "ravis", "label": "RAVIS"}]
+
+    for question in ("and you?", "what about you", "how are you doing",
+                     "tell me about yourself"):
+        assert situation.named_in(question, services) == ["nervis"], question
+
+
+def test_you_in_a_question_about_a_peer_does_not_add_nervis() -> None:
+    """"You" is in most questions anybody types. Firing on it would put a NERVIS
+    paragraph on nearly every turn, which is a prompt nobody decided to send."""
+    services = [{"key": "nervis", "label": "NERVIS"}, {"key": "ravis", "label": "RAVIS"}]
+
+    assert situation.named_in("can you tell me about ravis", services) == ["ravis"]
+    assert situation.named_in("what models are loaded", services) == []
+
+
+def test_the_focus_block_names_the_working_capabilities_not_only_the_broken() -> None:
+    """A count with no names invites a guess at the names, and the guess was
+    wrong in the one direction that flatters: asked what it could do, NERVIS
+    named the dashboard (degraded) and benchmark submission (SIRVIS's, not its
+    own). The withheld ones were listed with their reasons; the working ones
+    were not, so the only names in front of the model were the broken ones."""
+    service = {
+        "key": "nervis", "label": "NERVIS",
+        "capabilities": {"a": "available", "b": "available", "c": "degraded"},
+        "capability_reasons": {"c": "waits on M12"},
+    }
+
+    lines = "\n".join(situation.focus(service, [], datetime.now(timezone.utc)))
+
+    assert "2 of 3 available" in lines
+    assert "working: a, b" in lines
+    assert "c withheld" in lines

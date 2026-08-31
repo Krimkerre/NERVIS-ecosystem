@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1896 tests, no network, no live service
+.venv/bin/pytest                      # part of 1901 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 516 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 521 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1896 passing across the four, conformance `PASS`.
+Expected: all clean, 1901 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -2524,6 +2524,38 @@ question clears it, so about half the state questions carry background they did
 not need — the deliberate direction of error, since background that arrives
 uninvited costs context and is labelled, while background that fails to arrive
 is the failure that was actually reported.
+
+**Chat did not know it was NERVIS, 2026-08-31.** Told in turn about RAVIS,
+SIRVIS and Clarvis — each answered well from the notes — the next question was
+*"and you?"*, and the answer was the persona reciting its own character, ending
+"all 8 of my capabilities are running". Five of eleven were available and six
+were not; the number was borrowed from RAVIS, three turns earlier.
+
+Two causes, both the same shape. `named_in` assembles a service's detail when the
+question **names** it, and `knowledge.search` retrieves notes the same way — and
+NERVIS is the one service nobody names, because it is the assistant and gets
+asked about in the second person. Both now treat a second-person question as a
+question about NERVIS, and only when no peer is named: *"can you tell me about
+RAVIS"* is a question about RAVIS that happens to contain the word, and firing on
+"you" alone would put a NERVIS paragraph on nearly every turn.
+
+**Then the count was right and every name was wrong.** With the detail
+assembled, it reported five of eleven and named them as "the dashboard itself,
+live peer data, telemetry, benchmark submission and result viewing" — the
+dashboard is degraded, and benchmarks are SIRVIS's. The focus block listed the
+*withheld* capabilities with their reasons and never the working ones, so the
+only names in front of the model were the broken ones. It names both now.
+
+**And the correction found a stale claim of NERVIS's own.** Asked what it could
+not do, it said Clarvis had to finish building its Bridge first — quoting
+`nervis.clarvis_visibility@1`, whose reason still read *"blocked on Clarvis
+building the Bridge"*. Clarvis built it on 29 Aug and NERVIS M8b landed the same
+day, with `test_m8b_status.py` covering a live read, the issued token, a refused
+token, a closed window and the field allowlist. The capability is **available**,
+and the invariant in `test_m0_foundation.py` was updated with it — that test had
+locked in the same mistake twice, having been written beside the declaration
+each time. §4.1 makes a reason the sentence a peer reads to decide what not to
+attempt, and this one told them not to bother.
 
 **And the readings were being quoted at the wrong audience.** Asked about
 RAVIS, chat answered: *"there's a wrinkle with authorization on loopback binds

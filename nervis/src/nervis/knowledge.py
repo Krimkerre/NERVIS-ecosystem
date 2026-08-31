@@ -215,6 +215,30 @@ def search(question: str, limit: int = 3) -> list[Section]:
     return [section for _, _, section in scored[:limit]]
 
 
+#: Second person, as whole words. NERVIS is the assistant, so this is how people
+#: ask about it — and the one subject in these files nobody calls by name.
+_SECOND_PERSON = re.compile(r"\b(you|your|yours|yourself)\b", re.IGNORECASE)
+
+#: Subjects that would mean the question is about a peer rather than about
+#: NERVIS itself.
+_PEERS = ("ravis", "sirvis", "clarvis")
+
+
+def _about_itself(question: str) -> bool:
+    """Whether "you" in this question means NERVIS.
+
+    Asked in turn about RAVIS, SIRVIS and Clarvis, the next question is *"and
+    you?"* — which names nothing, matched nothing, and got the persona reciting
+    itself instead of anything about the service. Only when no peer is named,
+    because "can you tell me about RAVIS" is a question about RAVIS that happens
+    to contain the word.
+    """
+    lowered = (question or "").lower()
+    if any(peer in lowered for peer in _PEERS):
+        return False
+    return bool(_SECOND_PERSON.search(lowered))
+
+
 def reading(question: str) -> str:
     """The fenced background this question needs, or nothing.
 
@@ -222,7 +246,9 @@ def reading(question: str) -> str:
     and a model handed one without being told which will describe intentions as
     behaviour — the exact failure these files were written to avoid.
     """
-    best = search(question)
+    # A question about "you" is a question about NERVIS, and nothing in these
+    # files says so — they are written in the third person, like notes.
+    best = search(f"{question} nervis" if _about_itself(question) else question)
     if not best:
         return ""
     body = ""

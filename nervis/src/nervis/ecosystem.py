@@ -155,12 +155,25 @@ DECLARED: dict[str, Capability] = {
     # This said "lands at M8" for as long as M8a has been shipped, so a peer
     # asking whether it could register was told no by a service that would
     # have accepted the registration.
+    # **Both halves ship now, and the reason said otherwise for two days.**
+    # It read "blocked on Clarvis building the Bridge" after Clarvis had built
+    # it -- M14 signed off 29 Aug, and NERVIS M8b landed the same day with
+    # `test_m8b_status.py` covering a live read, the issued token, a refused
+    # token, a closed window and the field allowlist.
+    #
+    # It surfaced the way these always do: chat, asked what it could not do,
+    # told somebody Clarvis had to finish building its Bridge first. A stale
+    # reason is not a harmless comment. §4.1 makes it the sentence a peer reads
+    # to decide what not to attempt, and this one told them not to bother.
+    #
+    # Supervision is a separate capability and stays unavailable; seeing a
+    # Clarvis is not driving one, and §6.7 keeps those apart deliberately.
     "nervis.clarvis_visibility@1": Capability(
         version="1.0.0",
-        state=DEGRADED,
-        reason="M8a's registration is served -- per-extension-host instances, "
-        "leases, redaction; reading a running Bridge's status and gate state "
-        "is M8b, blocked on Clarvis building the Bridge",
+        state=AVAILABLE,
+        reason="M8a's registration -- per-extension-host instances, leases, "
+        "redaction -- and M8b's read of a registered Bridge's own /v1/status "
+        "through the token NERVIS issued it, every field through an allowlist",
     ),
     "nervis.diagnostics@1": Capability(
         version="1.0.0",
