@@ -1658,10 +1658,12 @@ async def _relay(
                     interrupted=interrupted,
                 ),
             )
-            _title_later(request, conversation_id, trace_id)
+            _title_later(request, conversation_id, trace_id, model)
 
 
-def _title_later(request: Request, conversation_id: str, trace_id: str) -> None:
+def _title_later(
+    request: Request, conversation_id: str, trace_id: str, served: str = ""
+) -> None:
     """Schedule a title for a conversation that has none, and never wait for it.
 
     **Scheduled rather than awaited**, because this runs in the `finally` of the
@@ -1684,7 +1686,7 @@ def _title_later(request: Request, conversation_id: str, trace_id: str) -> None:
         return
     with contextlib.suppress(RuntimeError):  # no running loop, in a sync test
         asyncio.get_running_loop().create_task(
-            _generate_title(request, conversation_id, opening, trace_id)
+            _generate_title(request, conversation_id, opening, trace_id, served)
         )
 
 
@@ -1719,15 +1721,30 @@ def _first_user_message(database: Any, conversation_id: str) -> str:
     return opening
 
 
-# The pool a background call addresses. `ravis/cheap` rather than `ravis/auto`
-# because the marker and the pool answer different questions: the marker says
-# "do not bill this to a frontier model", the pool says what kind of work it is.
-# Naming the cheap pool means an operator who has not written a policy still
-# gets sensible routing, and a policy that restricts it further still applies.
+# Where a title goes when the model that answered is not known.
+#
+# **The model that answered is asked first, and this is the fallback.** Naming
+# `ravis/cheap` used to be the whole policy, on the reading that a title is not
+# worth money — and in a local deployment that reading has a cost the accounting
+# does not show. `ravis/cheap` has a $0 ceiling, so it admits only local models,
+# and the size tiebreak picked a 2.4B build that was not the one already in
+# memory. Two models resident to answer one question and name it, and the second
+# one loaded to produce twenty-four tokens that were then discarded, because it
+# was a reasoning build that spent the budget thinking.
+#
+# Reusing the answering model costs a fraction of a cent on a hosted route and
+# nothing at all on a local one, since it is already loaded. That is a better
+# trade than a free call that loads a second model.
 TITLE_POOL = "ravis/cheap"
 
-# Short, because the whole point is that this is not worth money. A title that
-# needs more than this is a summary, and NERVIS.md §7 asks for a title.
+# Short, because a title is a title. A model that needs more than this is
+# writing a summary, and NERVIS.md §7 asks for a title.
+#
+# It is also the reason a reasoning model cannot do this job: the budget goes on
+# thinking and the answer never arrives. `_title_from` throws the truncation
+# away rather than storing it, so the conversation keeps its stand-in — which is
+# the correct outcome and still a wasted call. Reusing the answering model does
+# not change that; it means the failure needs no second model in memory.
 TITLE_MAX_TOKENS = 24
 
 TITLE_PROMPT = (
@@ -1738,7 +1755,7 @@ TITLE_PROMPT = (
 
 
 async def _generate_title(
-    request: Request, conversation_id: str, opening: str, trace_id: str
+    request: Request, conversation_id: str, opening: str, trace_id: str, served: str = ""
 ) -> None:
     """Title a conversation with a RAVIS background call (NERVIS.md §7, RAVIS §9.6.1).
 
@@ -1761,13 +1778,37 @@ async def _generate_title(
         return
     client: httpx.AsyncClient = request.app.state.probe_client
     payload = {
-        "model": TITLE_POOL,
+        # **The model that just answered, by name — not a pool.** A pool is a
+        # request for RAVIS to choose, and choosing is exactly what put a second
+        # model in memory: the answer came from one build and the title from
+        # another, both resident, for one turn of conversation. Naming the
+        # served model asks for the one already loaded.
+        #
+        # The pool is the fallback for the case where nothing was served — an
+        # interrupted first turn, or a store that recorded no model.
+        "model": served or TITLE_POOL,
         "max_tokens": TITLE_MAX_TOKENS,
         "messages": [{"role": "user", "content": TITLE_PROMPT + opening[:600]}],
-        # RAVIS §9.6.1's declared marker. Never inferred by RAVIS from the shape
-        # of a request, which is why the client has to say it.
-        "metadata": {"background": True},
     }
+    if not served:
+        # RAVIS §9.6.1's declared marker, on the fallback path only. Never
+        # inferred by RAVIS from the shape of a request, which is why the client
+        # has to say it.
+        #
+        # **It cannot be sent alongside a named model, and the reason is the
+        # marker doing its job.** §9.6.1 makes a background call refuse any
+        # provider not known to be free — "declared a background call, and
+        # {provider} is not known to be free" — so a title pinned to the hosted
+        # model that just answered would be excluded by the very marker meant to
+        # protect it, and RAVIS would route to a free local build instead. That
+        # is the second model load this change exists to stop.
+        #
+        # So the marker guards the case where NERVIS does not know what answered
+        # and has to let RAVIS choose. Where it does know, the choice is already
+        # made and there is nothing to protect against: the model is loaded, the
+        # call is sixty-six tokens, and reusing it is cheaper in memory than any
+        # free alternative that is not already resident.
+        payload["metadata"] = {"background": True}
     try:
         response = await client.post(
             entry.declaration.base_url + "/v1/chat/completions",

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1858 tests, no network, no live service
+.venv/bin/pytest                      # part of 1861 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 496 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1858 passing across the four, conformance `PASS`.
+Expected: all clean, 1861 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8720,6 +8720,58 @@ actually read.
 That distinction is the point — a PDF sits in the workspace perfectly well and
 cannot be summarised, and a list that does not say so invites the attempt and
 then refuses somebody who was looking right at the name.
+
+## A title should not load a second model, 2026-08-31
+
+Noticed from outside the code: *"exaone local model got loaded, while chat used
+haiku."* The records say exactly what happened, four times over.
+
+Every first turn fires a second, tiny call to name the conversation (§7, RAVIS
+§9.6.1). It addressed `ravis/cheap`, whose $0 ceiling admits only local models,
+and the size tiebreak chose `exaone-deep-2.4b` — *"chosen as the smallest at
+2.4B — a tiebreak on cost to run, not on quality"*, and `COLD`. So a machine
+answering through a hosted model was holding a second, local one in memory to
+write six words.
+
+**And it wrote none.** All four calls returned exactly 24 output tokens, which
+is `TITLE_MAX_TOKENS` — the ceiling, hit every time, meaning truncated every
+time. EXAONE Deep is a reasoning build; it spends the budget thinking and never
+reaches the title. `_title_from` correctly discarded the truncation, so every
+conversation kept its stand-in name. Checked rather than assumed: each stored
+title is character-for-character `opening_title()` of its own first message, and
+one still carries the `…` that only truncation produces.
+
+The old reasoning is in NERVIS.md §7 — *an untitled conversation is a smaller
+failure than a title billed to a frontier model* — and it is sound about money
+and silent about memory. On a local deployment the free call is the expensive
+one: a second model resident, loaded to produce nothing.
+
+**A title now names the model that just answered.** Not a pool: a pool is a
+request for RAVIS to *choose*, and choosing is what put two builds in memory. On
+a hosted route the title costs a fraction of a cent — 66 input tokens against
+the answer's 3,153 — and on a local route it costs nothing, because the model is
+already loaded.
+
+**The background marker had to come off that path, and the reason is the marker
+working.** §9.6.1 makes a declared background call refuse any provider not known
+to be free, so a title aimed at the hosted model that just answered is excluded
+by the very marker meant to protect it. Both halves were driven against the live
+RAVIS rather than argued:
+
+| request | result |
+|---|---|
+| `model: anthropic/claude-haiku-4.5`, no marker | served by Haiku — `"Sourdough Starter Acetone Smell Problem"` |
+| the same, plus `metadata.background: true` | `refused by policy; RAVIS does not route around a policy constraint` |
+
+The marker stays on the fallback, which is the case it was written for: when
+NERVIS does not know what answered — an interrupted first turn, a store that
+recorded no model — RAVIS has to choose, and §9.6.1 is the protection that case
+needs.
+
+The reasoning-model problem is unchanged and now harmless. A chat served by a
+reasoning build will still spend 24 tokens thinking and still have its title
+discarded; the difference is that it fails on the model already in memory rather
+than loading a second one to fail on.
 
 ## Starting the thing
 

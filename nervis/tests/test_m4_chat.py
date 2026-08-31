@@ -13,9 +13,11 @@ neither of which a real runtime will produce on request.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -24,7 +26,13 @@ from fastapi.testclient import TestClient
 
 from nervis import bridges, situation
 from nervis import chat as store
-from nervis.api.chat import _first_user_message, _forwarded, _title_from
+from nervis.api.chat import (
+    TITLE_POOL,
+    _first_user_message,
+    _forwarded,
+    _generate_title,
+    _title_from,
+)
 from nervis.app import create_app
 from nervis.config import Settings
 from nervis.diagnostics import FENCE
@@ -3195,3 +3203,73 @@ def test_an_upload_with_no_conversation_is_refused(tmp_path: Path) -> None:
     client = an_api(workspace_path=str(tmp_path))
 
     assert client.put("/api/v1/workspace/files/loose.md", content=b"text").status_code >= 400
+
+
+# ── A title reuses the model that answered, and does not load a second ─────
+
+def _title_payloads(served: str) -> list[dict[str, Any]]:
+    """Run `_generate_title` against a fake RAVIS and return what it posted."""
+    posted: list[dict[str, Any]] = []
+
+    class _Reply:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"choices": [{"message": {"content": "A short name"}}]}
+
+    class _Client:
+        @staticmethod
+        async def post(url: str, **kwargs: Any) -> Any:
+            del url
+            posted.append(kwargs["json"])
+            return _Reply()
+
+    client = an_api()
+    app = client.app
+    # The credential is what makes RAVIS honour anything NERVIS declares, and
+    # `_generate_title` returns early without one.
+    app.state.settings.ravis_client_credential = "secret"
+    app.state.probe_client = _Client()
+    entry = app.state.registry.get("ravis")
+    assert entry is not None and entry.is_usable, "the fake registry must offer a usable RAVIS"
+
+    request = SimpleNamespace(app=app)
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        _generate_title(request, "cv_1", "how do I fix a sourdough starter", "t", served)
+    )
+    return posted
+
+
+def test_a_title_asks_for_the_model_that_just_answered() -> None:
+    """**Because the alternative loads a second model.** Naming a pool is a
+    request for RAVIS to choose, and choosing is what put two builds in memory
+    for one turn: the answer came from one and the title from another. Observed
+    on this machine — chat served by `anthropic/claude-haiku-4.5`, the title
+    routed to `ravis/cheap`, which has a $0 ceiling and so admits only local
+    models, and the size tiebreak loaded `exaone-deep-2.4b` to write six words.
+    """
+    posted = _title_payloads(served="anthropic/claude-haiku-4.5")
+
+    assert posted, "a title should have been requested"
+    assert posted[0]["model"] == "anthropic/claude-haiku-4.5"
+
+
+def test_a_pinned_title_does_not_carry_the_background_marker() -> None:
+    """The marker would undo the pin. §9.6.1 makes a background call refuse any
+    provider not known to be free, so a title aimed at the hosted model that
+    just answered is excluded by the very marker meant to protect it — and RAVIS
+    routes to a free local build, which is the second load again."""
+    posted = _title_payloads(served="anthropic/claude-haiku-4.5")
+
+    assert "background" not in str(posted[0].get("metadata") or {})
+
+
+def test_with_nothing_served_the_marker_and_the_cheap_pool_still_apply() -> None:
+    """The falsifier for the two above. When NERVIS does not know what answered
+    — an interrupted first turn, a store that recorded no model — RAVIS has to
+    choose, and §9.6.1's protection is exactly what that case needs."""
+    posted = _title_payloads(served="")
+
+    assert posted[0]["model"] == TITLE_POOL
+    assert posted[0]["metadata"] == {"background": True}
