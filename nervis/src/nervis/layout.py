@@ -189,6 +189,16 @@ CYAN = (0.204, 0.902, 0.949)      # --cyan #34e6f2
 MUTED = (0.443, 0.506, 0.584)     # --muted #718195
 RULE = (0.125, 0.165, 0.208)      # --line #202a35
 
+#: The chat window's two bubbles, which the transcript is drawn as.
+#:
+#: Read off `.bubble` and `.bubble.user` rather than invented: an export meant to
+#: look like the conversation has to use the conversation's own two fills, or it
+#: is a different design that happens to share a palette.
+BUBBLE = (0.071, 0.106, 0.141)        # .bubble #121b24
+BUBBLE_EDGE = (0.125, 0.165, 0.208)   # --line
+MINE = (0.090, 0.227, 0.380)          # .bubble.user #173a61
+MINE_EDGE = (0.153, 0.349, 0.541)     # .bubble.user border #27598a
+
 
 @dataclass
 class Style:

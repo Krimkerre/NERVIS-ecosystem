@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from nervis.layout import Block, Kind, Span, parse, style_for
-from nervis.pdf import PAGE_HEIGHT, render
+from nervis.pdf import MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Turn, render, render_conversation
 
 
 def test_it_is_a_pdf_a_reader_would_recognise() -> None:
@@ -263,3 +263,88 @@ def test_code_is_drawn_on_a_tint() -> None:
 
     tint = stream.index(b"re f", stream.index(b"0 0 612 792 re f") + 4)
     assert tint < stream.index(b"(ravis/chat)")
+
+
+# ── A conversation, drawn the way the screen draws one ─────────────────────
+
+def _conversation() -> list[Turn]:
+    return [
+        Turn("You", "why is ravis slow?", mine=True),
+        Turn("NERVIS", "It was going through OpenRouter, sir."),
+    ]
+
+
+def test_a_turn_is_drawn_as_a_bubble() -> None:
+    """**Its own renderer rather than more markdown.** Expressing a transcript
+    as headings produced a report *about* a conversation rather than a picture
+    of one."""
+    out = render_conversation("Q3", "Exported today", _conversation()).data
+
+    # A filled rectangle for each bubble, before the words that sit in it.
+    assert out.count(b"re f") >= 2 * 5, "each bubble is a fill and four edges"
+    assert b"(YOU)" in out and b"(NERVIS)" in out
+    assert b"(why is ravis slow?)" in out
+
+
+def test_the_two_sides_are_drawn_on_two_sides() -> None:
+    """`.bubble.user` is `margin-left:auto`; everything else sits left."""
+    out = render_conversation("Q3", "", _conversation()).data
+
+    mine = float(re.search(rb"Tf ([\d.]+) [\d.]+ Td \(why is ravis slow\?\)", out).group(1))
+    theirs = float(
+        re.search(rb"Tf ([\d.]+) [\d.]+ Td \(It was going through OpenRouter, sir\.\)", out)
+        .group(1)
+    )
+
+    assert mine > theirs, "the person's own turn is the one on the right"
+
+
+def test_a_bubble_shrinks_to_what_is_in_it() -> None:
+    """**`max-width`, not `width`.** Every bubble drawn at the full 78% is the
+    one thing that stops a transcript looking like the conversation it came
+    from."""
+    short = render_conversation("Q3", "", [Turn("You", "yes", mine=True)]).data
+    long = render_conversation("Q3", "", [
+        Turn("You", "a much longer question that will certainly need most of the "
+                    "measure to say what it has to say", mine=True)
+    ]).data
+
+    def widest(out: bytes) -> float:
+        """The widest bubble fill, ignoring the full-page ground and the edges."""
+        return max(
+            float(w) for x, y, w, h in re.findall(
+                rb" ([\d.-]+) ([\d.-]+) ([\d.]+) ([\d.]+) re f", out)
+            if float(w) < PAGE_WIDTH - 1 and float(h) > 2
+        )
+
+    assert widest(short) < widest(long)
+
+
+def test_a_long_turn_is_split_across_pages_rather_than_pushed_whole() -> None:
+    """A reply taller than a page would otherwise leave most of one empty and
+    still not fit on the next."""
+    out = render_conversation("Q3", "", [
+        Turn("NERVIS", "\n\n".join(f"line {n} of a very long answer" for n in range(120)))
+    ])
+
+    assert out.pages > 1
+    assert b"(line 0 of a very long answer)" in out.data
+    assert b"(line 119 of a very long answer)" in out.data
+
+
+def test_nothing_is_drawn_below_the_footer() -> None:
+    out = render_conversation("Q3", "", [
+        Turn("NERVIS", "\n\n".join(f"line {n}" for n in range(90)))
+    ]).data
+
+    drawn = [float(m) for m in re.findall(rb"Tf [\d.]+ ([\d.]+) Td \(line", out)]
+
+    assert drawn, "the lines should be drawn at all"
+    assert min(drawn) >= MARGIN, "a line landed on the page number"
+
+
+def test_an_empty_conversation_still_makes_a_readable_file() -> None:
+    out = render_conversation("Q3", "Exported today", [])
+
+    assert out.pages == 1
+    assert out.data.startswith(b"%PDF-1.4")

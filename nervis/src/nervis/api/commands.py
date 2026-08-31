@@ -321,8 +321,20 @@ def _export_conversation(request: Request, named: str, conversation_id: str) -> 
          if row["conversation_id"] == conversation_id),
         "",
     )
-    text = transcript.as_markdown(title, stored, datetime.now().astimezone())
-    return _write_into_workspace(request, root, named, text, turns=len(stored))
+    when = datetime.now().astimezone()
+    return _write_into_workspace(
+        request, root, named,
+        transcript.as_markdown(title, stored, when),
+        turns=len(stored),
+        # Drawn as the chat window for a PDF, and left as text for anything
+        # else: a `.md` export is a file somebody will grep, and bubbles are not
+        # a thing grep has an opinion about.
+        conversation=(
+            title or "Conversation",
+            f"Exported {when:%d %B %Y at %H:%M}",
+            transcript.as_turns(stored),
+        ),
+    )
 
 
 def _write_document(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
@@ -362,7 +374,8 @@ def _workspace(request: Request) -> str:
 
 
 def _write_into_workspace(
-    request: Request, root: str, named: str, text: str, turns: int = 0
+    request: Request, root: str, named: str, text: str, turns: int = 0,
+    conversation: tuple[str, str, list[Any]] | None = None,
 ) -> dict[str, Any]:
     """One text, one filename, one boundary.
 
@@ -377,7 +390,10 @@ def _write_into_workspace(
         raise InvalidConfigurationError(str(refusal)) from refusal
 
     if resolved.path.suffix.lower() == ".pdf":
-        rendered = pdf.render(resolved.shown, text)
+        rendered = (
+            pdf.render_conversation(*conversation) if conversation
+            else pdf.render(resolved.shown, text)
+        )
         payload, detail = rendered.data, f"{rendered.pages} page(s)"
         if rendered.unsupported:
             # Said rather than silently substituted: a `?` where a character

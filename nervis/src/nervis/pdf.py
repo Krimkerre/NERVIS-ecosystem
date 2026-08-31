@@ -18,11 +18,12 @@ a `?` nobody can see.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from nervis import layout
-from nervis.layout import Block, Kind, Span, parse, style_for
+from nervis.layout import Block, Kind, Span, Style, parse, style_for
 
 #: US Letter at 72 dpi, the format's own unit.
 PAGE_WIDTH, PAGE_HEIGHT = 612, 792
@@ -373,4 +374,184 @@ def _assemble(pages: list[list[bytes]], unsupported: str) -> Rendered:
     return Rendered(data=bytes(out), pages=len(pages), unsupported=unsupported)
 
 
-__all__ = ["Rendered", "render", "Block"]
+__all__ = ["Rendered", "Turn", "render", "render_conversation", "Block"]
+
+
+# ── A conversation, drawn the way the screen draws one ──────────────────────
+
+#: How wide a bubble may be, as a fraction of the measure. `.bubble` says 78%.
+BUBBLE_WIDTH = 0.78
+#: `.bubble` padding: 10px 12px.
+PAD_X, PAD_Y = 12.0, 10.0
+#: `margin:7px 0` between bubbles.
+BUBBLE_GAP = 7.0
+
+
+@dataclass(frozen=True)
+class Turn:
+    """One thing somebody said, and which side it belongs on."""
+
+    speaker: str
+    body: str
+    #: Right-aligned and blue, the way `.bubble.user` is. The person's own turns.
+    mine: bool = False
+
+
+def _laid_out(body: str, width: float) -> list[tuple[Style, tuple[Span, ...], str]]:
+    """Every line of a turn, with the style and marker it is drawn under.
+
+    Flattened here rather than in the drawing loop because a bubble has to be
+    *measured* before it can be drawn — the rectangle goes down first, and its
+    height is the sum of what has not been laid out yet.
+    """
+    out: list[tuple[Style, tuple[Span, ...], str]] = []
+    for block in parse(body):
+        style = style_for(block)
+        if block.kind is Kind.BLANK:
+            out.append((style, (), ""))
+            continue
+        spans = block.spans
+        if style.upper:
+            spans = tuple(Span(span.text.upper(), span.bold) for span in spans)
+        inner = width - 2 * PAD_X - style.indent
+        for number, line in enumerate(
+            _wrap_spans(spans, style.size, inner, style.monospace, style.bold, style.tracking)
+        ):
+            out.append((style, line, block.marker if number == 0 else ""))
+    return out
+
+
+def _line_height(style: Style, spans: tuple[Span, ...]) -> float:
+    """What one laid-out line costs vertically, blank lines included."""
+    return float(style.size) * LEADING * (0.55 if not spans else 1.0)
+
+
+def render_conversation(title: str, subtitle: str, turns: Sequence[Turn]) -> Rendered:
+    """A transcript drawn as the chat window draws it.
+
+    **Its own renderer rather than more markdown.** `render` lays out a
+    document: headings, paragraphs, one column. A conversation is a different
+    shape — bubbles of bounded width, one side each, sized to their contents —
+    and expressing that as headings produced a report *about* a conversation
+    rather than a picture of one.
+
+    A bubble is measured before it is drawn, because the rectangle goes down
+    first and its height is the sum of lines not yet laid out. A bubble too tall
+    for what remains of a page is split rather than pushed whole: a long reply
+    would otherwise leave most of a page empty and still not fit on the next.
+    """
+    pages: list[list[bytes]] = []
+    current: list[bytes] = []
+    y = float(TOP)
+
+    for block in parse(f"# {title}"):
+        style = style_for(block)
+        y -= style.space_above
+        current.extend(_block(_wrap_spans(
+            tuple(Span(s.text.upper(), s.bold) for s in block.spans)
+            if style.upper else block.spans,
+            style.size, USABLE, style.monospace, style.bold, style.tracking),
+            block, style, y, 0.0))
+        y -= style.size * LEADING
+    if subtitle:
+        y -= 4
+        current.extend(_draw((Span(subtitle),), MARGIN, y, 9, mono=False,
+                             rgb=layout.MUTED))
+        y -= 9 * LEADING
+
+    width = USABLE * BUBBLE_WIDTH
+    for turn in turns:
+        y, current = _bubble(turn, width, y, current, pages)
+
+    if current or not pages:
+        pages.append(current)
+    said = " ".join(f"{turn.speaker} {turn.body}" for turn in turns)
+    return _assemble(pages, _unsupported(said + title + subtitle))
+
+
+def _bubble(
+    turn: Turn, width: float, y: float, current: list[bytes], pages: list[list[bytes]]
+) -> tuple[float, list[bytes]]:
+    """One turn, across as many pages as it needs.
+
+    Returns where the next bubble starts and which page it is being drawn on —
+    a long reply legitimately ends on a page its own bubble began two sheets
+    earlier, and the caller cannot know that without being told.
+    """
+    left = MARGIN + (USABLE - width) if turn.mine else MARGIN
+    fill = layout.MINE if turn.mine else layout.BUBBLE
+    edge = layout.MINE_EDGE if turn.mine else layout.BUBBLE_EDGE
+
+    lines = _laid_out(turn.body, width)
+    # **`max-width`, not `width`.** The rule on `.bubble` is a maximum, so a
+    # bubble shrinks to what is in it — and every bubble drawn at the full 78%
+    # is the one thing that stops a transcript looking like the conversation it
+    # came from. Measured after wrapping, which is the order the browser does it
+    # in: wrap at the maximum, then take the widest line that resulted.
+    longest = max(
+        (_measure(spans, style.size, style.monospace, style.bold, style.tracking)
+         for style, spans, _ in lines if spans),
+        default=0.0,
+    )
+    label_width = _measure((Span(turn.speaker.upper()),), 10, mono=True, bold=True,
+                           tracking=1.5)
+    width = min(width, max(longest, label_width) + 2 * PAD_X + 2)
+    left = MARGIN + (USABLE - width) if turn.mine else MARGIN
+    label = 10 * LEADING
+    y -= BUBBLE_GAP
+
+    at = 0
+    while at < len(lines) or at == 0:
+        # What fits between here and the foot of the page, less the padding the
+        # bubble needs at both ends and the speaker label at the top.
+        room = y - BOTTOM - 2 * PAD_Y - (label if at == 0 else 0)
+        taken, height = _fills(lines[at:], room)
+        if taken == 0 and current:
+            pages.append(current)
+            current, y = [], float(TOP)
+            continue
+        box = height + 2 * PAD_Y + (label if at == 0 else 0)
+        current.append(_rect(left, y - box, width, box, fill))
+        current.append(_rect(left, y - box, width, 0.6, edge))
+        current.append(_rect(left, y - 0.6, width, 0.6, edge))
+        current.append(_rect(left, y - box, 0.6, box, edge))
+        current.append(_rect(left + width - 0.6, y - box, 0.6, box, edge))
+
+        inner = y - PAD_Y
+        if at == 0:
+            inner -= 10 * 0.8
+            current.extend(_draw((Span(turn.speaker.upper()),), left + PAD_X, inner,
+                                 10, mono=True, bold=True,
+                                 rgb=layout.CYAN if turn.mine else layout.ACCENT,
+                                 tracking=1.5))
+            inner -= label - 10 * 0.8
+        for style, spans, marker in lines[at:at + taken]:
+            step = _line_height(style, spans)
+            if spans:
+                inner -= style.size * 0.82
+                x = left + PAD_X + style.indent
+                if marker:
+                    current.extend(_draw((Span(marker),), x, inner, style.size,
+                                         False, rgb=style.colour))
+                current.extend(_draw(spans, x + (12 if marker else 0), inner,
+                                     style.size, style.monospace, style.bold,
+                                     rgb=style.colour, tracking=style.tracking))
+                inner -= step - style.size * 0.82
+            else:
+                inner -= step
+        y -= box
+        at += taken
+        if at >= len(lines):
+            break
+    return y, current
+
+
+def _fills(lines: Sequence[tuple[Style, tuple[Span, ...], str]], room: float) -> tuple[int, float]:
+    """How many of these lines fit in `room`, and what they measure."""
+    used = 0.0
+    for count, (style, spans, _) in enumerate(lines):
+        step = _line_height(style, spans)
+        if used + step > room:
+            return count, used
+        used += step
+    return len(lines), used

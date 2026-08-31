@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1927 tests, no network, no live service
+.venv/bin/pytest                      # part of 1933 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 547 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 553 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1927 passing across the four, conformance `PASS`.
+Expected: all clean, 1933 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -9270,6 +9270,26 @@ tested so an empty PDF can never be the answer.
 The complexity ratchet caught the change: `runOffer` went from 13 to 15, so the
 two file-writing operations moved into `runFileOffer` rather than the limit
 moving. They belong together anyway — both answer with a file rather than a job.
+
+### The export is drawn as the chat window
+
+Headings and paragraphs made a report *about* a conversation. `render_conversation`
+draws the conversation: bubbles of bounded width, the person's own turns right
+and blue, everything else left and dark, speaker labels in tracked capitals —
+`.bubble` and `.bubble.user` read off the stylesheet rather than invented.
+
+**`max-width`, not `width`**, and that single detail is what makes it recognisable.
+Every bubble drawn at the full 78% looked like a table; measured after wrapping,
+the way a browser does it, "yes" becomes a small bubble on the right.
+
+A bubble is measured before it is drawn, because the rectangle goes down first
+and its height is the sum of lines not yet laid out. One taller than the page
+that remains is split rather than pushed whole — a long reply would otherwise
+leave most of a sheet empty and still not fit on the next.
+
+Its own renderer beside `render` rather than replacing it: a `.pdf` export is
+drawn as the window, and a `.md` one stays text, which is the only form that
+makes sense in a file somebody will grep.
 
 ### The export looks like the thing that produced it
 

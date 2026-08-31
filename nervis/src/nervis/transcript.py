@@ -73,4 +73,27 @@ def as_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
-__all__ = ["SPEAKERS", "as_markdown", "suggested_name"]
+def as_turns(messages: Sequence[Any], speaker_for: dict[str, str] | None = None) -> list[Any]:
+    """The same conversation as bubbles, for the renderer that draws them.
+
+    Kept beside `as_markdown` rather than replacing it: a `.pdf` target is drawn
+    as the chat window, and a `.txt` or `.md` one is still text, which is the
+    only form that makes sense in a file somebody will grep.
+
+    `mine` is the person's own side — right-aligned and blue, the way
+    `.bubble.user` is on the screen.
+    """
+    from nervis.pdf import Turn
+
+    names = {**SPEAKERS, **(speaker_for or {})}
+    return [
+        Turn(
+            speaker=names.get(str(getattr(m, "role", "")), str(getattr(m, "role", "")) or "?"),
+            body=str(getattr(m, "content", "") or "").strip() or "*(no text in this reply)*",
+            mine=str(getattr(m, "role", "")) == "user",
+        )
+        for m in messages
+    ]
+
+
+__all__ = ["SPEAKERS", "as_markdown", "as_turns", "suggested_name"]
