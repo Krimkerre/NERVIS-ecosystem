@@ -38,6 +38,17 @@
 .chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}/* The attach control. A label wrapping a hidden input rather than a button that
    clicks one: the label *is* the trigger, so there is no second element whose
    only job is to forward a click, and the keyboard reaches it for free. */
+/* An attached file in the transcript. Deliberately not a bubble: it is a thing
+   that happened, not something anybody said, so it is drawn as a card and
+   cannot be misread as a turn in the conversation. */
+.attachment{display:flex;align-items:center;gap:9px;width:fit-content;max-width:78%;
+  margin:7px 0 7px auto;padding:8px 11px;border:1px solid #27598a;border-radius:9px;
+  background:#0e1b28}
+.attachment .clip{font-size:15px;line-height:1}
+.attachment .what{display:flex;flex-direction:column;gap:1px;min-width:0}
+.attachment .what b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment .what small{font-size:10.5px;letter-spacing:.04em}
+.attachment.unread{border-color:#3a4654;opacity:.75}
 .upload{cursor:pointer;display:flex;align-items:center;padding:0 9px;font-size:15px;opacity:.7;user-select:none;background:#0b1118}
 .upload:hover{opacity:1}
 .composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
@@ -3786,17 +3797,21 @@ function scrollChatToEnd(force){
  if(force||chatFollowing(box))box.scrollTop=box.scrollHeight;
 }
 
-/* What is in the workspace, under the composer.
+/* One attached file, in the transcript rather than in a strip under the box.
 
-   **Says which files chat can actually read**, which is a different question
-   from which are there: a PDF sits in the workspace perfectly well and cannot
-   be summarised, and a list that does not say so invites the attempt and then
-   answers "that is not a text file chat can read" to somebody who was looking
-   right at it. */
+   **Where it happened is where it belongs.** A list beneath the composer says
+   *these files exist*; a card in the conversation says *you attached this, at
+   this point, and everything after it can see it*. The second is the true
+   statement — attachments are per-conversation — and it is what every chat
+   client does, so it needs no explaining.
+
+   It is not a message anybody said. It carries no `text`, is skipped when the
+   request body looks for the last thing the person typed, and is drawn as a
+   card rather than a bubble so nobody reads it as words in the conversation. */
 /* Bytes below a kilobyte, kilobytes above it. Rounding everything up to "1 KB"
-   makes a 78-byte file and a 900-byte one look identical, and the question this
-   list exists to answer — did the right thing upload — is exactly the one that
-   distinction settles. */
+   makes a 78-byte file and a 900-byte one look identical, and the question an
+   attachment card exists to answer — did the right thing upload — is exactly
+   the one that distinction settles. */
 function fileSize(bytes){
  const n=Number(bytes)||0;
  if(n<1024)return n+' B';
@@ -3804,30 +3819,26 @@ function fileSize(bytes){
  return (n/(1024*1024)).toFixed(1)+' MB';
 }
 
-async function workspaceFiles(){
- const where=$('#workspaceFiles');
- if(!where)return;
- let body={items:[],detail:''};
- try{
-  const r=await fetch(BASE.nervis+'/api/v1/workspace/files?conversation_id='
-    +encodeURIComponent(CHAT_SESSION.id||''),readDeadline());
-  if(r.ok)body=await r.json();
- }catch(e){/* an unreachable NERVIS is already said louder elsewhere */}
- if(body.detail){where.title='';where.innerHTML=escapeHtml('workspace off — set NERVIS_WORKSPACE_PATH to let chat read and write files');return}
- /* Where these live, on hover. The one question a file list cannot answer by
-    itself is "why is the one I just saved not here", and the answer is almost
-    always that NERVIS is pointed at a different directory than the person is
-    looking at. Absolute here on purpose — it is the person's own screen, and
-    the rule that keeps the path out of `shown` is about prompts and spoken
-    replies, not about the operator's own hover text. */
- where.title=body.workspace?'attached to this conversation, under '+body.workspace:'';
- const items=body.items||[];
- if(!items.length){where.innerHTML=escapeHtml('nothing attached — the clip adds a file this conversation can read');return}
- where.innerHTML=items.slice(0,8).map(f=>
-   `<span title="${escapeHtml(f.readable?'chat can read this':'stored, but not a text file chat can read')}">`
-   +`${f.readable?'':'<span style="opacity:.5">○</span> '}${escapeHtml(f.name)}`
-   +`<span style="opacity:.55"> ${escapeHtml(fileSize(f.bytes))}</span></span>`
- ).join('<span style="opacity:.4"> · </span>');
+/* Which files chat can read, kept in step with `documents.py` by hand.
+   The card states this at the moment of upload, and a card promising a reading
+   NERVIS cannot give would be a lie told in the transcript. */
+const READABLE_SUFFIXES=['.txt','.md','.markdown','.rst','.log','.csv','.tsv','.json',
+ '.yaml','.yml','.toml','.ini','.cfg','.conf','.py','.js','.ts','.tsx','.jsx','.html',
+ '.css','.sh','.sql','.pdf'];
+function readableName(name){
+ const at=String(name||'').lastIndexOf('.');
+ return at>0&&READABLE_SUFFIXES.includes(String(name).slice(at).toLowerCase());
+}
+
+function attachmentCard(m){
+ const f=m.file||{};
+ const size=fileSize(f.bytes);
+ return `<div class="attachment${f.readable?'':' unread'}" title="${escapeHtml(
+    f.readable?'chat can read this file':'stored, but not a text file chat can read')}">`
+  +`<span class="clip">${f.readable?'📄':'📎'}</span>`
+  +`<span class="what"><b>${escapeHtml(f.name||'file')}</b>`
+  +`<small class="mono dim">${escapeHtml(size)}${f.readable?'':' · not readable as text'}</small></span>`
+  +`${stampOf(m)}</div>`;
 }
 
 async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.',
@@ -3869,14 +3880,15 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    ${voiceToggleButton()}</div>
   ${chatDrawerMarkup()}
   <div class="messages" id="messages">
-   ${conv.messages.map((m,mi)=>m.role==='user'
+   ${conv.messages.map((m,mi)=>m.kind==='attachment'
+     ?attachmentCard(m)
+     :m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}${stampOf(m)}</div>`
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${escapeHtml(m.pending?'':'')}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
         : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}</div>`).join('')}
   </div>
   <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
-  <div id="workspaceFiles" class="mono dim" style="margin-top:6px;font-size:11px"></div>
  </div>`;
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
     streaming — aborting the fetch closes the connection, NERVIS sees the
@@ -3903,13 +3915,22 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      +'?conversation_id='+encodeURIComponent(CHAT_SESSION.id||''),
      {method:'PUT',body:file});
    const said=await r.json().catch(()=>({}));
-   if(!r.ok)alert(said.error&&said.error.message||('The file was not accepted: HTTP '+r.status));
+   if(!r.ok){alert(said.error&&said.error.message||('The file was not accepted: HTTP '+r.status))}
+   else{
+    /* Recorded in the conversation the moment NERVIS accepts it, from what
+       NERVIS said it stored — not from the browser's `File`, whose name is
+       what the picker offered rather than what was written. */
+    const stored=(said.file)||{name:file.name,bytes:file.size};
+    CHAT_SESSION.messages.push({role:'user',kind:'attachment',at:new Date().toISOString(),
+      file:{name:stored.name,bytes:stored.bytes,readable:readableName(stored.name)}});
+    CHAT_STORE.save(CHAT_SESSION);
+    await render();
+    scrollChatToEnd(true);
+   }
   }catch(e){alert('NERVIS is not reachable.')}
   picker.value='';
   if(label)label.textContent='📎';
-  workspaceFiles();
  };
- workspaceFiles();
  /* Escape closes the drawer, which is what every drawer everywhere does and the
     only way out that does not require finding a small ✕ with the mouse. */
  $('#content').onkeydown=e=>{if(e.key==='Escape'&&CHAT_SESSION.drawer)chatDrawer(null)}
@@ -8463,7 +8484,10 @@ function chatRequestBody(conversationId){
     goes up and NERVIS supplies the history it already holds — one copy, on the
     side that persists it. */
  const c=CHAT_SESSION;
- const last=[...c.messages].reverse().find(m=>m.role==='user'&&!m.pending);
+ /* `kind` excluded: an attachment is recorded as the person's turn because
+    they did it, but it carries no words. Without this the request body would
+    send an empty `content` for every message sent after a file was attached. */
+ const last=[...c.messages].reverse().find(m=>m.role==='user'&&!m.pending&&!m.kind);
  const system=String(c.system).trim();
  const body={content:last?last.text:'',profile:c.profile,brief:USER.brief,
    /* **The browser's id, and it has to be on every chat request** — this is the

@@ -8753,9 +8753,28 @@ events — an attachment made before the first message has to be filed somewhere
 The browser mints a stable id when the conversation opens, and that is what the
 directory is named.
 
-The screen has the other half: an attach control in the composer, and a line
-under it saying what is attached to this conversation and which of it chat can
-actually read.
+The screen has the other half: an attach control in the composer, and the file
+itself drawn in the transcript.
+
+**Where it happened is where it belongs.** A strip under the composer said
+*these files exist*; a card in the conversation says *you attached this, at this
+point, and everything after it can see it*. The second is the true statement —
+attachments are per-conversation — and it is what every chat client does, so it
+needs no explaining. The card is not a bubble, because it is a thing that
+happened rather than something anybody said, and it carries no `text`: the
+request body skips it when looking for the last thing the person typed, which
+without the guard would have sent an empty question after every upload.
+
+It says on the card whether chat can read the file, because a card promising a
+reading NERVIS cannot give is a lie told in the transcript.
+
+**One bug got through every gate and the browser found it.** `attachmentCard`
+reaches for `fileSize`, and `fileSize` was deleted along with the strip it used
+to live in. A `ReferenceError` that `node --check` cannot see: the message list
+is one template, so the render threw, the transcript went blank, and the file
+picker went with it — attaching a file became impossible and nothing said why.
+`attachment_check.js` now *calls* the card with three sample messages rather
+than reading the source for names, which is the only check that finds it.
 That distinction is the point — a PDF sits in the workspace perfectly well and
 cannot be summarised, and a list that does not say so invites the attempt and
 then refuses somebody who was looking right at the name.

@@ -48,11 +48,18 @@ if (!carried) {
   );
 }
 
-/* ── The id the upload and the listing use ─────────────────────────────── */
+/* ── The id the upload uses ────────────────────────────────────────────── */
 
-/* Read off the source, because both are inside event handlers that would need a
- * live picker and a live fetch to reach. What matters is that the expression is
- * the same one on both, and that it is the same one `chatRequestBody` uses. */
+/* Read off the source, because it lives inside an event handler that would need
+ * a live file picker to reach. What matters is that it is the same expression
+ * `chatRequestBody` sends.
+ *
+ * There was a second leg here checking the strip under the composer, which
+ * listed the conversation's files. The strip is gone — an attachment is drawn
+ * in the transcript now, from what the upload returned, so there is no second
+ * reader to disagree with. The pattern outlived it and silently matched the
+ * *delete* call instead, which correctly uses a different variable; a gate that
+ * keeps matching after its subject is deleted is worse than no gate. */
 const uses = (label, pattern) => {
   const found = source.match(pattern);
   if (!found) {
@@ -66,23 +73,10 @@ const uploadId = uses(
   "the upload",
   /workspace\/files\/'\+encodeURIComponent\(file\.name\)[\s\S]{0,120}?conversation_id='\+encodeURIComponent\(([^)]+)\)/
 );
-const listId = uses(
-  "the listing",
-  /workspace\/files\?conversation_id='\s*\+encodeURIComponent\(([^)]+)\)/
-);
-
-const normalise = (expression) => (expression || "").replace(/\s|\|\|''/g, "");
-if (uploadId && listId && normalise(uploadId) !== normalise(listId)) {
-  failures.push(
-    `the upload files under ${uploadId.trim()} and the listing reads back ` +
-    `${listId.trim()}; the strip under the composer would show a different ` +
-    "set of files than the one that exists."
-  );
-}
 
 /* And the pair against the question. `chatRequestBody` reads `c.id`, which is
  * `CHAT_SESSION.id` under another name, so compare what they resolve to. */
-for (const [label, expression] of [["upload", uploadId], ["listing", listId]]) {
+for (const [label, expression] of [["upload", uploadId]]) {
   if (!expression) continue;
   let resolved;
   try {
@@ -100,9 +94,50 @@ for (const [label, expression] of [["upload", uploadId], ["listing", listId]]) {
   }
 }
 
+/* ── The card an attachment is drawn as ────────────────────────────────── */
+
+/* **Called, not read for.** `attachmentCard` reaches for `fileSize`, and
+ * `fileSize` was deleted along with the strip it used to belong to — a
+ * ReferenceError that `node --check` cannot see, that every other gate passed,
+ * and that took out the whole message list: the render threw, so the transcript
+ * went blank and the file picker along with it. Attaching a file was impossible
+ * and nothing said why.
+ *
+ * Calling it with a plausible message is the only check that finds that. */
+for (const [label, sample] of [
+  ["a readable file", { role: "user", kind: "attachment", at: "2026-01-01T00:00:00Z",
+                        file: { name: "notes.md", bytes: 4096, readable: true } }],
+  ["one chat cannot read", { role: "user", kind: "attachment",
+                             file: { name: "shot.png", bytes: 12, readable: false } }],
+  ["a file with nothing known about it", { role: "user", kind: "attachment" }],
+]) {
+  let drawn;
+  try {
+    drawn = vm.runInContext("attachmentCard", context)(sample);
+  } catch (error) {
+    failures.push(`attachmentCard threw on ${label}: ${error.message}. The whole `
+      + "message list is one template — a throw here blanks the transcript and "
+      + "takes the file picker with it.");
+    continue;
+  }
+  if (!drawn || !String(drawn).includes("attachment")) {
+    failures.push(`attachmentCard drew nothing usable for ${label}.`);
+  }
+  if (sample.file && !String(drawn).includes(sample.file.name)) {
+    failures.push(`attachmentCard drew ${label} without naming the file.`);
+  }
+  if (sample.file && sample.file.readable === false
+      && !String(drawn).includes("not readable")) {
+    failures.push(
+      "a file chat cannot read must say so on the card: announcing it without "
+      + "that is an invitation to a refusal."
+    );
+  }
+}
+
 if (failures.length) {
   console.error("Attachments are filed under one id and read under another:\n");
   for (const failure of failures) console.error("  • " + failure);
   process.exit(1);
 }
-console.log("the upload, the listing and the question agree on the conversation");
+console.log("the upload and the question agree on the conversation");
