@@ -32,6 +32,7 @@ from nervis.api.chat import (
     _first_user_message,
     _forwarded,
     _generate_title,
+    _house_system,
     _title_from,
 )
 from nervis.app import create_app
@@ -3361,3 +3362,35 @@ def test_a_conversation_with_no_attachment_gets_no_note() -> None:
         for body in sent for message in body.get("messages", [])
     )
     assert "Attached to this conversation" not in prompt
+
+
+def test_the_readings_come_with_a_note_about_who_is_reading_them() -> None:
+    """**The readings are written for somebody with the source open.**
+
+    A capability that is not fully working publishes its reason, and the reasons
+    are precise the way a specification is precise. RAVIS's says *"§15.1 asks a
+    mutation to be separately authorized, and `_may_write` is inert on a
+    loopback bind"* — and chat quoted it almost word for word to somebody who
+    has read neither the specification nor the function. Accurate, and it lands
+    as noise.
+
+    Nothing is withheld: the reason is still the answer. It has to arrive in the
+    words of somebody describing the system rather than citing it.
+    """
+    prompt = _house_system({"system": "Be someone."}, prepare_database(":memory:"),
+                           greeting=False, situation="4 of 4 services reachable")
+
+    assert "§15.1" in prompt, "the directive should name the shape it is correcting"
+    assert "reads the screen, not the source" in prompt
+    assert "Never invite the person to read a file" in prompt
+
+
+def test_a_turn_with_no_readings_gets_no_such_note() -> None:
+    """The falsifier. The directive is about how to quote the readings, so a
+    turn carrying none has nothing to apply it to — and a system prompt that
+    grows a paragraph for every rule regardless of relevance is how the
+    instructions start outweighing the question."""
+    prompt = _house_system({"system": "Be someone."}, prepare_database(":memory:"),
+                           greeting=False, situation="")
+
+    assert "reads the screen, not the source" not in prompt

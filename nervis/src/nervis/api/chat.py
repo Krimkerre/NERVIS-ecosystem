@@ -92,6 +92,30 @@ GREETING_DIRECTIVE = (
 # the Parameters drawer carries the switch, so the shortening is a thing you can
 # see and turn off. "Unless the question needs more" is load-bearing — a hard
 # cap turns a request for a list of twelve things into a list of three.
+# Appended whenever ecosystem readings are included.
+#
+# **The readings are written for somebody with the source open, and the person
+# reading the answer is not.** A capability that is not fully working publishes
+# its reason, and the reasons are precise in the way a specification is precise:
+# RAVIS's says *"§15.1 asks a mutation to be separately authorized, and
+# `_may_write` is inert on a loopback bind"*. A model handed that quotes it, and
+# the person is told about a section number they have never read and a function
+# name they have never seen — the answer is accurate and it lands as noise.
+#
+# This does not withhold anything. The reason is still the truth and still the
+# answer; what changes is that it has to arrive in the words of somebody
+# describing the system rather than somebody citing it.
+AUDIENCE_DIRECTIVE = (
+    "The person reads the screen, not the source. Figures and reasons quoted to "
+    "you come from the services' own words, written for somebody with the code "
+    "open: they cite specification sections (§15.1), milestone codes (M18b) and "
+    "identifiers (`_may_write`). Say what those mean and leave the reference "
+    "out — \"writes are not separately authorised yet, so anything that can "
+    "reach the gateway can change settings\" rather than the sentence it came "
+    "from. Never invite the person to read a file, a section or a milestone. If "
+    "a detail only makes sense as a citation, it is not a detail they need."
+)
+
 BREVITY_DIRECTIVE = (
     "Keep answers to about two or three sentences unless the question genuinely "
     "needs more room — a list, a walkthrough or code may run as long as it must. "
@@ -839,6 +863,10 @@ def _house_system(
     # measurement, and position is half of what decides that.
     if any(parts) or speaking_first:
         parts.append(situation)
+        # With the readings and only with them: the directive is about how to
+        # quote *them*, so a turn that carries none has nothing to apply it to.
+        if situation:
+            parts.append(AUDIENCE_DIRECTIVE)
     return "\n\n".join(part for part in parts if part)
 
 

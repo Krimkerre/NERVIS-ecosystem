@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1894 tests, no network, no live service
+.venv/bin/pytest                      # part of 1896 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 514 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 516 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1894 passing across the four, conformance `PASS`.
+Expected: all clean, 1896 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -2524,6 +2524,26 @@ question clears it, so about half the state questions carry background they did
 not need — the deliberate direction of error, since background that arrives
 uninvited costs context and is labelled, while background that fails to arrive
 is the failure that was actually reported.
+
+**And the readings were being quoted at the wrong audience.** Asked about
+RAVIS, chat answered: *"there's a wrinkle with authorization on loopback binds
+where `_may_write` just isn't distinguishing mutations the way §15.1 says it
+should."* Reported back with: *"it acts like i read the files, and know the
+sections inside.. i don't."*
+
+The sentence was almost verbatim from RAVIS's own capability reason, which is
+published for somebody with the source open and is precise the way a
+specification is precise. The model was not embellishing; it was quoting an
+accurate thing at a person who has read neither the section nor the function.
+
+`AUDIENCE_DIRECTIVE` rides with the readings and only with them. It withholds
+nothing — the reason is still the answer — and requires it to arrive in the
+words of somebody describing the system rather than citing it. The same question
+now ends: *"the management API — writes aren't separately authorized yet, so
+anything that can reach the gateway can change settings"*, which is shorter,
+carries the consequence rather than the citation, and needs no files read to
+understand. The five knowledge files were combed for the same habit and the one
+section reference in them is gone.
 
 `tools/knowledge_check.py` is the twelfth gate. A fourth kind of document is a
 fourth thing that can rot, so every pool, endpoint and Clarvis tool these notes

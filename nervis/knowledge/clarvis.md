@@ -78,5 +78,6 @@ Designed and **not built**: M9g (project notes the user writes), M10 (voice
 input), M12 (Tutor Mode). M11 is the release gate rather than a future
 milestone.
 
-`plan.md` §7 in the Clarvis repository is the authority on milestone status.
-Anything here that disagrees with it is stale, and it is the file to believe.
+Clarvis's own build plan is the authority on milestone status, and anything here
+that disagrees with it is stale. That is a note for whoever maintains this file,
+not something to tell somebody who asked a question.
