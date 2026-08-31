@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1884 tests, no network, no live service
+.venv/bin/pytest                      # part of 1892 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 504 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 512 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1884 passing across the four, conformance `PASS`.
+Expected: all clean, 1892 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -2479,6 +2479,56 @@ changed which cached model won, the request left for the real Anthropic API, and
 a 502 came back. The pool change was correct; the suite was certifying an
 installation. Green every day since the suite was written on 23 Aug, and only
 red when something moved.
+
+**Chat can read the ecosystem's own notes now, 2026-08-31.** Asked what RAVIS
+does, chat gave a good account of the live figures and then said: *"how it
+actually decides which model to send a request to, what the fallback chain looks
+like, whether it does load balancing or cost optimization — I don't have
+readings on any of that. I'm watching the service, not its logic."* Every one of
+those answers was written down in this repository and nothing ever handed it
+over.
+
+`nervis/knowledge/` is five short files — one per service plus the ecosystem —
+written for the question an operator asks rather than for an agent building the
+thing. **The canonical specifications were deliberately not indexed instead.**
+They describe what *should* be true, so retrieval over them would have chat
+explaining behaviour that was never built; NERVIS.md alone carries four unbuilt
+milestones. This file has the opposite problem — an honest record, and a
+chronological one, so a search across it surfaces decisions that were true in
+August and reverted in September.
+
+Retrieval is term overlap with a rarity weight, not embeddings: the corpus is a
+few hundred lines of headed prose written in the same vocabulary the questions
+use. Two things were got wrong on the way and both are recorded in the code. A
+hand-written stop list held `model`, `request` and `service` as "too common",
+which removed the subject from *"how does it decide which model to send a
+request to"* and made it match nothing — how common a word is turned out to be a
+measurement rather than a judgement. And a crude stemmer trimmed "optimises" to
+`optim` and "optimisation" to `optimis`, a miss the stemmer produced rather than
+survived.
+
+**The threshold is honest about not separating cleanly.** Measured against real
+questions from the chat log, ones about how something *works* score 5.3 to 39.3
+and ones about what something is *doing now* score 0.0 to 13.8. No value divides
+them, because *"how does RAVIS decide"* and *"anything noteworthy with RAVIS
+lately"* are the same words in different tenses. The bar sits where every design
+question clears it, so about half the state questions carry background they did
+not need — the deliberate direction of error, since background that arrives
+uninvited costs context and is labelled, while background that fails to arrive
+is the failure that was actually reported.
+
+`tools/knowledge_check.py` is the twelfth gate. A fourth kind of document is a
+fourth thing that can rot, so every pool, endpoint and Clarvis tool these notes
+name is verified against the code that defines it — and the reverse for Clarvis,
+since a tool missing from the list is one nobody is warned about. Its first run
+reported `/v1/status` as served by nothing, which was the gate being confidently
+wrong in exactly the way it exists to prevent: three of the four services are
+Python and the fourth is not.
+
+CLARVIS.md gained **§3.2**, recording where the extension stands — 0.11.2, 29
+commands, the nine agent tools, and the five releases that followed M14's
+sign-off — beside §3.1's account of the first integration, which predates the
+Bridge entirely.
 
 **And two gates cannot run in CI, which is not an oversight.** Thirteen
 `*_check.js` exist and the clean-clone run invokes eleven:

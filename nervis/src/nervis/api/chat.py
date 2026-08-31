@@ -35,7 +35,7 @@ from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from nervis import bridges, commands, documents, situation
+from nervis import bridges, commands, documents, knowledge, situation
 from nervis import chat as store
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -709,6 +709,25 @@ async def send(request: Request) -> Any:
         part for part in
         (awareness, _document(request, content, str(body.get("attachment_id") or "")))
         if part
+    )
+
+    # How the ecosystem works, when the question is about that rather than about
+    # what it is doing right now.
+    #
+    # **The gap this fills was reported by the model itself.** Asked what RAVIS
+    # does, it gave a good account of the live readings and then said: *"how it
+    # actually decides which model to send a request to, what the fallback chain
+    # looks like, whether it does load balancing or cost optimization — I don't
+    # have readings on any of that. I'm watching the service, not its logic."*
+    # Every one of those answers was written down in the repository and nothing
+    # ever handed it over.
+    #
+    # Background, and marked as background: the reading says it describes the
+    # design rather than the running system, because a specification and a
+    # service are different things and a model told neither will report
+    # intentions as behaviour.
+    awareness = "\n\n".join(
+        part for part in (awareness, knowledge.reading(content)) if part
     )
 
     # The standing statement first, then the specific offer if there is one.

@@ -110,7 +110,45 @@ Three things this surfaced that reading the source had not:
   `ravis/clarvis-agent`'s 32K minimum-context invariant load-bearing rather
   than decorative.
 
-## 3.2 Corrections to the source drafts
+## 3.2 Where the extension stands, 2026-08-31
+
+§3.1 records the first integration, on 2026-08-23, when the Bridge did not yet
+exist. It does now, and the releases since are its follow-through. Read off the
+extension itself rather than from a plan: **version 0.11.2**, 29 commands, 23
+settings, VS Code engine `^1.93.0`, MEP protocol `1.0.0`, API version `1`.
+
+**M14 — the NERVIS Bridge — was signed off on 29 Aug**, and the four releases
+after it are the parts §6 of this document specifies:
+
+| release | what it closed |
+|---|---|
+| 0.10.0 | sends the session and trace RAVIS joins on (§6.5) |
+| 0.10.1 | chat and the agent hold separate sessions, so a long run does not drag the conversation onto its model |
+| 0.11.0 | publishes its events to NERVIS, with the trace on them (§6.4) |
+| 0.11.1 | the envelope NERVIS's hub actually requires — the first version was accepted by the specification and rejected by the implementation |
+| 0.11.2 | one chat turn names a single trace from start to finish |
+
+**The agent's tool set is nine and closed**: `readFile`, `listFiles`, `search`,
+`applyEdit`, `writeFile`, `runCommand`, `readDiagnostics`, `gitStatus`,
+`gitDiff`. A read-only run is handed only the reading tools, so §7.3's restraint
+is a property of what the model receives rather than an instruction it is asked
+to respect.
+
+**`clarvis.status.read@1` is the only capability declared `available`.** The
+event stream works — it heartbeats, replays a backlog on reconnect, and carries
+§6.4's families — and is declared honestly as not-available because **nothing
+consumes it**: NERVIS's dashboard reads `/v1/status` per instance and its event
+screen shows its own hub. §4.1 forbids advertising an operation that has not
+passed conformance, and a capability nothing has ever read has not been through
+one. This is the rule working, not a defect.
+
+Milestone status belongs to `plan.md` §7 in the Clarvis repository and is not
+restated here beyond this: M0–M9 are built and shipped, plus M9d2, M9d3, M9h and
+M13; M9g, M10 and M12 are designed and not built; M11 is the release gate rather
+than a future milestone. **Where this section and `plan.md` §7 disagree, §7 is
+right and this is stale.**
+
+## 3.3 Corrections to the source drafts
 
 - **M13 live VS Code log tailing is built, not planned.** The source addenda describe it as a
   planned milestone. It ships today behind a user approval prompt that names the risk

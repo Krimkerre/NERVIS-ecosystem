@@ -93,6 +93,10 @@ for gate in render complexity shaping empty_world liveness injection routing out
   step "dashboard $gate" nervis-eco/nervis node "tools/${gate}_check.js"
 done
 
+# Chat quotes these files to operators. A name in them that no longer exists is
+# a wrong answer delivered confidently, which is worse than no answer.
+step "knowledge files" nervis-eco python3 tools/knowledge_check.py
+
 echo "=== clarvis ==="
 if (cd clarvis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
