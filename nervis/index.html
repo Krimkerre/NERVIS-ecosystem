@@ -4185,20 +4185,29 @@ const SPEECH={
  },
 
  welcomeLine(items){
-  const live=(items||[]).filter(e=>e.awaiting_first_contact!==true);
+  /* **The local runtimes are left out of the count.** They get their own
+     sentence, and counting them here named them twice — "LM Studio and Ollama
+     are not answering; the rest are up. LM Studio and Ollama are down." They
+     are model providers rather than services anyway, which is how the ecosystem
+     map already treats them: one bundled node, not two rows on the ring. */
+  const live=(items||[]).filter(e=>e.awaiting_first_contact!==true
+    &&e.key!=='lmstudio'&&e.key!=='ollama');
   const well=live.filter(e=>e.state==='healthy');
   const off=live.filter(e=>e.state!=='healthy'&&e.state!=='degraded');
   const soft=live.filter(e=>e.state==='degraded');
   let line;
+  /* "All 1 services are up and well" is what counting without checking reads
+     like on a machine with one service answering. */
+  const all=live.length===1?'The one service is':`All ${live.length} services are`;
   if(!live.length)line='Systems online, sir. Nothing is reporting in yet.';
   else if(off.length)
    line=`Good ${partOfDay()}, sir. ${off.map(e=>e.label).join(' and ')} `
       +`${off.length>1?'are':'is'} not answering; the rest are up.`;
   else if(soft.length)
-   line=`Good ${partOfDay()}, sir. All ${live.length} services are up, `
+   line=`Good ${partOfDay()}, sir. ${all} up, `
       +`${soft.map(e=>e.label).join(' and ')} running degraded.`;
-  else line=`Good ${partOfDay()}, sir. All ${live.length} services are up and well.`;
-  return line;
+  else line=`Good ${partOfDay()}, sir. ${all} up and well.`;
+  return [line,localModelsLine(items)].filter(Boolean).join(' ');
  },
  welcomed:false,
 
@@ -4391,6 +4400,46 @@ function voicePip(){
  return `<button class="voice-pip${off?' off':''}" title="${escapeHtml(label)}"
    aria-label="${escapeHtml(label)}" onclick="VOICE.quickMute(${off?'false':'true'})"
    >${off?'&#128263;':'&#128266;'}</button>`;
+}
+
+/* Whether anything on this machine can serve a model, said only when it cannot.
+
+   **The same grouping the ecosystem map already makes**, rather than a second
+   opinion about which peers are runtimes: LM Studio and Ollama bundle into one
+   "Local models" node there, green when *either* answers, because either is
+   enough to serve one.
+
+   Silent when a runtime is up, because "local models are available" is not
+   news. Silent too when neither was ever configured — a machine that has never
+   had either installed is not missing anything, and announcing a lack of
+   something nobody set up is the alarm-about-absent-software the registry
+   already refuses to raise elsewhere. */
+function localModelsLine(items){
+ const local=(items||[]).filter(s=>s.key==='lmstudio'||s.key==='ollama');
+ if(!local.length)return '';
+ const up=local.filter(s=>['healthy','degraded'].includes(s.state));
+ if(up.length===local.length)return '';
+ /* Named only where NERVIS has actually watched it answer and then stop.
+    `awaiting_first_contact` is not the reliable "never installed" it looks
+    like — it means *not seen since NERVIS started*, so a runtime closed before
+    the last restart wears it too. Naming one on that basis would report a
+    machine that never had Ollama as having lost it. */
+ const named=local.filter(s=>!up.includes(s)&&!s.awaiting_first_contact);
+ const isare=(n)=>n.length>1?'are':'is';
+ if(!up.length){
+  /* True whichever way it got here — closed, crashed, or never installed — and
+     it is the fact worth hearing: nothing on this machine can serve a model. */
+  return named.length
+   ?`${named.map(s=>s.label).join(' and ')} ${isare(named)} down, so no local `
+     +'models are available at the moment.'
+   :'No local models are available at the moment.';
+ }
+ /* One up and one down is not "no local models" — it is a named absence, and
+    saying otherwise would be wrong in the direction that matters. */
+ return named.length
+  ?`${named.map(s=>s.label).join(' and ')} ${isare(named)} not answering, though `
+    +`${up.map(s=>s.label).join(' and ')} still ${isare(up)}.`
+  :'';
 }
 
 /* Morning, afternoon or evening, from the reader's own clock. */

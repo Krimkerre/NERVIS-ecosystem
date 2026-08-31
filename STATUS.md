@@ -9166,6 +9166,26 @@ the single chance was spent. It is attempted on every read now and guards itself
 with a flag, which is the only version that survives whichever path happens to
 be first.
 
+**It says when nothing can serve a model locally.** LM Studio and Ollama bundle
+into one fact — the same grouping the ecosystem map already makes, green when
+*either* answers because either is enough — and the welcome adds a sentence only
+when that fact is bad news. "No local models are available at the moment" is
+true whichever way it got there, closed or crashed or never installed, and that
+is the thing worth hearing.
+
+A runtime is *named* only where NERVIS has watched it answer and then stop.
+`awaiting_first_contact` looks like "never installed" and is not: it means not
+seen since NERVIS started, so a runtime closed before the last restart wears it
+too, and naming one on that basis would tell a machine that never had Ollama
+that it had lost it.
+
+Two things surfaced while checking the wording rather than the logic. The
+runtimes were being counted as services *and* described separately — "LM Studio
+and Ollama are not answering; the rest are up. LM Studio and Ollama are down" —
+so they are out of the count now, which is also how the map treats them: one
+bundled node rather than two rows on the ring. And a machine with one service
+answering was told "All 1 services are up and well".
+
 **The announcements ride the registry poll, which is the whole point.** The
 registry is fetched on a timer whatever screen is open, so a service falling
 over reaches somebody working in Traces or in another tab — which is what was
