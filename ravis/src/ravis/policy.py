@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -181,12 +181,77 @@ class RoutingPolicy:
         return lines
 
 
+#: Why a reseller copy of a first-party model is refused.
+#:
+#: Worded to name the alternative, because this refusal reaches somebody who
+#: addressed a model by hand and needs to know what to type instead.
+_RESOLD_REFUSAL = (
+    "{vendor} serves this model directly and is reachable, so this is a reseller "
+    "hop through {provider}: it bills the reseller's margin on top of the "
+    "vendor's price, and measured an order of magnitude slower on this machine. "
+    "Address {vendor}'s own catalogue instead"
+)
+
+
+def resold_models(
+    candidates: Mapping[str, ModelCapabilities],
+    provider_of: Callable[[str], str],
+    direct_providers: Collection[str],
+) -> dict[str, str]:
+    """Aggregator copies of models whose own vendor is configured and usable.
+
+    **The rule is: never buy from a reseller what the maker sells directly.** An
+    aggregator publishes `anthropic/claude-haiku-4.5`, and if the `anthropic`
+    provider is configured then RAVIS holds a credential for the same model at
+    the source. Taking the aggregator's copy pays a margin for a hop, and on
+    this machine it measured 8.5-11.1s against 0.7-1.0s direct — the same model,
+    the same prompt, twelve times the wall clock.
+
+    **Derived, not listed.** A model id of the form `<vendor>/<name>` served by
+    a provider that is not `<vendor>` is a reseller copy whenever `<vendor>` is
+    itself a configured provider. No vendor names appear here, so a provider
+    added tomorrow is covered the day it is configured, and one that was never
+    configured — `meta-llama/*` with no Meta provider — is left alone, because
+    there is nowhere else to buy it.
+
+    **`direct_providers` is passed in rather than derived from `provider_of`,
+    and that distinction is the bug this function was born with.**
+    `provider_of` answers "which health scope does a failure belong to", and it
+    recognises a provider only through the `ravis/<provider>/<model>` address
+    form. A translated provider's own catalogue uses bare ids —
+    `claude-haiku-4-5-20251001` — so `provider_of` maps them to the default
+    upstream and the vendor never appeared among the serving providers. The rule
+    matched nothing at all, and the reseller route was still served.
+
+    **It fails open.** A vendor that is not usable is not a place to send
+    anything, so the caller leaves it out of `direct_providers`, its resold
+    copies stay eligible, and the aggregator remains the fallback it should be.
+    Refusing the only reachable route to a model, in the name of preferring an
+    unreachable one, would turn a price preference into an outage.
+    """
+    direct = {name for name in direct_providers if name}
+    resold: dict[str, str] = {}
+    for model in candidates:
+        # `~` marks a floating alias — `~anthropic/claude-haiku-latest` is the
+        # same reseller hop as `anthropic/claude-haiku-4.5` wearing a pointer.
+        # Leaving the marker on made the vendor read as `~anthropic`, which
+        # matches no provider, and the pool simply selected the alias instead:
+        # 131 models correctly excluded and the route unchanged.
+        vendor, slash, _ = model.lstrip("~").partition("/")
+        if not slash or not vendor:
+            continue
+        if vendor != provider_of(model) and vendor in direct:
+            resold[model] = vendor
+    return resold
+
+
 def policy_exclusions(
     policy: RoutingPolicy,
     candidates: Mapping[str, ModelCapabilities],
     *,
     provider_of: Callable[[str], str],
     remote: frozenset[str],
+    direct_providers: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Why policy refuses each candidate it refuses, keyed by model.
 
@@ -199,9 +264,14 @@ def policy_exclusions(
     having to know which subsystem rejected what.
     """
     refused: dict[str, list[str]] = {}
+    resold = resold_models(candidates, provider_of, direct_providers)
     for model in sorted(candidates):
         reasons = _refusals(policy, model, provider_of(model), model in remote,
                             candidates[model])
+        if model in resold:
+            reasons.append(
+                _RESOLD_REFUSAL.format(vendor=resold[model], provider=provider_of(model))
+            )
         if reasons:
             refused[model] = reasons
     return refused
@@ -511,6 +581,7 @@ def policy_refusals(
     addressed: str,
     provider_of: Callable[[str], str],
     remote: frozenset[str],
+    direct_providers: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Policy refusals for the candidate set *and* for what the client addressed.
 
@@ -521,7 +592,10 @@ def policy_refusals(
     request that policy could not see — which is exactly the shape someone
     reaching around a policy would use.
     """
-    refused = policy_exclusions(policy, candidates, provider_of=provider_of, remote=remote)
+    refused = policy_exclusions(
+        policy, candidates, provider_of=provider_of, remote=remote,
+        direct_providers=direct_providers,
+    )
     if addressed and addressed not in refused and addressed not in candidates:
         target = direct_target(addressed) or addressed
         if not is_pool_id(addressed):

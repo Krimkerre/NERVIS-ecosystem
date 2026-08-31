@@ -66,6 +66,7 @@ from ravis.reliability import (
     classify_response,
     error_body,
 )
+from ravis.reliability.failures import HealthScope
 from ravis.routing.engine import RoutingEngine
 from ravis.routing.explain import RouteDecision
 from ravis.runtime.resources import read_memory
@@ -107,6 +108,51 @@ SKIPPED_RESPONSE_HEADERS = frozenset({"content-encoding", "content-length", "tra
 # a naming one: a provider circuit takes out every model behind that provider,
 # so one failing runtime excluded the entire catalogue.
 UPSTREAM_PROVIDER = "upstream"
+
+
+async def _direct_providers(request: Request) -> frozenset[str]:
+    """Vendors this machine can buy from at the source, right now.
+
+    **The set the reseller rule is allowed to prefer**, and every word of the
+    condition is load-bearing. A vendor belongs here only if it is configured,
+    its circuit is closed, *and it actually lists models*. The rule refuses an
+    aggregator's copy, so a vendor that cannot serve the request is not a reason
+    to refuse the only route that can.
+
+    That third condition is not hypothetical. On this machine `google` is
+    configured and credentialed and publishes **no catalogue at all**, while
+    OpenRouter offers 43 `google/*` models. Without the check the rule would
+    have refused all 43 in favour of a provider with nothing behind it, and
+    Gemini would have become unreachable — a price preference turned into an
+    outage, which is exactly what the fail-open clause exists to prevent.
+
+    Asking the adapters is cheap: their discovery sits behind a TTL, so this is
+    a dictionary lookup in the ordinary case, and a listing that fails leaves
+    the vendor out — the safe direction.
+    """
+    translating: dict[str, Any] = getattr(request.app.state, "translating", {})
+    transparents: dict[str, TransparentUpstream] = getattr(
+        request.app.state, "transparents", {}
+    )
+    health = request.app.state.health
+
+    def closed(name: str) -> bool:
+        known = health.known(HealthScope.PROVIDER, name)
+        return known is None or known.allows()
+
+    usable = set()
+    for name, adapter in translating.items():
+        if not closed(name):
+            continue
+        try:
+            if await adapter.models():
+                usable.add(name)
+        except Exception:  # noqa: BLE001 — a failed listing is not a catalogue
+            continue
+    for built in transparents.values():
+        if closed(built.name) and built.registry.model_ids():
+            usable.add(built.name)
+    return frozenset(usable)
 
 
 def _provider_of(request: Request) -> Callable[[str], str]:
@@ -725,6 +771,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
             addressed=payload.get("model") or "",
             provider_of=_provider_of(request),
             remote=remote,
+            direct_providers=await _direct_providers(request),
         ),
     )
     # Recorded rather than recomputed. Re-running the router later would use a

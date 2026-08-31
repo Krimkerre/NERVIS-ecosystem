@@ -15,6 +15,7 @@ policy, and then shows it losing.
 from __future__ import annotations
 
 import json
+from typing import Callable
 
 import pytest
 
@@ -36,6 +37,7 @@ from ravis.policy import (
     load_policies,
     policy_exclusions,
     policy_refusals,
+    resold_models,
 )
 from ravis.routing.engine import RoutingEngine
 
@@ -444,3 +446,98 @@ def test_a_budget_lean_still_decides_when_privacy_is_not_asked_for() -> None:
     )
 
     assert decision.selected == HOSTED, "nothing asked to stay local, so cost decides"
+
+
+# ── Never buy from a reseller what the maker sells directly ────────────────
+
+def _caps(*models: str) -> dict[str, ModelCapabilities]:
+    return {model: ModelCapabilities(model_id=model) for model in models}
+
+
+def _serving(mapping: dict[str, str]) -> Callable[[str], str]:
+    return lambda model: mapping.get(model, "openrouter")
+
+
+def test_a_resold_model_is_refused_when_its_vendor_is_configured() -> None:
+    """The measurement behind the rule: `anthropic/claude-haiku-4.5` through
+    OpenRouter took 8.5-11.1s on this machine, and `claude-haiku-4-5-20251001`
+    straight from Anthropic took 0.7-1.0s — same model, same prompt, twelve
+    times the wall clock, and the reseller bills a margin on top."""
+    candidates = _caps("anthropic/claude-haiku-4.5", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
+
+    resold = resold_models(candidates, provider_of, {"anthropic"})
+
+    assert resold == {"anthropic/claude-haiku-4.5": "anthropic"}
+
+
+def test_a_model_with_no_direct_vendor_is_left_alone() -> None:
+    """The falsifier, and the reason no vendor names are written down. Nobody
+    sells `meta-llama/*` to this machine directly, so the aggregator's copy is
+    the only way to buy it and refusing it would just remove the model."""
+    candidates = _caps("meta-llama/llama-3.3-70b-instruct", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
+
+    assert resold_models(candidates, provider_of, {"anthropic"}) == {}
+
+
+def test_the_vendors_own_model_is_never_called_resold() -> None:
+    """A provider serving its own namespaced id is the direct route, not a hop."""
+    candidates = _caps("anthropic/claude-haiku-4.5")
+    provider_of = _serving({"anthropic/claude-haiku-4.5": "anthropic"})
+
+    assert resold_models(candidates, provider_of, {"anthropic"}) == {}
+
+
+def test_it_fails_open_when_the_vendor_is_unavailable() -> None:
+    """Refusing the only reachable route to a model, in the name of preferring
+    an unreachable one, turns a price preference into an outage."""
+    candidates = _caps("anthropic/claude-haiku-4.5", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
+
+    # The vendor is not in the usable set — its circuit is open, or it holds no
+    # credential — so its resold copies stay eligible.
+    resold = resold_models(candidates, provider_of, set())
+
+    assert resold == {}
+
+
+def test_the_refusal_names_the_vendor_so_a_person_knows_what_to_type() -> None:
+    """This reaches somebody who addressed a model by hand. "Refused by policy"
+    without an alternative is a dead end."""
+    candidates = _caps("anthropic/claude-haiku-4.5", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
+
+    refused = policy_exclusions(
+        RoutingPolicy(), candidates,
+        provider_of=provider_of,
+        remote=frozenset(candidates),
+        direct_providers={"anthropic"},
+    )
+
+    assert "claude-haiku-4-5-20251001" not in refused
+    reason = " ".join(refused["anthropic/claude-haiku-4.5"])
+    assert "anthropic" in reason and "openrouter" in reason
+    assert "reseller" in reason
+
+
+def test_a_bare_model_id_is_never_resold() -> None:
+    """No slash, no vendor prefix, nothing to compare — and a local model like
+    `qwen3-4b` must not be mistaken for one."""
+    candidates = _caps("qwen3-4b", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic", "qwen3-4b": "default"})
+
+    assert resold_models(candidates, provider_of, {"anthropic", "default"}) == {}
+
+
+def test_a_floating_alias_is_the_same_reseller_hop() -> None:
+    """`~anthropic/claude-haiku-latest` is a pointer at the same OpenRouter
+    route. Leaving the `~` on made the vendor read as `~anthropic`, which
+    matches no provider — 131 models were correctly excluded and the pool
+    simply selected the alias instead, at the same eleven seconds."""
+    candidates = _caps("~anthropic/claude-haiku-latest", "claude-haiku-4-5-20251001")
+    provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
+
+    assert resold_models(candidates, provider_of, {"anthropic"}) == {
+        "~anthropic/claude-haiku-latest": "anthropic"
+    }

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1861 tests, no network, no live service
+.venv/bin/pytest                      # part of 1868 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1861 passing across the four, conformance `PASS`.
+Expected: all clean, 1868 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8772,6 +8772,77 @@ The reasoning-model problem is unchanged and now harmless. A chat served by a
 reasoning build will still spend 24 tokens thinking and still have its title
 discarded; the difference is that it fails on the model already in memory rather
 than loading a second one to fail on.
+
+## Never buy from a reseller what the maker sells directly, 2026-08-31
+
+Reported as *"chat seems to be much slower than yesterday"*, and it was.
+
+**Measured before anything was changed.** A full NERVIS turn took 12.42s and
+RAVIS put 12.31s of that in the upstream call — so NERVIS's own share, the
+awareness assembly and the store, was **110ms**, about 1%. Nothing in the recent
+document or attachment work was involved. The network was not it either:
+OpenRouter's own catalogue endpoint answered in 190ms.
+
+Same prompt, four models, one provider:
+
+| model | route | wall clock |
+|---|---|---|
+| `meta-llama/llama-3.3-70b-instruct` | openrouter | 0.61s |
+| `openai/gpt-4o-mini` | openrouter | 0.81s |
+| `anthropic/claude-sonnet-5` | openrouter | 4.05s |
+| `anthropic/claude-haiku-4.5` | openrouter | 10.8s |
+
+Anthropic through the aggregator, and nothing else, was slow. The decisive
+comparison is the same model both ways:
+
+| route | run 1 | run 2 |
+|---|---|---|
+| `claude-haiku-4-5-20251001` via `anthropic` | **0.67s** | **0.96s** |
+| `anthropic/claude-haiku-4.5` via `openrouter` | 8.5s | 11.1s |
+
+Twelve times the wall clock, and the reseller bills a margin on top of the
+vendor's own price. So the rule is: **never take an aggregator's copy of a model
+whose maker this machine can reach directly.**
+
+**Derived, not listed.** A model id `<vendor>/<name>` served by a provider that
+is not `<vendor>` is a reseller copy whenever `<vendor>` is itself a usable
+provider. No vendor names appear in the code, so a provider configured tomorrow
+is covered that day, and `meta-llama/*` with no Meta provider is left alone
+because there is nowhere else to buy it.
+
+**Three things went wrong on the way, and each is a check the rule now carries.**
+
+*The vendor was invisible.* The first version derived the direct-provider set
+from `provider_of`, which answers "which health scope owns this failure" and
+recognises a provider only through the `ravis/<provider>/<model>` address form.
+Anthropic's own catalogue uses bare ids — `claude-haiku-4-5-20251001` — so the
+vendor never appeared, the rule matched nothing, and the reseller route was
+served exactly as before. The set is passed in now.
+
+*The alias slipped through.* With that fixed, 131 models were correctly excluded
+and the pool selected `~anthropic/claude-haiku-latest` instead — a floating
+alias at the same OpenRouter route, whose `~` made the vendor read as
+`~anthropic` and match no provider. Eleven seconds, unchanged. The marker is
+stripped before the comparison.
+
+*It nearly caused an outage.* `google` is configured, credentialed, and
+publishes **no catalogue at all**, while OpenRouter offers 43 `google/*` models.
+A rule keyed on "is configured" would have refused all 43 in favour of a
+provider with nothing behind it and made Gemini unreachable. A vendor now counts
+only if its circuit is closed *and* it actually lists models — checked live:
+`anthropic/*` is refused, `google/*` is not.
+
+**The result, end to end:** a NERVIS chat turn went from 12.42s to **1.02s**,
+served by `claude-haiku-4-5-20251001` through `provider=anthropic`.
+
+An explicit address of a resold model is refused rather than silently
+substituted, per §5.3 — and the refusal names the vendor, because it reaches
+somebody who typed a model by hand and needs to know what to type instead.
+
+**Found in passing and not fixed:** `google/gemini-2.0-flash-001` resolves to
+the local LM Studio upstream and fails with *"No models loaded"*. It did this
+before any of this work and is unrelated to the reseller rule — which is why the
+Google check above matters, since the fallback it preserves is itself broken.
 
 ## Starting the thing
 
