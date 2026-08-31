@@ -25,7 +25,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from nervis import bridges, situation
+from nervis import bridges, commands, situation
 from nervis import chat as store
 from nervis.api.chat import (
     TITLE_POOL,
@@ -3401,7 +3401,9 @@ def test_the_persona_is_jarvis_delivery_over_the_original_character() -> None:
     wholesale with JARVIS and lost the half worth keeping. Sarcasm delivered in
     JARVIS's cadence is the point; JARVIS without the teeth is a status page
     that says "sir"."""
-    from nervis.api.chat import DEFAULT_PERSONA as persona
+    from nervis.api.chat import DEFAULT_PERSONA
+
+    persona = DEFAULT_PERSONA
 
     for kept in ("nosy roommate", "knocking something off a shelf",
                  "affectionately, never cruelly", "dry silence beats fake enthusiasm",
@@ -3461,3 +3463,94 @@ def test_a_persona_somebody_wrote_is_never_overwritten() -> None:
     stored(theirs, "You are a laconic sysadmin. Say as little as possible.")
     seed_chat_defaults(theirs)
     assert current(theirs).startswith("You are a laconic sysadmin"), "theirs must stay theirs"
+
+
+# ── Exporting the whole conversation ───────────────────────────────────────
+
+def test_the_export_writes_every_turn_not_just_the_last_reply(tmp_path: Path) -> None:
+    """**A transcript's whole value is being complete.** Saving a reply and
+    exporting a conversation are different acts, which is why they are different
+    operations rather than one with a flag."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    first = turn(client, "why is ravis slow", system="Be someone.")
+    conversation = first.headers["x-conversation-id"]
+    turn(client, "and what fixed it", system="Be someone.",
+         conversation_id=conversation)
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.conversation.export",
+        "target": "chat.pdf",
+        "conversation_id": conversation,
+    })
+
+    assert ran.status_code == 200, ran.text
+    assert "turn(s)" in ran.json()["file"]["detail"]
+    written = (tmp_path / "chat.pdf").read_bytes()
+    assert written.startswith(b"%PDF-1.4")
+    # Both questions are in it, which is the difference from saving one reply.
+    assert b"(why is ravis slow)" in written
+    assert b"(and what fixed it)" in written
+
+
+def test_exporting_a_conversation_that_does_not_exist_says_so(tmp_path: Path) -> None:
+    """A browser sending its own id instead of NERVIS's names a conversation the
+    store has never heard of. Better a refusal than an empty PDF."""
+    client = an_api(workspace_path=str(tmp_path))
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.conversation.export",
+        "target": "chat.pdf",
+        "conversation_id": "cv_browser_side",
+    })
+
+    assert ran.status_code >= 400
+    assert "nothing to export" in ran.text
+    assert not (tmp_path / "chat.pdf").exists()
+
+
+def test_an_export_cannot_climb_out_of_the_workspace(tmp_path: Path) -> None:
+    """The same boundary as every other write, because it is the same code."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    answered = turn(client, "anything", system="Be someone.")
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.conversation.export",
+        "target": "../escaped.pdf",
+        "conversation_id": answered.headers["x-conversation-id"],
+    })
+
+    assert ran.status_code >= 400
+    assert not (tmp_path.parent / "escaped.pdf").exists()
+
+
+def test_asking_to_export_offers_it_without_being_given_a_filename() -> None:
+    """**"Export this conversation" is not vague the way "save that" is.** It
+    names its target exactly, and the filename comes from the conversation's own
+    stored title rather than from a model — which is what keeps §12's rule about
+    invented targets intact."""
+    offer = commands.propose("export this conversation to pdf", [],
+                             default_name="why-is-ravis-slow-2026-08-31.pdf")
+
+    assert offer is not None
+    assert offer.operation == "nervis.conversation.export"
+    assert offer.target == "why-is-ravis-slow-2026-08-31.pdf"
+    assert offer.ready is True
+
+
+def test_a_named_file_beats_the_derived_one() -> None:
+    offer = commands.propose("save this conversation as q3-review.pdf", [],
+                             default_name="derived-2026-08-31.pdf")
+
+    assert offer is not None and offer.target == "q3-review.pdf"
+
+
+def test_saving_one_reply_is_still_its_own_operation() -> None:
+    """The falsifier for the precedence. "Save that as notes.pdf" mentions no
+    conversation and must not become an export of the whole thing."""
+    offer = commands.propose("save that as notes.pdf", [], default_name="x.pdf")
+
+    assert offer is not None and offer.operation == "nervis.document.write"

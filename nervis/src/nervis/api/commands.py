@@ -24,6 +24,7 @@ free-form path §12 exists to prevent, dressed as a parameter.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -31,7 +32,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, pdf
+from nervis import chat, commands, pdf, transcript
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -94,6 +95,8 @@ async def run(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError("an operation needs a target")
     if operation == "nervis.document.write":
         return _write_document(request, target, str(body.get("conversation_id") or ""))
+    if operation == "nervis.conversation.export":
+        return _export_conversation(request, target, str(body.get("conversation_id") or ""))
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
@@ -296,6 +299,32 @@ async def _json_body(request: Request) -> dict[str, Any]:
     return found
 
 
+def _export_conversation(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
+    """Write the whole conversation to a file, rather than its last reply.
+
+    Same boundary, same store, same renderer — only the content differs, and it
+    differs completely: every turn in order, under its speaker, nothing dropped.
+    A transcript is the one document whose whole value is being complete.
+
+    The text still comes from NERVIS's own store and never from the request. A
+    body that carried its own content would make this an arbitrary file-write
+    endpoint wearing a chat operation's name, which is as true of an export as
+    it is of a save.
+    """
+    root = _workspace(request)
+    stored = chat.messages(request.app.state.database, conversation_id)
+    if not stored:
+        raise InvalidConfigurationError("this conversation has nothing to export yet")
+
+    title = next(
+        (str(row.get("title") or "") for row in chat.conversations(request.app.state.database)
+         if row["conversation_id"] == conversation_id),
+        "",
+    )
+    text = transcript.as_markdown(title, stored, datetime.now().astimezone())
+    return _write_into_workspace(request, root, named, text, turns=len(stored))
+
+
 def _write_document(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
     """Save the last reply of a conversation to a file the person named.
 
@@ -311,27 +340,42 @@ def _write_document(request: Request, named: str, conversation_id: str) -> dict[
     its own content would make this an arbitrary file-write endpoint wearing a
     chat operation's name.
     """
-    settings = request.app.state.settings
-    root = str(getattr(settings, "workspace_path", "") or "").strip()
-    if not root:
-        raise InvalidConfigurationError(
-            "NERVIS has no workspace configured, so it cannot write a file. "
-            "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
-        )
-
+    root = _workspace(request)
     written = [
         message for message in chat.messages(request.app.state.database, conversation_id)
         if message.role == "clarvis" or message.role == "assistant"
     ]
     if not written:
         raise InvalidConfigurationError("this conversation has no reply to save yet")
+    return _write_into_workspace(request, root, named, written[-1].content)
 
+
+def _workspace(request: Request) -> str:
+    """Where chat may write, or a refusal naming the setting that turns it on."""
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        raise InvalidConfigurationError(
+            "NERVIS has no workspace configured, so it cannot write a file. "
+            "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
+        )
+    return root
+
+
+def _write_into_workspace(
+    request: Request, root: str, named: str, text: str, turns: int = 0
+) -> dict[str, Any]:
+    """One text, one filename, one boundary.
+
+    **Shared by both writers deliberately.** Saving a reply and exporting a
+    conversation differ only in what they assemble; the path comparison, the
+    renderer, the audit line and the shape of the answer are the same act. Two
+    copies of a boundary disagree eventually, and this is the boundary.
+    """
     try:
         resolved = resolve_in_workspace(Path(root), named)
     except OutsideWorkspaceError as refusal:
         raise InvalidConfigurationError(str(refusal)) from refusal
 
-    text = written[-1].content
     if resolved.path.suffix.lower() == ".pdf":
         rendered = pdf.render(resolved.shown, text)
         payload, detail = rendered.data, f"{rendered.pages} page(s)"
@@ -341,6 +385,8 @@ def _write_document(request: Request, named: str, conversation_id: str) -> dict[
             detail += f"; {len(rendered.unsupported)} character(s) Latin-1 could not carry"
     else:
         payload, detail = text.encode("utf-8"), f"{len(text):,} characters"
+    if turns:
+        detail += f"; {turns} turn(s)"
 
     resolved.path.parent.mkdir(parents=True, exist_ok=True)
     resolved.path.write_bytes(payload)

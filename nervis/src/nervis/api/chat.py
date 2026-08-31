@@ -35,7 +35,7 @@ from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from nervis import bridges, commands, documents, knowledge, situation
+from nervis import bridges, commands, documents, knowledge, situation, transcript
 from nervis import chat as store
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -805,6 +805,14 @@ async def send(request: Request) -> Any:
             await _catalogue(request),
             await _jobs(request, content),
             await _pools(request, content),
+            # So "export this conversation" can name a file without the person
+            # supplying one. Derived from the conversation's own stored title —
+            # NERVIS's record, not a model's suggestion — which is what keeps
+            # §12's rule about invented targets intact.
+            default_name=transcript.suggested_name(
+                _stored_title(database, conversation_id) or content,
+                datetime.now().astimezone(),
+            ),
         )
         if not greeting
         else None
@@ -1828,6 +1836,23 @@ def _title_later(
         asyncio.get_running_loop().create_task(
             _generate_title(request, conversation_id, opening, trace_id, served)
         )
+
+
+def _stored_title(database: Any, conversation_id: str) -> str:
+    """This conversation's own title, or empty on the turn that creates it.
+
+    Empty is ordinary rather than a failure: the first message of a conversation
+    is proposed against before the conversation is stored, so the caller falls
+    back to the question itself — which is what the title will be taken from
+    anyway.
+    """
+    if not conversation_id:
+        return ""
+    return next(
+        (str(row.get("title") or "") for row in store.conversations(database)
+         if row["conversation_id"] == conversation_id),
+        "",
+    )
 
 
 def _first_user_message(database: Any, conversation_id: str) -> str:

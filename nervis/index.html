@@ -63,7 +63,13 @@
 .attachment.unread{border-color:#3a4654;opacity:.75}
 .upload{cursor:pointer;display:flex;align-items:center;padding:0 9px;font-size:15px;opacity:.7;user-select:none;background:#0b1118}
 .upload:hover{opacity:1}
-.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
+/* `flex:0 0 auto` — the composer never shrinks and never grows.
+   It is a flex child of `.chat` and had the default `flex-shrink:1`, so a
+   conversation long enough to overflow squeezed the box you type in: measured
+   at 15px tall after fourteen messages, down from about forty, and squeezed
+   further from there. The message list is the only thing in that column with
+   any give, which is what `flex:1 1 auto; min-height:0` already says about it. */
+.composer{display:flex;flex:0 0 auto;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
 .model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}details.log-line{border-bottom:1px solid rgba(255,255,255,.05)}details.log-line>summary{cursor:pointer;list-style:none;user-select:none}details.log-line>summary::-webkit-details-marker{display:none}details.log-line>summary:hover{background:rgba(255,255,255,.04)}details.log-line[open]>summary{background:rgba(var(--rgb),.07)}details.log-line>summary>span:first-child::before{content:"▸ ";opacity:.5}details.log-line[open]>summary>span:first-child::before{content:"▾ "}.log-detail{padding:6px 12px 12px;display:flex;flex-direction:column;gap:4px}details.excluded-group{border-left:2px solid var(--accent);background:#0a1118;margin:5px 0}details.excluded-group>summary{cursor:pointer;list-style:none;user-select:none;padding:8px 12px;display:flex;gap:8px;align-items:baseline}details.excluded-group>summary::-webkit-details-marker{display:none}details.excluded-group>summary::before{content:"\25B8 ";opacity:.5}details.excluded-group[open]>summary::before{content:"\25BE "}details.excluded-group>summary span{color:#738396}details.excluded-group>div{padding:0 12px 10px 26px;max-height:220px;overflow-y:auto;line-height:1.7}.log-detail p{margin:2px 0;line-height:1.6}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
 /* Sized rather than intrinsic: an iframe has no content height of its own, and
@@ -8875,6 +8881,32 @@ function offerRow(offer,index){
    token and pasting it is the manual step the launcher exists to remove. NERVIS
    holds the narrow credential now, checks the operation against its own closed
    set, and publishes every attempt to the hub. */
+/* The two operations that answer with a file rather than a job. */
+const WRITES_A_FILE=['nervis.document.write','nervis.conversation.export'];
+
+/* Saving a reply, or exporting the whole conversation.
+
+   Its own function because `runOffer` crossed the complexity ratchet when the
+   export joined it — and the two belong together anyway: they answer in the
+   same shape, a file rather than a job, which is why neither shares a sentence
+   with the SIRVIS queue they never touch. */
+async function runFileOffer(offer){
+ const exporting=offer.operation==='nervis.conversation.export';
+ offer.done=exporting?'exporting…':'writing…';
+ render();
+ /* **The server's conversation id, not the browser's.** Both of these read
+    their content out of NERVIS's own store, and the store is keyed on the id
+    NERVIS minted when the first turn landed. `CHAT_SESSION.id` names a
+    conversation the store has never heard of, so this asked for a file to be
+    written from a conversation that, as far as NERVIS was concerned, did not
+    exist. */
+ const saved=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.remote_id||'');
+ offer.done=saved.file
+   ?`${exporting?'exported':'saved'} ${saved.file.name} · ${saved.file.detail}`
+   :`nothing was written — ${saved.error}`;
+ render();
+}
+
 async function runCommand(operation,target,reason,conversationId){
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
@@ -8943,16 +8975,7 @@ async function runOffer(index){
  /* Saving a reply to a file is NERVIS's own operation and answers in its own
     shape — a file, not a job — so it is handled before the SIRVIS wording
     below rather than sharing a sentence with a queue it never touches. */
- if(offer.operation==='nervis.document.write'){
-  offer.done='writing…';
-  render();
-  const saved=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.id);
-  offer.done=saved.file
-    ?`saved ${saved.file.name} · ${saved.file.detail}`
-    :`nothing was written — ${saved.error}`;
-  render();
-  return;
- }
+ if(WRITES_A_FILE.includes(offer.operation))return runFileOffer(offer);
  const stopping=offer.operation==='sirvis.benchmark.cancel';
  /* "submitting" rather than "queueing": at this point the request has been
     sent and nothing yet knows whether it will wait or start, and naming one of

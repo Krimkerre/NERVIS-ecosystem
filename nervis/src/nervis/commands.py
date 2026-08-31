@@ -92,6 +92,16 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the last reply to {target}",
         action="Save",
     ),
+    # The whole conversation rather than the last reply, and its own operation
+    # because it is its own act: one saves an answer somebody liked, the other
+    # keeps a record of an exchange. Sharing an id would make the confirm button
+    # ambiguous about which is about to happen.
+    Operation(
+        id="nervis.conversation.export",
+        service="nervis",
+        summary="this conversation to {target}",
+        action="Export",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
@@ -159,6 +169,22 @@ WRITE = re.compile(
     r"\b(?:save|write|export|put)\b[^.?!]{0,60}?"
     r"(?:\bas\b|\bto\b|\binto\b)?\s*"
     r"[\"'`]?(?P<file>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?",
+    re.IGNORECASE,
+)
+
+# Exporting the conversation itself.
+#
+# **A filename is optional here, unlike `WRITE`.** That rule exists because
+# "save that" names no file and a target NERVIS invented is what §12 forbids —
+# but "export this conversation" is not vague in the same way. It names its
+# target exactly: *this conversation*, which NERVIS is holding and which carries
+# its own stored title. The filename is derived from that title, not conjured to
+# fill a gap, and the person still confirms it on the button.
+EXPORT_CONVERSATION = re.compile(
+    r"\b(?:export|save|write|print|download)\b[^.?!]{0,50}?"
+    r"\b(?:conversation|chat|transcript|discussion|thread)\b"
+    r"|\b(?:conversation|chat|transcript|discussion|thread)\b[^.?!]{0,40}?"
+    r"\b(?:export|save|write|print|download)\b",
     re.IGNORECASE,
 )
 
@@ -240,6 +266,7 @@ def propose(
     models: Sequence[Mapping[str, Any]],
     jobs: Sequence[Mapping[str, Any]] = (),
     pools: Sequence[Mapping[str, Any]] = (),
+    default_name: str = "",
 ) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
@@ -269,9 +296,9 @@ def propose(
     stopping = CANCEL.search(question)
     if stopping:
         return _cancel_proposal(stopping.group("job") or "", jobs)
-    writing = WRITE.search(question)
-    if writing:
-        return _write_proposal(writing.group("file"))
+    saving = _saving_proposal(question, default_name)
+    if saving is not None:
+        return saving
     if not BENCHMARK.search(question):
         return None
     return _benchmark_proposal(question, models)
@@ -345,6 +372,38 @@ def _write_proposal(named: str) -> Proposal:
     boundary in two places, and two copies of a boundary disagree eventually.
     """
     operation = BY_ID["nervis.document.write"]
+    return Proposal(
+        operation=operation.id, service=operation.service, target=named,
+        summary=operation.summary.format(target=named), ready=True,
+        action=operation.action,
+    )
+
+
+def _saving_proposal(question: str, default_name: str) -> Proposal | None:
+    """Writing a file: the whole conversation, or the last reply.
+
+    **The conversation is checked first**, because "export this conversation as
+    notes.pdf" matches both patterns and only one of them is what was asked for.
+
+    Split out of `propose` for the complexity gate, which is doing its job here:
+    the two branches share a filename and differ in what they write, and reading
+    them side by side is how the precedence stays visible.
+    """
+    writing = WRITE.search(question)
+    if EXPORT_CONVERSATION.search(question):
+        named = writing.group("file") if writing else default_name
+        return _export_proposal(named) if named else None
+    return _write_proposal(writing.group("file")) if writing else None
+
+
+def _export_proposal(named: str) -> Proposal:
+    """Export the whole conversation to a file.
+
+    Ready immediately, like the single-reply write: the target is a filename and
+    whether it sits inside the workspace is decided when the button is pressed,
+    by the one path comparison that governs every write.
+    """
+    operation = BY_ID["nervis.conversation.export"]
     return Proposal(
         operation=operation.id, service=operation.service, target=named,
         summary=operation.summary.format(target=named), ready=True,

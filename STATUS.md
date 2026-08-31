@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1908 tests, no network, no live service
+.venv/bin/pytest                      # part of 1922 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 528 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 542 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1908 passing across the four, conformance `PASS`.
+Expected: all clean, 1922 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -9228,6 +9228,48 @@ broken, on every screen but one. Settings are re-read on the same poll now
 rather than once, because a second tab holding a stale "not muted" would talk
 after somebody silenced it here. The pip repaints on its own rather than through
 a full render, which §25.2 is emphatic about.
+
+## The composer was being crushed, and chat can export itself — 2026-08-31
+
+**The box you type in shrank as the conversation grew.** It is a flex child of
+the chat column and carried the default `flex-shrink:1`, so a conversation long
+enough to overflow squeezed it: measured at **15px** tall after fourteen
+messages, down from forty-one, and squeezed further from there. `flex:0 0 auto`.
+The message list is the only thing in that column with any give, which is what
+`flex:1 1 auto; min-height:0` already said about it. Held at 41px through 0, 14
+and 60 messages.
+
+**`nervis.conversation.export` writes the whole transcript**, and is its own
+operation rather than a flag on the one that saves a reply: one keeps an answer
+somebody liked, the other keeps a record of an exchange, and sharing an id would
+make the confirm button ambiguous about which is about to happen.
+
+`transcript.py` turns a conversation into the markdown `layout.py` already
+parses, so an exported transcript and a saved answer come out of one renderer
+rather than two that drift. Every turn in order under its speaker; nothing
+summarised and nothing dropped, because a transcript is the one document whose
+whole value is being complete. An empty reply is kept and marked — a model that
+spent its budget thinking and returned nothing is a thing that happened, and
+hiding it makes the next question unreadable.
+
+**A filename is optional here, unlike the single-reply write.** That rule exists
+because "save that" names no file and a target NERVIS invented is what §12
+forbids — but "export this conversation" names its target exactly. The name is
+*derived* from the conversation's own stored title and the date, which is
+NERVIS's record rather than a model's suggestion, and the person still confirms
+it on the button. A filename they supply wins over the derived one.
+
+**And it turned up a bug in the write path that shipped before it.** The
+dashboard sent `CHAT_SESSION.id` — the browser's id, minted at page load — where
+both operations read their content out of NERVIS's store, which is keyed on the
+id NERVIS minted when the first turn landed. So the confirm button asked for a
+file to be written from a conversation that, as far as the store was concerned,
+did not exist. It sends `remote_id` now, and the refusal for an unknown id is
+tested so an empty PDF can never be the answer.
+
+The complexity ratchet caught the change: `runOffer` went from 13 to 15, so the
+two file-writing operations moved into `runFileOffer` rather than the limit
+moving. They belong together anyway — both answer with a file rather than a job.
 
 ## Starting the thing
 
