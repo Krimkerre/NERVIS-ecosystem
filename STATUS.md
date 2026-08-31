@@ -2826,13 +2826,29 @@ and the only genuinely new agency. It still produces notes and proposals rather
 than acts, so §12 is untouched; the controls it needs are budget and frequency
 rather than permission.
 
-**RAVIS M26 is what makes it parallel**, and the obvious choice is the wrong
-one. `ravis/cheap` has a `$0` ceiling, so free-only, so local-only — an
-unattended thinker on that pool loads a model onto the machine chat is already
-using. That is not hypothetical: it is exactly the exaone incident from earlier
-today, where a background title job loaded a cold 2.4B and produced nothing.
-§9.6.1's background marker has the same shape and the same problem, which is why
-M25's exit says not to use it.
+**RAVIS M26 is what makes it parallel**, and its first draft baked in an answer
+that is only true on one machine. `ravis/cheap` has a `$0` ceiling, so free-only,
+so local-only — an unattended thinker on that pool loads a model onto the machine
+chat is already using, which is exactly the exaone incident. The draft fix was
+"use a hosted pool instead", and that is the same mistake facing the other way.
+
+**Amended before it was built, because the assumption was visibly local.** A
+workstation with an idle 16 GB card runs a local model fast, for free, competing
+with nothing — and a hosted-only rule would spend money there to avoid hardware
+that was sitting unused. The invariant is **"must not contend"**; hosted and free
+are both answers to it rather than the question.
+
+So the ceiling is operator configuration, and the pool expresses its intent
+through what RAVIS already measures — residency, memory pressure, §12.2's
+load-versus-don't tradeoff. Its exit now requires the *same* RAVIS to reach
+opposite conclusions on two machines from configuration alone, and to say which
+and why. §9.6.1's marker is refused for the same reason it was before, restated:
+"must be free" is that baked-in answer in another place, and it resolves to local
+on precisely the machine where local is wrong.
+
+The prompt for it was a hardware question — a Ryzen laptop where local is a
+3-4B on CPU, and a desktop with an RX 6800 where local is a 14B at 40 tokens a
+second. One plan cannot prefer the same thing on both.
 
 **On the estimate.** Four to six weeks was quoted and was calibrated on nothing —
 438 commits over ten days is this repository's actual pace. Under a week is the

@@ -66,13 +66,23 @@ the machine chat is already using and the two compete for it. That is not a
 worry, it is something that happened: a background job to name a conversation
 loaded a cold local model and produced nothing usable.
 
-So the planned pool has a low but non-zero ceiling, landing on a small hosted
-model that genuinely runs in parallel. Its spend is attributable by pool, so
-what unattended work costs is a question with an answer.
+The rule that fixes it is **"must not contend"**, and deliberately not "must be
+hosted" — because that is an answer rather than the question, and it is wrong on
+a different machine. A workstation with an idle graphics card runs a local model
+fast, for free, competing with nothing; a hosted-only rule would spend money
+there to avoid hardware that was sitting unused. A laptop with a cold runtime is
+the opposite case.
+
+So the ceiling is something an operator sets per machine, and the pool expresses
+its intent through what is already measured: prefer a model already loaded,
+refuse to pay for loading one when memory is tight. The same gateway then
+reaches opposite conclusions on two machines from configuration alone, and says
+which and why.
 
 The same trap sits in the protocol's "background call" marker, which refuses any
-provider not known to be free — on a machine like this one, free means local
-means competing. The plan says not to use it for this.
+provider not known to be free. That is the same baked-in answer in another
+place, and it resolves to a local model on exactly the machine where local is
+the wrong choice. The plan says not to use it for this.
 
 ## A window manager, as a stretch idea
 
