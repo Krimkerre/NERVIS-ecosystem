@@ -35,7 +35,12 @@
    the transcript needlessly short — which the routing popover made obvious, as
    it had less room than the panel needed. `--chat-h` is set on render from the
    card's own top offset; the fallback matters only for the first paint. */
-.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
+.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}/* The attach control. A label wrapping a hidden input rather than a button that
+   clicks one: the label *is* the trigger, so there is no second element whose
+   only job is to forward a click, and the keyboard reaches it for free. */
+.upload{cursor:pointer;display:flex;align-items:center;padding:0 9px;font-size:15px;opacity:.7;user-select:none;background:#0b1118}
+.upload:hover{opacity:1}
+.composer{display:flex;border:1px solid #2a3642;border-radius:7px;overflow:hidden}.composer input{flex:1;background:#0b1118;border:0;color:#d9e3ed;padding:10px;outline:0}.composer button{border:0;background:var(--accent);color:#071016;width:44px;cursor:pointer}
 .model{border:1px solid var(--line);padding:11px;border-radius:7px;margin-bottom:7px;cursor:pointer}.model:hover,.model.selected{border-color:var(--accent);background:rgba(var(--rgb),.08)}.bar{height:5px;background:#1a232d;border-radius:6px;overflow:hidden;margin-top:7px}.bar i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .7s}.benchmark-stage{height:240px;display:flex;align-items:end;gap:11px;padding:15px}.benchmark-stage i{flex:1;height:var(--h);background:linear-gradient(var(--accent),#183b2f);border-radius:4px 4px 0 0;transform-origin:bottom;animation:grow .7s}.route-lanes{display:grid;gap:9px}.lane{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:1fr auto;cursor:pointer}.lane:hover,.lane.selected{border-color:var(--accent);background:rgba(var(--rgb),.09)}.lane small{grid-column:1/-1;color:#738396}details.settings-group{grid-column:1/-1;margin:0 0 4px}details.settings-group>summary{cursor:pointer;list-style:none;user-select:none;font:600 12px/1 "SFMono-Regular",monospace;letter-spacing:.14em;text-transform:uppercase;color:#8b98a8;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.07)}details.settings-group>summary::-webkit-details-marker{display:none}details.settings-group>summary::before{content:"▸ ";opacity:.55}details.settings-group[open]>summary::before{content:"▾ "}details.settings-group>summary:hover{color:#dfe7ef}details.settings-group>.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:14px 0 6px}details.explains{margin-top:10px;border-top:1px solid rgba(255,255,255,.07);padding-top:8px}details.explains>summary{cursor:pointer;font:11px/1.6 "SFMono-Regular",monospace;color:#7f8c9b;list-style:none;user-select:none}details.explains>summary::-webkit-details-marker{display:none}details.explains>summary::before{content:"▸ ";opacity:.6}details.explains[open]>summary::before{content:"▾ "}details.explains>summary:hover{color:#c8d2dc}details.explains>div{padding:8px 0 2px}.trace-step{border-left:2px solid var(--accent);padding:8px 12px;margin:7px 0;background:#0a1118;display:flex;justify-content:space-between}.trace-step span{color:#738396}details.log-line{border-bottom:1px solid rgba(255,255,255,.05)}details.log-line>summary{cursor:pointer;list-style:none;user-select:none}details.log-line>summary::-webkit-details-marker{display:none}details.log-line>summary:hover{background:rgba(255,255,255,.04)}details.log-line[open]>summary{background:rgba(var(--rgb),.07)}details.log-line>summary>span:first-child::before{content:"▸ ";opacity:.5}details.log-line[open]>summary>span:first-child::before{content:"▾ "}.log-detail{padding:6px 12px 12px;display:flex;flex-direction:column;gap:4px}details.excluded-group{border-left:2px solid var(--accent);background:#0a1118;margin:5px 0}details.excluded-group>summary{cursor:pointer;list-style:none;user-select:none;padding:8px 12px;display:flex;gap:8px;align-items:baseline}details.excluded-group>summary::-webkit-details-marker{display:none}details.excluded-group>summary::before{content:"\25B8 ";opacity:.5}details.excluded-group[open]>summary::before{content:"\25BE "}details.excluded-group>summary span{color:#738396}details.excluded-group>div{padding:0 12px 10px 26px;max-height:220px;overflow-y:auto;line-height:1.7}.log-detail p{margin:2px 0;line-height:1.6}
 /* Clarvis is a replaceable code-server surface. Keep the surrounding shell stable. */
 /* Sized rather than intrinsic: an iframe has no content height of its own, and
@@ -3781,6 +3786,31 @@ function scrollChatToEnd(force){
  if(force||chatFollowing(box))box.scrollTop=box.scrollHeight;
 }
 
+/* What is in the workspace, under the composer.
+
+   **Says which files chat can actually read**, which is a different question
+   from which are there: a PDF sits in the workspace perfectly well and cannot
+   be summarised, and a list that does not say so invites the attempt and then
+   answers "that is not a text file chat can read" to somebody who was looking
+   right at it. */
+async function workspaceFiles(){
+ const where=$('#workspaceFiles');
+ if(!where)return;
+ let body={items:[],detail:''};
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/workspace/files',readDeadline());
+  if(r.ok)body=await r.json();
+ }catch(e){/* an unreachable NERVIS is already said louder elsewhere */}
+ if(body.detail){where.innerHTML=escapeHtml('workspace off — set NERVIS_WORKSPACE_PATH to let chat read and write files');return}
+ const items=body.items||[];
+ if(!items.length){where.innerHTML=escapeHtml('workspace is empty — attach a file to let chat read it');return}
+ where.innerHTML=items.slice(0,8).map(f=>
+   `<span title="${escapeHtml(f.readable?'chat can read this':'stored, but not a text file chat can read')}">`
+   +`${f.readable?'':'<span style="opacity:.5">○</span> '}${escapeHtml(f.name)}`
+   +`<span style="opacity:.55"> ${escapeHtml(String(Math.max(1,Math.round(f.bytes/1024))))} KB</span></span>`
+ ).join('<span style="opacity:.4"> · </span>');
+}
+
 async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.',
   '<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>'+privateButton());
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
@@ -3826,7 +3856,8 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
         : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}</div>`).join('')}
   </div>
-  <div class="composer"><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
+  <div class="composer"><label id="uploadLabel" class="upload" title="Put a file in the workspace chat can read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
+  <div id="workspaceFiles" class="mono dim" style="margin-top:6px;font-size:11px"></div>
  </div>`;
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
     streaming — aborting the fetch closes the connection, NERVIS sees the
@@ -3837,6 +3868,28 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  if(opener)opener.dataset.on='';
  $('#sendChat').onclick=()=>CHAT_SESSION.busy?stopChat():sendChat();
  $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
+ /* **The person putting a file there, not the model asking for one.** Every
+    other write on this screen is a model proposing and somebody agreeing; this
+    is somebody acting, so it needs no confirm button. What it does not get is a
+    weaker boundary — the name came from a file picker, and NERVIS refuses one
+    that resolves outside the workspace however ordinary it looks. */
+ const picker=$('#uploadFile');
+ if(picker)picker.onchange=async()=>{
+  const file=picker.files&&picker.files[0];
+  if(!file)return;
+  const label=$('#uploadLabel');
+  if(label)label.textContent='⏳';
+  try{
+   const r=await fetch(BASE.nervis+'/api/v1/workspace/files/'+encodeURIComponent(file.name),
+     {method:'PUT',body:file});
+   const said=await r.json().catch(()=>({}));
+   if(!r.ok)alert(said.error&&said.error.message||('The file was not accepted: HTTP '+r.status));
+  }catch(e){alert('NERVIS is not reachable.')}
+  picker.value='';
+  if(label)label.textContent='📎';
+  workspaceFiles();
+ };
+ workspaceFiles();
  /* Escape closes the drawer, which is what every drawer everywhere does and the
     only way out that does not require finding a small ✕ with the mouse. */
  $('#content').onkeydown=e=>{if(e.key==='Escape'&&CHAT_SESSION.drawer)chatDrawer(null)}

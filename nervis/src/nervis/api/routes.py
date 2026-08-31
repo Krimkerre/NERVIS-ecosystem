@@ -18,12 +18,14 @@ sibling services both shipped one before learning that.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from nervis import documents
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
@@ -32,6 +34,7 @@ from nervis.peers import sirvis as sirvis_peer
 from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.telemetry import sample_system
+from nervis.workspace import OutsideWorkspaceError
 
 router = APIRouter(prefix="/api/v1", tags=["nervis"])
 
@@ -311,6 +314,54 @@ def _peer_routes(service: str) -> None:
 
 for _service in PEERS:
     _peer_routes(_service)
+
+
+@router.get("/workspace/files")
+async def list_workspace(request: Request) -> dict[str, Any]:
+    """What is in the workspace chat may read.
+
+    Answers with an empty list and a reason rather than an error when no
+    workspace is configured: the screen needs to say *"turn this on"*, and a 404
+    would make an unconfigured install look broken.
+    """
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        return {"items": [], "workspace": "", "detail": "no workspace is configured"}
+    return {
+        "items": [vars(item) for item in documents.list_files(Path(root))],
+        "workspace": root,
+        "detail": "",
+    }
+
+
+@router.put("/workspace/files/{name}")
+async def upload_to_workspace(name: str, request: Request) -> Any:
+    """Put a file the person chose into the workspace.
+
+    **Raw body rather than multipart**, which keeps `python-multipart` out of
+    the dependencies for a feature that needs one filename and some bytes. The
+    browser sends the bytes and the name travels in the path.
+
+    **The person doing this directly is why there is no confirm button.** Every
+    other write on this surface is a model *proposing* and somebody agreeing;
+    this is somebody acting. What it does not get is a weaker boundary: the
+    filename came from a file picker, and `../../.ssh/authorized_keys` is a
+    perfectly ordinary thing for a file to be called.
+    """
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        raise InvalidConfigurationError(
+            "NERVIS has no workspace configured, so it cannot accept a file. "
+            "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
+        )
+    payload = await request.body()
+    try:
+        stored = documents.store_upload(Path(root), name, payload)
+    except OutsideWorkspaceError as refusal:
+        raise InvalidConfigurationError(str(refusal)) from refusal
+    except ValueError as refusal:
+        raise InvalidConfigurationError(str(refusal)) from refusal
+    return {"file": {"name": stored.shown, "bytes": stored.written}}
 
 
 @router.put("/ravis/credentials/{name}")

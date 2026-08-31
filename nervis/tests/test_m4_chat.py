@@ -28,6 +28,7 @@ from nervis.api.chat import _first_user_message, _forwarded, _title_from
 from nervis.app import create_app
 from nervis.config import Settings
 from nervis.diagnostics import FENCE
+from nervis.documents import MAX_UPLOAD_BYTES
 from nervis.ecosystem import advertise_chat, nervis_surface
 from nervis.registry import RegistryState
 from nervis.storage import prepare_database
@@ -2950,3 +2951,106 @@ def test_a_named_file_produces_an_offer_with_a_button(tmp_path: Path) -> None:
     assert offer["target"] == "summary.pdf"
     assert offer["ready"] is True
     assert vague.headers.get("x-command-offer", "") == ""
+
+
+# ── Putting a file there in the first place ────────────────────────────────
+
+def test_an_uploaded_file_is_then_readable_by_chat(tmp_path: Path) -> None:
+    """The round trip, which is the whole point of the button. Uploading and
+    reading are two halves of one gesture — a file that lands in the workspace
+    and cannot then be summarised is a file nobody has a use for."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    put = client.put("/api/v1/workspace/files/notes.md", content=b"Revenue fell in Q3.")
+    assert put.status_code == 200, put.text
+    assert put.json()["file"] == {"name": "notes.md", "bytes": 19}
+
+    turn(client, 'summarise "notes.md" for me', system="Be someone.")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "Revenue fell in Q3." in prompt
+
+
+def test_no_spelling_of_a_climb_writes_outside_the_workspace(tmp_path: Path) -> None:
+    """A filename arrives from a browser, which got it from a file picker, which
+    got it from a disk. `../../escaped.txt` is a perfectly ordinary thing for a
+    file to be called, and "a person chose it" buys it nothing.
+
+    Two layers answer here and the test asserts the outcome rather than which
+    one fired: an HTTP client normalises a path before sending, so an encoded
+    climb dies at the router as a 404 and never reaches the handler — and a
+    caller that speaks the wire directly still meets `store_upload`, which keeps
+    only the base name. Either way nothing lands outside.
+    """
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (tmp_path / "sibling").mkdir()
+    client = an_api(workspace_path=str(root))
+
+    for spelling in ("..%2F..%2Fescaped.txt", "..%2Fescaped.txt", "%2Fetc%2Fpasswd"):
+        assert client.put(f"/api/v1/workspace/files/{spelling}", content=b"out").status_code >= 400
+
+    assert not (tmp_path / "escaped.txt").exists()
+    assert not (tmp_path.parent / "escaped.txt").exists()
+    assert list(root.iterdir()) == []
+
+
+def test_an_upload_larger_than_the_cap_is_refused(tmp_path: Path) -> None:
+    """NERVIS has no request-size limit of its own, so an endpoint that writes
+    what it is given is a disk-fill with a filename."""
+    client = an_api(workspace_path=str(tmp_path))
+
+    refused = client.put(
+        "/api/v1/workspace/files/big.txt", content=b"x" * (MAX_UPLOAD_BYTES + 1)
+    )
+
+    assert refused.status_code >= 400
+    assert not (tmp_path / "big.txt").exists()
+
+
+def test_an_empty_upload_is_refused(tmp_path: Path) -> None:
+    """A zero-byte file is a browser or a network having failed, not a document.
+    Storing it would put a name in the list that answers nothing."""
+    client = an_api(workspace_path=str(tmp_path))
+
+    refused = client.put("/api/v1/workspace/files/empty.txt", content=b"")
+
+    assert refused.status_code >= 400
+    assert not (tmp_path / "empty.txt").exists()
+
+
+def test_the_listing_says_which_files_chat_can_actually_read(tmp_path: Path) -> None:
+    """A different question from which are there. A PDF sits in the workspace
+    perfectly well and cannot be summarised, and a screen that does not say so
+    invites the attempt and then refuses somebody looking right at the name."""
+    client = an_api(workspace_path=str(tmp_path))
+    client.put("/api/v1/workspace/files/notes.md", content=b"text")
+    client.put("/api/v1/workspace/files/scan.pdf", content=b"%PDF-1.4 not really")
+
+    listed = {item["name"]: item for item in client.get("/api/v1/workspace/files").json()["items"]}
+
+    assert listed["notes.md"]["readable"] is True
+    assert listed["scan.pdf"]["readable"] is False
+    assert listed["notes.md"]["bytes"] == 4
+
+
+def test_with_no_workspace_the_list_says_so_and_the_upload_refuses() -> None:
+    """An unconfigured install is off, not broken. The list answers with a
+    reason so the screen can say *turn this on*; the upload refuses and names
+    the setting that turns it on."""
+    client = an_api()
+
+    listed = client.get("/api/v1/workspace/files")
+    refused = client.put("/api/v1/workspace/files/notes.md", content=b"text")
+
+    assert listed.status_code == 200
+    assert listed.json()["items"] == []
+    assert listed.json()["detail"]
+    assert refused.status_code >= 400
+    assert "NERVIS_WORKSPACE_PATH" in refused.text

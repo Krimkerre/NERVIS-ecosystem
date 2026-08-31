@@ -12,7 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from nervis.documents import MAX_CHARACTERS, read_document
+from nervis.documents import (
+    MAX_CHARACTERS,
+    MAX_UPLOAD_BYTES,
+    list_files,
+    read_document,
+    store_upload,
+)
 from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
 
 
@@ -177,3 +183,64 @@ def test_the_reading_never_carries_the_absolute_path(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text("hello", encoding="utf-8")
 
     assert str(tmp_path) not in read_document(tmp_path, "notes.md").as_reading()
+
+
+# ── Putting one there, where the name is the untrusted part ────────────────
+
+def test_an_upload_keeps_only_the_base_name(tmp_path: Path) -> None:
+    """The layer that holds when the transport does not. An HTTP client
+    normalises a climbing path away before it is sent, so this is the check that
+    survives a caller speaking the wire directly."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    for hostile in ("../../escaped.txt", "/etc/passwd", "reports/2026/q3.txt"):
+        stored = store_upload(root, hostile, b"payload")
+        assert "/" not in stored.shown
+        assert (root / stored.shown).read_bytes() == b"payload"
+
+    assert not (tmp_path / "escaped.txt").exists()
+    assert sorted(p.name for p in root.iterdir()) == ["escaped.txt", "passwd", "q3.txt"]
+
+
+def test_an_upload_that_names_nothing_is_refused(tmp_path: Path) -> None:
+    """`.` and `..` have a base name that is not a filename. Left alone they
+    resolve to a directory, and `write_bytes` on one raises something the caller
+    cannot tell from a disk failure."""
+    for empty in ("", "   ", "/", ".", ".."):
+        with pytest.raises(OutsideWorkspaceError):
+            store_upload(tmp_path, empty, b"payload")
+
+
+def test_an_upload_over_the_cap_writes_nothing(tmp_path: Path) -> None:
+    """Refused before the write, not truncated at it: a half-written file under
+    a name somebody recognises is worse than no file."""
+    with pytest.raises(ValueError):
+        store_upload(tmp_path, "big.txt", b"x" * (MAX_UPLOAD_BYTES + 1))
+
+    assert not (tmp_path / "big.txt").exists()
+
+
+def test_the_listing_is_newest_first_and_flat(tmp_path: Path) -> None:
+    """Newest first because the file somebody just attached is the one they are
+    about to ask about. Flat because the upload path cannot create a tree, and a
+    recursive listing would describe a shape this feature never makes."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "old.txt").write_text("a", encoding="utf-8")
+    os.utime(root / "old.txt", (1_700_000_000, 1_700_000_000))
+    (root / "new.txt").write_text("b", encoding="utf-8")
+    (root / "nested").mkdir()
+    (root / "nested" / "hidden.txt").write_text("c", encoding="utf-8")
+
+    listed = list_files(root)
+
+    assert [item.name for item in listed] == ["new.txt", "old.txt"]
+    assert all(item.readable for item in listed)
+
+
+def test_a_workspace_that_is_not_there_lists_empty_rather_than_raising(tmp_path: Path) -> None:
+    """A misconfigured path is a setting to fix, not a screen that fails to
+    draw. The dashboard shows an empty workspace and the reason lives with the
+    setting."""
+    assert list_files(tmp_path / "nowhere") == []

@@ -95,3 +95,89 @@ def read_document(root: Path, named: str) -> Document:
         characters=len(raw),
         truncated=len(raw) > MAX_CHARACTERS,
     )
+
+
+#: The largest file the workspace accepts through an upload.
+#:
+#: A bound rather than none, because NERVIS has no request-size limit of its own
+#: and an endpoint that writes what it is given is a disk-fill with a filename.
+#: Ten megabytes is far more than any text a model will read and small enough
+#: that a mistake is a mistake rather than an outage.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class Stored:
+    """A file the person put in the workspace."""
+
+    shown: str
+    written: int
+
+
+def store_upload(root: Path, named: str, payload: bytes) -> Stored:
+    """Put `payload` in the workspace under the name the person gave.
+
+    **The filename is untrusted input.** It arrives from a browser, which got it
+    from a file picker, which got it from a disk — `../../.ssh/authorized_keys`
+    is a perfectly ordinary string for a file to be called. So it goes through
+    the same resolver every other path does, and the fact that a person chose it
+    rather than a model buys it nothing: by the time it reaches here, "the
+    operator picked it" and "the model suggested it and the operator clicked"
+    are the same event.
+
+    Only the base name is kept. An upload is not a way to build a directory
+    tree — `reports/2026/q3.txt` becomes `q3.txt`, which is surprising exactly
+    once and never writes somewhere the person did not mean.
+    """
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"{len(payload):,} bytes is larger than the {MAX_UPLOAD_BYTES:,}-byte limit"
+        )
+    if not payload:
+        raise ValueError("the file is empty")
+
+    base = Path(named.strip()).name
+    resolved = resolve_in_workspace(root, base)
+    resolved.path.write_bytes(payload)
+    return Stored(shown=resolved.shown, written=len(payload))
+
+
+@dataclass(frozen=True)
+class Listed:
+    """One file in the workspace, as the screen shows it.
+
+    A record rather than a dict so `modified` is typed and sortable — the dict
+    version needed a cast to sort on its own field, which is the type system
+    pointing at a shape that was never really a mapping.
+    """
+
+    name: str
+    bytes: int
+    modified: float
+    #: Whether chat can read it, which is a different question from whether it
+    #: is here. A PDF sits in the workspace perfectly well and cannot be
+    #: summarised, and a screen that does not say so invites the attempt.
+    readable: bool
+
+
+def list_files(root: Path) -> list[Listed]:
+    """What is in the workspace, newest first.
+
+    One level, not a walk: the upload path keeps everything flat, and a
+    recursive listing would describe a shape this feature cannot create while
+    happening to expose one somebody made by hand.
+    """
+    base = root.expanduser().resolve(strict=False)
+    if not base.is_dir():
+        return []
+    found = [
+        Listed(
+            name=entry.name,
+            bytes=entry.stat().st_size,
+            modified=entry.stat().st_mtime,
+            readable=entry.suffix.lower() in TEXT_SUFFIXES,
+        )
+        for entry in base.iterdir()
+        if entry.is_file()
+    ]
+    return sorted(found, key=lambda item: item.modified, reverse=True)
