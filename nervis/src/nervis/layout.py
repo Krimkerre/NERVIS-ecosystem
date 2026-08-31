@@ -139,15 +139,34 @@ def parse(text: str) -> list[Block]:
 
 
 def _collapse(blocks: list[Block]) -> list[Block]:
-    """Drop runs of blank blocks and any at the edges.
+    """Drop runs of blank blocks, join wrapped paragraphs, tidy the edges.
 
     Two blank lines in the source are one paragraph break on the page, and a
     reply that ends with a newline should not end with an empty band of
     whitespace.
+
+    **And consecutive paragraph lines are one paragraph**, which is what
+    markdown means by them and what makes the page look set rather than
+    transcribed. Models hard-wrap their prose at whatever width they were
+    trained to, and a renderer that honours those breaks reproduces somebody
+    else's line length on a page of a different width — every paragraph ending
+    two-thirds of the way across the measure. Joining them lets the wrapper
+    break at the page's width instead.
+
+    Only paragraphs join. A line under a bullet that is not itself a bullet is
+    markdown's *lazy continuation* and belongs to the item above it; that is not
+    implemented, so such a line stays its own paragraph and prints unindented.
+    In practice models put a blank line there.
     """
     out: list[Block] = []
     for block in blocks:
         if block.kind is Kind.BLANK and (not out or out[-1].kind is Kind.BLANK):
+            continue
+        if block.kind is Kind.PARAGRAPH and out and out[-1].kind is Kind.PARAGRAPH:
+            # Concatenated rather than joined with a space span: the wrapper
+            # splits every run into words and re-joins them with single spaces,
+            # so a separator here would be dropped and then reinserted.
+            out[-1] = Block(Kind.PARAGRAPH, out[-1].spans + block.spans)
             continue
         out.append(block)
     while out and out[-1].kind is Kind.BLANK:

@@ -40,10 +40,13 @@ REGULAR, BOLD, MONO = "F1", "F2", "F3"
 
 #: Average glyph width as a fraction of the point size, per face.
 #:
-#: **An approximation, and the honest name for it.** Real width needs the font's
+#: **An approximation used only to decide where to wrap.** Real width needs the font's
 #: metrics table; Helvetica's average lowercase advance is near 0.5em and its
-#: capitals nearer 0.72, so this errs wide and a line of capitals wraps early
-#: rather than running off the page. Courier is monospaced at exactly 0.6.
+#: capitals nearer 0.72, so this errs wide and a line of capitals breaks a word
+#: early rather than running off the page. Courier is monospaced at exactly 0.6.
+#:
+#: Nothing is *positioned* from these. Drawing asks the viewer to advance the
+#: pen, which it does from the font's real metrics — see `_draw`.
 WIDTHS = {REGULAR: 0.52, BOLD: 0.55, MONO: 0.60}
 
 
@@ -115,6 +118,12 @@ def _wrap_spans(
                     current[-1] = Span(f"{current[-1].text} {word}", span.bold)
                 else:
                     if current:
+                        # A run of its own rather than riding on a neighbour.
+                        # At a weight boundary one side has to carry the space,
+                        # and appending it to the previous run put a trailing
+                        # space *inside* the bold phrase — so `**12%**` drew as
+                        # `(12% )`, a bold space, and the phrase stopped being
+                        # exactly the characters the author marked.
                         current.append(Span(" ", current[-1].bold))
                     current.append(Span(word, span.bold))
     if current:
@@ -137,22 +146,34 @@ def _face(bold: bool, mono: bool) -> str:
 
 def _draw(spans: tuple[Span, ...], x: float, y: float, size: float, mono: bool,
           bold: bool = False) -> list[bytes]:
-    """One line of runs, positioned absolutely.
+    """One line of runs, as a single text object.
 
-    Absolute placement per run rather than a text object with `TL`/`T*`: a run
-    that changes font mid-line has to re-issue `Tf`, and tracking the pen
-    position by hand is the price of that.
+    **The viewer advances the pen, not this code.** Inside one `BT`/`ET`,
+    consecutive `Tj` operators move the text position by the glyphs' real widths
+    — which the viewer knows exactly from the font, and this module only
+    approximates. Only the first run needs a position.
+
+    An earlier version placed every run absolutely from `WIDTHS`, and because
+    that estimate errs wide, every bold phrase came out followed by a visible
+    gap: *"Revenue fell    12%    against Q2"*. The estimate is still needed to
+    decide where to **wrap**, and erring wide there is harmless — it breaks a
+    line one word early, which nobody can see.
     """
-    out: list[bytes] = []
-    pen = x
-    for span in spans:
-        if not span.text:
-            continue
-        face = _face(bold or span.bold, mono)
-        out.append(f"BT /{face} {size:g} Tf {pen:g} {y:g} Td (".encode("latin-1")
-                   + _escape(span.text) + b") Tj ET")
-        pen += len(span.text) * size * WIDTHS[face]
-    return out
+    drawn = [span for span in spans if span.text]
+    if not drawn:
+        return []
+
+    face = _face(bold or drawn[0].bold, mono)
+    out = [f"BT /{face} {size:g} Tf {x:g} {y:g} Td (".encode("latin-1")
+           + _escape(drawn[0].text) + b") Tj"]
+    for span in drawn[1:]:
+        want = _face(bold or span.bold, mono)
+        if want != face:
+            out.append(f"/{want} {size:g} Tf".encode("latin-1"))
+            face = want
+        out.append(b"(" + _escape(span.text) + b") Tj")
+    out.append(b"ET")
+    return [b" ".join(out)]
 
 
 def _unsupported(text: str) -> str:

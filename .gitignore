@@ -32,3 +32,6 @@ sirvis.db-wal
 sirvis.db-shm
 sirvis/results/
 .run/
+
+# The chat workspace. Whatever somebody attached is theirs, not the build's.
+workspace/

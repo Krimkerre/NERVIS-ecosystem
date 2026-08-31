@@ -121,7 +121,9 @@ def test_a_backslash_is_escaped_once_not_twice() -> None:
 
 
 def test_long_text_becomes_more_than_one_page() -> None:
-    out = render("Report", "\n".join(f"line {n} of the report" for n in range(120)))
+    # Separated by blank lines: consecutive lines are one paragraph now, and a
+    # single reflowed paragraph of this length still fits on one page.
+    out = render("Report", "\n\n".join(f"line {n} of the report" for n in range(120)))
 
     assert out.pages > 1
     assert out.data.count(b"/Type /Page ") == out.pages
@@ -130,7 +132,7 @@ def test_long_text_becomes_more_than_one_page() -> None:
 def test_nothing_is_drawn_below_the_bottom_margin() -> None:
     """The check that a page break actually happened rather than the text
     running off the sheet — every drawn baseline must sit on the page."""
-    out = render("Report", "\n".join(f"line {n}" for n in range(200))).data
+    out = render("Report", "\n\n".join(f"line {n}" for n in range(200))).data
 
     baselines = [float(y) for y in re.findall(rb"Tf [\d.]+ ([\d.]+) Td", out)]
     assert baselines
@@ -141,7 +143,7 @@ def test_nothing_is_drawn_below_the_bottom_margin() -> None:
 def test_a_heading_is_not_stranded_at_the_foot_of_a_page() -> None:
     """A heading alone at the bottom reads as a caption for nothing. It has to
     move to the next page with the line it introduces."""
-    filler = "\n".join(f"line {n}" for n in range(44))
+    filler = "\n\n".join(f"line {n}" for n in range(44))
     out = render("Report", f"{filler}\n\n## A late heading\n\nits paragraph").data
 
     heading = re.search(rb"BT /F2 1[0-9](?:\.\d+)? Tf [\d.]+ ([\d.]+) Td \(A late heading\)", out)
@@ -180,3 +182,32 @@ def test_the_parser_and_the_renderer_agree_on_what_a_block_is() -> None:
     for block in parse("# h\n\ntext\n\n- b\n\n1. n\n\n```\nc\n```"):
         assert style_for(block).size > 0
     assert style_for(Block(Kind.PARAGRAPH, (Span("x"),))).size > 0
+
+
+def test_a_hard_wrapped_paragraph_is_reflowed_to_the_page() -> None:
+    """Models wrap their prose at whatever width they were trained to. Honouring
+    those breaks reproduces somebody else's line length on a page of a different
+    width, and every paragraph ends two-thirds of the way across the measure."""
+    out = render("Report", "Prepared for the meeting and every\nfigure comes from the index.").data
+
+    assert b"(Prepared for the meeting and every figure comes from the index.) Tj" in out
+
+
+def test_a_blank_line_still_starts_a_new_paragraph() -> None:
+    """The falsifier. Joining every paragraph would run a whole document into
+    one block and lose every break its author meant."""
+    out = render("Report", "first para\n\nsecond para").data
+
+    assert b"(first para) Tj" in out
+    assert b"(second para) Tj" in out
+
+
+def test_a_bold_run_is_not_followed_by_a_gap() -> None:
+    """One text object per line, so the viewer advances the pen from the font's
+    real metrics. Positioning each run from the width estimate — which errs wide
+    — printed "Revenue fell    12%    against Q2"."""
+    out = render("Report", "revenue fell **12%** in Q3").data
+
+    line = next(part for part in out.split(b"BT ") if b"revenue fell" in part)
+    assert line.count(b"Td") == 1, "a line is placed once; the viewer advances the rest"
+    assert b"/F2" in line.split(b"ET")[0], "the weight change happens inside that object"

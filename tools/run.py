@@ -318,6 +318,22 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # thing anyone runs point at the wrong ports.
             env["NERVIS_RAVIS_BASE_URL"] = f"http://127.0.0.1:{RAVIS_PORT}"
             env["NERVIS_SIRVIS_BASE_URL"] = f"http://127.0.0.1:{SIRVIS_PORT}"
+            # A directory that exists for this and holds nothing else.
+            #
+            # `workspace_path` defaults to empty because the setting governs
+            # reading a person's files, and an install never asked to do that
+            # should not. Pointing it at `<repo>/workspace` does not weaken
+            # that: the directory starts empty and the only things in it are
+            # ones somebody attached on purpose. What it avoids is a feature
+            # that is unreachable unless you already know the variable's name —
+            # the button would be there, and every file list would say "off".
+            #
+            # Somewhere under a person's home is the thing not to do. Anyone who
+            # wants that sets NERVIS_WORKSPACE_PATH themselves, which is a
+            # decision worth making deliberately.
+            workspace = ROOT / "workspace"
+            workspace.mkdir(exist_ok=True)
+            env["NERVIS_WORKSPACE_PATH"] = str(workspace)
             # No allow-list: NERVIS serves the dashboard and the dashboard's own
             # API from one origin, so nothing it answers is ever cross-origin.
             return env

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1837 tests, no network, no live service
+.venv/bin/pytest                      # part of 1840 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 475 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 478 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1837 passing across the four, conformance `PASS`.
+Expected: all clean, 1840 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8591,12 +8591,30 @@ The input is markdown because that is what the models write: nobody chose it —
 ask any chat model for a summary and it comes back with `##` and `-` whether or
 not anything renders them.
 
-One real defect came out of writing it. Headings were set at size 15 and drawn
-`/F1`: the code consulted `span.bold` and never `style.bold`, so every heading in
-every PDF was large and *not bold*, which looks close enough to correct to ship.
-`_face(bold, mono)` is now the one place that answers "which font", because the
-weight arrives from two directions and resolving it per caller is exactly how
-that happened.
+Two real defects came out of writing it, and both were found by looking at a
+rendered page rather than at the bytes.
+
+Headings were set at size 15 and drawn `/F1`: the code consulted `span.bold` and
+never `style.bold`, so every heading in every PDF was large and *not bold*, which
+looks close enough to correct to ship. `_face(bold, mono)` is now the one place
+that answers "which font", because the weight arrives from two directions and
+resolving it per caller is exactly how that happened.
+
+And every bold phrase was followed by a visible gap — *"Revenue fell    12%
+against Q2"*. Each run was positioned absolutely from the average-width table,
+and that table errs wide on purpose. It is a *wrapping* estimate: erring wide
+breaks a line one word early, which nobody can see. Using it to place glyphs is
+what nobody can un-see. A line is now one `BT`/`ET` text object with a single
+`Td`, and consecutive `Tj` operators let the viewer advance the pen from the
+font's real metrics — which it knows exactly and this module never will.
+
+The third thing was not a defect so much as a missing rule: a paragraph the
+model hard-wrapped stayed wrapped at whatever width the model was trained to, so
+every paragraph ended two-thirds of the way across the measure. Consecutive
+paragraph lines now join, which is what markdown means by them, and the wrapper
+breaks at the page's width instead. Markdown's *lazy continuation* — a plain
+line under a bullet belonging to that bullet — is not implemented, and such a
+line prints unindented; in practice models put a blank line there.
 
 **Stated rather than discovered:** no tables, no images, no links, no nested
 lists, and Latin-1 only. Characters the encoding cannot carry are *reported* on

@@ -3793,6 +3793,17 @@ function scrollChatToEnd(force){
    be summarised, and a list that does not say so invites the attempt and then
    answers "that is not a text file chat can read" to somebody who was looking
    right at it. */
+/* Bytes below a kilobyte, kilobytes above it. Rounding everything up to "1 KB"
+   makes a 78-byte file and a 900-byte one look identical, and the question this
+   list exists to answer — did the right thing upload — is exactly the one that
+   distinction settles. */
+function fileSize(bytes){
+ const n=Number(bytes)||0;
+ if(n<1024)return n+' B';
+ if(n<1024*1024)return Math.round(n/1024)+' KB';
+ return (n/(1024*1024)).toFixed(1)+' MB';
+}
+
 async function workspaceFiles(){
  const where=$('#workspaceFiles');
  if(!where)return;
@@ -3801,13 +3812,20 @@ async function workspaceFiles(){
   const r=await fetch(BASE.nervis+'/api/v1/workspace/files',readDeadline());
   if(r.ok)body=await r.json();
  }catch(e){/* an unreachable NERVIS is already said louder elsewhere */}
- if(body.detail){where.innerHTML=escapeHtml('workspace off — set NERVIS_WORKSPACE_PATH to let chat read and write files');return}
+ if(body.detail){where.title='';where.innerHTML=escapeHtml('workspace off — set NERVIS_WORKSPACE_PATH to let chat read and write files');return}
+ /* Where these live, on hover. The one question a file list cannot answer by
+    itself is "why is the one I just saved not here", and the answer is almost
+    always that NERVIS is pointed at a different directory than the person is
+    looking at. Absolute here on purpose — it is the person's own screen, and
+    the rule that keeps the path out of `shown` is about prompts and spoken
+    replies, not about the operator's own hover text. */
+ where.title=body.workspace?'in '+body.workspace:'';
  const items=body.items||[];
  if(!items.length){where.innerHTML=escapeHtml('workspace is empty — attach a file to let chat read it');return}
  where.innerHTML=items.slice(0,8).map(f=>
    `<span title="${escapeHtml(f.readable?'chat can read this':'stored, but not a text file chat can read')}">`
    +`${f.readable?'':'<span style="opacity:.5">○</span> '}${escapeHtml(f.name)}`
-   +`<span style="opacity:.55"> ${escapeHtml(String(Math.max(1,Math.round(f.bytes/1024))))} KB</span></span>`
+   +`<span style="opacity:.55"> ${escapeHtml(fileSize(f.bytes))}</span></span>`
  ).join('<span style="opacity:.4"> · </span>');
 }
 
