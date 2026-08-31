@@ -100,18 +100,28 @@ class Section:
 #: cost optimization* scored one against a section headed *What it optimises
 #: for*. British and American spellings of the same verb are the common case in
 #: notes written by one person and questioned by another.
-#: Longest first, and `isations` before `ations`, because trimming the shorter
-#: one leaves two spellings of the same verb at different lengths: "optimises"
-#: became `optim` and "optimisation" became `optimis`, which is a miss produced
-#: by the stemmer rather than survived by it.
+#: Longest first, because trimming a shorter ending first leaves two forms of
+#: one verb at different lengths — and every entry past the obvious ones is here
+#: because a pair failed to unify.
+#:
+#: `isations` before `ations`: "optimises" became `optim` and "optimisation"
+#: `optimis`.
+#:
+#: **A bare `e` last, and it is the one that mattered most.** Without it every
+#: verb ending in `e` split from its own inflections: `decide`/`decid`,
+#: `route`/`rout`, `choose`/`choos`, `serve`/`serv` — eight of nine pairs tested,
+#: and those are exactly this corpus's vocabulary. It showed up as `decide`
+#: scoring zero against notes that say "decides" all the way through.
 _ENDINGS = ("isations", "isation", "ations", "ation", "ising", "ises", "ised",
-            "ing", "ers", "er", "ed", "es", "s")
+            "ise", "ing", "ers", "er", "ed", "es", "s", "e")
 
 
 def _stem(word: str) -> str:
     normalised = word.replace("z", "s")
     for ending in _ENDINGS:
-        if normalised.endswith(ending) and len(normalised) - len(ending) >= 4:
+        # Three, not four: at four, "uses" kept its `s` while "use" had none, so
+        # a four-letter word was the one length the stemmer could not unify.
+        if normalised.endswith(ending) and len(normalised) - len(ending) >= 3:
             return normalised[: -len(ending)]
     return normalised
 

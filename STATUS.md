@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1892 tests, no network, no live service
+.venv/bin/pytest                      # part of 1894 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 512 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 514 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1892 passing across the four, conformance `PASS`.
+Expected: all clean, 1894 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -2506,6 +2506,14 @@ request to"* and made it match nothing — how common a word is turned out to be
 measurement rather than a judgement. And a crude stemmer trimmed "optimises" to
 `optim` and "optimisation" to `optimis`, a miss the stemmer produced rather than
 survived.
+
+A third surfaced afterwards, while explaining the scoring rather than while
+testing it: `decide` was worth **0.00**, appearing in none of thirty sections,
+against notes that say "decides" throughout. Every verb ending in `e` had split
+from its own inflections — `route`/`rout`, `choose`/`choos`, `serve`/`serv`,
+eight of nine pairs — and those are exactly this corpus's vocabulary. The
+question it was found on still scored 8.7 and still found its answer, on other
+words; it was luck, not the search working.
 
 **The threshold is honest about not separating cleanly.** Measured against real
 questions from the chat log, ones about how something *works* score 5.3 to 39.3

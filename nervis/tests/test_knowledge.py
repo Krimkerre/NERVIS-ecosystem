@@ -96,3 +96,26 @@ def test_the_order_is_total_so_one_question_gives_one_answer() -> None:
 
     assert [s.heading for s in knowledge.search(question)] == \
            [s.heading for s in knowledge.search(question)]
+
+
+def test_a_verb_and_its_inflections_are_one_word() -> None:
+    """**Found while explaining the scoring, not by a test.** `decide` was worth
+    0.00 — it appeared in none of thirty sections, against notes that say
+    "decides" throughout — because every verb ending in `e` split from its own
+    inflections. Eight of nine pairs failed, and `route`, `decide`, `choose` and
+    `serve` are exactly this corpus's vocabulary.
+    """
+    for one, other in (
+        ("decide", "decides"), ("route", "routes"), ("route", "routing"),
+        ("route", "routed"), ("choose", "chooses"), ("serve", "serves"),
+        ("optimise", "optimises"), ("optimise", "optimisation"),
+        ("optimization", "optimises"), ("pool", "pools"), ("use", "uses"),
+    ):
+        assert knowledge._stem(one) == knowledge._stem(other), f"{one} vs {other}"
+
+
+def test_a_short_word_is_not_stemmed_to_nothing() -> None:
+    """The other direction. Trimming aggressively enough to unify "use" and
+    "uses" must not reduce a word to a stub that collides with everything."""
+    for word in ("api", "log", "run", "key", "cpu"):
+        assert len(knowledge._stem(word)) >= 3, word
