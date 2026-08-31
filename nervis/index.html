@@ -8465,7 +8465,16 @@ function chatRequestBody(conversationId){
  const c=CHAT_SESSION;
  const last=[...c.messages].reverse().find(m=>m.role==='user'&&!m.pending);
  const system=String(c.system).trim();
- const body={content:last?last.text:'',profile:c.profile,brief:USER.brief};
+ const body={content:last?last.text:'',profile:c.profile,brief:USER.brief,
+   /* **The browser's id, and it has to be on every chat request** — this is the
+      one the attachments are filed under. NERVIS only mints a conversation id
+      once a turn is stored, and clip-then-question is the ordinary order, so a
+      file attached before the first message has nowhere else to go.
+
+      It was briefly sent only on the unprompted-remark path, which is not the
+      path a typed message takes: uploads landed correctly and every question
+      about them was answered "nothing is attached". */
+   attachment_id:c.id||''};
  if(conversationId)body.conversation_id=conversationId;
  if(system)body.system=system;
  const num=(v,key)=>{const t=String(v).trim();if(t==='')return;
@@ -8953,11 +8962,7 @@ async function nudge(count){
     — so she can remark that you have been staring at Diagnostics without
     inventing what it says. */
  const outcome=await streamReply(stop,
-   {nudge:count,screen:state.view,conversation_id:CHAT_SESSION.remote_id||'',
-    /* The browser's own id, stable from the moment the conversation opens —
-       the server's is only minted once a turn is stored, and a file attached
-       before the first question has to be filed somewhere. */
-    attachment_id:CHAT_SESSION.id||''});
+   {nudge:count,screen:state.view,conversation_id:CHAT_SESSION.remote_id||''});
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
  CHAT_SESSION.messages.pop();

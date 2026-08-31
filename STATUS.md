@@ -2480,13 +2480,13 @@ a 502 came back. The pool change was correct; the suite was certifying an
 installation. Green every day since the suite was written on 23 Aug, and only
 red when something moved.
 
-**And two gates cannot run in CI, which is not an oversight.** Twelve
-`*_check.js` exist and `.github/workflows/checks.yml` invokes ten:
+**And two gates cannot run in CI, which is not an oversight.** Thirteen
+`*_check.js` exist and the clean-clone run invokes eleven:
 `honesty_check.js` and `recovery_check.js` drive the page against a live NERVIS
 on `127.0.0.1:8790`, and §14.5 keeps that workflow off the network. This was
 "fixed" first and reverted — the clean-checkout run then sat thirty-one minutes
 on `recovery_check` with 1.7 seconds of CPU and three sockets open to a service
-the clone had never started. The reason is a comment beside the ten now, because
+the clone had never started. The reason is a comment beside the eleven now, because
 a gap that looks like an oversight gets closed again by whoever notices it next.
 
 **Stage 10's degradation drill, run rather than argued, 30 Aug.** §8's
@@ -8649,6 +8649,17 @@ survive extraction: tables arrive as loose runs of numbers and columns
 interleave. A model told nothing about that reads a mangled table as a tidy one
 and answers confidently from the wrong column.
 
+**A version-scheme error of mine, caught by a test rather than by me.** This
+work was released as 0.10.0, then 0.11.0, then 0.12.0 — on the reading that a
+shipped change bumps the minor. NERVIS's scheme is
+`0.<milestones completed>.<patch>`, so those three numbers each asserted a
+milestone that does not exist, and `test_no_capability_reason_names_a_milestone_that_has_shipped`
+derives its answer from exactly that field: at 0.12.1 it read *twelve completed*
+and failed on `nervis.diagnostics@1`, whose reason defers to M12. The document
+work is not a numbered milestone — like the voice stack, it is a capability that
+landed beside them — so it is patch traffic. Back to **0.9.5**, which is the
+ten NERVIS milestones through M8b and five patches.
+
 **Two things were still wrong, and both came from the same place: what a person
 does after clicking the clip.**
 
@@ -8681,6 +8692,21 @@ conversation is a new directory, and a new directory is empty. Deleting the
 conversation deletes them; a fortnight expires the directories a browser
 abandoned when it cleared its own history, swept on the registry timer rather
 than a scheduler of its own.
+
+**And it still did not work, for a third reason.** `attachment_id` was added to
+the unprompted-remark path rather than to the one a typed message takes, so
+uploads filed correctly under `cv_yq40` and every question about them arrived
+carrying nothing. The log is unambiguous: `read this pdf and summarize` →
+*"Nothing's attached, Matty — there's a clip icon next to the message box."*
+The server was verified in isolation and passed; the browser was verified in
+isolation and passed; the pair was broken, twice, the same way.
+
+`tools/attachment_check.js` is the gate for that pair and nothing else. It runs
+the real `chatRequestBody` rather than grepping for the field name — "the field
+appears in the file" is precisely the check that passed while the field sat on a
+code path no message goes down — and asserts the upload, the listing and the
+question resolve to one id. Both bugs were replayed against it and both fail it.
+That makes eleven dashboard gates.
 
 The key is the **dashboard's** conversation id, not NERVIS's. NERVIS only mints
 one when a turn is stored, and clip-then-question is the ordinary order of

@@ -82,14 +82,14 @@ step "nothing unreferenced"    nervis-eco python tools/check_dead_code.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the ten that need no live service) ==="
+echo "=== dashboard gates (the eleven that need no live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else
   echo "  npm ci FAILED"
   fail=$((fail + 1))
 fi
-for gate in render complexity shaping empty_world liveness injection routing outcome stream preserve; do
+for gate in render complexity shaping empty_world liveness injection routing outcome stream preserve attachment; do
   step "dashboard $gate" nervis-eco/nervis node "tools/${gate}_check.js"
 done
 
