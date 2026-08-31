@@ -313,6 +313,39 @@ exists.
 Runtime state is the closed enum `stopped | starting | ready | busy | stopping | failed |
 unknown`. Transitions carry timestamps and reasons.
 
+**The endpoint is configurable; the machine is not.** A runtime URL means *a
+runtime on this host* — another port, another container, another user — and
+never a runtime on another computer. The field is configurable and therefore
+invites the second reading, so the rule is written here rather than left to be
+discovered.
+
+SIRVIS pointed at a runtime across a network would work, which is the problem.
+Generations would run and throughput would even be roughly right, because that
+is observed over the wire. Everything *around* the number would be read from the
+wrong machine: §11.8 samples memory eight times around each generation —
+baseline, after each load, before generation, at peak prompt, at peak
+generation, post-run, post-unload, and a poll during — and every one of those
+would describe the observer rather than the subject. A run that exhausted the
+remote machine's memory would be stamped `VALID` because this one was idle, and
+an untroubled run would be `SUSPECT` because this one was busy. The result would
+carry this machine's identity while describing another's hardware, and §9's
+lease ceiling would be guarding memory that is not where the models are.
+
+That is worse than declining to measure. **Evidence is a claim about a machine**,
+and every discipline in this document — the VALID/SUSPECT verdict, the
+conditions attached to a score, the provenance in §12.1 — rests on the measuring
+and the measured being the same host. Split them and the numbers are confident
+and unfounded, which is the one failure this service exists to prevent.
+
+The lifecycle half is local by construction anyway: LM Studio exposes no HTTP
+load or unload, so loading shells out to a binary on this machine. Aiming the
+URL elsewhere protects reads and nothing else.
+
+**So SIRVIS runs where the models run.** A machine that holds the models holds
+the service that measures them; a machine that only *routes* to them needs
+neither, because RAVIS runs without SIRVIS by §13.4 and reports the degradation
+rather than hiding it.
+
 ## 7.1 Load configuration
 
 ```yaml

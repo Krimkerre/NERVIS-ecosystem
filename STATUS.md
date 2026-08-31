@@ -2948,6 +2948,36 @@ declared by its provider is `UNKNOWN` and **fails closed**, so a tool-requiring
 pool can come up empty on such a box. The operator override is what resolves it,
 and that is §9.5's provenance ordering working rather than a gap.
 
+### Where a measuring service may live, 1 Sep
+
+Asked whether SIRVIS could run on a laptop while the models ran on a box with a
+graphics card. It would work, which is the problem, so `SIRVIS.md` §7 now says
+it must not.
+
+Throughput would be roughly right — that is observed over the wire. Everything
+around it would be read from the wrong machine: §11.8 samples memory eight times
+around each generation, and every one of those would describe the observer
+rather than the subject. A run that exhausted the remote machine's memory would
+be stamped `VALID` because this one was idle; an untroubled run would be
+`SUSPECT` because this one was busy. The result would carry this machine's
+identity while describing another's hardware, and the lease ceiling would guard
+memory that is not where the models are.
+
+**Evidence is a claim about a machine.** Every discipline in that document rests
+on the measuring and the measured being one host. The invariant is written where
+the configurable field is, because a configurable endpoint is exactly the
+invitation somebody follows later.
+
+`ECOSYSTEM_RUNBOOK.md` §8.9 sketches the two-machine shape and records what is
+already decided about it, so fleshing it out is design rather than discovery:
+where SIRVIS goes and why; that RAVIS runs without it by §13.4; that a LAN model
+is deliberately *remote*, so `ravis/local` refuses it correctly and
+`ravis/private` therefore refuses the household's own box — a "my network" tier
+would be a new privacy level rather than configuration; that cheapest and
+fastest stop being opposites when a capable machine is on the network; and that
+exposure is gated asymmetrically, since SIRVIS refuses a non-loopback bind
+without both TLS and a credential while the model runtime carries no such rule.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

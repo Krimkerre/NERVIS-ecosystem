@@ -104,3 +104,22 @@ graphics card runs the gateway and the control plane perfectly well and simply
 has nothing to benchmark. The one thing to watch is a model whose tool support
 was never measured and is not declared by its provider: that fails closed, and
 an operator setting it is what resolves it.
+
+## A separate box for the models
+
+Sketched, not built. A cheap machine carrying a real graphics card runs the
+models and the service that measures them; a laptop runs the gateway and the
+control plane and reaches them over the network.
+
+Several things about this are already settled. The measuring service belongs on
+the machine with the models — it samples memory around every generation, and one
+that measured a remote machine while reading its own would mark an exhausted run
+healthy and a clean run suspect. The gateway runs perfectly well with no
+measuring service at all, reporting what it therefore cannot know. And a model
+on another computer counts as remote, so a pool that promises never to leave
+this machine correctly refuses it — which also means the strictest privacy pool
+refuses the household's own box, and whether that deserves its own tier is an
+open question rather than an oversight.
+
+One consequence is pleasant: on a laptop with a capable machine on the network,
+cheapest and fastest stop being opposite choices.

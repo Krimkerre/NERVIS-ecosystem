@@ -639,6 +639,56 @@ sequence, trace linkage, redaction and persisted state — not screenshots alone
 
 ---
 
+## 8.9 Sketch — two machines, one ecosystem
+
+**Not specified yet, and recorded because the constraints already are.** The
+shape: a cheap box carrying a real GPU runs the models and the service that
+measures them; a laptop runs the gateway and the control plane and routes to
+them over the network.
+
+    gpu box                          laptop
+    ├── a model runtime (Ollama)  ←  RAVIS ── NERVIS
+    └── SIRVIS                    ←──┘
+
+What is already decided, so that fleshing this out is design work rather than
+discovery:
+
+**SIRVIS goes on the box with the models**, per §7 of `SIRVIS.md`: a runtime URL
+means a runtime on this host, and a service measuring one machine while sampling
+another's memory produces verdicts that are confidently inverted.
+
+**RAVIS runs without SIRVIS.** §13.4 requires it — provider metadata and RAVIS's
+own observations carry routing, with the degradation labelled. So the laptop
+needs no benchmarking service of its own, and a box with no GPU has nothing for
+one to measure. The one thing to watch is a model whose tool support is neither
+measured nor declared: unknown fails closed, and the operator override is what
+resolves it.
+
+**A LAN model is remote, deliberately.** `ravis/local` promises *never leaves
+this machine* and a private address is somebody else's computer, so the LAN
+runtime is correctly excluded from `local` and `private`. Consequence worth
+deciding rather than discovering: `ravis/private` therefore excludes the box
+too, and there is no "my own network" tier — that would be a **new privacy
+level**, not configuration.
+
+**Cheapest and fastest stop being opposites.** A LAN runtime prices at zero like
+any local one, so `ravis/cheap` resolves to the GPU rather than to a slow model
+on the laptop's CPU. This is the machine-dependence RAVIS M26 was amended for.
+
+**Exposure is gated, and asymmetrically.** SIRVIS refuses a non-loopback bind
+without *both* TLS and a credential — §9's rule below, enforced at startup,
+closing the credential-only bind that "looks configured and publishes every
+model on the machine in cleartext". NERVIS's endpoint guard is loopback-only by
+default and refuses a bare hostname outright, so the box is admitted by literal
+address through `NERVIS_ALLOWED_HOSTS`. The model runtime itself carries no such
+rule: it is an endpoint somebody chose to expose, not a control-plane service.
+That asymmetry is intended and is the first thing to explain to whoever debugs
+it.
+
+**Open, and what fleshing it out means:** certificate handling for a home
+network, whether "my LAN" earns a privacy tier, how the two halves are started
+and stopped together, and what a trace looks like when it crosses a machine.
+
 ## 9. Security and privacy gates
 
 - Bind locally by default. Remote access is an explicit deployment choice with TLS and
