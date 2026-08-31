@@ -1,6 +1,6 @@
 [project]
 name = "nervis"
-version = "0.10.1"
+version = "0.11.0"
 description = "Ecosystem control plane — dashboard, event hub, diagnostics"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,15 @@ dependencies = [
   # NERVIS has to run on macOS, Linux and Windows, so three more copies of that
   # parsing is exactly the trade a dependency exists to avoid.
   "psutil>=6.0",
+  # Reading a PDF somebody attached. This is the one place in the repository
+  # where "a few lines could do it" is false: pulling `Tj` strings out of a
+  # decompressed content stream is short and *works on simple files*, then
+  # returns confident nonsense for any PDF whose fonts are subset-encoded —
+  # every glyph mapped through a `/Differences` array or a `ToUnicode` CMap that
+  # a naive reader ignores. Garbled text nobody can tell from real text is the
+  # exact failure this module is built to avoid, so the parsing is somebody
+  # else's. Pure Python, no C extension, and no transitive dependencies.
+  "pypdf>=5.1",
 ]
 
 [project.optional-dependencies]

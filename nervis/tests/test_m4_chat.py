@@ -3026,17 +3026,20 @@ def test_an_empty_upload_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_listing_says_which_files_chat_can_actually_read(tmp_path: Path) -> None:
-    """A different question from which are there. A PDF sits in the workspace
-    perfectly well and cannot be summarised, and a screen that does not say so
-    invites the attempt and then refuses somebody looking right at the name."""
+    """A different question from which are there. A screenshot sits in the
+    workspace perfectly well and cannot be summarised, and a screen that does
+    not say so invites the attempt and then refuses somebody looking right at
+    the name. PDFs are on the readable side now — that took a parser."""
     client = an_api(workspace_path=str(tmp_path))
     client.put("/api/v1/workspace/files/notes.md", content=b"text")
-    client.put("/api/v1/workspace/files/scan.pdf", content=b"%PDF-1.4 not really")
+    client.put("/api/v1/workspace/files/report.pdf", content=b"%PDF-1.4 pretend")
+    client.put("/api/v1/workspace/files/photo.png", content=b"\x89PNG")
 
     listed = {item["name"]: item for item in client.get("/api/v1/workspace/files").json()["items"]}
 
     assert listed["notes.md"]["readable"] is True
-    assert listed["scan.pdf"]["readable"] is False
+    assert listed["report.pdf"]["readable"] is True
+    assert listed["photo.png"]["readable"] is False
     assert listed["notes.md"]["bytes"] == 4
 
 

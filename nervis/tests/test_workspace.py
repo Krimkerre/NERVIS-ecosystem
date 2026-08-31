@@ -19,6 +19,7 @@ from nervis.documents import (
     read_document,
     store_upload,
 )
+from nervis.pdf import render
 from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
 
 
@@ -244,3 +245,66 @@ def test_a_workspace_that_is_not_there_lists_empty_rather_than_raising(tmp_path:
     draw. The dashboard shows an empty workspace and the reason lives with the
     setting."""
     assert list_files(tmp_path / "nowhere") == []
+
+
+# ── PDFs, which is what people actually attach ─────────────────────────────
+
+def test_a_pdf_is_read_by_extracting_its_text(tmp_path: Path) -> None:
+    """The round trip that matters: NERVIS's own writer produces a file its own
+    reader answers from. A renderer and a reader that disagree about the format
+    would both pass their own tests."""
+    (tmp_path / "report.pdf").write_bytes(
+        render("Report", "# Q3 revenue\n\nRevenue fell **12%** against Q2.").data
+    )
+
+    document = read_document(tmp_path, "report.pdf")
+
+    assert "Q3 revenue" in document.text
+    assert "Revenue fell" in document.text
+    assert document.extracted is True
+
+
+def test_the_reading_says_a_pdf_lost_its_layout(tmp_path: Path) -> None:
+    """Extraction returns prose with the geometry gone, so a table arrives as
+    loose runs of numbers. A model told nothing about that reads a mangled table
+    as a tidy one and answers confidently from the wrong column."""
+    (tmp_path / "report.pdf").write_bytes(render("Report", "some text").data)
+
+    reading = read_document(tmp_path, "report.pdf").as_reading()
+
+    assert "extracted from a PDF" in reading
+    assert "layout is gone" in reading
+
+
+def test_a_scanned_pdf_says_so_rather_than_reading_as_empty(tmp_path: Path) -> None:
+    """The failure worth naming. A photograph of a page extracts to nothing, and
+    an empty reading presented as a successful one is a model answering "the
+    document does not mention that" to every question about it."""
+    (tmp_path / "scan.pdf").write_bytes(render("Scan", "").data)
+
+    with pytest.raises(ValueError, match="OCR"):
+        read_document(tmp_path, "scan.pdf")
+
+
+def test_a_file_that_is_not_really_a_pdf_is_refused_not_raised_through(
+    tmp_path: Path,
+) -> None:
+    """A malformed PDF makes the parser raise from several layers down. Any one
+    of them escaping turns a bad attachment into a 500."""
+    (tmp_path / "broken.pdf").write_bytes(b"%PDF-1.4 this is not a pdf at all")
+
+    with pytest.raises(ValueError):
+        read_document(tmp_path, "broken.pdf")
+
+
+def test_a_pdf_counts_as_readable_in_the_listing(tmp_path: Path) -> None:
+    """The screen's ○ marks what chat cannot read. Leaving it on PDFs after
+    teaching chat to read them tells people not to try."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "report.pdf").write_bytes(render("Report", "text").data)
+    (root / "photo.png").write_bytes(b"\x89PNG")
+
+    marked = {item.name: item.readable for item in list_files(root)}
+
+    assert marked == {"report.pdf": True, "photo.png": False}

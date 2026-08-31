@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1840 tests, no network, no live service
+.venv/bin/pytest                      # part of 1845 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 478 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 483 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1840 passing across the four, conformance `PASS`.
+Expected: all clean, 1845 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8620,6 +8620,34 @@ line prints unindented; in practice models put a blank line there.
 lists, and Latin-1 only. Characters the encoding cannot carry are *reported* on
 the result rather than replaced with a `?` — a silent substitution in somebody's
 report is a defect only the writer can see.
+
+**PDFs are read, and the plan said they would not be.** This module's docstring
+argued binary formats could wait for "the writing half, where a renderer already
+has to exist". The first file anybody attached was a 284 KB PDF. That is a clear
+enough answer, and the feature was unusable without it: the file uploaded fine,
+sat in the list marked unreadable, and there was nothing to do with it.
+
+`pypdf` is the one place in this repository where *a few lines could do it* is
+false. Pulling `Tj` strings out of a decompressed content stream is short and
+works on simple files, then returns confident nonsense for any PDF whose fonts
+are subset-encoded — every glyph mapped through a `/Differences` array or a
+`ToUnicode` CMap a naive reader ignores. Garbled text nobody can tell from real
+text is the exact failure the rest of this module is built to avoid. Pure
+Python, no C extension, no transitive dependencies.
+
+Three PDF failures are named rather than collapsed, and the third is the one
+that mattered: a **scan** extracts to nothing at all, and an empty reading
+presented as a successful one is a model answering *"the document does not
+mention that"* to every question about a document it never saw. It now says the
+file has N pages and no text in any of them, and that this needs OCR. The other
+two are a password-protected file and one that is not really a PDF — the latter
+caught broadly on purpose, since a malformed PDF raises from pypdf, zlib, struct
+and codecs alike and the caller has one thing to do with all of them.
+
+The reading also says the text came out of a converter. A PDF's layout does not
+survive extraction: tables arrive as loose runs of numbers and columns
+interleave. A model told nothing about that reads a mangled table as a tidy one
+and answers confidently from the wrong column.
 
 The screen has the other half: an attach control in the composer, and a line
 under it saying what is in the workspace and which of it chat can actually read.
