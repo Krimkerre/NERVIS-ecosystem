@@ -2840,6 +2840,43 @@ honest figure, and the part that does not compress is the judgement: what bounds
 a plan, what an unattended run may spend. Today's reseller rule was forty minutes
 of code and three rounds of getting the judgement wrong.
 
+### Reopening a conversation silently forked it, 31 Aug
+
+Reported as *"I opened a previous session and exported it — it only exported the
+new messages"*, and the export was the symptom rather than the fault.
+
+**Reopening restored the browser's copy and not the server's id.** `open()`
+assigned the messages, the title and the parameters, and left `remote_id`
+behind — so the next turn carried no conversation to append to, NERVIS started a
+*fresh* one, and everything said before the reopen stayed in the old conversation
+nothing pointed at any more. The export asked the store for a conversation that
+was minutes old and got exactly what it asked for.
+
+The browser copy is what is drawn; the server copy is what is exported, recalled
+and titled. Restoring one without the other forks them, and nothing on screen
+says so — the conversation looks continuous because the transcript is local.
+
+A conversation the browser remembers and NERVIS no longer holds is now recovered
+rather than reported: the id is cleared, the turn is sent again as a new
+conversation, and it is **said out loud**, because the earlier turns are on
+screen and will not be in the export.
+
+### Chat can talk about what is planned
+
+`knowledge/roadmap.md` carries M21-M25 and RAVIS M26 in the same shape as the
+other notes, so NERVIS can discuss its own future. It opens by saying these are
+planned and unbuilt, because a milestone described in the present tense is
+indistinguishable from a shipped one.
+
+Two search defects surfaced while checking it, and both were general rather than
+specific to that file. The tokeniser allows dots *inside* a word so that
+`nervis.registry` survives whole — and it was swallowing the full stop at the end
+of a sentence too, making "centre." and "centre" different words. A question
+about *the notification centre* scored 4.5 against a section that says exactly
+that, and was dropped by a threshold of 5. And the indexer split on `##` only, so
+five planned features written as sub-headings were one 1,800-character block:
+asking about any of them retrieved all five, four of them padding.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

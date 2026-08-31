@@ -8232,6 +8232,17 @@ const CHAT_SESSIONS={
   const p=found.params||{};
   Object.assign(CHAT_SESSION,{
    id:found.conversation_id,
+   /* **The server's id travels with it, and it did not.** Reopening restored
+      the browser's copy of the messages and nothing else, so the next turn
+      carried no `conversation_id` — NERVIS started a *fresh* conversation and
+      appended to that. Everything said before the reopen stayed in the old one,
+      which is why exporting a reopened conversation produced only the turns
+      added since: the store was asked for a conversation that was minutes old.
+
+      The browser copy is what is drawn; the server copy is what is exported,
+      recalled and titled. Restoring one without the other silently forked the
+      two apart. */
+   remote_id:found.remote_id||'',
    created_at:found.created_at,
    title:found.title,
    messages:(found.messages||[]).map(m=>({...m})),
@@ -9141,6 +9152,18 @@ async function streamReply(stop,extra){
      anything. It arrives beside the reply rather than inside it: a control the
      model could write into its own text would be a control the model has. */
   acc.offer=parseOffer(r.headers.get('x-command-offer'));
+  /* **A conversation the browser remembers and NERVIS no longer holds.** The
+     local copy outlives the server one — a database rebuilt, retention, a
+     delete from another tab — and reopening it then sends an id that answers
+     404. Recovered once rather than reported: the person asked to continue a
+     conversation, and starting a fresh one silently is what happened *before*
+     the id was restored at all. Said out loud, because the earlier turns are on
+     screen and will not be in the export. */
+  if(r.status===404&&CHAT_SESSION.remote_id){
+   CHAT_SESSION.remote_id='';
+   notify('NERVIS no longer holds this conversation — continuing as a new one');
+   return streamReply(stop,extra);
+  }
   if(!r.ok)acc.failed=await refusalMessage(r);
   else for await(const item of sseFrames(r.body))absorbFrame(item,acc,paint);
  }catch(e){Object.assign(acc,transportFailure(e))}

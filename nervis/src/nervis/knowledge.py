@@ -127,9 +127,16 @@ def _stem(word: str) -> str:
 
 
 def _terms(text: str) -> set[str]:
+    # **Trailing punctuation stripped, inner punctuation kept.** The token
+    # pattern allows dots and hyphens inside a word so that `nervis.registry`
+    # and `ravis/chat` survive whole — which also swallowed the full stop at the
+    # end of a sentence. "centre." and "centre" were two different words, so a
+    # term matched only where it happened not to end a clause, and a question
+    # about "the notification centre" scored 4.5 against a section that says
+    # exactly that, and was dropped by a threshold of 5.
     return {
-        _stem(w) for w in _WORD.findall(text.lower())
-        if w not in _TOO_COMMON and len(w) > 2
+        _stem(w.strip("._-")) for w in _WORD.findall(text.lower())
+        if w.strip("._-") not in _TOO_COMMON and len(w.strip("._-")) > 2
     }
 
 
@@ -171,8 +178,12 @@ def sections() -> tuple[Section, ...]:
     for path in sorted(KNOWLEDGE.glob("*.md")):
         text = path.read_text(encoding="utf-8", errors="replace")
         subject = path.stem
-        # Split on `##`, keeping the title line as the first section's heading.
-        parts = re.split(r"\n## ", text)
+        # Split on `##` *and* `###`, keeping the title line as the first
+        # section's heading. Level three matters: five planned features written
+        # as sub-headings under one `##` were one 1,800-character block, so a
+        # question about any of them retrieved all five and the other four were
+        # padding.
+        parts = re.split(r"\n#{2,3} ", text)
         title = parts[0].strip().lstrip("#").strip()
         if title:
             found.append(Section(subject, title.split("\n")[0], parts[0].strip()))
