@@ -2550,9 +2550,9 @@ only names in front of the model were the broken ones. It names both now.
 not do, it said Clarvis had to finish building its Bridge first — quoting
 `nervis.clarvis_visibility@1`, whose reason still read *"blocked on Clarvis
 building the Bridge"*. Clarvis built it on 29 Aug and NERVIS M8b landed the same
-day, with `test_m8b_status.py` covering a live read, the issued token, a refused
+day, with `nervis/tests/test_m8b_status.py` covering a live read, the issued token, a refused
 token, a closed window and the field allowlist. The capability is **available**,
-and the invariant in `test_m0_foundation.py` was updated with it — that test had
+and the invariant in `nervis/tests/test_m0_foundation.py` was updated with it — that test had
 locked in the same mistake twice, having been written beside the declaration
 each time. §4.1 makes a reason the sentence a peer reads to decide what not to
 attempt, and this one told them not to bother.
