@@ -9158,6 +9158,20 @@ optional peer nobody configured. Several changes collapse into one sentence,
 because three services falling over together is one event to a person and three
 to a loop.
 
+**A status change interrupts a reply in progress**, which is the opposite of
+what this did first. Waiting is right for two remarks of equal weight, and a
+service falling over is not equal weight: held behind a long answer, the news
+arrives after the thing it should have stopped somebody doing — and the answer
+is on the screen to be read back while the announcement is not.
+
+That turned up a bug in `stop()` older than any of this. It claimed to "drop the
+backlog" and dropped only the *tail*: `this.queue = Promise.resolve()` cannot
+unmake a promise already chained onto the old one, so a second queued line spoke
+straight after the interruption, and the stop button had the same hole. Each
+utterance now carries the era it was queued in and is skipped if `stop()` has
+bumped it since. Found by interrupting a two-line reply and hearing the second
+line arrive anyway.
+
 `voice.announce_status` is its own flag rather than a use of `enabled`: wanting
 replies read aloud and wanting to be told a service fell over are different
 wants. Off by default — a dashboard that starts speaking unprompted the first

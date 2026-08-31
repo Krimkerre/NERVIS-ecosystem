@@ -4090,6 +4090,9 @@ const SPEECH={
     and two audio elements simply talk over each other. A greeting followed by
     a reply is enough to reach this. */
  queue:Promise.resolve(),
+ /* Bumped by `stop()`, so anything queued in an earlier era is skipped when its
+    turn comes rather than spoken into a silence somebody asked for. */
+ era:0,
  audio:null, context:null, frame:0,
  /* One notice per session for a voice that is failing rather than declining. */
  warned:false,
@@ -4115,11 +4118,20 @@ const SPEECH={
  announcing(){return Boolean(this.on()&&this.settings.announce_status)},
 
  /* NERVIS's own words rather than a model's, so `source_model` is empty and the
-    §18.2 gate passes it — there is no local reply here to leak. Queued behind
-    whatever is speaking, because cutting off a sentence to announce another is
-    how two facts become none. */
+    §18.2 gate passes it — there is no local reply here to leak.
+
+    **It interrupts rather than queues**, which is the opposite of what this did
+    first. Waiting is right for two remarks of equal weight; a service falling
+    over is not equal weight. Held behind a long answer, the news arrives after
+    the thing it should have stopped somebody doing — and the answer is on the
+    screen to be read back, while the announcement is not.
+
+    `stop()` voids the backlog along with the current line, so a queue of chat
+    lines does not resume around the interruption and leave the announcement
+    buried in the middle of one. */
  announce(text){
   if(!this.announcing())return;
+  this.stop();
   this.say(text,'');
  },
 
@@ -4151,13 +4163,26 @@ const SPEECH={
 
  say(text,sourceModel){
   if(!text||!this.on())return;
-  this.queue=this.queue.then(()=>this._speak(text,sourceModel||'')).catch(()=>{});
+  /* Stamped with the generation it was queued in, and checked again when its
+     turn comes. Replacing `this.queue` cannot unmake a promise already chained
+     onto the old one — those keep running whatever the tail is set to — so
+     without this a line queued before a stop still speaks after it. */
+  const era=this.era;
+  this.queue=this.queue
+    .then(()=>era===this.era?this._speak(text,sourceModel||''):undefined)
+    .catch(()=>{});
  },
 
  /* Silence now, and drop the backlog. A merely-paused queue floods out on
     unmute and narrates replies from ten minutes ago, which is the opposite of
     what pressing mute asked for. */
  stop(){
+  /* Everything queued before now is void. `this.queue=Promise.resolve()` only
+     replaces the *tail*: the promises already chained onto the old one run to
+     completion regardless, so the backlog this claimed to drop was still
+     speaking. Found by interrupting a two-line reply and hearing the second
+     line arrive after the interruption. */
+  this.era+=1;
   this.queue=Promise.resolve();
   if(this.audio){this.audio.pause();this.audio=null}
   try{window.speechSynthesis.cancel()}catch(e){}
