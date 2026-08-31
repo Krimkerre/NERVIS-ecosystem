@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1872 tests, no network, no live service
+.venv/bin/pytest                      # part of 1879 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1872 passing across the four, conformance `PASS`.
+Expected: all clean, 1879 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8889,6 +8889,61 @@ in the catalogue and are not meant to be — forgetting that turned every
 exhausted pool into *"no upstream lists 'ravis/clarvis-agent'"* — and an empty
 catalogue is not evidence of absence, because at startup RAVIS knows nothing
 yet. A model the catalogue *does* list keeps the upstream's own words.
+
+## Asking a provider which of its models actually work, 2026-08-31
+
+Google lists 39 models and 15 of them can hold a conversation. The other 24 are
+music, speech, images, robotics, computer use — and a set that answers 404.
+Nothing in the listing says which is which: a Lyria music model reports the same
+capability claims and the same 1,048,576-token context window as Gemini Flash,
+and `supportedGenerationMethods` admits all of them.
+
+So the catalogue cannot be filtered by reading it. `tools/probe_models.py` asks
+instead — one small generation per model — and remembers the answer.
+
+**It is a script and not a background sweep, because it spends money.** A timer
+probing on every catalogue refresh would bill somebody to rediscover the same
+dead ids. This keeps its verdicts in `~/.config/ravis/probed.json` and by
+default probes only ids it has never seen, so the run after a renewal costs one
+request per genuinely new model and nothing at all when the catalogue has not
+moved. `--all` re-checks everything; `--apply` writes the dead ones into the
+provider's exclude list.
+
+**The judgement got it wrong twice, and both mistakes are now tests.**
+
+*It read RAVIS's summary instead of the provider's words.* A failed chain
+reports `Tried: models/gemini-2.5-flash (unknown)`, which says nothing about
+why; the sentence that separates a retirement from an overloaded region — *"no
+longer available to new users"* — is on the attempt underneath. Reading the
+summary marked every dead model merely unexplained.
+
+*It condemned models for thinking.* Giving each model eight tokens and calling
+anything that produced no text the wrong kind caught `gemini-3.6-flash`, a
+reasoning build that spends a small budget on thought and had already been
+watched answering at a larger one. **Excluding a working model is the expensive
+error**: a useless model that answers merely ranks badly and is never chosen,
+while an excluded one is capability thrown away that nothing will rediscover. So
+a 200 is *works*, noted as *quiet* when no text came back — a remark for a
+person, never grounds for exclusion. Only a refusal condemns, and only when the
+provider's own words say it is permanent. *"Only supports Interactions API"*
+counts; a 429 does not.
+
+**The result:** six patterns for the kinds that were never chat — `*tts*`,
+`*image*`, `*transcribe*`, `*lyria*`, `*robotics*`, `*computer-use*`, in the
+same house style the `openai` provider already used — plus nine exact ids the
+probe found gone. 39 listed, 15 offered, every one of the 15 observed accepting
+a chat request.
+
+Exact ids for what was measured and patterns only for what was judged: a pattern
+is a guess about what a vendor will name next, and a model that answered 404
+today is a measurement. `nano-banana-pro-preview` is an image model and is still
+offered, because it answered — excluding it would have been my say-so rather
+than evidence, which is the thing this whole mechanism exists to avoid.
+
+One consequence worth naming: `models/gemini-2.5-flash` is now excluded from the
+direct provider, so the reseller preference finds no direct alternative for
+`google/gemini-2.5-flash` and leaves OpenRouter's copy alone. That is the
+fail-open clause doing exactly what it was written for.
 
 ## Starting the thing
 
