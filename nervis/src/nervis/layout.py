@@ -174,6 +174,22 @@ def _collapse(blocks: list[Block]) -> list[Block]:
     return out
 
 
+#: The dashboard's own palette, in PDF's 0-1 RGB.
+#:
+#: **The same values the screen uses**, read off its CSS rather than chosen
+#: again here: an export that arrived in tasteful greys would look like it came
+#: from a different program than the one that produced it. This is a dark page
+#: on purpose — it is a record of a conversation held on a dark console, and it
+#: is read on a screen far more often than it is printed.
+PAPER = (0.027, 0.035, 0.051)     # --bg  #07090d
+PANEL = (0.043, 0.067, 0.098)     # --surface, the tint behind code
+INK = (0.847, 0.882, 0.918)       # --text #d8e1ea
+ACCENT = (0.490, 0.424, 1.000)    # --accent #7d6cff
+CYAN = (0.204, 0.902, 0.949)      # --cyan #34e6f2
+MUTED = (0.443, 0.506, 0.584)     # --muted #718195
+RULE = (0.125, 0.165, 0.208)      # --line #202a35
+
+
 @dataclass
 class Style:
     """How each kind is drawn. One place, so the page has a consistent voice."""
@@ -184,16 +200,26 @@ class Style:
     space_above: float = 0
     indent: float = 0
     monospace: bool = False
+    #: The ink this block is set in.
+    colour: tuple[float, float, float] = INK
+    #: A hairline across the measure above this block, and how far above it.
+    rule_above: float = 0
+    #: A tint behind the block, for code.
+    tint: tuple[float, float, float] | None = None
+    #: Extra space between characters, in points. What makes a label a label.
+    tracking: float = 0
+    #: Whether the text is set in capitals.
+    upper: bool = False
 
 
 #: Heading sizes fall away quickly and then stop: past the third level the
 #: difference stops being visible and starts being noise.
 STYLES: dict[Kind, Style] = {
-    Kind.HEADING: Style(size=15, bold=True, space_above=10),
+    Kind.HEADING: Style(size=15, bold=True, space_above=10, colour=ACCENT),
     Kind.PARAGRAPH: Style(size=11),
     Kind.BULLET: Style(size=11, indent=16),
     Kind.NUMBERED: Style(size=11, indent=16),
-    Kind.CODE: Style(size=9.5, monospace=True, indent=12),
+    Kind.CODE: Style(size=9.5, monospace=True, indent=12, colour=CYAN, tint=PANEL),
     Kind.BLANK: Style(size=11),
 }
 
@@ -209,5 +235,18 @@ def style_for(block: Block) -> Style:
         size=HEADING_SIZES.get(block.level, 11),
         bold=True,
         space_above=12 if block.level <= 2 else 8,
+        # The title in cyan, the speakers in the accent — the same two the
+        # dashboard's own header uses, in the same order.
+        colour=CYAN if block.level == 1 else ACCENT,
+        # Uppercase and letterspaced at level two, which is what turns a speaker
+        # name into a label rather than a sentence. The screen does this to
+        # every heading it draws.
+        tracking=1.6 if block.level == 2 else (0.8 if block.level == 1 else 0),
+        upper=block.level == 2,
+        # A hairline above every heading below the title. It is what separates
+        # one turn of a transcript from the next without an empty band of
+        # whitespace doing the work, and the title needs no line above it
+        # because the top of the page already is one.
+        rule_above=7 if block.level == 2 else 0,
     )
 

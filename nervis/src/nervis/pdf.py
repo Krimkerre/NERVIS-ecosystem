@@ -12,14 +12,16 @@ monospace face, and page breaks that do not strand a heading at the foot of a
 page.
 
 **What it cannot**, stated here rather than discovered: no tables, no images, no
-links, no nested lists, and Latin-1 only — the base-14 encoding cannot express
+links, no nested lists, and WinAnsi only — a single-byte encoding cannot express
 the rest, and characters it cannot carry are reported rather than replaced with
 a `?` nobody can see.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from nervis import layout
 from nervis.layout import Block, Kind, Span, parse, style_for
 
 #: US Letter at 72 dpi, the format's own unit.
@@ -32,11 +34,27 @@ MARGIN = 56
 LEADING = 1.36
 
 TOP = PAGE_HEIGHT - MARGIN
-BOTTOM = MARGIN
+#: Where the text stops. Above the footer rather than at the margin, or the last
+#: line of a page lands on the page number.
+BOTTOM = MARGIN + 18
 USABLE = PAGE_WIDTH - 2 * MARGIN
 
 #: Font resource names, in the order they are declared in the page's resources.
 REGULAR, BOLD, MONO = "F1", "F2", "F3"
+
+#: The single-byte encoding the fonts are declared with.
+#:
+#: **WinAnsi rather than Latin-1, and the difference is visible on every page.**
+#: The base-14 fonts default to an encoding with no em dash, no curly quotes and
+#: no ellipsis — so a reply reading "the reseller — the same model" came out as
+#: "the reseller ? the same model", and a `?` where punctuation should be is a
+#: defect the writer can see and the reader cannot explain. Those characters are
+#: exactly what a language model writes; they are not an edge case here, they
+#: are most sentences.
+#:
+#: `cp1252` is Python's name for the same set. Declaring the encoding on the
+#: font and encoding the bytes to match is the whole of it.
+ENCODING = "cp1252"
 
 #: Average glyph width as a fraction of the point size, per face.
 #:
@@ -68,16 +86,17 @@ def _escape(text: str) -> bytes:
     double-escape the backslashes this adds.
     """
     out = text.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
-    return out.encode("latin-1", errors="replace")
+    return out.encode(ENCODING, errors="replace")
 
 
 def _fits(spans: tuple[Span, ...], size: float, width: float, mono: bool,
-          bold: bool = False) -> bool:
+          bold: bool = False, tracking: float = 0.0) -> bool:
     """Whether these runs fit one line of `width` points at `size`."""
-    return _measure(spans, size, mono, bold) <= width
+    return _measure(spans, size, mono, bold, tracking) <= width
 
 
-def _measure(spans: tuple[Span, ...], size: float, mono: bool, bold: bool = False) -> float:
+def _measure(spans: tuple[Span, ...], size: float, mono: bool, bold: bool = False,
+             tracking: float = 0.0) -> float:
     """The width these runs occupy, in points.
 
     Takes the block's weight as well as each span's, because a bold heading is
@@ -87,11 +106,13 @@ def _measure(spans: tuple[Span, ...], size: float, mono: bool, bold: bool = Fals
     total = 0.0
     for span in spans:
         total += len(span.text) * size * WIDTHS[_face(bold or span.bold, mono)]
+        total += len(span.text) * tracking
     return total
 
 
 def _wrap_spans(
-    spans: tuple[Span, ...], size: float, width: float, mono: bool, bold: bool = False
+    spans: tuple[Span, ...], size: float, width: float, mono: bool, bold: bool = False,
+    tracking: float = 0.0
 ) -> list[tuple[Span, ...]]:
     """Break runs into lines, keeping each run's weight across the break.
 
@@ -108,7 +129,7 @@ def _wrap_spans(
                 continue
             candidate = current + [Span(word, span.bold)]
             joined = tuple(candidate)
-            if current and not _fits(joined, size, width, mono, bold):
+            if current and not _fits(joined, size, width, mono, bold, tracking):
                 lines.append(tuple(current))
                 current = [Span(word, span.bold)]
             else:
@@ -144,8 +165,26 @@ def _face(bold: bool, mono: bool) -> str:
     return BOLD if bold else REGULAR
 
 
+def _colour(rgb: tuple[float, float, float]) -> bytes:
+    """A fill colour, in PDF's own 0-1 RGB.
+
+    Set inside each text object rather than once per page: colour is graphics
+    state and persists across `BT`/`ET`, so a heading that set it and did not
+    reset it would tint every paragraph after it — including on the next page,
+    since the state carries across content streams within a page tree.
+    """
+    return f"{rgb[0]:.3g} {rgb[1]:.3g} {rgb[2]:.3g} rg".encode("latin-1")
+
+
+def _rect(x: float, y: float, width: float, height: float,
+          rgb: tuple[float, float, float]) -> bytes:
+    """One filled rectangle: a hairline, or the tint behind a code block."""
+    return _colour(rgb) + f" {x:g} {y:g} {width:g} {height:g} re f".encode("latin-1")
+
+
 def _draw(spans: tuple[Span, ...], x: float, y: float, size: float, mono: bool,
-          bold: bool = False) -> list[bytes]:
+          bold: bool = False, rgb: tuple[float, float, float] = (0.0, 0.0, 0.0),
+          tracking: float = 0.0) -> list[bytes]:
     """One line of runs, as a single text object.
 
     **The viewer advances the pen, not this code.** Inside one `BT`/`ET`,
@@ -164,7 +203,11 @@ def _draw(spans: tuple[Span, ...], x: float, y: float, size: float, mono: bool,
         return []
 
     face = _face(bold or drawn[0].bold, mono)
-    out = [f"BT /{face} {size:g} Tf {x:g} {y:g} Td (".encode("latin-1")
+    # `Tc` is character spacing, and it is graphics state like colour — set on
+    # every object rather than once, or a tracked label spaces out everything
+    # drawn after it.
+    out = [_colour(rgb) + f" BT {tracking:g} Tc /{face} {size:g} Tf "
+           f"{x:g} {y:g} Td (".encode("latin-1")
            + _escape(drawn[0].text) + b") Tj"]
     for span in drawn[1:]:
         want = _face(bold or span.bold, mono)
@@ -176,8 +219,35 @@ def _draw(spans: tuple[Span, ...], x: float, y: float, size: float, mono: bool,
     return [b" ".join(out)]
 
 
+def _block(
+    lines: list[tuple[Span, ...]], block: Block, style: Any, top: float, marker_width: float
+) -> list[bytes]:
+    """One block's tint, marker and text, in painting order.
+
+    Split out of `render` for the complexity gate, and it reads better for it:
+    the loop above is now about *where a block goes* and this is about *what a
+    block looks like*, which were two jobs in one function.
+    """
+    out: list[bytes] = []
+    leading = style.size * LEADING
+    y = top
+    for line_number, line in enumerate(lines):
+        x = MARGIN + style.indent + (marker_width if block.marker else 0)
+        # The tint goes down before the glyphs do — PDF paints in order, and a
+        # rectangle drawn after its text hides it.
+        if style.tint:
+            out.append(_rect(MARGIN, y - leading * 0.28, USABLE, leading, style.tint))
+        if block.marker and line_number == 0:
+            out.extend(_draw((Span(block.marker),), MARGIN + style.indent, y,
+                             style.size, False, rgb=style.colour))
+        out.extend(_draw(line, x, y, style.size, style.monospace, style.bold,
+                         rgb=style.colour, tracking=style.tracking))
+        y -= leading
+    return out
+
+
 def _unsupported(text: str) -> str:
-    return "".join(sorted({c for c in text if c.encode("latin-1", "ignore") == b""}))
+    return "".join(sorted({c for c in text if c.encode(ENCODING, "ignore") == b""}))
 
 
 def render(title: str, text: str) -> Rendered:
@@ -204,8 +274,13 @@ def render(title: str, text: str) -> Rendered:
         if block.marker:
             marker_width = max(style.indent, len(block.marker) * style.size * 0.62)
 
+        spans = block.spans
+        if style.upper:
+            spans = tuple(Span(span.text.upper(), span.bold) for span in spans)
+
         width = USABLE - style.indent - (marker_width if block.marker else 0)
-        lines = _wrap_spans(block.spans, style.size, width, style.monospace, style.bold)
+        lines = _wrap_spans(spans, style.size, width, style.monospace, style.bold,
+                            style.tracking)
 
         # A heading alone at the foot of a page reads as a caption for nothing.
         # It moves with the first line of what follows it.
@@ -215,20 +290,35 @@ def render(title: str, text: str) -> Rendered:
             current, y = [], float(TOP)
 
         y -= style.space_above
-        for line_number, line in enumerate(lines):
-            x = MARGIN + style.indent + (marker_width if block.marker else 0)
-            if block.marker and line_number == 0:
-                current.extend(_draw(
-                    (Span(block.marker),), MARGIN + style.indent, y, style.size, False
-                ))
-            current.extend(_draw(line, x, y, style.size, style.monospace, style.bold))
-            y -= leading
+        # A hairline across the measure, above the space rather than in it, so a
+        # heading sits under its own rule rather than on top of one.
+        if style.rule_above and current:
+            current.append(_rect(MARGIN, y + style.rule_above, USABLE, 0.6, layout.RULE))
+        current.extend(_block(lines, block, style, y, marker_width))
+        y -= leading * len(lines)
         del index
 
     if current or not pages:
         pages.append(current)
 
     return _assemble(pages, _unsupported(text + title))
+
+
+def _footer(number: int, total: int) -> list[bytes]:
+    """A hairline and a page number, in the machine's own voice.
+
+    Monospaced and letterspaced because that is what every label on the screen
+    this came from looks like, and because "3 / 7" set in a book face reads as
+    a fraction rather than a position.
+    """
+    y = MARGIN * 0.55
+    return [
+        _rect(MARGIN, y + 13, USABLE, 0.6, layout.RULE),
+        *_draw((Span("NERVIS"),), MARGIN, y, 7.5, mono=True,
+               rgb=layout.MUTED, tracking=1.4),
+        *_draw((Span(f"{number} / {total}"),), PAGE_WIDTH - MARGIN - 34, y, 7.5,
+               mono=True, rgb=layout.MUTED, tracking=1.4),
+    ]
 
 
 def _assemble(pages: list[list[bytes]], unsupported: str) -> Rendered:
@@ -243,10 +333,19 @@ def _assemble(pages: list[list[bytes]], unsupported: str) -> Rendered:
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
     objects.append(f"<< /Type /Pages /Count {len(pages)} /Kids [{kids}] >>".encode("latin-1"))
     for base in (b"/Helvetica", b"/Helvetica-Bold", b"/Courier"):
-        objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont " + base + b" >>")
+        objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont " + base
+                       + b" /Encoding /WinAnsiEncoding >>")
 
-    for sheet, content_id in zip(pages, content_ids):
-        stream = b"\n".join(sheet)
+    for number, (sheet, content_id) in enumerate(zip(pages, content_ids), start=1):
+        # **The ground first, and every page gets one.** A dark page is a
+        # rectangle painted before anything else; without it the text would sit
+        # on whatever the reader's viewer uses for paper, which for light text
+        # is nothing at all.
+        stream = b"\n".join([
+            _rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, layout.PAPER),
+            *sheet,
+            *_footer(number, len(pages)),
+        ])
         objects.append(
             f"<< /Length {len(stream)} >>\nstream\n".encode("latin-1") + stream + b"\nendstream"
         )

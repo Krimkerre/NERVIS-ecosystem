@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1922 tests, no network, no live service
+.venv/bin/pytest                      # part of 1927 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 542 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 547 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1922 passing across the four, conformance `PASS`.
+Expected: all clean, 1927 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -9270,6 +9270,38 @@ tested so an empty PDF can never be the answer.
 The complexity ratchet caught the change: `runOffer` went from 13 to 15, so the
 two file-writing operations moved into `runFileOffer` rather than the limit
 moving. They belong together anyway — both answer with a file rather than a job.
+
+### The export looks like the thing that produced it
+
+A tasteful grey document would have looked like it came from a different program
+than the console it was exported from, so the page carries the dashboard's own
+palette, read off its CSS rather than chosen again: `#07090d` ground, `#d8e1ea`
+body, cyan title, accent-violet speaker labels set in capitals and letterspaced
+the way every heading on the screen is, `#202a35` hairlines, and code on the
+surface tint. A footer rule with `NERVIS` and the page number in tracked
+monospace. Dark on purpose — it is a record of a conversation held on a dark
+console and it is read on a screen far more often than printed.
+
+The renderer gained what that needs and had never had: fill colour, filled
+rectangles, and character spacing. All three are graphics state, so all three
+are set per text object rather than once — a heading that set colour and did not
+reset it would tint every paragraph after it, including on the next page.
+
+**And it fixed a defect that had been in every PDF this ever wrote.** The
+base-14 fonts were declared with no encoding, so they used one with no em dash,
+no curly quotes and no ellipsis: *"the reseller — the same model"* came out as
+*"the reseller ? the same model"*. Those are not edge cases in a transcript,
+they are most sentences a model writes. Declaring `/WinAnsiEncoding` and
+encoding to `cp1252` carries all of them; a genuine outsider like `→` is still
+reported on the result rather than silently replaced.
+
+Two test fixtures had to change and both were worth the look. The heading tests
+asserted mixed case, which is now a rendering choice — the markdown is untouched
+and the screen does the same to every heading it draws. And the scanned-PDF test
+built its fixture with *this* renderer: a page with a footer on it is no longer
+text-free, so a test that claimed to prove "a scan has no text" would have
+passed forever without testing it. It uses a genuinely blank page now, built by
+the library that reads it.
 
 ## Starting the thing
 

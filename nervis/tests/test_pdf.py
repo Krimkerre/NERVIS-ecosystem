@@ -58,7 +58,10 @@ def test_a_heading_is_drawn_larger_and_bold() -> None:
     literal hashes at body size is now a heading."""
     out = render("Report", "## Q3 summary\n\nbody text").data
 
-    assert b"(Q3 summary)" in out
+    # Set in capitals, which is a rendering choice and not an edit: the source
+    # markdown is untouched, and it is what every heading on the dashboard this
+    # came from does. The `##` must still be gone.
+    assert b"(Q3 SUMMARY)" in out
     assert b"(## Q3 summary)" not in out
     assert re.search(rb"/F2 1[0-9](?:\.\d+)? Tf", out), "heading should be bold and larger"
 
@@ -146,7 +149,9 @@ def test_a_heading_is_not_stranded_at_the_foot_of_a_page() -> None:
     filler = "\n\n".join(f"line {n}" for n in range(44))
     out = render("Report", f"{filler}\n\n## A late heading\n\nits paragraph").data
 
-    heading = re.search(rb"BT /F2 1[0-9](?:\.\d+)? Tf [\d.]+ ([\d.]+) Td \(A late heading\)", out)
+    heading = re.search(
+        rb"BT [\d.]+ Tc /F2 1[0-9](?:\.\d+)? Tf [\d.]+ ([\d.]+) Td \(A LATE HEADING\)", out
+    )
     assert heading, "the heading should be drawn"
     assert float(heading.group(1)) > 100, "a heading should not sit at the foot of a page"
 
@@ -211,3 +216,50 @@ def test_a_bold_run_is_not_followed_by_a_gap() -> None:
     line = next(part for part in out.split(b"BT ") if b"revenue fell" in part)
     assert line.count(b"Td") == 1, "a line is placed once; the viewer advances the rest"
     assert b"/F2" in line.split(b"ET")[0], "the weight change happens inside that object"
+
+
+def test_the_page_has_a_ground_under_it() -> None:
+    """A dark page is a rectangle painted before anything else. Without it the
+    light text sits on whatever the reader's viewer calls paper, which for this
+    palette is nothing at all."""
+    out = render("Report", "hello").data
+
+    # The full sheet, filled, before any text object on that page.
+    assert re.search(rb"0 0 612 792 re f", out)
+    assert out.index(b"re f") < out.index(b"BT")
+
+
+def test_every_page_is_numbered() -> None:
+    out = render("Report", "\n\n".join(f"line {n}" for n in range(200)))
+
+    assert out.pages > 1
+    for number in range(1, out.pages + 1):
+        assert f"({number} / {out.pages})".encode() in out.data
+
+
+def test_an_em_dash_survives_instead_of_becoming_a_question_mark() -> None:
+    """**Not an edge case — most sentences.** The base-14 fonts default to an
+    encoding with no em dash, no curly quotes and no ellipsis, so "the reseller
+    — the same model" came out as "the reseller ? the same model". Those are
+    exactly the characters a language model writes."""
+    out = render("Report", "the reseller — the same model … “quoted” and a • bullet").data
+
+    assert b"?" not in out.split(b"stream")[1].split(b"endstream")[0]
+    assert b"/Encoding /WinAnsiEncoding" in out
+    assert render("Report", "— … “ ” •").unsupported == ""
+
+
+def test_something_genuinely_outside_the_encoding_is_still_reported() -> None:
+    """The falsifier. WinAnsi is wider than Latin-1 and is still one byte."""
+    assert "漢" in render("Report", "temperature 20°C and 漢字").unsupported
+    assert "°" not in render("Report", "20°C").unsupported
+
+
+def test_code_is_drawn_on_a_tint() -> None:
+    """The tint goes down before the glyphs do — PDF paints in order, and a
+    rectangle drawn after its text hides it."""
+    out = render("Report", "```\nravis/chat\n```").data
+    stream = out.split(b"stream")[1]
+
+    tint = stream.index(b"re f", stream.index(b"0 0 612 792 re f") + 4)
+    assert tint < stream.index(b"(ravis/chat)")

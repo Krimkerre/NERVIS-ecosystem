@@ -285,7 +285,18 @@ def test_a_scanned_pdf_says_so_rather_than_reading_as_empty(tmp_path: Path) -> N
     """The failure worth naming. A photograph of a page extracts to nothing, and
     an empty reading presented as a successful one is a model answering "the
     document does not mention that" to every question about it."""
-    (tmp_path / "scan.pdf").write_bytes(render("Scan", "").data)
+    # **Not this renderer's output any more.** An exported page carries a
+    # footer, so "render nothing" now produces a PDF with a page number on it —
+    # which is text, and a fixture that quietly stopped testing what it claimed
+    # would have passed forever. A genuinely blank page instead, built by the
+    # same library that reads it: one valid page with no text at all, which is
+    # what a photograph of a page looks like to a text extractor.
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    with (tmp_path / "scan.pdf").open("wb") as handle:
+        writer.write(handle)
 
     with pytest.raises(ValueError, match="OCR"):
         read_document(tmp_path, "scan.pdf")
