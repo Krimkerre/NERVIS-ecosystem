@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1901 tests, no network, no live service
+.venv/bin/pytest                      # part of 1908 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 521 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 528 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1901 passing across the four, conformance `PASS`.
+Expected: all clean, 1908 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -9112,6 +9112,71 @@ One consequence worth naming: `models/gemini-2.5-flash` is now excluded from the
 direct provider, so the reseller preference finds no direct alternative for
 `google/gemini-2.5-flash` and leaves OpenRouter's copy alone. That is the
 fail-open clause doing exactly what it was written for.
+
+## NERVIS speaks, and sounds like JARVIS doing it — 2026-08-31
+
+**The persona is a blend, and the first attempt was not one.** It replaced the
+character wholesale with JARVIS and lost the half worth keeping; the correction
+was asked for before it was saved. What NERVIS contributes is unchanged — witty,
+sarcastic, invested underneath, theatrical about being ignored, the nosy
+roommate reading over a shoulder. What JARVIS contributes is the *manner of
+relaying information*: lead with the fact, add at most the one thing they would
+have asked next, offer the next step rather than performing it, understate the
+bad news, and address the user as sir. The composure is how it speaks; the
+sarcasm is what it is. *"That is the fourth restart this hour, sir — I admire
+the persistence"* is both halves at once.
+
+Every preset carries the manner except **Miku**, whose register is the owner's
+and was left alone by request. The touch is sized to each: "Just the facts" gets
+the bearing and none of the sarcasm, because it exists to have no character;
+"Code" gets it with the reminder that a wrong symbol delivered wittily is still
+a wrong symbol.
+
+**A shipped default can change now without overwriting anybody.** `_seed` only
+ever wrote when a row was absent, so a rewrite reached nobody who had already
+run the thing — and overwriting unconditionally throws away a persona somebody
+wrote for themselves. It now replaces the *previous* default and nothing else: a
+stored persona still opening with the words that shipped was inherited rather
+than chosen, and it moves; one word edited and it stays theirs. The preset list
+is deliberately not treated this way — six records somebody may have renamed,
+reordered or deleted, with no honest way to tell the shipped list from a curated
+one.
+
+**It talks now, in three places.** A welcome line when the dashboard first has a
+real reading — templated rather than generated, because a model call on page
+load costs money and latency before anybody has asked for anything, and the one
+thing this line must not do is invent the count it exists to state. A sentence
+when a service changes state. And the avatar goes to `speaking` while audio
+plays, which it already did.
+
+**The announcements ride the registry poll, which is the whole point.** The
+registry is fetched on a timer whatever screen is open, so a service falling
+over reaches somebody working in Traces or in another tab — which is what was
+asked for. Never on the first read, where everything is a change from nothing
+known and six services at once is a roll call rather than news. Never for an
+optional peer nobody configured. Several changes collapse into one sentence,
+because three services falling over together is one event to a person and three
+to a loop.
+
+`voice.announce_status` is its own flag rather than a use of `enabled`: wanting
+replies read aloud and wanting to be told a service fell over are different
+wants. Off by default — a dashboard that starts speaking unprompted the first
+time it is opened is a surprise, and the status bar already carries the same
+fact silently. Mute silences both, because mute means silence.
+
+A speaker pip sits under the avatar's chin, and it writes the same stored mute
+the Voice screen does, so a second tab honours it — §18.2 asks that mute
+persist, and a per-tab toggle would not be one. It is absent entirely when no
+credential is configured, since a control for a feature nobody has set up can
+only disappoint.
+
+**One thing the browser caught that no test would have.** `SPEECH.load()` was
+called only by the chat screen, so on Overview or Traces the settings were null:
+the pip could not draw and the announcer could not fire — the exact requirement,
+broken, on every screen but one. Settings are re-read on the same poll now
+rather than once, because a second tab holding a stale "not muted" would talk
+after somebody silenced it here. The pip repaints on its own rather than through
+a full render, which §25.2 is emphatic about.
 
 ## Starting the thing
 

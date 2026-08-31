@@ -814,3 +814,41 @@ def test_an_unknown_fallback_mode_keeps_the_working_one() -> None:
     client.put("/api/v1/voice/settings", json={"fallback": "interpretive dance"})
 
     assert client.get("/api/v1/voice").json()["fallback"] == voice.DEFAULT_FALLBACK
+
+
+def test_announcing_status_is_its_own_flag() -> None:
+    """**Wanting replies read aloud and wanting to be told a service fell over
+    are different wants.** Somebody reading quietly still wants to hear that
+    RAVIS stopped answering; somebody who likes the voice in chat may not want
+    the machine talking at them while they work in another tab."""
+    client = an_api()
+    with_voice(client)
+
+    assert client.get("/api/v1/voice").json()["announce_status"] is False
+
+    client.put("/api/v1/voice/settings", json={"announce_status": True})
+    settings = client.get("/api/v1/voice").json()
+
+    assert settings["announce_status"] is True
+    assert settings["enabled"] is True, "turning announcements on must not touch the rest"
+
+
+def test_it_is_off_until_somebody_asks_for_it() -> None:
+    """A dashboard that starts speaking unprompted the first time it is opened
+    is a surprise, and the status bar already carries the same fact silently."""
+    client = an_api()
+
+    assert client.get("/api/v1/voice").json()["announce_status"] is False
+
+
+def test_nervis_own_words_need_no_model_to_be_spoken() -> None:
+    """A status announcement is NERVIS's own sentence, not a model's reply, so
+    it carries no `source_model` — and the §18.2 gate, which exists to stop a
+    locally-produced reply leaving the machine, has nothing to withhold."""
+    client = an_api()
+    with_voice(client)
+
+    answered = client.post("/api/v1/voice/speak",
+                           json={"text": "RAVIS has stopped answering, sir.", "source_model": ""})
+
+    assert answered.status_code != 403, answered.text

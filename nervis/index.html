@@ -20,6 +20,14 @@
 .body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}.side{border-right:1px solid var(--line);padding:16px 12px;background:#0a0f15;display:flex;flex-direction:column}.app-name{padding:8px 10px 16px}.app-name b{display:block;color:var(--accent);font-size:15px}.app-name small{color:#657587}.side-nav{display:grid;gap:5px}.side-nav button{border:1px solid transparent;border-radius:7px;background:transparent;color:#7c8b9b;text-align:left;padding:9px 10px;cursor:pointer}.side-nav button{display:flex;align-items:center}.side-nav .ico{display:inline-flex;align-items:center;color:var(--accent);margin-right:10px;flex:0 0 auto}.side-nav .ico svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.side-nav button:hover,.side-nav button.active{background:rgba(var(--rgb),.12);border-color:rgba(var(--rgb),.25);color:#e4ebf2}.connection{margin-top:auto;border:1px solid var(--line);border-radius:8px;padding:11px;background:#0d131a}.connection b{display:block}.connection span{color:var(--ok);font-size:11px}
 .main{padding:17px;min-width:0;overflow:auto}.page-head{height:116px;border:1px solid var(--line);border-radius:11px;background:linear-gradient(135deg,#111821,#0a0f15);display:flex;align-items:center;padding:18px 22px;margin-bottom:13px;position:relative;overflow:hidden}.page-head:after{content:"";position:absolute;inset:0;background:radial-gradient(380px 160px at 92% 50%,rgba(var(--rgb),.15),transparent 75%);pointer-events:none}.page-head h1{margin:0 0 4px;font-size:22px}.page-head p{margin:0;color:var(--muted)}.page-head .actions{margin-top:10px;display:flex;gap:7px}.btn{border:1px solid #2a3541;background:#121a23;color:#b9c5d0;border-radius:6px;padding:7px 10px;cursor:pointer}.btn:hover{border-color:var(--accent);color:#fff}.btn.primary{background:rgba(var(--rgb),.17);border-color:rgba(var(--rgb),.55);color:var(--accent)}
 /* Avatar slot stays in the same top-right position but swaps per top-level tab. */
+/* The mute pip, tucked under the avatar's chin. Small on purpose: it is a state
+   light that happens to be clickable, not a button competing with the face. */
+.voice-pip{position:absolute;right:6px;bottom:4px;z-index:3;width:20px;height:20px;
+  display:grid;place-items:center;padding:0;font-size:11px;line-height:1;cursor:pointer;
+  border:1px solid var(--line);border-radius:50%;background:#0d1219;color:var(--text);
+  opacity:.75}
+.voice-pip:hover{opacity:1;border-color:var(--accent)}
+.voice-pip.off{color:var(--muted)}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
 .map{height:230px;position:relative;display:grid;place-items:center}
@@ -1261,6 +1269,59 @@ function absorbRegistry(d){
  const signature=d.items.map(e=>`${e.key}:${e.state}`).sort().join('|');
  REGISTRY_CHANGED=REGISTRY_SIGNATURE!==''&&signature!==REGISTRY_SIGNATURE;
  REGISTRY_SIGNATURE=signature;
+ announceStates(d.items);
+}
+
+/* What each service was doing last time we looked, so a change can be named.
+   The signature above answers *whether* something moved; this answers what,
+   from what, to what — which is the difference between repainting and being
+   able to say "RAVIS has stopped answering". */
+const LAST_STATE={};
+let ANNOUNCED_ONCE=false;
+
+/* How a state reads out loud. The status bar's own words are for a glance;
+   these are for a sentence, and a person hearing "stale" without seeing the
+   age beside it has learned nothing. */
+const SPOKEN_STATE={
+ healthy:'is back to healthy', degraded:'is degraded',
+ unreachable:'has stopped answering', stale:'has gone quiet',
+ unhealthy:'reports itself unhealthy', incompatible:'is speaking a protocol I do not support',
+ unauthorized:'is refusing my credential', stopped:'has stopped',
+ discovering:'is still negotiating'};
+
+/* Say what changed, if anything did, and if anybody asked to be told.
+
+   **On the poll rather than on a screen**, which is the point: the registry is
+   fetched on a timer whatever is open, so this reaches somebody working in
+   Traces or in another tab entirely. The status bar has always carried the same
+   fact silently; this is for when nobody is looking at it. */
+function announceStates(items){
+ const changed=[];
+ for(const e of items||[]){
+  const was=LAST_STATE[e.key];
+  LAST_STATE[e.key]=e.state;
+  /* Never on the first read. Everything is a "change" from nothing known, and
+     announcing six services at once on open is not news, it is a roll call. */
+  if(was===undefined||was===e.state)continue;
+  /* An optional peer nobody configured is absent, not broken — the same rule
+     the status bar uses, and the reason a machine without Ollama does not
+     announce Ollama every time it is opened. */
+  if(e.awaiting_first_contact===true)continue;
+  changed.push({label:e.label||e.key,state:e.state});
+ }
+ if(!ANNOUNCED_ONCE){
+  ANNOUNCED_ONCE=true;
+  SPEECH.welcome(items);
+  return;
+ }
+ if(!changed.length)return;
+ if(!SPEECH.announcing())return;
+ /* One sentence however many moved. Three services falling over together is
+    one event to a person and three to a loop. */
+ const said=changed.slice(0,3).map(c=>
+   `${c.label} ${SPOKEN_STATE[c.state]||('is now '+c.state)}`).join(', and ');
+ const more=changed.length>3?`, and ${changed.length-3} others`:'';
+ SPEECH.announce(`${said}${more}, sir.`);
 }
 
 /* Whether the reader is in the middle of typing something.
@@ -4044,6 +4105,46 @@ const SPEECH={
     dashboard that cannot reach NERVIS must not start talking on its own. */
  on(){return Boolean(this.settings&&this.settings.enabled&&!this.settings.muted)},
 
+ /* Whether a state change is worth saying out loud. Its own flag: wanting
+    replies read aloud and wanting to be told a service fell over are different
+    wants, and mute silences both because mute means silence. */
+ announcing(){return Boolean(this.on()&&this.settings.announce_status)},
+
+ /* NERVIS's own words rather than a model's, so `source_model` is empty and the
+    §18.2 gate passes it — there is no local reply here to leak. Queued behind
+    whatever is speaking, because cutting off a sentence to announce another is
+    how two facts become none. */
+ announce(text){
+  if(!this.announcing())return;
+  this.say(text,'');
+ },
+
+ /* The line said once, when the dashboard has its first real reading.
+
+    **Templated rather than generated.** A model call on page load costs money
+    and latency before anybody has asked for anything, and the one thing this
+    line must not do is invent a figure — it exists to state the count. The
+    register is the persona's; the numbers are the registry's. */
+ welcome(items){
+  if(!this.announcing()||this.welcomed)return;
+  this.welcomed=true;
+  const live=(items||[]).filter(e=>e.awaiting_first_contact!==true);
+  const well=live.filter(e=>e.state==='healthy');
+  const off=live.filter(e=>e.state!=='healthy'&&e.state!=='degraded');
+  const soft=live.filter(e=>e.state==='degraded');
+  let line;
+  if(!live.length)line='Systems online, sir. Nothing is reporting in yet.';
+  else if(off.length)
+   line=`Good ${partOfDay()}, sir. ${off.map(e=>e.label).join(' and ')} `
+      +`${off.length>1?'are':'is'} not answering; the rest are up.`;
+  else if(soft.length)
+   line=`Good ${partOfDay()}, sir. All ${live.length} services are up, `
+      +`${soft.map(e=>e.label).join(' and ')} running degraded.`;
+  else line=`Good ${partOfDay()}, sir. All ${live.length} services are up and well.`;
+  this.say(line,'');
+ },
+ welcomed:false,
+
  say(text,sourceModel){
   if(!text||!this.on())return;
   this.queue=this.queue.then(()=>this._speak(text,sourceModel||'')).catch(()=>{});
@@ -4179,6 +4280,55 @@ const CHAT_MOODS={
     is a mouth moving whichever voice is driving it. */
  miku:{thinking:'thinking',answering:'talking',speaking:'talking'}
 };
+/* A small speaker beside the avatar: whether NERVIS can currently talk, and a
+   click to change it.
+
+   **Beside the face rather than on the Voice screen**, because it answers a
+   question people ask at the moment it stops being obvious — the dashboard just
+   said something, or did not, and the reason is one glyph away instead of two
+   navigations. It is the same stored mute the Voice screen writes, so a second
+   tab honours it; §18.2 asks that mute persist and a per-tab toggle would not
+   be one.
+
+   Absent entirely with no credential configured. A control for a feature nobody
+   has set up is a control that can only disappoint. */
+/* Redraw just the pip, without rebuilding the screen underneath it.
+
+   The registry poll only repaints on a transition, which is correct — but the
+   pip's state changes when *voice settings* change, and those move on their own
+   schedule. A full repaint for a speaker glyph would discard scroll position
+   and any open control, which §25.2 is emphatic about. */
+function paintVoicePip(){
+ const slot=document.getElementById('avatarSlot');
+ if(!slot)return;
+ const wanted=voicePip();
+ const drawn=slot.querySelector('.voice-pip');
+ if(!wanted){if(drawn)drawn.remove();return}
+ if(!drawn){slot.insertAdjacentHTML('beforeend',wanted);return}
+ const fresh=document.createElement('div');
+ fresh.innerHTML=wanted;
+ const next=fresh.firstElementChild;
+ if(next&&next.outerHTML!==drawn.outerHTML)drawn.replaceWith(next);
+}
+
+function voicePip(){
+ const set=SPEECH.settings;
+ if(!set||!set.credential||!set.credential.configured)return '';
+ const off=!set.enabled||set.muted;
+ const label=off?'Voice is off — click to unmute'
+   :(set.announce_status?'Voice on, and status changes are announced. Click to mute'
+                        :'Voice on. Click to mute');
+ return `<button class="voice-pip${off?' off':''}" title="${escapeHtml(label)}"
+   aria-label="${escapeHtml(label)}" onclick="VOICE.quickMute(${off?'false':'true'})"
+   >${off?'&#128263;':'&#128266;'}</button>`;
+}
+
+/* Morning, afternoon or evening, from the reader's own clock. */
+function partOfDay(){
+ const h=new Date().getHours();
+ return h<12?'morning':h<18?'afternoon':'evening';
+}
+
 function chatMood(mood){
  const app=avatarFor('nervis');
  const wanted=mood?((CHAT_MOODS[app]||{})[mood]||CHAT_MOODS[app].answering)
@@ -4291,6 +4441,8 @@ function voiceSpeaksCard(data){
   <div class="card wide live"><h3>When NERVIS speaks</h3>${cell(`
    <div class="trace-step"><b>spoken replies</b><span><label style="cursor:pointer"><input type="checkbox"${data.enabled?' checked':''} onchange="VOICE.flag('enabled',this.checked)"> read chat replies aloud</label></span></div>
    <div class="trace-step"><b>mute</b><span><label style="cursor:pointer"><input type="checkbox"${data.muted?' checked':''} onchange="VOICE.flag('muted',this.checked)"> silence everything now</label></span></div>
+   <div class="trace-step"><b>status</b><span><label style="cursor:pointer"><input type="checkbox"${data.announce_status?' checked':''} onchange="VOICE.flag('announce_status',this.checked)"> say it aloud when a service changes state</label>
+     <small class="mono dim">Off by default. Spoken on whatever screen is open, and on none — the registry is polled on a timer rather than by a view, so this reaches you in Traces or in another tab. Muting silences it with everything else.</small></span></div>
    <div class="trace-step"><b>when it cannot be used</b><span><select onchange="VOICE.flag('fallback',this.value)" style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;font-family:inherit">
     <option value="browser"${data.fallback==='browser'?' selected':''}>let this browser read it</option>
     <option value="silence"${data.fallback==='silence'?' selected':''}>say nothing</option>
@@ -9363,6 +9515,17 @@ async function pollRegistry(){
     Studio and nothing changed until you clicked something, and even then the
     bar lagged the table beneath it by one paint. M1's exit says the dashboard
     updates live and this is the half that was missing. */
+ /* Voice settings alongside the registry, on the same timer.
+
+    **They were only ever loaded by the chat screen**, so on Overview or Traces
+    `SPEECH.settings` was null: the mute pip could not draw and the announcer
+    could not fire — which is the whole of what "tell me even when I am not on
+    the chat tab" asks for. Re-read rather than read once, because §18.2 wants
+    mute honoured immediately and a second tab holding a stale "not muted"
+    would talk after somebody silenced it here. One small local request every
+    eight seconds, beside one that was already happening. */
+ await SPEECH.load();
+ paintVoicePip();
  try{
   const r=await fetch(BASE.nervis+'/api/v1/services',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
   if(!r.ok)return;
@@ -9515,7 +9678,7 @@ function mountAvatar(){
  const wanted=inMikuMode()?'miku:'+state.app:state.app;
  if(wanted===AVATAR_MOUNTED)return;
  AVATAR_MOUNTED=wanted;
- $('#avatarSlot').innerHTML=avatar();
+ $('#avatarSlot').innerHTML=avatar()+voicePip();
 }
 
 /* Place an opened routing popover, and keep only one open.

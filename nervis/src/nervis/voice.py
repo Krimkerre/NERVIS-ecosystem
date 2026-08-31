@@ -134,6 +134,17 @@ LATENCY_SETTING = "voice.latency"
 DAILY_CAP_SETTING = "voice.daily_cap"
 DAILY_CAP_ENABLED_SETTING = "voice.daily_cap_enabled"
 
+# Whether NERVIS says a service's state out loud when it changes.
+#
+# **Its own flag rather than a use of `enabled`.** Wanting replies read aloud and
+# wanting to be told a service fell over are different wants: somebody reading
+# quietly still wants to hear that RAVIS stopped answering, and somebody who
+# likes the voice in chat may not want the machine talking at them while they
+# work in another tab. Off by default, because a dashboard that starts speaking
+# unprompted the first time it is opened is a surprise, and the status bar
+# already carries the same fact silently.
+ANNOUNCE_SETTING = "voice.announce_status"
+
 # What happens when the chosen voice cannot be used.
 #
 # `browser` — the default — hands the line to the browser's own `speechSynthesis`,

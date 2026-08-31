@@ -3394,3 +3394,70 @@ def test_a_turn_with_no_readings_gets_no_such_note() -> None:
                            greeting=False, situation="")
 
     assert "reads the screen, not the source" not in prompt
+
+
+def test_the_persona_is_jarvis_delivery_over_the_original_character() -> None:
+    """**A blend, and the first attempt was not one.** It replaced the character
+    wholesale with JARVIS and lost the half worth keeping. Sarcasm delivered in
+    JARVIS's cadence is the point; JARVIS without the teeth is a status page
+    that says "sir"."""
+    from nervis.api.chat import DEFAULT_PERSONA as persona
+
+    for kept in ("nosy roommate", "knocking something off a shelf",
+                 "affectionately, never cruelly", "dry silence beats fake enthusiasm",
+                 "theatrical", "the facts are never the joke"):
+        assert kept in persona, f"the original character lost: {kept!r}"
+
+    for added in ("as sir", "Lead with the fact", "Shall I show you",
+                  "I have no reading on that"):
+        assert added in persona, f"the JARVIS delivery is missing: {added!r}"
+
+
+def test_miku_is_left_alone() -> None:
+    """Asked for explicitly. Her register is the owner's and is not NERVIS's to
+    rewrite."""
+    from nervis.api.chat import MIKU_PERSONA
+
+    assert MIKU_PERSONA.startswith("You are Miku")
+    assert "sir" not in MIKU_PERSONA
+
+
+def test_every_preset_but_miku_carries_the_manner() -> None:
+    from nervis.api.chat import DEFAULT_PRESETS, MIKU_PERSONA
+
+    for preset in DEFAULT_PRESETS:
+        spoken = preset["params"].get("system", "")
+        if spoken == MIKU_PERSONA:
+            continue
+        assert "sir" in spoken, f"{preset['name']} was not blended"
+
+
+def test_a_persona_somebody_wrote_is_never_overwritten() -> None:
+    """**The seed replaces the previous default and nothing else.** Writing only
+    when the row is absent means a rewrite reaches nobody who has already run
+    the thing; overwriting unconditionally throws away somebody's own words."""
+    from nervis.api.chat import (
+        DEFAULT_PERSONA,
+        PERSONA_SETTING,
+        PREVIOUS_DEFAULT_PERSONA,
+        seed_chat_defaults,
+    )
+    def stored(database: Any, text: str) -> None:
+        with database.connection as connection:
+            connection.execute("INSERT INTO setting (key, value) VALUES (?, ?)",
+                               (PERSONA_SETTING, json.dumps(text)))
+
+    def current(database: Any) -> str:
+        row = database.connection.execute(
+            "SELECT value FROM setting WHERE key = ?", (PERSONA_SETTING,)).fetchone()
+        return str(json.loads(row[0]))
+
+    inherited = prepare_database(":memory:")
+    stored(inherited, PREVIOUS_DEFAULT_PERSONA + " and so on, unchanged since.")
+    seed_chat_defaults(inherited)
+    assert current(inherited) == DEFAULT_PERSONA, "an inherited persona should move"
+
+    theirs = prepare_database(":memory:")
+    stored(theirs, "You are a laconic sysadmin. Say as little as possible.")
+    seed_chat_defaults(theirs)
+    assert current(theirs).startswith("You are a laconic sysadmin"), "theirs must stay theirs"

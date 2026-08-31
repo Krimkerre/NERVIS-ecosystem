@@ -75,6 +75,7 @@ class SettingsInput(BaseModel):
 
     enabled: bool | None = None
     muted: bool | None = None
+    announce_status: bool | None = None
     selected_profile: str | None = None
     latency: str | None = None
     fallback: str | None = None
@@ -117,6 +118,7 @@ async def read_voice(request: Request) -> dict[str, Any]:
         "engines": list(voice.SPEECH_ENGINES),
         "enabled": voice.read_setting(database, voice.ENABLED_SETTING) == "true",
         "muted": voice.read_setting(database, voice.MUTED_SETTING) == "true",
+        "announce_status": voice.read_setting(database, voice.ANNOUNCE_SETTING) == "true",
         # What each engine costs you, so the picker can say it rather than
         # listing four version strings nobody can choose between.
         "engine_detail": dict(voice.ENGINE_DETAIL),
@@ -302,6 +304,7 @@ def _clamped(value: Any) -> str:
 _WRITABLE: tuple[tuple[str, str, Any], ...] = (
     ("enabled", voice.ENABLED_SETTING, _flag),
     ("muted", voice.MUTED_SETTING, _flag),
+    ("announce_status", voice.ANNOUNCE_SETTING, _flag),
     ("selected_profile", voice.SELECTED_SETTING, str),
     ("latency", voice.LATENCY_SETTING, _one_of(voice.LATENCY_MODES)),
     ("fallback", voice.FALLBACK_SETTING, _one_of(voice.FALLBACK_MODES)),
