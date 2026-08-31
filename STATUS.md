@@ -2905,6 +2905,33 @@ A third thing surfaced from the corrected reply: even with a real offer it said
 the same failure in a smaller form. The instruction now says **this** reply and
 forbids the other.
 
+### A window manager, recorded as a stretch — 1 Sep
+
+NERVIS **M26**, unscheduled. Qtile is configured in Python and NERVIS is already
+an HTTP service, so the join is a request from a widget rather than an
+integration layer: a group housing the dashboard is a `Match` rule, a bar widget
+reads `/api/v1/services`, a keybinding drops into chat.
+
+Whether NERVIS may *move windows* is explicitly not part of it. The command
+graph would allow it; if it is ever wanted it arrives as operations in §12's
+closed set behind a confirmation, not as an assistant holding a window manager.
+Its exit also says the ecosystem must still run headless — the same install has
+to work with no window manager at all, so nothing here may become a dependency
+of the services.
+
+**And the deployment question it raised is already answered in the code.**
+Running NERVIS and RAVIS on a machine with no GPU, without SIRVIS, works by
+design: `sirvis_base_url` empty is a supported configuration, which §13.4
+requires — provider metadata and RAVIS's own observations carry routing, with
+the degradation labelled rather than hidden, and `candidates_with_evidence`
+returns capabilities untouched when there is no store. A machine with no local
+models has nothing for SIRVIS to measure in the first place.
+
+The one thing to watch: a model whose tool support is neither measured nor
+declared by its provider is `UNKNOWN` and **fails closed**, so a tool-requiring
+pool can come up empty on such a box. The operator override is what resolves it,
+and that is §9.5's provenance ordering working rather than a gap.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

@@ -73,3 +73,24 @@ what unattended work costs is a question with an answer.
 The same trap sits in the protocol's "background call" marker, which refuses any
 provider not known to be free — on a machine like this one, free means local
 means competing. The plan says not to use it for this.
+
+## A window manager, as a stretch idea
+
+Qtile is a tiling window manager configured in Python, and NERVIS is already an
+HTTP service — so joining them is a request from a widget rather than an
+integration layer. A workspace that houses the dashboard is a matching rule and
+nothing more; a bar showing ecosystem health reads the same endpoint the
+dashboard reads; a keybinding drops into chat.
+
+Whether NERVIS may *move windows* is a separate decision and deliberately not
+part of it. The window manager would allow it; that would arrive as operations
+in the closed set with a confirmation, the same as everything else, rather than
+as an assistant holding a window manager.
+
+**The ecosystem does not need every service to run.** RAVIS works with no
+benchmarking service at all — provider metadata and its own observations carry
+routing, and the missing half is labelled rather than hidden. A machine with no
+graphics card runs the gateway and the control plane perfectly well and simply
+has nothing to benchmark. The one thing to watch is a model whose tool support
+was never measured and is not declared by its provider: that fails closed, and
+an operator setting it is what resolves it.
