@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1879 tests, no network, no live service
+.venv/bin/pytest                      # part of 1884 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 504 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1879 passing across the four, conformance `PASS`.
+Expected: all clean, 1884 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8692,6 +8692,45 @@ conversation is a new directory, and a new directory is empty. Deleting the
 conversation deletes them; a fortnight expires the directories a browser
 abandoned when it cleared its own history, swept on the registry timer rather
 than a scheduler of its own.
+
+### A fourth reason, and the floor put under all of them
+
+Reported as *"still doesn't want to read a pdf"*, with the sentence in the log:
+
+    well then... i supplied a pdf here.. why don't you give me a summary?
+
+The matcher missed it three separate ways at once. It wanted `summarise` and
+this said **summary**, a noun and the most ordinary way anybody asks. It wanted
+`this|that|the|my` in front of the noun and this said **a pdf**. And it required
+the verb before the noun, while the sixty-character window meant to keep a match
+inside one clause could not cross the `..` regardless.
+
+Patching alternatives onto that regex would lose the same way next week. The
+rule is now **a document word, or a request only ever made of a document** —
+either alone, in any order. Every entry in the second set is something nobody
+asks about anything else: you do not ask for the gist of a service or the key
+points of a restart.
+
+A bare reading verb is deliberately not enough, and that was tried and reverted
+within the hour: `read` fires on *"read the room"* and `what is` on *"what is
+the plan for today"*, each putting a person's whole document into a prompt that
+had nothing to do with it. The falsifier catches both.
+
+**And a floor under every matcher, which is the part that should have been there
+from the start.** When a conversation has an attachment and the turn did not ask
+about it, the model is told in one line that it is there — name only, no
+content, about fifteen tokens. Whatever phrasing the matching misses next, the
+failure becomes *"you attached this, want me to read it?"* rather than *"I don't
+see a PDF anywhere, Matty. You'd need to actually hand it to me"*, said to
+somebody looking at the filename on their own screen. Flatly denying a file the
+person can see is the worst answer available and it costs almost nothing to make
+impossible.
+
+One smaller thing came out of the same test: a type word now narrows the choice
+without vetoing it. *"The pdf"* still prefers a PDF when one is attached, but
+where none is, somebody calling their `.md` a pdf is being loose rather than
+wrong — and giving up told them nothing was attached about a file they were
+looking at.
 
 **And it still did not work, for a third reason.** `attachment_id` was added to
 the unprompted-remark path rather than to the one a typed message takes, so

@@ -17,6 +17,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Any
 
@@ -3273,3 +3274,90 @@ def test_with_nothing_served_the_marker_and_the_cheap_pool_still_apply() -> None
 
     assert posted[0]["model"] == TITLE_POOL
     assert posted[0]["metadata"] == {"background": True}
+
+
+def test_the_sentence_that_missed_three_ways_now_opens_the_document() -> None:
+    """Reported as "still doesn't want to read a pdf", and the log had the words:
+
+        well then... i supplied a pdf here.. why don't you give me a summary?
+
+    The matcher missed it three separate ways. It wanted `summarise`, and this
+    said **summary**. It wanted `this|that|the|my` before the noun, and this
+    said **a pdf**. And it required the verb before the noun, while the window
+    that kept a match inside one clause could not cross the `..` regardless.
+    """
+    sent: list[dict[str, Any]] = []
+    with TemporaryDirectory() as folder:
+        client = an_api(workspace_path=folder)
+        _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+        _attach(client, "cv_abcd", "guide.md", b"THE CONTENT OF THE GUIDE")
+
+        turn(client, "well then... i supplied a pdf here.. why don't you give me a summary?",
+             system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent for message in body.get("messages", [])
+    )
+    assert "THE CONTENT OF THE GUIDE" in prompt
+
+
+def test_an_unmatched_question_is_still_told_the_file_is_there() -> None:
+    """**The floor under every matcher.** Whatever phrasing the matching misses
+    next — and it will miss one — the answer must not be a flat denial of a file
+    the person can see on their own screen. What actually happened was *"I don't
+    see a PDF anywhere, Matty. You'd need to actually hand it to me."*
+
+    One line, no content, about fifteen tokens.
+    """
+    sent: list[dict[str, Any]] = []
+    with TemporaryDirectory() as folder:
+        client = an_api(workspace_path=folder)
+        _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+        _attach(client, "cv_abcd", "guide.md", b"THE CONTENT OF THE GUIDE")
+
+        turn(client, "how is the machine doing today",
+             system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent for message in body.get("messages", [])
+    )
+    assert "Attached to this conversation: guide.md" in prompt
+    assert "THE CONTENT OF THE GUIDE" not in prompt, "the note carries no content"
+
+
+def test_the_presence_note_says_which_files_cannot_be_read() -> None:
+    """A screenshot sits in a conversation perfectly well and cannot be
+    summarised. Announcing it without that is an invitation to a refusal."""
+    sent: list[dict[str, Any]] = []
+    with TemporaryDirectory() as folder:
+        client = an_api(workspace_path=folder)
+        _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+        _attach(client, "cv_abcd", "shot.png", b"\x89PNG")
+
+        turn(client, "anything happening", system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent for message in body.get("messages", [])
+    )
+    assert "shot.png (not readable as text)" in prompt
+
+
+def test_a_conversation_with_no_attachment_gets_no_note() -> None:
+    """The falsifier. A note on every turn of every conversation would be noise
+    in the one place a model is already short of room."""
+    sent: list[dict[str, Any]] = []
+    with TemporaryDirectory() as folder:
+        client = an_api(workspace_path=folder)
+        _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+        turn(client, "how is the machine doing today",
+             system="Be someone.", attachment_id="cv_empty")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent for message in body.get("messages", [])
+    )
+    assert "Attached to this conversation" not in prompt

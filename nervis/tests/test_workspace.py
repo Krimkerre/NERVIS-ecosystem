@@ -402,3 +402,16 @@ def test_nothing_readable_is_none_rather_than_a_file_chat_cannot_open(
     store_upload(place, "photo.png", b"\x89PNG")
 
     assert newest_readable(place) is None
+
+
+def test_a_type_word_narrows_but_does_not_veto(tmp_path: Path) -> None:
+    """"The pdf" should not open a newer `.md` when a PDF is attached. When none
+    is, the person calling their attachment a pdf is being loose rather than
+    wrong — and giving up tells them nothing is attached about a file they are
+    looking at."""
+    place = attachment_dir(tmp_path, "cv_aaaa")
+    assert place is not None
+    store_upload(place, "notes.md", b"only file here")
+
+    assert newest_readable(place, TYPE_WORDS["pdf"]) is None
+    assert newest_readable(place) == "notes.md"
