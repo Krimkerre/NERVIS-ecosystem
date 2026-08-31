@@ -20,9 +20,13 @@
 .body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}.side{border-right:1px solid var(--line);padding:16px 12px;background:#0a0f15;display:flex;flex-direction:column}.app-name{padding:8px 10px 16px}.app-name b{display:block;color:var(--accent);font-size:15px}.app-name small{color:#657587}.side-nav{display:grid;gap:5px}.side-nav button{border:1px solid transparent;border-radius:7px;background:transparent;color:#7c8b9b;text-align:left;padding:9px 10px;cursor:pointer}.side-nav button{display:flex;align-items:center}.side-nav .ico{display:inline-flex;align-items:center;color:var(--accent);margin-right:10px;flex:0 0 auto}.side-nav .ico svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.side-nav button:hover,.side-nav button.active{background:rgba(var(--rgb),.12);border-color:rgba(var(--rgb),.25);color:#e4ebf2}.connection{margin-top:auto;border:1px solid var(--line);border-radius:8px;padding:11px;background:#0d131a}.connection b{display:block}.connection span{color:var(--ok);font-size:11px}
 .main{padding:17px;min-width:0;overflow:auto}.page-head{height:116px;border:1px solid var(--line);border-radius:11px;background:linear-gradient(135deg,#111821,#0a0f15);display:flex;align-items:center;padding:18px 22px;margin-bottom:13px;position:relative;overflow:hidden}.page-head:after{content:"";position:absolute;inset:0;background:radial-gradient(380px 160px at 92% 50%,rgba(var(--rgb),.15),transparent 75%);pointer-events:none}.page-head h1{margin:0 0 4px;font-size:22px}.page-head p{margin:0;color:var(--muted)}.page-head .actions{margin-top:10px;display:flex;gap:7px}.btn{border:1px solid #2a3541;background:#121a23;color:#b9c5d0;border-radius:6px;padding:7px 10px;cursor:pointer}.btn:hover{border-color:var(--accent);color:#fff}.btn.primary{background:rgba(var(--rgb),.17);border-color:rgba(var(--rgb),.55);color:var(--accent)}
 /* Avatar slot stays in the same top-right position but swaps per top-level tab. */
-/* The mute pip, tucked under the avatar's chin. Small on purpose: it is a state
-   light that happens to be clickable, not a button competing with the face. */
-.voice-pip{position:absolute;right:6px;bottom:4px;z-index:3;width:20px;height:20px;
+/* The mute pip, in the frame's top-right corner. Small on purpose: it is a state
+   light that happens to be clickable, not a button competing with the face.
+
+   Top rather than bottom, where it first sat: the bottom-right of this slot
+   already carries the "ACTIVE INTELLIGENCE" label, so the two were stacked in
+   the one corner that was taken. */
+.voice-pip{position:absolute;right:6px;top:4px;z-index:3;width:20px;height:20px;
   display:grid;place-items:center;padding:0;font-size:11px;line-height:1;cursor:pointer;
   border:1px solid var(--line);border-radius:50%;background:#0d1219;color:var(--text);
   opacity:.75}
