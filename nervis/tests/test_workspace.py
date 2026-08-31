@@ -15,7 +15,12 @@ import pytest
 from nervis.documents import (
     MAX_CHARACTERS,
     MAX_UPLOAD_BYTES,
+    TYPE_WORDS,
+    attachment_dir,
+    forget_attachments,
     list_files,
+    newest_readable,
+    prune_attachments,
     read_document,
     store_upload,
 )
@@ -308,3 +313,92 @@ def test_a_pdf_counts_as_readable_in_the_listing(tmp_path: Path) -> None:
     marked = {item.name: item.readable for item in list_files(root)}
 
     assert marked == {"report.pdf": True, "photo.png": False}
+
+
+# ── Attachments belong to a conversation, not to the machine ───────────────
+
+def test_two_conversations_get_two_directories(tmp_path: Path) -> None:
+    """The whole of what "attachments do not persist between sessions" means: a
+    new conversation is a new directory, and a new directory is empty."""
+    first = attachment_dir(tmp_path, "cv_aaaa")
+    second = attachment_dir(tmp_path, "cv_bbbb")
+    assert first is not None and second is not None
+    store_upload(first, "notes.md", b"mine")
+
+    assert first != second
+    assert [item.name for item in list_files(first)] == ["notes.md"]
+    assert list_files(second) == []
+
+
+def test_a_conversation_id_that_could_be_a_path_gets_no_directory(tmp_path: Path) -> None:
+    """NERVIS mints these, and it reads them back off a request body. A value
+    that becomes a path component is a path component whoever wrote it."""
+    for hostile in ("", "   ", ".", "..", "../escape", "a/b", "/etc"):
+        assert attachment_dir(tmp_path, hostile) is None
+
+    assert not (tmp_path.parent / "escape").exists()
+
+
+def test_forgetting_a_conversation_removes_its_files_and_only_its_files(
+    tmp_path: Path,
+) -> None:
+    """Delete should mean delete now. It should also mean *this* conversation —
+    a cleanup that reaches into the next one is worse than none."""
+    mine = attachment_dir(tmp_path, "cv_aaaa")
+    theirs = attachment_dir(tmp_path, "cv_bbbb")
+    assert mine is not None and theirs is not None
+    store_upload(mine, "a.md", b"x")
+    store_upload(mine, "b.md", b"y")
+    store_upload(theirs, "c.md", b"z")
+
+    assert forget_attachments(tmp_path, "cv_aaaa") == 2
+
+    assert not mine.exists()
+    assert [item.name for item in list_files(theirs)] == ["c.md"]
+
+
+def test_orphaned_attachments_expire_and_recent_ones_do_not(tmp_path: Path) -> None:
+    """A browser that cleared its local history leaves directories nothing points
+    at. Without a sweep the disk grows forever; with too eager a sweep, a
+    conversation somebody comes back to has lost its file."""
+    old = attachment_dir(tmp_path, "cv_old")
+    recent = attachment_dir(tmp_path, "cv_new")
+    assert old is not None and recent is not None
+    store_upload(old, "stale.md", b"x")
+    store_upload(recent, "fresh.md", b"y")
+    ancient = 1_700_000_000.0
+    os.utime(old / "stale.md", (ancient, ancient))
+    os.utime(old, (ancient, ancient))
+
+    assert prune_attachments(tmp_path, now=ancient + 20 * 86_400) == 1
+
+    assert not old.exists()
+    assert [item.name for item in list_files(recent)] == ["fresh.md"]
+
+
+def test_the_newest_readable_file_is_what_this_pdf_means(tmp_path: Path) -> None:
+    """A person says "read this pdf" and never types the filename — that is what
+    the attach gesture was for. The directory's own timestamps answer it, and a
+    type word narrows it so "the pdf" does not open a newer `.md`."""
+    place = attachment_dir(tmp_path, "cv_aaaa")
+    assert place is not None
+    store_upload(place, "report.pdf", render("Report", "text").data)
+    store_upload(place, "later.md", b"newer")
+    store_upload(place, "photo.png", b"\x89PNG")
+    os.utime(place / "later.md", (2_000_000_000, 2_000_000_000))
+
+    assert newest_readable(place) == "later.md"
+    assert newest_readable(place, TYPE_WORDS["pdf"]) == "report.pdf"
+    assert newest_readable(place, TYPE_WORDS["csv"]) is None
+
+
+def test_nothing_readable_is_none_rather_than_a_file_chat_cannot_open(
+    tmp_path: Path,
+) -> None:
+    """The falsifier. Returning the newest file regardless would hand "read this"
+    a PNG and produce a refusal about a file the person never named."""
+    place = attachment_dir(tmp_path, "cv_aaaa")
+    assert place is not None
+    store_upload(place, "photo.png", b"\x89PNG")
+
+    assert newest_readable(place) is None

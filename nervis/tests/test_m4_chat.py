@@ -30,6 +30,7 @@ from nervis.config import Settings
 from nervis.diagnostics import FENCE
 from nervis.documents import MAX_UPLOAD_BYTES
 from nervis.ecosystem import advertise_chat, nervis_surface
+from nervis.pdf import render
 from nervis.registry import RegistryState
 from nervis.storage import prepare_database
 
@@ -2963,11 +2964,14 @@ def test_an_uploaded_file_is_then_readable_by_chat(tmp_path: Path) -> None:
     client = an_api(workspace_path=str(tmp_path))
     _with_models(client, sent, ["qwen/qwen3-4b-2507"])
 
-    put = client.put("/api/v1/workspace/files/notes.md", content=b"Revenue fell in Q3.")
+    put = client.put(
+        "/api/v1/workspace/files/notes.md?conversation_id=cv_abcd",
+        content=b"Revenue fell in Q3.",
+    )
     assert put.status_code == 200, put.text
     assert put.json()["file"] == {"name": "notes.md", "bytes": 19}
 
-    turn(client, 'summarise "notes.md" for me', system="Be someone.")
+    turn(client, 'summarise "notes.md" for me', system="Be someone.", attachment_id="cv_abcd")
 
     prompt = " ".join(
         str(message.get("content", ""))
@@ -2994,10 +2998,15 @@ def test_no_spelling_of_a_climb_writes_outside_the_workspace(tmp_path: Path) -> 
     client = an_api(workspace_path=str(root))
 
     for spelling in ("..%2F..%2Fescaped.txt", "..%2Fescaped.txt", "%2Fetc%2Fpasswd"):
-        assert client.put(f"/api/v1/workspace/files/{spelling}", content=b"out").status_code >= 400
+        put = client.put(
+            f"/api/v1/workspace/files/{spelling}?conversation_id=cv_abcd", content=b"out"
+        )
+        assert put.status_code >= 400
 
     assert not (tmp_path / "escaped.txt").exists()
     assert not (tmp_path.parent / "escaped.txt").exists()
+    # Nothing at all, not even an attachment directory: the router rejects the
+    # normalised path before the handler that would have created one runs.
     assert list(root.iterdir()) == []
 
 
@@ -3007,11 +3016,12 @@ def test_an_upload_larger_than_the_cap_is_refused(tmp_path: Path) -> None:
     client = an_api(workspace_path=str(tmp_path))
 
     refused = client.put(
-        "/api/v1/workspace/files/big.txt", content=b"x" * (MAX_UPLOAD_BYTES + 1)
+        "/api/v1/workspace/files/big.txt?conversation_id=cv_abcd",
+        content=b"x" * (MAX_UPLOAD_BYTES + 1),
     )
 
     assert refused.status_code >= 400
-    assert not (tmp_path / "big.txt").exists()
+    assert not (tmp_path / ".attachments" / "cv_abcd" / "big.txt").exists()
 
 
 def test_an_empty_upload_is_refused(tmp_path: Path) -> None:
@@ -3019,10 +3029,10 @@ def test_an_empty_upload_is_refused(tmp_path: Path) -> None:
     Storing it would put a name in the list that answers nothing."""
     client = an_api(workspace_path=str(tmp_path))
 
-    refused = client.put("/api/v1/workspace/files/empty.txt", content=b"")
+    refused = client.put("/api/v1/workspace/files/empty.txt?conversation_id=cv_abcd", content=b"")
 
     assert refused.status_code >= 400
-    assert not (tmp_path / "empty.txt").exists()
+    assert not (tmp_path / ".attachments" / "cv_abcd" / "empty.txt").exists()
 
 
 def test_the_listing_says_which_files_chat_can_actually_read(tmp_path: Path) -> None:
@@ -3031,11 +3041,12 @@ def test_the_listing_says_which_files_chat_can_actually_read(tmp_path: Path) -> 
     not say so invites the attempt and then refuses somebody looking right at
     the name. PDFs are on the readable side now — that took a parser."""
     client = an_api(workspace_path=str(tmp_path))
-    client.put("/api/v1/workspace/files/notes.md", content=b"text")
-    client.put("/api/v1/workspace/files/report.pdf", content=b"%PDF-1.4 pretend")
-    client.put("/api/v1/workspace/files/photo.png", content=b"\x89PNG")
+    client.put("/api/v1/workspace/files/notes.md?conversation_id=cv_abcd", content=b"text")
+    client.put("/api/v1/workspace/files/report.pdf?conversation_id=cv_abcd", content=b"pretend")
+    client.put("/api/v1/workspace/files/photo.png?conversation_id=cv_abcd", content=b"\x89PNG")
 
-    listed = {item["name"]: item for item in client.get("/api/v1/workspace/files").json()["items"]}
+    answered = client.get("/api/v1/workspace/files?conversation_id=cv_abcd").json()
+    listed = {item["name"]: item for item in answered["items"]}
 
     assert listed["notes.md"]["readable"] is True
     assert listed["report.pdf"]["readable"] is True
@@ -3049,11 +3060,136 @@ def test_with_no_workspace_the_list_says_so_and_the_upload_refuses() -> None:
     the setting that turns it on."""
     client = an_api()
 
-    listed = client.get("/api/v1/workspace/files")
-    refused = client.put("/api/v1/workspace/files/notes.md", content=b"text")
+    listed = client.get("/api/v1/workspace/files?conversation_id=cv_abcd")
+    refused = client.put("/api/v1/workspace/files/notes.md?conversation_id=cv_abcd", content=b"text")
 
     assert listed.status_code == 200
     assert listed.json()["items"] == []
     assert listed.json()["detail"]
     assert refused.status_code >= 400
     assert "NERVIS_WORKSPACE_PATH" in refused.text
+
+
+# ── "read this pdf" — a reference, not a filename ──────────────────────────
+
+def _attach(client: TestClient, conversation: str, name: str, body: bytes) -> Any:
+    return client.put(
+        f"/api/v1/workspace/files/{name}?conversation_id={conversation}", content=body
+    )
+
+
+def test_read_this_pdf_opens_the_file_that_was_just_attached(tmp_path: Path) -> None:
+    """The sentence that failed. Somebody attached a document and said "read
+    this pdf and give me a tldr"; the matcher wanted a literal filename, found
+    none, opened nothing, and the model correctly answered that it could not see
+    a PDF. Attaching a file and then having to type its exact name is not a
+    workflow anybody guesses."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_abcd", "guide.pdf", render("Guide", "Stop when the queue drains.").data)
+
+    turn(client, "read this pdf and give me a tldr",
+         system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "Stop when the queue drains." in prompt
+    assert "guide.pdf" in prompt, "the answer must name the file NERVIS picked"
+
+
+def test_a_type_word_picks_that_type_not_merely_the_newest(tmp_path: Path) -> None:
+    """"The pdf" should not open a `.md` that happens to be newer. The person
+    said which kind."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_abcd", "report.pdf", render("Report", "PDF CONTENT HERE").data)
+    _attach(client, "cv_abcd", "later.md", b"MARKDOWN CONTENT HERE")
+
+    turn(client, "summarise the pdf", system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "PDF CONTENT HERE" in prompt
+    assert "MARKDOWN CONTENT HERE" not in prompt
+
+
+def test_an_attachment_does_not_reach_another_conversation(tmp_path: Path) -> None:
+    """The point of scoping. A file handed over to ask one question should not
+    still be there in a fresh session days later — the person was not building a
+    library, they were handing over a file mid-sentence."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_first", "private.md", b"SHOULD NOT LEAK")
+
+    turn(client, "read this document", system="Be someone.", attachment_id="cv_second")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "SHOULD NOT LEAK" not in prompt
+    assert "nothing is attached" in prompt, "and it should say so rather than go quiet"
+
+
+def test_the_listing_is_per_conversation(tmp_path: Path) -> None:
+    """What the screen shows has to match what chat can reach, or the strip
+    under the composer is a list of files the conversation cannot open."""
+    client = an_api(workspace_path=str(tmp_path))
+    _attach(client, "cv_first", "mine.md", b"text")
+
+    mine = client.get("/api/v1/workspace/files?conversation_id=cv_first").json()["items"]
+    theirs = client.get("/api/v1/workspace/files?conversation_id=cv_second").json()["items"]
+
+    assert [item["name"] for item in mine] == ["mine.md"]
+    assert theirs == []
+
+
+def test_an_ordinary_sentence_still_opens_nothing(tmp_path: Path) -> None:
+    """The falsifier for the whole feature. A reference loose enough to fire on
+    conversation reads somebody's document because they said "check this out"."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_abcd", "private.md", b"SHOULD NOT APPEAR")
+
+    for ordinary in ("check this out", "how is the machine doing today",
+                     "what is the plan for today", "read the room"):
+        turn(client, ordinary, system="Be someone.", attachment_id="cv_abcd")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "SHOULD NOT APPEAR" not in prompt
+
+
+def test_deleting_a_conversation_takes_its_attachments(tmp_path: Path) -> None:
+    """Attachments expire on their own after a fortnight, but delete should mean
+    delete now — a person who removed a conversation has said what they want to
+    happen to the file they handed it."""
+    client = an_api(workspace_path=str(tmp_path))
+    _attach(client, "cv_abcd", "notes.md", b"text")
+
+    dropped = client.delete("/api/v1/workspace/files?conversation_id=cv_abcd")
+
+    assert dropped.json()["deleted"] == 1
+    assert client.get("/api/v1/workspace/files?conversation_id=cv_abcd").json()["items"] == []
+
+
+def test_an_upload_with_no_conversation_is_refused(tmp_path: Path) -> None:
+    """An attachment belongs to a conversation. One filed under nothing is the
+    machine-wide workspace this scoping exists to stop being."""
+    client = an_api(workspace_path=str(tmp_path))
+
+    assert client.put("/api/v1/workspace/files/loose.md", content=b"text").status_code >= 400

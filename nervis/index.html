@@ -3809,7 +3809,8 @@ async function workspaceFiles(){
  if(!where)return;
  let body={items:[],detail:''};
  try{
-  const r=await fetch(BASE.nervis+'/api/v1/workspace/files',readDeadline());
+  const r=await fetch(BASE.nervis+'/api/v1/workspace/files?conversation_id='
+    +encodeURIComponent(CHAT_SESSION.id||''),readDeadline());
   if(r.ok)body=await r.json();
  }catch(e){/* an unreachable NERVIS is already said louder elsewhere */}
  if(body.detail){where.title='';where.innerHTML=escapeHtml('workspace off — set NERVIS_WORKSPACE_PATH to let chat read and write files');return}
@@ -3819,9 +3820,9 @@ async function workspaceFiles(){
     looking at. Absolute here on purpose — it is the person's own screen, and
     the rule that keeps the path out of `shown` is about prompts and spoken
     replies, not about the operator's own hover text. */
- where.title=body.workspace?'in '+body.workspace:'';
+ where.title=body.workspace?'attached to this conversation, under '+body.workspace:'';
  const items=body.items||[];
- if(!items.length){where.innerHTML=escapeHtml('workspace is empty — attach a file to let chat read it');return}
+ if(!items.length){where.innerHTML=escapeHtml('nothing attached — the clip adds a file this conversation can read');return}
  where.innerHTML=items.slice(0,8).map(f=>
    `<span title="${escapeHtml(f.readable?'chat can read this':'stored, but not a text file chat can read')}">`
    +`${f.readable?'':'<span style="opacity:.5">○</span> '}${escapeHtml(f.name)}`
@@ -3874,7 +3875,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
         : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}</div>`).join('')}
   </div>
-  <div class="composer"><label id="uploadLabel" class="upload" title="Put a file in the workspace chat can read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
+  <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
   <div id="workspaceFiles" class="mono dim" style="margin-top:6px;font-size:11px"></div>
  </div>`;
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
@@ -3898,7 +3899,8 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   const label=$('#uploadLabel');
   if(label)label.textContent='⏳';
   try{
-   const r=await fetch(BASE.nervis+'/api/v1/workspace/files/'+encodeURIComponent(file.name),
+   const r=await fetch(BASE.nervis+'/api/v1/workspace/files/'+encodeURIComponent(file.name)
+     +'?conversation_id='+encodeURIComponent(CHAT_SESSION.id||''),
      {method:'PUT',body:file});
    const said=await r.json().catch(()=>({}));
    if(!r.ok)alert(said.error&&said.error.message||('The file was not accepted: HTTP '+r.status));
@@ -7895,6 +7897,16 @@ async function forgetOnNervis(id){
  }catch(e){return false}
 }
 
+/* Drop a conversation's attachments. Best effort on purpose: a workspace that
+   is switched off has none to drop, and failing a delete over that would leave
+   a row on screen the person cannot clear. */
+async function forgetAttachments(id){
+ try{
+  await fetch(BASE.nervis+'/api/v1/workspace/files?conversation_id='+encodeURIComponent(id),
+    {method:'DELETE'});
+ }catch(e){/* said louder elsewhere */}
+}
+
 const CHAT_SESSIONS={
  start(){
   /* The current conversation is saved before it is replaced. A "New chat"
@@ -7902,6 +7914,8 @@ const CHAT_SESSIONS={
      wearing a friendly label. */
   CHAT_STORE.save(CHAT_SESSION);
   Object.assign(CHAT_SESSION,{
+   /* A new id is a new attachment directory, which is the whole of what
+      "attachments do not persist between sessions" means here. */
    id:'cv_'+Math.random().toString(36).slice(2,6),
    created_at:new Date().toISOString(),
    title:'New conversation',
@@ -7939,6 +7953,10 @@ const CHAT_SESSIONS={
      copy survives. */
   const held=(CHAT_STORE.read().find(c=>c.conversation_id===id)||{}).remote_id;
   if(held&&!await forgetOnNervis(held))return notify('NERVIS would not delete it — the browser copy is kept');
+  /* And the files attached to it, keyed on the browser's id rather than the
+     server's — attachments expire on their own after a fortnight, but delete
+     should mean delete now. */
+  await forgetAttachments(id);
   CHAT_STORE.remove(id);
   if(CHAT_SESSION.id===id)Object.assign(CHAT_SESSION,{
     id:'cv_'+Math.random().toString(36).slice(2,6),
@@ -8935,7 +8953,11 @@ async function nudge(count){
     — so she can remark that you have been staring at Diagnostics without
     inventing what it says. */
  const outcome=await streamReply(stop,
-   {nudge:count,screen:state.view,conversation_id:CHAT_SESSION.remote_id||''});
+   {nudge:count,screen:state.view,conversation_id:CHAT_SESSION.remote_id||'',
+    /* The browser's own id, stable from the moment the conversation opens —
+       the server's is only minted once a turn is stored, and a file attached
+       before the first question has to be filed somewhere. */
+    attachment_id:CHAT_SESSION.id||''});
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
  CHAT_SESSION.messages.pop();

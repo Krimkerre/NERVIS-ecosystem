@@ -19,6 +19,7 @@ import contextlib
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
@@ -27,6 +28,7 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from nervis import documents
 from nervis.api import (
     chat_router,
     commands_router,
@@ -359,7 +361,23 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # would be a scheduler for something that takes a millisecond.
         with contextlib.suppress(Exception):
             api.state.hub.enforce_retention()
+        # Attachments, on the same timer and for the same reason. A conversation
+        # deleted through the dashboard takes its files with it; this catches the
+        # directories left behind by a browser that cleared its own history and
+        # so can never ask for them again.
+        with contextlib.suppress(Exception):
+            _expire_attachments(api)
         await asyncio.sleep(_next_interval(api))
+
+
+def _expire_attachments(api: FastAPI) -> None:
+    """Drop attachment directories nothing has touched in a fortnight."""
+    root = str(getattr(api.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        return
+    gone = documents.prune_attachments(Path(root), now=time.time())
+    if gone:
+        logger.info("expired %d attachment(s) no conversation points at", gone)
 
 
 def _next_interval(api: FastAPI) -> float:

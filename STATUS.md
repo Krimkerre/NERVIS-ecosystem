@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1845 tests, no network, no live service
+.venv/bin/pytest                      # part of 1858 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 483 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 496 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1845 passing across the four, conformance `PASS`.
+Expected: all clean, 1858 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8649,8 +8649,48 @@ survive extraction: tables arrive as loose runs of numbers and columns
 interleave. A model told nothing about that reads a mangled table as a tidy one
 and answers confidently from the wrong column.
 
+**Two things were still wrong, and both came from the same place: what a person
+does after clicking the clip.**
+
+*"read this pdf and give me a tldr"* opened nothing. The matcher wanted a
+literal filename, found none, and the model answered — correctly — that it could
+not see a PDF. Attaching a file and then having to type its exact name is not a
+workflow anybody guesses; the whole point of the gesture is that the name is no
+longer in the sentence. A reference now resolves to the most recently attached
+readable file, narrowed by a type word so *"the pdf"* does not open a newer
+`.md`.
+
+The matcher demands **both** a reading intent and a document reference, and that
+is the entire design. An intent alone fires on *"read the room"*; a reference
+alone fires on *"the file system is broken"*. Requiring both is what keeps it
+from opening somebody's document mid-conversation, and there is a falsifier test
+of exactly that. §11.5 is not bent: the person's words say *a document was
+meant*, the filesystem says *which one*, and both happen before the model is
+called. What must not happen — a model naming a file and NERVIS opening it —
+still cannot.
+
+And the reading says which file was picked, because NERVIS picked it and the
+person did not. A silently wrong choice is a confident answer about the wrong
+document, which is the worst outcome available here.
+
+**Attachments now belong to the conversation.** They were landing in the
+workspace root, so a file handed over to ask one question was still listed in a
+fresh session days later — a surprise with no upside, since the person was not
+building a library. They live in `.attachments/<conversation>/` now: a new
+conversation is a new directory, and a new directory is empty. Deleting the
+conversation deletes them; a fortnight expires the directories a browser
+abandoned when it cleared its own history, swept on the registry timer rather
+than a scheduler of its own.
+
+The key is the **dashboard's** conversation id, not NERVIS's. NERVIS only mints
+one when a turn is stored, and clip-then-question is the ordinary order of
+events — an attachment made before the first message has to be filed somewhere.
+The browser mints a stable id when the conversation opens, and that is what the
+directory is named.
+
 The screen has the other half: an attach control in the composer, and a line
-under it saying what is in the workspace and which of it chat can actually read.
+under it saying what is attached to this conversation and which of it chat can
+actually read.
 That distinction is the point — a PDF sits in the workspace perfectly well and
 cannot be summarised, and a list that does not say so invites the attempt and
 then refuses somebody who was looking right at the name.

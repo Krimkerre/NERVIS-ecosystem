@@ -24,6 +24,7 @@ reading says so rather than letting a model read a mangled table as a tidy one.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -177,6 +178,100 @@ def read_document(root: Path, named: str) -> Document:
     )
 
 
+#: Where a conversation's attachments live, under the workspace root.
+#:
+#: Dotted so it does not appear in the workspace listing beside the documents
+#: chat *wrote* there. Those two are different things and were briefly the same
+#: directory: a summary saved last week is a file somebody asked to keep, and a
+#: PDF attached to ask one question is not.
+ATTACHMENTS = ".attachments"
+
+#: A conversation id, as a directory name may spell it.
+#:
+#: NERVIS mints these, but it reads them back off a request body, and a value
+#: that becomes a path component is a path component whoever wrote it. Hex and
+#: hyphens covers every id NERVIS makes and cannot spell `..`.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def attachment_dir(root: Path, conversation_id: str) -> Path | None:
+    """This conversation's own attachment directory, created on demand.
+
+    **Attachments belong to the conversation, not to the machine.** Uploading a
+    document to ask one question about it, and finding it still listed in a
+    fresh session days later, is a surprise with no upside — the person is not
+    building a library, they are handing over a file mid-sentence.
+
+    Returns None for an id that cannot be a directory name, which the caller
+    turns into "no attachments" rather than a failure: a chat turn with no
+    conversation yet is an ordinary state, not an error.
+    """
+    wanted = (conversation_id or "").strip()
+    if not wanted or wanted in {".", ".."} or not _SAFE_ID.match(wanted):
+        return None
+    place = root.expanduser().resolve(strict=False) / ATTACHMENTS / wanted
+    place.mkdir(parents=True, exist_ok=True)
+    return place
+
+
+def forget_attachments(root: Path, conversation_id: str) -> int:
+    """Delete a conversation's attachments. Returns how many files went.
+
+    Called when the conversation itself is deleted. A file the person handed
+    over for one conversation should not outlive it — and unlike the retention
+    sweep, this one is somebody pressing delete.
+    """
+    wanted = (conversation_id or "").strip()
+    if not wanted or not _SAFE_ID.match(wanted):
+        return 0
+    place = root.expanduser().resolve(strict=False) / ATTACHMENTS / wanted
+    if not place.is_dir():
+        return 0
+    gone = 0
+    for entry in place.iterdir():
+        if entry.is_file():
+            entry.unlink()
+            gone += 1
+    place.rmdir()
+    return gone
+
+
+#: How long an orphaned attachment directory survives.
+#:
+#: A conversation deleted through the API takes its attachments with it, but a
+#: browser that cleared its local history leaves directories nothing points at.
+#: Without a sweep the disk grows forever; a fortnight is long enough that a
+#: conversation somebody returns to still has its files.
+ATTACHMENT_DAYS = 14
+
+
+def prune_attachments(root: Path, now: float, days: int = ATTACHMENT_DAYS) -> int:
+    """Delete attachment directories nothing has touched in `days`.
+
+    `now` is passed rather than read, so the sweep is testable without waiting
+    a fortnight.
+    """
+    base = root.expanduser().resolve(strict=False) / ATTACHMENTS
+    if not base.is_dir():
+        return 0
+    cutoff = now - days * 86_400
+    gone = 0
+    for place in base.iterdir():
+        if not place.is_dir():
+            continue
+        touched = max(
+            [place.stat().st_mtime]
+            + [entry.stat().st_mtime for entry in place.iterdir() if entry.is_file()]
+        )
+        if touched < cutoff:
+            for entry in place.iterdir():
+                if entry.is_file():
+                    entry.unlink()
+                    gone += 1
+            place.rmdir()
+    return gone
+
+
 #: The largest file the workspace accepts through an upload.
 #:
 #: A bound rather than none, because NERVIS has no request-size limit of its own
@@ -238,6 +333,42 @@ class Listed:
     #: is here. A PDF sits in the workspace perfectly well and cannot be
     #: summarised, and a screen that does not say so invites the attempt.
     readable: bool
+
+
+#: Suffixes a bare type-word in a question refers to.
+#:
+#: Only where the word is unambiguous. "the pdf" means one thing; "the doc"
+#: could be a `.docx` nobody can read, and "the file" means whatever was put
+#: there last — which `newest_readable` answers without this table.
+TYPE_WORDS: dict[str, frozenset[str]] = {
+    "pdf": frozenset({".pdf"}),
+    "csv": frozenset({".csv", ".tsv"}),
+    "markdown": frozenset({".md", ".markdown"}),
+    "spreadsheet": frozenset({".csv", ".tsv"}),
+    "log": frozenset({".log"}),
+}
+
+
+def newest_readable(root: Path, suffixes: frozenset[str] | None = None) -> str | None:
+    """The name of the most recently changed file chat can read, or None.
+
+    **What "this file" means.** Somebody attaches a document and then says *"read
+    this pdf"*. The filename is not in the sentence and never will be — that is
+    what the attach gesture was for. The most recently modified readable file is
+    what a person means by "this", and the workspace's own mtimes answer it
+    without asking a model anything.
+
+    §11.5 is not bent by this. The model still chooses nothing: the person's own
+    words say *a document was meant*, the filesystem says *which one*, and the
+    resolution happens before the model is called. What must not happen — and
+    does not — is a model naming a file and NERVIS opening it.
+    """
+    for item in list_files(root):
+        if not item.readable:
+            continue
+        if suffixes is None or Path(item.name).suffix.lower() in suffixes:
+            return item.name
+    return None
 
 
 def list_files(root: Path) -> list[Listed]:

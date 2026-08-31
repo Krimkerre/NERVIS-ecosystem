@@ -327,11 +327,33 @@ async def list_workspace(request: Request) -> dict[str, Any]:
     root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
     if not root:
         return {"items": [], "workspace": "", "detail": "no workspace is configured"}
+
+    # Scoped to the conversation, so a fresh session starts with nothing. A file
+    # handed over to ask one question is not a library the person is building.
+    conversation = str(request.query_params.get("conversation_id") or "")
+    place = documents.attachment_dir(Path(root), conversation)
+    if place is None:
+        return {"items": [], "workspace": root, "detail": ""}
     return {
-        "items": [vars(item) for item in documents.list_files(Path(root))],
+        "items": [vars(item) for item in documents.list_files(place)],
         "workspace": root,
         "detail": "",
     }
+
+
+@router.delete("/workspace/files")
+async def forget_workspace_attachments(request: Request) -> dict[str, Any]:
+    """Drop everything attached to one conversation.
+
+    Called when the conversation is deleted. Attachments expire on their own
+    after a fortnight, but *delete* should mean delete now — a person who
+    removed a conversation has said what they want to happen to the file they
+    handed it.
+    """
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    conversation = str(request.query_params.get("conversation_id") or "")
+    gone = documents.forget_attachments(Path(root), conversation) if root else 0
+    return {"deleted": gone}
 
 
 @router.put("/workspace/files/{name}")
@@ -354,9 +376,16 @@ async def upload_to_workspace(name: str, request: Request) -> Any:
             "NERVIS has no workspace configured, so it cannot accept a file. "
             "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
         )
+    conversation = str(request.query_params.get("conversation_id") or "")
+    place = documents.attachment_dir(Path(root), conversation)
+    if place is None:
+        raise InvalidConfigurationError(
+            "an attachment belongs to a conversation, and this request named none"
+        )
+
     payload = await request.body()
     try:
-        stored = documents.store_upload(Path(root), name, payload)
+        stored = documents.store_upload(place, name, payload)
     except OutsideWorkspaceError as refusal:
         raise InvalidConfigurationError(str(refusal)) from refusal
     except ValueError as refusal:

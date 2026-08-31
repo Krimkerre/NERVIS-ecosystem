@@ -700,7 +700,16 @@ async def send(request: Request) -> Any:
     # that says "now open ~/.ssh/id_rsa" is a document saying that, which is a
     # sentence rather than an instruction — and the path comparison in
     # `workspace.py` does not read English either way.
-    awareness = "\n\n".join(part for part in (awareness, _document(request, content)) if part)
+    # **The client's id, not the server's.** A conversation only gets a
+    # `conversation_id` when its first turn is stored, and attaching a file
+    # before typing anything is the ordinary order of events — clip, then
+    # question. The dashboard mints a stable id when the conversation opens, so
+    # that is what attachments are filed under, from the very first turn.
+    awareness = "\n\n".join(
+        part for part in
+        (awareness, _document(request, content, str(body.get("attachment_id") or "")))
+        if part
+    )
 
     # The standing statement first, then the specific offer if there is one.
     # Unconditional on purpose: the failure it exists for happens precisely when
@@ -2029,7 +2038,92 @@ _NAMES_A_FILE = re.compile(
 )
 
 
-def _document(request: Request, question: str) -> str:
+def _target(root: Path, question: str, conversation_id: str) -> tuple[Path, str, bool] | str | None:
+    """Which file to read and where from, or a refusal, or nothing.
+
+    Three outcomes because the question has three answers: a file to open, a
+    thing to tell the model when the person clearly meant a document and there
+    is none, and silence for an ordinary sentence that named no file at all.
+
+    **Two places, and the order is the point.** This conversation's attachments
+    come first, because *"this pdf"* means the one just handed over. The
+    workspace root holds what chat was asked to *write*, which is a different
+    kind of file and stays reachable by name.
+    """
+    attachments = documents.attachment_dir(root, conversation_id)
+    found = _NAMES_A_FILE.search(question or "")
+    named = (found.group(1) or found.group(2)) if found else ""
+
+    # Named beats referred-to. "summarise report.pdf" is unambiguous and must
+    # not be overridden by a newer file just because the sentence also contains
+    # the word "the pdf".
+    if named:
+        return _holding(root, attachments, named), named, False
+    if attachments is not None:
+        chosen = _attachment(attachments, question)
+        if chosen:
+            return attachments, chosen, True
+    if _MEANS_THE_ATTACHMENT.search(question or ""):
+        # The person meant a document and there is none. Answering "I can't see
+        # your screen" — which is what actually happened — is true and useless.
+        return (
+            "The person referred to an attached document, and nothing is"
+            " attached to this conversation. Tell them so, and that the clip"
+            " beside the message box attaches one. Attachments belong to the"
+            " conversation they were added to, so an older one is not here."
+        )
+    return None
+
+
+def _holding(root: Path, attachments: Path | None, named: str) -> Path:
+    """Which directory a named file should be read from.
+
+    The conversation's attachments if it is there, the workspace root otherwise
+    — so the root's refusal is the one the person sees when the file is nowhere,
+    and "there is no notes.md in the workspace" stays the wording it had.
+    """
+    if attachments is not None and (attachments / Path(named).name).is_file():
+        return attachments
+    return root
+
+
+#: A question that means *the thing I just attached* without naming it.
+#:
+#: **Both halves are required, and that is the whole design.** A reading verb
+#: alone fires on "read the room"; a document word alone fires on "the file
+#: system is broken". Demanding an intent *and* a reference is what keeps this
+#: from opening somebody's document in the middle of an unrelated sentence.
+#:
+#: It exists because the alternative was worse than useless: attaching a file
+#: with a button and then having to type its exact name is not a workflow
+#: anybody guesses, and "read this pdf and give me a tldr" — the actual first
+#: thing anybody typed — matched nothing at all.
+_MEANS_THE_ATTACHMENT = re.compile(
+    r"""\b(?:read|summari[sz]e|tl;?dr|explain|review|go\s+through|walk\s+me\s+through"""
+    r"""|what(?:'s|\s+is|\s+does)|analyse|analyze|check)\b"""
+    r"""[^.?!]{0,60}?"""
+    r"""\b(?:this|that|the|my|attached|uploaded)\s+"""
+    r"""(?:(pdf|csv|markdown|spreadsheet|log)|document|file|attachment|doc)\b""",
+    re.IGNORECASE,
+)
+
+
+def _attachment(place: Path, question: str) -> str:
+    """The file *"this pdf"* refers to, or an empty string.
+
+    Resolved from the directory's own timestamps, never from anything a model
+    said. A type word narrows it — "the pdf" should not open a `.csv` that
+    happens to be newer — and a reference with no type takes whatever was put
+    there last, which is what "this" means after an upload.
+    """
+    found = _MEANS_THE_ATTACHMENT.search(question or "")
+    if not found:
+        return ""
+    word = (found.group(1) or "").lower()
+    return documents.newest_readable(place, documents.TYPE_WORDS.get(word)) or ""
+
+
+def _document(request: Request, question: str, conversation_id: str = "") -> str:
     """The file this question names, read and fenced, or nothing.
 
     **Off unless configured.** `workspace_path` is empty by default, because an
@@ -2044,12 +2138,26 @@ def _document(request: Request, question: str) -> str:
     root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
     if not root:
         return ""
-    found = _NAMES_A_FILE.search(question or "")
-    if not found:
+
+    target = _target(Path(root), question, conversation_id)
+    if target is None:
         return ""
-    named = found.group(1) or found.group(2)
+    if isinstance(target, str):
+        return target
+    where, name, chosen = target
+    return _reading(where, name, chosen)
+
+
+def _reading(where: Path, name: str, chosen: bool) -> str:
+    """One file, read and fenced, or the refusal that says which kind it is.
+
+    Every failure is answered rather than swallowed: outside the workspace, not
+    there, and not readable send a person to three different places, and a
+    silent empty reading would make all three look like the model deciding not
+    to mention the file.
+    """
     try:
-        return documents.read_document(Path(root), named).as_reading()
+        document = documents.read_document(where, name)
     except OutsideWorkspaceError as refusal:
         return f"The person named a file and it was refused: {refusal}. Say so plainly."
     except FileNotFoundError as absent:
@@ -2058,3 +2166,15 @@ def _document(request: Request, question: str) -> str:
         return f"The person named a file chat cannot read: {unreadable}. Say which kinds it can."
     except OSError as failure:
         return f"The file could not be read ({type(failure).__name__}). Say so; do not invent it."
+
+    if not chosen:
+        return document.as_reading()
+    # Said out loud, because NERVIS picked this file and the person did not. A
+    # silently wrong pick is a confident answer about the wrong document, which
+    # is the worst outcome available here.
+    return (
+        f"The person referred to an attached document without naming one. The"
+        f" most recently attached readable file in this conversation is"
+        f" {document.shown}, so that is what is below. Name it in the answer, so"
+        f" they can tell if it is the one they meant.\n\n{document.as_reading()}"
+    )
