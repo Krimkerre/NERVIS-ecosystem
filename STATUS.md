@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1868 tests, no network, no live service
+.venv/bin/pytest                      # part of 1872 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1868 passing across the four, conformance `PASS`.
+Expected: all clean, 1872 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -8839,10 +8839,56 @@ An explicit address of a resold model is refused rather than silently
 substituted, per §5.3 — and the refusal names the vendor, because it reaches
 somebody who typed a model by hand and needs to know what to type instead.
 
-**Found in passing and not fixed:** `google/gemini-2.0-flash-001` resolves to
-the local LM Studio upstream and fails with *"No models loaded"*. It did this
-before any of this work and is unrelated to the reseller rule — which is why the
-Google check above matters, since the fallback it preserves is itself broken.
+### The exclusion was wrong, and Gemini proved it
+
+**The rule as first written caused an outage, and the check that was supposed to
+prevent it was verified with a model id that does not exist.** `google` is
+configured and lists 39 models, so it entered the direct set — and the direct
+route 404s on them: Google's *list* endpoint advertises models its *generate*
+endpoint refuses with *"no longer available to new users"*. Excluding the 43
+working `google/*` copies on OpenRouter in favour of that left the chain empty.
+Gemini became unreachable, through a rule about price.
+
+The earlier check passed because it used `google/gemini-2.0-flash-001`, a
+retired id in no catalogue, which never reached the policy path at all. A test
+that cannot fail is not a check.
+
+**So the preference ranks and refuses nothing, anywhere.** A vendor catalogue is
+the vendor's *claim* about what it serves, and a refusal built on a claim that
+can be false is a dead end — whether it lands on a pool candidate (no route at
+all) or on a model somebody typed (told to use a route that answers 404).
+Ranking costs nothing when the claim is true and costs nothing when it is false:
+the attempt chain walks the order, so the maker is tried first and the reseller
+still catches the 404. §5.3 points the same way — a price preference is
+inference, and an explicit address outranks inference.
+
+Measured after the change: `ravis/chat` 0.79s on `claude-haiku-4-5-20251001`
+through `provider=anthropic`; `google/gemini-2.5-flash` 0.89s, working again;
+`anthropic/claude-haiku-4.5` still served when named by hand, at its 9.8s, which
+is the caller's choice to make.
+
+### A model no upstream lists says so
+
+The other half of the same report. `google/gemini-2.0-flash-001` is retired and
+in no catalogue, so RAVIS forwarded it to whichever upstream happened to be the
+default — the local runtime — and relayed *"No models loaded. Please load a
+model in the developer page or use the `lms load` command."* LM Studio
+describing itself, truthfully, forwarded verbatim exactly as the design says to,
+and completely wrong as an answer. Nothing was wrong with LM Studio and loading
+a model would not have helped.
+
+Refusing to route an unlisted name was tried first and reverted: two legitimate
+flows broke, because a transparent upstream can serve a model its catalogue does
+not list. What ships instead touches only the point where **every attempt has
+already failed**, so no working route can be affected — there the message
+becomes *"No upstream lists 'x', so RAVIS had to guess where to send it and the
+guess failed"*, naming `/v1/models` and the `ravis/<provider>/<model>` form.
+
+Three exemptions, each with a test: a pool id and a `ravis/…` address are never
+in the catalogue and are not meant to be — forgetting that turned every
+exhausted pool into *"no upstream lists 'ravis/clarvis-agent'"* — and an empty
+catalogue is not evidence of absence, because at startup RAVIS knows nothing
+yet. A model the catalogue *does* list keeps the upstream's own words.
 
 ## Starting the thing
 

@@ -688,3 +688,61 @@ def test_a_route_decision_records_what_happened_when_it_was_executed() -> None:
         latest = client.get("/api/v1/route-decisions?limit=1").json()["items"][0]
         outcomes = [attempt["outcome"] for attempt in latest["execution"]["attempts"]]
         assert outcomes == [FailureClass.OVERLOAD.value, "succeeded"]
+
+
+def test_a_model_no_upstream_lists_is_named_as_such() -> None:
+    """**What it replaces is a true sentence about the wrong subject.**
+
+    A retired model id, or a typo, went to whichever upstream happened to be the
+    default — the local runtime — and came back "No models loaded. Please load a
+    model in the developer page or use the `lms load` command." Nothing was
+    wrong with LM Studio and loading a model would not have helped.
+    """
+    # The local runtime's real words, which is what a person actually saw.
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        answers={"vendor/retired-model-001": {
+            "error": "No models loaded. Please load a model in the developer page"
+        }},
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions",
+        json={"model": "vendor/retired-model-001", "stream": True},
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert b"No upstream lists" in received
+    assert b"vendor/retired-model-001" in received
+    assert b"/v1/models" in received, "it should say where to check the id"
+    assert b"ravis/<provider>/" in received, "and how to name a provider by hand"
+
+
+def test_a_listed_model_that_fails_still_gets_the_upstreams_own_words() -> None:
+    """The falsifier. A model the catalogue *does* list has an ordinary failure,
+    and rewriting that would hide the reason behind a guess about the id."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS, answers={"coder-a": {"error": "Model unloaded or unavailable"}}
+    )
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": "coder-a", "stream": True},
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert b"Model unloaded" in received
+    assert b"No upstream lists" not in received
+
+
+def test_the_non_streaming_path_explains_an_unlisted_model_too() -> None:
+    """Both paths or neither. The streaming half was fixed first and the plain
+    completion still relayed the local runtime's advice to load a model."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS,
+        answers={"vendor/retired-model-001": {"error": "No models loaded."}},
+    )
+    with _app_with(upstream) as client:
+        answered = client.post(
+            "/v1/chat/completions", json={"model": "vendor/retired-model-001"}
+        )
+
+    assert answered.status_code == 404
+    assert "No upstream lists" in answered.json()["error"]["message"]

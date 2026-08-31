@@ -42,7 +42,7 @@ from ravis.api.management.decisions import RecordedDecision
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
 from ravis.core.capabilities import ModelCapabilities
-from ravis.core.pools import POOLS_BY_ID, direct_provider, is_pool_id
+from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent, Usage
 from ravis.cost import BudgetBand, PriceBook, UsageLedger, UsageRecord, band_for, estimate
@@ -54,6 +54,7 @@ from ravis.policy import (
     RoutingPolicy,
     effective_policy,
     policy_refusals,
+    resold_models,
 )
 from ravis.providers.base import ProviderAdapter, TranslatingAdapter, TranslationError
 from ravis.registry import ModelRegistry
@@ -248,6 +249,9 @@ async def create_chat_completion(request: Request) -> Response:
         note_usage=_usage_writer(request, decision),
         note_finished=_finished_writer(request, decision),
     )
+    # So an exhausted chain can say "no upstream lists this" rather than relay
+    # an upstream's description of its own state. See `_unlisted_body`.
+    call.catalogue = frozenset(decision.considered)
 
     # §6's fork, and the only place it is decided. A provider whose upstream
     # does not speak the external protocol needs Path B; everything else is
@@ -571,6 +575,11 @@ class _Call:
         self._ttl = ttl
         self.body = body
         self.payload = payload
+        # What every upstream lists, for the one purpose of telling "this model
+        # is not offered anywhere" apart from "the upstream it was guessed onto
+        # is unhappy". Set by the caller; empty means RAVIS has discovered
+        # nothing yet, which is not evidence of absence.
+        self.catalogue: frozenset[str] = frozenset()
         self.chain = chain
         self.recorded = recorded
         # §14's usage record, written once when a stream finishes. Injected
@@ -722,6 +731,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # enough history, which routes exactly as RAVIS did before the tradeoff
     # existed.
     expected = _expected_session_requests(request)
+    # Vendors this machine can buy from at the source, resolved once: the
+    # refusal path and the ranking path must agree about what is direct.
+    direct = await _direct_providers(request)
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -771,8 +783,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
             addressed=payload.get("model") or "",
             provider_of=_provider_of(request),
             remote=remote,
-            direct_providers=await _direct_providers(request),
         ),
+        # Ranked rather than refused inside a pool; see `_rank`.
+        resold=resold_models(candidates, _provider_of(request), direct),
     )
     # Recorded rather than recomputed. Re-running the router later would use a
     # different catalogue, residency and memory reading, and could reach a
@@ -1377,6 +1390,13 @@ def _exhausted_response(
     """
     if last is None:
         return _chain_exhausted(call.chain)
+    # The same substitution the streaming path makes, and for the same reason:
+    # an upstream describing its own state is not an answer to "why did this
+    # model not work". Only when every attempt has failed, so no working route
+    # is affected.
+    explained = _unlisted_body(call, last.content)
+    if explained != last.content:
+        return Response(content=explained, status_code=404, media_type="application/json")
     if not misleading:
         return _passthrough(last)
     return Response(
@@ -1469,7 +1489,7 @@ async def _relay(call: _Call) -> AsyncGenerator[bytes, None]:
             raise
     call.finish()
     _log_exhaustion(call.chain)
-    yield _sse_error(last_error or _exhausted_body(call.chain))
+    yield _sse_error(_unlisted_body(call, last_error or _exhausted_body(call.chain)))
 
 
 async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None]:
@@ -1679,6 +1699,54 @@ def _sse_error(detail: bytes) -> bytes:
 
 def _exhausted_body(chain: AttemptChain) -> bytes:
     return error_body(chain.exhausted_message(), chain.last_class, chain.summary())
+
+
+#: How RAVIS explains a model no upstream lists.
+#:
+#: **Only ever reached once every attempt has failed**, so this cannot take a
+#: working route away from anybody. What it replaces is an upstream's truthful
+#: description of *itself*, forwarded verbatim as the design says to and useless
+#: as an answer to the question asked: a retired model id, or a typo, went to
+#: whichever upstream happened to be the default — the local runtime, on this
+#: machine — and came back *"No models loaded. Please load a model in the
+#: developer page or use the `lms load` command."*
+#:
+#: Nothing was wrong with LM Studio and loading a model would not have helped.
+_UNLISTED = (
+    "No upstream lists {model!r}, so RAVIS had to guess where to send it and the "
+    "guess failed. Check the id against /v1/models, or name the provider "
+    "yourself with ravis/<provider>/{model}. The upstream that was tried "
+    "answered: {detail}"
+)
+
+
+def _unlisted_body(call: _Call, fallback: bytes) -> bytes:
+    """`fallback`, unless the model was absent from a catalogue that exists.
+
+    An empty catalogue is not evidence of absence — at startup, or when every
+    listing failed, RAVIS knows nothing yet — so the note is only added when
+    there is a catalogue to be missing from.
+    """
+    requested = str(call.payload.get("model") or "")
+    catalogue = getattr(call, "catalogue", None) or ()
+    # A pool id and a `ravis/<provider>/<model>` address are never in the
+    # catalogue and are not supposed to be — the first names a set to choose
+    # from, the second names a provider. Only a bare model name can be missing
+    # from it, and forgetting that turned every exhausted pool into "no upstream
+    # lists 'ravis/clarvis-agent'", which is true and not the problem.
+    if requested.startswith(POOL_PREFIX):
+        return fallback
+    if not requested or not catalogue or requested in catalogue:
+        return fallback
+    try:
+        detail = json.loads(fallback).get("error", {}).get("message") or ""
+    except (ValueError, AttributeError):
+        detail = ""
+    return error_body(
+        _UNLISTED.format(model=requested, detail=str(detail)[:200]),
+        FailureClass.MODEL_UNAVAILABLE,
+        call.chain.summary(),
+    )
 
 
 def _chain_exhausted(chain: AttemptChain) -> JSONResponse:

@@ -251,7 +251,6 @@ def policy_exclusions(
     *,
     provider_of: Callable[[str], str],
     remote: frozenset[str],
-    direct_providers: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Why policy refuses each candidate it refuses, keyed by model.
 
@@ -264,14 +263,9 @@ def policy_exclusions(
     having to know which subsystem rejected what.
     """
     refused: dict[str, list[str]] = {}
-    resold = resold_models(candidates, provider_of, direct_providers)
     for model in sorted(candidates):
         reasons = _refusals(policy, model, provider_of(model), model in remote,
                             candidates[model])
-        if model in resold:
-            reasons.append(
-                _RESOLD_REFUSAL.format(vendor=resold[model], provider=provider_of(model))
-            )
         if reasons:
             refused[model] = reasons
     return refused
@@ -581,7 +575,6 @@ def policy_refusals(
     addressed: str,
     provider_of: Callable[[str], str],
     remote: frozenset[str],
-    direct_providers: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Policy refusals for the candidate set *and* for what the client addressed.
 
@@ -592,10 +585,19 @@ def policy_refusals(
     request that policy could not see — which is exactly the shape someone
     reaching around a policy would use.
     """
-    refused = policy_exclusions(
-        policy, candidates, provider_of=provider_of, remote=remote,
-        direct_providers=direct_providers,
-    )
+    refused = policy_exclusions(policy, candidates, provider_of=provider_of, remote=remote)
+    # **The reseller preference refuses nothing, anywhere.** It ranks (see
+    # `_rank`), and that is the only mechanism robust to the thing that broke
+    # it: a vendor catalogue is the vendor's *claim* about what it serves, and
+    # Google's advertises models whose generate endpoint answers 404 — "no
+    # longer available to new users". A refusal built on that claim is a dead
+    # end, whether it lands on a pool candidate (no route at all) or on a model
+    # somebody typed (told to use a route that cannot serve them).
+    #
+    # Ranking costs nothing when the claim is true and costs nothing when it is
+    # false. §5.3's rule that an explicit address outranks inference points the
+    # same way: a price preference is inference, and the person naming a model
+    # has already decided.
     if addressed and addressed not in refused and addressed not in candidates:
         target = direct_target(addressed) or addressed
         if not is_pool_id(addressed):

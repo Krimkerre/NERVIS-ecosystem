@@ -502,23 +502,32 @@ def test_it_fails_open_when_the_vendor_is_unavailable() -> None:
     assert resold == {}
 
 
-def test_the_refusal_names_the_vendor_so_a_person_knows_what_to_type() -> None:
-    """This reaches somebody who addressed a model by hand. "Refused by policy"
-    without an alternative is a dead end."""
+def test_the_reseller_preference_refuses_nothing_anywhere() -> None:
+    """**A price preference must never be able to cause an outage**, and only
+    ranking has that property.
+
+    Both refusals were tried and both were dead ends. Excluding a pool candidate
+    deleted the only working route — Google's catalogue advertises models whose
+    generate endpoint answers 404, so the direct route it pointed at could not
+    serve them, and Gemini became unreachable. Refusing a hand-typed address
+    was the same dead end wearing a helpful message: *use the vendor directly*,
+    to a vendor that answers 404.
+
+    §5.3 points the same way. A price preference is inference, and an explicit
+    address outranks inference.
+    """
     candidates = _caps("anthropic/claude-haiku-4.5", "claude-haiku-4-5-20251001")
     provider_of = _serving({"claude-haiku-4-5-20251001": "anthropic"})
 
-    refused = policy_exclusions(
+    assert policy_exclusions(
+        RoutingPolicy(), candidates, provider_of=provider_of, remote=frozenset(candidates)
+    ) == {}
+    assert policy_refusals(
         RoutingPolicy(), candidates,
+        addressed="anthropic/claude-haiku-4.5",
         provider_of=provider_of,
         remote=frozenset(candidates),
-        direct_providers={"anthropic"},
-    )
-
-    assert "claude-haiku-4-5-20251001" not in refused
-    reason = " ".join(refused["anthropic/claude-haiku-4.5"])
-    assert "anthropic" in reason and "openrouter" in reason
-    assert "reseller" in reason
+    ) == {}
 
 
 def test_a_bare_model_id_is_never_resold() -> None:
@@ -541,3 +550,31 @@ def test_a_floating_alias_is_the_same_reseller_hop() -> None:
     assert resold_models(candidates, provider_of, {"anthropic"}) == {
         "~anthropic/claude-haiku-latest": "anthropic"
     }
+
+
+def test_a_pool_keeps_the_reseller_as_a_fallback_and_ranks_it_last() -> None:
+    """The property the first version destroyed, asserted on the engine rather
+    than argued.
+
+    Google's catalogue advertises models whose generate endpoint answers 404 —
+    *"no longer available to new users"*. Excluding the aggregator's working copy
+    in favour of that left the chain empty and made Gemini unreachable. Ranked,
+    the maker is tried first and the reseller still catches the 404.
+    """
+    candidates = {
+        "vendor/model-a": ModelCapabilities(model_id="vendor/model-a"),
+        "model-a-direct": ModelCapabilities(model_id="model-a-direct"),
+    }
+    engine = RoutingEngine()
+
+    decision = engine.select(
+        "ravis/auto",
+        candidates,
+        remote_models=frozenset(candidates),
+        resold={"vendor/model-a": "vendor"},
+    )
+
+    assert decision.selected is not None
+    order = [decision.selected, *decision.fallbacks]
+    assert "vendor/model-a" in order, "the reseller must remain reachable"
+    assert order.index("model-a-direct") < order.index("vendor/model-a")

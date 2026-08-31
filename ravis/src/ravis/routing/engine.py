@@ -76,6 +76,7 @@ class RoutingEngine:
         observed_ttft_ms: Mapping[str, float] | None = None,
         policy: RoutingPolicy | None = None,
         policy_refusals: Mapping[str, list[str]] | None = None,
+        resold: Mapping[str, str] | None = None,
         sticky: str = "",
         expected_session_requests: int | None = None,
         reasoning_share: Mapping[str, float] | None = None,
@@ -145,6 +146,7 @@ class RoutingEngine:
                 expected_session_requests,
                 reasoning_share,
                 role_evidence,
+                resold or {},
             )
 
         target = direct_target(requested)
@@ -180,6 +182,11 @@ class RoutingEngine:
             requested=requested,
             selected=requested,
             reason="named directly by the client; no pool resolution applied",
+            # Recorded even though nothing was selected *from* it. It is what
+            # lets a failed attempt tell "no upstream offers this model" apart
+            # from "the upstream it was guessed onto is unhappy" — the
+            # difference between a typo and an outage.
+            considered=sorted(candidates),
             requirements=requirements.describe() + policy.describe(),
         )
 
@@ -250,6 +257,7 @@ class RoutingEngine:
         expected_session_requests: int | None = None,
         reasoning: Mapping[str, float] | None = None,
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
+        resold: Mapping[str, str] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -296,7 +304,7 @@ class RoutingEngine:
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
-            expected_session_requests, reasoning,
+            expected_session_requests, reasoning, resold,
         )
 
         if not eligible:
@@ -473,6 +481,7 @@ def _rank(
     sticky: str = "",
     expected_session_requests: int | None = None,
     reasoning: Mapping[str, float] | None = None,
+    resold: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -568,7 +577,22 @@ def _rank(
         # by default and needed no rule of its own. What was missing was the
         # brake, not the accelerator.
         load = 1.0 if short_session and _pays_a_load(model, residency, remote) else 0.0
-        terms: list[float | str] = [affinity, load, *_preference_terms(
+        # **A reseller copy sorts behind the maker's own, and is not removed.**
+        # It was an exclusion first, which is the stronger thing to say and the
+        # wrong one: the vendor's catalogue is its own claim about what it
+        # serves, and Google's lists models whose generate endpoint answers 404
+        # — *"no longer available to new users"*. Excluding the aggregator's
+        # working copy in favour of that left no candidate at all, and Gemini
+        # became unreachable through a rule about price.
+        #
+        # Ranked, the same preference costs nothing when the direct route works
+        # and keeps the fallback when it does not: the attempt chain walks this
+        # order, so the maker is tried first and the reseller still catches the
+        # 404. An explicit address is still *refused* — that is a person asking
+        # a question, and an answer naming the cheaper route is worth more than
+        # a silent substitution.
+        reseller = 1.0 if model in (resold or {}) else 0.0
+        terms: list[float | str] = [affinity, load, reseller, *_preference_terms(
             pool, policy, model, candidates, remote, observed or {})]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
         lead: tuple[float | str, ...] = tuple(terms)
