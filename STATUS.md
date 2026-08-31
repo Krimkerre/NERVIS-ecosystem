@@ -2790,6 +2790,56 @@ and a mid-quarter pricing change."* Saving that reply produced a 692-byte file
 that macOS reads as *"PDF document, version 1.4, 1 pages"*, and
 `../escaped.pdf` was refused with `422` naming the workspace.
 
+### An assistant that grows with the user — planned, 31 Aug
+
+Recorded as NERVIS **M21-M25** and RAVIS **M26**, from a conversation about
+whether NERVIS chat could take on the self-learning and planning of an agentic
+assistant while keeping the human gate.
+
+**It can, because the two are about different things.** §12 governs *acts* — the
+operation set is closed and a person presses the button. Nothing in it constrains
+how good a *proposal* is. So the learning half needs no part of the containment
+relaxed, and the order of the milestones is also the order of their risk: the
+first three change nothing about what NERVIS may do.
+
+**M21 notification centre** — the substrate everything else posts into. The
+event hub, the SSE stream and the unprompted-remark path already exist; what is
+missing is a durable note with a reason attached. Today's voice announcements
+evaporate the moment they are spoken.
+
+**M22 proposal outcomes** — nothing currently records whether an offer was
+accepted or declined, which is the one gap between "NERVIS proposes" and "NERVIS
+learns what you want". Small, and everything else reads from it.
+
+**M23 learned notes** — a file NERVIS appends to beside the five hand-written
+ones, retrieved by the same search and gated by the same check. Legible by
+construction: a preference that silently changes behaviour is the failure this
+codebase spends most of its comments preventing.
+
+**M24 planning** — an ordered sequence of operations the set already allows.
+The trap named in the exit criteria: one confirmation for six steps is a weaker
+gate than six confirmations even though it looks like the same rule, so each
+step stays individually bounded and the plan is a decision about *order*.
+
+**M25 background thinking** — the only one that needs a model to run unattended,
+and the only genuinely new agency. It still produces notes and proposals rather
+than acts, so §12 is untouched; the controls it needs are budget and frequency
+rather than permission.
+
+**RAVIS M26 is what makes it parallel**, and the obvious choice is the wrong
+one. `ravis/cheap` has a `$0` ceiling, so free-only, so local-only — an
+unattended thinker on that pool loads a model onto the machine chat is already
+using. That is not hypothetical: it is exactly the exaone incident from earlier
+today, where a background title job loaded a cold 2.4B and produced nothing.
+§9.6.1's background marker has the same shape and the same problem, which is why
+M25's exit says not to use it.
+
+**On the estimate.** Four to six weeks was quoted and was calibrated on nothing —
+438 commits over ten days is this repository's actual pace. Under a week is the
+honest figure, and the part that does not compress is the judgement: what bounds
+a plan, what an unattended run may spend. Today's reseller rule was forty minutes
+of code and three rounds of getting the judgement wrong.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
