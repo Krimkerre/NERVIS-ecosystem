@@ -3554,3 +3554,45 @@ def test_saving_one_reply_is_still_its_own_operation() -> None:
     offer = commands.propose("save that as notes.pdf", [], default_name="x.pdf")
 
     assert offer is not None and offer.operation == "nervis.document.write"
+
+
+def test_the_model_is_told_when_there_is_no_button() -> None:
+    """**Absence is not something a model notices.** Asked "lets try the export
+    again", one answered "the Export button is still there under my last reply"
+    — about a reply that had no button under it and never had. It knew the
+    operation existed, nothing told it none had been offered, and it filled the
+    gap.
+
+    Describing a control that is not on the screen is the same failure as
+    quoting a figure nobody measured, and worse in one way: the person goes
+    looking for it.
+    """
+    said = commands.told(None)
+
+    assert "no button under it" in said
+    assert "earlier reply" in said, "the specific wrong answer must be named"
+    assert commands.told(None) != ""
+
+
+def test_a_real_offer_still_says_the_button_is_there() -> None:
+    """The falsifier. A sentence that always said "there is no button" would be
+    worse than the bug it fixes."""
+    offer = commands.propose("export this conversation", [], default_name="x.pdf")
+
+    assert offer is not None
+    assert "no button" not in commands.told(offer)
+
+
+def test_export_is_recognised_without_repeating_the_noun() -> None:
+    """"Lets try the export again" is a follow-up, and a follow-up is exactly
+    when somebody is least likely to repeat the word they used a moment ago."""
+    for asked in ("lets try the export again", "export it", "can you export this"):
+        offer = commands.propose(asked, [], default_name="derived.pdf")
+        assert offer is not None, asked
+        assert offer.operation == "nervis.conversation.export", asked
+
+
+def test_saving_one_reply_is_still_not_an_export() -> None:
+    offer = commands.propose("save that as notes.pdf", [], default_name="x.pdf")
+
+    assert offer is not None and offer.operation == "nervis.document.write"

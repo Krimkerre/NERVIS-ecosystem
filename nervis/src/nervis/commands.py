@@ -181,10 +181,16 @@ WRITE = re.compile(
 # its own stored title. The filename is derived from that title, not conjured to
 # fill a gap, and the person still confirms it on the button.
 EXPORT_CONVERSATION = re.compile(
+    # A verb and a word for the conversation, in either order …
     r"\b(?:export|save|write|print|download)\b[^.?!]{0,50}?"
     r"\b(?:conversation|chat|transcript|discussion|thread)\b"
     r"|\b(?:conversation|chat|transcript|discussion|thread)\b[^.?!]{0,40}?"
-    r"\b(?:export|save|write|print|download)\b",
+    r"\b(?:export|save|write|print|download)\b"
+    # … or the word **export** on its own. It means one thing here, and
+    # requiring a second word missed "lets try the export again" — a follow-up
+    # to an offer, which is exactly when somebody is least likely to repeat the
+    # noun they used a moment ago.
+    r"|\bexports?\b|\bexporting\b",
     re.IGNORECASE,
 )
 
@@ -633,7 +639,24 @@ def told(proposal: Proposal | None) -> str:
     exists to prevent, so it is named here rather than left to inference.
     """
     if proposal is None:
-        return ""
+        # **Said, rather than left to be inferred from silence.** The standing
+        # capabilities line already tells the model what to do when it cannot
+        # see an offer — and a model cannot reliably notice that something is
+        # absent. Asked "lets try the export again", one answered "the Export
+        # button is still there under my last reply", about a reply that had no
+        # button under it and never had: it knew the operation existed, nothing
+        # told it none had been offered, and it filled the gap.
+        #
+        # Describing a control that is not on the screen is the same failure as
+        # quoting a figure nobody measured, and it is worse in one way — the
+        # person goes looking for it.
+        return (
+            "No offer accompanies this reply, so there is no button under it. "
+            "Do not say there is one, do not refer to a button from an earlier "
+            "reply as though it were still on this one, and do not describe "
+            "where to click. If they are asking for something you can offer, "
+            "ask them to name the target and it will appear on the next reply."
+        )
     if proposal.ready:
         # **The prohibition comes first, and names the words.** Told to mention
         # a button and not to claim the work had started, an 8B build answered
@@ -644,11 +667,14 @@ def told(proposal: Proposal | None) -> str:
         # a synonym.
         return (
             f"The person asked about {proposal.summary}. There is an unpressed "
-            f"{proposal.action} button under your reply. It is the only thing that "
+            f"{proposal.action} button under **this** reply — the one you are "
+            "writing now, not an earlier one. It is the only thing that "
             "can do this, and it has not been pressed, so nothing has changed yet — "
             "it is an offer on screen and nothing more. Tell them the button is "
             "there and that it is theirs to press. Describe it in the future tense "
-            "only."
+            "only, and never point at a button under a previous reply: buttons do "
+            "not persist, and sending somebody back up the page to look for one is "
+            "the same as describing a control that is not there."
             + (
                 # **What pressing actually does, because "queued" was read as a
                 # waiting line.** SIRVIS runs one benchmark at a time: with

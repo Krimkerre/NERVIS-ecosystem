@@ -2877,6 +2877,34 @@ that, and was dropped by a threshold of 5. And the indexer split on `##` only, s
 five planned features written as sub-headings were one 1,800-character block:
 asking about any of them retrieved all five, four of them padding.
 
+### It pointed at a button that was never there, 1 Sep
+
+    lets try the export again
+    The Export button is still there under my last reply.
+
+There was no button under that reply and there never had been. Two faults, and
+the second is the one that matters.
+
+**The matcher wanted the noun repeated.** "Export" had to arrive with
+"conversation" or "transcript" beside it, and a follow-up is exactly when
+somebody is least likely to say again the word they said a moment ago. `export`
+alone means one thing here, so it fires on its own now.
+
+**And nothing told the model there was no offer.** The standing capabilities
+line already says what to do when it cannot see one — but a model does not
+notice an absence. It knew the operation existed, no offer was attached, and it
+filled the gap with a button. `told(None)` is now a sentence rather than an
+empty string: *no offer accompanies this reply, so there is no button under it*,
+naming the specific wrong answer it exists to prevent.
+
+Describing a control that is not on the screen is the same failure as quoting a
+figure nobody measured, and worse in one way — the person goes looking for it.
+
+A third thing surfaced from the corrected reply: even with a real offer it said
+*"under my last reply"*. Buttons do not persist, so pointing back up the page is
+the same failure in a smaller form. The instruction now says **this** reply and
+forbids the other.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

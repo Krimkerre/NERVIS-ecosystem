@@ -861,8 +861,10 @@ async def send(request: Request) -> Any:
     awareness = "\n\n".join(
         part for part in (awareness, commands.capabilities_line()) if part
     )
-    if offer is not None:
-        awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
+    # Unconditional: `told(None)` is the sentence that says no button exists,
+    # and it is the one the model most needs — an absent offer is not something
+    # a model notices on its own.
+    awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
     system = _house_system(
         body, database, greeting, conversation_id, nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
