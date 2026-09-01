@@ -207,6 +207,17 @@ DECLARED: dict[str, Capability] = {
         state=UNAVAILABLE,
         reason="no voice credential is configured",
     ),
+    # M21's centre. Available rather than conditional: unlike voice, there is
+    # nothing to configure — the store is part of the database and the probe
+    # loop is its first producer, so this is true on every installation the
+    # moment it starts. The screens that read it gate on this rather than on
+    # NERVIS being reachable, which is the distinction Stage 6 settled.
+    "nervis.notifications@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M21's durable notification centre: post, list, unread count, "
+        "per-note read and dismissal",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

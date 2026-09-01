@@ -28,13 +28,14 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis import documents
+from nervis import documents, notifications
 from nervis.api import (
     chat_router,
     commands_router,
     diagnostics_router,
     events_router,
     instances_router,
+    notifications_router,
     traces_router,
     voice_router,
 )
@@ -52,7 +53,7 @@ from nervis.errors import NervisError, to_response
 from nervis.events import Hub
 from nervis.instances import Instances
 from nervis.probes import probe
-from nervis.registry import Registry, admissible, declared_services
+from nervis.registry import Registry, RegistryState, admissible, declared_services
 from nervis.storage import installation_identity, prepare_database
 from nervis.voice import VoiceCredential
 from nervis.voice import config_directory as voice_config_directory
@@ -80,6 +81,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(diagnostics_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(notifications_router)
     api.include_router(commands_router)
     api.include_router(voice_router)
     register_dashboard(api)
@@ -339,6 +341,73 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
                 "detail": entry.detail,
             },
         )
+        _note_state_change(api, entry, was)
+
+
+# How a state reads in a sentence. The status bar's own words are for a glance
+# and these are for a line somebody reads tomorrow — "stale" without the age
+# beside it has told them nothing.
+WRITTEN_STATE = {
+    "healthy": "is back to healthy",
+    "degraded": "is degraded",
+    "unreachable": "has stopped answering",
+    "stale": "has gone quiet",
+    "unhealthy": "reports itself unhealthy",
+    "incompatible": "is speaking a protocol NERVIS does not support",
+    "unauthorized": "is refusing NERVIS's credential",
+    "stopped": "has stopped",
+    "discovering": "is still negotiating",
+}
+
+
+def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
+    """File the transition in the notification centre as well as the hub.
+
+    **The announcement and the note are one event seen twice.** M21 is explicit
+    that muting speech must not lose the record, and the honest way to satisfy
+    that is for the record not to be written by the thing that speaks. The
+    dashboard's announcer is a browser that may be closed, muted, or on another
+    tab; this runs in the probe loop, which is running either way. A user who
+    was out all afternoon comes back to the list whether or not anything was
+    ever said aloud.
+
+    **Absent is not news**, the same rule the hub's severity and the voice
+    announcer both use. An optional peer nobody installed is software that is
+    working exactly as configured, and a centre that opens with four notes
+    about Ollama on a machine that has never had Ollama is one nobody reads.
+    """
+    database = getattr(api.state, "database", None)
+    if database is None or entry.awaiting_first_contact:
+        return
+    # **A first sighting is a roll call, not news.** `discovering` is the state
+    # every entry starts in, so the first sweep after a restart moves all of
+    # them out of it — and posting that would greet the user with one note per
+    # service every time NERVIS came up, which is how a notification centre
+    # becomes something people close without reading. The hub still records the
+    # transition, because the hub is the record of what NERVIS observed; this
+    # is the shorter list of what is worth telling somebody. It also means a
+    # service that was down before the restart and is still down produces no
+    # note, which is right: nothing changed.
+    if was.value == RegistryState.DISCOVERING.value:
+        return
+    label = entry.declaration.label
+    moved = WRITTEN_STATE.get(entry.state.value, f"is now {entry.state.value}")
+    with contextlib.suppress(Exception):
+        notifications.post(
+            database,
+            kind="service_state",
+            title=f"{label} {moved}",
+            # §4.1's discipline, carried through: the note says why it exists,
+            # and the why is the transition rather than the destination. "RAVIS
+            # is degraded" is a status; "it was healthy twenty seconds ago" is
+            # the reason anybody wants to know about it now.
+            reason=f"its state moved from {was.value} to {entry.state.value}",
+            body=entry.detail,
+            severity=(
+                "warning" if not entry.is_usable else "info"
+            ),
+            source="registry",
+        )
 
 
 async def _refresh_periodically(api: FastAPI) -> None:
@@ -367,6 +436,12 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # so can never ask for them again.
         with contextlib.suppress(Exception):
             _expire_attachments(api)
+        # Dismissed notifications, on the same timer and for the same reason.
+        # Only the dismissed ones: an undismissed note is still waiting for the
+        # user however old it is, and expiring those would mean a fortnight away
+        # quietly emptied the centre.
+        with contextlib.suppress(Exception):
+            notifications.prune_dismissed(api.state.database)
         await asyncio.sleep(_next_interval(api))
 
 

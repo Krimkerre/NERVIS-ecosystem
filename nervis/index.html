@@ -32,6 +32,15 @@
   opacity:.75}
 .voice-pip:hover{opacity:1;border-color:var(--accent)}
 .voice-pip.off{color:var(--muted)}
+/* The unread bell, left of the mute pip and in the same frame corner. Drawn
+   only when something is waiting: a permanent zero is a control, and this is
+   meant to be a signal. */
+.note-pip{position:absolute;right:30px;top:4px;z-index:3;height:20px;min-width:20px;padding:0 5px;
+ border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text);
+ font:600 10px/1 ui-monospace,monospace;display:flex;align-items:center;justify-content:center;
+ gap:3px;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s}
+.note-pip:hover{opacity:1;border-color:var(--accent)}
+.note-pip.warn{border-color:var(--warn);color:var(--warn)}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
 .map{height:230px;position:relative;display:grid;place-items:center}
@@ -661,7 +670,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
 const APP_CONFIG={
- nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
+ nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
@@ -835,6 +844,7 @@ const REASON={
    navigation. 16px grid, stroked in currentColor so the accent follows the app.
    The label survives as title/aria-label — an icon should not need decoding. */
 const ICON={
+ 'Notifications':'<path d="M4 6.6a4 4 0 0 1 8 0c0 3 1.1 4 1.1 4H2.9S4 9.6 4 6.6z"/><path d="M6.6 12.8a1.5 1.5 0 0 0 2.8 0"/>',
  'Overview':'<rect x="2.2" y="2.2" width="5" height="5" rx="1"/><rect x="8.8" y="2.2" width="5" height="5" rx="1"/><rect x="2.2" y="8.8" width="5" height="5" rx="1"/><rect x="8.8" y="8.8" width="5" height="5" rx="1"/>',
  'Diagnostics':'<path d="M1.8 8h3l1.8-4.4 2.6 8.8L11 8h3.2"/>',
  'Chat':'<rect x="2.2" y="3" width="11.6" height="8" rx="2"/><path d="M5.6 11v2.6L8.6 11"/>',
@@ -932,6 +942,7 @@ const TILE_CAPABILITY={
  'nervis/Traces':{nervis:'nervis.traces',ravis:'ravis.routing.explanations'},
  'nervis/Chat':{ravis:'ravis.openai_compatible.chat_completions'},
  'nervis/System':{sirvis:'sirvis.inventory.read'},
+ 'nervis/Notifications':{nervis:'nervis.notifications'},
  'sirvis/Dashboard':{sirvis:'sirvis.inventory.read'},
  'sirvis/Models':{sirvis:'sirvis.inventory.read'},
  'sirvis/Discover':{sirvis:'sirvis.inventory.read'},
@@ -1119,7 +1130,7 @@ function avatarFrame(app,extra=''){return `<iframe class="avatar-frame ${extra}"
 /* Map each visible screen to the avatar vocabulary defined by its own source.
    Add future routes here instead of scattering avatar decisions through views. */
 function desiredAvatarState(app=state.app,view=state.view){const maps={
- nervis:{Overview:'nominal',Chat:'routing',Voice:'scanning','Ecosystem map':'scanning',Events:'scanning',Traces:'analyzing',Diagnostics:'analyzing',Settings:'nominal'},
+ nervis:{Overview:'nominal',Chat:'routing',Notifications:'scanning',Voice:'scanning','Ecosystem map':'scanning',Events:'scanning',Traces:'analyzing',Diagnostics:'analyzing',Settings:'nominal'},
  sirvis:{Dashboard:'loading',Models:'loading',Benchmarks:'measuring','Runtime sets':'warmup',Results:'verdict',Recommendations:'verdict',Downloads:'loading',System:'thermal'},
  ravis:{Dashboard:'ranking',Routes:'ranking',Pools:'selected',Providers:'eligibility',Policies:'eligibility',Evidence:'ranking',Logs:'selected',Diagnostics:'fallback'},
  miku:{Chat:'neutral',Voice:'singing',Overview:'neutral',Events:'thinking',Traces:'thinking',Diagnostics:'annoyed',Settings:'neutral'},
@@ -1280,6 +1291,9 @@ function absorbRegistry(d){
  REGISTRY_CHANGED=REGISTRY_SIGNATURE!==''&&signature!==REGISTRY_SIGNATURE;
  REGISTRY_SIGNATURE=signature;
  announceStates(d.items);
+ /* The badge, on the same timer that produced most of what it counts. Not
+    awaited: a slow read of the centre must not delay the registry repaint. */
+ paintNotePip();
 }
 
 /* What each service was doing last time we looked, so a change can be named.
@@ -2720,6 +2734,41 @@ const API={
    swap_total_bytes:null,swap_used_bytes:null,disk_total_bytes:null,disk_free_bytes:null,
    thermal_state:null,processes:[],sensitive_fields:['hostname']}},
 
+  /* GET /api/v1/notifications — M21's centre.
+
+     The unread count comes back on the listing rather than from its own
+     endpoint, because the badge and the list are always drawn together and two
+     requests could disagree in the gap between them.
+
+     No mock. Every other read here falls back to a plausible shape so the page
+     opens from disk, and that is exactly wrong for this one: an invented
+     notification is a message from NERVIS that NERVIS never wrote. An empty
+     list with `live:false` is the honest answer, and the screen says which. */
+  async notifications(includeDismissed=false){
+   const query=includeDismissed?'?include_dismissed=1':'';
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/notifications'+query,
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return {items:[],unread:0,live:false};
+    const d=await r.json();
+    SOURCE.nervis='live';
+    return {items:d.items||[],unread:d.unread||0,live:true};
+   }catch(e){return {items:[],unread:0,live:false}}
+  },
+
+  /* The two writes. `read` clears the badge, `dismiss` takes it off the list —
+     and there is deliberately no bulk form of either, because M21 forbids
+     silencing a class and "mark all read" is that with a friendlier label. */
+  async markNoteRead(id){return this._noteAction(id,'read')},
+  async dismissNote(id){return this._noteAction(id,'dismiss')},
+  async _noteAction(id,verb){
+   try{
+    const r=await fetch(`${BASE.nervis}/api/v1/notifications/${encodeURIComponent(id)}/${verb}`,
+      {method:'POST',signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    return r.ok;
+   }catch(e){return false}
+  },
+
   async services(){
    /* **NERVIS's registry, not six fetches from the browser.** Until M2 this
       method asked each service for its own `/ecosystem/*` and assembled the
@@ -3470,7 +3519,7 @@ function liveSpanRows(tr){
    does it. Was a chain of eight `if`s, which cost a branch per screen and put
    this function over the complexity ratchet the moment a ninth was added — the
    ratchet pointing at a dispatch table written out longhand. */
-const NERVIS_VIEWS={'Chat':chatView,'Events':eventsView,
+const NERVIS_VIEWS={'Chat':chatView,'Events':eventsView,'Notifications':notificationsView,
  'Diagnostics':diagnosticsView,'Traces':tracesView,'Settings':settingsView,
  'Ecosystem map':mapView,'System':systemView};
 
@@ -3625,6 +3674,64 @@ function streamCard(){
   ${EVENTS.detail?`<small class="mono dim">${escapeHtml(EVENTS.detail)}</small>`:
     '<small class="mono dim">the cursor is what a reconnect resumes from. A gap means the hub dropped this tab and some events were never delivered — they are not late, they are gone.</small>'}
   </div>`;
+}
+
+/* Whether the list should include what the user has already dealt with.
+   Page state rather than a stored setting: it is a way of looking at the list
+   for a moment, not a preference about it. */
+let NOTES_SHOW_DISMISSED=false;
+
+async function notificationsView(){
+ heading('Notifications','What NERVIS wanted to tell you, whether or not anybody was here.',
+  control(NOTES_SHOW_DISMISSED?'Hide dismissed':'Show dismissed','toggleDismissedNotes'));
+ const d=await API.nervis.notifications(NOTES_SHOW_DISMISSED);
+ const now=Date.now();
+ const ago=t=>{const d2=Math.max(0,(now-Date.parse(t||''))/1000);
+   if(!isFinite(d2))return '—';
+   return d2<90?`${escapeHtml(Math.round(d2))}s ago`:d2<5400?`${escapeHtml(Math.round(d2/60))}m ago`
+     :d2<172800?`${escapeHtml(Math.round(d2/3600))}h ago`:`${escapeHtml(Math.round(d2/86400))}d ago`};
+
+ /* Three different empty states, and they are three different facts. A page
+    opened from disk cannot tell the user anything; a running NERVIS with no
+    notes is a quiet week; and hiding the dismissed ones can empty a list that
+    is not actually empty. Collapsing these into "nothing here" is how a broken
+    read reads as good news. */
+ const empty=!d.live
+   ? banner('NERVIS is not answering',
+       'The notification centre lives in NERVIS\'s own database, so nothing can be read or dismissed from here until it is up. Nothing has been lost — notes are written by the probe loop, not by this page.','warn')
+   : NOTES_SHOW_DISMISSED
+     ? banner('Nothing at all yet','No note has been filed, dismissed or otherwise.','info')
+     : banner('Nothing waiting','Every note has been dealt with. Use <b>Show dismissed</b> to see what was.','info');
+
+ const row=n=>`<div class="table-row" style="grid-template-columns:2.4fr 2.6fr .7fr .9fr 1.4fr${n.dismissed_at?';opacity:.5':''}">
+   <span><b>${escapeHtml(n.title)}</b>${n.unread?' <span class="chip">new</span>':''}
+     ${n.body?`<br><small class="mono dim">${escapeHtml(n.body)}</small>`:''}</span>
+   <span style="opacity:.8">${escapeHtml(n.reason)}
+     ${n.produced_by?`<br><small class="mono dim">written by ${escapeHtml(n.produced_by.model)} · ${escapeHtml(n.produced_by.cost)}</small>`:''}</span>
+   <span><span class="chip${n.severity==='warning'||n.severity==='error'?' warn':''}">${escapeHtml(n.severity)}</span></span>
+   <span class="mono" style="opacity:.7">${ago(n.created_at)}</span>
+   <span>${n.dismissed_at?'<small class="mono dim">dismissed</small>':
+     `${n.unread?`<button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','read')">mark read</button>`:''}
+      <button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','dismiss')">dismiss</button>`}</span></div>`;
+
+ $('#content').innerHTML=`
+  <div class="card full${liveClass(d.live)}"><h3>Notification centre
+    <span class="chip${d.unread?' warn':''}">${escapeHtml(d.unread)} unread</span></h3>${cell(
+   d.items.length?`
+    <div class="table-row head five caps" style="grid-template-columns:2.4fr 2.6fr .7fr .9fr 1.4fr">
+      <span>What happened</span><span>Why you are being told</span><span>Severity</span><span>When</span><span></span></div>
+    ${d.items.map(row).join('')}`:empty,'nervis')}
+   <small class="mono dim"><b>Every note says why it exists</b>, which is the column beside the title — NERVIS refuses to file one that cannot. <b>Notes are written by NERVIS, not by this page</b>: the probe loop files them whether a browser is open, muted, or on another tab, so a spoken announcement and the note here are one event seen twice rather than two events that can disagree. <b>Dismissing is one note at a time</b> on purpose — there is no mark-all-read and no per-kind mute, because silencing a class is how the one that mattered gets missed. Dismissed notes are hidden rather than deleted, and swept a month later.</small></div>`;
+}
+
+function toggleDismissedNotes(){NOTES_SHOW_DISMISSED=!NOTES_SHOW_DISMISSED;render()}
+
+/* Act, then repaint from the server rather than from what we assume happened.
+   The badge is a count the server owns, and a page that decremented its own
+   copy would drift the first time two tabs were open. */
+async function actOnNote(id,verb){
+ const ok=verb==='read'?await API.nervis.markNoteRead(id):await API.nervis.dismissNote(id);
+ if(ok){await paintNotePip();render()}
 }
 
 async function eventsView(){
@@ -4388,6 +4495,45 @@ function paintVoicePip(){
  if(!slot)return;
  const wanted=voicePip();
  const drawn=slot.querySelector('.voice-pip');
+ if(!wanted){if(drawn)drawn.remove();return}
+ if(!drawn){slot.insertAdjacentHTML('beforeend',wanted);return}
+ const fresh=document.createElement('div');
+ fresh.innerHTML=wanted;
+ const next=fresh.firstElementChild;
+ if(next&&next.outerHTML!==drawn.outerHTML)drawn.replaceWith(next);
+}
+
+/* How many notes are waiting, as the pip last read it. Cached so the badge can
+   redraw without a fetch — the count is refreshed on the registry poll, which
+   is the same timer that produces most of the notes in the first place. */
+let NOTE_UNREAD=0;
+
+/* The unread bell, in the frame's top-right corner beside the mute pip.
+
+   **On the frame rather than on the Notifications screen**, which is the whole
+   point of it: a note filed while somebody is reading Traces is exactly the
+   case the centre exists for, and a badge only visible from the screen it
+   counts is a badge nobody sees. Silent when zero — a permanent grey nought is
+   a control, and this is meant to be a signal. */
+function notePip(){
+ if(!NOTE_UNREAD)return '';
+ const label=`${NOTE_UNREAD} unread notification${NOTE_UNREAD===1?'':'s'} — click to read`;
+ return `<button class="note-pip warn" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+   onclick="go('nervis','Notifications')">${escapeHtml(NOTE_UNREAD>99?'99+':NOTE_UNREAD)}</button>`;
+}
+
+/* Re-read the count and redraw just the badge.
+
+   A full repaint for a number would throw away scroll position and any open
+   control, which §25.2 is emphatic about — the same reason `paintVoicePip`
+   exists beside it. */
+async function paintNotePip(){
+ const d=await API.nervis.notifications(false);
+ NOTE_UNREAD=d.live?d.unread:0;
+ const slot=document.getElementById('avatarSlot');
+ if(!slot)return;
+ const wanted=notePip();
+ const drawn=slot.querySelector('.note-pip');
  if(!wanted){if(drawn)drawn.remove();return}
  if(!drawn){slot.insertAdjacentHTML('beforeend',wanted);return}
  const fresh=document.createElement('div');
@@ -9843,7 +9989,7 @@ function mountAvatar(){
  const wanted=inMikuMode()?'miku:'+state.app:state.app;
  if(wanted===AVATAR_MOUNTED)return;
  AVATAR_MOUNTED=wanted;
- $('#avatarSlot').innerHTML=avatar()+voicePip();
+ $('#avatarSlot').innerHTML=avatar()+voicePip()+notePip();
 }
 
 /* Place an opened routing popover, and keep only one open.

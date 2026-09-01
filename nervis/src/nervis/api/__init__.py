@@ -5,6 +5,7 @@ from nervis.api.commands import router as commands_router
 from nervis.api.diagnostics import router as diagnostics_router
 from nervis.api.events import router as events_router
 from nervis.api.instances import router as instances_router
+from nervis.api.notifications import router as notifications_router
 from nervis.api.routes import router
 from nervis.api.traces import router as traces_router
 from nervis.api.voice import router as voice_router
@@ -15,6 +16,7 @@ __all__ = [
     "diagnostics_router",
     "events_router",
     "instances_router",
+    "notifications_router",
     "router",
     "traces_router",
     "voice_router",

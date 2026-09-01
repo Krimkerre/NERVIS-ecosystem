@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1937 tests, no network, no live service
+.venv/bin/pytest                      # part of 1952 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 557 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 572 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1937 passing across the four, conformance `PASS`.
+Expected: all clean, 1952 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3002,6 +3002,70 @@ and answering it in the store likely answers both.
 models, with the other host's models unmeasured and labelled under §13.4, is
 correct and cheaper. The second source earns its keep only when the second
 machine really serves models a pool would rank.
+
+### M21 — the notification centre, 1 Sep. NERVIS 0.10.0
+
+Stage 11's first milestone, and the one everything after it posts into. A
+durable store for things NERVIS wants to say, a screen that lists them, an
+unread badge in the frame's corner, and dismissal one note at a time.
+
+**The promise that shaped the design is the third exit criterion**: *the voice
+announcement and the note are one event seen twice, not two events — muting
+speech must not lose the record.* The honest way to satisfy that is for the
+record not to be written by the thing that speaks. The dashboard's announcer is
+a browser, which may be closed, muted, or on the Traces tab; the note is written
+by `_announce_transitions` in the probe loop, which is running either way. So a
+mute cannot lose a note, two tabs cannot double one, and a person who was out
+all afternoon comes back to the list whether or not anything was ever said
+aloud. The gate holds the other half of it: the page reads the centre and never
+POSTs to the collection.
+
+**The other two criteria are enforced in `post()` rather than described.** A
+note with no `reason` is refused — §4.1's discipline, applied to notes, because
+a centre where things merely appear is one people stop opening. And a
+model-produced note must name *both* the model and its cost, in both directions:
+a cost with no author is the same defect reversed. Nothing writes a
+model-produced note yet — that arrives with M25 — so the constraint lives in a
+function the tests call rather than in a column nobody fills.
+
+**A first sighting is not news.** `discovering` is the state every registry
+entry starts in, so the first sweep after a restart moves all of them out of it.
+Filing those would greet the user with one note per service on every start,
+which is how a notification centre becomes something people close without
+reading. The hub still records the transition — it is the record of what NERVIS
+observed; the centre is the shorter list of what is worth telling somebody. An
+optional peer nobody installed files nothing either, the same rule the status
+bar and the voice already use.
+
+**No bulk anything, and that is deliberate rather than unfinished.** There is no
+mark-all-read and no per-kind mute: both take the badge to zero along with every
+note the user has not seen. A test asserts the functions do not exist, because
+the tempting version of this feature is the one that adds them.
+
+Dismissed notes are hidden rather than deleted — "I dealt with this" and "this
+never happened" are different claims — and swept a month later on the probe
+timer. Undismissed ones are never swept, so a fortnight away does not empty the
+centre.
+
+**Two faults in CI found while wiring the gate in.** `preserve_check.js` had no
+`working-directory` and had been running from the repository root, where `tools/`
+holds Python and no gate script at all — so it was failing on a missing file
+rather than checking anything. It went unnoticed because the step below it
+carried the key *twice*, which made the block read as though the setting were on
+both. The stale comment counting "ten of the twelve gate scripts" is now twelve
+of fourteen.
+
+`test_doctor_migrates_rather_than_inspecting_a_path` pinned the literal
+`version 6`, so migration 7 broke a test about migrating — the one failure that
+says nothing about whether migrating works. It derives from `MIGRATIONS[-1][0]`
+now.
+
+`nervis.notifications@1` is named in §3.1 before it is advertised, so the two
+assertions that keep the published set and the specification's list identical
+both had to be updated on purpose rather than discovering a twelfth name.
+
+**0.9.26 → 0.10.0**, the first minor since M8b: `0.<milestones completed>.<patch>`
+and M21 is a milestone, unlike the document and voice work that sat beside them.
 
 ### Next — in this order
 

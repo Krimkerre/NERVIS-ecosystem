@@ -16,14 +16,28 @@ is about *acts*, and learning is about *knowledge*. The operation set stays
 closed and a person still presses the button; what improves is how good the
 proposal is before they see it.
 
-### A notification centre
+### A notification centre — built, 1 September
 
-A durable place for things NERVIS wants to say — a
-finished task, a service that changed state, a question. Today's spoken
-announcements vanish the moment they are said; a note survives a reload. Every
-note carries why it exists, and one written by a model also carries which model
-and what it cost. A question can open a chat where the answer is just the next
-thing said.
+**This one is no longer planned; it is on the Notifications tab.** A durable
+place for things NERVIS wants to say — a service that changed state today, and
+from later milestones a finished task or a question. Spoken announcements vanish
+the moment they are said; a note survives a reload and a restart.
+
+Every note carries why it exists, and NERVIS refuses to file one that cannot say
+so. A note written by a model must also carry which model and what it cost —
+nothing writes one yet, because unattended work is a later milestone, but the
+rule is already enforced rather than merely intended.
+
+The important part is who writes it. The voice speaks from the browser and the
+note is written by the service, so muting, closing the tab, or reading another
+screen loses the announcement and never the record. The badge in the top-right
+corner is the same count seen from wherever somebody happens to be.
+
+Dismissing is one note at a time on purpose — there is no mark-all-read and no
+per-kind mute, because silencing a class is how the one that mattered gets
+missed. A dismissed note is hidden rather than deleted, and swept a month later.
+The first sweep after a restart is not announced at all: everything "changing"
+from nothing-known is a roll call, not news.
 
 ### Proposal outcomes
 

@@ -149,6 +149,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         # Found by asking chat what it could not do and being told Clarvis had
         # to finish building its Bridge first.
         "nervis.clarvis_visibility": "available",
+        "nervis.notifications": "available",          # M21
         "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
@@ -163,7 +164,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
 
 
 def test_every_capability_the_specification_names_is_published(settings: Settings) -> None:
-    """§3.1 prints eleven names. Inventing one advertises a contract nobody seeks.
+    """§3.1 prints twelve names. Inventing one advertises a contract nobody seeks.
 
     SIRVIS shipped seven invented names, two of which matched its own
     specification by coincidence, and it went unnoticed for eleven milestones.
@@ -172,6 +173,7 @@ def test_every_capability_the_specification_names_is_published(settings: Setting
     body = _client(settings).get("/ecosystem/capabilities").json()
 
     assert {capability["id"] for capability in body["capabilities"]} == {
+        "nervis.notifications",
         "nervis.registry",
         "nervis.dashboard",
         "nervis.event_hub",

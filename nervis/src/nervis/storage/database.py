@@ -191,6 +191,52 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        7,
+        "notification centre, per NERVIS.md M21",
+        # **Durable because the point is surviving the browser.** A note is
+        # something NERVIS wants to tell the user, and the user is very often
+        # not looking — the dashboard may be shut for a day. Holding these in
+        # page state would mean the only notes that ever arrived were the ones
+        # somebody was already present for, which is the opposite of the
+        # milestone.
+        #
+        # `reason` is NOT NULL and `post()` refuses an empty one, the same
+        # discipline §4.1 puts on a capability state. A note that cannot say why
+        # it exists is indistinguishable from noise, and a person who cannot tell
+        # noise from news stops reading both.
+        #
+        # `model` and `cost` are empty for anything NERVIS observed directly and
+        # filled for anything a model produced. They are not decoration: from
+        # M25 background work runs unattended, and "which model wrote this and
+        # what did it cost" is the difference between an assistant and a bill
+        # nobody can read. `post()` enforces the pair.
+        #
+        # `read_at` and `dismissed_at` are separate. Reading is what the unread
+        # count answers; dismissing is what the person did about it. Collapsing
+        # them into one flag would make "I have seen this" and "I am done with
+        # this" the same act, and the second is the only one that should hide
+        # anything.
+        """
+        CREATE TABLE IF NOT EXISTS notification (
+            note_id      TEXT PRIMARY KEY,
+            kind         TEXT NOT NULL,
+            title        TEXT NOT NULL,
+            body         TEXT NOT NULL DEFAULT '',
+            reason       TEXT NOT NULL,
+            severity     TEXT NOT NULL DEFAULT 'info',
+            source       TEXT NOT NULL DEFAULT '',
+            model        TEXT NOT NULL DEFAULT '',
+            cost         TEXT NOT NULL DEFAULT '',
+            created_at   TEXT NOT NULL,
+            read_at      TEXT NOT NULL DEFAULT '',
+            dismissed_at TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS notification_by_age  ON notification(created_at);
+        CREATE INDEX IF NOT EXISTS notification_by_kind ON notification(kind);
+        """,
+    ),
 ]
 
 

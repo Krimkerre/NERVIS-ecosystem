@@ -67,3 +67,19 @@ dashboard and its SIRVIS views depend on surfaces the other services have not
 all shipped; Clarvis registration is served but supervision of a registered
 instance is not built; the analysis surface lands at M12. Two are
 **unavailable** outright, and each says which milestone it waits on.
+
+## The Notifications tab
+
+Where NERVIS keeps what it wanted to tell you. Service state changes land here
+today; finished tasks and questions arrive with later milestones.
+
+Each note says what happened, why you are being told, how severe it is and when
+it landed. Unread notes show a count in the badge at the top-right of the frame,
+which is visible from every screen — a note filed while somebody is reading
+Traces is exactly the case the tab exists for.
+
+A note is written by NERVIS itself, on the same loop that watches the other
+services, rather than by the page. That is why muting the voice, closing the
+tab or being on another screen loses the spoken announcement and never the
+written one. Dismissing happens one note at a time; there is deliberately no
+way to clear them all at once.

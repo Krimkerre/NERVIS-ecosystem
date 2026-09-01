@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from nervis.cli import EXIT_FATAL_CONFIGURATION, EXIT_OK, main
+from nervis.storage import MIGRATIONS
 
 
 def test_doctor_succeeds_with_nothing_else_running(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001
@@ -26,12 +27,19 @@ def test_doctor_migrates_rather_than_inspecting_a_path(monkeypatch, tmp_path, ca
 
     Checking that a file exists proves nothing about the schema inside it, and
     the version printed here is read back from the bookkeeping table.
+
+    **Derived rather than pinned.** This held the literal `6`, so the next
+    migration broke a test about migrating — which is the one failure that says
+    nothing about whether migrating works. The number now comes from the
+    migration list itself, and the assertion is about the schema being brought
+    fully up rather than about how many steps that happens to take.
     """
     monkeypatch.setenv("NERVIS_DATABASE_PATH", str(tmp_path / "fresh.db"))
 
     main(["doctor"])
 
-    assert "migrated to version 6" in capsys.readouterr().out
+    latest = MIGRATIONS[-1][0]
+    assert f"migrated to version {latest}" in capsys.readouterr().out
 
 
 def test_doctor_prints_every_capability_with_its_reason(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001
