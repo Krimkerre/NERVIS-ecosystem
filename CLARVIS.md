@@ -416,6 +416,20 @@ A future remote-control contract would require its own threat model, authenticat
 presence/consent model, granular operations, audit, revocation and Clarvis-plan approval. Until
 then, **an agent asked to add such control must stop.**
 
+**E-C8 is not that contract, and the distinction is the direction of the verb.** NERVIS may
+write a task brief into the workspace, because writing a file into a directory it already writes
+to is not control of anything — Clarvis reads it with the flow that reads any plan, a person
+approves it in the editor, and every tool call passes the same gates. What is still forbidden is
+NERVIS *starting* that run, or reaching past the approval to the tool. The test that keeps the
+two apart: **with the Bridge stopped, E-C8 still works.** Anything that stops working without the
+Bridge is remote control wearing a different name, and this clause applies to it.
+
+One threat the contract would have to answer, recorded here because it is easy to miss: §6.1
+notes that any local process can bind the port a Bridge would have used and impersonate a Clarvis
+instance. A write path inverts that — a fake *NERVIS* could push tasks into the editor — so the
+contract needs mutual authentication rather than the single Bridge token, which authenticates
+only the channel.
+
 ## 6.8 Relationship to M13 raw logs
 
 M13 tails VS Code logs into `.clarvis/vscode.log` behind a Clarvis security gate, and is built.
@@ -559,6 +573,32 @@ Established Clarvis release gates plus ecosystem degradation, upgrade, rollback 
 what it was; rollback to the prior `.vsix` succeeds with workspace data and SecretStorage
 intact.
 
+### E-C8 — Receiving a task from NERVIS *(paired with NERVIS M27)*
+
+Recognise a handoff file NERVIS wrote into the workspace, and say so when offering it.
+
+**This is not §6.7's remote-control contract and must not become one.** NERVIS writes a file
+into a directory it can already write to; Clarvis reads it with the flow that already reads
+`plan.md`. Nothing in this milestone gives NERVIS a way to invoke a tool, resolve a gate, change
+a setting or start a run — and the test of that is that **every part of it still works with the
+Bridge stopped**, because the interface is a document rather than a connection.
+
+**Why this fits without straining anything.** `pendingBuild` re-reads the plan from disk every
+time precisely because a person may have edited it, and §4.9 already requires the handoff prompt
+to be shown and editable before it runs. A task authored elsewhere arrives through exactly the
+door a task edited by hand already comes through.
+
+**The one thing this adds is provenance.** A brief somebody wrote themselves and a brief that
+arrived from another program deserve different amounts of scepticism at the moment of approval,
+and the person approving is the only one who can apply it. So the handoff must say where it came
+from, in the approval UI, before it is accepted.
+
+**Exit:** a NERVIS-authored task is offered as a build with its origin visible in the prompt;
+the prompt is editable before it runs, as any other handoff is; every tool call still passes the
+same gates; **with the Bridge disabled the whole flow is unchanged**, because nothing in it
+depends on the Bridge; and §9's rule holds — the file is evidence of what somebody asked for,
+never an instruction Clarvis follows unreviewed.
+
 ---
 
 ## 8.1 Ecosystem stage mapping
@@ -577,6 +617,7 @@ order.
 | Stage 8 — Clarvis Bridge | E-C3 + E-C4 + E-C5 |
 | Stage 9 — code-server compatibility and the Code tab | E-C6 |
 | Stage 10 — whole-ecosystem hardening | E-C7 |
+| **Unscheduled — after NERVIS Stage 11** | E-C8, paired with NERVIS M27. Blocked on nothing technical; it is deliberately after the milestones that decide how NERVIS proposes anything at all, because a handoff is a proposal and should inherit whatever those settle |
 
 E-C2 is deliberately split: its fixtures are a Stage 2 dependency of another product, while its
 role-profile and fallback behaviour is Stage 3.

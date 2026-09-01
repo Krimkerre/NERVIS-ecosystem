@@ -3375,6 +3375,50 @@ the PDF written.
 
 **0.12.0 → 0.13.0**, M24 being the thirteenth milestone.
 
+### Handing a coding task to Clarvis — NERVIS M27, Clarvis E-C8, 1 Sep
+
+Asked whether NERVIS chat could hand coding work to the Clarvis plugin. The
+obvious version is what `CLARVIS.md` §6.7 forbids outright — NERVIS may not
+invoke a tool, resolve a gate or change a setting, and *"an agent asked to add
+such control must stop."* So it was not built and is not planned.
+
+**The useful version needs no new authority, because both seams already exist.**
+Clarvis's build flow is file-driven on purpose: `pendingBuild` re-reads `clarvis/plan.md`
+from disk every time, its comment saying the user *"may have ticked something off
+by hand since, which is their document's prerogative"*, and §4.9 already requires
+the handoff prompt to be shown and editable before it runs. So the interface
+between *what to build* and *the agent building it* is a document a human is
+expected to edit — and `nervis.document.write` is already an enumerated §12
+operation bounded to `NERVIS_WORKSPACE_PATH`.
+
+Out through the workspace, back through the event hub: NERVIS writes the brief on
+a confirmation, Clarvis offers it as a build, a person approves it in the editor,
+every tool call passes the gates it always did, and progress returns through
+`clarvis.events@1`, which the Bridge already publishes. Neither side gains a write
+path into the other.
+
+**The test that keeps this from becoming remote control**: with the Bridge
+stopped, all of it still works, because the interface is a file. Anything that
+stops working without the Bridge is §6.7's case wearing a different name, and
+§6.7 now says so beside its own clause.
+
+Two exit criteria are the whole security story. The handoff file must be **marked
+as NERVIS-authored**, because a brief somebody wrote themselves and one that
+arrived from another program deserve different scepticism at the moment of
+approval, and only the approver can apply it. And a mismatch between
+`NERVIS_WORKSPACE_PATH` and Clarvis's workspace root must be **refused at proposal
+time** — nothing checks that today, so the failure would be a task written where
+nobody will ever see it, silently.
+
+Recorded with a threat the contract would have to answer if the other version is
+ever wanted: §6.1 notes any local process can bind the Bridge's port and
+impersonate Clarvis. A write path inverts that — a fake NERVIS pushing tasks into
+the editor — so it needs mutual authentication rather than the single token that
+authenticates only the channel.
+
+Scheduled after Stage 11, blocked on nothing technical: a handoff is a proposal,
+and it should inherit whatever M21–M25 settle about how NERVIS proposes anything.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

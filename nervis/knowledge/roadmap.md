@@ -192,3 +192,26 @@ The fix is to label the shelf with the machine as well, which the records almost
 support already: each one carries the machine it came from, and the address of a
 model runtime says which machine it is without anyone configuring it. Worth
 doing when a second machine really serves models — not before.
+
+## Handing a coding task to Clarvis
+
+Planned, not built (NERVIS M27, Clarvis E-C8). Describe a coding task in chat,
+press the button, and NERVIS writes it into the shared workspace as a file.
+Clarvis picks it up with the same flow it uses for its own plans, shows you the
+task before anything runs so you can edit it, and every tool call still asks
+permission the way it always did. Progress comes back as events Clarvis already
+publishes.
+
+**The reason it is shaped that way is that it needs no new permissions at all.**
+NERVIS can already write files into that directory when you confirm it, so this
+is that same writer with a different template. NERVIS never runs a tool, never
+answers a permission prompt for you, and never starts the run — you open the
+editor and start it. The rule that forbids the other version is Clarvis's §6.7,
+and the test that keeps the two apart is simple: with the connection between the
+two programs switched off, this still works, because the interface is a document
+rather than a link.
+
+Two things it must get right. The task file has to say it came from NERVIS, so
+that whoever approves it knows to read it with the right amount of suspicion.
+And both programs have to be pointed at the same directory — if they are not,
+the offer is refused up front rather than writing a task nobody will ever see.
