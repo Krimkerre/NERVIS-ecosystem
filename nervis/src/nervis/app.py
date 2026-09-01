@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -28,8 +28,9 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis import documents, notifications
+from nervis import background, documents, notifications
 from nervis.api import (
+    background_router,
     chat_router,
     commands_router,
     diagnostics_router,
@@ -84,6 +85,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(diagnostics_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(background_router)
     api.include_router(documents_router)
     api.include_router(learned_router)
     api.include_router(notifications_router)
@@ -448,7 +450,143 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # quietly emptied the centre.
         with contextlib.suppress(Exception):
             notifications.prune_dismissed(api.state.database)
+        # M25, on the same timer and guarded by its own interval. A second task
+        # would be a scheduler for something that runs twice an hour at most,
+        # and this one already wakes often enough to notice.
+        with contextlib.suppress(Exception):
+            await _think_if_due(api)
         await asyncio.sleep(_next_interval(api))
+
+
+#: When the last unattended run happened, so the interval can be honoured
+#: without a second timer. Held on the app rather than in the database: it is a
+#: fact about this process, and a restart legitimately starts the clock again.
+_LAST_THOUGHT = "background_last_run"
+
+
+async def _think_if_due(api: FastAPI) -> None:
+    """Run one unattended thought, if this installation wants one and it is due.
+
+    **Every gate is checked here rather than inside `think`.** Whether it is
+    switched on, whether the interval has elapsed, whether today's ceiling is
+    used up and whether there is anything worth saying are four different
+    questions, and a run that answered them all at the point of spending money
+    would be a run nobody could reason about beforehand.
+    """
+    database = getattr(api.state, "database", None)
+    if database is None:
+        return
+    config = background.settings(database)
+    if background.may_run(database, config):
+        return
+    last = getattr(api.state, _LAST_THOUGHT, 0.0)
+    if last and time.monotonic() - last < config.interval_minutes * 60:
+        return
+
+    unwell = _unwell(api)
+    prompted = background.worth_thinking_about(
+        config, unwell, _hours_since_digest(database), _events_since_digest(api)
+    )
+    if prompted is None:
+        return
+    setattr(api.state, _LAST_THOUGHT, time.monotonic())
+    await background.think(database, prompted, config, ask=_ask_ravis(api))
+
+
+def _unwell(api: FastAPI) -> list[dict[str, Any]]:
+    """Services that are not usable, with how long they have been that way.
+
+    The count is kept on the entry rather than derived from the event hub: the
+    hub records transitions and this question is about a state *persisting*,
+    which is the one thing a record of changes cannot answer directly.
+    """
+    seen: dict[str, int] = getattr(api.state, "unwell_for", {})
+    out: list[dict[str, Any]] = []
+    for entry in api.state.registry.all():
+        if entry.is_usable or entry.awaiting_first_contact:
+            seen.pop(entry.key, None)
+            continue
+        seen[entry.key] = seen.get(entry.key, 0) + 1
+        out.append({
+            "label": entry.declaration.label, "state": entry.state.value,
+            "observations": seen[entry.key], "detail": entry.detail,
+        })
+    api.state.unwell_for = seen
+    return out
+
+
+def _hours_since_digest(database: Any) -> float:
+    """How long since the last digest ran, in hours; a large number if never."""
+    rows = [r for r in background.runs(database, 200) if r["trigger"] == "daily_digest"]
+    if not rows:
+        return 9_999.0
+    last = str(rows[0]["ran_at"])
+    with contextlib.suppress(ValueError):
+        when = datetime.fromisoformat(last.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - when).total_seconds() / 3600
+    return 9_999.0
+
+
+def _events_since_digest(api: FastAPI) -> list[dict[str, Any]]:
+    """What the hub has recorded lately, as the digest's raw material."""
+    hub = getattr(api.state, "hub", None)
+    if hub is None:
+        return []
+    with contextlib.suppress(Exception):
+        return list(hub.query(limit=200))
+    return []
+
+
+def _ask_ravis(api: FastAPI) -> Any:
+    """The RAVIS call, as the callable `think` takes.
+
+    Injected rather than imported so the decision, the ledger and the note stay
+    testable without a network — and so the one place that spends money is a
+    named seam rather than a line in the middle of a loop.
+
+    **No background marker.** §9.6.1's marker means "must be free", which
+    resolves to a local model — and loading a local model is exactly how
+    unattended work starts competing with the conversation somebody is having.
+    That is the trade M25 names, and it is why the pool is configuration.
+    """
+    async def ask(pool: str, session: str, brief: str, facts: str) -> tuple[str, str, str]:
+        settings = api.state.settings
+        entry = api.state.registry.get("ravis")
+        if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+            raise RuntimeError("RAVIS is not reachable with a credential")
+        answer = await api.state.probe_client.post(
+            entry.declaration.base_url + "/v1/chat/completions",
+            json={
+                "model": pool,
+                "messages": [
+                    {"role": "system", "content": brief},
+                    {"role": "user", "content": facts},
+                ],
+                "max_tokens": 300,
+                "user": session,
+            },
+            headers={
+                "content-type": "application/json",
+                "x-request-id": new_request_id(),
+                "authorization": f"Bearer {settings.ravis_client_credential}",
+            },
+            timeout=90.0,
+        )
+        if answer.status_code >= 400:
+            raise RuntimeError(f"RAVIS answered HTTP {answer.status_code}")
+        body = answer.json()
+        text = str(
+            ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        )
+        used = body.get("usage") or {}
+        total = used.get("total_tokens")
+        # Tokens rather than currency. NERVIS counts requests and does not know
+        # prices — §14's rule about estimates and invoices — so a figure in money
+        # here would be one NERVIS was asserting rather than measuring.
+        cost = f"{total:,} tokens" if isinstance(total, int) else "not reported"
+        return text, str(body.get("model") or pool), cost
+
+    return ask
 
 
 def _expire_attachments(api: FastAPI) -> None:

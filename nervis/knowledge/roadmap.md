@@ -215,3 +215,26 @@ Two things it must get right. The task file has to say it came from NERVIS, so
 that whoever approves it knows to read it with the right amount of suspicion.
 And both programs have to be pointed at the same directory — if they are not,
 the offer is refused up front rather than writing a task nobody will ever see.
+
+## Thinking when nobody is watching — built, 1 September
+
+NERVIS can now think when nobody is watching, and it is **off until you switch it
+on** under Settings. It spends money without being asked to, which is the one
+kind of feature that may not default to on.
+
+What it does: notices that a service has stayed unwell across several checks, or
+once a day summarises what the event hub recorded, and writes a short note into
+Notifications. Each note says which model wrote it and what that cost.
+
+What it cannot do: anything. Every output is a note — it may observe, draft and
+ask, and an operation still needs the same button press it needs when you are
+watching. There is no path from unattended work to an action.
+
+Every run is recorded, including the ones that decided there was nothing worth
+saying, because those are the ones you want to see when wondering what it has
+been spending. Each trigger can be switched off on its own, and switching one off
+stops future runs of it while leaving the notes it already filed alone.
+
+One honest gap: it is supposed to run on a pool that cannot compete with the
+chat you are having, and that pool does not exist yet. Until it does, which pool
+it uses is your choice, and the card says so rather than implying a guarantee.

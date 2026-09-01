@@ -252,6 +252,19 @@ DECLARED: dict[str, Capability] = {
         reason="M24's plans: an ordered sequence of §12 operations, shown whole "
         "before anything runs, confirmed once, stoppable at a step boundary",
     ),
+    # M25's unattended work. **Advertised as available even when the switch is
+    # off**, and the distinction matters to a peer: the capability says NERVIS
+    # *can* do this and publishes the switch that governs it, which is a fact
+    # about the build. Whether this installation has it on is configuration, and
+    # a peer that needs to know reads `/api/v1/background` — the same shape as
+    # any other setting rather than a capability that flickers.
+    "nervis.background_work@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M25's unattended work: off by default, per-trigger switches, a "
+        "daily ceiling, and every run recorded with its model and cost. It may "
+        "notify and propose; §12's gate is unmoved and it may not act",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

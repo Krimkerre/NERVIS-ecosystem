@@ -5484,6 +5484,7 @@ async function settingsView(){
    <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
+  + section('Unattended work', await backgroundSection())
   + section('What NERVIS remembers', await learnedSection() + await rememberedSection())
   + section('Supervision', `<div class="card wide"><h3>Supervision</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
@@ -5599,6 +5600,86 @@ function effectiveConfig(h){
 function scopeHint(failure){
  if(!failure||!/scope/i.test(failure.message||''))return '';
  return ' · mint one that carries both: sirvis token --mint dashboard --scopes "runtime benchmark"';
+}
+
+/* Work NERVIS does with nobody watching (M25).
+
+   **Off until somebody turns it on, and the switch is the first thing here.**
+   This is the only feature that spends money without being asked to, so the
+   control governing it is a control rather than a preference buried in a list.
+
+   The card shows what it did as well as what it may do. A ledger of runs that
+   produced a note would answer the cheerful half of "what has this been doing"
+   and leave the expensive half — the runs that thought and said nothing — out
+   of view, which is exactly the half somebody paying for it wants. */
+async function backgroundSection(){
+ let b=null,live=false;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/background',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok){b=await r.json();live=true}
+ }catch(e){}
+ // `liveClass(false)` rather than a bare class: this branch exists *because*
+ // the read failed, so saying so through the same helper every other card uses
+ // keeps the fact in one vocabulary instead of two.
+ if(!b)return `<div class="card wide${liveClass(false)}"><h3>Unattended work</h3>${cell(
+   banner('NERVIS is not answering','This setting lives in NERVIS\'s own store and cannot be read or changed from here until it is up.','warn'),'nervis')}</div>`;
+
+ const rows=backgroundLedger(b.runs);
+ const triggers=backgroundTriggers(b);
+
+ return `<div class="card wide${liveClass(live)}"><h3>Unattended work
+   <span class="chip${b.enabled?'':' dim'}">${b.enabled?'on':'off'}</span></h3>${cell(`
+   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer">
+     <input type="checkbox"${b.enabled?' checked':''} onchange="setBackground({enabled:this.checked})">
+     <span><b>Let NERVIS think when nobody is watching</b><br>
+       <small class="mono dim">it may notice things and write them into Notifications — it may never run an operation</small></span></label>
+   <div style="margin-top:9px">${triggers}</div>
+   <div class="filter-row" style="margin-top:10px;align-items:center">
+     <span class="mono dim">pool</span>
+     <input class="mono" style="width:150px" value="${escapeHtml(b.pool)}"
+       onchange="setBackground({pool:this.value})"${b.enabled?'':' disabled'}>
+     <span class="mono dim">every</span>
+     <input class="mono" style="width:56px" value="${escapeHtml(b.interval_minutes)}"
+       onchange="setBackground({interval_minutes:this.value})"${b.enabled?'':' disabled'}>
+     <span class="mono dim">min, at most</span>
+     <input class="mono" style="width:56px" value="${escapeHtml(b.daily_runs)}"
+       onchange="setBackground({daily_runs:this.value})"${b.enabled?'':' disabled'}>
+     <span class="mono dim">runs a day · ${escapeHtml(b.ran_today)} used</span>
+   </div>
+   ${b.why_not?`<div class="mono dim" style="margin-top:8px">not running: ${escapeHtml(b.why_not)}</div>`:''}
+   ${rows?`<div class="table-row head four caps" style="grid-template-columns:1.1fr 2fr .9fr 1fr;margin-top:11px">
+     <span>Trigger</span><span>What prompted it</span><span>Outcome</span><span>Model · cost</span></div>${rows}`
+    :'<div class="mono dim" style="margin-top:11px">nothing has run yet</div>'}`,'nervis')}
+   <small class="mono dim"><b>Nothing it produces is an act.</b> Every output is a note in Notifications — it may observe, draft and ask, and an operation still needs the same confirmation it needs when you are watching. <b>Every run is recorded</b>, including the ones that decided there was nothing to say, with what prompted it and what it cost. <b>Turning a trigger off stops future runs of it</b> and leaves the notes it already filed alone. <b>${escapeHtml(b.contention||'')}</b></small></div>`;
+}
+
+/* The ledger, newest first. Its own function because the card crossed the
+   complexity ratchet: a switch, a set of triggers, a row of numbers and a
+   history are four things, and they were one expression. */
+function backgroundLedger(runs){
+ return (runs||[]).slice(0,8).map(r=>`<div class="table-row" style="grid-template-columns:1.1fr 2fr .9fr 1fr">
+   <span class="mono" style="opacity:.8">${escapeHtml(r.trigger)}</span>
+   <span style="opacity:.8">${escapeHtml(r.prompted_by)}</span>
+   <span><span class="chip${r.outcome==='failed'?' warn':''}">${escapeHtml(r.outcome)}</span></span>
+   <span class="mono dim" style="font-size:11px">${escapeHtml(r.model||'—')}${r.cost?' · '+escapeHtml(r.cost):''}</span></div>`).join('');
+}
+
+/* One checkbox per trigger, disabled while the whole thing is off — a trigger
+   that can be switched on inside a feature that is off is a control that does
+   nothing, which is worse than one that is not offered. */
+function backgroundTriggers(b){
+ return (b.triggers||[]).map(t=>`<label style="display:flex;gap:7px;align-items:baseline;cursor:pointer;margin-top:5px">
+   <input type="checkbox"${t.on?' checked':''}${b.enabled?'':' disabled'}
+     onchange="setBackground({'trigger.${jsAttr(t.name)}':this.checked})">
+   <span><b class="mono">${escapeHtml(t.name)}</b> <span class="dim">— ${escapeHtml(t.about)}</span></span></label>`).join('');
+}
+
+/* Change one background setting and repaint from what the server now holds. */
+async function setBackground(change){
+ try{await fetch(BASE.nervis+'/api/v1/background',{method:'POST',
+   headers:{'content-type':'application/json'},body:JSON.stringify(change),
+   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
 }
 
 /* The notes NERVIS was told (M23).

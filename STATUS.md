@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2004 tests, no network, no live service
+.venv/bin/pytest                      # part of 2022 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 624 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 642 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2004 passing across the four, conformance `PASS`.
+Expected: all clean, 2022 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3584,6 +3584,58 @@ not shipped — but the stage mapping puts `M22` in Stage 10, which is closed.
 Either the version is one behind or a milestone is ticked that should not be, and
 guessing which would replace an honest discrepancy with a confident wrong answer.
 Recorded so somebody who knows can settle it.
+
+### M25 — work NERVIS starts unasked, 1 Sep. NERVIS 0.14.0. **Stage 11 closed**
+
+The last of Stage 11 and the first milestone that changes what NERVIS may *do*
+rather than what it knows. M21 gave it somewhere to put things, M22 a record of
+what you did with its offers, M23 a place to keep what it was told, M24 an order
+to do things in. This one lets it begin something.
+
+**Off until somebody turns it on**, which is the one default this feature was
+not free to choose: it spends money without being asked to, so the person paying
+has to have chosen it. The switch is in Settings, with per-trigger checkboxes, a
+pool, an interval and a daily ceiling — and every control except the switch is
+inert while it is off, because a trigger you can tick inside something that is
+off is a control that does nothing.
+
+**Nothing it produces is an act.** Every output is a note in the notification
+centre. §12's gate is unmoved, and the way that survives a refactor is that
+`background.py` has no writer in reach except `notifications.post` — asserted
+against the source, because a rule nothing enforces is a comment.
+
+**Every run is a row, including the ones that said nothing.** A ledger of runs
+that filed a note answers the cheerful half of "what has this been doing" and
+leaves the expensive half — the ones that thought and produced nothing — out of
+view, which is the half somebody paying wants. Three outcomes: `noted`,
+`unusable` (a reply not in the shape asked for, which would otherwise go into
+the centre looking deliberate) and `failed`.
+
+**Attribution comes free from M21.** That milestone refuses a model-produced note
+that names a model without a cost, so everything filed here has an author and a
+price and there is no path that files one without.
+
+**Cost is in tokens, not currency.** NERVIS counts requests and does not know
+prices — §14's rule about estimates and invoices — so a figure in money would be
+one NERVIS was asserting rather than measuring.
+
+**The contention clause is unmet and says so.** M25 asks for a pool distinct from
+chat's *so the two do not contend*, which RAVIS M26's `ravis/background` is meant
+to guarantee. That pool does not exist. So the pool is configuration, the session
+id is NERVIS's own — RAVIS keeps session affinity, and sharing chat's would let
+unattended work decide which model the person's next message goes to — and the
+gap is printed on the card rather than assumed away. §9.6.1's background marker
+is deliberately **not** sent: "must be free" resolves to a local model, and
+loading one is exactly how this would start competing with the conversation it is
+supposed to run beside.
+
+**It ran.** The operator switched it on and a real digest fired: 200 events,
+`aion-labs/aion-2.0`, 454 tokens, one note filed with its author and price. I
+briefly suspected the switch of enabling itself, turned it off and watched for
+seventy-five seconds — it stayed off, and the explanation was that a person had
+pressed it.
+
+**0.13.3 → 0.14.0**, M25 being the fourteenth milestone. Stage 11 is complete.
 
 ### Next — in this order
 
