@@ -193,9 +193,9 @@ support already: each one carries the machine it came from, and the address of a
 model runtime says which machine it is without anyone configuring it. Worth
 doing when a second machine really serves models — not before.
 
-## Handing a coding task to Clarvis
+## Handing a coding task to Clarvis — built, 2 September
 
-Planned, not built (NERVIS M27, Clarvis E-C8). Describe a coding task in chat,
+**Built.** Describe a coding task in chat,
 press the button, and NERVIS writes it into the shared workspace as a file.
 Clarvis picks it up with the same flow it uses for its own plans, shows you the
 task before anything runs so you can edit it, and every tool call still asks
@@ -211,10 +211,16 @@ and the test that keeps the two apart is simple: with the connection between the
 two programs switched off, this still works, because the interface is a document
 rather than a link.
 
-Two things it must get right. The task file has to say it came from NERVIS, so
-that whoever approves it knows to read it with the right amount of suspicion.
-And both programs have to be pointed at the same directory — if they are not,
-the offer is refused up front rather than writing a task nobody will ever see.
+The task file says it came from NERVIS, so whoever approves it knows to read it
+with the right amount of suspicion — and Clarvis leads with that rather than
+tucking it at the end.
+
+One honest limit. Both programs have to be pointed at the same folder, and
+NERVIS usually cannot tell whether they are: Clarvis keeps its workspace path
+private by default, which is the right default. So the offer refuses when no
+editor has registered, refuses when Clarvis publishes a folder label that
+disagrees, and otherwise says plainly that it cannot confirm the task lands
+where the editor is looking.
 
 ## Thinking when nobody is watching — built, 1 September
 

@@ -32,7 +32,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, learned, pdf, transcript
+from nervis import chat, commands, handoff, learned, pdf, transcript
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -93,17 +93,47 @@ async def run(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError(f"no such operation {operation!r}")
     if not target:
         raise InvalidConfigurationError("an operation needs a target")
-    if operation == "nervis.document.write":
-        return _write_document(request, target, str(body.get("conversation_id") or ""))
-    if operation == "nervis.conversation.export":
-        return _export_conversation(request, target, str(body.get("conversation_id") or ""))
-    if operation == "nervis.knowledge.learn":
-        return _learn(request, target, str(body.get("prompted_by") or ""))
+    # **A table rather than a ladder.** Each new operation added a branch, and
+    # the eighth took this past the complexity gate. The dispatch was never a
+    # decision — it is a lookup that happened to be written as `if`s, and one
+    # entry per operation is also how §12's closed set reads.
+    conversation = str(body.get("conversation_id") or "")
+    own = {
+        "nervis.document.write": lambda: _write_document(request, target, conversation),
+        "nervis.conversation.export": lambda: _export_conversation(request, target, conversation),
+        "nervis.clarvis.task": lambda: _hand_over(request, target, conversation),
+        "nervis.knowledge.learn":
+            lambda: _learn(request, target, str(body.get("prompted_by") or "")),
+    }
+    if operation in own:
+        return own[operation]()
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
         return await _delete_result(request, target, str(body.get("reason") or ""))
     return await _submit_benchmark(request, target)
+
+
+def _hand_over(request: Request, task: str, conversation_id: str) -> dict[str, Any]:
+    """Write a coding task where Clarvis will find it (M27).
+
+    **This writes a file and nothing else.** It does not start a run, resolve a
+    gate or reach the editor — `CLARVIS.md` §6.7 forbids all three, and the
+    property that keeps this on the right side of that line is that it works
+    with the Bridge stopped. The person opens Clarvis, reads the task, edits it
+    if they want to, and approves it there.
+    """
+    root = _workspace(request)
+    written = handoff.write(Path(root), task, conversation=conversation_id)
+    _audit(request, task, "written", f"handed to Clarvis as {handoff.TASK_FILE}",
+           verb="hand over")
+    return {
+        "handoff": written.as_dict(),
+        "file": {
+            "name": handoff.TASK_FILE,
+            "detail": "waiting for Clarvis — open the editor to read and approve it",
+        },
+    }
 
 
 def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any]:

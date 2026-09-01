@@ -49,7 +49,13 @@ PACKAGES = ("protocol", "ravis", "sirvis", "nervis")
 #: remember something, and it is deleted when they clear it. Shipping an empty
 #: one to satisfy this gate would put a file in git that the service rewrites,
 #: which is a worse answer than an exemption with a reason.
-WRITTEN_AT_RUNTIME = frozenset({"learned.md", "knowledge/learned.md"})
+WRITTEN_AT_RUNTIME = frozenset({
+    "learned.md", "knowledge/learned.md",
+    # M27's handoff, written into the workspace when somebody hands a task
+    # to Clarvis and deleted by Clarvis when it picks it up. A clean
+    # checkout correctly has neither.
+    "clarvis-task.md",
+})
 
 
 def _python() -> str:

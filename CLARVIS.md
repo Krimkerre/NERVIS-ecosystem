@@ -573,7 +573,7 @@ Established Clarvis release gates plus ecosystem degradation, upgrade, rollback 
 what it was; rollback to the prior `.vsix` succeeds with workspace data and SecretStorage
 intact.
 
-### E-C8 — Receiving a task from NERVIS *(paired with NERVIS M27)*
+### E-C8 ✅ — Receiving a task from NERVIS *(paired with NERVIS M27)*
 
 Recognise a handoff file NERVIS wrote into the workspace, and say so when offering it.
 

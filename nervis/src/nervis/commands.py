@@ -112,6 +112,19 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="“{target}” to what you have told NERVIS",
         action="Remember",
     ),
+    # **A file, not a command** (M27). NERVIS writes a task brief into the
+    # workspace it already writes to; Clarvis reads it with the flow that reads
+    # any plan, a person approves it in the editor, and every tool call passes
+    # the gates it always did. `CLARVIS.md` §6.7 forbids NERVIS invoking a tool
+    # or resolving a gate, and nothing here does either — the test that keeps
+    # the two apart is that with the Bridge stopped this still works, because
+    # the interface is a document.
+    Operation(
+        id="nervis.clarvis.task",
+        service="nervis",
+        summary="“{target}” to Clarvis, as a task in the workspace",
+        action="Hand over",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
@@ -371,6 +384,7 @@ def propose(
     jobs: Sequence[Mapping[str, Any]] = (),
     pools: Sequence[Mapping[str, Any]] = (),
     default_name: str = "",
+    clarvis: Mapping[str, Any] | None = None,
 ) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
@@ -404,6 +418,9 @@ def propose(
         lambda: _switch_proposal(question, pools) if SWITCH.search(question) and pools else None,
         lambda: _cancel_from(question, jobs),
         lambda: _saving_proposal(question, default_name),
+        # Before learning, because "get clarvis to remember the port" is a
+        # handoff whose task happens to contain the word `remember`.
+        lambda: _handoff_proposal(question, clarvis),
         lambda: _learning_proposal(question),
         lambda: _benchmark_proposal(question, models) if BENCHMARK.search(question) else None,
     ):
@@ -444,6 +461,68 @@ HEADING_WORDS = 8
 #: Not a stop-word list — these are the three tokens the pattern itself can
 #: leave behind, and nothing else belongs here.
 _FILLER = frozenset({"that", "this", "it"})
+
+
+#: *get clarvis to…*, *have clarvis…*, *ask clarvis to…*. The trailing clause is
+#: the task.
+#:
+#: **Clarvis has to be named.** Every other operation here is matched from what
+#: the sentence asks for; this one is matched from *who it asks*, because
+#: "fix the export bug" is a request to whoever is listening and only "get
+#: clarvis to fix the export bug" says where it should go.
+HANDOFF = re.compile(
+    r"\b(?:get|have|ask|tell)\s+clarvis\s+(?:to\s+)?(?P<task>\S.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _handoff_proposal(question: str, clarvis: Mapping[str, Any] | None) -> Proposal | None:
+    """*"Get Clarvis to add a retry to the uploader"* — an offer to write it down.
+
+    `clarvis` is what NERVIS knows about the editor: whether one has registered
+    and, if the operator turned labelling on, which workspace it has open. Both
+    shape the offer rather than only its text — a task written where no editor
+    is looking is the failure this whole design is trying to avoid, and the
+    honest answer when NERVIS cannot tell is to say so on the button.
+    """
+    said = HANDOFF.search(question)
+    if not said:
+        return None
+    task = " ".join(said.group("task").split()).strip(" .")
+    if len(task) < 3 or QUESTION_MARK.search(task) or task.lower() in _FILLER:
+        return None
+    operation = BY_ID["nervis.clarvis.task"]
+    registered = bool(clarvis and clarvis.get("registered"))
+    label = str((clarvis or {}).get("workspace_label") or "")
+    mine = str((clarvis or {}).get("nervis_workspace") or "")
+
+    # **Three answers, and only one of them is a refusal.** No editor at all is
+    # a task nobody will read. A label that disagrees is a task landing in the
+    # wrong project. No label — `CLARVIS.md` §6.1's default, where the raw path
+    # and name are private and `workspace_id` is salted — is not knowing, and
+    # not knowing is said rather than resolved either way.
+    if not registered:
+        detail = ("no Clarvis window has registered, so nothing would read this. "
+                  "Open the editor and ask again.")
+        ready = False
+    elif label and mine and label != mine:
+        detail = (f"Clarvis has {label} open and NERVIS writes into {mine}, so this "
+                  "would be written where that window is not looking")
+        ready = False
+    elif label:
+        detail = f"Clarvis has {label} open, which is where this would be written"
+        ready = True
+    else:
+        detail = ("Clarvis does not publish which workspace it has open — the path "
+                  "is private by default — so NERVIS cannot confirm this lands where "
+                  "that window is looking. It will be written into NERVIS's own "
+                  "workspace either way.")
+        ready = True
+    return Proposal(
+        operation=operation.id, service=operation.service, target=task,
+        summary=operation.summary.format(target=_heading_of(task)),
+        ready=ready, action=operation.action, detail=detail,
+    )
 
 
 def _learning_proposal(question: str) -> Proposal | None:

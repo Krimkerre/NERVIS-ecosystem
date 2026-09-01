@@ -265,6 +265,18 @@ DECLARED: dict[str, Capability] = {
         "daily ceiling, and every run recorded with its model and cost. It may "
         "notify and propose; §12's gate is unmoved and it may not act",
     ),
+    # M27's handoff. **What it advertises is a file, not a channel**: NERVIS
+    # writes a task into the workspace it already writes to, and a person in the
+    # editor decides what becomes of it. A peer reading this must not conclude
+    # NERVIS can reach Clarvis — `CLARVIS.md` §6.7 forbids that, and the test
+    # that keeps the two apart is that this works with the Bridge stopped.
+    "nervis.clarvis_handoff@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M27's handoff: a coding task written into the workspace, marked "
+        "NERVIS-authored, read and approved in the editor. No tool is invoked "
+        "and no gate is resolved",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

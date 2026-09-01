@@ -26,6 +26,7 @@ import time
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
@@ -240,6 +241,10 @@ async def send(request: Request) -> Any:
                 _stored_title(database, conversation_id) or content,
                 datetime.now().astimezone(),
             ),
+            # What NERVIS knows about the editor, for the handoff offer. Read
+            # here rather than inside `propose`, which stays a pure function of
+            # the person's words.
+            clarvis=_editor_destination(request),
         )
         if not greeting
         else None
@@ -509,6 +514,32 @@ def _display_name(database: Any) -> str:
     except ValueError:
         return ""
     return str(found).strip() if isinstance(found, str) else ""
+
+
+def _editor_destination(request: Request) -> dict[str, Any]:
+    """Whether a Clarvis window has registered, and where it is looking.
+
+    **The second half is usually unknowable, and that is by design.**
+    `CLARVIS.md` §6.1 keeps the raw workspace path and name private and salts
+    `workspace_id`, publishing a label only where the operator has turned
+    labelling on. So this returns what it has: a registration, a label if there
+    is one, and NERVIS's own workspace name to compare against. The offer says
+    which of those it had.
+    """
+    instances = getattr(request.app.state, "instances", None)
+    registered = bool(instances and instances.all())
+    label = ""
+    if registered:
+        for entry in instances.all():
+            label = str(getattr(entry, "workspace_label", "") or "")
+            if label:
+                break
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    return {
+        "registered": registered,
+        "workspace_label": label,
+        "nervis_workspace": Path(root).name if root else "",
+    }
 
 
 def _planned(database: Any, sequence: Any) -> Any:

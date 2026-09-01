@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2033 tests, no network, no live service
+.venv/bin/pytest                      # part of 2051 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 642 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 660 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2033 passing across the four, conformance `PASS`.
+Expected: all clean, 2051 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3797,6 +3797,54 @@ with no toolchain, which is a property rather than an accident, and the job is
 large. The gates are what hold its shape — this one, the complexity ratchet, and
 the liveness ceiling. A second person editing it, or a screen needing isolated
 testing, would be a reason. Neither is true yet.
+
+### M27 and E-C8 — a coding task handed to Clarvis, 2 Sep. NERVIS 0.15.0
+
+Chat can hand a coding task to the editor, and the whole design exists to avoid
+a contract rather than to implement one. `CLARVIS.md` §6.7 forbids NERVIS
+invoking a tool, resolving a gate or changing a setting, and closes with *"an
+agent asked to add such control must stop."* None of it is needed: Clarvis reads
+a plan from disk every time — `pendingBuild` re-reads it precisely because a
+person may have edited it — so a task authored elsewhere arrives through the
+door a hand-edited one already comes through.
+
+*"Get Clarvis to add a retry to the uploader"* becomes an offer; confirming it
+writes `clarvis-task.md` into the workspace, marked NERVIS-authored. Clarvis
+offers it at startup **ahead of its other offers and outside the planning
+decline** — somebody typed it minutes ago, and `PLAN_OFFER_DECLINED` is a
+decision about planning this project rather than about a task just handed over.
+The origin leads the sentence, because it is what changes how the rest should be
+read.
+
+**The criterion had to be corrected on building it.** It said *a mismatch
+between `NERVIS_WORKSPACE_PATH` and Clarvis's workspace root is refused at
+proposal time*, which is unachievable without weakening §6.1: the raw workspace
+path and name are private by default and `workspace_id` is salted. So the offer
+checks what it can — no workspace, no registered editor, or a published label
+that disagrees — and where no label exists it **says the destination cannot be
+verified** rather than implying it was. Corrected in `NERVIS.md` rather than by
+relaxing the other document.
+
+**The property that keeps this on the right side of §6.7 is tested as a
+property.** `handoff.py` imports `re`, `dataclasses`, `datetime`, `pathlib` and
+nothing else — a module that cannot open a socket is not one edit from reaching
+the editor. Asserted through its import table rather than by searching its text,
+after a first version failed on the docstring *explaining* that it works with
+the Bridge stopped.
+
+**And the end-to-end check earned its keep.** Parsing what NERVIS actually wrote
+with Clarvis's own compiled reader found a bug neither side's fixtures could:
+the timestamp was read as `[^,_]*`, which stops at the comma before the
+conversation id — and a handoff with no conversation has no comma, so it
+swallowed the rest of the sentence. Clarvis showed *"came from NERVIS on
+2026-09-01 22:21 UTC. You asked for this in conversation rather than in the
+editor"*. Both fixtures had always carried a conversation. Bounded to the
+stamp's own shape on both sides, and the case is pinned in both suites.
+
+Clarvis's half is `nervisHandoff.ts` (pure, tested) and `nervisTaskFile.ts` (the
+editor half), the split every tested module in that folder already makes.
+
+**0.14.3 → 0.15.0**, M27 being the seventeenth milestone. Clarvis E-C8 ticked.
 
 ### Next — in this order
 
