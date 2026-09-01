@@ -120,17 +120,97 @@ async function main() {
     }
   }
 
-  /* 3. Dismissal is per-note, and there is no bulk silence. */
-  const bulk = /mark all|dismiss all|clear all|mute .*(kind|class|type)/i;
-  if (bulk.test(drawn)) {
+  /* 3. Nothing silences a class.
+   *
+   * **This was a ban on the words "mark all", and that was the wrong line.**
+   * Selecting four notes you can see and dismissing them is not what M21 was
+   * protecting against; a rule that suppresses notes you have never seen is.
+   * The distinction is *named ids the reader could see* versus *a standing
+   * rule*, so that is what is asserted: no per-kind mute anywhere, and every
+   * bulk action resolved to explicit ids on the client rather than posted to
+   * the collection for the server to expand.
+   */
+  /* Controls only. The footnote below the table *describes* the rule — "no
+   * per-kind mute, because silencing a class is how the one that mattered gets
+   * missed" — so a check run over the whole markup matches the sentence
+   * explaining the ban and reports it as a violation of itself. */
+  const controls = (drawn.match(/<button[^>]*>[\s\S]*?<\/button>/g) || []).join(" ");
+  const mute = /mute|never show|stop showing|snooze/i;
+  if (mute.test(controls)) {
     failures.push(
-      "the screen offers a bulk dismiss or a per-kind mute. M21 forbids both: " +
-      "the badge going to zero takes every unseen note with it."
+      "a control on the screen mutes notifications. A standing rule silences " +
+      "notes nobody has seen yet, which is the failure M21 names."
     );
   }
   for (const verb of ["'nt_aaa','read'", "'nt_aaa','dismiss'"]) {
     if (drawn && !drawn.includes(verb)) {
       failures.push(`no per-note control calling actOnNote(${verb}) was drawn.`);
+    }
+  }
+
+  /* A note opens onto more than the row shows. */
+  for (const shown of ["connection refused", "filed by", "registry", "nt_aaa"]) {
+    if (drawn && !drawn.includes(shown)) {
+      failures.push(
+        `expanding a note does not reach ${JSON.stringify(shown)}. The row is a ` +
+        "summary; if the detail is not in the markup there is nothing for a " +
+        "click to open."
+      );
+    }
+  }
+  if (drawn && !/note-more/.test(drawn)) {
+    failures.push("no expansion block is rendered, so notes cannot be opened.");
+  }
+  if (drawn && !/toggleNote\(/.test(drawn)) {
+    failures.push("no note is clickable — nothing calls toggleNote().");
+  }
+
+  /* **Every handler the screen names actually exists.**
+   *
+   * A refactor that split this view dropped `toggleNote` while leaving the
+   * `onclick` that calls it, and everything still looked right: the rows drew,
+   * the carets drew, and clicking one silently threw a ReferenceError into the
+   * console. Nothing caught it — the dead-code check looks for functions
+   * defined and never referenced, which is the opposite direction, and this
+   * gate was asserting that the markup *mentioned* `toggleNote(` rather than
+   * that anything answered to the name.
+   *
+   * So: pull every handler out of the drawn markup and resolve each one in the
+   * page's own scope. Cheap, and it covers every control this screen will ever
+   * grow rather than the three it has today.
+   */
+  const named = new Set();
+  for (const m of drawn.matchAll(/on[a-z]+="\s*([A-Za-z_$][\w$]*)\s*\(/g)) named.add(m[1]);
+  for (const handler of named) {
+    const exists = vm.runInContext(`typeof ${handler}`, context);
+    if (exists !== "function") {
+      failures.push(
+        `the screen calls ${handler}() from an event handler, and nothing by ` +
+        `that name is defined (typeof is ${exists}). The control draws and ` +
+        "throws when it is used."
+      );
+    }
+  }
+  if (named.size < 3) {
+    failures.push(
+      `only ${named.size} handler(s) found in the markup — this check is ` +
+      "probably matching nothing and proving nothing."
+    );
+  }
+
+  /* A bulk action names every note it touches. */
+  const page = require("node:fs").readFileSync(
+    require("node:path").join(__dirname, "..", "index.html"), "utf8");
+  for (const fn of ["actOnPicked", "markEverythingListedRead"]) {
+    const body = page.slice(page.indexOf(`function ${fn}(`));
+    const end = body.indexOf("\n}");
+    const text = body.slice(0, end < 0 ? 400 : end);
+    if (!/markNoteRead\(id\)|dismissNote\(id\)/.test(text)) {
+      failures.push(
+        `${fn}() does not act through the per-note endpoints. A bulk action ` +
+        "must name every note it touches; anything the server expands on its " +
+        "own can reach notes the reader never saw."
+      );
     }
   }
 

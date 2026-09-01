@@ -3067,6 +3067,67 @@ both had to be updated on purpose rather than discovering a twelfth name.
 **0.9.26 → 0.10.0**, the first minor since M8b: `0.<milestones completed>.<patch>`
 and M21 is a milestone, unlike the document and voice work that sat beside them.
 
+### The centre, driven by hand against a live NERVIS, 1 Sep. NERVIS 0.10.1
+
+Started the stack and used the screen, which found four things no gate had.
+
+**The badge moved to the header**, beside the system status rather than in the
+avatar frame. The frame belongs to the screen you are on; the header belongs to
+the ecosystem, and so does an unread count. Its own element rather than inside
+`.top-status`, because that one is hidden below 620px and the signal saying
+something needs attention is the last thing that should vanish on a narrow
+window.
+
+**Notes open in place.** The row is the summary; clicking it shows the
+producer's own words, who filed it, whether a model wrote it and what that cost,
+and the exact local time rather than "2h ago". Toggled on the element rather
+than through `render()` — everything shown is already in the row's markup, so a
+refetch would buy nothing and would discard scroll position on the way. Open
+notes are remembered across a repaint, because a poll landing while somebody is
+reading must not close what they were reading.
+
+**Selection, and a criterion rewritten rather than quietly broken.** M21 said
+*dismissing is per-note and never bulk-silences a class*, and a test asserted a
+bulk write did not exist. Asked for checkboxes and a mark-all-read, which forced
+the question of what that clause was actually protecting. It is not bulk action:
+it is **a note being acted on that the reader never saw**. So the criterion now
+reads that way — every note acted on is one that was on screen, and there is
+still no per-kind mute and no standing rule. `mark all read` resolves to one
+request per listed note, so a note filed a second after the click is not swept up
+by a click that predates it, and the server keeps no verb meaning *everything*,
+which is what makes it structural rather than a habit of this UI.
+
+**Three faults, and only the first was mine to be surprised by.**
+
+An operator-precedence bug: `a + b ? c : d` groups as `(a + b) ? c : d`, so
+prepending the toolbar made the whole concatenation the condition — always
+truthy — and every empty state became unreachable. A page that could not reach
+NERVIS drew an empty table instead of saying so, which is the exact failure that
+screen's own note warns about. `notification_check` caught it.
+
+Splitting the view under the complexity ratchet dropped `toggleNote` while
+leaving the `onclick` that calls it. Everything still drew; clicking threw a
+ReferenceError into a console nobody was reading. Nothing caught it —
+`check_dead_code` looks for functions defined and never referenced, which is the
+opposite direction, and the gate was asserting the markup *mentioned*
+`toggleNote(` rather than that anything answered to the name. **The gate now
+pulls every handler out of the drawn markup and resolves each one in the page's
+own scope**, which covers every control this screen ever grows.
+
+And the bulk check had been a ban on the words "mark all", which matched the
+footnote *explaining* the ban and reported it as a violation of itself. Scoped
+to controls.
+
+**A detour worth recording so nobody repeats it.** Notes appeared marked read
+after gate runs, which looked like a gate writing to the operator's live NERVIS.
+It is not: traced with a canary note through both live-driving gates, neither
+touches notifications. They do POST to `/api/v1/chat`,
+`/api/v1/sirvis/recommendations` and `/api/v1/voice/speak` while rendering, which
+is pre-existing and worth its own look. Also: **`recovery_check` is slow by
+design** — every screen of every app, twice, paced at 1.4s because RAVIS
+rate-limits an anonymous caller at 60 a minute. Roughly five minutes. Killing it
+at forty seconds and reading that as a hang wasted more time than the run.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

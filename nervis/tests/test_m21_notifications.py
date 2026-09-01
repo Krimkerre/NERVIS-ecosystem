@@ -75,10 +75,17 @@ def test_a_model_produced_note_names_the_model_and_the_cost(database: Any) -> No
 
 
 def test_nothing_silences_a_class() -> None:
-    """There is no bulk write, and that is deliberate rather than unfinished.
+    """The server has no bulk write, and that survives a UI that offers one.
 
-    A `mark_all_read` would take every unseen note to zero along with the ones
-    the user actually saw, which is the failure M21 names outright.
+    The screen does have a "mark all read" — it resolves to one request per
+    note, over exactly the notes drawn on it. That is a different thing from a
+    server operation meaning *everything*, which would also sweep up whatever
+    was filed between the page loading and the button being pressed, and would
+    give any future caller a way to clear notes nobody has read.
+
+    So the line is not "no bulk action". It is: **every note acted on is named
+    by somebody who could see it.** Keeping the server free of a bulk verb is
+    what makes that structural rather than a habit of the current UI.
     """
     for name in ("mark_all_read", "dismiss_all", "mute_kind", "silence"):
         assert not hasattr(notifications, name), (

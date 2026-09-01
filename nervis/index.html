@@ -32,15 +32,48 @@
   opacity:.75}
 .voice-pip:hover{opacity:1;border-color:var(--accent)}
 .voice-pip.off{color:var(--muted)}
-/* The unread bell, left of the mute pip and in the same frame corner. Drawn
-   only when something is waiting: a permanent zero is a control, and this is
-   meant to be a signal. */
-.note-pip{position:absolute;right:30px;top:4px;z-index:3;height:20px;min-width:20px;padding:0 5px;
- border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text);
- font:600 10px/1 ui-monospace,monospace;display:flex;align-items:center;justify-content:center;
- gap:3px;cursor:pointer;opacity:.85;transition:opacity .15s,border-color .15s}
+/* The unread bell, in the header beside the system status.
+
+   **Not in the avatar frame**, where it started. The frame belongs to the
+   screen you are on; the header belongs to the whole ecosystem, and so does
+   this — a note filed while somebody is reading Traces is exactly the case the
+   centre exists for, and the status line is where the eye already goes for
+   "is anything wrong".
+
+   Its own element rather than inside `.top-status`, because that one is hidden
+   below 620px and the one thing that must survive a narrow window is the
+   signal saying something needs attention.
+
+   Drawn only when something is waiting: a permanent zero is a control, and
+   this is meant to be a signal. */
+.note-slot{align-self:center;display:flex;align-items:center;margin-left:14px}
+.note-pip{height:19px;min-width:19px;padding:0 6px;border-radius:10px;
+ border:1px solid var(--line);background:var(--panel);color:var(--text);
+ font:700 10px/1 "SFMono-Regular",ui-monospace,monospace;letter-spacing:.06em;
+ display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer;
+ opacity:.9;transition:opacity .15s,border-color .15s,box-shadow .15s}
 .note-pip:hover{opacity:1;border-color:var(--accent)}
-.note-pip.warn{border-color:var(--warn);color:var(--warn)}
+.note-pip.warn{border-color:var(--warn);color:var(--warn);
+ box-shadow:0 0 9px rgba(255,182,72,.22)}
+.note-pip .bell{width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:1.5}
+/* A note opens in place rather than in a dialog. What is inside is the same
+   fact the row already carries, in full: the probe's own words, who filed it,
+   and the exact moment — the three things somebody asks for when the one-line
+   version is not enough, and nothing they would have to leave the page for. */
+.note-row{cursor:pointer}
+.note-row .caret{display:inline-block;width:9px;opacity:.45;transition:transform .15s}
+.note-open .caret{transform:rotate(90deg);opacity:.8}
+.note-more{display:none;padding:2px 0 12px 0;border-bottom:1px solid var(--line)}
+.note-open+.note-more{display:block}
+.note-more dl{display:grid;grid-template-columns:132px 1fr;gap:5px 14px;margin:0;
+ font:11px/1.5 "SFMono-Regular",ui-monospace,monospace}
+.note-more dt{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+.note-more dd{margin:0;color:var(--text);word-break:break-word}
+.note-tick{accent-color:var(--accent);width:12px;height:12px;margin-right:7px;
+ vertical-align:-1px;cursor:pointer}
+.note-bar{align-items:center;gap:9px;margin-bottom:9px}
+.note-bar .rule{flex:0 0 1px;height:15px;background:var(--line);margin:0 3px}
+.note-bar .mode-chip[disabled]{opacity:.38;cursor:default;pointer-events:none}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
 .map{height:230px;position:relative;display:grid;place-items:center}
@@ -665,7 +698,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
 @media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
 </style></head>
-<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div></div>
+<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div></div>
 <div class="toast" id="toast"></div>
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
@@ -3681,50 +3714,231 @@ function streamCard(){
    for a moment, not a preference about it. */
 let NOTES_SHOW_DISMISSED=false;
 
+/* Which notes are open, kept across a repaint. Without it a poll landing while
+   somebody is reading collapses what they were reading, which §25.2 is
+   emphatic about. */
+const NOTES_OPEN=new Set();
+
+/* Which notes are ticked. Cleared after every action, because a selection that
+   outlives what it was for is how somebody dismisses a note they had forgotten
+   was still checked. */
+const NOTES_PICKED=new Set();
+
+/* How long ago, in the units somebody actually reads at each distance. */
+function noteAgo(stamp,now){
+ const d=Math.max(0,(now-Date.parse(stamp||''))/1000);
+ if(!isFinite(d))return '—';
+ if(d<90)return `${escapeHtml(Math.round(d))}s ago`;
+ if(d<5400)return `${escapeHtml(Math.round(d/60))}m ago`;
+ if(d<172800)return `${escapeHtml(Math.round(d/3600))}h ago`;
+ return `${escapeHtml(Math.round(d/86400))}d ago`;
+}
+
+/* The exact moment, for the case where "2h ago" is not the question. Local
+   time rather than the stored UTC: somebody reading this is reconciling it
+   against when they were at their desk. */
+function noteExact(stamp){
+ const d=new Date(stamp);
+ return isNaN(d)?escapeHtml(stamp||'—'):escapeHtml(d.toLocaleString());
+}
+
+/* What a note holds beyond the one line the table shows. Its own function
+   rather than part of the row: together they were one 16-branch expression,
+   over the page's complexity ratchet, and they answer different questions —
+   the row is the summary, this is the record. */
+function noteDetail(n){
+ return `<div class="note-more"><dl>
+   ${n.body?`<dt>what was observed</dt><dd>${escapeHtml(n.body)}</dd>`:
+     '<dt>what was observed</dt><dd style="opacity:.6">the producer recorded no further detail</dd>'}
+   <dt>why you are told</dt><dd>${escapeHtml(n.reason)}</dd>
+   <dt>filed by</dt><dd>${escapeHtml(n.source||'—')}${n.produced_by
+     ?` · written by <b>${escapeHtml(n.produced_by.model)}</b>, costing ${escapeHtml(n.produced_by.cost)}`
+     :' · observed directly, so no model wrote it'}</dd>
+   <dt>kind</dt><dd>${escapeHtml(n.kind||'—')}</dd>
+   <dt>filed at</dt><dd>${noteExact(n.created_at)}</dd>
+   ${n.read_at?`<dt>read at</dt><dd>${noteExact(n.read_at)}</dd>`:''}
+   ${n.dismissed_at?`<dt>dismissed at</dt><dd>${noteExact(n.dismissed_at)}</dd>`:''}
+   <dt>reference</dt><dd style="opacity:.7">${escapeHtml(n.note_id)}</dd>
+  </dl></div>`;
+}
+
+/* What can be done to one note, which is nothing once it has been dismissed. */
+function noteActions(n){
+ if(n.dismissed_at)return '<small class="mono dim">dismissed</small>';
+ const read=n.unread
+   ?`<button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','read')">mark read</button>`:'';
+ return `${read}<button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','dismiss')">dismiss</button>`;
+}
+
+const NOTE_COLUMNS='grid-template-columns:2.4fr 2.6fr .7fr .9fr 1.4fr';
+
+function noteRow(n,now){
+ const open=NOTES_OPEN.has(n.note_id);
+ const model=n.produced_by
+   ?`<br><small class="mono dim">written by ${escapeHtml(n.produced_by.model)} · ${escapeHtml(n.produced_by.cost)}</small>`:'';
+ return `<div class="table-row note-row${open?' note-open':''}" data-note="${escapeHtml(n.note_id)}"
+    onclick="toggleNote(event,'${jsAttr(n.note_id)}')"
+    style="${NOTE_COLUMNS}${n.dismissed_at?';opacity:.5':''}">
+   <span><input type="checkbox" class="note-tick"${NOTES_PICKED.has(n.note_id)?' checked':''}
+      aria-label="select this note" onclick="pickNote(event,'${jsAttr(n.note_id)}',this.checked)">
+     <svg class="caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2L6.5 5L3.5 8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+     <b>${escapeHtml(n.title)}</b>${n.unread?' <span class="chip">new</span>':''}</span>
+   <span style="opacity:.8">${escapeHtml(n.reason)}${model}</span>
+   <span><span class="chip${n.severity==='warning'||n.severity==='error'?' warn':''}">${escapeHtml(n.severity)}</span></span>
+   <span class="mono" style="opacity:.7">${noteAgo(n.created_at,now)}</span>
+   <span>${noteActions(n)}</span></div>${noteDetail(n)}`;
+}
+
+/* Three empty states, and they are three different facts. A page opened from
+   disk cannot tell the user anything; a running NERVIS with no notes is a quiet
+   week; and hiding the dismissed ones can empty a list that is not actually
+   empty. Collapsing these into "nothing here" is how a broken read reads as
+   good news. */
+function noteEmptyState(live){
+ if(!live)return banner('NERVIS is not answering',
+   'The notification centre lives in NERVIS\'s own database, so nothing can be read or dismissed from here until it is up. Nothing has been lost — notes are written by the probe loop, not by this page.','warn');
+ if(NOTES_SHOW_DISMISSED)return banner('Nothing at all yet',
+   'No note has been filed, dismissed or otherwise.','info');
+ return banner('Nothing waiting',
+   'Every note has been dealt with. Use <b>Show dismissed</b> to see what was.','info');
+}
+
+/* The selection toolbar. Its counts are recomputed in place by `paintNoteBar`
+   when a box is ticked, so this draws the state a fresh render starts from. */
+function noteToolbar(d,picked){
+ const waiting=d.unread?`${escapeHtml(d.unread)} waiting`:'nothing waiting';
+ return `<div class="filter-row note-bar">
+   <span class="mono dim">${picked?`${escapeHtml(picked)} selected`:waiting}</span>
+   <button class="mode-chip" onclick="actOnPicked('read')"${picked?'':' disabled'}>mark read</button>
+   <button class="mode-chip" onclick="actOnPicked('dismiss')"${picked?'':' disabled'}>dismiss</button>
+   <span class="rule"></span>
+   <button class="mode-chip" onclick="markEverythingListedRead()"${d.unread?'':' disabled'}>mark all read</button>
+  </div>`;
+}
+
 async function notificationsView(){
  heading('Notifications','What NERVIS wanted to tell you, whether or not anybody was here.',
   control(NOTES_SHOW_DISMISSED?'Hide dismissed':'Show dismissed','toggleDismissedNotes'));
  const d=await API.nervis.notifications(NOTES_SHOW_DISMISSED);
+
+ /* **A tick only counts while its note is on screen.** Toggling "show
+    dismissed" changes what is listed, and a selection that quietly kept notes
+    nobody can see any more would act on them anyway — which is the one thing a
+    checkbox must never do. Pruned to what is actually drawn. */
+ const listed=new Set(d.items.map(n=>n.note_id));
+ for(const id of [...NOTES_PICKED])if(!listed.has(id))NOTES_PICKED.delete(id);
+ const picked=NOTES_PICKED.size;
+ const allPicked=d.items.length>0&&picked===d.items.length;
  const now=Date.now();
- const ago=t=>{const d2=Math.max(0,(now-Date.parse(t||''))/1000);
-   if(!isFinite(d2))return '—';
-   return d2<90?`${escapeHtml(Math.round(d2))}s ago`:d2<5400?`${escapeHtml(Math.round(d2/60))}m ago`
-     :d2<172800?`${escapeHtml(Math.round(d2/3600))}h ago`:`${escapeHtml(Math.round(d2/86400))}d ago`};
 
- /* Three different empty states, and they are three different facts. A page
-    opened from disk cannot tell the user anything; a running NERVIS with no
-    notes is a quiet week; and hiding the dismissed ones can empty a list that
-    is not actually empty. Collapsing these into "nothing here" is how a broken
-    read reads as good news. */
- const empty=!d.live
-   ? banner('NERVIS is not answering',
-       'The notification centre lives in NERVIS\'s own database, so nothing can be read or dismissed from here until it is up. Nothing has been lost — notes are written by the probe loop, not by this page.','warn')
-   : NOTES_SHOW_DISMISSED
-     ? banner('Nothing at all yet','No note has been filed, dismissed or otherwise.','info')
-     : banner('Nothing waiting','Every note has been dealt with. Use <b>Show dismissed</b> to see what was.','info');
-
- const row=n=>`<div class="table-row" style="grid-template-columns:2.4fr 2.6fr .7fr .9fr 1.4fr${n.dismissed_at?';opacity:.5':''}">
-   <span><b>${escapeHtml(n.title)}</b>${n.unread?' <span class="chip">new</span>':''}
-     ${n.body?`<br><small class="mono dim">${escapeHtml(n.body)}</small>`:''}</span>
-   <span style="opacity:.8">${escapeHtml(n.reason)}
-     ${n.produced_by?`<br><small class="mono dim">written by ${escapeHtml(n.produced_by.model)} · ${escapeHtml(n.produced_by.cost)}</small>`:''}</span>
-   <span><span class="chip${n.severity==='warning'||n.severity==='error'?' warn':''}">${escapeHtml(n.severity)}</span></span>
-   <span class="mono" style="opacity:.7">${ago(n.created_at)}</span>
-   <span>${n.dismissed_at?'<small class="mono dim">dismissed</small>':
-     `${n.unread?`<button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','read')">mark read</button>`:''}
-      <button class="mode-chip" onclick="actOnNote('${jsAttr(n.note_id)}','dismiss')">dismiss</button>`}</span></div>`;
+ const table=`
+    <div class="table-row head five caps" style="${NOTE_COLUMNS}">
+      <span><input type="checkbox" class="note-tick" id="notePickAll"
+        aria-label="select every note listed"${allPicked?' checked':''}
+        onclick="pickEveryNote(this.checked)"> What happened</span>
+      <span>Why you are being told</span><span>Severity</span><span>When</span><span></span></div>
+    ${d.items.map(n=>noteRow(n,now)).join('')}`;
 
  $('#content').innerHTML=`
   <div class="card full${liveClass(d.live)}"><h3>Notification centre
     <span class="chip${d.unread?' warn':''}">${escapeHtml(d.unread)} unread</span></h3>${cell(
-   d.items.length?`
-    <div class="table-row head five caps" style="grid-template-columns:2.4fr 2.6fr .7fr .9fr 1.4fr">
-      <span>What happened</span><span>Why you are being told</span><span>Severity</span><span>When</span><span></span></div>
-    ${d.items.map(row).join('')}`:empty,'nervis')}
-   <small class="mono dim"><b>Every note says why it exists</b>, which is the column beside the title — NERVIS refuses to file one that cannot. <b>Notes are written by NERVIS, not by this page</b>: the probe loop files them whether a browser is open, muted, or on another tab, so a spoken announcement and the note here are one event seen twice rather than two events that can disagree. <b>Dismissing is one note at a time</b> on purpose — there is no mark-all-read and no per-kind mute, because silencing a class is how the one that mattered gets missed. Dismissed notes are hidden rather than deleted, and swept a month later.</small></div>`;
+   d.items.length?noteToolbar(d,picked)+table:noteEmptyState(d.live),'nervis')}
+   <small class="mono dim"><b>Every note says why it exists</b>, which is the column beside the title — NERVIS refuses to file one that cannot. <b>Notes are written by NERVIS, not by this page</b>: the probe loop files them whether a browser is open, muted, or on another tab, so a spoken announcement and the note here are one event seen twice rather than two events that can disagree. <b>Every note acted on is one you could see</b>: tick the ones you mean, or use <b>mark all read</b>, which acts on exactly the notes listed here and resolves to one request per note — so a note filed a second after you clicked is not swept up by a click that happened before it existed. What is deliberately absent is a <b>per-kind mute</b>: a standing rule silences notes nobody has read yet, and that is how the one that mattered gets missed. Dismissed notes are hidden rather than deleted, and swept a month later. <b>Click any note to open it</b> — the producer's own words, who filed it, whether a model wrote it and what that cost, and the exact moment rather than "2h ago".</small></div>`;
+}
+
+/* Open or close one note, without re-rendering the screen underneath it.
+
+   Toggled on the element rather than through `render()`: everything the
+   expansion shows is already in the row's markup, so a refetch would buy
+   nothing and would discard scroll position on the way. The Set is updated too,
+   so a later repaint reopens what was open.
+
+   The guard is what makes the whole row clickable safely — `mark read`,
+   `dismiss` and the selection tick all live inside it, and without this a
+   dismiss would also toggle and a tick would also open. */
+function toggleNote(event,id){
+ if(event&&event.target&&event.target.closest('button.mode-chip, .note-tick'))return;
+ const row=document.querySelector(`.note-row[data-note="${CSS.escape(id)}"]`);
+ if(!row)return;
+ const open=row.classList.toggle('note-open');
+ if(open)NOTES_OPEN.add(id);else NOTES_OPEN.delete(id);
 }
 
 function toggleDismissedNotes(){NOTES_SHOW_DISMISSED=!NOTES_SHOW_DISMISSED;render()}
+
+/* Tick or untick one note.
+
+   Stops the event so the row underneath does not also expand: the checkbox
+   lives inside the clickable row, and picking a note is not the same gesture
+   as opening it. */
+function pickNote(event,id,checked){
+ if(event)event.stopPropagation();
+ if(checked)NOTES_PICKED.add(id);else NOTES_PICKED.delete(id);
+ paintNoteBar();
+}
+
+/* Every note *currently listed* — not every note that exists. What is hidden
+   behind "show dismissed" is not selected by a box the reader can see. */
+function pickEveryNote(checked){
+ NOTES_PICKED.clear();
+ if(checked)for(const row of document.querySelectorAll('.note-row[data-note]'))
+   NOTES_PICKED.add(row.dataset.note);
+ for(const box of document.querySelectorAll('.note-row .note-tick'))box.checked=checked;
+ paintNoteBar();
+}
+
+/* Repaint the toolbar's count and enable state without rebuilding the table.
+
+   A full render would rebuild every row, which discards any note the reader had
+   opened — and ticking boxes is exactly when somebody is reading them. */
+function paintNoteBar(){
+ const bar=document.querySelector('.note-bar');
+ if(!bar)return;
+ const picked=NOTES_PICKED.size;
+ const label=bar.querySelector('.mono');
+ if(label&&picked)label.textContent=`${picked} selected`;
+ else if(label)label.textContent=NOTE_UNREAD?`${NOTE_UNREAD} waiting`:'nothing waiting';
+ const [read,dismiss]=bar.querySelectorAll('.mode-chip');
+ for(const b of [read,dismiss])if(b)b.disabled=!picked;
+ const all=document.getElementById('notePickAll');
+ const rows=document.querySelectorAll('.note-row[data-note]').length;
+ if(all)all.checked=rows>0&&picked===rows;
+}
+
+/* Act on the ticked notes, one request each.
+
+   **Per-note requests rather than a bulk endpoint**, which is the point rather
+   than a shortcut: every note acted on was named by somebody who could see it,
+   and the server has no operation that means "and everything like it". A
+   handful of parallel requests against a local service costs nothing, and if a
+   list ever grows large enough for that to matter, the fix is a bulk endpoint
+   that still takes explicit ids.
+*/
+async function actOnPicked(verb){
+ const ids=[...NOTES_PICKED];
+ if(!ids.length)return;
+ await Promise.all(ids.map(id=>verb==='read'
+   ?API.nervis.markNoteRead(id):API.nervis.dismissNote(id)));
+ NOTES_PICKED.clear();
+ await paintNotePip();
+ render();
+}
+
+/* "Mark all read" — every note *on this screen*, by id.
+
+   Deliberately not a server-side mark-everything: it acts on what is listed, so
+   a note filed between the page loading and the button being pressed is not
+   swept up by a click that happened before it existed. Reading is also the mild
+   half — it clears the badge and leaves every note on the list. */
+async function markEverythingListedRead(){
+ const ids=[...document.querySelectorAll('.note-row[data-note]')]
+   .map(row=>row.dataset.note);
+ if(!ids.length)return;
+ await Promise.all(ids.map(id=>API.nervis.markNoteRead(id)));
+ NOTES_PICKED.clear();
+ await paintNotePip();
+ render();
+}
 
 /* Act, then repaint from the server rather than from what we assume happened.
    The badge is a count the server owns, and a page that decremented its own
@@ -4519,7 +4733,8 @@ function notePip(){
  if(!NOTE_UNREAD)return '';
  const label=`${NOTE_UNREAD} unread notification${NOTE_UNREAD===1?'':'s'} — click to read`;
  return `<button class="note-pip warn" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
-   onclick="go('nervis','Notifications')">${escapeHtml(NOTE_UNREAD>99?'99+':NOTE_UNREAD)}</button>`;
+   onclick="go('nervis','Notifications')"
+   ><svg class="bell" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.6a4 4 0 0 1 8 0c0 3 1.1 4 1.1 4H2.9S4 9.6 4 6.6z"/><path d="M6.6 12.8a1.5 1.5 0 0 0 2.8 0"/></svg>${escapeHtml(NOTE_UNREAD>99?'99+':NOTE_UNREAD)}</button>`;
 }
 
 /* Re-read the count and redraw just the badge.
@@ -4530,7 +4745,7 @@ function notePip(){
 async function paintNotePip(){
  const d=await API.nervis.notifications(false);
  NOTE_UNREAD=d.live?d.unread:0;
- const slot=document.getElementById('avatarSlot');
+ const slot=document.getElementById('notePipSlot');
  if(!slot)return;
  const wanted=notePip();
  const drawn=slot.querySelector('.note-pip');
@@ -9989,7 +10204,7 @@ function mountAvatar(){
  const wanted=inMikuMode()?'miku:'+state.app:state.app;
  if(wanted===AVATAR_MOUNTED)return;
  AVATAR_MOUNTED=wanted;
- $('#avatarSlot').innerHTML=avatar()+voicePip()+notePip();
+ $('#avatarSlot').innerHTML=avatar()+voicePip();
 }
 
 /* Place an opened routing popover, and keep only one open.
