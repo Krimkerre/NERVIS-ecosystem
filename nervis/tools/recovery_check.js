@@ -110,4 +110,19 @@ const ORIGIN = "http://127.0.0.1:8790";
     console.log("screens this reported on its first run recovered correctly when driven");
     console.log("by hand: the arbiter is the running page, not this file.");
   }
+
+  /* **Print, then actually stop.** This finished its work and then sat there:
+     loading the page starts its own polling timers inside the shim, and node
+     keeps a process alive for as long as a timer is pending. So the report
+     appeared and the command never returned — which reads exactly like a hang,
+     and cost real time being killed and restarted on the assumption that it was
+     one. `honesty_check` already calls `stopPolling` for this reason; this one
+     never did.
+
+     The explicit exit is a backstop rather than a duplicate: `stopPolling`
+     clears what the page owns, and anything else left pending — an abort timer
+     inside a read that has not settled — would hold the process open just as
+     effectively and is not this file's to find. */
+  if (exported.stopPolling) exported.stopPolling();
+  process.exit(0);
 })();

@@ -3165,6 +3165,32 @@ what had broken.
 Verified by tracing every non-GET a full run makes: one, and it is
 `/recommendations`.
 
+### The slow gate was never slow, 1 Sep
+
+`recovery_check` was treated all day as a five-minute check. It is a **sixty
+second** one that then never exits.
+
+Loading the page starts its own polling timers inside the shim, and node keeps a
+process alive while a timer is pending. So the report printed, the command never
+returned, and every observation after that was wrong: killed at 45s and read as
+a hang, re-run, killed again, and finally described to the user as "slow by
+design" — which was a confident explanation of something that was not happening.
+`honesty_check` has called `stopPolling` for exactly this reason since it was
+written; this one never did.
+
+It now stops the page's timers and exits explicitly, the second being a backstop
+rather than a duplicate: anything else left pending — an abort timer inside a
+read that has not settled — would hold the process open just as effectively and
+is not this file's to find.
+
+**A day's worth of wrong conclusions came out of one missing line**, including
+advice given to the operator about how long to expect to wait. Worth writing
+down: "it produced its output and did not return" is a different fault from "it
+is still working", and nothing distinguished them from the outside.
+
+`ravis/Pools` appearing once as a screen that did not recover was the rate limit
+the check's own note predicts — the next run reported 34 of 36 with no suspects.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
