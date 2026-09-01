@@ -274,6 +274,42 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON proposal_outcome(operation, target);
         """,
     ),
+    (
+        9,
+        "what unattended work has run, per NERVIS.md M25",
+        # **Every background run, whether or not it produced anything.**
+        #
+        # M25's word is *attributable*: what prompted it, which model ran, what
+        # it cost. A table of the runs that produced a note would answer the
+        # cheerful half of that and leave "what has this been spending my money
+        # on" unanswerable — the runs that thought and said nothing are exactly
+        # the ones somebody paying for them wants to see.
+        #
+        # `note_id` is the notification it produced, or empty. That is the join
+        # between "NERVIS thought about something" and "NERVIS told me", and
+        # keeping it here rather than on the note means a run with nothing to
+        # say is still a row.
+        #
+        # Cost is stored as text, in the shape the usage ledger reports it.
+        # Kept verbatim rather than parsed into a number, for the reason §14
+        # gives about estimates and invoices: a figure NERVIS reformatted is a
+        # figure NERVIS is now asserting.
+        """
+        CREATE TABLE IF NOT EXISTS background_run (
+            run_id      TEXT PRIMARY KEY,
+            trigger     TEXT NOT NULL,
+            prompted_by TEXT NOT NULL,
+            model       TEXT NOT NULL DEFAULT '',
+            cost        TEXT NOT NULL DEFAULT '',
+            outcome     TEXT NOT NULL,
+            detail      TEXT NOT NULL DEFAULT '',
+            note_id     TEXT NOT NULL DEFAULT '',
+            ran_at      TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS background_by_time ON background_run(ran_at);
+        """,
+    ),
 ]
 
 

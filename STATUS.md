@@ -3553,6 +3553,38 @@ the way the 404 branch beside it already says the earlier turns will not be in
 the export. Not yet built; recorded here with the diagnosis so it is not
 re-derived.
 
+### The plans record what shipped, 1 Sep
+
+Only `NERVIS.md` carried ✅ marks, added when the version-scheme test needed a
+source of truth that was not the version number. So "what is left to build" was
+answerable for one service by reading, and for the other two only by inferring
+from a minor version — which is the drift that test exists to catch, one level
+up.
+
+**Derived rather than remembered.** Each spec's own stage-mapping table assigns
+every milestone to a runbook stage or to an "Unscheduled" row, and stages 0
+through 10 are closed. So a milestone with a stage shipped and a milestone under
+Unscheduled did not. RAVIS's `M3` and `M18` are single rows describing two
+halves, both of which landed.
+
+| | built | left | left to build |
+|---|---|---|---|
+| NERVIS | 15 rows | 14 | M9–M20, M25, M27 |
+| RAVIS | 20 | 9 | M17, M21–M24, M25a, M25b, M26, M27 |
+| SIRVIS | 16 | 9 | M5, M11, M12, M15b, M17–M20, M22b |
+| Clarvis | E-C0–E-C7 | 1 | E-C8 |
+
+RAVIS ticks 20 against a version of 0.20.3, which agrees. NERVIS ticks 15 rows
+against 0.13.3, which also agrees once `M5a`/`M5b` and `M8a`/`M8b` are counted
+as one milestone each.
+
+**SIRVIS does not agree, and is left disagreeing.** Sixteen rows tick against a
+version of 0.15.5. `M22` is the likely candidate — it has a `M22b` half that has
+not shipped — but the stage mapping puts `M22` in Stage 10, which is closed.
+Either the version is one behind or a milestone is ticked that should not be, and
+guessing which would replace an honest discrepancy with a confident wrong answer.
+Recorded so somebody who knows can settle it.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
