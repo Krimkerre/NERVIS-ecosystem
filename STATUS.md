@@ -3756,6 +3756,48 @@ the next run. Cost three rounds before I stopped running it reflexively.
 
 Verified live afterwards: chat still answers 200.
 
+### Every control names a function that exists, 2 Sep. NERVIS 0.14.3
+
+Asked whether an 11,000-line `index.html` is dangerous. Measured rather than
+assumed: 901 KB, **3.8 ms** to parse and compile, 304 top-level functions and
+112 bindings with **no duplicate names**, and every function under the
+complexity ratchet. The size is not the risk.
+
+**The risk is that a control can name a function that is gone.** The dashboard
+wires itself through inline handlers, and nothing checked the name on the left.
+Not the parse, which sees a string. Not `check_dead_code`, which looks for the
+opposite — defined and never referenced. Splitting `notificationsView` for M21
+took `toggleNote` with the slice and left its `onclick` behind: the page parsed,
+the rows drew, the carets drew, and clicking one threw into a console nobody was
+reading. Found by hand, in a browser, minutes before it was committed.
+
+The file's size does not cause that. It is what makes it likely to go unnoticed,
+because there is nowhere smaller to look.
+
+`handler_check.js` resolves all **82** of them — more than a first count found,
+because most are built inside template literals rather than written in the
+static markup.
+
+**Two things it had to get right.** Markup is read from the **parsed** script
+rather than the raw text: a first attempt reported `pick` missing, and the only
+`onclick="pick(` in the file is inside a comment *explaining an escaping bug*.
+Acorn already parses this file for `complexity_check`, and every piece of HTML
+the page emits is a string or template literal in that tree, so taking them from
+the AST excludes comments by construction rather than by a regex trying to
+recognise one. And names are resolved by **running** the page: `VOICE.flag` is a
+method on an object literal and `stopPolling` is declared inside a block, so a
+scan for `function name(` would report two working controls as broken.
+
+Falsified four ways — the `toggleNote` case exactly, a renamed handler, a
+renamed object method, and an object that no longer exists (10 controls, each
+named).
+
+**On splitting the file: not now, and for a stated reason.** It opens from disk
+with no toolchain, which is a property rather than an accident, and the job is
+large. The gates are what hold its shape — this one, the complexity ratchet, and
+the liveness ceiling. A second person editing it, or a screen needing isolated
+testing, would be a reason. Neither is true yet.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

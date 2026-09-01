@@ -280,7 +280,17 @@ jobs:
         working-directory: nervis
         run: node tools/background_check.js
 
-      # **Sixteen of the eighteen gate scripts, and the other two are not an
+      # The dashboard wires its controls through inline handlers, and nothing
+      # checked that the name on the left still exists. Not the parse, which
+      # sees a string; not check_dead_code, which looks for the opposite. A
+      # refactor took `toggleNote` and left its onclick behind — the page
+      # parsed, the control drew, and pressing it threw into a console nobody
+      # was reading.
+      - name: Dashboard — every control names a function that exists
+        working-directory: nervis
+        run: node tools/handler_check.js
+
+      # **Seventeen of the nineteen gate scripts, and the other two are not an
       # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
       # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
       # watch screens survive a service that stops answering, which needs a
