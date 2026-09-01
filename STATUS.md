@@ -3449,6 +3449,81 @@ exported something should hand it over rather than mention it.
 Verified in the browser against a real export — the rendered row's link fetched
 200 with `content-disposition: attachment`.
 
+### The export looks like the window it came from, 1 Sep. NERVIS 0.13.2
+
+Asked for the transcript to look more like the chat window, fancier, with a file
+header carrying the logo.
+
+**The logo, and it was the wrong one first.** This drew the *avatar* — the
+orbital instrument with three satellites from `avatars/nervis.html` — which is
+the character rather than the letterhead. The logo is `.brand i` in the
+dashboard's own corner: a square rotated 45 degrees with an accent border and a
+smaller cyan square inside, both rotating together so the core is a diamond too.
+Corrected, and it sits in the **page's** corner rather than on the text margin,
+because a header is letterhead and starts where the paper does.
+
+There is no image to reuse and that was worth checking rather than assuming: the
+mark is CSS, the avatar is a 3,000-character inline SVG with gradients, and PDF
+has no SVG. The options were a partial SVG renderer, a rasterised PNG with an
+alpha mask and a regeneration script, or vector primitives. Primitives, for a
+30pt mark in a repository that keeps its dependencies near zero.
+
+**Four new primitives**, because the renderer had only rectangles — which is why
+the transcript was drawn square. Circles and rounded rectangles from Bézier
+arcs, polygons, and stroked lines. Bubbles are rounded now, with a rail down the
+left in accent or cyan, and every band and mark comes from these.
+
+**A header on every page.** Full band on the first with the logo, wordmark,
+backronym and title; a slim one afterwards, because a transcript that carried
+its identity on page one read as a stack of unrelated sheets the moment anybody
+printed it.
+
+**Three defects the sample exposed.**
+
+`**bound**, and` drew as `bound , and`. Runs are split independently, so the
+wrapper decided at every weight boundary whether to put a space back — and it
+always said yes. The answer is in the text: a boundary needs one only where a
+side had one. That fix then exposed what it had been masking, because `parse`
+concatenated hard-wrapped lines with nothing between them and `every` + `figure`
+became `everyfigure`. The space belongs in the join, where the line break was.
+
+Italic and inline code were unparsed, so a reply quoting `ravis/local` printed
+the backticks. The old reasoning — `*` is emphasis and multiplication and
+footnotes, and guessing wrong italicises half a sentence — is right about a naive
+matcher, so italic uses CommonMark's flanking rule and `2 * 3 * 4` stays
+arithmetic. Nesting is resolved by **whichever mark opens first**: a fixed order
+gets one case right and the other wrong, leaving asterisks inside
+``**bold with `code` inside**`` or letting emphasis run inside a code span.
+
+**And a structural bug two renderers hid.** Adding the oblique faces moved every
+content stream up by two while `_assemble` still pointed at the old first one
+through a literal `6`, so `/Contents` named a font. `sips` and Preview rendered
+it anyway; `pypdf` reported zero pages, which is what a strict reader sees. The
+offset is derived from the font list now. Two PDF tests were measuring `re f`
+rectangles — one asserting a primitive the renderer had stopped using, the other
+comparing a constant with itself — and now read the rounded path.
+
+### The logo is not the accent colour, 1 Sep
+
+Drew the mark in `--accent`, the purple, because that is what the stylesheet
+says: `border: 1px solid var(--accent)`. It is wrong — a later rule overrides
+it, and the running page computes `rgb(85, 220, 255)` for the outline and
+`--cyan` for the square inside. Reported by the operator, who could see it.
+
+**Read off `getComputedStyle`, not off the source.** The palette in `layout.py`
+was assembled by reading the CSS, and this is the case where reading the CSS
+gives the wrong answer: the file says something that is no longer true by the
+time it renders. Anything else in that palette taken from a rule with a later
+override has the same problem.
+
+The glow came with it. `box-shadow: 0 0 6px` is a blur and PDF has none, but it
+does have constant alpha — so three concentric strokes at falling opacity,
+widest and faintest first. `/ca` and `/CA` both, since fill and stroke alpha are
+separate and setting one leaves the other solid, and reset to 1.0 afterwards
+because alpha is graphics state that would otherwise fade the rest of the page.
+The states are inline dictionaries in each page's resources, which keeps the
+object numbering derived from the font list alone.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

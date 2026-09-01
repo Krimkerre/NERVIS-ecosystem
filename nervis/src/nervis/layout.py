@@ -20,7 +20,7 @@ table is worse than one that leaves the pipe characters visible and honest.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 
@@ -39,13 +39,32 @@ class Kind(str, Enum):
 class Span:
     """A run of text and whether it is bold.
 
-    Bold is the only weight carried. Italic exists in the base-14 fonts and is
-    not parsed, because `*` is used for emphasis and for multiplication and for
-    footnote markers, and guessing wrong italicises half a sentence.
+    Bold, italic and inline code. **The last two were left out on purpose and
+    the reasoning has been revised rather than reversed.**
+
+    It read: `*` is used for emphasis and for multiplication and for footnote
+    markers, and guessing wrong italicises half a sentence. That is true of a
+    naive matcher and stays true — so italic requires the markers to *flank*
+    their content the way CommonMark does: the opener followed by a non-space
+    and the closer preceded by one. `2 * 3 * 4` is arithmetic under that rule
+    and `*remote*` is emphasis, which is the distinction the original worry was
+    about.
+
+    Inline code never had that problem. A backtick means one thing in prose,
+    models write them constantly, and leaving them unparsed printed the
+    backticks — so a transcript quoting `ravis/local` showed the punctuation
+    instead of the styling, which reads as the renderer being broken rather
+    than as a considered omission.
     """
 
     text: str
     bold: bool = False
+    #: `*emphasis*`, drawn in the oblique face.
+    italic: bool = False
+    #: `` `code` ``, drawn in the monospace face on a tint. Carried as a flag
+    #: rather than as a block kind because it happens *inside* a sentence, and a
+    #: block would break the line it belongs to.
+    code: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,6 +88,24 @@ _FENCE = re.compile(r"^\s*```")
 # and a line of asterisks stays a line of asterisks.
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 
+# `` `code` ``. Unambiguous: a backtick means one thing in prose, so this needs
+# none of the flanking care italic does.
+_CODE = re.compile(r"`([^`]+)`")
+
+# `*emphasis*`, with CommonMark's flanking rule: the opener is followed by a
+# non-space and the closer preceded by one. That is what keeps `2 * 3 * 4`
+# arithmetic while `*remote*` is emphasis — the distinction the original
+# decision not to parse italic at all was worried about.
+_ITALIC = re.compile(r"(?<!\*)\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)")
+
+#: Tried outermost first, and the order is load-bearing twice. `**bold**` before
+#: `*italic*`, or the outer pair of a bold phrase matches as emphasis around a
+#: starred word. And **code last**, which was wrong the first time: with code
+#: first, ``**bold with `code` inside**`` split on the backticks and left the
+#: asterisks as literal text on both sides, because the bold pattern never saw
+#: an intact phrase to match.
+_MARKS = ((_BOLD, "bold"), (_ITALIC, "italic"), (_CODE, "code"))
+
 
 def _spans(text: str) -> tuple[Span, ...]:
     """Split one line into bold and plain runs.
@@ -76,16 +113,54 @@ def _spans(text: str) -> tuple[Span, ...]:
     Returns a single plain span when nothing is marked, which keeps the common
     case free of allocation and the drawing code free of a special case.
     """
-    parts: list[Span] = []
-    at = 0
-    for found in _BOLD.finditer(text):
-        if found.start() > at:
-            parts.append(Span(text[at:found.start()]))
-        parts.append(Span(found.group(1), bold=True))
-        at = found.end()
-    if at < len(text):
-        parts.append(Span(text[at:]))
-    return tuple(parts) or (Span(""),)
+    return _marked(text, 0) or (Span(""),)
+
+
+def _marked(text: str, depth: int) -> tuple[Span, ...]:
+    """Split on the first kind of mark that appears, then recurse either side.
+
+    Recursive rather than three passes, so `**a `b` c**` keeps both — a flat
+    scan would find the bold, wrap the whole of it in one span, and the backtick
+    inside would never be looked at again.
+
+    `depth` stops the recursion at the number of mark kinds there are: a run
+    that has been through all of them has nothing left to find, and without the
+    bound a pattern that matched its own output would not terminate.
+    """
+    if not text or depth >= len(_MARKS):
+        return (Span(text),) if text else ()
+    # **Whichever mark opens first, not whichever kind is listed first.**
+    # A fixed order gets one nesting right and the other wrong: code-first
+    # leaves the asterisks in ``**bold with `code` inside**``, and bold-first
+    # lets emphasis run inside a code span and print the backticks. Which one
+    # encloses the other is a fact about *this* string, and where each opens is
+    # how to read it. Ties keep `_MARKS` order, so `**` beats `*` at the same
+    # position.
+    hits = [(found.start(), index, pattern, mark)
+            for index, (pattern, mark) in enumerate(_MARKS)
+            if (found := pattern.search(text))]
+    for _, index, pattern, mark in sorted(hits, key=lambda hit: (hit[0], hit[1]))[:1]:
+        found = pattern.search(text)
+        if not found:
+            continue
+        # **Recursed into, except for code.** A bold phrase may contain a
+        # backtick and the run inside it is both; wrapping the match in one span
+        # would keep the backticks as text. Code is the exception on purpose:
+        # what is inside one is not markup, so an asterisk there stays an
+        # asterisk.
+        if mark == "code":
+            inner: tuple[Span, ...] = (Span(found.group(1), code=True),)
+        else:
+            inner = tuple(
+                replace(span, **{mark: True})
+                for span in _marked(found.group(1), index)
+            )
+        return (
+            _marked(text[: found.start()], index)
+            + inner
+            + _marked(text[found.end():], index)
+        )
+    return (Span(text),)
 
 
 def parse(text: str) -> list[Block]:
@@ -163,10 +238,21 @@ def _collapse(blocks: list[Block]) -> list[Block]:
         if block.kind is Kind.BLANK and (not out or out[-1].kind is Kind.BLANK):
             continue
         if block.kind is Kind.PARAGRAPH and out and out[-1].kind is Kind.PARAGRAPH:
-            # Concatenated rather than joined with a space span: the wrapper
-            # splits every run into words and re-joins them with single spaces,
-            # so a separator here would be dropped and then reinserted.
-            out[-1] = Block(Kind.PARAGRAPH, out[-1].spans + block.spans)
+            # **The space goes in here, where the line break was.** This used
+            # to concatenate, on the reasoning that the wrapper splits every run
+            # into words and re-joins them with single spaces so a separator
+            # would be dropped and reinserted. That was true only because the
+            # wrapper inserted a space at *every* run boundary — including ones
+            # the author never wrote, so `**bound**,` drew as `bound ,`. Once
+            # the wrapper started asking whether the source had a space there,
+            # this join had to answer honestly: a hard-wrapped line ends with a
+            # word break, and `every` + `figure` is `everyfigure` without it.
+            joined = out[-1].spans
+            if joined and block.spans:
+                joined = joined[:-1] + (
+                    replace(joined[-1], text=joined[-1].text + " "),
+                )
+            out[-1] = Block(Kind.PARAGRAPH, joined + block.spans)
             continue
         out.append(block)
     while out and out[-1].kind is Kind.BLANK:
@@ -194,6 +280,14 @@ RULE = (0.125, 0.165, 0.208)      # --line #202a35
 #: Read off `.bubble` and `.bubble.user` rather than invented: an export meant to
 #: look like the conversation has to use the conversation's own two fills, or it
 #: is a different design that happens to share a palette.
+#: The logo's own two colours, and **neither of them is the accent.** The rule
+#: in the stylesheet reads `border: 1px solid var(--accent)`, which is the
+#: purple — and a later rule overrides it. Read off the running page with
+#: `getComputedStyle` rather than off the source, because the source says
+#: something that is not true by the time it renders.
+LOGO_EDGE = (0.333, 0.863, 1.000)     # rgb(85, 220, 255), the mark's outline
+LOGO_CORE = (0.204, 0.902, 0.949)     # --cyan #34e6f2, the square inside it
+
 BUBBLE = (0.071, 0.106, 0.141)        # .bubble #121b24
 BUBBLE_EDGE = (0.125, 0.165, 0.208)   # --line
 MINE = (0.090, 0.227, 0.380)          # .bubble.user #173a61

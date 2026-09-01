@@ -280,8 +280,13 @@ def test_a_turn_is_drawn_as_a_bubble() -> None:
     of one."""
     out = render_conversation("Q3", "Exported today", _conversation()).data
 
-    # A filled rectangle for each bubble, before the words that sit in it.
-    assert out.count(b"re f") >= 2 * 5, "each bubble is a fill and four edges"
+    # **A rounded path per bubble, not a rectangle.** This counted `re f` and
+    # wanted five per bubble — a fill and four hairline edges. Bubbles are drawn
+    # with rounded corners now, which is Bézier segments closed and filled, so
+    # the old count measured a primitive the renderer had stopped using and
+    # would have gone on passing only because the rails are still rectangles.
+    assert out.count(b" c ") >= 2 * 8, "each bubble is a rounded path, filled and stroked"
+    assert out.count(b"re f") >= 2, "each bubble keeps a straight rail"
     assert b"(YOU)" in out and b"(NERVIS)" in out
     assert b"(why is ravis slow?)" in out
 
@@ -310,12 +315,23 @@ def test_a_bubble_shrinks_to_what_is_in_it() -> None:
     ]).data
 
     def widest(out: bytes) -> float:
-        """The widest bubble fill, ignoring the full-page ground and the edges."""
-        return max(
-            float(w) for x, y, w, h in re.findall(
-                rb" ([\d.-]+) ([\d.-]+) ([\d.]+) ([\d.]+) re f", out)
-            if float(w) < PAGE_WIDTH - 1 and float(h) > 2
-        )
+        """How far the widest bubble reaches.
+
+        **Read off the rounded path, because the fill is no longer a rectangle.**
+        This measured `re f` widths, which now finds only the 1.6pt rail — so
+        both bubbles measured 1.6 and the assertion compared a constant with
+        itself. A rounded rectangle starts `x+r y m`, so the `l` that follows it
+        on the same line carries the far edge, and the distance between them is
+        the width less two radii — enough to compare two bubbles, which is all
+        this asks.
+        """
+        spans = [
+            float(x2) - float(x1) for x1, y1, x2, y2 in re.findall(
+                rb" ([\d.-]+) ([\d.-]+) m ([\d.-]+) ([\d.-]+) l", out)
+            if y1 == y2 and 2 < float(x2) - float(x1) < PAGE_WIDTH - 1
+        ]
+        assert spans, "no rounded bubble path was found to measure"
+        return max(spans)
 
     assert widest(short) < widest(long)
 
