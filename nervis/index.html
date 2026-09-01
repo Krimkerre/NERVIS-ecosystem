@@ -9347,7 +9347,7 @@ function parsePlan(header){
    sentence was interpreted, and not because a reply said it would. */
 function offerRow(offer,index){
  if(!offer)return '';
- if(offer.done)return `<div class="mono dim" style="margin-top:7px;font-size:11px">${escapeHtml(offer.done)}</div>`;
+ if(offer.done)return `<div class="mono dim" style="margin-top:7px;font-size:11px">${escapeHtml(offer.done)}${downloadLink(offer.file)}</div>`;
  /* **Candidates are buttons, not a list to read** (M22). An offer NERVIS
     could not prepare — an ambiguous model name, most often — used to print the
     matches and stop there, leaving the person to retype one of them. Pressing
@@ -9385,6 +9385,23 @@ function offerRow(offer,index){
   </div>`;
 }
 
+/* A file NERVIS wrote, offered as a download.
+
+   **`download` on the anchor as well as `Content-Disposition` on the response.**
+   Either alone mostly works; together they also cover the case the person
+   actually complains about, which is a PDF opening in a tab instead of landing
+   in Downloads.
+
+   The name is the only thing sent, and the endpoint resolves it inside the
+   workspace before comparing — so what is linked here cannot name a file
+   outside it however this markup is assembled. */
+function downloadLink(file){
+ if(!file||!file.name)return '';
+ const href=`${BASE.nervis}/api/v1/documents/${encodeURIComponent(file.name)}`;
+ return ` · <a href="${escapeHtml(href)}" download="${escapeHtml(file.name)}"
+   style="color:var(--cyan)">download</a>`;
+}
+
 /* A plan, drawn whole before any of it runs (M24).
 
    **The whole sequence is on screen and the button confirms the order.** Not
@@ -9400,7 +9417,7 @@ function planRow(plan,index){
  if(!plan)return '';
  const state=n=>{
   const step=plan.steps[n];
-  if(step.done)return `<span class="mono dim">${escapeHtml(step.done)}</span>`;
+  if(step.done)return `<span class="mono dim">${escapeHtml(step.done)}${downloadLink(step.file)}</span>`;
   if(plan.running===n)return '<span class="chip">running</span>';
   if(plan.stopped||plan.halted)return '<span class="mono dim" style="opacity:.5">not reached</span>';
   return '<span class="mono dim" style="opacity:.6">waiting</span>';
@@ -9474,7 +9491,9 @@ async function runPlan(index){
 
 /* What one finished step reports, in the words of what answered it. */
 function planStepDone(step,answer){
- if(answer.file)return `${escapeHtml(answer.file.name)} · ${escapeHtml(answer.file.detail||'')}`;
+ /* The step keeps the file for the same reason a single offer does: a plan that
+    exported something should hand it over, not merely mention it. */
+ if(answer.file){step.file=answer.file;return `${escapeHtml(answer.file.name)} · ${escapeHtml(answer.file.detail||'')}`}
  if(answer.job)return `${escapeHtml(answer.job.state||'submitted')}${answer.job.id?' · job '+escapeHtml(answer.job.id):''}`;
  if(answer.learned)return `filed under “${escapeHtml(answer.learned.heading)}”`;
  return 'done';
@@ -9531,6 +9550,11 @@ async function runFileOffer(offer){
     written from a conversation that, as far as NERVIS was concerned, did not
     exist. */
  const saved=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.remote_id||'');
+ /* Kept on the offer so the finished line can offer the file itself. The
+    workspace is on the machine NERVIS runs on, which is not always the machine
+    somebody is reading the dashboard from — "written to /Users/…/workspace" is
+    the right thing to have done and the wrong place to stop. */
+ offer.file=saved.file||null;
  offer.done=saved.file
    ?`${exporting?'exported':'saved'} ${saved.file.name} · ${saved.file.detail}`
    :`nothing was written — ${saved.error}`;

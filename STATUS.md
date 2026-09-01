@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1997 tests, no network, no live service
+.venv/bin/pytest                      # part of 2004 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 617 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 624 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1997 passing across the four, conformance `PASS`.
+Expected: all clean, 2004 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3418,6 +3418,36 @@ authenticates only the channel.
 
 Scheduled after Stage 11, blocked on nothing technical: a handoff is a proposal,
 and it should inherit whatever M21–M25 settle about how NERVIS proposes anything.
+
+### An exported file is handed over, not just mentioned, 1 Sep. NERVIS 0.13.1
+
+Chat could already write a reply or a whole conversation into the workspace and
+report the filename. That is right about what to do and wrong about where to
+stop: the workspace is on the machine NERVIS runs on, and that is not always the
+machine somebody is reading the dashboard from. An exported PDF now carries a
+**download** link beside it, and lands in Downloads.
+
+`GET /api/v1/documents/{name}`, and the whole risk is that a workspace is a
+directory a person chose which holds whatever they keep there. So the endpoint is
+narrow in three ways. The name goes through `resolve_in_workspace`, which
+resolves before it compares. What may come back is an **allowlist** of the two
+formats NERVIS itself writes, because the interesting files in somebody's
+workspace are the ones nobody thought to forbid. And a boundary violation is a
+different answer from a missing file, since collapsing them reports a refusal as
+a typo.
+
+**The escape test had to be written twice.** `../../outside.pdf` returns 404 —
+not because the containment refused it, but because the router normalises it away
+before the handler runs. A test using the plain form would have passed while
+proving nothing. Percent-encoded it reaches the handler and is refused, and so is
+a symlink named innocently and pointing anywhere else, which is the case that
+defeats a check done in the other order.
+
+Plan steps that write a file carry the link too, for the same reason: a plan that
+exported something should hand it over rather than mention it.
+
+Verified in the browser against a real export — the rendered row's link fetched
+200 with `content-disposition: attachment`.
 
 ### Next — in this order
 
