@@ -32,7 +32,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, pdf, transcript
+from nervis import chat, commands, learned, pdf, transcript
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -97,11 +97,34 @@ async def run(request: Request) -> dict[str, Any]:
         return _write_document(request, target, str(body.get("conversation_id") or ""))
     if operation == "nervis.conversation.export":
         return _export_conversation(request, target, str(body.get("conversation_id") or ""))
+    if operation == "nervis.knowledge.learn":
+        return _learn(request, target, str(body.get("prompted_by") or ""))
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
         return await _delete_result(request, target, str(body.get("reason") or ""))
     return await _submit_benchmark(request, target)
+
+
+def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any]:
+    """Write down something NERVIS was told (M23).
+
+    **The person's own sentence, and nothing derived from it.** The heading is
+    the first few words of the note in their order; NERVIS does not summarise,
+    because a heading it invented would be it deciding what somebody meant.
+
+    `prompted_by` falls back to the note itself. A note typed into Settings has
+    no sentence that prompted it — it *is* the sentence — and recording an empty
+    provenance would be worse than recording the obvious one.
+    """
+    written = learned.remember(
+        commands._heading_of(note), note, prompted_by or note,
+    )
+    _audit(request, note, "written", f"filed under {written.heading!r}", verb="learn")
+    return {
+        "learned": written.as_dict(),
+        "file": {"name": learned.LEARNED, "detail": f"filed under “{written.heading}”"},
+    }
 
 
 def _peer(request: Request, credential: str = "benchmark") -> tuple[RegistryEntry, Any]:

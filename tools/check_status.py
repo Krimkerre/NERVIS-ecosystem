@@ -40,6 +40,18 @@ RAVIS = ROOT / "ravis"
 PACKAGES = ("protocol", "ravis", "sirvis", "nervis")
 
 
+#: Files NERVIS creates while running, which a clean checkout correctly does not
+#: have. Named rather than pattern-matched: the point of this check is that a
+#: path in STATUS.md is real, and a wildcard exemption would let any future
+#: typo through under the excuse of being runtime state.
+#:
+#: `learned.md` is M23's — NERVIS appends to it when somebody asks it to
+#: remember something, and it is deleted when they clear it. Shipping an empty
+#: one to satisfy this gate would put a file in git that the service rewrites,
+#: which is a worse answer than an exemption with a reason.
+WRITTEN_AT_RUNTIME = frozenset({"learned.md", "knowledge/learned.md"})
+
+
 def _python() -> str:
     """The interpreter that has every package installed.
 
@@ -159,6 +171,8 @@ def check_referenced_paths(text: str, failures: list[str]) -> None:
     """
     for path in sorted(set(re.findall(r"`([\w./-]+\.(?:md|py|toml|yml))`", text))):
         if path.startswith(("../", "http")) or path.startswith(SIBLING_REPOSITORIES):
+            continue
+        if path in WRITTEN_AT_RUNTIME:
             continue
         # A bare module name resolves inside *any* package's source tree, not
         # just RAVIS's. It was `RAVIS / "src/ravis"` alone, which meant a

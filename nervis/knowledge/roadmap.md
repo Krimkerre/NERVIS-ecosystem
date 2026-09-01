@@ -57,13 +57,26 @@ ever consulting the record, so emptying it leaves NERVIS offering precisely what
 it offered before it learned anything. The record and its clear button are under
 Settings.
 
-### Learned notes
+### Learned notes — built, 1 September
 
-A file NERVIS adds to, beside these hand-written ones and
-searched the same way, holding corrections and preferences with the date and
-what prompted them. It is a file a person can read, edit and delete. Where a
-learned note disagrees with a hand-written one, the hand-written one wins and
-the disagreement is shown.
+**This one is built.** NERVIS keeps a file called `learned.md` next to these
+hand-written notes, holding things it has been told, each with the date and the
+sentence that prompted it. It is searched by exactly the same index as every
+other note here, because it sits in the same directory — there is no separate
+path to keep in step.
+
+Three ways to add one: say *"remember that…"* in chat and press the button, type
+one into the field under Settings, or open the file in any editor. The first two
+go through one enumerated operation and a confirmation, like every other change
+NERVIS makes. What gets stored is the person's own sentence — nothing a model
+wrote, and nothing NERVIS decided on its own was worth keeping.
+
+Where something NERVIS was told disagrees with one of the hand-written notes on
+the same subject, the hand-written one is used and the learned one is still
+shown, marked *overruled*. Exactly one of the two is wrong and only a person can
+say which, so neither is hidden. Notes can be forgotten one at a time or all at
+once, and the file can simply be deleted — retrieval then behaves exactly as it
+did before any of this existed.
 
 ### Planning
 

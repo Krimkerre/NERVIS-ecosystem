@@ -2502,28 +2502,68 @@ def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
     that would have accepted the registration. A guard against staleness that is
     itself hand-maintained goes stale in the same way as the thing it guards.
 
-    The version scheme is `0.<milestones completed>.<patch>`, so the minor *is*
-    the answer. Any bare `M<n>` at or below it is a milestone this service has
-    finished.
+    **Read from the specification's own ticks, not inferred from the version.**
+    This derived the answer from `BUILD_VERSION`: the scheme is
+    `0.<milestones completed>.<patch>`, so the minor was taken to mean every
+    `M<n>` at or below it had shipped. That held exactly as long as milestones
+    landed in order, and Stage 11 broke it — M21, M22 and M23 shipped while M12
+    has not, and at 0.12.0 the count reached twelve and the test declared M12
+    finished. It was reporting a stale reason on `nervis.diagnostics@1` that is
+    not stale at all.
 
-    A lettered milestone is deliberately exempt: `M5a` and `M5b`, `M8a` and
-    `M8b` ship independently, and the second half of each is genuinely still
-    ahead. Milestones belonging to *other* services (SIRVIS M14, RAVIS M18b) are
-    numbered past this service's own and fall out for free.
+    A count cannot answer *which*. The milestone table in `NERVIS.md` can, and
+    it is where somebody finishing a milestone already writes it down, so the
+    answer stays derived rather than hand-maintained here — the property that
+    made the earlier hardcoded tuple rot.
+
+    Lettered halves are read too: `M5a` and `M5b` ship independently, and the
+    table ticks them independently.
+
+    **Whose milestone it is has to be read from the sentence.** These reasons
+    cite other services — *"RAVIS since its M18b, SIRVIS since its M21"* — and
+    that used to sort itself out because everyone else's numbers were higher
+    than NERVIS's own. Stage 11 ended that too: NERVIS has an M21 now, and
+    SIRVIS's M21 is a different milestone with the same name. So a number is
+    attributed to the last service named before it, and only NERVIS's own are
+    checked against NERVIS's table.
     """
     import re
+    from pathlib import Path
 
-    from nervis.ecosystem import BUILD_VERSION, DECLARED
+    from nervis.ecosystem import AVAILABLE, DECLARED
 
-    completed = int(BUILD_VERSION.split(".")[1])
+    table = (Path(__file__).resolve().parents[2] / "NERVIS.md").read_text(
+        encoding="utf-8"
+    )
+    shipped = set(re.findall(r"^\| \*\*(M\d+[a-z]?)\*\* ✅ \|", table, re.MULTILINE))
+    assert len(shipped) > 5, (
+        "no shipped milestones were read from NERVIS.md — this check would pass "
+        "vacuously, which is worse than failing"
+    )
+    owner = re.compile(r"\b(RAVIS|SIRVIS|Clarvis|NERVIS)\b|\bM(\d+[a-z]?)\b")
     for name, capability in DECLARED.items():
-        for token in re.findall(r"\bM(\d+)([a-z]?)\b", capability.reason or ""):
-            number, suffix = int(token[0]), token[1]
-            if suffix:
+        # **Only a capability that is not available.** The defect this exists
+        # for is a *deferral* to something already built — "peer data lands at
+        # M2" while M2 shipped — which is a reason for being unavailable that
+        # has stopped being true. An available capability naming the milestone
+        # that delivered it ("M21's notification centre") is attribution, not an
+        # excuse, and forbidding it would mean no reason could ever say where a
+        # feature came from. Checking the mention rather than the claim is how
+        # this test started failing on three capabilities that were correct.
+        if capability.state == AVAILABLE:
+            continue
+        whose = "NERVIS"
+        for service, milestone in owner.findall(capability.reason or ""):
+            if service:
+                whose = service.upper() if service != "Clarvis" else "CLARVIS"
                 continue
-            assert number > completed, (
-                f"{name} defers to M{number}, and this build says it has "
-                f"completed {completed} milestones"
+            if whose != "NERVIS":
+                continue
+            assert f"M{milestone}" not in shipped, (
+                f"{name} defers to M{milestone}, which NERVIS.md marks as "
+                "shipped. A peer reads this reason to decide what not to "
+                "attempt, so a stale one hides a working feature behind an "
+                "excuse."
             )
 
 

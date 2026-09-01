@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1967 tests, no network, no live service
+.venv/bin/pytest                      # part of 1983 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 587 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 603 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1967 passing across the four, conformance `PASS`.
+Expected: all clean, 1983 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3242,6 +3242,91 @@ Falsified five ways. The record and its clear button live in **Settings**, besid
 the other things a person empties.
 
 **0.10.2 → 0.11.0**, M22 being the eleventh milestone.
+
+### M23 — notes NERVIS was told, 1 Sep. NERVIS 0.12.0
+
+Stage 11's third milestone. A file NERVIS appends to, sitting in the same
+directory as the six hand-written notes.
+
+**"Retrieved the same way" is structural rather than reimplemented.**
+`knowledge.sections()` globs `*.md`, so `learned.md` is indexed, weighted and
+quoted by exactly the code that handles every other note. There is no second
+retrieval path to keep in step with the first, and `tools/knowledge_check.py`
+gates it identically for the same reason — proved by planting a note naming
+`ravis/turbo` and watching the gate refuse it.
+
+**The cache had to go, and that is the bug worth recording.** `sections()` is
+`lru_cache`d, which was correct while every note shipped with the build: they
+changed when somebody edited them, which meant a restart. A learned note is
+appended by a running service — so without invalidation NERVIS would agree to
+remember something, write it, and not know it until the next restart. That looks
+exactly like the feature not working, and no test against a fresh process would
+ever have shown it.
+
+**Hand-written wins, and the loser is renamed rather than dropped.** Where a
+learned note and a shipped one carry the same heading — compared on stemmed
+terms, so capitalisation cannot hide a clash — the shipped one ranks first and
+the learned one is still returned, headed *(overruled)* and carrying a line
+saying why. Silently discarding it hides a disagreement only the person can
+settle; silently preferring it lets a passing remark overwrite the
+documentation. Nothing is edited on disk: the file says what they said.
+
+**Three doors, one road.** *"Remember that…"* in chat produces an offer;
+Settings has a field; and the file is plain markdown anybody can edit. The first
+two go through one enumerated operation and a confirmation — a second write path
+would be a way around the road §12 puts every change on.
+
+**Two phrase-matching faults, both found by trying it.** *"Can you remember what
+I said?"* offered to file *"what I said?"*: `ASKING_FOR` treats "can you…" as a
+request wearing a question mark, which is right for every other operation and
+wrong for the one that takes the rest of the sentence as its content. And
+*"remember that"* left the word **that** as the note, because the optional `that`
+in the pattern backtracks when there is nothing after it.
+
+`propose` was flattened into an ordered list of attempts to stay under the
+complexity ratchet — which also puts the reason one operation is tried before
+another where the pair actually matters. Learning sits above benchmarking:
+*"remember that qwen3-4b is the fast one"* names a model.
+
+Verified against a running NERVIS: written through the operation, listed with
+date and provenance, added from the Settings field, forgotten by heading, and
+the overrule reaching all the way into the text a model is handed.
+
+**0.11.0 → 0.12.0**, M23 being the twelfth milestone.
+
+### The version-scheme test outgrew its own inference, 1 Sep
+
+`test_no_capability_reason_names_a_milestone_that_has_shipped` failed on
+0.12.0, and it was right to fire and wrong about why. Two of its premises had
+quietly stopped holding.
+
+**A count cannot answer *which*.** It derived shipped milestones from
+`BUILD_VERSION` — the scheme is `0.<milestones completed>.<patch>`, so anything
+at or below the minor was taken as finished. True while milestones landed in
+order; Stage 11 ended that. M21, M22 and M23 shipped while M12 has not, and at
+twelve completed the test declared M12 finished and reported
+`nervis.diagnostics@1` as carrying a stale reason that is perfectly current. It
+now reads the ✅ marks in `NERVIS.md`'s milestone table, which is where somebody
+finishing a milestone already writes it down — and the eleven that had shipped
+were marked, because the table had never actually recorded them.
+
+**Whose milestone it is has to be read from the sentence.** Reasons cite other
+services — *"RAVIS since its M18b, SIRVIS since its M21"* — which used to sort
+itself out because everyone else's numbers were higher than NERVIS's own. NERVIS
+has an M21 now. A number is attributed to the last service named before it.
+
+**And a mention is not a deferral.** The defect this test exists for is a reason
+*blaming* something already built: `nervis.dashboard@1` said "peer data lands at
+M2" while M2 had shipped. An available capability naming the milestone that
+delivered it — "M21's notification centre" — is attribution, and forbidding it
+would mean no reason could say where a feature came from. Only capabilities that
+are **not** available are checked now.
+
+Falsified by pointing `nervis.diagnostics@1` at M7: caught.
+
+`tools/check_status.py` also gained a named exemption for `learned.md`, which
+NERVIS creates while running. Named rather than pattern-matched — a wildcard
+would let any future typo through under the excuse of being runtime state.
 
 ### Next — in this order
 

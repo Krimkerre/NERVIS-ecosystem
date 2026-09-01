@@ -232,6 +232,15 @@ DECLARED: dict[str, Capability] = {
         reason="M22's record of what became of each offer: accepted, declined "
         "or edited, shown on the next offer and erasable in one act",
     ),
+    # M23's file. What it advertises is the *storage and retrieval*, not any
+    # judgement: NERVIS keeps what it was told beside the notes it shipped
+    # with, retrieves both the same way, and prefers its own where they clash.
+    "nervis.learned_notes@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M23's learned notes: appended on confirmation, indexed with the "
+        "shipped notes, overruled by them on a clash, and editable as a file",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

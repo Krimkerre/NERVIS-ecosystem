@@ -35,6 +35,7 @@ from nervis.api import (
     diagnostics_router,
     events_router,
     instances_router,
+    learned_router,
     notifications_router,
     proposals_router,
     traces_router,
@@ -82,6 +83,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(diagnostics_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(learned_router)
     api.include_router(notifications_router)
     api.include_router(proposals_router)
     api.include_router(commands_router)

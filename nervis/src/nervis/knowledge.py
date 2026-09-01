@@ -23,7 +23,7 @@ The reading they produce is a *source*, fenced like any other retrieved thing �
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -91,6 +91,17 @@ class Section:
     @property
     def text(self) -> str:
         return f"## {self.heading}\n\n{self.body}"
+
+    @property
+    def learned(self) -> bool:
+        """Whether NERVIS was told this rather than shipped with it (M23).
+
+        Derived from the filename rather than carried as a field, because the
+        one thing that must never happen is a learned note that looks
+        hand-written. A flag can be set wrongly; a file either is or is not the
+        one NERVIS appends to.
+        """
+        return self.subject == "learned"
 
 
 #: Suffixes trimmed before comparing two words, longest first.
@@ -164,13 +175,32 @@ def _weight() -> dict[str, float]:
     return {term: 1.0 + log(total / count) for term, count in seen.items()}
 
 
+def forget_cached() -> None:
+    """Drop the index, so the next question reads the directory again (M23).
+
+    **The files stopped being static when NERVIS gained the ability to write
+    one.** The cache was correct while every note shipped with the build: they
+    changed when somebody edited them, which meant a restart. A learned note is
+    appended by a running service, and without this NERVIS would agree to
+    remember something, write it, and then not know it until the next restart —
+    a bug that looks exactly like the feature not working, and that no test
+    against a fresh process would ever show.
+
+    Both caches, because the weights are derived from the corpus: a new section
+    changes how rare every term in it is.
+    """
+    sections.cache_clear()
+    _weight.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def sections() -> tuple[Section, ...]:
     """Every section of every knowledge file, read once.
 
-    Cached because these are small files that change when somebody edits them,
-    not per request — and a filesystem read on the chat path for something this
-    static would be a cost with no reader.
+    Cached because a question asks for this on the chat path and the files
+    change rarely — when somebody edits one, or when NERVIS appends a learned
+    note. The second of those happens inside a running process, which is what
+    `forget_cached` is for.
     """
     found: list[Section] = []
     if not KNOWLEDGE.is_dir():
@@ -223,7 +253,56 @@ def search(question: str, limit: int = 3) -> list[Section]:
         # about determinism applies to anything that shapes an answer.
         scored.append((score, -index, section))
     scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    return [section for _, _, section in scored[:limit]]
+    return _hand_written_wins([section for _, _, section in scored])[:limit]
+
+
+def _headed(section: Section) -> str:
+    """A heading reduced to the words it is made of, for comparing two of them.
+
+    Stems and sorts, so *The GPU box* and *the gpu boxes* are the same heading.
+    Comparing the raw strings would make the conflict rule miss on
+    capitalisation, which is exactly how two notes about one subject end up
+    both being quoted as though they agreed.
+    """
+    return " ".join(sorted(_terms(section.heading)))
+
+
+def _hand_written_wins(ranked: list[Section]) -> list[Section]:
+    """M23's rule: a shipped note beats a learned one on the same heading.
+
+    **Both are kept and the loser is renamed, not dropped.** A learned note that
+    contradicts a shipped one is somebody having told NERVIS something the notes
+    disagree with, and exactly one of those is wrong. Silently discarding the
+    learned one hides a disagreement the person is the only one who can settle;
+    silently preferring it lets a passing remark overwrite the documentation. So
+    the shipped note is the answer, and the learned one is still shown, marked
+    as overruled.
+
+    Ordering only. Nothing is edited on disk — the file says what the person
+    told NERVIS, whatever the shipped notes say about it.
+    """
+    written = {_headed(s) for s in ranked if not s.learned}
+    if not written:
+        return ranked
+    resolved: list[Section] = []
+    for section in ranked:
+        if not section.learned or _headed(section) not in written:
+            resolved.append(section)
+            continue
+        resolved.append(replace(
+            section,
+            heading=f"{section.heading} (overruled)",
+            body=(
+                "You told NERVIS this, and the note it shipped with says"
+                " otherwise. The shipped note above is the one being used;"
+                " this is here so the disagreement is visible rather than"
+                f" settled quietly.\n\n{section.body}"
+            ),
+        ))
+    # Overruled notes sink below everything they lost to, so a reader — and a
+    # model — meets the answer before the contradiction of it.
+    resolved.sort(key=lambda s: s.heading.endswith("(overruled)"))
+    return resolved
 
 
 #: Second person, as whole words. NERVIS is the assistant, so this is how people
@@ -278,4 +357,5 @@ def reading(question: str) -> str:
     )
 
 
-__all__ = ["Section", "reading", "search", "sections", "KNOWLEDGE", "MAX_CHARACTERS"]
+__all__ = ["Section", "forget_cached", "reading", "search", "sections",
+           "KNOWLEDGE", "MAX_CHARACTERS"]

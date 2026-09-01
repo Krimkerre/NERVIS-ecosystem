@@ -5478,7 +5478,7 @@ async function settingsView(){
    <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
-  + section('What NERVIS remembers', await rememberedSection())
+  + section('What NERVIS remembers', await learnedSection() + await rememberedSection())
   + section('Supervision', `<div class="card wide"><h3>Supervision</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
@@ -5593,6 +5593,63 @@ function effectiveConfig(h){
 function scopeHint(failure){
  if(!failure||!/scope/i.test(failure.message||''))return '';
  return ' · mint one that carries both: sirvis token --mint dashboard --scopes "runtime benchmark"';
+}
+
+/* The notes NERVIS was told (M23).
+
+   **Three ways in, and this is the third.** Say "remember that…" in chat and
+   press the button; edit `knowledge/learned.md` in any editor; or type one
+   here. They write the same file, which is the point — the record is a markdown
+   document beside the notes NERVIS shipped with, not a store this screen owns.
+
+   The path is printed because "you can edit this yourself" is only true if
+   somebody is told where. */
+async function learnedSection(){
+ let record={items:[],count:0,path:''},live=false;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/learned',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok){record=await r.json();live=true}
+ }catch(e){}
+ const rows=record.items.map(n=>`<div class="table-row" style="grid-template-columns:2.6fr 1fr .9fr">
+   <span><b>${escapeHtml(n.heading)}</b>
+     ${n.body!==n.heading?`<br><small class="mono dim">${escapeHtml(n.body)}</small>`:''}
+     ${n.prompted_by&&n.prompted_by!==n.body?`<br><small class="mono dim" style="opacity:.6">you said: “${escapeHtml(n.prompted_by)}”</small>`:''}</span>
+   <span class="mono dim" style="font-size:11px">${escapeHtml(n.learned_on||'—')}</span>
+   <span><button class="mode-chip" onclick="forgetNote('${jsAttr(n.heading)}')">Forget</button></span></div>`).join('');
+ /* The field writes through the same enumerated operation the chat button uses.
+    A second write path would be a way around the road §12 puts every change on,
+    and there is no reason for this one to be special — a person typing here is
+    confirming as plainly as a person pressing Remember. */
+ const compose=live?`<div class="filter-row" style="margin-top:9px;align-items:center">
+   <input class="mono" id="learnNew" style="flex:1;min-width:220px"
+     placeholder="something NERVIS should remember"
+     onkeydown="if(event.key===\'Enter\')addNote()">
+   <button class="mode-chip" onclick="addNote()">Remember it</button>
+  </div>`:'';
+ return `<div class="card wide${liveClass(live)}"><h3>What you have told NERVIS
+   <span class="chip">${escapeHtml(record.count)}</span></h3>${cell(
+  (record.count?`<div class="table-row head caps" style="grid-template-columns:2.6fr 1fr .9fr">
+    <span>Note</span><span>Learned</span><span></span></div>${rows}`
+   :(live?banner('Nothing yet','Say “remember that…” in chat and press the button, type one below, or edit the file directly.','info')
+         :banner('NERVIS is not answering','These notes live in a file NERVIS reads, and cannot be listed from here until it is up.','warn')))
+  +compose,'nervis')}
+   <small class="mono dim">${live&&record.path?`Kept in <b>${escapeHtml(record.path)}</b>, a plain markdown file beside the notes NERVIS shipped with — edit or delete it in any editor. `:''}<b>Retrieved exactly like the others</b>: the same index, the same weighting, the same quoting. <b>The shipped notes win.</b> Where something you told NERVIS disagrees with one of its own notes on the same subject, the shipped one is used and yours is still shown, marked <b>overruled</b> — exactly one of the two is wrong and you are the only one who can say which. <b>Nothing is written without you pressing something</b>, and nothing a model produced is written here: what is stored is your sentence.</small></div>`;
+}
+
+/* Add a note from Settings, through the same operation the chat offer runs. */
+async function addNote(){
+ const field=document.getElementById('learnNew');
+ const said=(field&&field.value||'').trim();
+ if(said.length<3)return;
+ field.value='';
+ await runCommand('nervis.knowledge.learn',said,'','');
+ render();
+}
+
+async function forgetNote(heading){
+ try{await fetch(`${BASE.nervis}/api/v1/learned/${encodeURIComponent(heading)}`,
+   {method:'DELETE',signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
 }
 
 /* What NERVIS has learned from the offers you answered (M22).

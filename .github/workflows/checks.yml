@@ -256,7 +256,15 @@ jobs:
         working-directory: nervis
         run: node tools/proposal_check.js
 
-      # **Thirteen of the fifteen gate scripts, and the other two are not an
+      # M23 puts a writable file beside the notes NERVIS shipped with. The risk
+      # is authorship, not corruption: a note must arrive because somebody
+      # confirmed one, carrying their sentence rather than a model's summary of
+      # it, and a note the shipped files overrule must still be visible.
+      - name: Dashboard — nothing is written to NERVIS's notes unasked
+        working-directory: nervis
+        run: node tools/learned_check.js
+
+      # **Fourteen of the sixteen gate scripts, and the other two are not an
       # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
       # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
       # watch screens survive a service that stops answering, which needs a

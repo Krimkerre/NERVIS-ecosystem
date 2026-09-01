@@ -102,6 +102,16 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="this conversation to {target}",
         action="Export",
     ),
+    # **Somebody's own sentence, kept where the shipped notes are** (M23).
+    # NERVIS does not decide what is worth remembering and nothing a model
+    # returns is written: the text stored is what the person typed, and it is
+    # stored because they pressed a button saying so.
+    Operation(
+        id="nervis.knowledge.learn",
+        service="nervis",
+        summary="“{target}” to what you have told NERVIS",
+        action="Remember",
+    ),
     Operation(
         id="sirvis.benchmark.submit",
         service="sirvis",
@@ -306,20 +316,104 @@ def propose(
     if (ASKING.search(question) or QUESTION_MARK.search(question)) \
             and not ASKING_FOR.search(question):
         return None
-    switching = SWITCH.search(question)
-    if switching and pools:
-        switched = _switch_proposal(question, pools)
-        if switched is not None:
-            return switched
+    # **Tried in order, and the order is the whole of the disambiguation.**
+    # Each entry is a branch this used to hold inline; as a list it stays flat
+    # while the set grows, and the reason one comes before another is written
+    # where the pair actually matters rather than implied by nesting.
+    #
+    # Learning sits above benchmarking because *"remember that qwen3-4b is the
+    # fast one"* names a model, and read the other way round it becomes an offer
+    # to measure one.
+    for attempt in (
+        lambda: _switch_proposal(question, pools) if SWITCH.search(question) and pools else None,
+        lambda: _cancel_from(question, jobs),
+        lambda: _saving_proposal(question, default_name),
+        lambda: _learning_proposal(question),
+        lambda: _benchmark_proposal(question, models) if BENCHMARK.search(question) else None,
+    ):
+        found = attempt()
+        if found is not None:
+            return found
+    return None
+
+
+def _cancel_from(question: str, jobs: Sequence[Mapping[str, Any]]) -> Proposal | None:
+    """Cancel, which unlike the others matches on a group rather than a flag."""
     stopping = CANCEL.search(question)
-    if stopping:
-        return _cancel_proposal(stopping.group("job") or "", jobs)
-    saving = _saving_proposal(question, default_name)
-    if saving is not None:
-        return saving
-    if not BENCHMARK.search(question):
+    if not stopping:
         return None
-    return _benchmark_proposal(question, models)
+    return _cancel_proposal(stopping.group("job") or "", jobs)
+
+
+#: *remember that…*, *note that…*, *keep in mind…*. The trailing clause is the
+#: note; everything before it is the request to keep one.
+#:
+#: **`that` is optional and the colon form is included**, because "remember: the
+#: box is on the desk" is how people actually write this down. What is *not*
+#: matched is a bare "remember" with nothing after it — there is no note in that
+#: sentence, and offering to store an empty one is worse than not offering.
+LEARN = re.compile(
+    r"\b(?:remember|note|keep in mind|don.t forget)\b"
+    r"(?:\s+that)?\s*[:,]?\s+(?P<note>\S.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: How much of a note becomes its heading. A heading is an index entry and it
+#: counts triple in retrieval, so it wants the distinctive words — but it is
+#: also what the person reads on the button, so it is their own words in their
+#: own order rather than a bag of terms.
+HEADING_WORDS = 8
+
+#: Words that are all that remains when the phrase has consumed the sentence.
+#: Not a stop-word list — these are the three tokens the pattern itself can
+#: leave behind, and nothing else belongs here.
+_FILLER = frozenset({"that", "this", "it"})
+
+
+def _learning_proposal(question: str) -> Proposal | None:
+    """*"Remember that the GPU box has an RX 6800"* — an offer to write it down.
+
+    The whole sentence is the note and the first few words are its heading, so
+    what the button says is what the file will contain. Nothing is summarised:
+    a heading NERVIS invented would be NERVIS deciding what somebody meant, and
+    the point of this operation is that it does not.
+    """
+    said = LEARN.search(question)
+    if not said:
+        return None
+    note = " ".join(said.group("note").split()).strip(" .")
+    # **What is left when the phrase eats itself.** "remember that" has nothing
+    # after it, so the optional `that` in the pattern backtracks and the word
+    # itself becomes the note — an offer to file the word "that" as something
+    # NERVIS had been told. The same happens with "note this" and "remember it".
+    if len(note) < 3 or note.lower() in _FILLER:
+        return None
+    # **A question about remembering is not a note.** `ASKING_FOR` treats "can
+    # you…" as a request wearing a question mark, which is right for "can you
+    # benchmark qwen3-4b" and wrong here: *"can you remember what I said?"*
+    # reached this and offered to file "what I said?" as a thing NERVIS had been
+    # told. The difference is that every other operation names a target that
+    # exists whether or not the sentence is a question, and this one takes the
+    # rest of the sentence as its content — so a question mark makes the content
+    # a question, and there is nothing to store.
+    if QUESTION_MARK.search(note):
+        return None
+    operation = BY_ID["nervis.knowledge.learn"]
+    return Proposal(
+        operation=operation.id, service=operation.service, target=note,
+        summary=operation.summary.format(target=_heading_of(note)),
+        ready=True, action=operation.action,
+        detail="kept beside the notes NERVIS shipped with, and overruled by them "
+               "where the two disagree",
+    )
+
+
+def _heading_of(note: str) -> str:
+    """The first few words, which is what the note is filed under."""
+    words = note.split()
+    if len(words) <= HEADING_WORDS:
+        return note
+    return " ".join(words[:HEADING_WORDS]) + "…"
 
 
 def _segments(name: str) -> set[str]:
