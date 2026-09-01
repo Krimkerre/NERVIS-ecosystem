@@ -93,3 +93,24 @@ The management API is **degraded**: reads work, and pool-membership and
 provider-configuration writes exist, but authorization on a loopback bind is not
 finished. Cost figures are estimates from published prices unless the provider
 reported them; a record says which.
+
+## The free pool
+
+`ravis/free-api` holds models that cost nothing **and** run on somebody else's
+hardware. Both halves matter. `ravis/cheap` prefers local, and on a machine with
+a runtime "cheapest" means a local model — which is right for cheap and wrong
+for background work, because loading a local model is how work nobody is
+watching starts competing for memory with the conversation you are having.
+
+It is deliberately not private. A free tier is free because your prompt is worth
+something to the provider, so anything sent here is logged and likely trained
+on. A request that asked to stay on this machine can never reach it: free
+requires remote and local requires local, so the two have no model in common.
+
+Rate limits are normal here rather than a fault — a refusal from one free model
+means try the next, which is what the fallback chain already did.
+
+If nothing free is available the pool refuses rather than quietly using a paid
+model. That is the difference between a ceiling that is a promise and one that
+is a preference: cheap falls back to the cheapest paid model, free does not fall
+back at all.

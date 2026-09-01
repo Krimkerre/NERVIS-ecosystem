@@ -202,19 +202,37 @@ def test_the_session_is_its_own_and_stable(database: Any) -> None:
     assert background.session_id(database) == first
 
 
-def test_the_contention_gap_is_stated_rather_than_assumed(database: Any) -> None:
-    """`ravis/background` (RAVIS M26) does not exist, so "does not contend" is
-    the operator's choice of pool. Said out loud in what the API returns."""
+def test_the_contention_claim_matches_the_pool_in_force(database: Any) -> None:
+    """**This test used to pin the gap. The gap is closed, so it pins the fix.**
+
+    M25 shipped naming RAVIS M26's `ravis/background`, whose invariant was "must
+    not contend" — a judgement nothing could check. `ravis/free-api` (RAVIS M28) is
+    a checkable rule with the same outcome: free and remote cannot take the
+    memory chat needs.
+
+    What is asserted is that the sentence tracks the configuration rather than
+    being a fixed boast. Point it at another pool and it stops claiming.
+    """
     said = background.settings(database).as_dict()["contention"]
-    assert "ravis/background does not exist yet" in said
-    assert "RAVIS M26" in said
+    assert "ravis/free-api costs nothing and runs elsewhere" in said
+
+    background.configure(database, pool="ravis/auto")
+    said = background.settings(database).as_dict()["contention"]
+    assert "ravis/auto is not ravis/free-api" in said
+    assert "depends on what that pool resolves to" in said
 
 
-def test_the_default_pool_is_not_the_free_one(database: Any) -> None:
-    """"Cheapest" resolves to a local model, and loading one is how unattended
-    work starts competing with the conversation somebody is having."""
+def test_the_default_pool_cannot_resolve_to_a_local_model(database: Any) -> None:
+    """The constraint underneath the default, which outlives the default.
+
+    `ravis/cheap` is the trap: "least monetary cost" resolves to a local model,
+    and loading one is exactly how work nobody is watching starts competing with
+    the conversation somebody is having. `ravis/free-api` requires *remote* as well
+    as free, which is why it is the default rather than cheap.
+    """
+    assert background.DEFAULTS[background.POOL] == "ravis/free-api"
+    assert background.settings(database).pool == "ravis/free-api"
     assert background.DEFAULTS[background.POOL] != "ravis/cheap"
-    assert background.settings(database).pool == "ravis/auto"
 
 
 # ── Triggers ────────────────────────────────────────────────────────────────

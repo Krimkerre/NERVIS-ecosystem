@@ -297,6 +297,22 @@ class RoutingEngine:
             measured,
         )
         by_default = not chosen
+        # **An empty membership means nothing qualified, not "no restriction".**
+        # `_rank` reads `not chosen or model in chosen`, so a membership that
+        # filtered everything out is indistinguishable there from one that was
+        # never computed — and the pool silently admits the candidates it had
+        # just excluded. Harmless for a pool expressing taste, which falls back
+        # to everything on purpose; wrong for one whose ceiling is a contract,
+        # where the fallback bills a caller who asked for free.
+        if by_default and pool.refuse_above_ceiling and not effective and candidates:
+            decision.excluded = _exclusions(
+                pool, candidates, requirements, unavailable, remote, effective,
+                by_default, refusals, measured,
+            )
+            decision.reason = (
+                f"no candidate satisfies {pool.pool_id}; the pool is unavailable"
+            )
+            return decision
         decision.excluded = _exclusions(
             pool, candidates, requirements, unavailable, remote, effective, by_default,
             refusals, measured,

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2022 tests, no network, no live service
+.venv/bin/pytest                      # part of 2033 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 642 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2022 passing across the four, conformance `PASS`.
+Expected: all clean, 2033 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3636,6 +3636,88 @@ seventy-five seconds — it stayed off, and the explanation was that a person ha
 pressed it.
 
 **0.13.3 → 0.14.0**, M25 being the fourteenth milestone. Stage 11 is complete.
+
+### `ravis/free-api`, and the clause M25 could not meet — RAVIS 0.21.0, NERVIS 0.14.1
+
+The operator proposed a pool of free-tier hosted models and asked whether it
+would suit background work. It suits it better than the milestone that was
+planned for it.
+
+**M25 shipped with its contention clause openly unmet.** It asks for a pool
+distinct from chat's *so the two do not contend*, which RAVIS M26's
+`ravis/background` was to guarantee with the invariant "must not contend" — a
+judgement nothing can check. `ravis/free-api` is a checkable rule that produces the
+same outcome, and it is now M25's default.
+
+**Free *and* remote, and neither half is redundant.** `ravis/cheap` prefers
+local, and on any machine with a runtime "least monetary cost" resolves to a
+local model — right for cheap, wrong here, because loading a local model is
+exactly how work nobody is watching starts competing for memory with the
+conversation somebody is having. It is the same reason §9.6.1's marker is not
+the answer: *must be free* admits a local model.
+
+**Below `private`, structurally rather than by rule.** A free tier is free
+because the prompt is worth something, so this is an egress path with logging.
+`free` requires remote while `local` and `private` require local, which leaves
+the two with no candidate in common — a request that asked to stay on the
+machine cannot reach a logged free tier by any route.
+
+**Rate limits needed no new handling.** `RATE_LIMIT` is already
+`retry_same_target=False, may_fall_back=True`: this one is spent, try the next.
+Asserted rather than added, so it stays true if the policy is revisited.
+
+**And it found a real defect, two layers deep.** `default_membership` ends
+`tuple(matched) or tuple(candidates)` — a guard against a pool resolving to
+nothing. For a pool expressing taste that is right; for one whose ceiling is a
+contract it means a caller who asked for free is billed, silently, because the
+fallback leaves no exclusion to explain. Behind it, `_rank` reads
+`not chosen or model in chosen`, so an empty membership is indistinguishable
+from one never computed and the pool admits what it had just excluded. Both are
+fixed for pools that set `refuse_above_ceiling`; `ravis/cheap` keeps falling
+back, which is correct for it.
+
+**It works.** 21 free members on this machine, and a live request through
+`ravis/free-api` served by `cohere/north-mini-code:free`. NERVIS's unattended work
+now defaults to it, and the card's contention sentence tracks the pool actually
+configured rather than being a fixed boast — point it elsewhere and it stops
+claiming.
+
+RAVIS **M28**, ticked. 0.20.3 → 0.21.0, and NERVIS 0.14.0 → 0.14.1.
+
+### Free is not the same as able to answer, 1 Sep
+
+Two findings from putting `ravis/free-api` in front of a real catalogue, both
+from the operator looking at what it had actually selected.
+
+**`google/lyria-3-pro-preview` was a member.** It publishes a price of zero and
+runs remotely, so it satisfied every constraint the pool has — and it generates
+music. `NOT_CHAT` already covered embeddings, rerankers, speech and images and
+had no word for music. Added by family name rather than by the word `audio`,
+which is the trap: `gpt-4o-audio-preview` is a chat model that happens to hear,
+and excluding on `audio` would drop a working model to catch a broken one.
+
+**And a tick could override it.** Routability lived only in
+`default_membership`, so a pool curated by hand skipped the check entirely —
+which is how two music models survived being explicitly selected. `_is_routable`
+says in its own docstring that this is "not a matter of taste and not per pool",
+so it now applies in `eligible` as well, and there is no path that admits one.
+
+**`openrouter/auto` was a false alarm worth recording.** It looked like a hole —
+OpenRouter publishes `prompt=-1, completion=-1` for its auto-router, meaning
+"depends what it routes to", and `-1 <= 0` would pass a zero ceiling and read as
+cheaper than free. The provider adapter already refuses a negative price and
+leaves the model unpriced, and unpriced is excluded rather than treated as free.
+The two entries appeared because the operator had ticked them, mistaking them
+for `openrouter/free`, and removed them again.
+
+Renamed **`ravis/free` → `ravis/free-api`** at the operator's request. The
+stored curation is keyed by pool id, so the rename would have silently orphaned
+21 hand-picked models; migrated, with the previous file kept beside it.
+
+19 members on this machine after the exclusions, `openrouter/free` among them —
+which is the arrangement worth keeping. RAVIS picks on capability evidence,
+refuses when nothing qualifies and explains what it excluded; OpenRouter's own
+router is the candidate that knows which free model is rate-limited right now.
 
 ### Next — in this order
 

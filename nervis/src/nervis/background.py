@@ -48,10 +48,16 @@ CEILING = "background.daily_runs"
 
 DEFAULTS = {
     ENABLED: "0",
-    # Not `ravis/cheap`: "cheapest" resolves to a local model, and a local model
-    # is precisely what this must not take, because loading one is how
-    # unattended work starts competing with the conversation somebody is having.
-    POOL: "ravis/auto",
+    # **`ravis/free-api` (RAVIS M28), which is what this milestone actually wanted.**
+    # It shipped defaulting to `ravis/auto` with the contention clause openly
+    # unmet, because the pool that would satisfy it did not exist. It does now:
+    # free *and* remote, so unattended work costs nothing and cannot take the
+    # memory the conversation somebody is having needs.
+    #
+    # Not `ravis/cheap`, whose "cheapest" resolves to a local model — the one
+    # outcome this cannot afford. Not §9.6.1's marker either, for the same
+    # reason: "must be free" admits a local model.
+    POOL: "ravis/free-api",
     INTERVAL: "30",
     # A ceiling in runs rather than currency. NERVIS counts requests and does
     # not know prices — §14's rule about estimates and invoices — so a spend cap
@@ -95,9 +101,18 @@ class Settings:
             # Said plainly rather than left to be discovered: the pool is the
             # operator's choice until RAVIS M26 exists, so "does not contend" is
             # not a promise this build can make.
+            # **The clause is met now, and by a different pool than planned.**
+            # M25 named RAVIS M26's `ravis/background`, whose invariant was
+            # "must not contend" — a judgement. `ravis/free-api` (RAVIS M28) is a
+            # checkable rule that produces the same outcome: free and remote
+            # cannot take local memory, and cannot cost anything either.
             "contention": (
-                "ravis/background does not exist yet (RAVIS M26), so whether this "
-                "competes with chat depends on the pool chosen above"
+                "ravis/free-api costs nothing and runs elsewhere, so unattended work "
+                "cannot take memory chat needs — as long as the pool above is a "
+                "remote one"
+                if self.pool == "ravis/free-api" else
+                f"{self.pool} is not ravis/free-api, so whether this competes with "
+                "chat depends on what that pool resolves to"
             ),
         }
 

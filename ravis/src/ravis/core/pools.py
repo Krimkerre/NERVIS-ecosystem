@@ -152,6 +152,20 @@ class VirtualModelPool:
     # RAVIS cannot see and must not guess at. Those models are one tick away in
     # the picker; they are simply not something this can conclude.
     max_price_per_million: float | None = None
+    #: Whether the ceiling is a **promise** rather than a preference.
+    #:
+    #: Membership ends `tuple(matched) or tuple(candidates)` — a guard against a
+    #: pool resolving to nothing. For a pool expressing taste that is right:
+    #: `ravis/cheap` means "least cost", and a machine where nothing is free
+    #: should still get the cheapest paid model rather than a refusal.
+    #:
+    #: For `ravis/free-api` it is exactly wrong. That pool's name is its contract,
+    #: and falling back to everything means a caller who asked for free is
+    #: billed — silently, because the fallback leaves no exclusion to explain.
+    #: With this set the pool resolves to nothing instead, and the engine
+    #: refuses with a reason, which is what every other promise in this file
+    #: does (`ravis/local` refuses rather than relaxing).
+    refuse_above_ceiling: bool = False
     # Which size tier this pool takes by default: `small`, `mid`, `large`.
     #
     # **A declared default, not a measurement, and the difference is the whole
@@ -312,7 +326,15 @@ class VirtualModelPool:
         """
         members = [
             model for model, known in candidates.items()
-            if not self.requirements.unmet_by(known, remote=model in remote)
+            # **Routability first, and it belongs here rather than only in
+            # `default_membership`.** That is where it was, so a pool the
+            # operator had curated by hand skipped it — `ravis/free-api` held
+            # two Google Lyria entries, which are free, remote, and generate
+            # music. Whether a model can answer a chat completion at all is not
+            # a matter of taste, so it is not something a tick can override; the
+            # same reasoning `_is_routable`'s own docstring gives.
+            if self._is_routable(model)
+            and not self.requirements.unmet_by(known, remote=model in remote)
         ]
         return sorted(members, key=lambda model: (self.preference_rank(model), *size_rank(model)))
 
@@ -359,6 +381,11 @@ class VirtualModelPool:
                 # in the cheap pool by saying least about itself.
                 if prices.get(model) is not None and prices[model] <= ceiling  # type: ignore[operator]
             ]
+            if self.refuse_above_ceiling:
+                # No `or tuple(candidates)`. A pool whose ceiling is a promise
+                # resolves to nothing rather than to everything, and the engine
+                # refuses — the same shape as `ravis/local` declining to relax.
+                return tuple(matched)
         return tuple(matched) or tuple(candidates)
 
     @staticmethod
@@ -521,6 +548,15 @@ TIER_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 NOT_CHAT = (
     "embedding", "embed", "whisper", "tts", "dall-e", "moderation",
     "rerank", "guard", "transcribe", "image", "video", "voice",
+    # **Music generation**, found in `ravis/free-api`: `google/lyria-3-pro-preview`
+    # publishes a price of zero and runs remotely, so it satisfied a free pool
+    # perfectly and cannot answer a chat completion at all. The list already
+    # covered speech and images and had no word for music.
+    #
+    # Named families rather than the word `audio`, which is the trap here:
+    # `gpt-4o-audio-preview` *is* a chat model that happens to hear, and
+    # excluding it would drop a working model to catch a broken one.
+    "lyria", "music", "musicgen", "audiogen", "suno", "bark",
 )
 
 
@@ -800,6 +836,49 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         prefer_cheap=True,
         prefer_local=True,
         max_price_per_million=0.0,
+    ),
+    # **Free and somebody else's hardware, which is not the same as cheap.**
+    #
+    # `ravis/cheap` prefers local, and on the machine this runs on "least cost"
+    # resolves to a local model — correct for cheap and wrong for the caller
+    # this exists for. Unattended work (NERVIS M25) must not load a local model:
+    # loading one is exactly how work nobody is watching starts competing for
+    # memory with the conversation somebody is having. So the constraint is
+    # *free* **and** *remote*, and neither half is redundant.
+    #
+    # It is also why §9.6.1's background marker is not the answer. That marker
+    # means "must be free" and lets a local model satisfy it, which is the one
+    # outcome background work cannot afford.
+    #
+    # **Below `private` in the privacy ladder, and that is a boundary rather
+    # than a preference.** A provider's free tier is free because the prompt is
+    # worth something — OpenRouter's free variants are trained on. So this pool
+    # is an egress path with logging, it may never be reached by a request that
+    # asked for `private` or `local`, and a caller that wants free *and* private
+    # is asking for something no provider sells.
+    #
+    # **Rate limits are the normal case here, not a fault.** Free tiers cap per
+    # minute and per day, so a 429 from one candidate means "this one is spent,
+    # try the next" rather than "the pool failed" — the fallback chain's
+    # behaviour, not the breaker's.
+    VirtualModelPool(
+        pool_id="ravis/free-api",
+        label="Free API",
+        description=(
+            "Costs nothing and runs on somebody else's hardware. Free tiers "
+            "are logged and trained on, so this is never a private route"
+        ),
+        requirements=PoolRequirements(locality="remote"),
+        max_price_per_million=0.0,
+        # The ceiling is the contract, not a leaning. Without this a machine
+        # with no free model routes unattended work to a paid one and says
+        # nothing about it.
+        refuse_above_ceiling=True,
+        # Not `prefer_cheap`: every candidate here already prices at zero, so a
+        # cheapness tiebreak would sort on a column where every row is 0.0 and
+        # the order would fall to whatever came next. Speed is the useful
+        # tiebreak among things that all cost nothing.
+        prefer_fast=True,
     ),
     VirtualModelPool(
         pool_id="ravis/local",
