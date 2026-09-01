@@ -800,6 +800,12 @@ async def send(request: Request) -> Any:
     # round trips before, and RAVIS rate-limits — the second copy of the
     # catalogue read is what came back 429 and emptied the model counts out of
     # the reading in the same turn that had just read them successfully.
+    # **The plan is tried first, and it composes `propose` rather than
+    # replacing it** (M24). A sentence with `then` in it is an ordering; one
+    # without is a single request. Where a sentence looks like a plan but a
+    # clause names no operation, `plan` returns nothing and this falls through
+    # to the single-offer path, which reads the first clause — running half of
+    # what somebody asked for is the failure the whole design avoids.
     offer = (
         commands.propose(
             content,
@@ -824,6 +830,23 @@ async def send(request: Request) -> Any:
     # it would have made before any of this existed. History decorates; it never
     # composes.
     offer = _remembered(database, offer)
+    sequence = (
+        _planned(
+            database,
+            commands.plan(
+                content,
+                await _catalogue(request),
+                await _jobs(request, content),
+                await _pools(request, content),
+                default_name=transcript.suggested_name(
+                    _stored_title(database, conversation_id) or content,
+                    datetime.now().astimezone(),
+                ),
+            ),
+        )
+        if not greeting
+        else None
+    )
     # A file the person named, read before the model sees anything (§11.5).
     #
     # **A source, not a tool.** The model never chooses what is opened: the
@@ -918,6 +941,10 @@ async def send(request: Request) -> Any:
             # It travels beside the reply rather than inside it: a control the
             # model could write into its own text is a control the model has.
             "x-command-offer": json.dumps(offer.as_dict()) if offer else "",
+            # The plan, beside the single offer and for the same reason: a
+            # sequence the model could write into its own text is a sequence the
+            # model has. Both travel; the page draws whichever it was sent.
+            "x-command-plan": json.dumps(sequence.as_dict()) if sequence else "",
         },
     )
 
@@ -1154,6 +1181,24 @@ def _display_name(database: Any) -> str:
     except ValueError:
         return ""
     return str(found).strip() if isinstance(found, str) else ""
+
+
+def _planned(database: Any, sequence: Any) -> Any:
+    """Give a plan an id and give every step its own (M24).
+
+    Each step is remembered separately because each step is separately
+    answerable: M22 records what became of an offer, and a plan does not make
+    its steps one offer. Somebody who runs a plan accepted every step in it, and
+    the record should say so step by step rather than as a single verdict on an
+    ordering.
+    """
+    if sequence is None:
+        return None
+    return replace(
+        sequence,
+        plan_id="pl_" + uuid.uuid4().hex[:12],
+        steps=tuple(_remembered(database, step) for step in sequence.steps),
+    )
 
 
 def _remembered(database: Any, offer: commands.Proposal | None) -> commands.Proposal | None:

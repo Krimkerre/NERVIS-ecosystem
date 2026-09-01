@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1983 tests, no network, no live service
+.venv/bin/pytest                      # part of 1997 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 603 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 617 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1983 passing across the four, conformance `PASS`.
+Expected: all clean, 1997 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3327,6 +3327,53 @@ Falsified by pointing `nervis.diagnostics@1` at M7: caught.
 `tools/check_status.py` also gained a named exemption for `learned.md`, which
 NERVIS creates while running. Named rather than pattern-matched — a wildcard
 would let any future typo through under the excuse of being runtime state.
+
+### M24 — plans, confirmed once as an ordering, 1 Sep. NERVIS 0.13.0
+
+Stage 11's fourth milestone, and the one whose exit criterion does most of the
+design: *one confirmation is an ordering decision and not a blanket approval*.
+
+**That is a property rather than a rule to remember.** `plan()` splits the
+sentence and hands each clause to `propose` — the same function that would have
+handled it alone — so a plan cannot contain an operation that is not offerable
+on its own. There is no second way to build a step, and a test asserts the two
+routes produce identical steps, so if one is ever added the check fails rather
+than the guarantee quietly evaporating.
+
+**`then` and nothing else.** Splitting on `and` would turn *"benchmark the
+qwen3-4b and granite-4-micro builds"* — one request naming two models — into two
+steps NERVIS invented, and a comma does the same to every list anybody writes.
+`then` is the word that expresses an ordering, which is what is being confirmed.
+
+**All or nothing.** A sentence where one clause names no operation is not a plan
+with a gap; it is a sentence that was not a plan. It falls through to the
+single-offer path rather than running the half NERVIS understood.
+
+**Three endings, and none of them is another.** Finished, stopped, and halted are
+reported separately: a stop takes effect at the next step boundary and says how
+far it got — what was started finishes and nothing after it begins, which is the
+only version that can honestly report what already happened. A failed step halts
+the rest, because continuing runs a sequence whose premise is gone. Reporting a
+halt as a stop would make "it stopped" mean nothing.
+
+**Steps run one at a time and awaited.** Firing them together would run as a set
+what somebody approved as a sequence. `plan_check.js` watches for overlap
+directly rather than trusting the shape of the code.
+
+Each step keeps its own `proposal_id`, so M22 records which offers were taken
+rather than one verdict on an ordering — and declining a plan records a decline
+against every step for the same reason.
+
+A plan is capped at six steps. Not about cost, since every step is bounded on
+its own: it is that a confirmation has to mean something, and nobody reads
+fifteen steps and means all of them.
+
+Verified against the running stack: *"remember that the gpu box has an RX 6800
+then export this conversation"* produced a two-step plan with its own ids, drawn
+whole before anything ran, and both steps executed in order — the note filed,
+the PDF written.
+
+**0.12.0 → 0.13.0**, M24 being the thirteenth milestone.
 
 ### Next — in this order
 

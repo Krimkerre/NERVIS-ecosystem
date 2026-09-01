@@ -289,6 +289,82 @@ class Proposal:
         }
 
 
+#: What separates one step from the next. **`then` and nothing else**, which is
+#: the whole discipline of this feature: a plan is an *ordering*, and `then` is
+#: the word that expresses one. Splitting on `and` would turn "benchmark the
+#: qwen3-4b and granite builds" — a single request naming two models — into two
+#: steps NERVIS invented, and splitting on a comma would do the same to every
+#: list anybody writes.
+STEP = re.compile(r"\s*,?\s*\b(?:and\s+)?then\b\s*", re.IGNORECASE)
+
+#: A plan longer than this is not an ordering somebody is holding in their head.
+#: The cap is not about cost — every step is bounded on its own — it is about
+#: the confirmation being meaningful: a person cannot read fifteen steps and
+#: mean all of them.
+MAX_STEPS = 6
+
+
+@dataclass(frozen=True)
+class Plan:
+    """An ordered sequence of offers, confirmed once as an order.
+
+    **One confirmation, and it buys ordering rather than authority.** Every step
+    is a `Proposal` built by `propose` from one clause of what the person typed,
+    so each is an operation §12 already allows with a target derived from their
+    own words. Pressing the button says *do these, in this order*; it does not
+    say *and anything else that follows from them*, because nothing follows —
+    there is no step here that could not have been offered on its own.
+
+    `ready` is false when any step is, and the plan is still returned: "I could
+    prepare two of these three" is an answer, and a plan that silently dropped
+    the step it could not build would run something other than what was read.
+    """
+
+    steps: tuple[Proposal, ...]
+    plan_id: str = ""
+
+    @property
+    def ready(self) -> bool:
+        return bool(self.steps) and all(step.ready for step in self.steps)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "ready": self.ready,
+            "steps": [step.as_dict() for step in self.steps],
+        }
+
+
+def plan(
+    question: str,
+    models: Sequence[Mapping[str, Any]],
+    jobs: Sequence[Mapping[str, Any]] = (),
+    pools: Sequence[Mapping[str, Any]] = (),
+    default_name: str = "",
+) -> Plan | None:
+    """Several offers from one sentence, or `None` if it is not a sequence.
+
+    **Composed from `propose`, never around it.** Each clause goes through
+    exactly the function that would have handled it alone, so a plan cannot
+    contain an operation that is not offerable on its own — which is what makes
+    the single confirmation an ordering decision. If that ever stops being true,
+    it will be because somebody added a second way to build a step.
+    """
+    clauses = [part.strip() for part in STEP.split(question) if part.strip()]
+    if len(clauses) < 2:
+        return None
+    if len(clauses) > MAX_STEPS:
+        return None
+    steps = [propose(clause, models, jobs, pools, default_name) for clause in clauses]
+    # **All or nothing.** A sentence where only some clauses name an operation is
+    # not a plan with gaps, it is a sentence that was not a plan — and running
+    # the half NERVIS understood is the failure this whole design exists to
+    # avoid. Falls back to the single-offer path, which reads the first clause.
+    if any(step is None for step in steps):
+        return None
+    return Plan(steps=tuple(step for step in steps if step is not None))
+
+
 def propose(
     question: str,
     models: Sequence[Mapping[str, Any]],

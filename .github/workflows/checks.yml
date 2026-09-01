@@ -264,7 +264,15 @@ jobs:
         working-directory: nervis
         run: node tools/learned_check.js
 
-      # **Fourteen of the sixteen gate scripts, and the other two are not an
+      # M24's confirmation buys an ordering, not authority. Three things must
+      # stay true once the button is pressed: the steps run in order and one at
+      # a time, a stop lands at a boundary and can say what had already
+      # happened, and a failure halts the rest rather than continuing past it.
+      - name: Dashboard — a plan runs in order, stops cleanly, halts on failure
+        working-directory: nervis
+        run: node tools/plan_check.js
+
+      # **Fifteen of the seventeen gate scripts, and the other two are not an
       # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
       # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
       # watch screens survive a service that stops answering, which needs a

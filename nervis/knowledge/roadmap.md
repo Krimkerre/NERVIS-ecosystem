@@ -78,7 +78,26 @@ say which, so neither is hidden. Notes can be forgotten one at a time or all at
 once, and the file can simply be deleted — retrieval then behaves exactly as it
 did before any of this existed.
 
-### Planning
+### Planning — built, 1 September
+
+**Built.** Say two things joined by *then* — "remember that the box is on the
+desk then export this conversation" — and NERVIS offers the whole sequence as a
+plan, drawn in full before any of it runs. One button confirms the order.
+
+What that button buys is the *ordering*, not permission. Every step is an offer
+NERVIS would have made on its own from a clause you typed, so there is nothing
+in a plan you could not have confirmed one at a time. Only *then* splits a plan:
+"benchmark the qwen3-4b and granite builds" is one request naming two models,
+not two steps. And if any clause names nothing NERVIS can do, there is no plan
+at all rather than a plan with a gap — running the half it understood would be
+worse than asking again.
+
+While it runs you can stop it. The stop lands at the next step, never in the
+middle of one, and the plan then says how far it got. If a step fails, the rest
+does not run: the sequence had a premise and the premise is gone. Finished,
+stopped and halted are reported as three different things, because they are.
+
+The older description of this idea follows.
 
 Proposing an ordered sequence of operations that are already
 allowed, shown in full, confirmed once, and stoppable at any step. Each step

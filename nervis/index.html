@@ -56,6 +56,12 @@
 .note-pip.warn{border-color:var(--warn);color:var(--warn);
  box-shadow:0 0 9px rgba(255,182,72,.22)}
 .note-pip .bell{width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:1.5}
+/* A plan reads as one thing with parts, so it gets a frame the individual
+   offers do not: the border is what says these steps were confirmed together
+   and run in the order shown. */
+.plan-card{border:1px solid var(--line);border-left:2px solid var(--accent);
+ border-radius:4px;padding:10px 12px;background:rgba(var(--rgb),.045)}
+.plan-card .table-row{padding:5px 0}
 /* A note opens in place rather than in a dialog. What is inside is the same
    fact the row already carries, in full: the probe's own words, who filed it,
    and the exact moment — the three things somebody asks for when the one-line
@@ -4290,7 +4296,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      ?`<div class="bubble user">${escapeHtml(m.text)}${stampOf(m)}</div>`
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${escapeHtml(m.pending?'':'')}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}</div>`).join('')}
+        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
   </div>
   <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
  </div>`;
@@ -9316,6 +9322,22 @@ function parseOffer(header){
  catch(e){return null}
 }
 
+/* The plan, if what was asked for was a sequence (M24).
+
+   Parsed as defensively as the single offer, and with one extra requirement: a
+   plan with fewer than two steps is not a plan. Drawing one would put a "Run
+   plan" button on a single operation, which is a second confirmation road to
+   the same place — and two roads to one act is how the enumerated set stops
+   being the only way in. */
+function parsePlan(header){
+ if(!header)return null;
+ try{
+  const plan=JSON.parse(header);
+  if(!plan||!Array.isArray(plan.steps)||plan.steps.length<2)return null;
+  return plan;
+ }catch(e){return null}
+}
+
 /* The offer, drawn as a control the person presses.
 
    **The button is the confirmation, and there is no other path.** §12 gives
@@ -9361,6 +9383,123 @@ function offerRow(offer,index){
    <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}</span>
    ${past}
   </div>`;
+}
+
+/* A plan, drawn whole before any of it runs (M24).
+
+   **The whole sequence is on screen and the button confirms the order.** Not
+   the authority: every step here is an offer `propose` would have made on its
+   own, from a clause the person typed, so pressing this says *these, in this
+   order* and cannot say more than that. There is no step in a plan that could
+   not have been offered alone.
+
+   Each step keeps its own state and its own outcome, because each remains
+   individually bounded — a plan is a sequence of the same acts, not a bigger
+   act made of them. */
+function planRow(plan,index){
+ if(!plan)return '';
+ const state=n=>{
+  const step=plan.steps[n];
+  if(step.done)return `<span class="mono dim">${escapeHtml(step.done)}</span>`;
+  if(plan.running===n)return '<span class="chip">running</span>';
+  if(plan.stopped||plan.halted)return '<span class="mono dim" style="opacity:.5">not reached</span>';
+  return '<span class="mono dim" style="opacity:.6">waiting</span>';
+ };
+ const steps=plan.steps.map((step,n)=>`<div class="table-row" style="grid-template-columns:24px 2.6fr 1.3fr">
+   <span class="mono dim">${n+1}</span>
+   <span>${escapeHtml(step.action||'Run')} ${escapeHtml(step.summary)}
+     ${step.ready?'':`<br><small class="mono dim">${escapeHtml(step.detail||'this cannot be prepared')}</small>`}</span>
+   <span>${state(n)}</span></div>`).join('');
+
+ /* Three endings, and each says something different. A plan that finished, one
+    somebody stopped, and one that halted because a step failed are not the same
+    outcome, and reporting them alike would make "it stopped" mean nothing. */
+ let footer;
+ if(plan.halted)
+  footer=`<div class="mono dim" style="margin-top:8px">halted at step ${escapeHtml(plan.halted)} — ${escapeHtml(plan.reason||'a step failed')}. Nothing after it ran.</div>`;
+ else if(plan.stopped)
+  footer=`<div class="mono dim" style="margin-top:8px">stopped after step ${escapeHtml(plan.stopped)} of ${escapeHtml(plan.steps.length)}. What had already run is above; nothing after it was started.</div>`;
+ else if(plan.finished)
+  footer=`<div class="mono dim" style="margin-top:8px">all ${escapeHtml(plan.steps.length)} steps ran.</div>`;
+ else if(plan.running!==undefined)
+  footer=`<div style="margin-top:8px"><button class="mode-chip" onclick="stopPlan(${index})">Stop</button>
+   <span class="mono dim" style="font-size:11px;margin-left:7px">a stop takes effect at the next step, never in the middle of one</span></div>`;
+ else if(!plan.ready)
+  footer='<div class="mono dim" style="margin-top:8px">this plan cannot be run: a step above could not be prepared.</div>';
+ else
+  footer=`<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+   <button class="btn primary" onclick="runPlan(${index})">Run ${escapeHtml(plan.steps.length)} steps</button>
+   <button class="mode-chip" onclick="declinePlan(${index})">No thanks</button>
+   <span class="mono dim" style="font-size:11px">nothing has run yet · each step is the same operation you could run on its own</span>
+  </div>`;
+
+ return `<div class="plan-card" style="margin-top:9px">
+   <div class="mono dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">Plan · ${escapeHtml(plan.steps.length)} steps, in this order</div>
+   ${steps}${footer}</div>`;
+}
+
+/* Run the steps in order, stopping at a boundary and halting on a failure.
+
+   **Sequential and awaited, never fired together.** The order is the thing that
+   was confirmed; starting them in parallel would run a sequence somebody
+   approved as a sequence, and "then" would have meant nothing.
+
+   `stopping` is read at each boundary rather than passed to an abort signal: a
+   stop must not tear a step in half. What was started finishes, and nothing
+   after it begins — which is also the only version that can honestly report
+   what already happened. */
+async function runPlan(index){
+ const message=CHAT_SESSION.messages[index];
+ const plan=message&&message.plan;
+ if(!plan||!plan.ready||plan.running!==undefined||plan.finished)return;
+ for(const step of plan.steps)noteOutcome(step,'accepted');
+ for(let n=0;n<plan.steps.length;n++){
+  if(plan.stopping){plan.stopped=n;break}
+  plan.running=n;
+  render();
+  const step=plan.steps[n];
+  const answer=await runCommand(step.operation,step.target,'',CHAT_SESSION.remote_id||'');
+  if(answer.error){
+   step.done=`failed — ${answer.error}`;
+   plan.halted=n+1;
+   plan.reason=answer.error;
+   break;
+  }
+  step.done=planStepDone(step,answer);
+ }
+ plan.running=undefined;
+ if(!plan.halted&&plan.stopped===undefined)plan.finished=true;
+ render();
+}
+
+/* What one finished step reports, in the words of what answered it. */
+function planStepDone(step,answer){
+ if(answer.file)return `${escapeHtml(answer.file.name)} · ${escapeHtml(answer.file.detail||'')}`;
+ if(answer.job)return `${escapeHtml(answer.job.state||'submitted')}${answer.job.id?' · job '+escapeHtml(answer.job.id):''}`;
+ if(answer.learned)return `filed under “${escapeHtml(answer.learned.heading)}”`;
+ return 'done';
+}
+
+/* Ask the plan to stop. It takes effect at the next boundary. */
+function stopPlan(index){
+ const plan=CHAT_SESSION.messages[index]&&CHAT_SESSION.messages[index].plan;
+ if(!plan)return;
+ plan.stopping=true;
+ render();
+}
+
+/* Decline the whole plan — M22's rule, applied to an ordering.
+
+   Every step is recorded declined rather than the plan as one verdict: the
+   steps were offered individually and each is separately answerable, so a
+   record saying "declined the plan" would lose which offers were refused. */
+function declinePlan(index){
+ const plan=CHAT_SESSION.messages[index]&&CHAT_SESSION.messages[index].plan;
+ if(!plan||plan.finished||plan.running!==undefined||plan.declined)return;
+ for(const step of plan.steps)noteOutcome(step,'declined');
+ plan.declined=true;
+ plan.stopped=0;
+ render();
 }
 
 /* Ask NERVIS to carry out one enumerated operation.
@@ -9563,7 +9702,12 @@ function withReading(message,reading){
    offered to do about what was asked. */
 function withExtras(outcome){
  const message=replyMessage(outcome);
- return outcome.offer?{...message,offer:outcome.offer}:message;
+ /* A plan and a single offer never both draw: `plan` is tried first on the
+    server and only produced for a sequence, so at most one is set. Carried
+    separately anyway rather than folded into one field, because they are
+    different things — an offer is an act, a plan is an order of acts. */
+ const withOffer=outcome.offer?{...message,offer:outcome.offer}:message;
+ return outcome.plan?{...withOffer,plan:outcome.plan}:withOffer;
 }
 
 function replyMessage({reply,failed,aborted,reasoning,served,requestId}){
@@ -9688,6 +9832,7 @@ async function streamReply(stop,extra){
      anything. It arrives beside the reply rather than inside it: a control the
      model could write into its own text would be a control the model has. */
   acc.offer=parseOffer(r.headers.get('x-command-offer'));
+  acc.plan=parsePlan(r.headers.get('x-command-plan'));
   /* **A conversation the browser remembers and NERVIS no longer holds.** The
      local copy outlives the server one — a database rebuilt, retention, a
      delete from another tab — and reopening it then sends an id that answers

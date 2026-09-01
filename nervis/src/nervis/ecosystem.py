@@ -241,6 +241,17 @@ DECLARED: dict[str, Capability] = {
         reason="M23's learned notes: appended on confirmation, indexed with the "
         "shipped notes, overruled by them on a clash, and editable as a file",
     ),
+    # M24's ordering. **What it advertises is deliberately narrow**: NERVIS can
+    # offer a sequence of operations it already offers individually, and run
+    # them in order on one confirmation. It does not advertise autonomy —
+    # nothing in a plan is an act the person could not have confirmed alone, and
+    # a peer reading this must not conclude that NERVIS decides what to do next.
+    "nervis.planning@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M24's plans: an ordered sequence of §12 operations, shown whole "
+        "before anything runs, confirmed once, stoppable at a step boundary",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

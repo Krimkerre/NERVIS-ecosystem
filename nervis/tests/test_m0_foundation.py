@@ -152,6 +152,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.notifications": "available",          # M21
         "nervis.proposal_memory": "available",        # M22
         "nervis.learned_notes": "available",          # M23
+        "nervis.planning": "available",               # M24
         "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
@@ -166,7 +167,7 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
 
 
 def test_every_capability_the_specification_names_is_published(settings: Settings) -> None:
-    """§3.1 prints fourteen names. Inventing one advertises a contract nobody seeks.
+    """§3.1 prints fifteen names. Inventing one advertises a contract nobody seeks.
 
     SIRVIS shipped seven invented names, two of which matched its own
     specification by coincidence, and it went unnoticed for eleven milestones.
@@ -177,6 +178,7 @@ def test_every_capability_the_specification_names_is_published(settings: Setting
     assert {capability["id"] for capability in body["capabilities"]} == {
         "nervis.learned_notes",
         "nervis.notifications",
+        "nervis.planning",
         "nervis.proposal_memory",
         "nervis.registry",
         "nervis.dashboard",
