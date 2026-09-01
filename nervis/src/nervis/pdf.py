@@ -618,7 +618,7 @@ HEADER = 62.0
 HEADER_AGAIN = 26.0
 
 
-def _mark(cx: float, cy: float, r: float) -> list[bytes]:
+def _mark(cx: float, cy: float, r: float, glow: bool = True) -> list[bytes]:
     """The NERVIS logo: a diamond with a cyan core.
 
     **The mark in the dashboard's own top-left corner**, which is `.brand i` —
@@ -643,14 +643,20 @@ def _mark(cx: float, cy: float, r: float) -> list[bytes]:
     # blur, and PDF has no blur — but it does have constant alpha, and a handful
     # of concentric strokes at falling opacity is what a blur looks like at
     # this size. Widest and faintest first, so each is laid under the last.
-    for spread, alpha in ((3.4, 0.10), (2.2, 0.18), (1.2, 0.30)):
-        out.append(_alpha(alpha))
-        out.append(_poly(
-            [(cx + (px - cx) * (1 + spread / r), cy + (py - cy) * (1 + spread / r))
-             for px, py in diamond],
-            layout.LOGO_EDGE, stroke=spread,
-        ))
-    out.append(_alpha(1.0))
+    # **Only where the mark is large enough to carry it.** In the header it is
+    # the letterhead and the glow is most of what makes it look drawn rather
+    # than typed. Beside a speaker's name it is four points across, and three
+    # haloes around something that small read as a smudge — the same reason the
+    # window does not put one on every avatar in the transcript.
+    if glow:
+        for spread, alpha in ((3.4, 0.10), (2.2, 0.18), (1.2, 0.30)):
+            out.append(_alpha(alpha))
+            out.append(_poly(
+                [(cx + (px - cx) * (1 + spread / r), cy + (py - cy) * (1 + spread / r))
+                 for px, py in diamond],
+                layout.LOGO_EDGE, stroke=spread,
+            ))
+        out.append(_alpha(1.0))
     out.append(_poly(diamond, layout.LOGO_EDGE, stroke=0.9))
     out.append(_poly(
         [(cx, cy + core), (cx + core, cy), (cx, cy - core), (cx - core, cy)],
@@ -742,20 +748,11 @@ def render_conversation(title: str, subtitle: str, turns: Sequence[Turn]) -> Ren
     current: list[bytes] = list(banner)
     y = start
 
-    for block in parse(f"# {title}"):
-        style = style_for(block)
-        y -= style.space_above
-        current.extend(_block(_wrap_spans(
-            tuple(Span(s.text.upper(), s.bold) for s in block.spans)
-            if style.upper else block.spans,
-            style.size, USABLE, style.monospace, style.bold, style.tracking),
-            block, style, y, 0.0))
-        y -= style.size * LEADING
-    if subtitle:
-        y -= 4
-        current.extend(_draw((Span(subtitle),), MARGIN, y, 9, mono=False,
-                             rgb=layout.MUTED))
-        y -= 9 * LEADING
+    # **No title above the bubbles.** It used to draw the conversation's name as
+    # a heading and the date under it, which was right when there was nothing
+    # else on the page — and became a second copy the moment the header carried
+    # both. The window itself has no title over the messages either.
+    y -= 6
 
     width = USABLE * BUBBLE_WIDTH
     for turn in turns:
@@ -865,7 +862,7 @@ def _label_row(turn: Turn, left: float, width: float, y: float) -> list[bytes]:
     # character in the conversation.
     speaker_x = left + PAD_X
     if not turn.mine:
-        out.extend(_mark(speaker_x + 4, y + 2.6, 4.2))
+        out.extend(_mark(speaker_x + 4, y + 2.6, 4.2, glow=False))
         speaker_x += 14
     out.extend(_draw((Span(turn.speaker.upper()),), speaker_x, y, 10, mono=True,
                      bold=True, rgb=layout.CYAN if turn.mine else layout.ACCENT,

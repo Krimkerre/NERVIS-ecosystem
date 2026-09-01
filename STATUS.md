@@ -3524,6 +3524,35 @@ because alpha is graphics state that would otherwise fade the rest of the page.
 The states are inline dictionaries in each page's resources, which keeps the
 object numbering derived from the font list alone.
 
+### Reopening a conversation forks it, still — for the ones stored before the fix
+
+Reported: exporting a reopened conversation again produced only the turns added
+since. The earlier fix is present and correct; it does not reach these.
+
+**The store shows it plainly.** Almost every `chat_conversation` row holds
+exactly two messages, and a two-turn probe against the running service with the
+returned id carried correctly into a single conversation of four. So the server
+accumulates; the browser is starting new ones.
+
+Reopening restores `remote_id` — that is what the earlier fix added — but it
+restores it *from the browser's own copy*, and **six of the operator's thirteen
+stored conversations have no `remote_id` at all** because they were written
+before that field existed. Reopen one, type, and NERVIS has nothing to append
+to: it mints a fresh conversation, and everything said before the reopen stays
+in a record the export never sees.
+
+**The export is faithful.** It renders what NERVIS holds, and NERVIS genuinely
+does not hold the earlier half. Which is why the fix is not in the renderer: the
+browser has the missing text on screen, and letting it supply the content is
+exactly what `/api/v1/commands/run` refuses to allow — "the browser says *which*
+conversation, never *what* to write, or the endpoint would write whatever any
+caller asked it to."
+
+**So the offer should refuse rather than write half a file**, naming the reason,
+the way the 404 branch beside it already says the earlier turns will not be in
+the export. Not yet built; recorded here with the diagnosis so it is not
+re-derived.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
