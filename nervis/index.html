@@ -5478,6 +5478,7 @@ async function settingsView(){
    <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
+  + section('What NERVIS remembers', await rememberedSection())
   + section('Supervision', `<div class="card wide"><h3>Supervision</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
@@ -5592,6 +5593,44 @@ function effectiveConfig(h){
 function scopeHint(failure){
  if(!failure||!/scope/i.test(failure.message||''))return '';
  return ' · mint one that carries both: sirvis token --mint dashboard --scopes "runtime benchmark"';
+}
+
+/* What NERVIS has learned from the offers you answered (M22).
+
+   In Settings rather than on a screen of its own, beside the other things a
+   person empties: it is a store somebody may want gone, and the argument for
+   putting it here is the same argument as for chat history.
+
+   **What it shows is the whole record.** A control that erases something has to
+   be able to show what it is about to erase, or "clear" is a button people
+   press hopefully. */
+async function rememberedSection(){
+ let record={items:[],count:0},live=false;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/proposals',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok){record=await r.json();live=true}
+ }catch(e){}
+ const rows=record.items.map(o=>`<div class="table-row" style="grid-template-columns:1.4fr 1.2fr .8fr 1.4fr">
+   <span class="mono" style="opacity:.8">${escapeHtml(o.operation)}</span>
+   <span class="mono">${escapeHtml(o.target||'—')}</span>
+   <span><span class="chip${o.outcome==='declined'?' warn':''}">${escapeHtml(o.outcome)}</span></span>
+   <span class="mono dim" style="font-size:11px">${escapeHtml(o.edited_to?'→ '+o.edited_to:o.decided_at.slice(0,19).replace('T',' '))}</span></div>`).join('');
+ return `<div class="card wide${liveClass(live)}"><h3>Answers to offers
+   <span class="chip">${escapeHtml(record.count)}</span></h3>${cell(
+  record.count?`<div class="table-row head four caps" style="grid-template-columns:1.4fr 1.2fr .8fr 1.4fr">
+    <span>Offer</span><span>Target</span><span>You said</span><span>Detail</span></div>${rows}
+   <div style="margin-top:9px"><button class="mode-chip" onclick="forgetAnswers()">Clear this record</button></div>`
+   :(live?banner('Nothing remembered yet','NERVIS keeps what you did with an offer — took it, declined it, or changed it — and shows that on the next one. Nothing has been answered yet.','info')
+         :banner('NERVIS is not answering','This record lives in NERVIS\'s own database and cannot be read from here until it is up.','warn')),'nervis')}
+   <small class="mono dim"><b>Only what you answered.</b> An offer you ignored is not in here and never will be — closing a tab is not declining, so NERVIS has nothing to record and does not guess one. <b>Nothing here changes what NERVIS proposes.</b> What it remembers is printed on the offer that remembers it — "you have declined this twice" — so a preference you cannot see is not one you can be given. <b>Clearing is exact</b>: proposals are composed without ever reading this, so an empty record leaves NERVIS offering precisely what it offered before it learned anything.</small></div>`;
+}
+
+/* Erase the record, then repaint from the server rather than from the assumption
+   that it worked. */
+async function forgetAnswers(){
+ try{await fetch(BASE.nervis+'/api/v1/proposals',{method:'DELETE',
+   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
 }
 
 function runtimeArmed(){
@@ -9230,17 +9269,40 @@ function parseOffer(header){
 function offerRow(offer,index){
  if(!offer)return '';
  if(offer.done)return `<div class="mono dim" style="margin-top:7px;font-size:11px">${escapeHtml(offer.done)}</div>`;
+ /* **Candidates are buttons, not a list to read** (M22). An offer NERVIS
+    could not prepare — an ambiguous model name, most often — used to print the
+    matches and stop there, leaving the person to retype one of them. Pressing
+    one now says "this one, not the one you guessed", which is the *edited*
+    outcome: the only one of the three that carries what they actually wanted
+    rather than merely whether they wanted it. */
  const candidates=(offer.candidates||[]).length
-   ?`<div class="mono dim" style="margin-top:5px;font-size:11px">${escapeHtml((offer.candidates||[]).join(' · '))}</div>`:'';
+   ?`<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${(offer.candidates||[])
+       .map(name=>`<button class="mode-chip" onclick="chooseCandidate(${index},'${jsAttr(name)}')">${escapeHtml(name)}</button>`)
+       .join('')}</div>`:'';
  if(!offer.ready)
   return `<div style="margin-top:7px"><div class="mono dim" style="font-size:11px">${escapeHtml(offer.detail||'this cannot be prepared')}</div>${candidates}</div>`;
  /* No token gate on this button. It used to require one pasted into this tab
     and was reported as "forbidden, scope needed" — the API being exactly right
     and the product being wrong. NERVIS holds its own `benchmark`-scoped
     credential now, minted by the launcher, so the person presses Run. */
+
+ /* **What happened the last times this exact offer was made** (M22), in a
+    sentence NERVIS can be argued with about. It is drawn beside the button
+    rather than applied behind it: nothing about the offer changes because of
+    it, and a person who disagrees can clear the record in Settings and get the
+    unlearned offer back exactly. */
+ const past=offer.history&&offer.history.sentence
+   ?`<span class="mono dim" style="font-size:11px;opacity:.75">· ${escapeHtml(offer.history.sentence)}</span>`:'';
+ /* **Decline is a control because silence must not be one.** M22 refuses to
+    infer an outcome from an unanswered offer — somebody who closed the tab did
+    not decline — so the only way "no" becomes a fact is for there to be a
+    button that says it. Without this, the record would only ever contain
+    agreement, which is a preference NERVIS learned about itself. */
  return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
    <button class="btn primary" onclick="runOffer(${index})">${escapeHtml(offer.action||'Run')}</button>
+   <button class="mode-chip" onclick="declineOffer(${index})">No thanks</button>
    <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}</span>
+   ${past}
   </div>`;
 }
 
@@ -9330,10 +9392,66 @@ function submitted(stopping,job){
    control plane can be talked into running things" true in a way §12 spends a
    page preventing. So the call goes from here, with the operator's own
    authority, to SIRVIS's own endpoint. */
+/* File what became of one offer (M22).
+
+   **Never awaited by the thing it describes.** Recording an outcome must not be
+   able to stop the operation the person actually asked for: a NERVIS that
+   refused to run a benchmark because it could not write down that you wanted
+   one has its priorities exactly backwards. Failures here are dropped on
+   purpose — the record is a convenience, and the act is the point. */
+function noteOutcome(offer,outcome,editedTo){
+ if(!offer||!offer.proposal_id)return;
+ fetch(BASE.nervis+'/api/v1/proposals/outcome',{method:'POST',
+   headers:{'content-type':'application/json'},
+   body:JSON.stringify({proposal_id:offer.proposal_id,operation:offer.operation,
+     target:offer.target||'',outcome,edited_to:editedTo||'',
+     conversation_id:CHAT_SESSION.remote_id||''})}).catch(()=>{});
+}
+
+/* Take the offer, but not the target NERVIS guessed (M22).
+
+   Recorded as `edited` with what it was changed *to*, because that is the part
+   worth keeping: "declined" says somebody did not want this, and "edited to
+   granite-4-micro" says what they wanted instead. The next offer for the same
+   ambiguous phrase can say so.
+
+   It then runs, because choosing among candidates is the confirmation — the
+   person pressed the name of the thing they meant, and asking them to press a
+   second button afterwards would be ceremony rather than consent. */
+function chooseCandidate(index,name){
+ const message=CHAT_SESSION.messages[index];
+ const offer=message&&message.offer;
+ if(!offer||offer.done)return;
+ noteOutcome(offer,'edited',name);
+ offer.target=name;
+ offer.ready=true;
+ /* Cleared so `runOffer` does not record a second outcome for one decision:
+    the answer has already been filed, and it was `edited`. */
+ offer.proposal_id='';
+ return runOffer(index);
+}
+
+/* "No thanks" — the only way a decline becomes a fact.
+
+   The offer is spent afterwards, the same as running it: an offer that could be
+   declined twice would put two rows in the record for one decision. */
+function declineOffer(index){
+ const message=CHAT_SESSION.messages[index];
+ const offer=message&&message.offer;
+ if(!offer||offer.done)return;
+ noteOutcome(offer,'declined');
+ offer.done='declined — nothing was run';
+ render();
+}
+
 async function runOffer(index){
  const message=CHAT_SESSION.messages[index];
  const offer=message&&message.offer;
  if(!offer||offer.done||!offer.ready)return;
+ /* Recorded before the operation rather than after it. What is being filed is
+    the person's answer, and they gave it by pressing this — whether SIRVIS then
+    accepts the job is a different fact, and one the event hub already holds. */
+ noteOutcome(offer,'accepted');
  /* NERVIS's own state, changed here rather than through an endpoint: the
     profile is what the *next* request will carry, and it lives in this tab.
     There is nothing to ask a service for and nothing to audit — the change is

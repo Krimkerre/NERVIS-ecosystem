@@ -218,6 +218,20 @@ DECLARED: dict[str, Capability] = {
         reason="M21's durable notification centre: post, list, unread count, "
         "per-note read and dismissal",
     ),
+    # M22's record. Available on every installation for the same reason the
+    # notification centre is: the store is part of the database and the chat
+    # surface is its only producer, so there is nothing to configure.
+    #
+    # **What it advertises is deliberately modest.** It says NERVIS remembers
+    # what became of an offer and will show that on the next one. It does not
+    # say NERVIS acts on it — nothing here changes what is proposed, because a
+    # preference the person cannot see is one they cannot argue with.
+    "nervis.proposal_memory@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M22's record of what became of each offer: accepted, declined "
+        "or edited, shown on the next offer and erasable in one act",
+    ),
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,

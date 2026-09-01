@@ -247,7 +247,16 @@ jobs:
         working-directory: nervis
         run: node tools/notification_check.js
 
-      # **Twelve of the fourteen gate scripts, and the other two are not an
+      # M22's one sentence: no outcome is inferred from silence. The tempting
+      # implementation — mark it declined when the next message arrives, or on a
+      # timer — breaks nothing visibly and fills the record with refusals nobody
+      # made. Driven through the real controls, because "the word appears in the
+      # source" is the check that passes while the handler sits unreachable.
+      - name: Dashboard — an offer's fate is recorded only when answered
+        working-directory: nervis
+        run: node tools/proposal_check.js
+
+      # **Thirteen of the fifteen gate scripts, and the other two are not an
       # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
       # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
       # watch screens survive a service that stops answering, which needs a

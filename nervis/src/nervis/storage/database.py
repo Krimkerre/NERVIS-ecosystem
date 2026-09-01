@@ -237,6 +237,43 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS notification_by_kind ON notification(kind);
         """,
     ),
+    (
+        8,
+        "what became of each offer, per NERVIS.md M22",
+        # **The fate of an offer, stored beside the offer that had it.**
+        #
+        # `outcome` is one of three words and never a fourth. `accepted` and
+        # `declined` are both a person answering; `edited` is a person answering
+        # differently, and `edited_to` says how — which is the only one of the
+        # three that carries information about what they actually wanted.
+        #
+        # **There is no `ignored`.** M22 is explicit: no outcome is inferred
+        # from silence, because somebody who closed the tab did not decline. So
+        # a proposal nobody answered has no row here at all, and the absence is
+        # the honest record. That is also why `proposal_id` is minted when the
+        # offer is *made* rather than when it is answered: the id has to already
+        # exist for the answer to be filed against it, and an unanswered offer
+        # simply never arrives.
+        #
+        # `operation` and `target` are stored alongside rather than joined from
+        # somewhere, because this table is read to compose the *next* offer —
+        # "this exact thing was declined twice" — and that question is asked
+        # before any new proposal exists to join against.
+        """
+        CREATE TABLE IF NOT EXISTS proposal_outcome (
+            proposal_id     TEXT PRIMARY KEY,
+            operation       TEXT NOT NULL,
+            target          TEXT NOT NULL DEFAULT '',
+            outcome         TEXT NOT NULL,
+            edited_to       TEXT NOT NULL DEFAULT '',
+            conversation_id TEXT NOT NULL DEFAULT '',
+            decided_at      TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS proposal_by_offer
+            ON proposal_outcome(operation, target);
+        """,
+    ),
 ]
 
 

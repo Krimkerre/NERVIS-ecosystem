@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 1952 tests, no network, no live service
+.venv/bin/pytest                      # part of 1967 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 572 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 587 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 1952 passing across the four, conformance `PASS`.
+Expected: all clean, 1967 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3190,6 +3190,58 @@ is still working", and nothing distinguished them from the outside.
 
 `ravis/Pools` appearing once as a screen that did not recover was the rate limit
 the check's own note predicts — the next run reported 34 of 36 with no suspects.
+
+### M22 — what became of each offer, 1 Sep. NERVIS 0.11.0
+
+Stage 11's second milestone. NERVIS proposes, somebody answers, and until now
+that was the end of it: the same offer was composed identically the tenth time
+it was declined as the first.
+
+**The hard part is not the table.** It is one sentence — *no outcome is inferred
+from silence* — and the tempting implementation breaks it without any symptom.
+Mark an offer declined when the next message arrives, or when it scrolls away,
+or on a timer, and nothing visibly fails: the record simply fills with refusals
+nobody made, and offer cards start telling people they declined things they
+never saw. So there is a **"No thanks" button**, and it is the only way a refusal
+becomes a fact. An ignored offer leaves no row, and there is no sweeper that
+could later produce one.
+
+**Three outcomes and no fourth.** `accepted` and `declined` are a person
+answering; `edited` is a person answering *differently*, and it is the only one
+carrying what they actually wanted — so it is refused without `edited_to`.
+Recording an edit that does not say what it was changed to keeps the fact that
+somebody changed their mind and throws away the useful half.
+
+**Candidates became buttons, which is where `edited` comes from.** An offer
+NERVIS could not prepare — an ambiguous model name — used to print the matches
+and stop, leaving the person to retype one. Pressing one now says "this one, not
+the one you guessed", and runs: choosing among candidates *is* the confirmation,
+and a second button afterwards would be ceremony rather than consent.
+
+**What is learned is shown, never applied.** `history()` returns a sentence —
+"you have declined this 2 times" — drawn beside the button while the offer
+itself is unchanged. A single decline says nothing, because one refusal is
+somebody who did not want it that once. And the sentence is descriptive rather
+than predictive: "you declined this twice" is checkable; "you probably do not
+want this" is NERVIS having an opinion about a person.
+
+**Clearing is exact, and that is structural rather than promised.** `propose`
+takes no database and never reads the record — history only ever decorates an
+offer in the API layer — so an emptied record leaves nothing behind to unlearn.
+A test composes the same proposal either side of three declines and asserts the
+two are identical; if `propose` ever grows a store, that is where it is noticed.
+
+History is keyed on operation **and** target. Refusing to benchmark one model
+says nothing about another, and a record that generalised would tell somebody
+they had declined an offer they had never been shown.
+
+`proposal_check.js` drives the real controls — accept, decline, edit — and
+asserts three answers produce three records while everything else produces none:
+drawing the card, repainting, sending another message, abandoning the offer.
+Falsified five ways. The record and its clear button live in **Settings**, beside
+the other things a person empties.
+
+**0.10.2 → 0.11.0**, M22 being the eleventh milestone.
 
 ### Next — in this order
 

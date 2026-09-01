@@ -39,14 +39,23 @@ missed. A dismissed note is hidden rather than deleted, and swept a month later.
 The first sweep after a restart is not announced at all: everything "changing"
 from nothing-known is a roll call, not news.
 
-### Proposal outcomes
+### Proposal outcomes — built, 1 September
 
-Nothing currently records whether an offer was accepted,
-declined or edited, and that gap is the whole difference between proposing and
-learning what somebody wants. A preference learned this way is shown in the
-proposal that uses it — "you declined this twice, so this suggests the local
-model" — never applied quietly. Silence is not a decline: somebody who closed
-the tab did not refuse anything.
+**Also no longer planned.** When NERVIS offers to do something, what you did
+with the offer is now written down: you took it, you declined it, or you changed
+it — and if you changed it, what you changed it to, which is the part worth
+keeping. The next time the same offer comes up it says what happened before:
+"you have declined this twice".
+
+Three things about it are deliberate. **Silence is not a decline** — an offer you
+ignored leaves no record at all, because closing a tab is not refusing, so there
+is a "No thanks" button and that is the only way a refusal becomes a fact.
+**What is remembered is shown, never applied** — the sentence appears beside the
+offer and the offer is unchanged, because a preference you cannot see is one you
+cannot argue with. And **clearing it is exact**: proposals are composed without
+ever consulting the record, so emptying it leaves NERVIS offering precisely what
+it offered before it learned anything. The record and its clear button are under
+Settings.
 
 ### Learned notes
 

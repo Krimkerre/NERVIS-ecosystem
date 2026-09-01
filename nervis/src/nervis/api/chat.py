@@ -26,6 +26,7 @@ import json
 import re
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -35,7 +36,7 @@ from ecosystem_protocol import new_request_id, new_traceparent
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from nervis import bridges, commands, documents, knowledge, situation, transcript
+from nervis import bridges, commands, documents, knowledge, proposals, situation, transcript
 from nervis import chat as store
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -817,6 +818,12 @@ async def send(request: Request) -> Any:
         if not greeting
         else None
     )
+    # **The identity and the past, attached here rather than inside `propose`**
+    # (M22). `propose` stays a pure function of the person's words: it has no
+    # database and no memory, so clearing the record restores exactly the offer
+    # it would have made before any of this existed. History decorates; it never
+    # composes.
+    offer = _remembered(database, offer)
     # A file the person named, read before the model sees anything (§11.5).
     #
     # **A source, not a tool.** The model never chooses what is opened: the
@@ -1147,6 +1154,28 @@ def _display_name(database: Any) -> str:
     except ValueError:
         return ""
     return str(found).strip() if isinstance(found, str) else ""
+
+
+def _remembered(database: Any, offer: commands.Proposal | None) -> commands.Proposal | None:
+    """Give an offer an id and whatever is known about its predecessors (M22).
+
+    The id is minted now, when the offer is *made*, because an answer needs
+    something to be filed against — and because an offer nobody answers then
+    leaves no row at all, which is the record M22 asks for. Silence is not a
+    decline.
+
+    The history is a sentence the person can check rather than a preference
+    NERVIS has formed about them: what is remembered is shown on the offer that
+    remembers it, never applied behind one.
+    """
+    if offer is None:
+        return None
+    past = proposals.history(database, offer.operation, offer.target)
+    return replace(
+        offer,
+        proposal_id="pr_" + uuid.uuid4().hex[:12],
+        history=past.as_dict() if past.answered else None,
+    )
 
 
 async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple[str, str]:

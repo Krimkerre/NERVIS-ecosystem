@@ -253,9 +253,21 @@ class Proposal:
     detail: str = ""
     candidates: tuple[str, ...] = ()
     action: str = "Run"
+    # **Minted when the offer is made, not when it is answered** (M22). An
+    # answer has to have something to be filed against, and an offer nobody
+    # answers simply never produces a row — which is the record M22 wants,
+    # because a person who closed the tab did not decline.
+    proposal_id: str = ""
+    # What became of this exact offer before, attached by the API layer rather
+    # than composed here. `propose` stays a pure function of the person's words:
+    # history only ever decorates an offer, never builds one, which is what
+    # makes clearing the record restore the unlearned proposal exactly.
+    history: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "proposal_id": self.proposal_id,
+            "history": dict(self.history) if self.history else None,
             "operation": self.operation,
             "service": self.service,
             "target": self.target,
