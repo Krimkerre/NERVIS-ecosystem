@@ -27,12 +27,12 @@ from fastapi.testclient import TestClient
 
 from nervis import bridges, commands, situation
 from nervis import chat as store
-from nervis.api.chat import (
+from nervis.api.chat import _house_system
+from nervis.api.chat_calls import _forwarded
+from nervis.api.chat_titles import (
     TITLE_POOL,
     _first_user_message,
-    _forwarded,
     _generate_title,
-    _house_system,
     _title_from,
 )
 from nervis.app import create_app
@@ -2578,7 +2578,7 @@ def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
 def test_a_conversation_is_named_from_its_first_message() -> None:
     """Available the instant the conversation exists, so the list is never a
     column of "New conversation" waiting on a model."""
-    from nervis.api.chat import opening_title
+    from nervis.api.chat_titles import opening_title
 
     assert opening_title("how is RAVIS doing today?") == "how is RAVIS doing today?"
     assert opening_title(
@@ -2591,7 +2591,7 @@ def test_a_reasoning_models_thinking_is_not_a_title() -> None:
     """`ravis/cheap` admits models that spend their output reasoning, and with
     twenty-four tokens they never reach the title. This is the string that was
     actually stored on this machine."""
-    from nervis.api.chat import _title_from
+    from nervis.api.chat_titles import _title_from
 
     stored = _title_from({"choices": [{"message": {"content": (
         "Okay, let's tackle this user query. They want a short title for a "
@@ -2604,7 +2604,7 @@ def test_a_reasoning_models_thinking_is_not_a_title() -> None:
 def test_a_thinking_block_is_removed_rather_than_stored() -> None:
     """Fenced reasoning is not the answer, and a block left unclosed by the
     token budget has no answer behind it at all."""
-    from nervis.api.chat import _title_from
+    from nervis.api.chat_titles import _title_from
 
     assert _title_from({"choices": [{"message": {
         "content": "<think>the user wants a title</think>\nRAVIS health check"
@@ -2617,7 +2617,7 @@ def test_a_thinking_block_is_removed_rather_than_stored() -> None:
 def test_a_sentence_is_not_a_name() -> None:
     """Six words was the instruction. Past twelve it is prose, and prose in this
     column is what was reported as broken."""
-    from nervis.api.chat import _title_from
+    from nervis.api.chat_titles import _title_from
 
     assert _title_from({"choices": [{"message": {"content": (
         "This conversation appears to be about the user asking how to compare "
@@ -3441,7 +3441,7 @@ def test_the_persona_is_jarvis_delivery_over_the_original_character() -> None:
     wholesale with JARVIS and lost the half worth keeping. Sarcasm delivered in
     JARVIS's cadence is the point; JARVIS without the teeth is a status page
     that says "sir"."""
-    from nervis.api.chat import DEFAULT_PERSONA
+    from nervis.api.chat_personas import DEFAULT_PERSONA
 
     persona = DEFAULT_PERSONA
 
@@ -3458,14 +3458,14 @@ def test_the_persona_is_jarvis_delivery_over_the_original_character() -> None:
 def test_miku_is_left_alone() -> None:
     """Asked for explicitly. Her register is the owner's and is not NERVIS's to
     rewrite."""
-    from nervis.api.chat import MIKU_PERSONA
+    from nervis.api.chat_personas import MIKU_PERSONA
 
     assert MIKU_PERSONA.startswith("You are Miku")
     assert "sir" not in MIKU_PERSONA
 
 
 def test_every_preset_but_miku_carries_the_manner() -> None:
-    from nervis.api.chat import DEFAULT_PRESETS, MIKU_PERSONA
+    from nervis.api.chat_personas import DEFAULT_PRESETS, MIKU_PERSONA
 
     for preset in DEFAULT_PRESETS:
         spoken = preset["params"].get("system", "")
@@ -3478,7 +3478,7 @@ def test_a_persona_somebody_wrote_is_never_overwritten() -> None:
     """**The seed replaces the previous default and nothing else.** Writing only
     when the row is absent means a rewrite reaches nobody who has already run
     the thing; overwriting unconditionally throws away somebody's own words."""
-    from nervis.api.chat import (
+    from nervis.api.chat_personas import (
         DEFAULT_PERSONA,
         PERSONA_SETTING,
         PREVIOUS_DEFAULT_PERSONA,

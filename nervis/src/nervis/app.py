@@ -44,7 +44,7 @@ from nervis.api import (
     voice_router,
 )
 from nervis.api import router as api_router
-from nervis.api.chat import seed_chat_defaults
+from nervis.api.chat_personas import seed_chat_defaults
 from nervis.config import Settings
 from nervis.ecosystem import (
     BUILD_VERSION,

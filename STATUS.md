@@ -3719,6 +3719,43 @@ which is the arrangement worth keeping. RAVIS picks on capability evidence,
 refuses when nothing qualifies and explains what it excluded; OpenRouter's own
 router is the candidate that knows which free model is rate-limited right now.
 
+### `api/chat.py` split, 1 Sep. NERVIS 0.14.2
+
+2,549 lines to **941**, across five modules, with no behaviour changed and 642
+tests green at every step. It was the largest Python file in the repository by a
+wide margin and the place everything landed, because everything touches chat —
+M24's planning and M22's memory both went into it this week.
+
+| | lines | what it is |
+|---|---|---|
+| `api/chat.py` | 941 | the router, the turn, the relay, the stream |
+| `api/chat_personas.py` | 613 | who NERVIS is, the presets, seeding, and recall |
+| `api/chat_reads.py` | 503 | what it reads about itself before a model sees the question |
+| `api/chat_titles.py` | 288 | naming a conversation, and refusing to |
+| `api/chat_documents.py` | 261 | finding the file a question means, inside the workspace |
+| `api/chat_calls.py` | 127 | how it reaches a peer, and the headers it goes out with |
+
+**The seams were already there.** Every module is one answer to "what is this
+code for": the reads answer questions about the running ecosystem, the titles
+decline to name a conversation badly, the documents resolve a filename inside a
+boundary. `chat_calls` came out first because everything else needed it — it was
+in the middle of the file and four concerns had to import *around* it.
+
+**Recall moved in with the personas**, which is the one judgement call. It could
+have been its own module; it belongs here because what NERVIS is told before a
+turn includes what it remembers of earlier ones. Same question, one place.
+
+**Test imports were repointed rather than re-exported.** A `chat.py` that still
+exported everything would have kept the split from meaning anything, and the
+tests are the only callers.
+
+**One thing to know about `ruff --fix` during a move like this**: it strips
+imports it sees as unused *before* the code that needs them is in place, so a
+fix pass immediately after adding an import removes it and the `F821` appears on
+the next run. Cost three rounds before I stopped running it reflexively.
+
+Verified live afterwards: chat still answers 200.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
