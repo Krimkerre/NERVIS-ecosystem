@@ -3128,6 +3128,43 @@ design** — every screen of every app, twice, paced at 1.4s because RAVIS
 rate-limits an anonymous caller at 60 a minute. Roughly five minutes. Killing it
 at forty seconds and reading that as a hang wasted more time than the run.
 
+### A check must not spend the operator's money, 1 Sep. NERVIS 0.10.2
+
+Tracing something else turned up three POSTs made while *rendering* the
+dashboard headlessly: `/api/v1/chat`, `/api/v1/voice/speak` and
+`/api/v1/sirvis/recommendations`. Two of them cost money, every gate run,
+including CI.
+
+**The page is not at fault, which is why the fix is not in the page.**
+`recovery_check` forces a registry transition to see whether screens repaint,
+and a forced transition is exactly what makes the dashboard announce the change
+aloud — so every run paid Fish Audio to narrate an outage that never happened.
+`honesty_check` renders every screen, and rendering Chat greets into an empty
+conversation, which is a model completion. Both behaviours are the feature in a
+browser. What was wrong is that a headless script could reach them at all.
+
+**`readOnlyLiveFetch` in `page_context.js`**, used by both live-driving checks.
+Reads pass; a write is refused with a **405** rather than a novel exception,
+because a service refusing a verb is a case every read path here already
+survives. Refusals are counted and summarised so a screen that tries to write
+during a render stays visible rather than becoming silence.
+
+**The third POST is not an exception being carved out.** SIRVIS's §14.3 makes
+`/recommendations` a POST because its inputs are a body, and
+`require_unauthenticated_post` says outright that it *"computes and stores
+nothing"*. It is a read wearing a verb, so it passes by name.
+
+**`assertRefusesWrites` runs at the top of both checks.** Swap the guarded fetch
+back for a bare one and every check still passes while every run quietly spends
+— a guard nobody can tell has been removed is not a guard. It probes port 1,
+where nothing listens: intact, it never reaches the socket; removed, it fails to
+connect. Both are caught, and so is the throw, because the first version of this
+surfaced the removed-guard case as an undici stack trace that said nothing about
+what had broken.
+
+Verified by tracing every non-GET a full run makes: one, and it is
+`/recommendations`.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

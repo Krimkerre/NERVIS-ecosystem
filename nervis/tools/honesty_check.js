@@ -46,7 +46,7 @@
  * will notice.
  */
 const path = require("node:path");
-const { loadPage } = require("./page_context.js");
+const { loadPage, readOnlyLiveFetch, assertRefusesWrites } = require("./page_context.js");
 
 const PORTS = { nervis: 8790, ravis: 8731, sirvis: 8721 };
 
@@ -111,6 +111,7 @@ async function renderAll(fetchImpl) {
 }
 
 (async () => {
+  await assertRefusesWrites();
   const up = [];
   for (const [name, port] of Object.entries(PORTS)) {
     try {
@@ -133,8 +134,18 @@ async function renderAll(fetchImpl) {
      NERVIS read down its fallback path and made this check report NERVIS's own
      cards as understating. Resolved against the same origin the shim claims. */
   const ORIGIN = "http://127.0.0.1:8790";
-  const liveFetch = (url, opts) => fetch(new URL(url, ORIGIN), opts);
+  /* Reads only. This check renders every screen against the operator's running
+     services, and two of those renders were spending real money — a status
+     announcement synthesised through Fish Audio and a chat greeting completed
+     by a model, every run. The page is right to do both in a browser; a
+     headless check must not be able to. See `readOnlyLiveFetch`. */
+  const liveFetch = readOnlyLiveFetch(ORIGIN);
   const lit = await renderAll(liveFetch);
+  if (liveFetch.refused.length) {
+    const seen = [...new Set(liveFetch.refused)].sort();
+    console.log(`\nheld back ${liveFetch.refused.length} write(s) the render would have made: ${seen.join(", ")}`);
+    console.log("expected — a live render speaks and greets. Refused so a check does not spend.");
+  }
 
   /* **Read something, or say you read nothing.** The first version of this
      file captured no markup at all — the page writes through `querySelector`

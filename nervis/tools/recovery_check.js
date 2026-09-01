@@ -14,14 +14,21 @@
  * the running services after a simulated transition, and reports any screen
  * whose markup did not change.
  */
-const { loadPage } = require("./page_context.js");
+const { loadPage, readOnlyLiveFetch, assertRefusesWrites } = require("./page_context.js");
 
 const ORIGIN = "http://127.0.0.1:8790";
 
 (async () => {
+  await assertRefusesWrites();
   let answering = false;
+  /* Reads only, once the services are answering. This check *forces* a registry
+     transition to see whether screens repaint — and a forced transition is
+     exactly what makes the dashboard announce it aloud, so every run was paying
+     Fish Audio to narrate a change that never happened. Correct in a browser,
+     and not something a check may spend. See `readOnlyLiveFetch`. */
+  const live = readOnlyLiveFetch(ORIGIN);
   const fetchImpl = (url, opts) =>
-    answering ? fetch(new URL(url, ORIGIN), opts)
+    answering ? live(url, opts)
               : Promise.reject(new TypeError("fetch failed"));
 
   const { context, exported } = loadPage({ fetchImpl });
@@ -79,6 +86,10 @@ const ORIGIN = "http://127.0.0.1:8790";
   }
 
   console.log(`${recovered.length} of ${recovered.length + unchanged.length} screen(s) repainted after the transition`);
+  if (live.refused.length) {
+    const seen = [...new Set(live.refused)].sort();
+    console.log(`held back ${live.refused.length} write(s): ${seen.join(", ")} — expected, and refused so a check does not spend`);
+  }
 
   /* Two very different reasons for identical markup, and only one is worth
      reading. A screen with no live data on it -- the CLARVIS panel, a screen

@@ -272,4 +272,76 @@ function loadPage({ fetchImpl } = {}) {
   return { context, exported, elements: context.__elements };
 }
 
-module.exports = { loadPage, element };
+/* ── Reading a live ecosystem without spending anything on it ──────────────
+ *
+ * Two checks drive the page against the operator's *running* services, which is
+ * the only way to answer what they exist to answer. That also hands a headless
+ * script the page's whole write surface, and the page is perfectly correct to
+ * use it: `recovery_check` forces a registry transition, so the dashboard
+ * announces the change aloud, and rendering the Chat screen greets into an
+ * empty conversation. In a browser both are the feature. In a gate run they are
+ * a Fish Audio charge and a model completion, on somebody's machine, for no
+ * result anybody reads — every run, including CI.
+ *
+ * **The guard belongs here rather than in the page.** Nothing about the
+ * dashboard should know it is being tested, and a rule written once in the
+ * shared shim covers every control either check grows later. So: reads pass,
+ * and a write is refused with the shape of a failed request — which the page
+ * already handles, because a service refusing is a case it must survive.
+ *
+ * `POST /api/v1/recommendations` passes, and that is not an exception being
+ * carved out. SIRVIS's §14.3 makes it a POST because its inputs are a body, and
+ * `require_unauthenticated_post` says in as many words that it "computes and
+ * stores nothing". It is a read wearing a verb.
+ */
+const READ_SHAPED_POSTS = [/\/api\/v1\/(sirvis\/)?recommendations$/];
+
+function readOnlyLiveFetch(origin) {
+  const refused = [];
+  const impl = (url, options = {}) => {
+    const resolved = new URL(url, origin);
+    const method = (options.method || "GET").toUpperCase();
+    const safe = method === "GET" || method === "HEAD"
+      || READ_SHAPED_POSTS.some((allowed) => allowed.test(resolved.pathname));
+    if (safe) return fetch(resolved, options);
+    refused.push(`${method} ${resolved.pathname}`);
+    /* Refused the way a service refuses, not by throwing something novel. A
+       405 is what the page would see from a server that does not take this
+       verb, and every read path here already has a branch for that. */
+    return Promise.resolve(new Response("", {
+      status: 405, statusText: "refused by the check harness",
+    }));
+  };
+  impl.refused = refused;
+  return impl;
+}
+
+/* Prove the guard is still a guard, before relying on it.
+ *
+ * Called at the top of both live checks. It costs a millisecond and it exists
+ * because the failure it prevents is invisible: swap `readOnlyLiveFetch` back
+ * for a bare `fetch` and every check still passes, while every run quietly
+ * spends. A guard nobody can tell has been removed is not one.
+ */
+async function assertRefusesWrites() {
+  const probe = readOnlyLiveFetch("http://127.0.0.1:1");
+  /* Port 1, where nothing listens: a guard that still guards never reaches the
+     socket, and one that has been removed fails to connect rather than
+     answering. Both are caught, and the throw is caught too — without it the
+     removed-guard case surfaces as an undici stack trace, which says nothing
+     about what actually broke. */
+  let answer = null;
+  try {
+    answer = await probe("/api/v1/voice/speak", { method: "POST", body: "{}" });
+  } catch { /* reached the network, which is the failure itself */ }
+  if (!answer || answer.status !== 405 || probe.refused.length !== 1) {
+    console.error(
+      "the check harness no longer refuses writes against a live ecosystem.\n" +
+      "  Rendering the dashboard headlessly speaks through Fish Audio and\n" +
+      "  greets through a model; both cost money and neither is being read."
+    );
+    process.exit(1);
+  }
+}
+
+module.exports = { loadPage, element, readOnlyLiveFetch, assertRefusesWrites };
