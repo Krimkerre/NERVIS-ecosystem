@@ -35,3 +35,6 @@ sirvis/results/
 
 # The chat workspace. Whatever somebody attached is theirs, not the build's.
 workspace/
+
+# Personal keepsakes — kept on this machine, never pushed.
+keepsakes/
