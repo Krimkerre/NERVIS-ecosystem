@@ -3846,6 +3846,60 @@ editor half), the split every tested module in that folder already makes.
 
 **0.14.3 → 0.15.0**, M27 being the seventeenth milestone. Clarvis E-C8 ticked.
 
+### M13 and M15 settled, 2 Sep — by checking coverage, not by reading
+
+Both looked done. One was, once four missing cells were added; the other was one
+unrun test away.
+
+**M13's exit is coverage, not passes.** *An exit report covering every capability
+in `CLARVIS.md` §7.1* — and `NOT_TESTED` is named in the criterion as the value
+it most needs. The matrix read 36/15/0/0 across 51 cells, which was true of the
+51 and false of §7.1: **four of its capabilities had no cell at all.** Not
+`NOT_TESTED`, which is that document's own rule for something nobody ran — just
+absent, which is worse, because an untested cell is visible and a missing one is
+not. One was half-known, buried in the tasks cell's limitation: *"one server
+with several windows is untested"*, recorded as an aside rather than graded.
+
+Added, honestly. **Debug sessions** graded `PASS` on the same static evidence the
+other reading-graded cells use — Clarvis really does subscribe to
+`onDidStartDebugSession` and `onDidTerminateDebugSession`, and both plus the
+`ExtHostDebugService` that raises them are in code-server's *Node* host, which is
+where `extensionKind: ["workspace"]` puts it. **Multiple windows on one server**,
+**Bridge teardown under code-server** and **rollback to a prior `.vsix`** are
+`NOT_TESTED` with the instrument named. Rollback deliberately: it would overwrite
+the installed extension on this machine, and running a destructive test casually
+is how somebody loses the key they were testing for.
+
+**M15 was one clause short, and the clause was testable.** *VS Code stable and
+VSCodium still pass regression* — unevidenced, and `clarvis/docs/CURRENT_STATE.md` carried it
+as an open checkbox. VSCodium is installed here, so: 0.12.0 packaged,
+force-installed, listed back as `krimkerre.clarvis@0.12.0`, a window opened. Its
+log records the build stamp and `Clarvis activated.`, the exthost log has **zero
+error lines**, and the chat service ran on its own — *"chat: no plan.md here,
+offered to plan"* — which exercises the startup path rather than only
+`activate()` returning.
+
+A second thing settled itself: the folder was **untrusted**, and Clarvis degraded
+rather than failing, naming what it lost and how to get it back. The untrusted
+path observed rather than avoided, with trust never granted.
+
+Graded `PASS_WITH_LIMITATION` and not `PASS`: activation, chat and clean logs
+were observed, **the panel was not looked at**. The chat line is written by
+`ChatService`, which proves the service ran and not that pixels reached the
+webview. That half needs a person.
+
+**And a stale reason, caught by its own test.** `nervis.code_server_proxy@1` said
+it was *"gated on M13's spike report"*, which stopped being true when the spike
+passed. Rewriting it to say M13 had *succeeded* then failed
+`test_no_capability_reason_names_a_milestone_that_has_shipped` — correctly, since
+its rule is that a capability which is not available may not name a shipped
+milestone. The reason now names no milestone at all and says what is actually
+missing: §13.3's proxy — auth, CSRF, redaction, timeouts, a published browser
+matrix.
+
+**The code-server track is one milestone, not three.** M14's proxy is the whole
+of what is left there.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

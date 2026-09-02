@@ -277,10 +277,23 @@ DECLARED: dict[str, Capability] = {
         "NERVIS-authored, read and approved in the editor. No tool is invoked "
         "and no gate is resolved",
     ),
+    # **The spike succeeded, so the reason changed.** This deferred to "M13's
+    # spike report", and a reason naming a milestone that has since shipped is
+    # the same defect as a capability stuck on the wrong state: a peer reads it
+    # and plans around a gate that is gone. M13 is settled — 56 cells, no
+    # failures — and what is actually missing now is the proxy itself, which is
+    # §13.3's work and a different thing from permission to build it.
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,
-        reason="gated on M13's spike report; M14 only if that spike succeeds",
+        # **Names no milestone, and that is the point.** The reason a peer reads
+        # should say what is missing, not which numbered thing to wait for — and
+        # a milestone named here goes stale the moment it ships, which is what
+        # `test_no_capability_reason_names_a_milestone_that_has_shipped` exists
+        # to catch. It caught this one.
+        reason="the compatibility spike passed; what is unbuilt is §13.3's "
+        "proxy — auth, CSRF, redaction, timeouts and a published browser "
+        "matrix. The Code tab embeds code-server directly meanwhile",
     ),
 }
 
