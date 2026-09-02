@@ -130,6 +130,14 @@ jobs:
       # published error codes all came to describe behaviour that did not exist.
       - name: nothing is defined and unreferenced
         run: python3 tools/check_dead_code.py
+      # The three specs' milestone and stage-mapping tables, which STATUS.md
+      # reads to derive what is left to build. A row with the wrong column count
+      # still renders — Markdown drops the extra cells — which is how NERVIS's
+      # M26 had no visible row for a week, and how part of M25's acceptance went
+      # with it. The mapping's own promise that "no milestone is silently
+      # unassigned" had never been verified either; M22b was.
+      - name: the build plans are readable and complete
+        run: python3 tools/check_plans.py
 
   prototype:
     name: nervis — parse, endpoints, citations

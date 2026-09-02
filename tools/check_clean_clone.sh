@@ -79,6 +79,7 @@ done
 echo "=== repository gates ==="
 step "STATUS.md is current"    nervis-eco python tools/check_status.py
 step "nothing unreferenced"    nervis-eco python tools/check_dead_code.py
+step "build plans readable"   nervis-eco python tools/check_plans.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

@@ -1308,6 +1308,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 5 — RAVIS intelligence | M3b + M4 + M7 + M8 (translated path, native and local adapters), M13 (SIRVIS evidence), M16 (policy) |
 | Stage 6 — NERVIS core | M11 + M15, and **M14's remaining half**, which landed after M11 because that is what supplies expected session length |
 | Stage 7 — events and tracing | M18b |
+| **Stage 11 — pools for unattended work** | M28 (`ravis/free-api`), built alongside NERVIS M25 so background thinking had somewhere to run that costs nothing. **M26 (`ravis/background`) is unbuilt and its purpose is now served by M28** — whether it closes as superseded or keeps a distinct meaning for a machine with a resident local model is an open decision, recorded here rather than resolved silently |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
 | **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
 | **Unscheduled — wanted only with a second machine** | M27 (multi-source evidence). Blocked on nothing; the work is not worth doing until a second host actually serves models — see §20.3 |

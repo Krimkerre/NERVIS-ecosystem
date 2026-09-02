@@ -3995,6 +3995,49 @@ dismissed. Switching tab clears the selection outright rather than pruning it,
 since a tick made on one list is not a tick on another. 5 tests, and the tabs are
 drawn even on an empty tab: an escape route inside the emptiness is a trap.
 
+### The build plans had drifted, and one row was invisible, 2 Sep
+
+Ticking two shipped SIRVIS milestones turned into finding that nothing checked
+these tables at all.
+
+**SIRVIS M12 and M22b had shipped without ticks.** M12's exit — *each asset
+classified, and a written mapping from Clarvis benchmark output to
+`EvidenceRecord`* — is delivered in `sirvis/src/sirvis/benchmarks/clarvis_roles.py`,
+which classifies three assets `REUSE` with a reason each and states the
+`TrialRate` mapping. M22b's is measured in `benchmarks/engine.py` and asserted in
+`sirvis/tests/test_m6_benchmark.py`. SIRVIS's stage mapping still listed M12 under *deferred
+by decision* and never mentioned M22b anywhere.
+
+**Then a worse one.** NERVIS's M26 row did not exist. The commit that added it
+lost a newline, concatenating three milestone rows into one line of nine cells —
+and Markdown renders the first three cells and **silently drops the rest**, so
+the table looked fine while M26 (Qtile) and part of M25's acceptance were
+invisible. Three of M25's shipped clauses were in there: its own session id, why
+§9.6.1's background marker is deliberately *not* used, and what "does not
+contend" resolves to. `background.py` has `session_id()` doing exactly what the
+lost clause described, so they were merged back rather than dropped.
+
+**`tools/check_plans.py` is the gate.** Every milestone row must be the table's
+own width, and every milestone must appear in a stage row or a deferred row —
+which is a promise SIRVIS's mapping already made in prose (*"listed so no
+milestone is silently unassigned"*) and could not keep. It found six more on its
+first run: SIRVIS's M22b row was missing a column, M15b was unassigned, NERVIS's
+M27 was unassigned, and RAVIS's M26 and M28 were both unassigned.
+
+One of those six was the gate being wrong rather than the docs. RAVIS's **M18**
+is one row for two halves scheduled apart — M18a at Stage 3, M18b at Stage 7 —
+so the mapping names the halves and never the whole. A lettered half now
+satisfies the row, because a gate that called that a gap would only teach people
+to write `M18` somewhere to keep it quiet.
+
+**RAVIS M26 is recorded as an open decision, not closed.** `ravis/free-api`
+(M28) now serves what `ravis/background` was for. Whether M26 closes as
+superseded or keeps a distinct meaning for a machine with a resident local model
+is written into the mapping as undecided, rather than resolved by whoever
+happened to be editing.
+
+85 milestone rows across the three specs now pass.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
