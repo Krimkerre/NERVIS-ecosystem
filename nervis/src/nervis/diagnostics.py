@@ -46,6 +46,22 @@ MAX_SERVICES = 12
 MAX_FIELD_CHARS = 400
 MAX_PACKET_CHARS = 24_000
 
+# The same packet, sized for a model running on this machine.
+#
+# **The local option was unusable at the ordinary bounds, which made it
+# decorative.** §11.5 offers *Local analysis only* as a real choice, and a real
+# choice has to be able to run: the full packet came to 11,642 tokens and LM
+# Studio refused it against an 8,192-token context. A privacy option that always
+# refuses is worse than none, because somebody ticks it, sees an error, and
+# unticks it.
+#
+# Fewer events rather than shorter ones. A clipped field loses the end of a
+# message, which is often the part naming the fault; dropping the oldest events
+# loses context the trace and the service list still describe. Both bounds are
+# declared in the packet either way, so a reader can see what was left out.
+LOCAL_MAX_EVENTS = 14
+LOCAL_MAX_SERVICES = 8
+
 # The fence. Long and unlikely rather than pretty: a delimiter a retrieved
 # string could contain is not a delimiter. Nothing in the packet is allowed to
 # carry it — see `_fence_safe`.
@@ -101,6 +117,7 @@ def build_packet(
     events: Sequence[Mapping[str, Any]] = (),
     services: Sequence[Mapping[str, Any]] = (),
     note: str = "",
+    local: bool = False,
 ) -> dict[str, Any]:
     """What would be sent, exactly — and it is returned rather than sent.
 
@@ -115,22 +132,27 @@ def build_packet(
     A packet where one field plays by different rules is a packet whose fence
     has an exception in it.
     """
+    max_events = LOCAL_MAX_EVENTS if local else MAX_EVENTS
+    max_services = LOCAL_MAX_SERVICES if local else MAX_SERVICES
     packet: dict[str, Any] = {
         "note": clip(note),
         "trace": clip(redact_deep(dict(trace))) if trace else None,
-        "events": [clip(redact_deep(dict(event))) for event in events[:MAX_EVENTS]],
+        "events": [clip(redact_deep(dict(event))) for event in events[:max_events]],
         "services": [
-            clip(redact_deep(dict(service))) for service in services[:MAX_SERVICES]
+            clip(redact_deep(dict(service))) for service in services[:max_services]
         ],
     }
     packet["bounds"] = {
         "events_included": len(packet["events"]),
         "events_available": len(events),
         "services_included": len(packet["services"]),
+        # Which budget this was built to, so the preview and the analysis cannot
+        # differ without the reader seeing why.
+        "sized_for": "a local model" if local else "whichever model RAVIS routes to",
         # Said out loud, because a packet that silently dropped the half of the
         # timeline containing the failure would produce a confident analysis of
         # the wrong thing.
-        "truncated": len(events) > MAX_EVENTS or len(services) > MAX_SERVICES,
+        "truncated": len(events) > max_events or len(services) > max_services,
     }
     return packet
 

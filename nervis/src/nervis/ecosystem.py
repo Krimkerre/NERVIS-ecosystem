@@ -207,9 +207,14 @@ DECLARED: dict[str, Capability] = {
     "nervis.diagnostics@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="§11.5's Analyze ships at M12 — a bounded, redacted, fenced packet "
-        "sent through RAVIS, previewable before it is sent; §17's unified "
-        "diagnostics across every service are still M17",
+        reason="11.5's Analyze is served: a bounded, redacted, fenced packet, "
+        "previewable in full before it is sent and built by the one function "
+        "both routes call, with a local-only option that is a pool RAVIS "
+        "refuses rather than a preference NERVIS asks for. Nothing the model "
+        "returns can become an action -- the field is a string and there is no "
+        "parser. Degraded because 17's unified diagnostics across every "
+        "service are not built: a Clarvis to RAVIS to provider trace, the "
+        "health overlay and log correlation",
     ),
     # §3.1 attaches a condition to this one rather than a milestone: it is
     # advertised *"only for explicitly configured owned services"*. So it stays

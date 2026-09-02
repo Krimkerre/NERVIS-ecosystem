@@ -1647,9 +1647,13 @@ def test_a_peer_nobody_installed_is_absent_rather_than_broken() -> None:
     assert "ollama · not configured" in line
     assert "ConnectError" not in line
     # And not counted as a missing service either: the Overview tile learned
-    # this first — "5 / 5 · 1 optional peer(s) never configured".
+    # this first — "5 / 5 · 1 optional peer(s) never configured". The peer is
+    # now named rather than only tallied, because a parenthesis is the first
+    # thing a summary drops — see
+    # `test_the_reading_names_the_peers_it_did_not_count`.
     assert situation.printed_line([absent, present], 0, "") == (
-        "1 of 1 services reachable (1 optional never configured)"
+        "every configured service is reachable; "
+        "1 optional peer(s) never contacted: ollama"
     )
 
 
@@ -3636,3 +3640,56 @@ def test_saving_one_reply_is_still_not_an_export() -> None:
     offer = commands.propose("save that as notes.pdf", [], default_name="x.pdf")
 
     assert offer is not None and offer.operation == "nervis.document.write"
+
+
+def test_the_reading_names_the_peers_it_did_not_count() -> None:
+    """Reported: NERVIS said "all 4 services are alive and well" with five running.
+
+    The count was right. LM Studio had just been started and had never been
+    reached, so it was not in the denominator — which is the rule that stops
+    "5 of 6" reporting a missing sixth service on a machine that never had one.
+
+    What was wrong is that "4 of 4 (2 optional never configured)" invites
+    exactly that paraphrase, and the parenthesis explaining the denominator is
+    the first thing a summary drops. Naming them is harder to summarise away,
+    and answers the question the number provokes.
+    """
+    from nervis.situation import printed_line
+
+    services = [
+        {"key": "nervis", "state": "healthy", "awaiting_first_contact": False},
+        {"key": "ravis", "state": "healthy", "awaiting_first_contact": False},
+        {"key": "lmstudio", "state": "unreachable", "awaiting_first_contact": True},
+        {"key": "ollama", "state": "unreachable", "awaiting_first_contact": True},
+    ]
+
+    line = printed_line(services, 0, "")
+    assert "every configured service is reachable" in line
+    assert "lmstudio" in line and "ollama" in line
+    # No ratio while the ratio is 1:1 — "2 of 2" is the phrasing that produced
+    # "all 4 services are alive and well" on a machine running five.
+    assert "2 of 2" not in line
+
+
+def test_a_machine_with_every_peer_configured_says_nothing_about_optionals() -> None:
+    """The clause earns its place by being absent when it has nothing to add."""
+    from nervis.situation import printed_line
+
+    line = printed_line(
+        [{"key": "nervis", "state": "healthy", "awaiting_first_contact": False}], 0, "")
+    assert line == "every configured service is reachable"
+
+
+def test_the_figures_come_back_the_moment_one_service_is_down() -> None:
+    """The count is dropped where it says nothing, not where it matters.
+
+    "every configured service is reachable" is the whole answer when they all
+    are; the moment one is not, how many and out of how many is the point.
+    """
+    from nervis.situation import printed_line
+
+    line = printed_line([
+        {"key": "nervis", "state": "healthy", "awaiting_first_contact": False},
+        {"key": "ravis", "state": "unreachable", "awaiting_first_contact": False},
+    ], 0, "")
+    assert line == "1 of 2 configured services reachable"

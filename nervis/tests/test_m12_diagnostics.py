@@ -220,3 +220,148 @@ def test_a_model_that_answers_with_a_command_is_still_only_text() -> None:
     # the only thing that can come back is a string under `analysis`.
     assert isinstance(body["analysis"], str)
     assert "packet" in body
+
+
+# ── The three exit clauses that had no test ─────────────────────────────────
+
+
+def test_a_trace_is_fetched_from_the_hub_rather_than_filtered_out_of_a_window() -> None:
+    """M12's exit says *a trace can be analyzed*, and this is what that needs.
+
+    The packet builder took the newest 200 events and kept the ones matching,
+    which finds a trace only while it is still among them. Observed against a
+    real trace the hub was holding perfectly well: analysing it produced the
+    trace's shell and **zero events**, and an analysis of nothing reads exactly
+    like an analysis of something.
+    """
+    client = an_api()
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    wanted = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    # **The noise goes first, and that is what reproduces it.** The old builder
+    # called `query(limit=200)` without `latest`, which returns the *oldest* 200
+    # — so the trace it missed was a recent one, which is every trace anybody
+    # actually asks about. Written the other way round the test passed against
+    # the bug, which is how it was caught.
+    for n in range(250):
+        hub.ingest({**an_event(f"noise {n}"), "event_id": f"ev-{n}", "trace_id": ""})
+    hub.ingest({**an_event("the failure"), "event_id": "ev-wanted", "trace_id": wanted})
+
+    body = client.post("/api/v1/diagnostics/packet", json={"trace_id": wanted}).json()
+
+    assert body["packet"]["bounds"]["events_included"] == 1
+    assert body["packet"]["trace"] is not None
+    assert "the failure" in body["prompt"]
+
+
+def test_asking_for_a_trace_excludes_everything_else() -> None:
+    """Otherwise "analyse this trace" is "analyse recent activity", and §11.5's
+    packet is supposed to be bounded to the thing being asked about."""
+    client = an_api()
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    hub.ingest({**an_event("mine"), "event_id": "ev-mine", "trace_id": "b" * 32})
+    hub.ingest({**an_event("someone else's"), "event_id": "ev-other", "trace_id": "c" * 32})
+
+    body = client.post("/api/v1/diagnostics/packet", json={"trace_id": "b" * 32}).json()
+
+    assert "mine" in body["prompt"]
+    assert "someone else" not in body["prompt"]
+
+
+def test_local_only_asks_for_the_pool_that_refuses_rather_than_a_preference() -> None:
+    """`ravis/local` is a refusal RAVIS enforces, not a hint NERVIS sends.
+
+    The distinction is the whole promise: a preference a router may override is
+    not a guarantee that a diagnostic packet stayed on the machine.
+    """
+    from nervis.api import diagnostics as api_diagnostics
+
+    assert api_diagnostics.LOCAL_ANALYSIS_POOL == "ravis/local"
+    assert api_diagnostics.ANALYSIS_POOL != api_diagnostics.LOCAL_ANALYSIS_POOL
+
+
+def test_a_local_refusal_says_the_packet_went_nowhere() -> None:
+    """The reassurance is the point.
+
+    Live, this came back as "RAVIS answered HTTP 422", which reads like a bug on
+    the one option whose entire purpose is a promise about where data goes. The
+    two things a reader needs are why, and whether it was sent anyway.
+    """
+    import httpx
+
+    from nervis.api.diagnostics import _why_refused
+
+    refusal = httpx.Response(422, json={"error": {
+        "message": "no candidate satisfies ravis/local; the pool is unavailable"}})
+
+    said = _why_refused(refusal, local_only=True)
+    assert "no candidate satisfies ravis/local" in said
+    assert "not sent anywhere else" in said
+
+    # And without the option, RAVIS's sentence stands alone — no promise is made
+    # about a request that was never constrained.
+    assert "not sent anywhere else" not in _why_refused(refusal, local_only=False)
+
+
+def test_a_refusal_that_is_not_json_still_says_something_useful() -> None:
+    """A gateway between NERVIS and RAVIS can answer with HTML."""
+    import httpx
+
+    from nervis.api.diagnostics import _why_refused
+
+    assert "502" in _why_refused(httpx.Response(502, text="<html>bad gateway</html>"), False)
+
+
+def test_a_failed_analysis_writes_nothing() -> None:
+    """M12's exit, in its own words: analysis failure does not alter logs.
+
+    An analysis is a question about the record. A question that edited the
+    record would make the second analysis of the same failure a different one —
+    and the failure being analysed is exactly when the record matters most.
+    """
+    client = an_api()
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    hub.ingest(an_event("the original failure"))
+    before = hub.latest_sequence()
+
+    answer = client.post("/api/v1/diagnostics/analyze", json={}).json()
+
+    assert answer["available"] is False          # RAVIS is unreachable here
+    assert hub.latest_sequence() == before, "the failed analysis added an event"
+
+
+def test_a_local_analysis_is_built_to_a_budget_a_local_model_can_take() -> None:
+    """The option was unusable at the ordinary bounds, which made it decorative.
+
+    §11.5 offers *Local analysis only* as a real choice, and a real choice has
+    to be able to run. Live, the full packet came to 11,642 tokens and LM Studio
+    refused it against an 8,192-token context — so the privacy option always
+    failed, which is worse than not offering it: somebody ticks it, sees an
+    error, and unticks it.
+    """
+    client = an_api()
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    for n in range(60):
+        hub.ingest({**an_event(f"event {n}"), "event_id": f"ev-{n}"})
+
+    hosted = client.post("/api/v1/diagnostics/packet", json={}).json()
+    local = client.post("/api/v1/diagnostics/packet", json={"local_only": True}).json()
+
+    assert len(local["prompt"]) < len(hosted["prompt"])
+    assert local["packet"]["bounds"]["events_included"] < \
+        hosted["packet"]["bounds"]["events_included"]
+    assert local["packet"]["bounds"]["sized_for"] == "a local model"
+
+
+def test_the_preview_is_built_to_the_same_budget_the_analysis_will_use() -> None:
+    """Otherwise "exactly what will be sent" stops being true the moment
+    somebody ticks the local box — the preview would show the large packet and
+    the small one would go."""
+    client = an_api()
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    for n in range(60):
+        hub.ingest({**an_event(f"event {n}"), "event_id": f"ev-{n}"})
+
+    shown = client.post("/api/v1/diagnostics/packet", json={"local_only": True}).json()
+    would_send = client.post("/api/v1/diagnostics/analyze", json={"local_only": True}).json()
+
+    assert would_send["packet"] == shown["packet"]

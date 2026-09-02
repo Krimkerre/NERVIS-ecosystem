@@ -313,11 +313,27 @@ def printed_line(
     # missing sixth service; the Overview tile learned this first and says
     # "5 / 5 · 1 optional peer(s) never configured".
     declared = [s for s in services if not s.get("awaiting_first_contact")]
-    absent = len(services) - len(declared)
+    absent = [s for s in services if s.get("awaiting_first_contact")]
     if declared:
         up = [s for s in declared if s.get("state") in ("healthy", "degraded")]
-        line = f"{len(up)} of {len(declared)} services reachable"
-        parts.append(line + (f" ({absent} optional never configured)" if absent else ""))
+        # **The uncounted peers are named, not just tallied.** Reported by an
+        # operator who read "all 4 services are alive and well" while five were
+        # running: the count was right — LM Studio had just been started and had
+        # never been reached — but "4 of 4" invites exactly that paraphrase, and
+        # the parenthesis explaining the denominator is the first thing a
+        # summary drops. A name is harder to summarise away than a number, and
+        # it also answers the question the number provokes.
+        # **No ratio when the ratio is 1:1.** "4 of 4" is the phrasing that
+        # produced "all 4 services are alive and well" on a machine running
+        # five, and the number was carrying no information at that moment: a
+        # count only says something when it differs from the total. When one is
+        # down, the figures are the point and they stay.
+        line = ("every configured service is reachable" if len(up) == len(declared)
+                else f"{len(up)} of {len(declared)} configured services reachable")
+        if absent:
+            named = ", ".join(sorted(str(s.get("key") or "?") for s in absent))
+            line += f"; {len(absent)} optional peer(s) never contacted: {named}"
+        parts.append(line)
     if catalogue:
         parts.append(catalogue)
     if windows:

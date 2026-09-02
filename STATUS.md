@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2133 tests, no network, no live service
+.venv/bin/pytest                      # part of 2144 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 737 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 748 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2133 passing across the four, conformance `PASS`.
+Expected: all clean, 2144 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82133af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82144af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4385,6 +4385,58 @@ likelier one. 16 tests.
 Also fixed here: two mypy errors M11 shipped with. `peers.ravis` re-exports
 `read` without declaring it, so the inspector now imports it from the module that
 defines it.
+
+### M12 — Analyze, and the two clauses nothing had tested, 2 Sep. NERVIS 0.20.0
+
+Most of §11.5 was already built: the bounded packet, the fence, the preview, the
+rule that the result is text nothing reads. Eleven tests covered the fence and
+the injection gate thoroughly. **Three of M12's four exit clauses had no test at
+all**, and two of them were not actually true.
+
+**"A trace can be analyzed" was false in the ordinary case.** The packet builder
+called `hub.query(limit=200)` and filtered the result — and without `latest` that
+returns the *oldest* 200, so the traces it missed were the recent ones, which is
+every trace anybody asks about. Analysing a real trace the hub was holding
+produced the trace's shell and **zero events**, and an analysis of nothing reads
+exactly like an analysis of something. It asks the hub by `trace_id` now.
+
+Worth recording how it was caught: the first version of the regression test
+ingested the wanted event *first* and buried it under noise, and **passed against
+the bug**. The window is oldest-first, so reproducing it needed the noise first
+and the trace last.
+
+**"Local-only policy enforced" held, but the option could never run.** The full
+packet came to 11,642 tokens and LM Studio refused it against an 8,192-token
+context, so *Local analysis only* always failed — which is worse than not
+offering it, because somebody ticks it, sees an error and unticks it. A local
+packet is now built to a smaller budget, and the preview is built to the same
+budget so "exactly what will be sent" stays true when the box is ticked.
+
+**And the refusal said "RAVIS answered HTTP 422".** On the one option whose whole
+purpose is a promise about where data goes, a status code says neither why nor
+whether it was sent. RAVIS's own sentence is surfaced instead, with the
+reassurance that the packet went nowhere. Two error shapes, both real: RAVIS
+nests a `message`, an upstream's refusal relayed through it arrives as a bare
+string, and reading only the first reported HTTP 400 for the message that
+actually named the context limit.
+
+Verified live in both directions: a hosted analysis through `ravis/auto`, and a
+local one through `ravis/local` against a model already loaded.
+
+### "All 4 services are alive and well", with five running, 2 Sep
+
+Reported while the above was being built. The count was right — LM Studio had
+just been started and had never been reached, so it was not in the denominator,
+which is the rule that stops "5 of 6" reporting a missing sixth service on a
+machine that never had one.
+
+The phrasing was wrong. "4 of 4 (2 optional never configured)" invites exactly
+that paraphrase, and the parenthesis explaining the denominator is the first
+thing a summary drops. Two changes, the second the operator's own suggestion and
+the better one: **the uncounted peers are named**, because a name is harder to
+summarise away than a number; and **the ratio is dropped when it is 1:1** — "every
+configured service is reachable" — because a count only says something when it
+differs from the total. The figures come straight back the moment one is down.
 
 ### Next — in this order
 

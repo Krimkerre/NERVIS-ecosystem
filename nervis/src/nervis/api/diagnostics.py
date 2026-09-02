@@ -48,15 +48,18 @@ async def _packet_for(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """
     hub = request.app.state.hub
     trace_id = str(body.get("trace_id") or "")
-    events = list(hub.query(limit=200))
     trace = None
     if trace_id:
-        matching = [
-            event for event in events
-            if str(event.get("trace_id") or "") == trace_id
-        ]
-        trace = assemble(trace_id, matching).as_dict()
-        events = matching
+        # **Asked of the hub, not filtered out of a recent window.** This took
+        # the newest 200 events and kept the ones matching, which finds a trace
+        # only while it is still among them — so analysing a trace from ten
+        # minutes ago produced a packet with the trace's shell and *zero
+        # events*, and an analysis of nothing reads exactly like an analysis.
+        # Observed against a real trace the hub was holding perfectly well.
+        events = list(hub.query(trace_id=trace_id, limit=200, latest=True))
+        trace = assemble(trace_id, events).as_dict()
+    else:
+        events = list(hub.query(limit=200, latest=True))
     return build_packet(
         trace=trace,
         # Errors first: a packet bounded at forty events should spend them on
@@ -67,6 +70,10 @@ async def _packet_for(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         ),
         services=[entry.as_dict() for entry in request.app.state.registry.all()],
         note=str(body.get("note") or ""),
+        # The preview must be built to the same budget the analysis will use, or
+        # "exactly what will be sent" stops being true the moment somebody ticks
+        # the local box.
+        local=bool(body.get("local_only")),
     )
 
 
@@ -134,7 +141,7 @@ async def analyze(request: Request) -> dict[str, Any]:
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
         if response.status_code >= 400:
-            return _refused(packet, f"RAVIS answered HTTP {response.status_code}")
+            return _refused(packet, _why_refused(response, bool(body.get("local_only"))))
         answer = response.json()
     except (httpx.HTTPError, ValueError) as failure:
         return _refused(packet, f"the analysis request did not complete: {failure}")
@@ -150,6 +157,44 @@ async def analyze(request: Request) -> dict[str, Any]:
         "analysis": _text_of(answer),
         "pool": payload["model"],
     }
+
+
+def _why_refused(response: httpx.Response, local_only: bool) -> str:
+    """RAVIS's own sentence, and what it means for the packet.
+
+    **"RAVIS answered HTTP 422" reads like a bug.** On the one option whose
+    whole purpose is a promise about where data goes, the two things somebody
+    needs are *why* and *whether it was sent* — and a status code says neither.
+    RAVIS already writes the sentence: `no candidate satisfies ravis/local; the
+    pool is unavailable`, which is the actual answer.
+
+    The reassurance is the point of saying it here. A refusal on the local pool
+    is the constraint working: no local model could serve it, so nothing was
+    sent to one that is not local. Silence would leave a reader wondering
+    whether the packet went somewhere anyway.
+    """
+    said = ""
+    try:
+        body = response.json()
+        if isinstance(body, dict):
+            error = body.get("error")
+            # Two shapes, both real. RAVIS's own refusals nest a `message`;
+            # an upstream's refusal relayed through it arrives as a bare string,
+            # and reading only the first shape reported the far less useful
+            # "RAVIS answered HTTP 400" for the message that actually said the
+            # packet was too large for the model's context.
+            if isinstance(error, dict):
+                said = str(error.get("message") or "")
+            elif isinstance(error, str):
+                said = error
+    except ValueError:
+        said = ""
+    said = said or f"RAVIS answered HTTP {response.status_code}"
+    if local_only:
+        return (f"{said}. **Local analysis only** was on, so the packet was not sent "
+                "anywhere else — start a local model, or turn the option off to use "
+                "whichever model RAVIS would ordinarily route to.")
+    return said
 
 
 def _refused(packet: dict[str, Any], reason: str) -> dict[str, Any]:

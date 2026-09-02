@@ -225,3 +225,34 @@ screen.
 If NERVIS was started by hand rather than by the launcher, there is no log
 adapter at all — the launcher is what decides where the logs go, and NERVIS will
 say there is no source rather than guess at one.
+
+## Asking a model to read the diagnostics
+
+**Diagnostics → Run diagnostics** gathers what NERVIS knows about a problem —
+the trace being looked at, the errors around it, and each service's state — and
+can send it to a model for a written explanation.
+
+**Nothing is sent until it is shown.** The packet is built and displayed first,
+including the exact wording wrapped around it, and sending is a separate button.
+What is displayed is what goes: one function builds it and both the preview and
+the send call it, so the preview cannot drift from the thing sent.
+
+**Local analysis only** routes the request to a pool that refuses anything but a
+model on this machine. It is a refusal rather than a preference, so the packet
+cannot quietly go elsewhere — and if no local model can take it, NERVIS says the
+packet was not sent anywhere. The local packet is deliberately smaller, because
+a local model's context is smaller and a request that never fits is an option
+that never works.
+
+**The packet leaves things out on purpose**: no source files, no whole
+conversations, no keys or secrets, and a limited number of events. What was left
+out is stated, so a short packet is never mistaken for a quiet system.
+
+**Everything in the packet is treated as data, never as instructions.** Error
+messages and log lines are text other programs wrote, and any of them could be
+made to read as a command. They are fenced before the model sees them, and the
+answer that comes back is only ever text shown to the user — NERVIS will not act
+on it, and there is no code that could.
+
+Analysing something changes nothing. No event is written and no record is
+altered, so asking twice about the same failure asks about the same failure.
