@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2051 tests, no network, no live service
+.venv/bin/pytest                      # part of 2074 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 660 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 683 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2051 passing across the four, conformance `PASS`.
+Expected: all clean, 2074 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3899,6 +3899,61 @@ matrix.
 
 **The code-server track is one milestone, not three.** M14's proxy is the whole
 of what is left there.
+
+### M16 — service supervision, 2 Sep. NERVIS 0.16.0
+
+The biggest functional gap closed: NERVIS could watch six services and restart
+none of them. §12's spec is mostly a list of things that must **not** happen,
+and so is most of the work.
+
+**A PID is not an identity.** What is recorded when NERVIS starts something is
+the process, the program behind it, *and the moment it began* — and all three
+must still agree before anything is signalled. `psutil` supplies the create
+time, which is what makes this checkable rather than hopeful.
+
+**The tolerance was wrong and the test caught it.** Create times were compared
+with a **one-second** window, which sounds cautious and is the opposite: two
+processes starting within a second of each other is *precisely* the PID-reuse
+case this exists to catch. The fabricated reused-PID test failed against it —
+the imposter was 0.4s later and matched. A millisecond now, which is orders of
+magnitude more than float representation needs.
+
+**Configuration permits supervision; it does not create it.** A service declared
+`nervis_managed` with no configured executable reads as `user_managed`, because
+claiming otherwise promises a control that does not exist. And a service NERVIS
+did not *start* cannot be stopped by it however it is configured — so on this
+machine, where the launcher brings everything up, every control correctly
+refuses. That is the rule working, not a gap.
+
+**Ownership gained its third mode.** The enum had `external` and `owned`, which
+collapsed §12's *"point at the switch"* and *"may use the switch"* into one
+answer — the exact distinction supervision turns on. The old spelling is kept so
+a stored value still reads.
+
+**Three verbs and no fourth.** An unknown operation is a **404**, not a 422:
+§12 asks for *"does not exist rather than failing at validation"*, because a
+message naming the wrong field is a map of the surface. No shell, an argv list,
+and an environment **allowlist** — a child inheriting NERVIS's environment would
+hold every peer credential NERVIS holds, which is §12.1's *"an admin credential
+in a control plane is a control plane whose compromise is total"* arriving by
+accident.
+
+**The circuit only opens.** Three failures open it and nothing in the module
+clears it; a success does not, because the retry that succeeded is the retry
+§12 says must not re-enter a crash-loop.
+
+**What NERVIS started survives NERVIS.** The record is in the database, so a
+restarted NERVIS neither adopts a process it cannot prove it launched nor
+abandons one it did — and the first is the dangerous half.
+
+`nervis.supervision@1` is conditional rather than milestone-marked, per §3.1's
+*"only for explicitly configured owned services"*: it reads the configuration,
+so this machine advertises `unavailable` and says why. 23 tests, and
+`supervision_check.js` holds the browser half — a screen that offered a control
+the server refuses would teach somebody their machine works differently than it
+does.
+
+**0.15.0 → 0.16.0**, M16 being the eighteenth milestone.
 
 ### Next — in this order
 

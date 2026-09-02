@@ -72,6 +72,22 @@ class OwnershipMode(str, Enum):
     """
 
     EXTERNAL = "external"
+    #: NERVIS may open documented instructions and **never kill or restart**.
+    #: The mode for something a person runs themselves: NERVIS can tell them
+    #: where the switch is, and may not reach for it.
+    USER_MANAGED = "user_managed"
+    #: NERVIS started it through a configured adapter, so NERVIS may stop and
+    #: restart it. **Earned rather than declared**: a service is only in this
+    #: mode where an executable identity was configured *and* NERVIS launched
+    #: the running process. Configuration alone permits supervision; it does not
+    #: create it, because §12 forbids touching an instance NERVIS did not start.
+    NERVIS_MANAGED = "nervis_managed"
+
+    #: The two-value spelling this file shipped with, kept so a stored value
+    #: still reads. §12 names three modes and this had `owned`, which collapsed
+    #: "a person runs it and I can point at the switch" into the same answer as
+    #: "I started it and may stop it" — the exact distinction supervision turns
+    #: on.
     OWNED = "owned"
 
 

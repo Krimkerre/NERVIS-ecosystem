@@ -28,7 +28,7 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis import background, documents, notifications
+from nervis import background, documents, notifications, supervision
 from nervis.api import (
     background_router,
     chat_router,
@@ -40,6 +40,7 @@ from nervis.api import (
     learned_router,
     notifications_router,
     proposals_router,
+    supervision_router,
     traces_router,
     voice_router,
 )
@@ -49,6 +50,7 @@ from nervis.config import Settings
 from nervis.ecosystem import (
     BUILD_VERSION,
     advertise_chat,
+    advertise_supervision,
     advertise_voice,
     nervis_surface,
 )
@@ -83,6 +85,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(chat_router)
     api.include_router(events_router)
     api.include_router(diagnostics_router)
+    api.include_router(supervision_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
     api.include_router(background_router)
@@ -146,7 +149,6 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # marker only from an authenticated identity — so what this advertises
     # depends on whether a credential was configured, not on what NERVIS built.
     advertise_chat(api.state.ecosystem, bool(settings.ravis_client_credential))
-
     # §5.1's registry, built from configuration alone. A declaration whose
     # endpoint fails the SSRF guard is dropped and recorded rather than raised:
     # one bad entry must not stop NERVIS starting, which is the same rule that
@@ -156,6 +158,15 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     for key, reason in refused:
         logger.warning("registry entry %s refused: %s", key, reason)
     api.state.registry = Registry(admitted, stale_after_seconds=settings.stale_after_seconds)
+    # **After the registry, because it counts what is in it.** §3.1 attaches
+    # supervision to a condition rather than a milestone, so this is a reading
+    # of the configuration: a machine whose services were all started by a
+    # launcher owns none, and the capability says so rather than claiming a
+    # control that would refuse.
+    advertise_supervision(api.state.ecosystem, sum(
+        1 for entry in api.state.registry.all()
+        if supervision.adapter(api.state.database, entry.key).configured
+    ))
     # One client for every probe. Connection reuse matters here: six services on
     # a twenty-second timer is a new TCP handshake every three seconds
     # otherwise, against processes on this same machine.

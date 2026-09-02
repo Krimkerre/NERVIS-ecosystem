@@ -5486,7 +5486,7 @@ async function settingsView(){
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
   + section('Unattended work', await backgroundSection())
   + section('What NERVIS remembers', await learnedSection() + await rememberedSection())
-  + section('Supervision', `<div class="card wide"><h3>Supervision</h3>
+  + section('Supervision', await supervisionSection() + `<div class="card wide"><h3>Ownership</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
    <div class="table-row"><span>observed only</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.observed.join(' · '))}</span></div>
@@ -5600,6 +5600,78 @@ function effectiveConfig(h){
 function scopeHint(failure){
  if(!failure||!/scope/i.test(failure.message||''))return '';
  return ' · mint one that carries both: sirvis token --mint dashboard --scopes "runtime benchmark"';
+}
+
+/* Starting and stopping the services NERVIS started (M16).
+
+   **Off until somebody turns it on**, and every control is disabled with the
+   reason beside it rather than merely greyed. "External" and "owned but never
+   started by NERVIS" refuse for different reasons, and a screen that showed one
+   disabled button for both would be telling somebody the wrong thing about
+   their own machine. */
+async function supervisionSection(){
+ let b=null,live=false;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/supervision',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok){b=await r.json();live=true}
+ }catch(e){}
+ if(!b)return `<div class="card wide${liveClass(false)}"><h3>Service control</h3>${cell(
+   banner('NERVIS is not answering','Supervision lives in NERVIS\'s own store and cannot be read or changed from here until it is up.','warn'),'nervis')}</div>`;
+
+ const rows=(b.services||[]).map(s=>supervisionRow(s,b.enabled)).join('');
+ return `<div class="card wide${liveClass(live)}"><h3>Service control
+   <span class="chip${b.enabled?' warn':' dim'}">${b.enabled?'on':'off'}</span></h3>${cell(`
+   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer">
+     <input type="checkbox"${b.enabled?' checked':''} onchange="setSupervision(this.checked)">
+     <span><b>Let NERVIS start and stop the services it started</b><br>
+       <small class="mono dim">never anything it did not start, and never an external service</small></span></label>
+   <div class="table-row head caps" style="grid-template-columns:1fr 1.1fr 1.5fr 1.3fr;margin-top:10px">
+     <span>Service</span><span>Ownership</span><span>State</span><span></span></div>
+   ${rows}`,'nervis')}
+   <small class="mono dim"><b>NERVIS may only stop what NERVIS started.</b> A service brought up by the launcher is one it observes — it holds no record of starting it, so it will not signal it, which is what §12 forbids. <b>A PID is not an identity</b>: what is recorded is the process, the program behind it and the moment it began, and all three must still agree before anything is signalled. <b>Three failed attempts open a service's circuit</b> and only clearing it here reopens the door, so a crash-loop cannot be re-entered by retrying. Every attempt is published to the event hub, refusals included.</small></div>`;
+}
+
+/* One service: what it is owned as, what NERVIS knows about its process, and
+   the controls — each disabled with the reason it is disabled. */
+function supervisionRow(s,on){
+ const managed=s.mode==='nervis_managed';
+ const state=s.circuit&&s.circuit.opened_at
+   ? `<span class="chip warn">circuit open</span> <small class="mono dim">${escapeHtml(s.circuit.reason||'')}</small>`
+   : s.started_by_nervis
+     ? `<span class="chip">started here</span> <small class="mono dim">pid ${escapeHtml(s.pid)}</small>`
+     : `<small class="mono dim">${escapeHtml(s.why_not||'not started by NERVIS')}</small>`;
+ const verbs=(s.circuit&&s.circuit.opened_at)
+   ? `<button class="mode-chip" onclick="clearCircuit('${jsAttr(s.service)}')">Clear circuit</button>`
+   : ['start','stop','restart'].map(v=>`<button class="mode-chip"
+       onclick="superviseNow('${jsAttr(s.service)}','${v}')"${on&&managed?'':' disabled'}>${v}</button>`).join(' ');
+ return `<div class="table-row" style="grid-template-columns:1fr 1.1fr 1.5fr 1.3fr">
+   <span><b>${escapeHtml(s.label||s.service)}</b></span>
+   <span class="mono" style="opacity:.8">${escapeHtml(s.mode)}${s.declared!==s.mode
+     ? `<br><small class="dim">declared ${escapeHtml(s.declared)}</small>`:''}</span>
+   <span>${state}</span>
+   <span>${verbs}</span></div>`;
+}
+
+async function setSupervision(on){
+ try{await fetch(BASE.nervis+'/api/v1/supervision/enable',{method:'POST',
+   headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on}),
+   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
+}
+
+/* One enumerated verb against one service. Armed like every other act that
+   changes something outside this page. */
+async function superviseNow(service,verb){
+ if(!armed('supervise:'+service+':'+verb,`This will ${verb} ${service}`))return;
+ try{await fetch(`${BASE.nervis}/api/v1/supervision/${encodeURIComponent(service)}/${verb}`,
+   {method:'POST',signal:AbortSignal.timeout(60000)})}catch(e){}
+ render();
+}
+
+async function clearCircuit(service){
+ try{await fetch(`${BASE.nervis}/api/v1/supervision/${encodeURIComponent(service)}/circuit/clear`,
+   {method:'POST',signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
 }
 
 /* Work NERVIS does with nobody watching (M25).

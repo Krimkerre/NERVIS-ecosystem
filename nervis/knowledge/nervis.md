@@ -83,3 +83,29 @@ services, rather than by the page. That is why muting the voice, closing the
 tab or being on another screen loses the spoken announcement and never the
 written one. Dismissing happens one note at a time; there is deliberately no
 way to clear them all at once.
+
+## Starting and stopping services
+
+NERVIS can start and stop services — but only ones it started itself, and only
+after somebody switches the whole thing on under Settings. It is off by default.
+
+Three rules make that safe rather than alarming.
+
+**It only touches what it launched.** If the launcher script brought a service
+up, NERVIS has no record of starting it and will not signal it, even though it
+can see it perfectly well. On a machine where everything was started by the
+launcher, every control correctly refuses.
+
+**A process number is not enough to identify a process.** Operating systems
+reuse those numbers, so NERVIS remembers the number, the program behind it and
+the exact moment it began, and all three have to still agree before it signals
+anything. Otherwise a stop aimed at a service that has since exited could hit a
+stranger that inherited its number.
+
+**Three failed attempts stop it trying.** After that the service's controls stay
+shut until somebody clears them by hand, so a service that keeps dying cannot be
+restarted in a loop.
+
+There are exactly three things it can do — start, stop, restart — and asking for
+anything else gets "no such thing" rather than an error explaining what would
+have worked. Every attempt is recorded, refusals included.

@@ -290,7 +290,16 @@ jobs:
         working-directory: nervis
         run: node tools/handler_check.js
 
-      # **Seventeen of the nineteen gate scripts, and the other two are not an
+      # §12 is a list of negatives, and the browser can break every one without
+      # the server noticing: a button enabled for an external service, a verb
+      # the page invents, a control that acts without a confirmation. The server
+      # refuses all of it — and a screen that offers it anyway teaches somebody
+      # their machine works differently than it does.
+      - name: Dashboard — service control offers only what §12 allows
+        working-directory: nervis
+        run: node tools/supervision_check.js
+
+      # **Eighteen of the twenty gate scripts, and the other two are not an
       # oversight.** `honesty_check.js` and `recovery_check.js` drive the page
       # against a live NERVIS on 127.0.0.1:8790 — `recovery_check` exists to
       # watch screens survive a service that stops answering, which needs a

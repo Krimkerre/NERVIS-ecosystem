@@ -310,6 +310,50 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS background_by_time ON background_run(ran_at);
         """,
     ),
+    (
+        10,
+        "what NERVIS started, per NERVIS.md §12 and M16",
+        # **The record exists so that a restart of NERVIS is not amnesia.**
+        # §12 forbids touching anything NERVIS did not start, which is only
+        # enforceable if what it started survives its own process. Without this
+        # table a NERVIS that restarted would either adopt processes it cannot
+        # prove it launched, or abandon ones it did — and the first is the
+        # dangerous half.
+        #
+        # **`created_at` is the PID-reuse guard and the reason a PID alone is
+        # not identity.** An operating system reissues PIDs; a PID plus the
+        # exact moment that process began is unique in practice. §12's "never
+        # assume a process exists from a stale PID" is enforced by comparing
+        # both, and `executable` catches the third case — right PID, right
+        # start time, wrong program, which a reused PID on a busy machine can
+        # produce.
+        #
+        # `stopped_at` rather than deleting the row: what NERVIS stopped and
+        # when is the audit §12 asks for, and a table that only holds live
+        # processes cannot answer "what happened to it".
+        """
+        CREATE TABLE IF NOT EXISTS supervised_process (
+            service     TEXT PRIMARY KEY,
+            pid         INTEGER NOT NULL,
+            executable  TEXT NOT NULL,
+            created_at  REAL NOT NULL,
+            started_at  TEXT NOT NULL,
+            stopped_at  TEXT NOT NULL DEFAULT '',
+            stopped_why TEXT NOT NULL DEFAULT ''
+        );
+
+        -- §12's crash-loop limit: repeated control failures open a service's
+        -- supervision circuit, and only an operator clears it. Kept in the
+        -- database rather than in memory because a circuit a restart forgets is
+        -- a crash-loop that can be re-entered by restarting NERVIS.
+        CREATE TABLE IF NOT EXISTS supervision_circuit (
+            service   TEXT PRIMARY KEY,
+            failures  INTEGER NOT NULL DEFAULT 0,
+            opened_at TEXT NOT NULL DEFAULT '',
+            reason    TEXT NOT NULL DEFAULT ''
+        );
+        """,
+    ),
 ]
 
 

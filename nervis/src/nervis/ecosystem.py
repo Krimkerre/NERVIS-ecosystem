@@ -186,10 +186,19 @@ DECLARED: dict[str, Capability] = {
     # advertised *"only for explicitly configured owned services"*. So it stays
     # unavailable even after M16 ships, on any installation that owns none —
     # which is the §4.1 table's per-capability bar, not a blanket one.
+    # **Built, and still conditional — which is §3.1's own wording.** It
+    # advertises supervision *"only for explicitly configured owned services"*,
+    # so on an installation that owns none this stays unavailable after M16
+    # ships. `advertise_supervision` flips it when an adapter exists, the same
+    # shape as `nervis.voice@1` and for the same reason: a peer that negotiates
+    # this and gets `available` may ask NERVIS to act, and one that sees
+    # `unavailable` knows this machine has nothing owned rather than guessing
+    # from a refusal.
     "nervis.supervision@1": Capability(
         version="1.0.0",
         state=UNAVAILABLE,
-        reason="supervision lands at M16, and only for explicitly configured owned services",
+        reason="no service on this installation is configured with an executable "
+        "NERVIS may start, so there is nothing it owns to supervise",
     ),
     # The other conditional one, and the condition is the point: §3.1 says
     # *"only after security/compatibility gates pass"*. M13 is a spike whose
@@ -349,6 +358,29 @@ def advertise_chat(surface: EcosystemSurface, credentialed: bool) -> None:
             else "chat, streaming, history and the route inspector are served; "
             "generated titles need a RAVIS client credential, and none is configured"
         ),
+    )
+    surface.revision += 1
+
+
+def advertise_supervision(surface: EcosystemSurface, owned: int) -> None:
+    """Turn `nervis.supervision@1` on where this installation owns something.
+
+    §3.1 attaches this capability to a *condition* rather than a milestone —
+    "only for explicitly configured owned services" — so the honest state is a
+    reading of the configuration rather than a marker that M16 shipped. A
+    machine whose services were all started by a launcher owns none, and the
+    capability says so.
+    """
+    declared = surface.declared
+    if not isinstance(declared, dict):  # pragma: no cover - constructed as a dict
+        return
+    if owned <= 0:
+        return
+    declared["nervis.supervision@1"] = Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason=f"{owned} service(s) are configured with an executable NERVIS may "
+        "start; it may stop and restart the ones it started and nothing else",
     )
     surface.revision += 1
 
