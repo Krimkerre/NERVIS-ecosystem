@@ -3021,6 +3021,40 @@ const API={
      No mock, for the same reason `notifications` has none: an invented editor
      window is NERVIS claiming to see activity nobody had. A failure is
      `live:false` and the screen says which. */
+  /* GET /api/v1/inspector — M11's list, and one decision in full.
+
+     No mock, for the reason `notifications` has none: an invented route
+     decision is NERVIS claiming to have watched a request nobody made. RAVIS
+     holds decisions in memory, so a short list after a restart is correct
+     rather than broken and the screen says which. */
+  async inspectorList(){
+   try{
+    const r=await fetch('/api/v1/inspector',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{items:[],live:false,reason:'NERVIS could not read it'};
+    return await r.json();
+   }catch(e){return{items:[],live:false,reason:'no answer from NERVIS'}}
+  },
+
+  async inspectOne(decisionId){
+   try{
+    const r=await fetch('/api/v1/inspector/'+encodeURIComponent(decisionId),
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{live:false,reason:r.status===404
+      ?'RAVIS is no longer holding that decision — they live in memory, so a restart drops them'
+      :'NERVIS could not read it'};
+    return{...await r.json(),live:true};
+   }catch(e){return{live:false,reason:'no answer from NERVIS'}}
+  },
+
+  async setInspectorContent(on){
+   try{
+    const r=await fetch('/api/v1/inspector/content',{method:'POST',
+      headers:{'content-type':'application/json'},body:JSON.stringify({enabled:!!on}),
+      signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    return r.ok?(await r.json()).show_content:null;
+   }catch(e){return null}
+  },
+
   async clarvisDiagnostics(instanceId){
    try{
     const r=await fetch('/api/v1/registry/instances/clarvis/'+
@@ -4229,17 +4263,23 @@ function diagSections(){
    aria-pressed="${DIAG_SECTION===key?'true':'false'}"
    onclick="setDiagSection('${jsAttr(key)}')">${escapeHtml(label)}</button>`;
  return `<div class="filter-row note-tabs" role="group" aria-label="Which diagnostics">
-   ${tab('services','services')}${tab('clarvis','clarvis in the editor')}</div>`;
+   ${tab('services','services')}${tab('clarvis','clarvis in the editor')}${
+   tab('inspector','api inspector')}</div>`;
 }
 
 function setDiagSection(section){
  if(DIAG_SECTION===section)return;
  DIAG_SECTION=section;
+ /* An open inspection does not survive leaving the screen. Coming back to a
+    decision somebody opened ten minutes ago — which RAVIS may no longer hold —
+    would greet them with an error instead of the list they asked for. */
+ INSPECT_ID='';
  render();
 }
 
 async function diagnosticsView(){
  if(DIAG_SECTION==='clarvis')return clarvisDiagnosticsView();
+ if(DIAG_SECTION==='inspector')return inspectorView();
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
   control('Analyze trace…','diagnose',' primary'));
  const d=await API.nervis.diagnostics();
@@ -10626,6 +10666,162 @@ function clarvisWindowCard(d,tabs){
  return `<div class="card full${liveClass(d.expires_in>0)}"><h3>Window
    ${clarvisStateChip(status.state||'unknown')}</h3>${cell(tabs+`<dl class="kv">${
    rows.map(([label,value])=>`<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>`,'clarvis')}</div>`;
+}
+
+
+/* ── M11: one request through RAVIS, stage by stage (§11.4) ──────────────────
+
+   §7.1 calls this the thing that makes ordinary chat a RAVIS debugging tool.
+   M4 built the one-line version onto a reply; this is the whole sequence.
+
+   **The stage list is chosen by the execution path, not filtered down to it.**
+   §11.4 says outright *do not imply RAVIS normalized content it actually passed
+   through untouched*, and an empty row labelled "normalized request" on a
+   transparent route is exactly that implication. The server decides which list;
+   this draws whichever it was handed. */
+
+let INSPECT_ID='';
+
+/* What each stage's state means, said in the row rather than in a legend
+   somebody has to go and find. */
+const STAGE_TONE={
+ published:['from RAVIS','ok'],
+ held:['NERVIS\'s own record','ok'],
+ withheld:['hidden by the content setting','dim'],
+ not_published:['not published','dim'],
+};
+
+function stageRow(stage){
+ const [label,tone]=STAGE_TONE[stage.state]||['unknown','dim'];
+ return `<div class="table-row" style="grid-template-columns:1.2fr .9fr 2.4fr">
+   <span><b>${escapeHtml(stage.name)}</b></span>
+   <span class="chip ${escapeHtml(tone==='ok'?'':tone)}">${escapeHtml(label)}</span>
+   <span style="opacity:.8">${escapeHtml(stage.detail||'')}${stage.content
+     ?`<br><span class="mono" style="opacity:.95">${escapeHtml(stage.content)}</span>`:''}</span>
+  </div>`;
+}
+
+/* The path, named and explained. Two paths mean two different claims about what
+   RAVIS did to the request, and §11.4 exists because conflating them misreports
+   what actually happened. */
+function pathCard(path){
+ const transparent=path==='TRANSPARENT';
+ return cell(banner(transparent?'Transparent route':'Translated route',
+   transparent
+    ?'RAVIS passed this through to an OpenAI-compatible upstream. It did <b>not</b> normalize '
+     +'the content, so there is no normalized request to show — the stages below are the whole of it.'
+    :`RAVIS translated this through its normalized form and out again (<span class="mono">${escapeHtml(path)}</span>). `
+     +'The intermediate stages exist; RAVIS publishes no surface carrying them, which each row says.',
+   'info'),'nervis');
+}
+
+function attemptRows(attempts){
+ if(!attempts.length)return banner('No attempt recorded','RAVIS recorded a decision but no execution.','info');
+ return `<div class="table-row head caps" style="grid-template-columns:1.6fr .8fr .8fr 1.4fr">
+   <span>Model</span><span>Outcome</span><span>Elapsed</span><span>Detail</span></div>`
+  +attempts.map(a=>`<div class="table-row" style="grid-template-columns:1.6fr .8fr .8fr 1.4fr">
+    <span class="mono">${escapeHtml(a.model||'—')}</span>
+    <span class="chip${a.outcome==='succeeded'?'':' bad'}">${escapeHtml(a.outcome||'—')}</span>
+    <span class="mono dim">${a.elapsed_ms!=null?escapeHtml(Math.round(a.elapsed_ms))+' ms':'—'}</span>
+    <span style="opacity:.75">${escapeHtml(a.detail||'')}</span>
+   </div>`).join('');
+}
+
+function inspectorRows(items){
+ if(!items.length)return banner('No route decision held',
+   'RAVIS keeps decisions in memory, so this is empty after a restart until something routes. '
+   +'Send a chat message and it appears here.','info');
+ return `<div class="table-row head caps" style="grid-template-columns:1fr .8fr 1.4fr 1fr">
+   <span>When</span><span>Client</span><span>Selected</span><span>Path</span></div>`
+  +items.map(r=>`<div class="table-row" style="grid-template-columns:1fr .8fr 1.4fr 1fr;cursor:pointer"
+    onclick="openInspection('${jsAttr(r.decision_id)}')">
+    <span class="mono dim">${escapeHtml(noteExact(r.decided_at||''))}</span>
+    <span>${escapeHtml(r.application_id||'—')}</span>
+    <span class="mono">${escapeHtml(r.selected||'—')}${r.pool
+      ?`<br><small class="dim">via ${escapeHtml(r.pool)}</small>`:''}</span>
+    <span class="mono dim">${escapeHtml(r.execution_path||'—')}</span>
+   </div>`).join('');
+}
+
+function openInspection(id){INSPECT_ID=id;render()}
+function closeInspection(){INSPECT_ID='';render()}
+
+async function toggleInspectorContent(on){
+ await API.nervis.setInspectorContent(on);
+ render();
+}
+
+/* The content switch, drawn with what it actually governs said next to it —
+   §11.4's "content follows logging and privacy settings" is a sentence somebody
+   has to be able to act on. */
+function contentSwitch(on){
+ return `<div class="filter-row">
+   <button class="mode-chip${on?' on':''}" onclick="toggleInspectorContent(${on?'false':'true'})"
+     >message content: ${on?'shown':'hidden'}</button>
+   <small class="mono dim">${on
+     ?'Requests NERVIS made itself show their text. Nothing else does — RAVIS publishes no content.'
+     :'Off by default. The route is the subject here; the messages are the part you ask for.'}</small>
+  </div>`;
+}
+
+/* The decision itself, as a card. Extracted because `inspectorView` reached 20
+   against a ratchet of 13, and this half is pure markup over one object. */
+function inspectorDecisionCard(d,back,showContent){
+ const dec=d.decision||{};
+ const rows=[
+   ['asked for',`<span class="mono">${escapeHtml(dec.requested||'—')}</span>`],
+   ['selected',`<span class="mono">${escapeHtml(dec.selected||'—')}</span>`],
+   ['pool',dec.pool?`<span class="mono">${escapeHtml(dec.pool)}</span>`:''],
+   ['because',escapeHtml(dec.reason||'no reason recorded')],
+   ['client',escapeHtml(dec.application_id||'—')],
+   ['considered',`${escapeHtml(d.considered_count)} model(s) — ${escapeHtml(
+     (d.considered_sample||[]).slice(0,6).join(', '))}${d.considered_count>6?' …':''}`],
+   ['request id',`<span class="mono">${escapeHtml(dec.request_id||'—')}</span>`],
+ ].filter(([,value])=>value);
+ return `<div class="card full${liveClass(true)}"><h3>Request
+   <span class="chip">${escapeHtml(dec.execution_path||'—')}</span></h3>${cell(
+   `<div class="filter-row">${back}</div>`+contentSwitch(showContent)+`<dl class="kv">${
+   rows.map(([label,value])=>`<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>`,'nervis')}</div>`;
+}
+
+async function inspectorView(){
+ heading('Diagnostics','One request through RAVIS, stage by stage.');
+ const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ const list=await API.nervis.inspectorList();
+
+ if(!INSPECT_ID){
+  $('#content').innerHTML=sections+`<div class="card full${liveClass(list.live)}">
+    <h3>Recent requests <span class="chip">${escapeHtml((list.items||[]).length)}</span></h3>${cell(
+    contentSwitch(list.show_content)+(list.live?inspectorRows(list.items||[])
+      :banner('RAVIS is not answering',escapeHtml(list.reason||'')+'.','warn')),'nervis')}
+    <small class="mono dim"><b>Click a row to open it.</b> Every figure here is RAVIS's own — the
+    decision it recorded and the attempts it made. <b>NERVIS adds nothing to it</b>: what RAVIS does
+    not publish is shown as unpublished rather than filled in, because a stage list with honest gaps
+    is a description of the missing surface and one with the gaps deleted is a screen that quietly
+    redefines what an inspector is.</small></div>`;
+  return;
+ }
+
+ const d=await API.nervis.inspectOne(INSPECT_ID);
+ const back=`<button class="mode-chip" onclick="closeInspection()">← all requests</button>`;
+ if(!d.live){
+  /* `d.live` is false here, and the class reads it rather than the card simply
+     not carrying one — a failed read is a reading. */
+  $('#content').innerHTML=sections+`<div class="card full${liveClass(d.live)}"><h3>Request</h3>${cell(
+   `<div class="filter-row">${back}</div>`+banner('That decision could not be read',
+     escapeHtml(d.reason||'')+'.','warn'),'nervis')}</div>`;
+  return;
+ }
+ $('#content').innerHTML=sections+inspectorDecisionCard(d,back,list.show_content)
+  +`<div class="card full${liveClass(true)}"><h3>How it was executed</h3>${pathCard(d.path)}</div>
+  <div class="card full${liveClass(true)}"><h3>Stages</h3>${cell(
+   (d.stages||[]).map(stageRow).join(''),'nervis')}
+   <small class="mono dim"><b>Credentials are never shown here</b>, and not because they are filtered
+   out: the decision is copied field by field from a fixed list, so a field RAVIS adds later reaches
+   no screen until somebody adds it deliberately. <b>Content follows the switch above</b> — and the
+   only content NERVIS can ever show is its own, from requests it made itself.</small></div>
+  <div class="card full${liveClass(true)}"><h3>Attempts</h3>${cell(
+   attemptRows(d.attempts||[]),'nervis')}</div>`;
 }
 
 async function clarvisDiagnosticsView(){

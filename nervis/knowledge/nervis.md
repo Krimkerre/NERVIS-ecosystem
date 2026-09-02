@@ -157,3 +157,33 @@ would look exactly like the truth until it was wrong.
 A window whose editor closed stops renewing its registration, and the screen
 says the lease lapsed rather than quietly showing its last known state as
 current.
+
+## Looking inside one request
+
+**Diagnostics → api inspector** shows what happened to a single request that
+went through RAVIS: what was asked for, what was picked and the reason, how many
+models were considered, which provider ran it, and every attempt with its
+timings.
+
+The stages shown depend on how RAVIS executed it. A **transparent** route was
+passed straight through to an OpenAI-compatible upstream, so there is no
+normalized form to show and none is drawn — showing an empty one would imply
+RAVIS changed something it did not touch. A **translated** route went through
+RAVIS's normalized shape and out again, so those stages are listed.
+
+**Most of those stages say "not published", and that is accurate rather than
+broken.** RAVIS records the decision and the attempts; it does not publish the
+message bodies or the provider's own event stream. NERVIS shows the gaps and
+names them instead of filling them in.
+
+The one exception is a request NERVIS made itself. It has its own copy of what
+it asked and what came back, and can show that — but only when **message
+content** is switched on in the inspector, which is off by default. Content from
+any other client is never available, because nothing publishes it.
+
+Credentials never appear here. The decision is copied field by field from a
+fixed list rather than filtered, so a new field RAVIS adds later reaches no
+screen until somebody adds it deliberately.
+
+RAVIS keeps route decisions in memory, so the list is short after a restart and
+an older one may be gone. That is expected, not a fault.

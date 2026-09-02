@@ -206,3 +206,41 @@ def history(database: Database, conversation_id: str) -> list[dict[str, str]]:
         for message in messages(database, conversation_id)
         if message.content
     ]
+
+
+def turn_for_request(database: Database, request_id: str) -> dict[str, str] | None:
+    """The question and answer behind one RAVIS request, or nothing.
+
+    M11's inspector needs the content stages §11.4 asks for, and RAVIS publishes
+    none — it records the decision, never the messages. Where NERVIS was the
+    client the content is *its own*, already stored and already on the chat
+    screen, so showing it in the inspector exposes nothing new.
+
+    The assistant turn carries the `request_id`; the question is the user turn
+    immediately before it in the same conversation. Matched by position rather
+    than by a second id, because a user message has no request of its own —
+    it is the thing the request was made *about*.
+
+    Returns nothing for a request NERVIS did not make, which is the ordinary
+    case for a Clarvis request and is reported as such rather than as an empty
+    conversation.
+    """
+    if not request_id:
+        return None
+    answer = database.connection.execute(
+        "SELECT conversation_id, content, created_at FROM chat_message "
+        "WHERE request_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1",
+        (request_id,),
+    ).fetchone()
+    if answer is None:
+        return None
+    question = database.connection.execute(
+        "SELECT content FROM chat_message WHERE conversation_id = ? AND role = 'user' "
+        "AND created_at <= ? ORDER BY created_at DESC LIMIT 1",
+        (answer["conversation_id"], answer["created_at"]),
+    ).fetchone()
+    return {
+        "request": question["content"] if question else "",
+        "response": answer["content"],
+        "conversation_id": answer["conversation_id"],
+    }

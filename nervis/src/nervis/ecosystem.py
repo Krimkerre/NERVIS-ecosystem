@@ -179,6 +179,20 @@ DECLARED: dict[str, Capability] = {
         "is displayed and never resolved here (CLARVIS.md 6.7), and no Clarvis "
         "state is stored as a copy of its own",
     ),
+    "nervis.api_inspector@1": Capability(
+        version="1.0.0",
+        state=DEGRADED,
+        # No milestone named here: `test_no_capability_reason_names_a_milestone_
+        # that_has_shipped` exists because a reason naming one goes stale the
+        # moment it ships, and this reason went stale before it was committed.
+        reason="11.4's sequence is served -- the route decision, the execution "
+        "attempts, the upstream destination and stream metadata -- with the "
+        "stage list chosen by execution path, so a transparent route is never "
+        "shown a normalized request it never had. Degraded because RAVIS "
+        "publishes no content: the normalized request, the native provider "
+        "request and both event streams are marked unpublished rather than "
+        "invented, and the only message content NERVIS can show is its own",
+    ),
     "nervis.diagnostics@1": Capability(
         version="1.0.0",
         state=DEGRADED,

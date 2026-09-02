@@ -113,7 +113,7 @@ nervis.ravis_chat@1        nervis.code_server_proxy@1  only after security/compa
 nervis.notifications@1     nervis.voice@1              only when a voice credential is configured (§18.2)
 nervis.proposal_memory@1   nervis.learned_notes@1
 nervis.planning@1          nervis.background_work@1
-nervis.clarvis_handoff@1
+nervis.clarvis_handoff@1   nervis.api_inspector@1      degraded while RAVIS publishes no request content
 ```
 
 ---
@@ -1072,7 +1072,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M8b** ✅ | Clarvis Bridge integration, live half — status, mode, busy, agent/task events, gate state read from a running Bridge. **Blocked on Clarvis building the Bridge**: `CLARVIS.md` §6 specifies it and the Clarvis repository contains no implementation, and §1 forbids inventing another component's API | Clarvis still works without NERVIS; connect/disconnect is safe; existing Clarvis safety behaviour unchanged |
 | **M9** ✅ | Clarvis diagnostics UI — status, workspace, agent run, tasks, recent events, approval waiting | Live agent activity visible; task state matches Clarvis; a stale connection is clearly shown; **no Clarvis state duplicated independently**; multi-instance isolation holds |
 | **M10** | Raw logs — per-source adapters with rotation and retention | Filters work; rotation and retention enforced; secrets redacted; a missing file does not error globally |
-| **M11** | API Inspector — RAVIS request stages, normalized request, route, provider metadata, final response | One request inspectable end to end; credentials never displayed; content follows privacy settings; transparent vs translated distinguished honestly |
+| **M11** ✅ | API Inspector — RAVIS request stages, normalized request, route, provider metadata, final response | One request inspectable end to end; credentials never displayed; content follows privacy settings; transparent vs translated distinguished honestly |
 | **M12** | AI diagnostics — trace packet builder, redaction, RAVIS analysis request, local-only option | A trace can be analyzed; **the user sees exactly what will be sent**; local-only policy enforced; analysis failure does not alter logs |
 | **M13** ✅ | code-server spike — **do not build the integration yet** | An exit report covering every capability in `CLARVIS.md` §7.1, graded `PASS` / `PASS_WITH_LIMITATION` / `FAIL` / `NOT_TESTED` — the runbook §6.2 Stage 9 vocabulary, which CLARVIS.md §7.1 also uses. **`NOT_TESTED` is the value this report most needs**: an untested combination that has to be graded pass or fail gets guessed or dropped |
 | **M14** | Code tab *(only if M13 succeeds)* — code-server management, reverse proxy, workspace launcher, Clarvis install | Code tab loads; Clarvis activates; the WebSocket survives; the workspace opens; the Clarvis panel renders; the terminal works; the proxy security suite passes |

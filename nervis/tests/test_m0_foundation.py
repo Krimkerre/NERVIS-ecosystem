@@ -155,6 +155,10 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.planning": "available",               # M24
         "nervis.background_work": "available",        # M25
         "nervis.clarvis_handoff": "available",        # M27
+        # Degraded, and it is the honest state rather than a shortfall: RAVIS
+        # publishes the decision and no content, so §11.4's intermediate stages
+        # are labelled unpublished instead of invented.
+        "nervis.api_inspector": "degraded",
         "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
         "nervis.supervision": "unavailable",          # M16, and only when owned
         "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
@@ -180,6 +184,7 @@ def test_every_capability_the_specification_names_is_published(settings: Setting
     assert {capability["id"] for capability in body["capabilities"]} == {
         "nervis.background_work",
         "nervis.clarvis_handoff",
+        "nervis.api_inspector",
         "nervis.learned_notes",
         "nervis.notifications",
         "nervis.planning",

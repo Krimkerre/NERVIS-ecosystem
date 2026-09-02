@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2099 tests, no network, no live service
+.venv/bin/pytest                      # part of 2112 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 708 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 721 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2099 passing across the four, conformance `PASS`.
+Expected: all clean, 2112 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82099af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82112af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4205,6 +4205,62 @@ scores nothing falling back to that subject's own opening — because a question
 carrying no content word at all cannot clear any threshold, and answering "I have
 no reading on myself" is worse than opening the file at the top. The term
 weighting was right; leaning on one term to mean *this subject* was not.
+
+### M11 — the API Inspector, 2 Sep. NERVIS 0.18.0
+
+§7.1 calls the route inspector the thing that *"makes ordinary chat a RAVIS
+debugging tool"*. M4 built the one-line version onto a reply; this is the whole
+of §11.4, as a third section of Diagnostics beside `services` and `clarvis`.
+
+**The stage list is chosen by the execution path, not filtered down to it.**
+§11.4 says outright *do not imply RAVIS normalized content it actually passed
+through untouched*, and an empty row labelled "normalized request" on a
+transparent route is precisely that implication. A transparent route gets five
+rows and no normalized form, because it never had one. Matching is on equality
+rather than a prefix, so a future `TRANSPARENT_CACHED` is treated as translated
+and shows *more* stages — the error worth avoiding is the one that shows fewer.
+
+**RAVIS publishes the decision and no content**, which shapes the whole screen.
+The normalized request, the native provider request and both event streams are
+present and labelled *not published*, naming what RAVIS would have to expose. A
+stage list with honest gaps is a specification of the missing surface; one with
+the gaps deleted is a screen that quietly redefines §11.4 as whatever was easy.
+
+The exception is a request NERVIS made itself, and only because that content is
+not RAVIS's to publish — the turn is already stored and already on the chat
+screen. It still follows the setting, which is **off by default**.
+
+**Credentials are kept out by an allowlist rather than a filter**, because a
+filter has to anticipate the name of the thing it is hiding and the next
+credential field will not be called `api_key`. Asserted by feeding a decision
+carrying `api_key`, `authorization` and `upstream_headers` and checking none of
+it survives.
+
+**Absence turned out to have two reasons.** A request from Clarvis is content
+NERVIS never had; a request from NERVIS with no chat turn is a §9.6.1 background
+call — a generated title — which NERVIS did make and does not store as a
+conversation. The first version reported both as "NERVIS was not the client",
+which is simply false about the second, and the title-generation call sits one
+row above the chat it named.
+
+**Its first live run found a defect, which is the point of an inspector.**
+Streamed chat calls report `elapsed_ms` around 1; the non-streamed title calls
+on the same machine to the same provider report ~700. Sub-millisecond
+end-to-end for a network call is impossible, so RAVIS's streaming path is
+measuring from the wrong start — `ravis/src/ravis/reliability/attempts.py` computes
+`(health.clock() - started_at) * 1000` correctly, so `started_at` is the
+suspect. **Recorded as a RAVIS defect and not fixed here**; NERVIS reports the
+figure faithfully rather than correcting its subject.
+
+That did expose a NERVIS bug beside it: `round(0.42)` is `0`, and the screen
+read **"0 ms end to end"** — a streamed call to a hosted provider reported as
+instantaneous, on the one screen whose whole purpose is showing what really
+happened. The number was RAVIS's; making it nonsense was NERVIS's doing. Figures
+under 10 ms now keep two decimals.
+
+`complexity_check.js` caught a second `decisionCard` at the top level — the
+first is at index.html:7285, JavaScript keeps the last and says nothing. 13
+tests.
 
 ### Next — in this order
 
