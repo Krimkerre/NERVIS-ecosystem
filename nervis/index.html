@@ -329,15 +329,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .side{display:none}
 .app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
 .app[data-app="clarvis"] .main{padding:0;min-height:0}
-/* Except M9's own screen, which is an ordinary NERVIS screen and not the
-   editor. The three rules above exist so the embedded code-server is
-   full-bleed; applied here they took away the heading *and the side rail*,
-   leaving the only way back to the editor at the top of the page. Found by
-   looking at it. */
-.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .page-head{display:flex}
-.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .side{display:flex}
-.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .body{grid-template-columns:220px minmax(0,1fr)}
-.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .main{padding:17px;min-height:auto}
 /* The tab bar is the only thing above it now. */
 .app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px) / var(--code-scale,1))}
 
@@ -406,10 +397,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"].bridge-down .activity{visibility:visible;width:auto;padding:13px;border-right:1px solid #202832}
 .app[data-app="clarvis"].bridge-down .code-server{grid-template-columns:42px 200px 1fr 285px}
 .app[data-app="clarvis"].bridge-down .side-nav button{opacity:.45;pointer-events:none}
-/* Except NERVIS's own screen. The rest of the rail mirrors an editor that is not
-   there, but M9's diagnostics read the registry and the hub — and a missing editor
-   is exactly when somebody wants them. */
-.app[data-app="clarvis"].bridge-down .side-nav button[data-view="Diagnostics"]{opacity:1;pointer-events:auto}
 .app[data-app="clarvis"] .clarvis-panel{display:flex;padding:10px 12px;min-height:0}
 /* Grid items default to min-width:auto, so one long line of code refuses to shrink
    and widens the 1fr track past its share — which pushed the Clarvis panel clean
@@ -733,7 +720,7 @@ const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
- clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Diagnostics','Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
+ clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
 /* ── ROUTING ───────────────────────────────────────────────────────────────
@@ -3304,10 +3291,7 @@ function focusClarvisView(view){
  const v=CLARVIS_VIEW[view];if(!v||!usable('clarvis'))return;
  notify(v.panel)}
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
- _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));
- /* M9's screen keeps the dashboard's own chrome; the editor views drop it. */
- if(state.app==='clarvis'&&state.view==='Diagnostics')_app.dataset.clarvisView='diagnostics';
- else delete _app.dataset.clarvisView;document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
+ _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
 function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
@@ -4227,7 +4211,35 @@ function diagnosePanel(){
   </div>`;
 }
 
+/* Which half of Diagnostics is on screen.
+
+   **Clarvis is a section here rather than a screen of its own.** The Service
+   health card above covers RAVIS and SIRVIS and deliberately not Clarvis — it
+   has no management API, and the Bridge is read-only status by design. So "how
+   you see Clarvis" is the same question this screen already answers for the
+   other two, asked about the one peer that cannot be asked the same way.
+
+   It briefly lived on the CLARVIS tab, which was wrong twice: that tab hides
+   the side rail so the editor can be full-bleed, and putting a NERVIS screen
+   first in its rail moved the whole tab off code-server. */
+let DIAG_SECTION='services';
+
+function diagSections(){
+ const tab=(key,label)=>`<button class="mode-chip${DIAG_SECTION===key?' on':''}"
+   aria-pressed="${DIAG_SECTION===key?'true':'false'}"
+   onclick="setDiagSection('${jsAttr(key)}')">${escapeHtml(label)}</button>`;
+ return `<div class="filter-row note-tabs" role="group" aria-label="Which diagnostics">
+   ${tab('services','services')}${tab('clarvis','clarvis in the editor')}</div>`;
+}
+
+function setDiagSection(section){
+ if(DIAG_SECTION===section)return;
+ DIAG_SECTION=section;
+ render();
+}
+
 async function diagnosticsView(){
+ if(DIAG_SECTION==='clarvis')return clarvisDiagnosticsView();
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
   control('Analyze trace…','diagnose',' primary'));
  const d=await API.nervis.diagnostics();
@@ -4252,7 +4264,7 @@ async function diagnosticsView(){
      d.unavailable.map(c=>`<div class="trace-step"><b>${label} · ${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')).join('')}
    <small class="mono dim">read from each service's <b>/ecosystem/health</b> and <b>/ecosystem/capabilities</b>. There is no diagnostics endpoint to call — <span class="mono">/api/v1/diagnostics</span> is a 404 on both — so this is assembled from the surfaces every service already publishes. A capability listed as <b>not yet</b> names its own milestone, which is more useful than a red light.</small>`,'nervis')}</div>`;
 
- $('#content').innerHTML=liveCard+diagnosePanel()+`<div class="card wide"><h3>Source priority</h3>
+ $('#content').innerHTML=`<div class="card full">${cell(diagSections(),'nervis')}</div>`+liveCard+diagnosePanel()+`<div class="card wide"><h3>Source priority</h3>
    <div class="table-row head five"><span>Service</span><span>1 · structured event</span><span>2 · management API</span><span>3 · service log</span><span>4 · raw log</span></div>
    ${d.sources.map(x=>`<div class="table-row five"><span>${escapeHtml(x.service)}</span><span>${tick(x.structured)}</span><span>${tick(x.management_api)}</span><span>${tick(x.service_log)}</span><span>${tick(x.raw_log)}</span></div>`).join('')}
    <small class="mono dim">never parse a text log when structured data already exists. Clarvis has no management API by design — the Bridge is read-only status, and its log is a gated last resort.</small>
@@ -10617,10 +10629,11 @@ function clarvisWindowCard(d,tabs){
 }
 
 async function clarvisDiagnosticsView(){
- heading('Clarvis diagnostics','What each registered editor window is doing — read, never driven.');
+ heading('Diagnostics','What each registered editor window is doing — read, never driven.');
  const inst=await API.nervis.clarvisInstances();
  const windows=inst.items||[];
- if(!windows.length){$('#content').innerHTML=clarvisNoWindows(inst.live);return}
+ const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ if(!windows.length){$('#content').innerHTML=sections+clarvisNoWindows(inst.live);return}
 
  /* A selection that points at a window which has since closed is dropped rather
     than carried: it would 404 on every repaint, and the reader would be looking
@@ -10632,7 +10645,7 @@ async function clarvisDiagnosticsView(){
  if(!d.live){
   /* `d.live` is false here, and the class says so rather than the card simply
      not carrying one — the read failed, and that is a reading. */
-  $('#content').innerHTML=`<div class="card full${liveClass(d.live)}"><h3>Clarvis</h3>${cell(
+  $('#content').innerHTML=sections+`<div class="card full${liveClass(d.live)}"><h3>Clarvis</h3>${cell(
    tabs+banner('That window could not be read',escapeHtml(d.reason||'')+'.','warn'),'clarvis')}</div>`;
   return;
  }
@@ -10640,7 +10653,7 @@ async function clarvisDiagnosticsView(){
  /* Every card below is drawn from the one read that just succeeded, so they
     carry the same liveness the window card does rather than asserting it. */
  const on=liveClass(d.live);
- $('#content').innerHTML=clarvisWindowCard(d,tabs)+clarvisGateCard(d.gate,on)+`
+ $('#content').innerHTML=sections+clarvisWindowCard(d,tabs)+clarvisGateCard(d.gate,on)+`
   <div class="card half${on}"><h3>Agent run</h3>${clarvisRunCard(d.agent_run)}</div>
   <div class="card half${on}"><h3>Tasks</h3>${cell(clarvisTaskRows(d.tasks||[]),'clarvis')}</div>
   <div class="card full${on}"><h3>Recent events
@@ -10655,12 +10668,6 @@ async function clarvisDiagnosticsView(){
 }
 
 async function clarvis(){
- /* Two screens under one tab. Diagnostics is NERVIS's own view of the editor
-    and is drawn whatever code-server is doing — it is most wanted exactly when
-    the editor is missing, which is why it is checked before the embed's own
-    preconditions rather than after them. */
- if(state.view==='Diagnostics')return clarvisDiagnosticsView();
-
  /* **No `heading()` here, deliberately.** Every other screen opens with one; this
     one is a full-bleed editor, and a hero with an avatar above it made the tab a
     page about code-server rather than code-server. What the heading used to say —

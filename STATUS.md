@@ -4089,6 +4089,40 @@ chrome is restored for this one view.
 instead of reading it — including the one that says a read failed, which is a
 reading of `false` and not an absence of one.
 
+### The diagnostics screen took the editor's tab with it, 2 Sep. NERVIS 0.17.1
+
+Reported as *"our code-server disappeared"*, and it had. M9 put Diagnostics at
+the head of the CLARVIS rail, and `nav()` coerces an unrecognised view to
+`nav[0]` — so the first entry in a nav list is not the top of the rail, it is
+**the screen a tab opens on**. Two decisions sharing one array, and the second
+was changed by accident.
+
+Nothing caught it. Every screen still rendered, so `render_check` passed while
+the tab no longer opened on the thing it exists for. It now pins what each tab
+lands on, and the pin was proved by reintroducing the regression and watching it
+fail.
+
+**Then the screen moved twice more, both times because of where it was.** Put
+back at the end of the Clarvis rail it was still wrong: that tab hides the page
+header *and the side rail* so the editor can be full-bleed, which had needed a
+block of CSS undoing that chrome for one view. The operator asked the better
+question — *"there is a diagnostics tab in the NERVIS sidebar, why not make a
+clarvis subsection in there?"*
+
+So it is a section of **Diagnostics**, switched beside `services`. That is where
+it belonged all along: the Service health card covers RAVIS and SIRVIS and
+deliberately not Clarvis, because Clarvis has no management API and the Bridge
+is read-only status by design. "How you see Clarvis" is the question this screen
+already answers for the other two, asked about the one peer that cannot be asked
+the same way. The full-bleed chrome exceptions are deleted rather than kept.
+
+**And M9's exit closed on real editors.** Two VS Code windows registered while
+this was being fixed: both live, both reachable, both reporting `idle` from
+their own `/v1/status`, three `clarvis.lifecycle.ready` events each — and **zero
+events shared between them**, which is §6.6's isolation clause met against real
+windows rather than fakes. What is still unwitnessed is a live agent run and a
+task, since neither window has been asked to build anything.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —

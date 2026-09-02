@@ -62,6 +62,30 @@ const watchdog = setTimeout(() => {
 watchdog.unref?.();
 void context;
 
+/* What each tab opens on, pinned.
+
+   `nav()` coerces an unrecognised view to `nav[0]`, so the first entry in a
+   nav list is not merely the top of the rail — it is the screen somebody sees
+   when they click the tab. Those are two different decisions that share one
+   array, and M9 changed the second while meaning to change only the first:
+   adding NERVIS's Clarvis diagnostics at the head of the rail moved the whole
+   CLARVIS tab off the embedded editor, and the operator's report was *"our
+   code-server disappeared"*.
+
+   Nothing caught it. Every screen still rendered, so `render_check` passed
+   while the tab no longer opened on the thing it exists for.
+
+   Pinned rather than derived, because there is no property of a nav list that
+   says which entry belongs first — only intent. Changing a landing screen now
+   means editing this table, which puts the reason in a commit message instead
+   of in a reordered array. */
+const LANDS_ON = {
+  nervis: "Overview",
+  sirvis: "Dashboard",
+  ravis: "Dashboard",
+  clarvis: "Workspace",
+};
+
 /* Every screen in `APP_CONFIG`, counted from the page rather than typed here —
    so adding a screen raises the floor automatically and cannot lower it. */
 const EXPECTED_SCREENS = Object.values(exported.APP_CONFIG)
@@ -114,6 +138,20 @@ async function main() {
     console.error(
       `only ${checked} of ${EXPECTED_SCREENS} screens were rendered — a renderer` +
       `\nis missing from the page's top-level scope, so this check proved nothing.`);
+    process.exit(1);
+  }
+
+  const moved = Object.entries(LANDS_ON)
+    .filter(([app, view]) => exported.APP_CONFIG[app]?.nav?.[0] !== view)
+    .map(([app, view]) =>
+      `${app} opens on ${exported.APP_CONFIG[app]?.nav?.[0]}, not ${view}`);
+  if (moved.length) {
+    console.error(`${moved.length} tab(s) open on a different screen than before:\n`);
+    for (const one of moved) console.error(`  • ${one}`);
+    console.error(
+      "\n`nav()` coerces an unknown view to nav[0], so the first entry is the" +
+      "\nscreen a tab opens on and not just the top of the rail. If the move was" +
+      "\ndeliberate, update LANDS_ON in this file and say why in the commit.");
     process.exit(1);
   }
 
