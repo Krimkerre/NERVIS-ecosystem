@@ -518,6 +518,7 @@ def _adapter_failure(failure: Exception) -> FailureClass:
 async def _translated_frames(
     events: AsyncGenerator[NormalizedStreamEvent, None], model: str, completion_id: str,
     note: Callable[[Usage | None], None] | None = None,
+    answered: Callable[[], None] | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """The serializer's pieces, driven one event at a time.
 
@@ -525,11 +526,24 @@ async def _translated_frames(
     first token has to reach the client when it arrives — buffering the stream
     to serialize it whole would turn Path B into the thing §6 warns against and
     would make every translated response feel broken.
+
+    **`answered` fires on the provider's first event, and that is not the first
+    frame.** The opening frame below is RAVIS's own: it carries the role delta
+    an OpenAI stream starts with and is constructed here, before this function
+    has awaited the provider at all. A caller timing the stream from its first
+    *frame* is therefore timing how long RAVIS took to build one — which is how
+    a translated call to a hosted provider came to record 0.19 ms end to end
+    while the client measured 6.1 seconds to first byte.
     """
     yield opening_frame(model=model, completion_id=completion_id)
     started: set[int] = set()
     reported: Usage | None = None
+    upstream_answered = False
     async for event in events:
+        if not upstream_answered:
+            upstream_answered = True
+            if answered is not None:
+                answered()
         # **The latest reading wins, not the first.** Gemini reports
         # `usageMetadata` on every frame with the counts growing, so `or` kept
         # the earliest — which has a prompt count and no completion count yet,
@@ -1819,10 +1833,24 @@ async def _translated_relay(
             def _note(reported: Usage | None) -> None:
                 call.note_usage(model, reported, (call.chain.now() - started) * 1000)
 
-            async for frame in _translated_frames(events, model, completion_id, _note):
-                if not committed:
-                    committed = True
-                    call.chain.succeeded(model, started, ttft=call.chain.now() - started)
+            # **Two boundaries, and conflating them was the bug.** `committed`
+            # is about bytes: once one frame has left, no other model can be
+            # chosen and a failure can no longer be retried. The *timing* is
+            # about the provider: it is only known once the provider has sent
+            # something. The first yielded frame satisfies the first and not the
+            # second, because RAVIS builds that frame itself.
+            #
+            # Recording success there also credited a call that produced no
+            # token at all: a provider failing after the opening frame was
+            # logged as succeeded *and* failed, and the circuit breaker was
+            # reading the first of those.
+            def _answered() -> None:
+                call.chain.succeeded(model, started, ttft=call.chain.now() - started)
+
+            async for frame in _translated_frames(
+                events, model, completion_id, _note, _answered
+            ):
+                committed = True
                 yield frame
     except (GeneratorExit, asyncio.CancelledError):
         # §8.6 again, and for the same reason: a disconnect must reach the

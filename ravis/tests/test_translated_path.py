@@ -193,3 +193,107 @@ def test_a_disconnect_closes_the_adapter_stream() -> None:
             pass
 
     assert adapter.closed is True
+
+
+class SlowAnthropic(FakeAnthropic):
+    """A provider that takes a measurable moment before its first token.
+
+    The delay is the whole point: a fake that answers instantly cannot tell a
+    correct measurement from one taken before the provider was asked, which is
+    exactly why the defect below survived a passing suite.
+    """
+
+    DELAY_SECONDS = 0.25
+
+    def stream(self, request: NormalizedRequest) -> AsyncGenerator[NormalizedStreamEvent, None]:
+        self.saw.append(request)
+
+        async def events() -> AsyncGenerator[NormalizedStreamEvent, None]:
+            try:
+                await asyncio.sleep(self.DELAY_SECONDS)
+                for event in self.events:
+                    yield event
+                    await asyncio.sleep(0)
+            finally:
+                self.closed = True
+
+        return events()
+
+    async def complete(self, request: NormalizedRequest) -> NormalizedResponse:
+        await asyncio.sleep(self.DELAY_SECONDS)
+        return await super().complete(request)
+
+
+def _recorded_attempt(client: TestClient) -> dict[str, Any]:
+    decisions = client.get("/api/v1/route-decisions?limit=1").json()["items"]
+    return (decisions[0]["execution"]["attempts"] or [{}])[-1]
+
+
+def test_a_streamed_attempt_is_timed_from_the_provider_not_from_our_own_frame() -> None:
+    """The opening frame is RAVIS's, and timing from it measures nothing.
+
+    `_translated_frames` yields an opening frame carrying the role delta before
+    it has awaited the provider at all, so a relay committing on its first
+    *frame* stamps the clock roughly zero microseconds after it started. Found
+    through NERVIS's API Inspector: a translated call to a hosted provider
+    recorded 0.19 ms end to end while the client measured 6.1 seconds to first
+    byte — a figure wrong by four orders of magnitude, on the surface RAVIS
+    publishes for exactly this question.
+    """
+    adapter = SlowAnthropic()
+    with _app(adapter) as client, client.stream(
+        "POST", "/v1/chat/completions",
+        json={"model": "ravis/fake/claude-x", "stream": True},
+    ) as answer:
+        answer.read()
+
+    attempt = _recorded_attempt(client)
+    floor = SlowAnthropic.DELAY_SECONDS * 1000 * 0.8
+    assert attempt["ttft_ms"] is not None and attempt["ttft_ms"] > floor, attempt
+    assert attempt["elapsed_ms"] > floor, attempt
+
+
+def test_a_streamed_call_is_timed_like_the_non_streamed_one_beside_it() -> None:
+    """Same adapter, same delay, same order of magnitude.
+
+    The two paths measured differently for as long as the streamed one committed
+    on RAVIS's own frame: ~700 ms recorded for a completion and under a
+    millisecond for a stream against the same provider on the same machine.
+    """
+    streamed, whole = SlowAnthropic(), SlowAnthropic()
+    with _app(streamed) as client, client.stream(
+        "POST", "/v1/chat/completions",
+        json={"model": "ravis/fake/claude-x", "stream": True},
+    ) as answer:
+        answer.read()
+    streamed_ms = _recorded_attempt(client)["elapsed_ms"]
+
+    with _app(whole) as client:
+        client.post("/v1/chat/completions", json={"model": "ravis/fake/claude-x"})
+    whole_ms = _recorded_attempt(client)["elapsed_ms"]
+
+    assert streamed_ms > whole_ms / 4, (streamed_ms, whole_ms)
+    assert whole_ms > streamed_ms / 4, (streamed_ms, whole_ms)
+
+
+def test_a_provider_that_fails_before_its_first_token_is_not_recorded_as_a_success() -> None:
+    """It was, and the circuit breaker was reading it.
+
+    Committing on the opening frame called `succeeded` for a call that had not
+    yet produced a token, so a provider failing immediately afterwards was
+    logged as succeeded *and* failed — and one success closes a circuit
+    outright.
+    """
+    adapter = FakeAnthropic(fail="the provider fell over")
+    with _app(adapter) as client, client.stream(
+        "POST", "/v1/chat/completions",
+        json={"model": "ravis/fake/claude-x", "stream": True},
+    ) as answer:
+        answer.read()
+
+    outcomes = [
+        one["outcome"]
+        for one in client.get("/api/v1/route-decisions?limit=1").json()["items"][0]
+        ["execution"]["attempts"]
+    ]
+    assert "succeeded" not in outcomes, outcomes

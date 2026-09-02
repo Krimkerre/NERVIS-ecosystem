@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2112 tests, no network, no live service
+.venv/bin/pytest                      # part of 2115 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 721 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2112 passing across the four, conformance `PASS`.
+Expected: all clean, 2115 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82112af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82115af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4261,6 +4261,48 @@ under 10 ms now keep two decimals.
 `complexity_check.js` caught a second `decisionCard` at the top level — the
 first is at index.html:7285, JavaScript keeps the last and says nothing. 13
 tests.
+
+### The inspector's first find: a translated stream timed itself, 2 Sep. RAVIS 0.21.1
+
+M11 shipped and immediately reported something implausible — a streamed chat
+call recorded at **0.19 ms end to end** while the caller measured **6.1 seconds**
+to first byte. Off by four orders of magnitude, on the surface RAVIS publishes
+for exactly this question.
+
+**`_translated_frames` yields RAVIS's own opening frame before it has awaited the
+provider at all.** It carries the role delta an OpenAI stream starts with, and
+it is constructed locally. `_translated_relay` committed on its first *frame*,
+so it stamped the clock microseconds after starting and called that the time to
+first token. The transparent path was never wrong: it commits on the first chunk
+out of `aiter_bytes()`, which really is the provider's.
+
+**Two boundaries were sharing one flag, and that is the whole defect.**
+`committed` is about bytes — once a frame has left, no other model can be chosen
+and a failure can no longer be retried. The timing is about the provider, and is
+only knowable once the provider has sent something. The first yielded frame
+satisfies the first and not the second.
+
+**It was also recording successes that never happened.** Calling `succeeded` on
+the opening frame credited a call that had produced no token, so a provider
+failing immediately afterwards was logged as succeeded *and* failed — and one
+success closes a circuit outright, so the breaker was reading the wrong one.
+
+Fixed by firing the timing callback on the provider's first event and leaving
+`committed` to the frames. Verified live: the same call now records **640 ms**,
+and against the real provider the caller's first byte arrives in 54–85 ms while
+RAVIS records 534–608 ms — which is correct and is the point. Those measure
+different things: the client gets RAVIS's opening frame promptly, and the number
+worth keeping is the provider's.
+
+Three regression tests, each **checked against the old code first** — a
+regression test that cannot fail proves nothing. They use an adapter that sleeps
+before its first token, because a fake answering instantly cannot tell a correct
+measurement from one taken before the provider was asked, which is exactly how
+this survived a passing suite.
+
+**Found by NERVIS, not by RAVIS**, which is the argument for §11.4 in one line:
+the inspector reports its subject's figures faithfully rather than correcting
+them, so an implausible number reaches a person instead of being tidied away.
 
 ### Next — in this order
 
