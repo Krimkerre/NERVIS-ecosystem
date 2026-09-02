@@ -4485,10 +4485,14 @@ wrong import and took the service down until the next start — the same
 merge-the-imports trap as before — and mypy caught `service` shadowed as both a
 `str` and a mapping in one function.
 
-**Still unwitnessed:** a Clarvis → RAVIS → provider trace needs an agent run in
-the editor, and the SIRVIS evidence link needs a trace that used a *measured*
-model. `exaone-deep-2.4b` has 93 evidence records and was loaded earlier;
-proving the link live means loading a local model, which is the operator's call.
+**The evidence link is witnessed.** Asked first, because it meant loading a
+local model: a chat routed to `ravis/local` loaded `exaone-deep-2.4b` in eight
+seconds, the trace named it, and the screen linked SIRVIS's own record —
+`MEASURED`, median **32.23 tok/s**. Two services measured independently, joined
+on an identity neither of them guessed at.
+
+**Still unwitnessed:** a Clarvis → RAVIS → provider trace, which needs an agent
+run in an editor window rather than more code.
 
 ### Next — in this order
 
