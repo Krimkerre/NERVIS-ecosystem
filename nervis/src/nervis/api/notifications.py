@@ -28,7 +28,15 @@ async def list_notifications(request: Request) -> dict[str, Any]:
     database = request.app.state.database
     limit = _int(request.query_params.get("limit"), notifications.DEFAULT_LIMIT)
     include = request.query_params.get("include_dismissed", "").lower() in {"1", "true", "yes"}
-    items = notifications.recent(database, limit, include_dismissed=include)
+    unread_only = request.query_params.get("unread", "").lower() in {"1", "true", "yes"}
+    dismissed_only = request.query_params.get("dismissed", "").lower() in {"1", "true", "yes"}
+    items = notifications.recent(
+        database,
+        limit,
+        include_dismissed=include,
+        only_unread=unread_only,
+        only_dismissed=dismissed_only,
+    )
     return {
         "items": [note.as_dict() for note in items],
         "unread": notifications.unread_count(database),

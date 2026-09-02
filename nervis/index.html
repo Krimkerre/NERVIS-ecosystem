@@ -78,6 +78,11 @@
 .note-tick{accent-color:var(--accent);width:12px;height:12px;margin-right:7px;
  vertical-align:-1px;cursor:pointer}
 .note-bar{align-items:center;gap:9px;margin-bottom:9px}
+/* The tabs sit above the toolbar with a rule under them, so the row of chips
+   reads as "which list" rather than as more actions on the current one. */
+.note-tabs{gap:5px;margin:0 0 10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+.note-tabs .mode-chip b{font-weight:650;margin-left:2px}
+.note-tabs .mode-chip.on b{color:var(--accent)}
 .note-bar .rule{flex:0 0 1px;height:15px;background:var(--line);margin:0 3px}
 .note-bar .mode-chip[disabled]{opacity:.38;cursor:default;pointer-events:none}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
@@ -2783,8 +2788,14 @@ const API={
      opens from disk, and that is exactly wrong for this one: an invented
      notification is a message from NERVIS that NERVIS never wrote. An empty
      list with `live:false` is the honest answer, and the screen says which. */
-  async notifications(includeDismissed=false){
-   const query=includeDismissed?'?include_dismissed=1':'';
+  async notifications(view=false){
+   /* `view` is a tab name; `true`/`false` still mean the old
+      include-dismissed boolean, because `paintNotePip` and the poll ask for the
+      count and do not care which tab is on screen. */
+   const query=view===true?'?include_dismissed=1'
+     :view==='unread'?'?unread=1'
+     :view==='dismissed'?'?dismissed=1'
+     :'';
    try{
     const r=await fetch(BASE.nervis+'/api/v1/notifications'+query,
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -3715,10 +3726,19 @@ function streamCard(){
   </div>`;
 }
 
-/* Whether the list should include what the user has already dealt with.
+/* Which slice of the centre is on screen: what is still waiting, everything
+   outstanding, or what has been dealt with.
+
    Page state rather than a stored setting: it is a way of looking at the list
-   for a moment, not a preference about it. */
-let NOTES_SHOW_DISMISSED=false;
+   for a moment, not a preference about it.
+
+   **Unread is a tab and not a filter checkbox** because it is the question the
+   badge in the header asks. Clicking "9 unread" and landing on a list of forty
+   notes, thirty-one of which were read last week, means finding the nine by
+   eye. The tabs are also why `only_unread` had to be pushed into the SQL: the
+   badge counts every unread note, this list is capped at fifty, and a tab that
+   quietly showed fewer than the badge promised would be worse than no tab. */
+let NOTES_TAB='unread';
 
 /* Which notes are open, kept across a repaint. Without it a poll landing while
    somebody is reading collapses what they were reading, which §25.2 is
@@ -3803,10 +3823,28 @@ function noteRow(n,now){
 function noteEmptyState(live){
  if(!live)return banner('NERVIS is not answering',
    'The notification centre lives in NERVIS\'s own database, so nothing can be read or dismissed from here until it is up. Nothing has been lost — notes are written by the probe loop, not by this page.','warn');
- if(NOTES_SHOW_DISMISSED)return banner('Nothing at all yet',
-   'No note has been filed, dismissed or otherwise.','info');
- return banner('Nothing waiting',
-   'Every note has been dealt with. Use <b>Show dismissed</b> to see what was.','info');
+ if(NOTES_TAB==='unread')return banner('Nothing waiting',
+   'Every note has been read. <b>Everything</b> still has the ones you have dealt with.','info');
+ if(NOTES_TAB==='dismissed')return banner('Nothing dismissed',
+   'No note has been put away yet. Dismissed notes are kept for a month, then swept.','info');
+ return banner('Nothing outstanding',
+   'No note is waiting or unread. Anything dealt with is under <b>Dismissed</b>.','info');
+}
+
+/* The three tabs.
+
+   Unread carries a count and the others do not, because it is the only one
+   answering a question with a number behind it — the badge in the header. The
+   count is `d.unread` from the same response as the rows, so the tab and the
+   badge cannot drift apart mid-render. */
+function noteTabs(d){
+ const tab=(key,label,count)=>`<button class="mode-chip${NOTES_TAB===key?' on':''}"
+   aria-pressed="${NOTES_TAB===key?'true':'false'}"
+   onclick="setNoteTab('${jsAttr(key)}')">${escapeHtml(label)}${
+   count?` <b>${escapeHtml(count)}</b>`:''}</button>`;
+ return `<div class="filter-row note-tabs" role="group" aria-label="Which notes to list">
+   ${tab('unread','unread',d.unread)}${tab('all','everything',0)}${tab('dismissed','dismissed',0)}
+  </div>`;
 }
 
 /* The selection toolbar. Its counts are recomputed in place by `paintNoteBar`
@@ -3823,14 +3861,13 @@ function noteToolbar(d,picked){
 }
 
 async function notificationsView(){
- heading('Notifications','What NERVIS wanted to tell you, whether or not anybody was here.',
-  control(NOTES_SHOW_DISMISSED?'Hide dismissed':'Show dismissed','toggleDismissedNotes'));
- const d=await API.nervis.notifications(NOTES_SHOW_DISMISSED);
+ heading('Notifications','What NERVIS wanted to tell you, whether or not anybody was here.');
+ const d=await API.nervis.notifications(NOTES_TAB);
 
- /* **A tick only counts while its note is on screen.** Toggling "show
-    dismissed" changes what is listed, and a selection that quietly kept notes
-    nobody can see any more would act on them anyway — which is the one thing a
-    checkbox must never do. Pruned to what is actually drawn. */
+ /* **A tick only counts while its note is on screen.** Switching tab changes
+    what is listed, and a selection that quietly kept notes nobody can see any
+    more would act on them anyway — which is the one thing a checkbox must never
+    do. `setNoteTab` clears outright; this prunes whatever a refetch dropped. */
  const listed=new Set(d.items.map(n=>n.note_id));
  for(const id of [...NOTES_PICKED])if(!listed.has(id))NOTES_PICKED.delete(id);
  const picked=NOTES_PICKED.size;
@@ -3848,8 +3885,12 @@ async function notificationsView(){
  $('#content').innerHTML=`
   <div class="card full${liveClass(d.live)}"><h3>Notification centre
     <span class="chip${d.unread?' warn':''}">${escapeHtml(d.unread)} unread</span></h3>${cell(
-   d.items.length?noteToolbar(d,picked)+table:noteEmptyState(d.live),'nervis')}
-   <small class="mono dim"><b>Every note says why it exists</b>, which is the column beside the title — NERVIS refuses to file one that cannot. <b>Notes are written by NERVIS, not by this page</b>: the probe loop files them whether a browser is open, muted, or on another tab, so a spoken announcement and the note here are one event seen twice rather than two events that can disagree. <b>Every note acted on is one you could see</b>: tick the ones you mean, or use <b>mark all read</b>, which acts on exactly the notes listed here and resolves to one request per note — so a note filed a second after you clicked is not swept up by a click that happened before it existed. What is deliberately absent is a <b>per-kind mute</b>: a standing rule silences notes nobody has read yet, and that is how the one that mattered gets missed. Dismissed notes are hidden rather than deleted, and swept a month later. <b>Click any note to open it</b> — the producer's own words, who filed it, whether a model wrote it and what that cost, and the exact moment rather than "2h ago".</small></div>`;
+   /* The tabs are drawn even when the list is empty. An empty tab whose only
+      way out is drawn *inside* the emptiness is a trap, and "nothing waiting"
+      is exactly when somebody wants to look at what they dismissed. */
+   (d.live?noteTabs(d):'')+
+   (d.items.length?noteToolbar(d,picked)+table:noteEmptyState(d.live)),'nervis')}
+   <small class="mono dim"><b>Every note says why it exists</b>, which is the column beside the title — NERVIS refuses to file one that cannot. <b>Notes are written by NERVIS, not by this page</b>: the probe loop files them whether a browser is open, muted, or on another tab, so a spoken announcement and the note here are one event seen twice rather than two events that can disagree. <b>Every note acted on is one you could see</b>: tick the ones you mean, or use <b>mark all read</b>, which acts on exactly the notes listed here and resolves to one request per note — so a note filed a second after you clicked is not swept up by a click that happened before it existed. What is deliberately absent is a <b>per-kind mute</b>: a standing rule silences notes nobody has read yet, and that is how the one that mattered gets missed. <b>Unread is its own tab</b> because it is the question the header badge asks, and it is filtered in the database rather than in the browser — the badge counts every unread note while this list stops at fifty, so filtering here would eventually promise nine and show four. Dismissed notes are hidden rather than deleted, kept under <b>Dismissed</b> and swept a month later. <b>Click any note to open it</b> — the producer's own words, who filed it, whether a model wrote it and what that cost, and the exact moment rather than "2h ago".</small></div>`;
 }
 
 /* Open or close one note, without re-rendering the screen underneath it.
@@ -3870,7 +3911,19 @@ function toggleNote(event,id){
  if(open)NOTES_OPEN.add(id);else NOTES_OPEN.delete(id);
 }
 
-function toggleDismissedNotes(){NOTES_SHOW_DISMISSED=!NOTES_SHOW_DISMISSED;render()}
+/* Switch tabs.
+
+   The selection is dropped rather than carried across, for the same reason
+   `notificationsView` prunes it: a tick made on one list acting on a note the
+   next list does not show is the one thing a checkbox must never do. Changing
+   tab is a bigger change of context than toggling a filter was, so it clears
+   outright instead of pruning. */
+function setNoteTab(tab){
+ if(NOTES_TAB===tab)return;
+ NOTES_TAB=tab;
+ NOTES_PICKED.clear();
+ render();
+}
 
 /* Tick or untick one note.
 

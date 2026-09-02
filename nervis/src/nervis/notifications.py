@@ -146,14 +146,49 @@ def post(
 
 
 def recent(
-    database: Database, limit: int = DEFAULT_LIMIT, *, include_dismissed: bool = False
+    database: Database,
+    limit: int = DEFAULT_LIMIT,
+    *,
+    include_dismissed: bool = False,
+    only_unread: bool = False,
+    only_dismissed: bool = False,
 ) -> list[Notification]:
     """Newest first. Dismissed notes are hidden but not deleted.
 
     Kept rather than deleted because "I dealt with this" and "this never
     happened" are different, and only the first one is true.
+
+    **`only_unread` filters here rather than in the browser**, and that is the
+    whole reason it exists. The badge counts every unread note with an unbounded
+    `COUNT(*)`, while this returns at most `limit` rows — so a screen that
+    fetched the newest fifty and kept the unread ones would show four while the
+    badge said nine, the moment fifty read notes piled up on top. The same
+    condition has to run against the same table.
+
+    Unread also *means* unread: a dismissed note is dealt with however it got
+    that way, so this excludes them even when the caller asked to include
+    dismissed. That matches `unread_count`, which is the number being reconciled.
+
+    `only_dismissed` is the third slice, and it is **not** `include_dismissed`.
+    That distinction cost a browser check: "include" widens the list to
+    everything, so a screen asking for the dismissed ones with it got all
+    twenty-four notes under a tab labelled "dismissed". Same truncation argument
+    as above — filtering a page of fifty in the browser shows an empty tab on an
+    installation with fifty recent live notes and a year of dismissed ones
+    behind them.
+
+    The three are mutually exclusive by precedence rather than by validation: a
+    caller asking for two gets the narrower, and unread wins because unread
+    excludes dismissed by definition.
     """
-    clause = "" if include_dismissed else "WHERE dismissed_at = ''"
+    clauses = []
+    if only_unread:
+        clauses.extend(("read_at = ''", "dismissed_at = ''"))
+    elif only_dismissed:
+        clauses.append("dismissed_at != ''")
+    elif not include_dismissed:
+        clauses.append("dismissed_at = ''")
+    clause = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = database.connection.execute(
         f"SELECT * FROM notification {clause} ORDER BY created_at DESC, rowid DESC LIMIT ?",
         (max(1, min(int(limit), MAX_LIMIT)),),

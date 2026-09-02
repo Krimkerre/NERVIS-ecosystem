@@ -123,6 +123,64 @@ def test_dismissing_hides_without_deleting(database: Any) -> None:
     ]
 
 
+def test_only_unread_lists_exactly_what_the_badge_counts(database: Any) -> None:
+    """The unread tab and the header badge must not be able to disagree.
+
+    This is why the filter is SQL rather than a `.filter()` in the browser: the
+    badge is an unbounded COUNT and the list stops at `limit`, so a screen that
+    fetched a page and kept the unread ones would promise nine and show four
+    once enough read notes piled up on top.
+    """
+    waiting = notifications.post(database, kind="k", title="waiting", reason="r")
+    seen = notifications.post(database, kind="k", title="seen", reason="r")
+    gone = notifications.post(database, kind="k", title="gone", reason="r")
+    notifications.mark_read(database, seen.note_id)
+    notifications.dismiss(database, gone.note_id)
+
+    listed = [n.note_id for n in notifications.recent(database, only_unread=True)]
+    assert listed == [waiting.note_id]
+    assert len(listed) == notifications.unread_count(database)
+
+
+def test_only_unread_excludes_dismissed_even_when_asked_for_them(database: Any) -> None:
+    """Unread means unread. A dismissed note is dealt with however it got there.
+
+    `include_dismissed` and `only_unread` can both arrive on one query string,
+    and the pair must not add up to "notes nobody read but somebody put away" —
+    a slice `unread_count` does not count and no tab asks for.
+    """
+    gone = notifications.post(database, kind="k", title="gone", reason="r")
+    notifications.dismiss(database, gone.note_id)
+    assert notifications.recent(database, include_dismissed=True, only_unread=True) == []
+
+
+def test_only_dismissed_is_not_the_same_as_include_dismissed(database: Any) -> None:
+    """"Include" widens the list; "only" narrows it, and the tab wants narrow.
+
+    Caught in the browser: the tab labelled "dismissed" sent
+    `?include_dismissed=1` and drew all twenty-four notes, every one of them
+    still outstanding.
+    """
+    kept = notifications.post(database, kind="k", title="kept", reason="r")
+    gone = notifications.post(database, kind="k", title="gone", reason="r")
+    notifications.dismiss(database, gone.note_id)
+
+    assert [n.note_id for n in notifications.recent(database, only_dismissed=True)] == [
+        gone.note_id
+    ]
+    assert {n.note_id for n in notifications.recent(database, include_dismissed=True)} == {
+        kept.note_id,
+        gone.note_id,
+    }
+
+
+def test_asking_for_two_slices_at_once_gets_the_narrower(database: Any) -> None:
+    """Unread wins, because unread already excludes dismissed."""
+    gone = notifications.post(database, kind="k", title="gone", reason="r")
+    notifications.dismiss(database, gone.note_id)
+    assert notifications.recent(database, only_unread=True, only_dismissed=True) == []
+
+
 def test_dismissing_twice_is_not_an_error(database: Any) -> None:
     """What a second click on a slow connection looks like."""
     note = notifications.post(database, kind="k", title="a", reason="r")
@@ -175,6 +233,26 @@ def test_reading_is_not_dismissing(client: TestClient) -> None:
     body = client.get("/api/v1/notifications").json()
     assert body["unread"] == 0
     assert len(body["items"]) == 1
+
+
+def test_the_unread_tab_asks_the_endpoint_rather_than_filtering(client: TestClient) -> None:
+    """`?unread=1` is what the tab fetches, and it still carries the full count.
+
+    The count stays unbounded on every tab: standing in Dismissed and seeing the
+    badge go to nought would be a lie about the other list.
+    """
+    database = client.app.state.database  # type: ignore[attr-defined]
+    seen = notifications.post(database, kind="k", title="seen", reason="r")
+    notifications.post(database, kind="k", title="waiting", reason="r")
+    notifications.mark_read(database, seen.note_id)
+
+    body = client.get("/api/v1/notifications?unread=1").json()
+    assert [n["title"] for n in body["items"]] == ["waiting"]
+    assert body["unread"] == 1
+
+    everything = client.get("/api/v1/notifications").json()
+    assert len(everything["items"]) == 2
+    assert everything["unread"] == 1
 
 
 def test_the_capability_is_advertised(client: TestClient) -> None:

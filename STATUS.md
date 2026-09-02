@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2076 tests, no network, no live service
+.venv/bin/pytest                      # part of 2081 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 685 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 690 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2076 passing across the four, conformance `PASS`.
+Expected: all clean, 2081 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3975,6 +3975,25 @@ supervision obeys but nothing said how an operator actually hands NERVIS an
 executable. The knowledge file gained the operator's half, and its stale claim
 that Clarvis supervision "is not built" is corrected; "Known limits" now warns
 that *unavailable* usually means **not on this machine**, not **cannot**.
+
+**0.16.2, 2 Sep — the notification centre gets tabs.** Unread was a slice of a
+list you had to find by eye: clicking "2 unread" in the header landed you on
+every outstanding note, most of them read. It is now its own tab, beside
+**everything** and **dismissed**, with the count on the tab itself.
+
+The filter is SQL, not `.filter()`. The badge is an unbounded `COUNT(*)` and the
+list stops at fifty, so a browser-side unread tab would promise nine and show
+four the moment fifty read notes piled up on top — the same disagreement the
+listing endpoint carries its own count to prevent.
+
+**A browser check earned the second half.** The dismissed tab sent
+`?include_dismissed=1` and drew all twenty-four notes, every one still
+outstanding: "include" widens the list, and the tab wanted narrow. `only_dismissed`
+is now a third slice with the same truncation argument behind it, and the three
+are exclusive by precedence — unread wins, because unread already excludes
+dismissed. Switching tab clears the selection outright rather than pruning it,
+since a tick made on one list is not a tick on another. 5 tests, and the tabs are
+drawn even on an empty tab: an escape route inside the emptiness is a trap.
 
 ### Next — in this order
 
