@@ -92,6 +92,20 @@ def test_owned_without_an_adapter_is_not_managed(database: Any) -> None:
     assert supervision.mode_of(database, "demo", "nervis_managed") == "nervis_managed"
 
 
+def test_supervision_can_be_withdrawn(database: Any) -> None:
+    """Configuring had no inverse, which is the wrong asymmetry for a surface
+    whose whole design is about what NERVIS may not touch.
+
+    Found by cleaning up after a test: the adapter could be created and not
+    removed without editing the database by hand.
+    """
+    supervision.configure(database, "demo", SLEEP)
+    assert supervision.mode_of(database, "demo", "nervis_managed") == "nervis_managed"
+    supervision.configure(database, "demo", "")
+    assert supervision.adapter(database, "demo").configured is False
+    assert supervision.mode_of(database, "demo", "nervis_managed") == "user_managed"
+
+
 def test_an_adapter_naming_something_unrunnable_is_refused(database: Any) -> None:
     """A configuration that fails at the worst moment — when somebody is
     restarting a service *because* it is already down."""
@@ -285,3 +299,20 @@ def test_a_supervised_process_does_not_inherit_everything(monkeypatch: Any) -> N
     handed = supervision._environment()
     assert "RAVIS_ADMIN_CREDENTIAL" not in handed
     assert set(handed) <= set(supervision.ENV_ALLOWED)
+
+
+def test_the_advertisement_can_be_switched_off_again(database: Any) -> None:
+    """It only ever turned the capability on.
+
+    Revoking the last adapter left `nervis.supervision@1` advertising a control
+    the machine no longer had — a conditional capability that can only move one
+    way goes stale in exactly the direction that matters.
+    """
+    from nervis.ecosystem import advertise_supervision, nervis_surface
+
+    surface = nervis_surface("nervis-test", "machine-test", database)
+    advertise_supervision(surface, 1)
+    assert surface.declared["nervis.supervision@1"].state == "available"
+    advertise_supervision(surface, 0)
+    assert surface.declared["nervis.supervision@1"].state == "unavailable"
+    assert "nothing it owns" in surface.declared["nervis.supervision@1"].reason

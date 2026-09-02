@@ -374,13 +374,20 @@ def advertise_supervision(surface: EcosystemSurface, owned: int) -> None:
     declared = surface.declared
     if not isinstance(declared, dict):  # pragma: no cover - constructed as a dict
         return
-    if owned <= 0:
-        return
+    # **Both directions.** This only ever turned the capability *on*, so
+    # revoking the last adapter left it advertising a control the machine no
+    # longer had. A conditional capability that can only be switched one way is
+    # one that goes stale in exactly the direction that matters.
     declared["nervis.supervision@1"] = Capability(
         version="1.0.0",
-        state=AVAILABLE,
-        reason=f"{owned} service(s) are configured with an executable NERVIS may "
-        "start; it may stop and restart the ones it started and nothing else",
+        state=AVAILABLE if owned > 0 else UNAVAILABLE,
+        reason=(
+            f"{owned} service(s) are configured with an executable NERVIS may "
+            "start; it may stop and restart the ones it started and nothing else"
+            if owned > 0 else
+            "no service on this installation is configured with an executable "
+            "NERVIS may start, so there is nothing it owns to supervise"
+        ),
     )
     surface.revision += 1
 

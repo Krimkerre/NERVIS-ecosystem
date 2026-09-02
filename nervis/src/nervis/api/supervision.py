@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from nervis import supervision
+from nervis.ecosystem import advertise_supervision
 from nervis.errors import NotFoundError, RefusedError
 
 router = APIRouter(prefix="/api/v1/supervision", tags=["supervision"])
@@ -71,12 +72,28 @@ async def set_enabled(request: Request) -> dict[str, Any]:
 async def set_adapter(service: str, request: Request) -> dict[str, Any]:
     """Declare how a service is started, which is what makes it supervisable."""
     body = await request.json()
-    return supervision.configure(
+    plan = supervision.configure(
         request.app.state.database, service,
         str(body.get("executable") or ""),
         [str(a) for a in (body.get("args") or [])],
         str(body.get("cwd") or ""),
-    ).as_dict()
+    )
+    # **Re-advertised here, not only at startup.** `advertise_voice` learned this
+    # first and says why: *a capability that needs a restart is a capability
+    # that lies for as long as the process lives.* Revoking the last adapter
+    # left `nervis.supervision@1` reading `available` on a machine that owned
+    # nothing — observed, not imagined.
+    _readvertise(request)
+    return plan.as_dict()
+
+
+def _readvertise(request: Request) -> None:
+    """Match the advertisement to what is configured, right now."""
+    database = request.app.state.database
+    advertise_supervision(request.app.state.ecosystem, sum(
+        1 for entry in request.app.state.registry.all()
+        if supervision.adapter(database, entry.key).configured
+    ))
 
 
 @router.post("/{service}/{operation}")

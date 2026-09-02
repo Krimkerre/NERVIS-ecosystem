@@ -338,6 +338,14 @@ def configure(database: Database, service: str, executable: str,
     that names something unrunnable is one that fails at the worst moment — when
     somebody is restarting a service because it is already down.
     """
+    # **An empty executable revokes.** Configuring supervision had no inverse:
+    # a service could be made controllable and never made uncontrollable again
+    # without editing the database. For a surface whose whole design is about
+    # what NERVIS may not touch, being unable to withdraw permission is the
+    # wrong asymmetry — found by cleaning up after a test.
+    if not executable.strip():
+        write_setting(database, f"supervision.adapter.{service}", "")
+        return adapter(database, service)
     resolved = os.path.realpath(executable)
     if not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
         raise Refused(f"{executable} is not an executable file")

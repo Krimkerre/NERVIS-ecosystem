@@ -687,6 +687,36 @@ clears it, so a crash-loop cannot be re-entered by retry.
 **Gate:** start/stop/restart, crash loop, stale PID, PID reuse, partial start, NERVIS
 crash/restart and unauthorized-actor tests never affect external instances.
 
+## 12.0 How a service becomes supervisable
+
+§12 says supervision uses *"explicit executable or package identity, working and
+data directories, an environment allowlist"* and says nothing about where an
+operator puts them. This is that, added when M16 was built and the gap became
+obvious: the rules were written down and the way to satisfy them was not.
+
+**An adapter, per service.** `POST /api/v1/supervision/adapter/{service}` records
+an absolute executable path, an argument list and a working directory. The path
+is resolved and checked for executability **at the moment it is configured**,
+because a configuration that names something unrunnable fails at the worst
+possible moment — when somebody is restarting a service *because* it is already
+down.
+
+**Two switches, and both must be on.** The family switch
+(`POST /api/v1/supervision/enable`, off by default per §12) and an adapter for
+the service in question. Neither alone is enough.
+
+**`nervis_managed` is earned, not declared.** A service configured as owned but
+with no adapter reports as `user_managed` — NERVIS has no way to start it, so
+claiming it may is promising a control that does not exist. And a service with
+an adapter that NERVIS has not *started* still cannot be stopped by it: §12's
+"anything it did not start" is about the running process, not the configuration.
+On a machine where a launcher brought everything up, every control refuses.
+
+**The environment a child inherits is an allowlist**, not the parent's
+environment less some deletions. §12.1's *"an admin credential in a control
+plane is a control plane whose compromise is total"* is otherwise reached by
+accident, through a child that inherited every credential NERVIS holds.
+
 ## 12.1 Credentials NERVIS holds, and what each is for
 
 Acting on a peer means presenting something to it, and the shape of that is a decision this

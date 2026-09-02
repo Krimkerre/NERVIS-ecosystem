@@ -64,9 +64,19 @@ history.
 
 Several capabilities are honestly **degraded** rather than available: the
 dashboard and its SIRVIS views depend on surfaces the other services have not
-all shipped; Clarvis registration is served but supervision of a registered
-instance is not built; the analysis surface lands at M12. Two are
-**unavailable** outright, and each says which milestone it waits on.
+all shipped, and the analysis surface is not built yet. Others are
+**unavailable** outright, and each says why rather than merely being off.
+
+**Read the live capability, not this paragraph.** A note like this one goes
+stale the moment something ships — this said "supervision of a registered
+instance is not built" for a day after it was, and chat repeated it. What NERVIS
+publishes about itself is current by construction; a written summary of it is
+only as fresh as the last person to edit it.
+
+**Unavailable rarely means "cannot".** It usually means *not on this machine*:
+supervision is built, and it reads unavailable here because nothing has been
+configured with an executable NERVIS may start. Those are different answers to
+"can you do this", and the second one has a next step.
 
 ## The Notifications tab
 

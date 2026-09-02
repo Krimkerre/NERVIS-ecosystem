@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2074 tests, no network, no live service
+.venv/bin/pytest                      # part of 2076 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 683 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 685 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2074 passing across the four, conformance `PASS`.
+Expected: all clean, 2076 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -3954,6 +3954,27 @@ the server refuses would teach somebody their machine works differently than it
 does.
 
 **0.15.0 → 0.16.0**, M16 being the eighteenth milestone.
+
+**0.16.1, 2 Sep — supervision can be withdrawn, and the advertisement follows.**
+Configuring an adapter had no inverse: a service could be made controllable and
+never made uncontrollable again without editing the database by hand. For a
+surface whose entire design is about what NERVIS may *not* touch, that is the
+wrong asymmetry. An empty executable now revokes.
+
+Revoking exposed a second one. `advertise_supervision` only ever turned the
+capability *on*, so a machine that had just given up its last adapter went on
+advertising `available` until the next restart — verified live, not reasoned
+about. It now moves both ways, and `set_adapter` re-advertises on the spot.
+`advertise_voice` had already written the rule down: *a capability that needs a
+restart is a capability that lies for as long as the process lives.* Both found
+by cleaning up a test adapter rather than by a test, so both now have one. 25
+tests.
+
+Also **§12.0, "How a service becomes supervisable"** — §12 set out the rules
+supervision obeys but nothing said how an operator actually hands NERVIS an
+executable. The knowledge file gained the operator's half, and its stale claim
+that Clarvis supervision "is not built" is corrected; "Known limits" now warns
+that *unavailable* usually means **not on this machine**, not **cannot**.
 
 ### Next — in this order
 
