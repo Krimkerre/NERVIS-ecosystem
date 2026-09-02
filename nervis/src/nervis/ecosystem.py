@@ -172,8 +172,12 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=AVAILABLE,
         reason="M8a's registration -- per-extension-host instances, leases, "
-        "redaction -- and M8b's read of a registered Bridge's own /v1/status "
-        "through the token NERVIS issued it, every field through an allowlist",
+        "redaction -- M8b's read of a registered Bridge's own /v1/status "
+        "through the token NERVIS issued it, every field through an allowlist, "
+        "and M9's diagnostics screen: status, agent run, tasks, forwarded "
+        "events and the fact that a gate awaits the user. Read only -- a gate "
+        "is displayed and never resolved here (CLARVIS.md 6.7), and no Clarvis "
+        "state is stored as a copy of its own",
     ),
     "nervis.diagnostics@1": Capability(
         version="1.0.0",

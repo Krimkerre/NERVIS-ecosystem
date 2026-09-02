@@ -71,10 +71,13 @@
 .note-open .caret{transform:rotate(90deg);opacity:.8}
 .note-more{display:none;padding:2px 0 12px 0;border-bottom:1px solid var(--line)}
 .note-open+.note-more{display:block}
-.note-more dl{display:grid;grid-template-columns:132px 1fr;gap:5px 14px;margin:0;
+.note-more dl,dl.kv{display:grid;grid-template-columns:132px 1fr;gap:5px 14px;margin:0;
  font:11px/1.5 "SFMono-Regular",ui-monospace,monospace}
-.note-more dt{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
-.note-more dd{margin:0;color:var(--text);word-break:break-word}
+.note-more dt,dl.kv dt{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+.note-more dd,dl.kv dd{margin:0;color:var(--text);word-break:break-word}
+.chip.busy{border-color:#2b4d75;background:#111d2b;color:#6fb4ff}
+.chip.bad{border-color:#6d2f2f;background:#2a1414;color:var(--bad)}
+.chip.dim{border-color:var(--line);background:transparent;color:var(--muted)}
 .note-tick{accent-color:var(--accent);width:12px;height:12px;margin-right:7px;
  vertical-align:-1px;cursor:pointer}
 .note-bar{align-items:center;gap:9px;margin-bottom:9px}
@@ -326,6 +329,15 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .side{display:none}
 .app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
 .app[data-app="clarvis"] .main{padding:0;min-height:0}
+/* Except M9's own screen, which is an ordinary NERVIS screen and not the
+   editor. The three rules above exist so the embedded code-server is
+   full-bleed; applied here they took away the heading *and the side rail*,
+   leaving the only way back to the editor at the top of the page. Found by
+   looking at it. */
+.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .page-head{display:flex}
+.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .side{display:flex}
+.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .body{grid-template-columns:220px minmax(0,1fr)}
+.app[data-app="clarvis"][data-clarvis-view="diagnostics"] .main{padding:17px;min-height:auto}
 /* The tab bar is the only thing above it now. */
 .app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px) / var(--code-scale,1))}
 
@@ -394,6 +406,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"].bridge-down .activity{visibility:visible;width:auto;padding:13px;border-right:1px solid #202832}
 .app[data-app="clarvis"].bridge-down .code-server{grid-template-columns:42px 200px 1fr 285px}
 .app[data-app="clarvis"].bridge-down .side-nav button{opacity:.45;pointer-events:none}
+/* Except NERVIS's own screen. The rest of the rail mirrors an editor that is not
+   there, but M9's diagnostics read the registry and the hub — and a missing editor
+   is exactly when somebody wants them. */
+.app[data-app="clarvis"].bridge-down .side-nav button[data-view="Diagnostics"]{opacity:1;pointer-events:auto}
 .app[data-app="clarvis"] .clarvis-panel{display:flex;padding:10px 12px;min-height:0}
 /* Grid items default to min-width:auto, so one long line of code refuses to shrink
    and widens the 1fr track past its share — which pushed the Clarvis panel clean
@@ -717,7 +733,7 @@ const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
- clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
+ clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Diagnostics','Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
 /* ── ROUTING ───────────────────────────────────────────────────────────────
@@ -3007,6 +3023,28 @@ const API={
 
   async _clarvisInstancesMock(){return{items:[]}},
 
+  /* GET /api/v1/registry/instances/clarvis/{id}/diagnostics — M9's whole screen.
+
+     **One request per window, and the join happens on the server.** The screen
+     needs the registry row, the Bridge's own status and the events that window
+     forwarded; joining those here would put §6.6's isolation rule in the least
+     trustworthy place, since a browser holding three lists can mix them and a
+     query cannot.
+
+     No mock, for the same reason `notifications` has none: an invented editor
+     window is NERVIS claiming to see activity nobody had. A failure is
+     `live:false` and the screen says which. */
+  async clarvisDiagnostics(instanceId){
+   try{
+    const r=await fetch('/api/v1/registry/instances/clarvis/'+
+      encodeURIComponent(instanceId)+'/diagnostics',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{live:false,reason:r.status===404
+      ?'that window is no longer registered':'NERVIS could not read it'};
+    return{...await r.json(),live:true};
+   }catch(e){return{live:false,reason:'no answer from NERVIS'}}
+  },
+
   /* GET /api/v1/traces/{id} — a dropped span is reported as dropped. */
   /* GET /api/v1/traces — the newest recorded trace, for the Overview card.
      Three outcomes, and the middle one is the point: a live trace, or NERVIS
@@ -3266,7 +3304,10 @@ function focusClarvisView(view){
  const v=CLARVIS_VIEW[view];if(!v||!usable('clarvis'))return;
  notify(v.panel)}
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
- _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
+ _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));
+ /* M9's screen keeps the dashboard's own chrome; the editor views drop it. */
+ if(state.app==='clarvis'&&state.view==='Diagnostics')_app.dataset.clarvisView='diagnostics';
+ else delete _app.dataset.clarvisView;document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
 function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
@@ -10439,7 +10480,187 @@ const EDITOR_PREVIEW={
   ['Leave it','No change. It keeps sharing.']]
 };
 
+
+/* ── M9: what one Clarvis window is doing ────────────────────────────────────
+
+   The Clarvis tab is otherwise the editor itself; this is NERVIS's own screen
+   about the editor, which is a different subject and gets a different view
+   rather than a strip above the frame.
+
+   **Everything here is read, and there is no control on the page.** §6.7 lets
+   NERVIS display status, diagnostics and *that* a gate awaits the user, and
+   forbids approving one on their behalf. So the gate card names the wait and
+   says outright that answering happens in the editor — a screen that showed a
+   pending approval with no explanation is one somebody eventually looks for a
+   button on. */
+
+/* Which windows exist, and which one is being read.
+
+   Kept as page state rather than derived per render because the reader picks a
+   window and a poll must not move them to another one. Cleared when the id
+   stops being registered, which `clarvisDiagnosticsView` checks — a selection
+   pointing at a closed editor would otherwise 404 on every repaint. */
+let CLARVIS_WINDOW='';
+
+/* One window's state, said the way §6.3 says it. `unknown` is the honest answer
+   for a window NERVIS could not reach, and it is deliberately not `idle`: idle
+   is a claim about a window somebody answered for. */
+const CLARVIS_STATE={
+ idle:['idle','ok'], chatting:['chatting','ok'], agent_running:['agent running','busy'],
+ waiting_for_approval:['waiting for you','warn'], stopping:['stopping','warn'],
+ failed:['failed','bad'], unknown:['unknown','dim']};
+
+function clarvisStateChip(state){
+ const [label,tone]=CLARVIS_STATE[state]||CLARVIS_STATE.unknown;
+ return `<span class="chip${tone==='ok'?'':' '+tone}">${escapeHtml(label)}</span>`;
+}
+
+/* The window picker. Drawn even for a single window, because §6.6 makes "how
+   many editors are registered" a fact worth seeing — two windows on the same
+   project are two instance lifetimes and are presented honestly. */
+function clarvisWindowTabs(windows,chosen){
+ return `<div class="filter-row note-tabs" role="group" aria-label="Which editor window">
+  ${windows.map(w=>`<button class="mode-chip${w.instance_id===chosen?' on':''}"
+    onclick="pickClarvisWindow('${jsAttr(w.instance_id)}')"
+    >${escapeHtml(w.label||w.instance_id.slice(0,8))}${w.live?'':' <b>lapsed</b>'}</button>`).join('')}
+ </div>`;
+}
+
+function pickClarvisWindow(id){if(CLARVIS_WINDOW!==id){CLARVIS_WINDOW=id;render()}}
+
+/* The agent run, which is read from events rather than from status.
+
+   Status answers *now*, so a run that finished thirty seconds ago shows there
+   as `idle` — and "what just happened" is the thing somebody opening this
+   screen wants. A run NERVIS never saw start is absent rather than drawn with
+   an empty start time. */
+function clarvisRunCard(run){
+ if(!run||!run.state)return cell(banner('No agent run recorded',
+   'NERVIS has been sent no <code>clarvis.agent.*</code> event for this window. A run that '
+   +'began before the window registered is one NERVIS did not watch, and is not guessed at.','info'),'clarvis');
+ const ended=run.ended_at?`<dt>ended</dt><dd>${escapeHtml(noteExact(run.ended_at))}</dd>`:'';
+ return cell(`<dl class="kv">
+   <dt>state</dt><dd>${escapeHtml(run.state)}</dd>
+   <dt>steps</dt><dd>${escapeHtml(run.steps)}</dd>
+   <dt>started</dt><dd>${escapeHtml(noteExact(run.started_at))}</dd>${ended}
+  </dl>`,'clarvis');
+}
+
+/* A gate, shown and never answered. */
+function clarvisGateCard(gate,on){
+ if(!gate||!gate.category)return '';
+ return `<div class="card full${on}"><h3>Waiting for you</h3>${cell(banner(
+   `Clarvis is waiting on a ${escapeHtml(gate.category)} approval`,
+   `Requested ${escapeHtml(noteExact(gate.since))}. <b>Answer it in the editor</b> — NERVIS `
+   +'shows that a gate is open and cannot resolve one, which is <code>CLARVIS.md</code> §6.7 '
+   +'and is why there is no button here.','warn'),'clarvis')}</div>`;
+}
+
+function clarvisTaskRows(tasks){
+ if(!tasks.length)return banner('No task recorded',
+   'This window has sent no <code>clarvis.task.*</code> event.','info');
+ return `<div class="table-row head caps" style="grid-template-columns:1.4fr .8fr 1fr 1fr">
+   <span>Task</span><span>State</span><span>Started</span><span>Finished</span></div>`
+  +tasks.map(t=>`<div class="table-row" style="grid-template-columns:1.4fr .8fr 1fr 1fr">
+    <span class="mono">${escapeHtml(t.task_id)}</span>
+    <span>${escapeHtml(t.state)}${t.outcome?` · ${escapeHtml(t.outcome)}`:''}</span>
+    <span class="mono dim">${escapeHtml(t.started_at?noteExact(t.started_at):'not seen')}</span>
+    <span class="mono dim">${escapeHtml(t.completed_at?noteExact(t.completed_at):'—')}</span>
+   </div>`).join('');
+}
+
+function clarvisEventRows(events){
+ if(!events.length)return banner('No events from this window',
+   'Clarvis forwards its events to NERVIS best-effort and never waits on them, so a quiet '
+   +'window and an unreachable hub look the same from here — nothing is inferred from the silence.','info');
+ return events.map(e=>`<div class="table-row" style="grid-template-columns:1.6fr 2fr">
+   <span class="mono">${escapeHtml(e.event_type||'')}</span>
+   <span class="mono dim">${escapeHtml(noteExact(e.occurred_at||''))}</span>
+  </div>`).join('');
+}
+
+/* The two states with no window to draw, which are different facts: a dashboard
+   that cannot reach NERVIS knows nothing, and a NERVIS with no registered window
+   knows that there is none — which is Clarvis's ordinary condition, not a fault. */
+function clarvisNoWindows(live){
+ return `<div class="card full${liveClass(live)}"><h3>Clarvis</h3>${cell(banner(
+   live?'No editor window has registered':'NERVIS is not answering',
+   live
+    ?'Clarvis activates and dies with its VS Code window and never depends on NERVIS, so this is '
+     +'the ordinary state rather than a fault. Turn on <b>clarvis.bridge.enabled</b> in a window\'s '
+     +'settings and it appears here.'
+    :'The registry lives in NERVIS\'s own database, so nothing can be read until it is up.',
+   live?'info':'warn'),'clarvis')}</div>`;
+}
+
+/* The window's own card.
+
+   **A lapsed lease is said, not implied.** M9's exit asks that a stale
+   connection be clearly shown, and the failure mode is quiet: a window whose
+   editor was closed keeps its last known state, and drawing that state without
+   dating it is a dashboard reporting an editor that is not running. */
+function clarvisWindowCard(d,tabs){
+ const status=d.status||{};
+ const lease=d.expires_in>0
+   ?`renewed, expires in ${escapeHtml(d.expires_in)}s`
+   :'<b>lease lapsed</b> — the editor stopped renewing, so everything below is its last known state';
+ const rows=[
+   ['window',escapeHtml(d.label||d.instance_id)],
+   ['registration',lease],
+   ['awaiting',status.awaiting?escapeHtml(status.awaiting):''],
+   ['activity',status.activity_id?`<span class="mono">${escapeHtml(status.activity_id)}</span>`:''],
+   ['elapsed',status.elapsed_ms!=null?`${escapeHtml(Math.round(status.elapsed_ms/100)/10)}s`:''],
+ ].filter(([,value])=>value);
+ return `<div class="card full${liveClass(d.expires_in>0)}"><h3>Window
+   ${clarvisStateChip(status.state||'unknown')}</h3>${cell(tabs+`<dl class="kv">${
+   rows.map(([label,value])=>`<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>`,'clarvis')}</div>`;
+}
+
+async function clarvisDiagnosticsView(){
+ heading('Clarvis diagnostics','What each registered editor window is doing — read, never driven.');
+ const inst=await API.nervis.clarvisInstances();
+ const windows=inst.items||[];
+ if(!windows.length){$('#content').innerHTML=clarvisNoWindows(inst.live);return}
+
+ /* A selection that points at a window which has since closed is dropped rather
+    than carried: it would 404 on every repaint, and the reader would be looking
+    at an error instead of the window that is actually open. */
+ if(!windows.some(w=>w.instance_id===CLARVIS_WINDOW))CLARVIS_WINDOW=windows[0].instance_id;
+ const d=await API.nervis.clarvisDiagnostics(CLARVIS_WINDOW);
+ const tabs=clarvisWindowTabs(windows,CLARVIS_WINDOW);
+
+ if(!d.live){
+  /* `d.live` is false here, and the class says so rather than the card simply
+     not carrying one — the read failed, and that is a reading. */
+  $('#content').innerHTML=`<div class="card full${liveClass(d.live)}"><h3>Clarvis</h3>${cell(
+   tabs+banner('That window could not be read',escapeHtml(d.reason||'')+'.','warn'),'clarvis')}</div>`;
+  return;
+ }
+
+ /* Every card below is drawn from the one read that just succeeded, so they
+    carry the same liveness the window card does rather than asserting it. */
+ const on=liveClass(d.live);
+ $('#content').innerHTML=clarvisWindowCard(d,tabs)+clarvisGateCard(d.gate,on)+`
+  <div class="card half${on}"><h3>Agent run</h3>${clarvisRunCard(d.agent_run)}</div>
+  <div class="card half${on}"><h3>Tasks</h3>${cell(clarvisTaskRows(d.tasks||[]),'clarvis')}</div>
+  <div class="card full${on}"><h3>Recent events
+    <span class="chip">${escapeHtml(d.event_count||0)}</span></h3>${cell(
+   clarvisEventRows(d.events||[]),'clarvis')}
+   <small class="mono dim"><b>NERVIS reads Clarvis; it never drives it.</b> Everything on this screen
+   was published by the editor window itself — the registry row it claimed, its own
+   <code>/v1/status</code>, and the events it forwarded. <b>Nothing is stored as NERVIS's own copy</b>:
+   a kept copy of "the agent is running" outlives the run and is indistinguishable from the truth
+   until it is wrong. <b>Windows never merge</b> — events are selected by the window that sent them,
+   so a quiet editor shows nothing rather than its neighbour's activity.</small></div>`;
+}
+
 async function clarvis(){
+ /* Two screens under one tab. Diagnostics is NERVIS's own view of the editor
+    and is drawn whatever code-server is doing — it is most wanted exactly when
+    the editor is missing, which is why it is checked before the embed's own
+    preconditions rather than after them. */
+ if(state.view==='Diagnostics')return clarvisDiagnosticsView();
+
  /* **No `heading()` here, deliberately.** Every other screen opens with one; this
     one is a full-bleed editor, and a hero with an avatar above it made the tab a
     page about code-server rather than code-server. What the heading used to say —

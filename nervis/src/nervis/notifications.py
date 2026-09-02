@@ -181,7 +181,7 @@ def recent(
     caller asking for two gets the narrower, and unread wins because unread
     excludes dismissed by definition.
     """
-    clauses = []
+    clauses: list[str] = []
     if only_unread:
         clauses.extend(("read_at = ''", "dismissed_at = ''"))
     elif only_dismissed:

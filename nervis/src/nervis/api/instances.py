@@ -24,6 +24,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
+from nervis import clarvis
 from nervis.bridges import read_config as read_bridge_config
 from nervis.bridges import read_status as read_bridge_status
 from nervis.enrollment import matches, presented_secret
@@ -116,6 +117,41 @@ async def read_status(service: str, instance_id: str, request: Request) -> dict[
         raise NotFoundError(f"no registered {service} instance {instance_id}")
     return await read_bridge_status(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
+    )
+
+
+@router.get("/{service}/{instance_id}/diagnostics")
+async def read_diagnostics(service: str, instance_id: str, request: Request) -> dict[str, Any]:
+    """M9 — one window's status, agent run, tasks, gate and recent events.
+
+    **One request per window, and it is still three reads.** The screen needs
+    the registry row, the Bridge's own status and the events that window
+    forwarded, and asking the browser to join those would put the isolation rule
+    in the least trustworthy place. §6.6 says events and status from one window
+    never appear under another; the join happens here, keyed on the id the
+    registry holds.
+
+    **The events are filtered, not sliced.** `instance_id` selects on
+    `source.instance_id` inside the envelope, so a window that has published
+    nothing gets an empty list rather than the hub's recent traffic — which is
+    the difference between "this window is quiet" and "here is somebody else's
+    editor".
+
+    A dead window is a 404 the same as an unknown one, because a lease that
+    expired and an id that never existed are both "NERVIS does not have this".
+    """
+    instances: Instances = request.app.state.instances
+    instance = instances.find(service, instance_id)
+    if instance is None:
+        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    status = await read_bridge_status(
+        request.app.state.probe_client, instance, request.app.state.instances_clock()
+    )
+    events = request.app.state.hub.query(
+        instance_id=instance_id, limit=200, latest=True
+    )
+    return clarvis.diagnostics(
+        instance.as_dict(request.app.state.instances_clock()), status, events
     )
 
 

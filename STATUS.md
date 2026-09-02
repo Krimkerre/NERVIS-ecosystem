@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2081 tests, no network, no live service
+.venv/bin/pytest                      # part of 2096 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 690 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 705 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2081 passing across the four, conformance `PASS`.
+Expected: all clean, 2096 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -4037,6 +4037,57 @@ is written into the mapping as undecided, rather than resolved by whoever
 happened to be editing.
 
 85 milestone rows across the three specs now pass.
+
+### M9 — the Clarvis diagnostics screen, 2 Sep. NERVIS 0.17.0
+
+The CLARVIS tab was the embedded editor and nothing else. It now opens on
+**Diagnostics**, NERVIS's own screen about the editor: each registered window's
+state, its current agent run, the tasks it started and finished, the events it
+forwarded, and whether it is waiting on an approval.
+
+**Three reads, joined on the server.** The registry row a window claimed (M8a),
+that window's own `/v1/status` (M8b), and its events out of the hub. Joining
+them in the browser would put §6.6's isolation rule in the least trustworthy
+place — a page holding three lists can mix them, and a query cannot.
+
+**The isolation filter is `json_extract`, not a substring.** An instance id has
+no column; it lives in the envelope's `source`. Matching it through the existing
+free-text filter would have matched an id appearing anywhere in any payload, so
+one editor's agent run could surface under the other editor's name. Driven with
+two windows publishing the same event families, which is the case a substring
+match passes and this one has to fail.
+
+**Nothing is stored.** M9's exit says *no Clarvis state duplicated
+independently*, and the failure it guards is quiet: a kept copy of "the agent is
+running" outlives the run and is indistinguishable from the truth until it is
+wrong. Every field is folded out of rows the hub already holds. There is no
+clarvis table, and `clarvis.py` imports only `typing` — asserted by parsing it,
+so §6.7's *may not resolve a gate* is enforced by there being nothing to call
+rather than by a rule to remember.
+
+**A run's history is read from events, not from status.** Status answers *now*,
+so a run that ended thirty seconds ago reads `idle` there — and "what just
+happened" is what somebody opening this screen came for. A `step` deliberately
+does not end a run: treating the newest event as the outcome would close every
+run at whatever it last did.
+
+**Settled by falsification on a throwaway stack**, because a live window shows
+the happy path and M9's exit is about the others. A second NERVIS on port 8797
+with its own database, two fake Bridges, and events from both: window A reported
+`waiting_for_approval` with its gate open, a completed run of two steps and one
+finished task; window B reported only its own. Neither saw the other. Reading
+the operator's own enrollment secret was refused by the sandbox, which was the
+right refusal and produced the better test — nothing here touched the real
+installation, and both throwaway processes were stopped afterwards.
+
+**Looking at it found the bug the gates could not.** The Clarvis tab hides the
+page header *and the side rail* so the editor can be full-bleed; applied to this
+screen that left no way back to the editor views except the top tab bar. The
+chrome is restored for this one view.
+
+15 tests. `liveness_check.js` then caught all six new cards asserting their class
+instead of reading it — including the one that says a read failed, which is a
+reading of `false` and not an absence of one.
 
 ### Next — in this order
 

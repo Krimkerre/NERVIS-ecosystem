@@ -119,3 +119,34 @@ restarted in a loop.
 There are exactly three things it can do — start, stop, restart — and asking for
 anything else gets "no such thing" rather than an error explaining what would
 have worked. Every attempt is recorded, refusals included.
+
+## Watching Clarvis in the editor
+
+Clarvis is the coding assistant that lives inside a VS Code window. When one of
+those windows is turned on to talk to NERVIS, the CLARVIS tab gains a
+**Diagnostics** screen showing what that window is doing.
+
+It shows the window's state — idle, chatting, running an agent, waiting for an
+approval — the current agent run with its step count, the tasks Clarvis has
+started and finished, and the events it sent. Each editor window is listed
+separately and picked from a row of tabs.
+
+**NERVIS watches; it does not drive.** This matters most for approvals. When
+Clarvis stops to ask permission for something, the screen says so and says which
+kind of permission — and then says to answer it in the editor. NERVIS cannot
+approve or refuse on the user's behalf, and there is deliberately no button for
+it. That is a rule in Clarvis's own specification, not a feature nobody got
+round to.
+
+**Two editor windows never blend together.** Events are matched to the window
+that sent them, so a quiet editor shows nothing rather than its neighbour's
+activity, and the same project open twice is honestly two separate windows.
+
+**Nothing here is NERVIS's own copy.** Everything on the screen was published by
+the editor window itself, and NERVIS keeps no record that could outlive it — a
+stored "the agent is running" would keep saying so after the run ended, and
+would look exactly like the truth until it was wrong.
+
+A window whose editor closed stops renewing its registration, and the screen
+says the lease lapsed rather than quietly showing its last known state as
+current.

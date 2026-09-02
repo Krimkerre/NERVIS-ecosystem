@@ -244,6 +244,7 @@ class Hub:
         event_type: str = "",
         trace_id: str = "",
         text: str = "",
+        instance_id: str = "",
         latest: bool = False,
     ) -> list[dict[str, Any]]:
         """§11.2's filters, oldest first.
@@ -278,6 +279,17 @@ class Hub:
         if text:
             clauses.append("envelope LIKE ?")
             values.append(f"%{text}%")
+        # **Exact, not a substring.** `CLARVIS.md` §6.6 requires that events from
+        # one editor window never appear under another, and an instance id has
+        # no column — it lives in the envelope's `source`. Matching it with the
+        # `text` filter above would be a substring search over the whole
+        # envelope, so an id appearing anywhere in any payload would attribute
+        # somebody else's window to this one. `json_extract` reads the field
+        # itself. Unindexed, and that is affordable: the scan is already bounded
+        # by `sequence > ?` and `LIMIT`.
+        if instance_id:
+            clauses.append("json_extract(envelope, '$.source.instance_id') = ?")
+            values.append(instance_id)
         values.append(max(1, min(limit, 1000)))
         order = "DESC" if latest else "ASC"
         rows = self._database.connection.execute(
