@@ -437,6 +437,79 @@ M13 tails VS Code logs into `.clarvis/vscode.log` behind a Clarvis security gate
 Bridge events and status are the normal integration; M13 stays an explicitly approved raw
 diagnostic aid with workspace and privacy consequences.
 
+## 6.9 If a management API is ever wanted — recorded, not authorised
+
+**This section is not the contract §6.7 asks for, and nothing in it permits building
+one.** §6.7 still stands in full: an agent asked to add such control must stop. What
+follows is the analysis from one such conversation, written down so the next person
+starts from it rather than re-deriving it — including whoever asks again in a year.
+
+The question was reasonable and is worth stating fairly: NERVIS, RAVIS, SIRVIS and
+Clarvis are one ecosystem built by one person, so a settings API between them does
+not feel like *external* control. The answer is that the trust boundary is not
+organisational. It is the loopback port, and §6.1 already records why: any local
+process can bind the port a Bridge would have used.
+
+### What changes, and in which direction
+
+Sorting Clarvis's settings by consequence turns out to be more useful than sorting
+them by subject, and it produces three tiers.
+
+**Preference-shaped — a contract could plausibly cover these.** `chat.provider`,
+`chat.model`, `agent.provider`, `agent.model`, `voice.enabled`,
+`voice.selectedVoice`, `voice.fishAudio.engine`, `voice.trimLongReplies`,
+`model.tuneLocalLoads`, `watch.minDurationSeconds`. NERVIS already *reads* most of
+these through §6.2's config summary. Getting one wrong makes Clarvis worse, not more
+dangerous.
+
+**Consent-shaped — per-change approval in the editor, never a silent write.**
+`chat.baseUrl.*` reads like a preference and behaves like exfiltration: it decides
+which host receives the prompts. `agent.maxStepsPerTask` decides how long an agent
+runs with nobody watching. `voice.dailyRequestCap` is a spending decision in one
+direction only. `chat.mode` set to `unattended` is the thing §6.7 names outright —
+and *silently* is the load-bearing word in that clause.
+
+**Refused however good the contract.** Everything §6.7 lists, plus three settings
+that are not obviously in its list and belong there:
+
+| setting | why it can never be remote |
+|---|---|
+| `bridge.enrollmentSecretPath` | the credential authenticating registration. NERVIS choosing its own trust anchor is the definition of having none |
+| `bridge.nervisUrl` | NERVIS pointing Clarvis at a *different* NERVIS. One compromised instance hands the editor to the next |
+| `bridge.enabled` | turning on its own visibility. If NERVIS can un-hide itself, switching it off stops meaning anything |
+
+These three are what make a management API bootstrap itself: every other setting is a
+consequence, and these are the authority.
+
+### The rule worth keeping, if the list is ever forgotten
+
+**NERVIS may narrow what Clarvis will do; it may never widen it.** Lowering a step
+cap, a spend cap or a voice budget is safe in a way that raising the same number is
+not — the same setting, the same call, the opposite blast radius. A contract written
+in terms of *settings* has to enumerate that case forever. One written in terms of
+*direction* gets it for free, including for settings nobody has invented yet.
+
+### Mutual authentication is not one requirement of six
+
+§6.7 lists threat model, authentication, presence and consent, granular operations,
+audit, revocation and Clarvis-plan approval. Authentication is not one item among
+them; it gates every other tier, including the harmless-looking one.
+
+Today §6.1's weakness means something local can impersonate *Clarvis* and feed NERVIS
+a false reading — the cost is a wrong dashboard. A write path inverts the direction:
+the same weakness lets something impersonate **NERVIS** and change which host an
+editor sends its prompts to. Until Clarvis can prove *which* NERVIS is speaking, tier
+one is not the safe part of the design — it is the part an attacker would target
+first, because it is the part nobody would guard.
+
+### What already exists, and why it is not this
+
+E-C8 covers most of the practical want without any of this: NERVIS writes a task
+brief into the workspace, Clarvis offers it as a build with the prompt visible and
+editable, and a person starts the run. §6.7's test separates them cleanly — **with
+the Bridge stopped, E-C8 still works.** Any settings write path fails that test by
+construction, which is what makes it a contract question rather than a feature.
+
 ---
 
 # 7. code-server compatibility

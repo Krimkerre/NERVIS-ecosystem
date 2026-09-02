@@ -23,6 +23,7 @@ explanations are reviewed by people.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -52,8 +53,27 @@ def _clarvis_tools() -> set[str]:
     if not registry.is_file():
         return set()          # a checkout without the sibling repository
     body = _read(registry)
-    union = re.search(r"export type ToolName =(.*?);", body, re.S)
+    union = re.search(r"export type ToolName =(.*?);", body, re.DOTALL)
     return set(re.findall(r"'([A-Za-z]+)'", union.group(1))) if union else set()
+
+
+def _clarvis_settings() -> set[str]:
+    """Every setting the extension actually contributes.
+
+    Added because chat invented one. Asked to raise the agent step limit it
+    correctly refused — NERVIS may not change a Clarvis setting — and then named
+    `clarvis.agent.stepLimit`, which does not exist; the real one is
+    `clarvis.agent.maxStepsPerTask`. A confident, precise, wrong instruction is
+    worse than "look in Settings", and it is exactly the failure mode of a
+    control plane whose whole remaining value is naming the thing it may not
+    touch.
+    """
+    manifest = ROOT.parent / "clarvis" / "package.json"
+    if not manifest.is_file():
+        return set()          # a checkout without the sibling repository
+    contributed = json.loads(_read(manifest)).get("contributes", {}).get("configuration", {})
+    sections = contributed if isinstance(contributed, list) else [contributed]
+    return {name for section in sections for name in section.get("properties", {})}
 
 
 def _endpoints_that_exist() -> set[str]:
@@ -77,6 +97,7 @@ def _endpoints_that_exist() -> set[str]:
 
 pools = _pools_that_exist()
 tools = _clarvis_tools()
+settings = _clarvis_settings()
 endpoints = _endpoints_that_exist()
 
 if not pools:
@@ -99,6 +120,16 @@ for path in sorted(KNOWLEDGE.glob("*.md")):
         tail = named.split("/api/v1")[-1] if "/api/v1" in named else named
         if tail not in endpoints and named not in endpoints:
             failures.append(f"{where} names the endpoint {named!r}, which nothing serves.")
+
+    # A setting named in a knowledge file is an instruction somebody will follow
+    # into VS Code's settings editor, so it has to be the real key.
+    if settings:
+        for named in sorted(set(re.findall(r"`(clarvis\.[A-Za-z0-9.]+)`", text))):
+            if named not in settings:
+                failures.append(
+                    f"{where} names the setting {named!r}, which the extension does "
+                    f"not contribute. Chat quotes these verbatim to an operator."
+                )
 
     if tools and where == "clarvis.md":
         claimed = set(re.findall(r"`([a-zA-Z]+)`", text)) & {
@@ -127,4 +158,4 @@ if failures:
     raise SystemExit(1)
 
 print(f"knowledge files check out: {len(pools)} pools, {len(tools)} Clarvis tools, "
-      f"{len(endpoints)} endpoints available to name")
+      f"{len(endpoints)} endpoints and {len(settings)} Clarvis settings available to name")

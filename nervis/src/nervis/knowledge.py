@@ -223,7 +223,7 @@ def sections() -> tuple[Section, ...]:
     return tuple(found)
 
 
-def search(question: str, limit: int = 3) -> list[Section]:
+def search(question: str, limit: int = 3, subject: str = "") -> list[Section]:
     """The sections most likely to answer this question, best first.
 
     **Term overlap, not embeddings**, and that is a judgement about these
@@ -237,12 +237,34 @@ def search(question: str, limit: int = 3) -> list[Section]:
     and a word in it is a far stronger signal than the same word buried in a
     paragraph that merely mentions it.
     """
+    def opening() -> list[Section]:
+        """A named subject's own file, from the top.
+
+        *"And you?"* carries no content word at all, so it cannot clear
+        `MIN_SCORE` however the corpus is weighted — and by the time this is
+        called the caller has already established which subject is meant.
+        Returning nothing is the assistant saying it has no reading on itself,
+        which is worse than opening its own file. Only when a subject was named:
+        an unscoped question that matches nothing still matches nothing.
+        """
+        return _hand_written_wins([one for one in sections() if one.subject == subject])[:limit]
+
     wanted = _terms(question)
     if not wanted:
-        return []
+        return opening() if subject else []
     weight = _weight()
     scored: list[tuple[float, int, Section]] = []
+    # **`subject` scopes, it does not merely boost.** A question about NERVIS
+    # itself used to be answered by appending the word "nervis" to it, which
+    # depended on that word being distinctive — and it is the single most common
+    # word in this corpus, so its measured weight is near the floor. Every file
+    # added since made it weaker, and documenting Clarvis's settings finally
+    # pushed *"and you?"* below `MIN_SCORE` and returned nothing at all. The
+    # term weighting was right; leaning on one term to mean "this subject" was
+    # not. Naming the subject asks the question that was meant.
     for index, section in enumerate(sections()):
+        if subject and section.subject != subject:
+            continue
         heading = wanted & _terms(f"{section.subject} {section.heading}")
         body = wanted & _terms(section.body)
         score = sum(weight.get(t, 1.0) for t in heading) * 3
@@ -253,6 +275,8 @@ def search(question: str, limit: int = 3) -> list[Section]:
         # about determinism applies to anything that shapes an answer.
         scored.append((score, -index, section))
     scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    if not scored and subject:
+        return opening()
     return _hand_written_wins([section for _, _, section in scored])[:limit]
 
 
@@ -338,7 +362,7 @@ def reading(question: str) -> str:
     """
     # A question about "you" is a question about NERVIS, and nothing in these
     # files says so — they are written in the third person, like notes.
-    best = search(f"{question} nervis" if _about_itself(question) else question)
+    best = search(question, subject="nervis") if _about_itself(question) else search(question)
     if not best:
         return ""
     body = ""

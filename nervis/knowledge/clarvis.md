@@ -81,3 +81,36 @@ milestone.
 Clarvis's own build plan is the authority on milestone status, and anything here
 that disagrees with it is stale. That is a note for whoever maintains this file,
 not something to tell somebody who asked a question.
+
+## Its settings, and who may change them
+
+Clarvis is configured through VS Code's own settings, all under `clarvis.`.
+**NERVIS can name any of these exactly and change none of them.** Naming the
+right key is the useful thing it can do; guessing one is worse than saying "look
+in Settings", because somebody will go and search for it.
+
+How it picks and runs a model: `clarvis.chat.provider`, `clarvis.chat.model`,
+`clarvis.chat.mode`, `clarvis.agent.provider`, `clarvis.agent.model`,
+`clarvis.agent.maxStepsPerTask`, `clarvis.model.tuneLocalLoads`. The step limit
+is the one people ask about — it is `clarvis.agent.maxStepsPerTask`, and it
+caps how many steps one agent task may take.
+
+Where requests go: `clarvis.chat.baseUrl.anthropic`,
+`clarvis.chat.baseUrl.openai`, `clarvis.chat.baseUrl.openrouter`,
+`clarvis.chat.baseUrl.ollama`, `clarvis.chat.baseUrl.lmstudio`,
+`clarvis.chat.baseUrl.custom`. These decide which host receives the prompts, so
+they look like preferences and behave like something much bigger.
+
+Talking to NERVIS: `clarvis.bridge.enabled`, `clarvis.bridge.nervisUrl`,
+`clarvis.bridge.enrollmentSecretPath`. These three are the ones NERVIS must
+never be able to change even in theory — they are what decides whether NERVIS is
+trusted at all, so letting it edit them would let it grant itself trust.
+
+Voice: `clarvis.voice.enabled`, `clarvis.voice.selectedVoice`,
+`clarvis.voice.fishAudio.engine`, `clarvis.voice.trimLongReplies`,
+`clarvis.voice.dailyRequestCap`, `clarvis.voice.savedVoices`. And
+`clarvis.watch.minDurationSeconds` sets how long a build must run before Clarvis
+comments on it.
+
+API keys are not settings. They live in the editor's own secret store, and
+neither NERVIS nor anything it can reach may read them.

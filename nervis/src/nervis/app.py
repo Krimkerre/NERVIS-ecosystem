@@ -398,6 +398,29 @@ def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
     database = getattr(api.state, "database", None)
     if database is None or entry.awaiting_first_contact:
         return
+    # **Nothing is filed while the stack is still coming up.** A launcher starts
+    # the services in sequence and the machine is busy doing it, so NERVIS's
+    # early sweeps catch peers mid-startup and its own probe of itself can time
+    # out under the load — every one of which resolves seconds later. Reported
+    # as a centre full of "has stopped answering" after every cold start, each
+    # note true for about twenty seconds and worthless by the time anybody read
+    # it.
+    #
+    # `awaiting_first_contact` and the `discovering` guard below already cover a
+    # peer NERVIS has never reached. What they do not cover is the second
+    # transition: a service seen healthy once, then missed while the rest of the
+    # stack is still loading, which reads as `healthy -> unreachable` and looks
+    # exactly like a real outage.
+    #
+    # The window is the one `_next_interval` already uses to probe faster,
+    # rather than a number of its own — the fast window exists precisely because
+    # this period is untrustworthy, and something worth re-probing quickly is
+    # not something worth telling somebody about yet. **The hub still records
+    # every transition**, so nothing is lost: the hub is the record of what
+    # NERVIS observed, and this is the shorter list of what is worth saying.
+    settings: Settings = api.state.settings
+    if time.monotonic() - api.state.probe_started_at <= settings.startup_window_seconds:
+        return
     # **A first sighting is a roll call, not news.** `discovering` is the state
     # every entry starts in, so the first sweep after a restart moves all of
     # them out of it — and posting that would greet the user with one note per

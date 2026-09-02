@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2096 tests, no network, no live service
+.venv/bin/pytest                      # part of 2099 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 705 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 708 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2096 passing across the four, conformance `PASS`.
+Expected: all clean, 2099 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82096af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82099af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4122,6 +4122,89 @@ their own `/v1/status`, three `clarvis.lifecycle.ready` events each — and **ze
 events shared between them**, which is §6.6's isolation clause met against real
 windows rather than fakes. What is still unwitnessed is a live agent run and a
 task, since neither window has been asked to build anything.
+
+### A management API for Clarvis — asked, refused, and written down, 2 Sep
+
+*"Can we add a management API in Clarvis, for NERVIS specifically? They are an
+ecosystem, so I wouldn't count it as external control per se."*
+
+Refused, because `CLARVIS.md` §6.7 names this exact request — *"an agent asked to
+add such control must stop"* — and the reasoning was recorded rather than
+re-argued next time. **The analysis is now §6.9, which is explicit that it is not
+the contract and authorises nothing.**
+
+The short of it: the trust boundary is not organisational, it is the loopback
+port, and §6.1 already says any local process can bind one. Today that means
+something can impersonate *Clarvis* and cost you a wrong dashboard. A write path
+inverts the direction — something impersonating **NERVIS** changes which host
+your editor sends prompts to. So mutual authentication is not one of §6.7's six
+requirements; it gates all of them.
+
+Sorting the 23 settings by consequence beat sorting them by subject. Ten are
+preference-shaped. Nine need per-change consent, and `chat.baseUrl.*` is the
+trap — it reads like a preference and behaves like exfiltration. Three are
+refusable however good the contract, and they are the three nobody lists:
+`bridge.enrollmentSecretPath`, `bridge.nervisUrl` and `bridge.enabled` are what
+would let a management API bootstrap its own authority.
+
+**The rule worth keeping if the list is lost: NERVIS may narrow what Clarvis will
+do, never widen it.** Lowering a step cap is safe in a way raising the same
+number is not — same setting, same call, opposite blast radius. A contract
+written in settings enumerates that forever; one written in directions gets it
+free, including for settings nobody has invented yet.
+
+E-C8 already covers most of the practical want, and §6.7's own test says why it
+is different: **with the Bridge stopped, E-C8 still works.**
+
+### A cold start filled the notification centre, 2 Sep. NERVIS 0.17.3
+
+Reported: *"we keep getting unreachable errors, probably caused by cold starting
+the stack each time."* Correct diagnosis. A launcher starts the services in
+sequence and the machine is busy doing it, so the early sweeps catch peers
+mid-startup and NERVIS's probe of *itself* can time out under the load. Every one
+of those resolves within seconds, and every one filed a warning.
+
+Two guards already existed and neither covered it. `awaiting_first_contact` and
+the `discovering` check both handle a peer NERVIS has never reached; what they
+miss is the **second** transition — seen healthy once, then missed while the rest
+of the stack is still loading, which reads as `healthy → unreachable` and is
+indistinguishable from a real outage.
+
+**The centre now stays quiet during the window `_next_interval` already probes
+faster through**, rather than getting a threshold of its own. That window exists
+precisely because this period is untrustworthy, and something worth re-probing
+every three seconds is not something worth telling somebody about yet. It closes
+on the clock, so a real outage is never swallowed — asserted in both directions,
+because a grace period that never ended would be a notification centre that had
+quietly stopped working.
+
+**The hub still records every transition.** That is what makes the silence
+affordable: the hub is the record of what NERVIS observed, and the centre is the
+shorter list of what is worth saying. Verified on a real cold start of the whole
+stack — twelve state changes in the hub, **zero notes filed**.
+
+### Chat named a setting that does not exist, 2 Sep
+
+Asked to raise Clarvis's agent step limit it refused correctly — NERVIS may not
+change a Clarvis setting — and then said to edit `clarvis.agent.stepLimit`. The
+real key is `clarvis.agent.maxStepsPerTask`. Nothing in the knowledge files named
+any setting, so it filled the gap itself.
+
+That is the worst failure available to a control plane whose remaining value,
+when it may not touch a thing, is naming it exactly. `nervis/knowledge/clarvis.md`
+now lists all 23 real keys grouped by consequence, and `tools/knowledge_check.py` reads
+the extension's own `package.json` so an invented one fails the build — proved by
+putting the hallucinated name in and watching it fail.
+
+**And the fix exposed a weakness in how self-questions were answered.** Adding
+those sections pushed *"and you?"* below `MIN_SCORE`: the mechanism appended the
+word "nervis" to the question, which only works while that word is distinctive,
+and it is the single most common word in the corpus. Every file added since made
+it weaker. `search` now takes a `subject` and scopes to it, with a question that
+scores nothing falling back to that subject's own opening — because a question
+carrying no content word at all cannot clear any threshold, and answering "I have
+no reading on myself" is worse than opening the file at the top. The term
+weighting was right; leaning on one term to mean *this subject* was not.
 
 ### Next — in this order
 

@@ -129,7 +129,8 @@ def test_a_question_about_you_is_a_question_about_nervis() -> None:
     """
     for question in ("and you?", "what about you", "tell me about yourself",
                      "how do you work", "what are you"):
-        hits = knowledge.search(f"{question} nervis") if knowledge._about_itself(question) else []
+        hits = (knowledge.search(question, subject="nervis")
+                if knowledge._about_itself(question) else [])
         assert hits, question
         assert hits[0].subject == "nervis", question
         assert "nervis" in knowledge.reading(question).lower()

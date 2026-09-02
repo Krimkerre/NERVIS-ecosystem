@@ -138,6 +138,13 @@ approve or refuse on the user's behalf, and there is deliberately no button for
 it. That is a rule in Clarvis's own specification, not a feature nobody got
 round to.
 
+The same applies to Clarvis's settings — which model it uses, where it sends
+prompts, how long an agent may run. NERVIS can show what a window published about
+its own configuration and can say exactly which setting to change, but it cannot
+change one. That has been asked and deliberately turned down; the reasoning is in
+`CLARVIS.md` §6.9. If asked to do it anyway, say no and say where the decision is
+written down rather than offering a workaround.
+
 **Two editor windows never blend together.** Events are matched to the window
 that sent them, so a quiet editor shows nothing rather than its neighbour's
 activity, and the same project open twice is honestly two separate windows.

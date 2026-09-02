@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -273,6 +275,10 @@ def test_a_state_change_is_filed_by_nervis_not_by_the_browser(client: TestClient
     function — no browser involved anywhere in this test, which is the point.
     """
     api = client.app  # type: ignore[attr-defined]
+    # Past the startup window, or nothing is filed at all — a freshly built test
+    # client is by definition a stack that has just come up, which is exactly
+    # the period the centre now stays quiet through.
+    api.state.probe_started_at = time.monotonic() - api.state.settings.startup_window_seconds - 1
     entry = api.state.registry.all()[0]
     before = {e.key: e.state for e in api.state.registry.all()}
     before[entry.key] = RegistryState.HEALTHY
@@ -299,6 +305,52 @@ def test_a_first_sighting_is_not_news(client: TestClient) -> None:
     api = client.app  # type: ignore[attr-defined]
     before = {e.key: RegistryState.DISCOVERING for e in api.state.registry.all()}
     app_module._announce_transitions(api, before)
+    assert client.get("/api/v1/notifications").json()["unread"] == 0
+
+
+def test_a_cold_start_does_not_fill_the_centre(client: TestClient) -> None:
+    """A launcher starts services in sequence, and the machine is busy doing it.
+
+    Reported after a cold start: a centre full of "has stopped answering", each
+    note true for about twenty seconds and worthless by the time anybody read
+    it. The existing guards cover a peer NERVIS has never reached; what they
+    missed is the *second* transition — seen healthy once, then missed while the
+    rest of the stack is still loading, which reads as a real outage.
+    """
+    api = client.app  # type: ignore[attr-defined]
+    api.state.probe_started_at = time.monotonic()          # still coming up
+    before = {e.key: RegistryState.HEALTHY for e in api.state.registry.all()}
+    app_module._announce_transitions(api, before)
+    assert client.get("/api/v1/notifications").json()["unread"] == 0
+
+
+def test_the_same_outage_is_filed_once_the_stack_has_settled(client: TestClient) -> None:
+    """The window closes on the clock, so a real outage is never swallowed.
+
+    The pair matters more than either half: a grace period that never ended
+    would be a notification centre that had quietly stopped working.
+    """
+    api = client.app  # type: ignore[attr-defined]
+    window = api.state.settings.startup_window_seconds
+    api.state.probe_started_at = time.monotonic() - window - 1
+    before = {e.key: RegistryState.HEALTHY for e in api.state.registry.all()}
+    app_module._announce_transitions(api, before)
+    assert client.get("/api/v1/notifications").json()["unread"] > 0
+
+
+def test_the_hub_still_records_what_the_centre_stays_quiet_about(client: TestClient) -> None:
+    """Nothing is lost, and that is what makes the silence affordable.
+
+    The hub is the record of what NERVIS observed; the centre is the shorter
+    list of what is worth telling somebody. Suppressing a note is a decision
+    about the second, never about the first.
+    """
+    api = client.app  # type: ignore[attr-defined]
+    api.state.probe_started_at = time.monotonic()
+    before = {e.key: RegistryState.HEALTHY for e in api.state.registry.all()}
+    app_module._announce_transitions(api, before)
+    recorded = api.state.hub.query(event_type="nervis.service.state_changed", latest=True)
+    assert recorded, "the hub must hold the transitions the centre withheld"
     assert client.get("/api/v1/notifications").json()["unread"] == 0
 
 
