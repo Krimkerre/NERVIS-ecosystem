@@ -16,7 +16,12 @@ from __future__ import annotations
 import pytest
 
 from ravis.core.pools import POOLS_BY_ID
-from ravis.observations import MINIMUM_SAMPLES, WINDOW, Observations
+from ravis.observations import (
+    MINIMUM_SAMPLES,
+    WINDOW,
+    ModelObservations,
+    Observations,
+)
 
 
 @pytest.fixture()
@@ -244,3 +249,30 @@ def test_last_seen_round_trips(store: Observations) -> None:
     reopened.load()
 
     assert reopened.of("m").last_seen == 1_234.0
+
+
+def test_a_sample_that_cannot_describe_an_inference_is_refused() -> None:
+    """No completed call returns in under a millisecond, on any hardware.
+
+    A translated stream timed itself from RAVIS's own opening frame rather than
+    the provider's first token and filed 49 samples of ~0.2 ms against a hosted
+    model — which then fed the median routing ranks on. The defect was at the
+    call site and is fixed there; this is the store declining to hold a number
+    that cannot describe a model, so the next such bug surfaces as missing data
+    rather than as a model that looks impossibly fast.
+    """
+    one = ModelObservations()
+    one.record(0.19, 0.18)
+    one.record(0.0, None)
+    assert one.latency_ms == [] and one.ttft_ms == []
+    assert one.median_latency_ms is None
+
+    one.record(534.0, 512.0)
+    assert one.latency_ms == [534.0]
+
+
+def test_the_floor_catches_impossibility_and_not_merely_speed() -> None:
+    """A genuinely quick local model is this store's business, not its enemy."""
+    one = ModelObservations()
+    one.record(40.0, 12.0)
+    assert one.latency_ms == [40.0] and one.ttft_ms == [12.0]

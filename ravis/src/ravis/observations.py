@@ -56,6 +56,12 @@ WINDOW = 60
 # has to infer the difference.
 MINIMUM_SAMPLES = 5
 
+# Below this, a figure is not a slow model or a fast one — it is not a model at
+# all. No completed inference, on any hardware, returns in under a millisecond,
+# so a sample beneath this describes something other than the call it is filed
+# against. Zero and negatives are covered by the same comparison.
+IMPOSSIBLE_BELOW_MS = 1.0
+
 # How long an unused model's samples are kept once nothing has exercised them.
 #
 # The backstop, not the main mechanism. A model withdrawn from a catalogue is
@@ -81,8 +87,25 @@ class ModelObservations:
 
     def record(self, latency_ms: float | None, ttft_ms: float | None,
                now: float | None = None) -> None:
+        """Add a sample to each window, refusing ones that cannot be real.
+
+        **The floor catches impossibility, not implausibility**, and the
+        distinction is the point: a fast model and a slow one are both this
+        store's business, but no completed inference — local or hosted — takes
+        less than a millisecond end to end. A figure below that is not a
+        measurement of a model, it is a measurement of something else that got
+        recorded as one.
+
+        Added after exactly that happened. A translated stream timed itself from
+        RAVIS's own opening frame rather than the provider's first token, and
+        filed 49 samples of ~0.2 ms against a hosted model, which then fed the
+        median that routing ranks on. The defect was at the call site and is
+        fixed there; this is the store declining to hold a number that cannot
+        describe a model, so the next such bug shows up as missing data rather
+        than as a model that looks impossibly fast.
+        """
         for window, value in ((self.latency_ms, latency_ms), (self.ttft_ms, ttft_ms)):
-            if value is None or value < 0:
+            if value is None or value < IMPOSSIBLE_BELOW_MS:
                 continue
             window.append(value)
             del window[:-WINDOW]

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2115 tests, no network, no live service
+.venv/bin/pytest                      # part of 2117 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 721 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2115 passing across the four, conformance `PASS`.
+Expected: all clean, 2117 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82115af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82117af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4303,6 +4303,37 @@ this survived a passing suite.
 **Found by NERVIS, not by RAVIS**, which is the argument for §11.4 in one line:
 the inspector reports its subject's figures faithfully rather than correcting
 them, so an implausible number reaches a person instead of being tidied away.
+
+### The contaminated observations, cleared. RAVIS 0.21.2, 2 Sep
+
+Fixing the timing bug left its output behind: `~/.config/ravis/observations.json`
+held the samples it had produced, and `observations.py` feeds those into the
+median latency routing ranks on.
+
+**Two models of thirty-three, and the pattern confirmed the diagnosis on its
+own.** `claude-fable-5` and `claude-haiku-4-5-20251001` — both addressed
+directly, both therefore on the translated path. `anthropic/claude-haiku-4.5`,
+the same model reached through OpenRouter on the transparent path, was clean at
+608 ms. The two populations did not overlap: impossible samples clustered at
+0.2–2.2 ms, real ones at 534–717 ms.
+
+Purged with two guards against overreach — only models actually showing the
+signature were touched, and within those only samples under 50 ms went, a
+threshold no completed hosted inference reaches and well clear of the fastest
+genuine figure in the file (334 ms). 49 of 60 latency samples went from haiku
+and 56 of 60 TTFT; `claude-fable-5` drops below `MINIMUM_SAMPLES` and correctly
+stops being ranked on rather than being ranked on two numbers.
+
+RAVIS was stopped first: its flush is on a timer, and editing the file under a
+running process means the in-memory window writes the contamination straight
+back.
+
+**And the store now refuses a sample that cannot describe an inference.**
+`record()` guarded negatives and nothing else. A floor at 1 ms catches
+*impossibility* rather than implausibility — a genuinely quick local model is
+this store's business — so the next defect of this shape surfaces as missing
+data instead of as a model that looks impossibly fast. The call site was the
+real fix; this is the store declining to hold the evidence.
 
 ### Next — in this order
 
