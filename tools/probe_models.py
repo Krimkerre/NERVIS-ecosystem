@@ -173,7 +173,7 @@ def main() -> int:
     credential = arguments.credential
     if not credential:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import run  # noqa: PLC0415 — only needed when no credential was passed
+        import run
 
         credential = run.nervis_ravis_credential()
 

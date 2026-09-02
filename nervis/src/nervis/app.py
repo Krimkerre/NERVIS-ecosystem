@@ -28,7 +28,7 @@ from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from nervis import background, documents, notifications, supervision
+from nervis import background, documents, logs, notifications, supervision
 from nervis.api import (
     background_router,
     chat_router,
@@ -39,6 +39,7 @@ from nervis.api import (
     inspector_router,
     instances_router,
     learned_router,
+    logs_router,
     notifications_router,
     proposals_router,
     supervision_router,
@@ -90,6 +91,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(traces_router)
     api.include_router(instances_router)
     api.include_router(inspector_router)
+    api.include_router(logs_router)
     api.include_router(background_router)
     api.include_router(documents_router)
     api.include_router(learned_router)
@@ -365,6 +367,18 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
         _note_state_change(api, entry, was)
 
 
+def _enforce_log_bounds(api: FastAPI) -> None:
+    """Rotate and prune the launcher's logs, where there are any.
+
+    Silent when no run directory is configured, which is the ordinary state for
+    a NERVIS somebody started by hand: there is no documented log to bound, and
+    inventing a path to tidy would be worse than leaving it alone.
+    """
+    configured = str(getattr(api.state.settings, "run_directory", "") or "")
+    if configured:
+        logs.enforce(Path(configured))
+
+
 # How a state reads in a sentence. The status bar's own words are for a glance
 # and these are for a line somebody reads tomorrow — "stale" without the age
 # beside it has told them nothing.
@@ -491,6 +505,14 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # and this one already wakes often enough to notice.
         with contextlib.suppress(Exception):
             await _think_if_due(api)
+        # §11.3's rotation bounds, applied rather than merely published. "No
+        # ecosystem service may quietly fill the disk with diagnostics" is not a
+        # setting somebody reads, and on the machine this was written for the
+        # four logs had reached 102 MB without anything ever checking. Costs
+        # four `stat` calls on a sweep that already does more than that; the
+        # copy only happens on the sweep that finds a log over the limit.
+        with contextlib.suppress(Exception):
+            _enforce_log_bounds(api)
         await asyncio.sleep(_next_interval(api))
 
 

@@ -227,7 +227,7 @@ def dashboard_findings(text: str) -> list[str]:
         r"^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(",
         r"^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?[\w,\s]*\)?\s*=>",
     ):
-        names.update(match.group(1) for match in re.finditer(pattern, script, re.M))
+        names.update(match.group(1) for match in re.finditer(pattern, script, re.MULTILINE))
     return [
         f"nervis/index.html  {name} (dashboard function)"
         for name in sorted(names)

@@ -95,6 +95,17 @@ class Settings(BaseSettings):
     # discovering it.
     workspace_path: str = ""
 
+    # Where the launcher writes each service's stdout and stderr — §11.3's
+    # fourth and last data source. Empty means no adapter exists, which is the
+    # right default for an install started some other way: `tools/run.py` is
+    # what documents this directory, and a NERVIS launched by hand has no
+    # grounds to guess where somebody else's logs went.
+    #
+    # Set by the launcher, so a stack started the documented way has it and one
+    # started by hand honestly reports no source rather than reading a path
+    # nobody promised.
+    run_directory: str = ""
+
     # The credential NERVIS presents to SIRVIS when it carries out a confirmed
     # command (§12). Narrow on purpose: `benchmark` scope, minted by the
     # launcher, and nothing else — §4.5 separates SIRVIS's scopes by what they

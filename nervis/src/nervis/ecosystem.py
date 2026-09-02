@@ -179,6 +179,17 @@ DECLARED: dict[str, Capability] = {
         "is displayed and never resolved here (CLARVIS.md 6.7), and no Clarvis "
         "state is stored as a copy of its own",
     ),
+    "nervis.raw_logs@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="11.3's fourth data source: the launcher's own per-service logs, "
+        "read through a fixed set of documented names rather than a glob "
+        "because the same directory holds credentials. Filters read the parsed "
+        "level rather than the words in a line, secrets are blanked on the way "
+        "out, and the size, file-count and retention bounds are applied on the "
+        "probe timer rather than merely configured. A service that has written "
+        "no log is reported absent and never fails the others",
+    ),
     "nervis.api_inspector@1": Capability(
         version="1.0.0",
         state=DEGRADED,

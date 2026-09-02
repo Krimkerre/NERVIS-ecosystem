@@ -254,6 +254,13 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         package = prefix.lower()
         env[f"{prefix}_DATABASE_PATH"] = str(ROOT / package / f"{package}.db")
         if prefix == "NERVIS":
+            # Where this launcher puts each service's stdout and stderr, so
+            # §11.3's log adapters have a documented directory rather than a
+            # guessed one. Told to NERVIS here because *this file* is what makes
+            # it true: a stack started some other way has different logs, or
+            # none, and NERVIS should say so rather than read a path nobody
+            # promised it.
+            env["NERVIS_RUN_DIRECTORY"] = str(RUN)
             # Named rather than anonymous, which is worth 600 reads a minute
             # instead of 60. See nervis_ravis_credential.
             env["NERVIS_RAVIS_CLIENT_CREDENTIAL"] = nervis_ravis_credential()

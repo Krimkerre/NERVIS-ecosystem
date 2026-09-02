@@ -9,6 +9,7 @@ from nervis.api.events import router as events_router
 from nervis.api.inspector import router as inspector_router
 from nervis.api.instances import router as instances_router
 from nervis.api.learned import router as learned_router
+from nervis.api.logs import router as logs_router
 from nervis.api.notifications import router as notifications_router
 from nervis.api.proposals import router as proposals_router
 from nervis.api.routes import router
@@ -24,6 +25,7 @@ __all__ = [
     "events_router",
     "documents_router",
     "inspector_router",
+    "logs_router",
     "instances_router",
     "learned_router",
     "notifications_router",

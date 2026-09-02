@@ -86,6 +86,11 @@
 .note-tabs{gap:5px;margin:0 0 10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
 .note-tabs .mode-chip b{font-weight:650;margin-left:2px}
 .note-tabs .mode-chip.on b{color:var(--accent)}
+/* The log search box, styled to sit in a filter row beside the level chips
+   rather than looking like a form somebody has to submit. */
+.log-find{background:#0b1118;border:1px solid #2a3642;border-radius:6px;color:#d9e3ed;
+ padding:5px 8px;min-width:210px;outline:0;font:11px/1.3 "SFMono-Regular",ui-monospace,monospace}
+.log-find:focus{border-color:var(--accent)}
 .note-bar .rule{flex:0 0 1px;height:15px;background:var(--line);margin:0 3px}
 .note-bar .mode-chip[disabled]{opacity:.38;cursor:default;pointer-events:none}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
@@ -3027,6 +3032,28 @@ const API={
      decision is NERVIS claiming to have watched a request nobody made. RAVIS
      holds decisions in memory, so a short list after a restart is correct
      rather than broken and the screen says which. */
+  /* GET /api/v1/logs — M10's adapters, and one adapter's recent lines.
+
+     No mock. An invented log line is NERVIS claiming a service said something
+     it did not, which is the one thing a diagnostic view must never do. */
+  async logSources(){
+   try{
+    const r=await fetch('/api/v1/logs',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{items:[],configured:false,reason:'NERVIS could not read it'};
+    return await r.json();
+   }catch(e){return{items:[],configured:false,reason:'no answer from NERVIS'}}
+  },
+
+  async logLines(service,query){
+   const q=new URLSearchParams({limit:'120',...query}).toString();
+   try{
+    const r=await fetch(`/api/v1/logs/${encodeURIComponent(service)}?${q}`,
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{items:[],present:false,reason:'NERVIS could not read it'};
+    return await r.json();
+   }catch(e){return{items:[],present:false,reason:'no answer from NERVIS'}}
+  },
+
   async inspectorList(){
    try{
     const r=await fetch('/api/v1/inspector',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -4264,7 +4291,7 @@ function diagSections(){
    onclick="setDiagSection('${jsAttr(key)}')">${escapeHtml(label)}</button>`;
  return `<div class="filter-row note-tabs" role="group" aria-label="Which diagnostics">
    ${tab('services','services')}${tab('clarvis','clarvis in the editor')}${
-   tab('inspector','api inspector')}</div>`;
+   tab('inspector','api inspector')}${tab('logs','raw logs')}</div>`;
 }
 
 function setDiagSection(section){
@@ -4280,6 +4307,7 @@ function setDiagSection(section){
 async function diagnosticsView(){
  if(DIAG_SECTION==='clarvis')return clarvisDiagnosticsView();
  if(DIAG_SECTION==='inspector')return inspectorView();
+ if(DIAG_SECTION==='logs')return logsView();
  heading('Diagnostics','Structured first, logs last, and never a number that mixes the three.',
   control('Analyze trace…','diagnose',' primary'));
  const d=await API.nervis.diagnostics();
@@ -10782,6 +10810,126 @@ function inspectorDecisionCard(d,back,showContent){
    <span class="chip">${escapeHtml(dec.execution_path||'—')}</span></h3>${cell(
    `<div class="filter-row">${back}</div>`+contentSwitch(showContent)+`<dl class="kv">${
    rows.map(([label,value])=>`<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>`,'nervis')}</div>`;
+}
+
+
+/* ── M10: the raw logs (§11.3) ────────────────────────────────────────────────
+
+   Fourth and last on the diagnostics ladder, and the screen says so: a text log
+   is never the thing to read when the event hub already has the answer. What it
+   is for is the case the hub cannot serve — a service that died before it could
+   publish, or an upstream's complaint that reached stderr and nowhere else. */
+
+let LOG_SERVICE='nervis';
+const LOG_FILTER={level:'',text:''};
+
+function setLogService(service){if(LOG_SERVICE!==service){LOG_SERVICE=service;render()}}
+function setLogFilter(field,value){LOG_FILTER[field]=value;render()}
+
+/* Severity, from the field rather than from the words in the line. */
+const LOG_TONE={ERROR:'bad',CRITICAL:'bad',WARNING:'warn',INFO:'',DEBUG:'dim'};
+
+function logRow(entry){
+ const level=String(entry.level||'').toUpperCase();
+ const tone=LOG_TONE[level]!==undefined?LOG_TONE[level]:'dim';
+ return `<div class="table-row" style="grid-template-columns:.6fr 1fr 4fr">
+   <span>${level?`<span class="chip ${escapeHtml(tone)}">${escapeHtml(level)}</span>`
+     :'<span class="mono dim">—</span>'}</span>
+   <span class="mono dim">${escapeHtml(String(entry.logger||'—')).slice(0,34)}</span>
+   <span class="mono" style="opacity:.9;word-break:break-word">${escapeHtml(
+     String(entry.message||''))}${entry.parsed===false
+     ?' <small class="dim">(not JSON — passed through)</small>':''}</span>
+  </div>`;
+}
+
+function logSourceTabs(items){
+ return `<div class="filter-row note-tabs" role="group" aria-label="Which log">
+   ${items.map(one=>`<button class="mode-chip${one.service===LOG_SERVICE?' on':''}"
+     onclick="setLogService('${jsAttr(one.service)}')"
+     >${escapeHtml(one.service)}${one.present
+       ?` <b>${escapeHtml((one.bytes/1048576).toFixed(1))} MB</b>`:' <b>absent</b>'}</button>`).join('')}
+  </div>`;
+}
+
+/* The bounds, said as numbers rather than as a promise. §11.3's rule is that no
+   service may quietly fill the disk, and "quietly" is the word this answers. */
+function logLimits(limits,items){
+ const total=items.reduce((sum,one)=>sum+(one.bytes||0),0);
+ const rotated=items.reduce((sum,one)=>sum+(one.rotated||0),0);
+ return `<small class="mono dim">Live logs total <b>${escapeHtml(
+   (total/1048576).toFixed(1))} MB</b> across ${escapeHtml(items.filter(o=>o.present).length)}
+   file(s), with ${escapeHtml(rotated)} rotated cop${rotated===1?'y':'ies'} kept.
+   <b>Rotation is enforced on the probe timer</b>, not merely configured: a log over
+   <b>${escapeHtml(Math.round((limits&&limits.max_bytes||0)/1048576))} MB</b> is copied aside and
+   truncated in place — copied rather than renamed, because the service is still holding the file
+   open and a rename leaves it writing somewhere nobody looks. At most
+   <b>${escapeHtml(limits&&limits.max_files)}</b> copies are kept and anything older than
+   <b>${escapeHtml(limits&&limits.retention_days)} days</b> is dropped. The live log is never
+   deleted for being old.</small>`;
+}
+
+function logFilters(found){
+ const chip=(value,label)=>`<button class="mode-chip${LOG_FILTER.level===value?' on':''}"
+   onclick="setLogFilter('level','${jsAttr(value)}')">${escapeHtml(label)}</button>`;
+ const scanned=found&&found.filtered
+   ?`<small class="mono dim">searched the last ${escapeHtml(found.scanned)} line(s)</small>`:'';
+ return `<div class="filter-row">
+   ${chip('','any level')}${chip('ERROR','error')}${chip('WARNING','warning')}${chip('INFO','info')}
+   <span class="rule"></span>
+   <input class="log-find" placeholder="find in recent lines" value="${escapeHtml(LOG_FILTER.text)}"
+     onchange="setLogFilter('text',this.value)">
+   ${scanned}
+  </div>`;
+}
+
+/* What the line pane shows, which is three different facts.
+
+   An empty result under a filter is a statement about the window searched, not
+   about the file — saying so is the difference between "it never happened" and
+   "not in the last few hundred lines". Extracted because `logsView` reached 15
+   against a ratchet of 13, and this is the branchy half. */
+function logBody(lines){
+ if(!lines.present)return banner('No log for this service',escapeHtml(lines.reason||'')+'.','info');
+ if((lines.items||[]).length)return lines.items.slice().reverse().map(logRow).join('');
+ if(LOG_FILTER.level||LOG_FILTER.text)return banner('Nothing matched',
+   `No line in the last ${escapeHtml(lines.scanned||0)} matched. That is a statement about the `
+   +'window searched, not about the whole file.','info');
+ return banner('This log is empty','The service has written nothing here yet.','info');
+}
+
+async function logsView(){
+ heading('Diagnostics','Raw process logs — the last resort, never the first read.');
+ const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ const found=await API.nervis.logSources();
+
+ if(!found.configured){
+  $('#content').innerHTML=sections+`<div class="card full">${cell(banner(
+    'No log adapter is configured',
+    escapeHtml(found.reason||'')+'. The launcher is what documents where each service writes, '
+    +'so a NERVIS started by hand has no source here rather than a guessed one.','info'),'nervis')}</div>`;
+  return;
+ }
+
+ const items=found.items||[];
+ const lines=await API.nervis.logLines(LOG_SERVICE,
+   {...(LOG_FILTER.level?{level:LOG_FILTER.level}:{}),...(LOG_FILTER.text?{text:LOG_FILTER.text}:{})});
+ const body=logBody(lines);
+
+ $('#content').innerHTML=sections+`
+  <div class="card full${liveClass(true)}"><h3>Log adapters
+    <span class="chip">${escapeHtml(items.filter(o=>o.present).length)} of ${escapeHtml(items.length)}</span></h3>${cell(
+   logSourceTabs(items)+logLimits(found.limits,items),'nervis')}</div>
+  <div class="card full${liveClass(lines.present)}"><h3>${escapeHtml(LOG_SERVICE)}
+    <span class="chip">${escapeHtml((lines.items||[]).length)} line(s)</span></h3>${cell(
+   logFilters(lines)+body,'nervis')}
+   <small class="mono dim"><b>This is the fourth source, not the first.</b> §11.3's ladder is
+   structured event, management API, service log, then this — and a text log is never parsed when
+   structured data already exists, so the Events screen is the one to reach for. <b>Secrets are
+   blanked on the way out</b>, which is second best and honest about it: NERVIS does not write these
+   files and cannot redact at the producer, so a secret is already on disk by the time it is read
+   here — what this prevents is the screen and any export spreading it further. <b>Only the four
+   documented files are read</b>; the same directory holds credentials, and a glob is how one of
+   those reaches a screen.</small></div>`;
 }
 
 async function inspectorView(){

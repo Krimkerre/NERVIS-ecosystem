@@ -187,3 +187,41 @@ screen until somebody adds it deliberately.
 
 RAVIS keeps route decisions in memory, so the list is short after a restart and
 an older one may be gone. That is expected, not a fault.
+
+## Reading a service's raw log
+
+**Diagnostics → raw logs** shows what each service printed to its own output —
+NERVIS, RAVIS, SIRVIS and code-server, as written by the launcher that started
+them.
+
+**It is the last thing to reach for, not the first.** The order NERVIS works in
+is: a structured event, then a service's own API, then its log, then raw process
+output. A text log is never read when the same answer already exists as an
+event, so the Events screen is usually the right one. Raw logs are for the case
+nothing else can answer — a service that fell over before it could report
+anything, or an upstream's complaint that only reached its output.
+
+Lines can be filtered by level or searched for text. The level filter reads the
+recorded level rather than looking for the word, so a message that merely
+mentions "error" is not one. A search looks further back than it displays and
+says how many lines it looked at, so "nothing matched" is a statement about the
+window rather than about the whole file.
+
+**Secrets are blanked before anything is shown.** That is the second-best place
+to do it and NERVIS says so: it does not write these files, so a secret is
+already on disk by the time it is read — what blanking prevents is the screen or
+an export spreading it further.
+
+**Logs are kept from growing without end.** A log over the size limit is copied
+aside and emptied in place, a limited number of copies are kept, and copies
+older than the retention window are dropped. The live log is never deleted for
+being old. This runs on the same timer as the health checks, so it is enforced
+rather than merely configured.
+
+Only the four files the launcher documents are read. The same directory holds
+credentials, and reading everything in it is how one of those would end up on a
+screen.
+
+If NERVIS was started by hand rather than by the launcher, there is no log
+adapter at all — the launcher is what decides where the logs go, and NERVIS will
+say there is no source rather than guess at one.

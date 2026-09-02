@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2117 tests, no network, no live service
+.venv/bin/pytest                      # part of 2133 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 721 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 737 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2117 passing across the four, conformance `PASS`.
+Expected: all clean, 2133 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82117af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82133af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4334,6 +4334,57 @@ back.
 this store's business — so the next defect of this shape surfaces as missing
 data instead of as a model that looks impossibly fast. The call site was the
 real fix; this is the store declining to hold the evidence.
+
+### M10 — the raw-log adapters, 2 Sep. NERVIS 0.19.0
+
+§11.3's fourth and last data source, as a fourth section of Diagnostics. The
+ladder is *structured event, management API, service log, raw process log*, and
+building the bottom rung is not permission to prefer it — the screen says so.
+
+**The documented source is the launcher.** `tools/run.py` spawns each service
+with stdout and stderr appended to `.run/{service}.log`, and that file is what
+makes the path documented, so the adapter reads a fixed set of four names. Not a
+glob: the same directory holds `*.token` at mode 0600, and a glob is exactly how
+a credential reaches a diagnostics screen. `run_directory` is passed by the
+launcher, so a NERVIS started by hand honestly reports no source rather than
+guessing where somebody else's logs went.
+
+**The bound was overdue rather than theoretical.** `.run` held **102 MB** across
+four logs, none ever rotated — §11.3's *"no ecosystem service may quietly fill
+the disk with diagnostics"*, happening. Rotation now runs on the probe timer:
+four `stat` calls on a sweep that already does more, and a copy only on the
+sweep that finds a log over the limit.
+
+**Copy-truncate, because the writer is still holding the file.** These logs are
+open in append mode by a running service. Renaming one leaves the service
+writing into a file with no name anybody will look at, and it never finds out.
+The content is copied aside and the original truncated in place, so an
+`O_APPEND` handle continues from the new end. **Verified against live writers**:
+after rotating the real 102 MB, NERVIS and RAVIS both kept appending to the
+files the screen reads.
+
+**Filters read the field, not the words.** These are JSON lines, so `level=ERROR`
+means the recorded level — a message quoting "ERROR" is not an error. An
+unparseable line is kept rather than dropped, because a traceback goes to stderr
+unstructured and is what somebody came looking for.
+
+**Two bugs, both found by running it.** The tail returned `limit - 1` lines: a
+log ends with a newline, so the split leaves a trailing empty string, and slicing
+before dropping empties spent one slot on it — silently, and only on the newest
+line, which is the one being looked at. And a filter searched only as far back as
+it displayed, so "no match" meant "not in the last twelve lines" while reading as
+"it never happened". The search window is now bounded separately and `scanned`
+travels with the answer, so an empty result can say what was looked at.
+
+Secrets are blanked on the way out, which is second best and says so: NERVIS does
+not write these files and cannot redact at the producer, so what this prevents is
+the screen and any export spreading a secret already on disk. Both spellings are
+covered — a named field, and the same secret quoted into a message, which is the
+likelier one. 16 tests.
+
+Also fixed here: two mypy errors M11 shipped with. `peers.ravis` re-exports
+`read` without declaring it, so the inspector now imports it from the module that
+defines it.
 
 ### Next — in this order
 

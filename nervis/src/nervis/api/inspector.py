@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from nervis import chat, inspector
 from nervis.errors import NotFoundError
 from nervis.peers import ravis as ravis_peer
+from nervis.peers.reader import read as read_surface
 
 router = APIRouter(prefix="/api/v1/inspector", tags=["inspector"])
 
@@ -29,7 +30,7 @@ async def list_inspectable(request: Request) -> dict[str, Any]:
     than broken and the screen says so.
     """
     entry = request.app.state.registry.get("ravis")
-    result = await ravis_peer.read(
+    result = await read_surface(
         request.app.state.probe_client, entry, ravis_peer.BY_KEY["routes"],
         service=ravis_peer.SERVICE, params={"limit": 25},
     )
@@ -72,7 +73,7 @@ async def inspect_one(decision_id: str, request: Request) -> dict[str, Any]:
     """One decision, with §11.4's stages for the path it actually took."""
     database = request.app.state.database
     entry = request.app.state.registry.get("ravis")
-    result = await ravis_peer.read(
+    result = await read_surface(
         request.app.state.probe_client, entry, ravis_peer.BY_KEY["routes"],
         service=ravis_peer.SERVICE, params={"limit": 50},
     )
