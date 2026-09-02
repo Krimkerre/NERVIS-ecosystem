@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2156 tests, no network, no live service
+.venv/bin/pytest                      # part of 2172 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 760 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 776 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2156 passing across the four, conformance `PASS`.
+Expected: all clean, 2172 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -515,7 +515,7 @@ again — each preceded by cooling to `nominal`, which took 50–110 seconds.
 
 | Build | tok/s | TTFT | Load | Notes |
 |---|---|---|---|---|
-| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262156, not the 8192 asked for |
+| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262172, not the 8192 asked for |
 | `granite-4.0-h-tiny` mlx | 97.0 | 0.204 s | 3.77 s | |
 | `lfm2.5-2.6b-mlx` | 93.8 | 3.146 s | 3.91 s | adapted; TTFT is mostly thinking |
 | `qwen3-1.7b` | 66.1 | 0.225 s | 3.12 s | adapted |
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82156af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82172af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4494,6 +4494,53 @@ on an identity neither of them guessed at.
 **Still unwitnessed:** a Clarvis → RAVIS → provider trace, which needs an agent
 run in an editor window rather than more code.
 
+### M20 — remembering across conversations, 2 Sep. NERVIS 0.22.0
+
+History within one conversation already worked. This is the other thing: a new
+conversation drawing on an earlier one, so "what did we decide about the pools"
+does not require finding the tab it was decided in.
+
+**Recalled text is fenced, with the marker the reading already uses.** A stored
+assistant turn is text a model wrote, and putting it back in front of a model is
+the same trust mistake as reading a log line as an instruction — in a longer
+loop, and wearing NERVIS's own name. Not a second fence: a second one is a
+second thing to get wrong.
+
+**Measurement outranks memory, by ordering rather than by assertion.** §7 says
+the reading is assembled *after* the recalled conversations and says so, so
+recall is **prepended** — a model reading top to bottom meets the older account
+first and the current figures last. Proven on the best possible example: NERVIS
+had once said supervision was "on the roadmap for M16", which recall found. Asked
+whether it still was, it answered *"It's not on the roadmap anymore —
+supervision is already here"* and went on to name the three safeguards from the
+live reading.
+
+**Shown, never silently injected.** The exit's word is *shown*, and the sources
+ride back on a header so the reply carries a "drew on" row of conversation
+titles that open when clicked. A person who cannot see what was remembered
+cannot tell a good recollection from a stale one.
+
+**Off leaves chat unchanged** — not "similar". With recall off no search runs at
+all and no block is built.
+
+**A test found the design flaw.** Asked *"what pool did we pick for background
+work"*, the strongest match was the earlier **question**, which shares almost
+every word with it, while the answer — *"the free-api pool, because it costs
+nothing"* — shared one and scored below the floor. Recall returned the question
+and dropped the only sentence anybody wanted. A matched question now carries the
+reply that followed it.
+
+**And a live 500 found the other one.** The `x-recalled` header copied the
+approach of the reading header beside it, which is safe *by construction*
+because it is assembled from counts. Titles are not: the first recalled
+conversation whose title contained an ellipsis could not be encoded as latin-1.
+Percent-encoded now, which also removes the separator problem rather than
+patching the one character that caused it. 18 tests.
+
+`ruff` caught a name collision on the way in — `recall` is already a local
+variable in `send`, the nudge's own recall line — so the module is imported as
+`memory` rather than a working local being renamed around it.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
@@ -4970,7 +5017,7 @@ RAVIS's catalogue. When the question mentions the runtime — or asks what is
 loaded — NERVIS reads LM Studio's own `/api/v0/models` and reports the loaded
 builds by name, counting the rest. Live, that reads *"LM Studio holds 20 local
 build(s), 1 loaded right now: qwen/qwen3-4b-2507 · qwen3 · 4bit · mlx · context
-8192 of 262156 · tool_use"*. Both context numbers, because a 262156-token model
+8192 of 262172 · tool_use"*. Both context numbers, because a 262172-token model
 opened at 8192 is the ordinary cause of a refused long prompt and looks like a
 model limitation from the outside.
 

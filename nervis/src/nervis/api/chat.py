@@ -29,6 +29,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request
@@ -36,6 +37,7 @@ from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
 from nervis import commands, knowledge, proposals, situation, transcript
+from nervis import recall as memory
 from nervis.api.chat_calls import (
     _forwarded,
     _json_body,
@@ -321,6 +323,16 @@ async def send(request: Request) -> Any:
     # and it is the one the model most needs — an absent offer is not something
     # a model notices on its own.
     awareness = "\n\n".join(part for part in (awareness, commands.told(offer)) if part)
+    # **M20, and it goes first.** §7: *measurement outranks memory* — with
+    # recall on, the reading is assembled after the recalled conversations and
+    # says so. Prepending is what makes that true rather than asserted: a model
+    # reading top to bottom meets the older account first and the current
+    # figures last. Off unless switched on, and `remembered` travels back to the
+    # caller so the passages can be shown rather than silently used.
+    remembered = _recalled(database, content, conversation_id)
+    awareness = "\n\n".join(
+        part for part in (memory.block(remembered), awareness) if part
+    )
     system = _house_system(
         body, database, greeting, conversation_id, nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
@@ -363,6 +375,13 @@ async def send(request: Request) -> Any:
             # Header-safe: assembled from counts, and newlines would break the
             # framing rather than merely look wrong.
             "x-ecosystem-reading": reading.replace("\n", " "),
+            # **What was recalled, so it can be shown.** M20's exit says shown,
+            # *with its source conversation*, never silently injected — a person
+            # who cannot see what was remembered cannot tell a good
+            # recollection from a wrong one. Titles and ids only: the passages
+            # themselves are already in the answer's grounding and a header is
+            # the wrong place for six hundred characters of prose.
+            "x-recalled": _recalled_header(remembered),
             # The offer, for the page to draw as a button the person presses.
             # It travels beside the reply rather than inside it: a control the
             # model could write into its own text is a control the model has.
@@ -898,6 +917,38 @@ def _error_frame(message: str) -> bytes:
     has to guess about.
     """
     return f"event: error\ndata: {json.dumps({'message': message})}\n\n".encode()
+
+
+def _recalled_header(passages: list[memory.Passage]) -> str:
+    """Which conversations were drawn on, as one header-safe line.
+
+    **Percent-encoded, because a title is arbitrary text and a header is
+    latin-1.** The reading header beside this one is safe by construction — it
+    is assembled from counts — and copying its approach here produced a 500 the
+    first time a recalled conversation had a title containing an ellipsis.
+    Titles are written by people and by models; there is no character they
+    cannot contain, so the encoding has to be total rather than a list of the
+    ones seen so far. Separators are escaped by `quote` along with everything
+    else, which removes the newline problem rather than patching it.
+    """
+    return " | ".join(
+        f"{one.conversation_id}:{quote(one.title[:60], safe='')}" for one in passages
+    )
+
+
+def _recalled(database: Any, content: str, conversation_id: str) -> list[memory.Passage]:
+    """Earlier conversations worth quoting, or none at all.
+
+    **Nothing happens when it is off**, which is M20's exit clause in its own
+    words: turning it off leaves ordinary chat unchanged. Not "leaves it
+    similar" — no search runs, no block is built, and the assembled prompt is
+    byte-for-byte what it was before this milestone.
+    """
+    if not memory.enabled(database):
+        return []
+    with contextlib.suppress(Exception):
+        return memory.search(database, content, exclude=conversation_id)
+    return []
 
 
 def _close_turn(

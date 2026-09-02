@@ -282,6 +282,17 @@ DECLARED: dict[str, Capability] = {
     # M23's file. What it advertises is the *storage and retrieval*, not any
     # judgement: NERVIS keeps what it was told beside the notes it shipped
     # with, retrieves both the same way, and prefers its own where they clash.
+    "nervis.conversation_memory@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="a new conversation can draw on earlier ones stored here, and "
+        "what it drew on is named beside the reply rather than used silently. "
+        "Recalled text is fenced with the same marker the reading uses, because "
+        "half of it is model output going back in front of a model, and it is "
+        "placed before the live figures and marked older so a stale answer is "
+        "not repeated for matching. Off unless switched on, and off means no "
+        "search runs at all",
+    ),
     "nervis.learned_notes@1": Capability(
         version="1.0.0",
         state=AVAILABLE,

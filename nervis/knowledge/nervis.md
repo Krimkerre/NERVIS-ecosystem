@@ -283,3 +283,34 @@ and a measurement is never borrowed from a similar build.
 NERVIS starts a trace for its own requests now, so a chat turn shows both NERVIS
 and RAVIS rather than RAVIS alone with a note saying the caller published
 nothing.
+
+## Remembering earlier conversations
+
+Normally each conversation stands alone. **Settings → What NERVIS remembers →
+Conversation memory** lets a new one draw on older ones stored on this machine,
+so asking "what did we decide about the pools" can find the conversation it was
+decided in.
+
+**It is off until switched on**, and off means nothing happens at all — no
+search runs, and a turn is assembled exactly as it was before the feature
+existed. It is not a filter that finds nothing; it is not run.
+
+**What was remembered is shown under the reply**, named by the conversation it
+came from, and clicking one opens that conversation. This matters more than it
+sounds: a remembered sentence changes an answer, and one nobody can see is one
+nobody can check.
+
+**A live reading always wins.** Recalled text is placed before the current
+figures and marked as older, because a remembered answer describes the moment it
+was given. Asked whether supervision was still "on the roadmap" — which NERVIS
+had said months earlier — it correctly answered that it is not on the roadmap
+any more because it is built.
+
+**Recalled text is fenced**, the same way readings and diagnostic packets are.
+Half of it was written by a model, and putting a model's own earlier words back
+in front of it without marking them as quoted is the same mistake as treating a
+log line as an instruction.
+
+At most one passage is taken from each earlier conversation, and only a few in
+total. Three quotes from one long conversation is one recollection said three
+times, and it crowds out the other conversation that might have disagreed.

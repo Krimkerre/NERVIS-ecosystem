@@ -4470,7 +4470,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      ?`<div class="bubble user">${escapeHtml(m.text)}${stampOf(m)}</div>`
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${escapeHtml(m.pending?'':'')}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
+        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${recalledRow(m.recalled)}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
   </div>
   <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
  </div>`;
@@ -5743,7 +5743,7 @@ async function settingsView(){
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
   + section('Unattended work', await backgroundSection())
-  + section('What NERVIS remembers', await learnedSection() + await rememberedSection())
+  + section('What NERVIS remembers', await recallSection() + await learnedSection() + await rememberedSection())
   + section('Supervision', await supervisionSection() + `<div class="card wide"><h3>Ownership</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
@@ -5942,6 +5942,42 @@ async function clearCircuit(service){
    produced a note would answer the cheerful half of "what has this been doing"
    and leave the expensive half — the runs that thought and said nothing — out
    of view, which is exactly the half somebody paying for it wants. */
+/* M20's switch, in Settings beside the other things that change what NERVIS
+   may read. Its own card rather than a line in another, because what it turns
+   on is a search across every conversation stored on this machine — a wider
+   read than answering one question needs, and worth choosing deliberately. */
+async function recallSection(){
+ let r=null;
+ try{
+  const got=await fetch(BASE.nervis+'/api/v1/recall',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(got.ok)r=await got.json();
+ }catch(e){}
+ if(!r)return `<div class="card wide${liveClass(false)}"><h3>Conversation memory</h3>${cell(
+   banner('NERVIS is not answering','This setting lives in NERVIS\'s own store and cannot be read '
+   +'or changed from here until it is up.','warn'),'nervis')}</div>`;
+
+ return `<div class="card wide${liveClass(true)}"><h3>Conversation memory
+   <span class="chip${r.enabled?'':' dim'}">${r.enabled?'on':'off'}</span></h3>${cell(`
+   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer">
+     <input type="checkbox"${r.enabled?' checked':''} onchange="setRecall(this.checked)">
+     <span><b>Let a new conversation draw on earlier ones</b><br>
+       <small class="mono dim">searches the ${escapeHtml(r.conversations)} conversation(s) stored
+       here and may quote up to ${escapeHtml(r.max_passages)} of them into a turn</small></span></label>
+   <small class="mono dim" style="display:block;margin-top:9px"><b>What is recalled is shown
+   under the reply</b>, named by the conversation it came from — a remembered sentence changes an
+   answer, and one you cannot see is one you cannot check. <b>It never outranks a live reading</b>:
+   recalled text is placed before the figures and marked as older, so a stale answer is not
+   repeated because it matched. <b>Off leaves chat exactly as it was</b> — no search runs at all,
+   rather than running and finding nothing.</small>`,'nervis')}</div>`;
+}
+
+async function setRecall(on){
+ try{await fetch(BASE.nervis+'/api/v1/recall/enable',{method:'POST',
+   headers:{'content-type':'application/json'},body:JSON.stringify({enabled:!!on}),
+   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ render();
+}
+
 async function backgroundSection(){
  let b=null,live=false;
  try{
@@ -10129,8 +10165,24 @@ async function runOffer(index){
    are the reason it has anything to say, and the model is told to state no
    numbers at all. Everywhere else the reply is the answer and the reading is
    furniture. */
-function withReading(message,reading){
- return reading?{...message,reading}:message;
+function withReading(message,reading,recalled){
+ const out=reading?{...message,reading}:{...message};
+ /* M20: the sources, kept on the turn so a repaint does not lose them. Absent
+    entirely when recall is off, which is the default. */
+ if(recalled&&recalled.length)out.recalled=recalled;
+ return out;
+}
+
+/* What the reply drew on, named. §7.2's exit asks for the *source
+   conversation*, not merely that something was remembered: a title is what
+   makes a recollection checkable, and clicking one opens the conversation it
+   came from so the person can read the whole thing rather than the fragment. */
+function recalledRow(recalled){
+ if(!recalled||!recalled.length)return '';
+ return `<div class="mono dim" style="margin-top:6px;font-size:10px;letter-spacing:.04em">
+   drew on ${recalled.map(one=>`<button class="mode-chip"
+     onclick="CHAT_SESSIONS.open('${jsAttr(one.id)}')">${escapeHtml(one.title||one.id.slice(0,8))}</button>`).join(' ')}
+  </div>`;
 }
 
 /* Both of the things that ride beside a reply: what NERVIS read, and what it
@@ -10263,6 +10315,18 @@ async function streamReply(stop,extra){
      turned "4 of 6 services reachable" into "efficiently manages four key
      services", which is not a number anybody measured. */
   acc.reading=r.headers.get('x-ecosystem-reading')||'';
+  /* **M20: what was remembered, shown rather than quietly used.** A recalled
+     sentence changes an answer, and a person who cannot see which earlier
+     conversation it came from cannot tell a good recollection from a stale one
+     — "the model just knows things" is how a wrong answer becomes
+     unaccountable. Empty whenever recall is off, which is the default. */
+  acc.recalled=(r.headers.get('x-recalled')||'').split(' | ').filter(Boolean)
+    .map(one=>{const at=one.indexOf(':');
+      /* Percent-encoded on the way out, because a header is latin-1 and a
+         title is arbitrary text — an ellipsis in one produced a 500. */
+      let title=one.slice(at+1);
+      try{title=decodeURIComponent(title)}catch(e){}
+      return{id:one.slice(0,at),title}});
   /* An offer NERVIS made from the person's own words, before the model saw
      anything. It arrives beside the reply rather than inside it: a control the
      model could write into its own text would be a control the model has. */
@@ -10473,7 +10537,7 @@ async function maybeGreet(){
     nobody has started yet reads as a broken dashboard, and the failure is
     already visible everywhere else NERVIS reports on RAVIS. */
  if(outcome.failed||outcome.aborted||!outcome.reply)return render();
- CHAT_SESSION.messages.push(withReading(replyMessage(outcome),outcome.reading));
+ CHAT_SESSION.messages.push(withReading(replyMessage(outcome),outcome.reading,outcome.recalled));
  render();
  SPEECH.say(plainMarkdown(outcome.reply),outcome.served);
 }
