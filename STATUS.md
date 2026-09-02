@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2144 tests, no network, no live service
+.venv/bin/pytest                      # part of 2156 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 748 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 760 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2144 passing across the four, conformance `PASS`.
+Expected: all clean, 2156 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -515,7 +515,7 @@ again — each preceded by cooling to `nominal`, which took 50–110 seconds.
 
 | Build | tok/s | TTFT | Load | Notes |
 |---|---|---|---|---|
-| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262144, not the 8192 asked for |
+| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262156, not the 8192 asked for |
 | `granite-4.0-h-tiny` mlx | 97.0 | 0.204 s | 3.77 s | |
 | `lfm2.5-2.6b-mlx` | 93.8 | 3.146 s | 3.91 s | adapted; TTFT is mostly thinking |
 | `qwen3-1.7b` | 66.1 | 0.225 s | 3.12 s | adapted |
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82144af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82156af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4438,6 +4438,58 @@ summarise away than a number; and **the ratio is dropped when it is 1:1** — "e
 configured service is reachable" — because a count only says something when it
 differs from the total. The figures come straight back the moment one is down.
 
+### M17 — unified diagnostics, and the trace nobody was starting. NERVIS 0.21.0, 2 Sep
+
+**Stage 8 closes.** M7 built the waterfall; M17 adds what M17's own row names —
+health overlay, log correlation, runtime context — around it.
+
+**The exit clause was unreachable for a reason nobody had looked at.** Every
+trace on this machine had one lane and a warning saying the caller had published
+nothing. The caller was NERVIS. §11.2 asks for trace context *across NERVIS →
+RAVIS/SIRVIS*, and the middleware only ever **accepted** a `traceparent` — a
+browser sends none, so `request.state.trace_id` was empty, `_note_turn` returned
+silently, and RAVIS recorded `trace_id: ""` on the decision. Nobody was starting
+a trace, so there was nothing to join on.
+
+NERVIS mints a root span when no trace arrives, which is a reading rather than
+an invention: the request genuinely originates here. A chat turn now draws
+**nervis + ravis**, and the trace picker shows `NERVIS+RAVIS` where every entry
+used to read `RAVIS`. The caller's span also needed an end — a start alone drew
+the one lane that bounds every other as a point rather than a duration — so a
+turn now emits both ends or neither.
+
+**Three claims, kept apart, which is the whole design.** §11.3 requires a
+service-reported fact, a NERVIS observation and an operator inference to stay
+distinguishable, so every linked thing carries *how*:
+
+- a log line carrying the trace id **is** part of the trace;
+- one matched only by time is about the same few seconds and says so — a
+  coincidence presented as a finding is the failure this prevents;
+- health *at the time* is reconstructed from recorded transitions, and where
+  none was recorded the answer is `unknown` rather than today's state wearing
+  history's clothes.
+
+Runtime evidence is matched on SIRVIS's `target_key` and **only exactly**. §13
+keeps that identity whole so a consumer cannot decide two builds are the same
+thing; a fuzzy match would attribute one model's throughput to another and call
+it evidence. Most traces name a hosted model and get nothing, which is what
+M17's *where available* is honest about.
+
+**Every section fails alone**, which is the partial-trace clause and the
+ordinary case: the thing being diagnosed is usually the thing that is broken, so
+a view that failed whole when one input was missing would be useless exactly
+when it is needed. 12 tests.
+
+Two gates earned their keep on the way: `ruff --fix` moved `summarise` onto the
+wrong import and took the service down until the next start — the same
+merge-the-imports trap as before — and mypy caught `service` shadowed as both a
+`str` and a mapping in one function.
+
+**Still unwitnessed:** a Clarvis → RAVIS → provider trace needs an agent run in
+the editor, and the SIRVIS evidence link needs a trace that used a *measured*
+model. `exaone-deep-2.4b` has 93 evidence records and was loaded earlier;
+proving the link live means loading a local model, which is the operator's call.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
@@ -4914,7 +4966,7 @@ RAVIS's catalogue. When the question mentions the runtime — or asks what is
 loaded — NERVIS reads LM Studio's own `/api/v0/models` and reports the loaded
 builds by name, counting the rest. Live, that reads *"LM Studio holds 20 local
 build(s), 1 loaded right now: qwen/qwen3-4b-2507 · qwen3 · 4bit · mlx · context
-8192 of 262144 · tool_use"*. Both context numbers, because a 262144-token model
+8192 of 262156 · tool_use"*. Both context numbers, because a 262156-token model
 opened at 8192 is the ordinary cause of a refused long prompt and looks like a
 model limitation from the outside.
 

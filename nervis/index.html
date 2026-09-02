@@ -5449,9 +5449,14 @@ async function readTraces(){
   const traces=await r.json();
   const pick=TRACE_SHOWN||((traces.items[0]||{}).trace_id);
   if(!pick)return{traces,shown:null,answered:true};
-  const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick),
+  /* **The unified read, which is a superset.** It returns the same assembled
+     trace under `trace` plus M17's three additions, so one request replaces
+     two — and a caller that only wanted the waterfall still gets it. */
+  const t=await fetch(BASE.nervis+'/api/v1/traces/'+encodeURIComponent(pick)+'/unified',
     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  return{traces,shown:t.ok?await t.json():null,answered:true};
+  if(!t.ok)return{traces,shown:null,answered:true};
+  const whole=await t.json();
+  return{traces,shown:{...whole.trace,unified:whole},answered:true};
  }catch(e){return{traces:empty,shown:null,answered:false}}
 }
 
@@ -5557,13 +5562,92 @@ function crossServiceCard(){
    <small class="mono dim">what is above is <b>RAVIS's own decision record</b>, not a distributed trace. A timeline correlating Clarvis, RAVIS, SIRVIS and the runtime needs event publication, which both services currently declare <b>unavailable</b> on their own capability surface. Drawing a timeline from one service's record would invent the other three rows.</small>`,'ravis')}</div>`;
 }
 
+
+/* ── M17: what else was going on, around one trace ───────────────────────────
+
+   §11.3 requires diagnostics to keep three kinds of claim apart — a
+   service-reported fact, a NERVIS observation, an operator inference — and the
+   rule earns its place here rather than being quoted. A log line carrying the
+   trace id *is* part of the trace; one written in the same second is evidence
+   about the second. Drawn differently on purpose. */
+
+function healthOverlay(rows){
+ if(!rows.length)return banner('No health overlay',
+   'NERVIS has no registry reading to place against this trace.','info');
+ return `<div class="table-row head caps" style="grid-template-columns:1fr 1fr 1fr 1fr">
+   <span>Service</span><span>State then</span><span>State now</span><span></span></div>`
+  +rows.map(r=>`<div class="table-row" style="grid-template-columns:1fr 1fr 1fr 1fr">
+    <span><b>${escapeHtml(r.service)}</b></span>
+    <span class="${r.known?'':'dim'}">${escapeHtml(r.state_then)}${r.known?''
+      :' <small>(nothing recorded)</small>'}</span>
+    <span class="mono dim">${escapeHtml(r.state_now)}</span>
+    <span>${r.changed_since?'<span class="chip warn">changed since</span>':''}</span>
+   </div>`).join('');
+}
+
+/* The link's strength, said in the card rather than left to the reader. */
+function logCorrelation(logs){
+ const exact=logs.how==='carries the trace id';
+ const head=banner(exact?'These lines are part of this trace'
+     :'These lines are from around the same time',
+   exact
+    ?'Each one carries the trace id, so it belongs to this request rather than merely '
+     +'coinciding with it.'
+    :escapeHtml(logs.reason||'')+'.',
+   exact?'info':'warn');
+ if(!logs.items.length)return head;
+ return head+logs.items.map(one=>`<div class="table-row" style="grid-template-columns:.7fr .6fr 3fr">
+   <span class="mono dim">${escapeHtml(one.service||'')}</span>
+   <span class="mono dim">${escapeHtml(one.level||'—')}</span>
+   <span class="mono" style="word-break:break-word">${escapeHtml(
+     String(one.message||'')).slice(0,300)}</span>
+  </div>`).join('');
+}
+
+function runtimeContext(runtime){
+ if(!runtime.available)return banner('No runtime evidence',
+   escapeHtml(runtime.reason||'')+'. '
+   +'SIRVIS measures what somebody asked it to measure, so most models have none — and a '
+   +'measurement is never borrowed from a similar build.','info');
+ return Object.entries(runtime.evidence||{}).map(([model,ev])=>`
+   <div class="trace-step"><b>${escapeHtml(model)}</b><span class="mono">${escapeHtml(
+     ev.evidence_type||'')}</span></div>`).join('');
+}
+
+/* The three cards, drawn only where a trace is on screen. */
+function unifiedCards(unified){
+ if(!unified)return '';
+ const partial=unified.partial
+   ? banner('This trace is incomplete','A span is missing or a clock disagrees — the waterfall '
+     +'says which. What follows describes what was recorded, not what happened.','warn')
+   : '';
+ return partial
+  +`<div class="card half${liveClass(true)}"><h3>Health at the time</h3>${cell(
+    healthOverlay(unified.health||[]),'nervis')}</div>
+  <div class="card half${liveClass(true)}"><h3>Runtime evidence</h3>${cell(
+    runtimeContext(unified.runtime||{}),'nervis')}</div>
+  <div class="card full${liveClass(true)}"><h3>Correlated log lines
+    <span class="chip">${escapeHtml((unified.logs||{}).items?.length||0)}</span></h3>${cell(
+    logCorrelation(unified.logs||{items:[],how:''}),'nervis')}
+    <small class="mono dim"><b>How each thing was linked is shown, because the three are not
+    equally certain.</b> A log line carrying the trace id belongs to this request. One matched only
+    by time belongs to the same few seconds and may be about something else. Health <b>then</b> is
+    reconstructed from the transitions NERVIS recorded — where none was recorded it says so rather
+    than showing today's state as history.</small></div>`;
+}
+
 async function tracesView(){
  heading('Traces','One request across services — as recorded, with the holes marked.');
  const {traces,shown,answered}=await readTraces();
  const payload=await routeDecisions();
  /* Built before the early returns below, so a trace still renders when RAVIS
     is not answering — the hub is NERVIS's own and does not need a peer. */
- const waterfall=traceWaterfall(traces,shown,answered);
+ const waterfall=traceWaterfall(traces,shown,answered)
+   /* M17's three additions sit under the waterfall and beside every early
+      return below, because they come from NERVIS's own hub, registry and log
+      adapters — none of which needs RAVIS to be answering. A trace read during
+      an outage is exactly when the health overlay is worth having. */
+   +unifiedCards((shown||{}).unified);
 
  if(!payload){
   $('#content').innerHTML=waterfall+`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`

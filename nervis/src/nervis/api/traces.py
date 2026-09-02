@@ -8,15 +8,19 @@ reported rather than filled in.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
 
+from nervis import logs
 from nervis.errors import NotFoundError
 from nervis.peers import ravis as ravis_peer
+from nervis.peers import sirvis as sirvis_peer
 from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.traces import assemble, summarise
+from nervis.unified import models_in, unify
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
 
@@ -55,6 +59,99 @@ async def read_trace(trace_id: str, request: Request) -> dict[str, Any]:
     trace = assemble(trace_id, events)
     await _note_silent_peers(request, trace)
     return trace.as_dict()
+
+
+@router.get("/{trace_id}/unified")
+async def read_unified(trace_id: str, request: Request) -> dict[str, Any]:
+    """M17 — the trace, plus what else NERVIS knows about that moment.
+
+    The spans answer *what happened*; this answers *what was going on*, which is
+    the question somebody actually arrives with. Three additions, each carrying
+    how it was linked rather than being presented as equally certain: the health
+    each service was in **then**, the log lines belonging to this trace, and what
+    is known about the models it used.
+
+    **Every section fails alone.** M17's exit calls a broken link a partial
+    trace, and that is the ordinary case here — the thing being diagnosed is
+    usually the thing that is broken, so a view that failed whole when one input
+    was missing would be useless exactly when it is needed.
+    """
+    events = request.app.state.hub.query(trace_id=trace_id, limit=1000)
+    if not events:
+        raise NotFoundError(f"nothing is recorded under trace {trace_id!r}")
+    trace = assemble(trace_id, events)
+    await _note_silent_peers(request, trace)
+
+    hub = request.app.state.hub
+    assembled = trace.as_dict()
+    return unify(
+        assembled,
+        [entry.as_dict() for entry in request.app.state.registry.all()],
+        hub.query(event_type="nervis.service.state_changed", limit=500, latest=True),
+        _log_lines(request, trace_id),
+        evidence=await _evidence_for(request, models_in(assembled)),
+    )
+
+
+async def _evidence_for(
+    request: Request, models: list[str]
+) -> dict[str, Any] | None:
+    """SIRVIS's measurements of the models this trace used, where it has any.
+
+    Matched on `target_key`, which is SIRVIS's own identity for a build, and
+    **only exactly**. §13 keeps that identity whole precisely so a consumer
+    cannot decide two builds are the same thing; a fuzzy match here would
+    attribute one model's throughput to another and call it evidence.
+
+    Most traces name a hosted model, for which SIRVIS has nothing and correctly
+    says so — M17's *where available* is a statement about how often this is
+    empty, not an excuse for it.
+    """
+    if not models:
+        return None
+    entry = request.app.state.registry.get("sirvis")
+    if entry is None or not entry.is_usable:
+        return None
+    result = await peer_read(
+        request.app.state.probe_client, entry, sirvis_peer.BY_KEY["evidence"],
+        service="sirvis", params={"limit": 100},
+        credential=peer_credential(request, "sirvis"),
+    )
+    if not result.available or not isinstance(result.data, dict):
+        return None
+    wanted = set(models)
+    found = {
+        str(one.get("target_key")): one
+        for one in (result.data.get("items") or [])
+        if isinstance(one, dict) and str(one.get("target_key")) in wanted
+    }
+    return found or None
+
+
+def _log_lines(request: Request, trace_id: str) -> list[dict[str, Any]]:
+    """Recent lines from every adapter, for the correlator to pick over.
+
+    Read here rather than in `unified` so that module stays free of I/O and can
+    be tested as a fold. An unconfigured run directory yields nothing, which the
+    correlator reports as an absence like any other.
+    """
+    configured = str(getattr(request.app.state.settings, "run_directory", "") or "")
+    if not configured:
+        return []
+    run = Path(configured)
+    found: list[dict[str, Any]] = []
+    for service in logs.FILES:
+        # By trace id first: an exact hit is worth more than the whole window,
+        # and `read` already searches further back when filtering.
+        matched = logs.read(run, service, limit=20, text=trace_id)
+        for line in matched.get("items", []):
+            found.append({**line, "service": service})
+    if found:
+        return found
+    for service in logs.FILES:
+        for line in logs.read(run, service, limit=8).get("items", []):
+            found.append({**line, "service": service})
+    return found
 
 
 async def _note_silent_peers(request: Request, trace: Any) -> None:

@@ -112,8 +112,12 @@ DECLARED: dict[str, Capability] = {
     "nervis.traces@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="§11.2's correlation, waterfall and gap marking, across every "
-        "service that publishes — RAVIS since its M18b, SIRVIS since its M21",
+        reason="11.2's correlation, waterfall and gap marking, across every "
+        "service that publishes -- RAVIS since its M18b, SIRVIS since its M21 "
+        "-- and NERVIS itself, which now originates a trace rather than only "
+        "accepting one. Each trace carries the health each service was in at "
+        "the time, the log lines that name it, and what SIRVIS has measured of "
+        "the models it used, with how each was linked said rather than implied",
     ),
     # **The named gap has closed, and this is now a fact about configuration.**
     # It read "generated titles wait for RAVIS to honour §9.6.1's marker" —

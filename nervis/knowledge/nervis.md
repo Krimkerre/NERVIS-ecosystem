@@ -256,3 +256,30 @@ on it, and there is no code that could.
 
 Analysing something changes nothing. No event is written and no record is
 altered, so asking twice about the same failure asks about the same failure.
+
+## Seeing everything around one request
+
+The **Traces** screen shows one request as it crossed services, and beneath it
+three things about that moment: what state each service was in **at the time**,
+the log lines belonging to the request, and what SIRVIS has measured about the
+models it used.
+
+**How each thing was linked is shown, because the three are not equally
+certain.** A log line carrying the request's trace id belongs to that request. A
+line matched only by time belongs to the same few seconds and might be about
+something else entirely — it says so. Health at the time is reconstructed from
+the changes NERVIS recorded; where nothing was recorded it says the state then
+is unknown rather than showing today's state as history.
+
+**A trace that is missing a piece is still shown.** The screen says it is
+incomplete and the waterfall marks where the hole is. Nothing is filled in: a
+missing span stays missing, and a clock disagreement is reported rather than
+quietly corrected.
+
+Runtime evidence is usually absent, and that is honest rather than broken.
+SIRVIS measures what somebody asked it to measure, so a hosted model has none —
+and a measurement is never borrowed from a similar build.
+
+NERVIS starts a trace for its own requests now, so a chat turn shows both NERVIS
+and RAVIS rather than RAVIS alone with a note saying the caller published
+nothing.

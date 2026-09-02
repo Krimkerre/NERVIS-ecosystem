@@ -21,6 +21,7 @@ present a half-sentence as a finished thought.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -854,6 +855,12 @@ async def _relay(
                 ),
             )
             _title_later(request, conversation_id, trace_id, model)
+        # **The caller's span needs an end, or its bar has no length.** §11.2's
+        # waterfall draws durations, and a root span with only a start drew the
+        # calling service as a lane with nothing in it — the one lane whose
+        # duration bounds every other. Emitted whether or not the turn was
+        # stored: an interrupted answer still took the time it took.
+        _close_turn(request, conversation_id, request_id, trace_id, model, interrupted)
 
 
 def _delta(line: str) -> tuple[str, bool]:
@@ -891,6 +898,31 @@ def _error_frame(message: str) -> bytes:
     has to guess about.
     """
     return f"event: error\ndata: {json.dumps({'message': message})}\n\n".encode()
+
+
+def _close_turn(
+    request: Request, conversation_id: str, request_id: str, trace_id: str,
+    model: str, interrupted: bool,
+) -> None:
+    """The other end of NERVIS's own span.
+
+    Paired with `_note_turn` and gated the same way — no trace, no event — so a
+    turn either contributes both ends of a bar or neither. A start with no end
+    is what made the calling lane on every waterfall a point rather than a
+    duration.
+    """
+    hub = getattr(request.app.state, "hub", None)
+    if hub is None or not trace_id:
+        return
+    with contextlib.suppress(Exception):
+        hub.emit(
+            "nervis.chat.turn_completed",
+            subject={"type": "conversation", "id": conversation_id},
+            data={"conversation_id": conversation_id, "model": model,
+                  "interrupted": interrupted},
+            trace_id=trace_id,
+            request_id=request_id,
+        )
 
 
 def _note_turn(

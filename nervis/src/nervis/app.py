@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
-from ecosystem_protocol import new_request_id, trace_id_from
+from ecosystem_protocol import new_request_id, new_traceparent, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -229,9 +229,22 @@ def _register_correlation(api: FastAPI) -> None:
         # headers and matching on the string finds neither. Parsed in the shared
         # package, because all three services had the same line and all three
         # had it wrong.
+        # **And minted when there is not one, because NERVIS is the caller.**
+        # §11.2 wants trace context across *NERVIS → RAVIS/SIRVIS*, and only
+        # accepting one covers the half where somebody else started the
+        # operation. A browser sends no `traceparent`, so every request the
+        # dashboard makes arrived untraced — which left `_note_turn` silent, and
+        # RAVIS recording `trace_id: ""` on the decision. The result was that
+        # every trace on this machine had exactly one lane and a warning saying
+        # the caller had not published anything: the caller was NERVIS, and it
+        # had nothing to publish under.
+        #
+        # A root span is the honest reading, not an invention: the request
+        # genuinely originates here. It costs one id per request and is recorded
+        # only where something emits a span under it.
         request.state.trace_id = trace_id_from(
             request.headers.get("traceparent", "")
-        )
+        ) or trace_id_from(new_traceparent())
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
