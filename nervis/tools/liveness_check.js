@@ -47,8 +47,15 @@ const FILE = path.join(__dirname, "..", "index.html");
    three empty states landed — a ratchet set from a moment rather than from a
    finished state, which then failed the next run. The gate's own instruction
    covers those three: "if the card is genuinely static — an empty state, a
-   reference table, something unbuilt — leave it and lower nothing." */
-const CEILING = 51;
+   reference table, something unbuilt — leave it and lower nothing."
+
+   51 → 52 for M18's settings-backup card (export/import). It is a control —
+   two buttons and a result panel — not a reading, and the result panel
+   already carries its own state (applied/skipped) independent of whether
+   anything is "live". A liveness class on it would be claiming a data source
+   the card does not have, the same reasoning as the trace and benchmark
+   cards above. */
+const CEILING = 52;
 
 const source = fs.readFileSync(FILE, "utf8");
 

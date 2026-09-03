@@ -14,6 +14,7 @@ from nervis.api.notifications import router as notifications_router
 from nervis.api.proposals import router as proposals_router
 from nervis.api.recall import router as recall_router
 from nervis.api.routes import router
+from nervis.api.settings_transfer import router as settings_transfer_router
 from nervis.api.supervision import router as supervision_router
 from nervis.api.traces import router as traces_router
 from nervis.api.voice import router as voice_router
@@ -32,6 +33,7 @@ __all__ = [
     "notifications_router",
     "proposals_router",
     "recall_router",
+    "settings_transfer_router",
     "router",
     "supervision_router",
     "traces_router",

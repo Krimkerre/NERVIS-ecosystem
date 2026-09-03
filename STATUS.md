@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2172 tests, no network, no live service
+.venv/bin/pytest                      # part of 2189 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 776 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 793 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2172 passing across the four, conformance `PASS`.
+Expected: all clean, 2189 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -515,7 +515,7 @@ again — each preceded by cooling to `nominal`, which took 50–110 seconds.
 
 | Build | tok/s | TTFT | Load | Notes |
 |---|---|---|---|---|
-| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262172, not the 8192 asked for |
+| `qwen3.5-2b-mlx` | **105.8** | 0.118 s | 3.51 s | loaded at 262189, not the 8192 asked for |
 | `granite-4.0-h-tiny` mlx | 97.0 | 0.204 s | 3.77 s | |
 | `lfm2.5-2.6b-mlx` | 93.8 | 3.146 s | 3.91 s | adapted; TTFT is mostly thinking |
 | `qwen3-1.7b` | 66.1 | 0.225 s | 3.12 s | adapted |
@@ -1135,7 +1135,7 @@ exists to be carried, and carrying it is RAVIS M13.
 ### Two packagings of one model, and the case against model → score
 
 `mlx-community/granite-4.0-h-tiny` through the same role on 2026-08-24. Run
-`run_de31b9c876c84943`, evidence `ev_73e542e82172af09`, VALID. Identical weights
+`run_de31b9c876c84943`, evidence `ev_73e542e82189af09`, VALID. Identical weights
 to the GGUF build above, identical suite, same machine, same evening.
 
 ```text
@@ -4541,6 +4541,66 @@ patching the one character that caused it. 18 tests.
 variable in `send`, the nudge's own recall line — so the module is imported as
 `memory` rather than a working local being renamed around it.
 
+### M18 — polish, built ahead of M19 by decision. NERVIS 0.23.0, 3 Sep
+
+Deliberately sequenced: M18 before M19, because a UI change under a packaged
+`NERVIS.app` needs re-wrapping to test and a UI change under `nervis serve`
+does not. Four exit clauses, checked against the running dashboard rather
+than assumed from the row's own description — the same audit that found M9's
+Clarvis capability and SIRVIS's stale ticks earlier found real gaps here too.
+
+**"Settings import/export works without secrets" was the one clause with
+nothing built.** `nervis.settings_transfer` is an allowlist — `EXPORTABLE`,
+the same shape as `inspector.py`'s `DECISION_FIELDS` and `logs.py`'s
+`FILES` — naming what may leave rather than what must not, because a setting
+added later and forgotten here stays *excluded*, the safe direction to get
+wrong. Nothing in the `setting` table is actually a credential — every one in
+this codebase lives in its own file or environment variable already — so the
+real work was the entries that are not secret but are not *portable*: a
+supervision adapter is a path on this machine, a background session id was
+minted for this install, a voice request counter is per-day and describes
+what already happened. The allowlist gates **import** too, symmetrically — a
+hand-edited file naming an excluded key is refused and reported, not
+silently applied, which is what stops import being a wider door than export
+ever was. 17 tests, plus a live round-trip against the real database and a
+forged file carrying a supervision adapter path, confirmed refused.
+
+**"Every unavailable state has a sensible explanation" had a live
+violation.** Settings' "What NERVIS is configured with" card called a
+demonstrably-running RAVIS "not answering" the moment NERVIS ran on a second
+port — `serviceDiagnostics` fetches a peer straight from the browser, which
+is a genuine cross-origin request, and `fetch()` cannot tell a caller *why*
+a request failed: a CORS refusal and a dead socket surface as the same
+opaque rejection, by design. NERVIS's own registry read has no such blind
+spot — server-to-server, immune to a browser's CORS rules, the same read
+Overview's "healthy" chip already trusts — so the card now asks both and
+says which one it is believing when they disagree, rather than asserting
+the browser's failed probe as the peer's state.
+
+**"A fresh install is understandable" had one screen that was not.**
+Overview, Notifications and Settings all explain themselves on first open;
+Chat opened onto an empty `.messages` div and the composer's own
+placeholder — three tool buttons and a text box, nothing saying what any of
+it was for. A hint now shows while the conversation is empty and clears the
+moment a first message is sent.
+
+**Responsive layout had no navigation below 620px.** `.side{display:none}`
+removed the only way to move between screens on a true phone width, with
+nothing built to replace it — Overview loaded and every other screen was
+unreachable, silently, because there was nothing left to click that could
+report the bug. The 900px breakpoint's 72px icon rail already existed and
+already worked; the fix was letting it survive down to the narrowest width
+instead of vanishing at 620px. Verified at both breakpoints in a real
+browser, including a tap that actually changes screens.
+
+**"No service is required for dashboard startup" was already true.** Served
+as a static file with nothing running behind it — not even NERVIS — the page
+renders coherently: real absence copy, no crash, the same explanatory
+footnote every other empty state carries. Nothing to fix.
+
+M18 declares `nervis.settings_backup@1`; the other three fixes improve
+existing capabilities rather than adding one. 793 nervis tests.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
@@ -5017,7 +5077,7 @@ RAVIS's catalogue. When the question mentions the runtime — or asks what is
 loaded — NERVIS reads LM Studio's own `/api/v0/models` and reports the loaded
 builds by name, counting the rest. Live, that reads *"LM Studio holds 20 local
 build(s), 1 loaded right now: qwen/qwen3-4b-2507 · qwen3 · 4bit · mlx · context
-8192 of 262172 · tool_use"*. Both context numbers, because a 262172-token model
+8192 of 262189 · tool_use"*. Both context numbers, because a 262189-token model
 opened at 8192 is the ordinary cause of a refused long prompt and looks like a
 model limitation from the outside.
 

@@ -43,6 +43,7 @@ from nervis.api import (
     notifications_router,
     proposals_router,
     recall_router,
+    settings_transfer_router,
     supervision_router,
     traces_router,
     voice_router,
@@ -99,6 +100,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(notifications_router)
     api.include_router(proposals_router)
     api.include_router(recall_router)
+    api.include_router(settings_transfer_router)
     api.include_router(commands_router)
     api.include_router(voice_router)
     register_dashboard(api)

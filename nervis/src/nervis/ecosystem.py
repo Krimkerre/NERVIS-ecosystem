@@ -293,6 +293,16 @@ DECLARED: dict[str, Capability] = {
         "not repeated for matching. Off unless switched on, and off means no "
         "search runs at all",
     ),
+    "nervis.settings_backup@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="M18's settings export and import, gated by an allowlist that "
+        "decides both directions -- a preference travels, a filesystem path "
+        "bound to this machine or a per-day rate counter does not, and a "
+        "hand-edited file naming an excluded key is refused rather than "
+        "applied. Nothing this dashboard treats as a secret has ever lived in "
+        "the settings the allowlist reads from",
+    ),
     "nervis.learned_notes@1": Capability(
         version="1.0.0",
         state=AVAILABLE,

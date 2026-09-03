@@ -108,7 +108,8 @@
    the transcript needlessly short — which the routing popover made obvious, as
    it had less room than the panel needed. `--chat-h` is set on render from the
    card's own top offset; the fallback matters only for the first paint. */
-.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}/* The attach control. A label wrapping a hidden input rather than a button that
+.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}
+.chat-hint{max-width:520px;margin:14px auto;padding:14px 16px;border:1px dashed var(--line);border-radius:9px;color:var(--muted);font-size:12px;line-height:1.55}.chat-hint p{margin:0 0 8px}.chat-hint p:last-child{margin-bottom:0}/* The attach control. A label wrapping a hidden input rather than a button that
    clicks one: the label *is* the trigger, so there is no second element whose
    only job is to forward a click, and the keyboard reaches it for free. */
 /* An attached file in the transcript. Deliberately not a bubble: it is a thing
@@ -153,7 +154,16 @@
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes flow{to{stroke-dashoffset:-20}}@keyframes grow{from{transform:scaleY(0)}}@keyframes flash{50%{background:rgba(var(--rgb),.16)}}@keyframes blink{50%{opacity:0}}@keyframes bob{50%{transform:translateY(-8px) rotate(1deg)}}@keyframes cbblink{0%,92%,100%{transform:translateY(0)}95%{transform:translateY(14px)}}
-@media(max-width:900px){.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.connection{display:none}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.body{grid-template-columns:1fr}.side{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
+@media(max-width:900px){.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.connection{display:none}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
+/* M18 — a phone-width viewport had no way off the screen it loaded on. Below
+   620px this used to override the 900px rule's 72px icon rail back to a
+   single 1fr column and hide `.side` outright — the only navigation on the
+   page — with nothing built to replace it. There was no bug report for this
+   because there was nothing left to click that could report one: Overview
+   loaded, and every other screen was unreachable. Leaving the 900px rule's
+   72px icon rail in place at every narrower width too is the whole fix —
+   the same tappable icons `.side-nav button{justify-content:center}` already
+   styles for the tablet width, just never let survive down to a phone one. */
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
 /* Exact supplied avatars run inside isolated srcdoc frames. The frame is scaled,
    not redrawn, so the canonical SVG geometry and animation timing stay intact. */
@@ -197,7 +207,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    to reveal the ambient network through panels. */
 .card{background:linear-gradient(145deg,rgba(8,26,37,.55),rgba(4,14,21,.6))}.page-head{background:linear-gradient(115deg,rgba(8,28,40,.6),rgba(5,16,24,.54))}@supports not (backdrop-filter:blur(2px)){.card{background:linear-gradient(145deg,rgba(8,26,37,.82),rgba(4,14,21,.86))}}
 @keyframes hudPulse{50%{opacity:.4;box-shadow:0 0 3px var(--hud)}}
-@media(max-width:900px){#network-bg{left:72px;width:calc(100% - 72px)}}@media(max-width:620px){#network-bg{left:0;width:100%}.page-head{height:150px;padding-right:145px}.avatar-slot{width:140px}.avatar-frame{transform:scale(.36)}}
+@media(max-width:900px){#network-bg{left:72px;width:calc(100% - 72px)}}@media(max-width:620px){.page-head{height:150px;padding-right:145px}.avatar-slot{width:140px}.avatar-frame{transform:scale(.36)}}
 
 /* ── ABSENCE ──────────────────────────────────────────────────────────────
    A missing service must look missing. Never a zero, never an em-dash that
@@ -4425,6 +4435,28 @@ function attachmentCard(m){
   +`${stampOf(m)}</div>`;
 }
 
+/* M18 — onboarding. A fresh conversation opened onto an empty `.messages` div
+   and the composer's own placeholder ("Ask NERVIS anything…") — three tool
+   buttons and a text box, nothing saying what any of it is for. Reported
+   against a genuinely fresh install: Overview, Notifications and Settings all
+   explain themselves on first open; Chat was the one screen that did not.
+
+   Shown only while the conversation is empty, and gone the moment a first
+   message is sent — `conv.messages.length` is the same check that decides
+   whether to render it at all, so there is no separate "have I shown this
+   already" flag to fall out of sync with what is on screen. */
+function chatEmptyHint(){
+ return `<div class="chat-hint">
+   <p>This is an ordinary chat, routed through RAVIS like any client — nothing here can
+   touch a file, run a command or reach Clarvis's workspace.</p>
+   <p>NERVIS reads live from the registry before it answers, so it can talk about what is
+   actually running: why a request routed where it did, which service is degraded and why,
+   what changed in the last few minutes. Ask a question about this ecosystem, or nothing in
+   particular — it still gets fenced context about what is up, and answers from that rather
+   than guessing.</p>
+  </div>`;
+}
+
 async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.',
   '<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>'+privateButton());
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
@@ -4464,6 +4496,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    ${voiceToggleButton()}</div>
   ${chatDrawerMarkup()}
   <div class="messages" id="messages">
+   ${conv.messages.length?'':chatEmptyHint()}
    ${conv.messages.map((m,mi)=>m.kind==='attachment'
      ?attachmentCard(m)
      :m.role==='user'
@@ -5698,7 +5731,23 @@ async function settingsView(){
     true when written and none of it true since M0 shipped the package,
     database and migrations. NERVIS serves this page and answers
     `/api/v1/settings`; the peers below are still read for their own state. */
- const peers=await Promise.all(['ravis','sirvis'].map(k=>serviceDiagnostics(k)));
+ /* **Two reads, because one of them can lie.** `serviceDiagnostics` fetches a
+    peer straight from the browser, which is a genuine cross-origin request —
+    and a NERVIS running on anything but the port a peer's CORS allowlist
+    expects gets every one of those refused. `fetch()` cannot tell the caller
+    *why* a request failed: a CORS refusal and a dead socket both surface as
+    the same opaque rejection, by design, so browser code has no way to ask
+    which one happened. Caught live running two NERVIS instances side by
+    side — the second one's Settings screen called a demonstrably-running
+    RAVIS "not answering", because the browser's own request to it, not RAVIS
+    itself, was what failed.
+
+    NERVIS's own registry read has no such blind spot: it is a server-to-server
+    probe, immune to a browser's CORS rules, and it is the same read Overview's
+    "healthy" chip already trusts. Asked alongside the direct probe so a
+    contradiction between them is answerable rather than silently believed. */
+ const [registry,...peers]=await Promise.all(
+   [API.nervis.services(),...['ravis','sirvis'].map(k=>serviceDiagnostics(k))]);
 
  /* NERVIS's own stored settings, since M0 gave it a database to store them in.
     `null` rather than 0 when it does not answer: nought settings and no service
@@ -5718,7 +5767,7 @@ async function settingsView(){
    ${['ravis','sirvis','clarvis'].map((k,n)=>{
      const d=n<2?peers[n]:null;
      return `<div class="trace-step"><b>${escapeHtml(k.toUpperCase())}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
-       n<2?(d?'answering':'not answering'):'no MEP surface — the optional bridge'}</span></div>`;}).join('')}
+       n<2?peerAnswerNote(d,registry,k):'no MEP surface — the optional bridge'}</span></div>`;}).join('')}
    <div class="trace-step"><b>NERVIS</b><span class="mono" style="opacity:.85">${escapeHtml(location.origin)} · serving this page</span></div>
    <div class="trace-step"><b>stored settings</b><span>${STORED_SETTINGS==null?'<span class="chip warn">NERVIS not answering</span>':STORED_SETTINGS+' in the NERVIS database'}</span></div>
    <div class="trace-step"><b>conversations</b><span>${escapeHtml(CHAT_STORE.read().length)} stored in this browser</span></div>
@@ -5742,6 +5791,7 @@ async function settingsView(){
    <div class="trace-step"><b>events</b><span class="chip">set at start</span></div>
    <div class="trace-step"><b>chat</b><span>until deleted, in this browser</span></div>
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
+  + section('Backup', backupSection())
   + section('Unattended work', await backgroundSection())
   + section('What NERVIS remembers', await recallSection() + await learnedSection() + await rememberedSection())
   + section('Supervision', await supervisionSection() + `<div class="card wide"><h3>Ownership</h3>
@@ -5942,6 +5992,94 @@ async function clearCircuit(service){
    produced a note would answer the cheerful half of "what has this been doing"
    and leave the expensive half — the runs that thought and said nothing — out
    of view, which is exactly the half somebody paying for it wants. */
+/* M18 — export and import, without secrets. What may cross this boundary is
+   decided once, server-side, in nervis.settings_transfer.EXPORTABLE; this is
+   the button that calls it and the file-picker that sends one back. Nothing
+   here re-decides what is safe — a client-side allowlist duplicated from the
+   server's is a second copy that can drift, and drifting *open* is the one
+   direction that matters here. */
+let BACKUP_RESULT=null;
+
+async function exportSettings(){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/settings/export',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const body=await r.json();
+  const blob=new Blob([JSON.stringify(body,null,1)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const stamp=new Date().toISOString().slice(0,10);
+  const a=document.createElement('a');
+  a.href=url;a.download=`nervis-settings-${stamp}.json`;
+  document.body.appendChild(a);a.click();a.remove();
+  URL.revokeObjectURL(url);
+ }catch(e){notify('Export failed: '+e.message)}
+}
+
+function pickSettingsFile(){$('#settingsFilePicker').click()}
+
+async function importSettingsFile(input){
+ const file=input.files&&input.files[0];
+ input.value='';
+ if(!file)return;
+ let parsed;
+ try{parsed=JSON.parse(await file.text())}
+ catch(e){BACKUP_RESULT={ok:false,message:'That file is not valid JSON.'};render();return}
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/settings/import',
+    {method:'POST',headers:{'content-type':'application/json'},
+     body:JSON.stringify(parsed),signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  const body=await r.json();
+  if(!r.ok){BACKUP_RESULT={ok:false,message:body.message||('NERVIS refused it: HTTP '+r.status)};render();return}
+  BACKUP_RESULT={ok:true,applied:body.applied||[],skipped:body.skipped||[]};
+ }catch(e){BACKUP_RESULT={ok:false,message:'The import request did not complete: '+e.message}}
+ render();
+}
+
+/* What just happened, or nothing — cleared page state, not carried in a
+   toast that could be missed. `skipped` is shown with its reason every time,
+   never just a count: a person who exported five preferences and gets back
+   two applied should be able to tell *which* three did not travel, and why,
+   without guessing. */
+function backupResultCard(){
+ if(!BACKUP_RESULT)return '';
+ if(!BACKUP_RESULT.ok)return banner('Import failed',escapeHtml(BACKUP_RESULT.message),'warn');
+ const {applied,skipped}=BACKUP_RESULT;
+ // Built directly rather than string-splicing into banner()'s own markup —
+ // that worked only by knowing its exact template shape, and broke silently
+ // the moment that shape changed. This owns its own HTML instead.
+ return `<div class="banner" data-tone="info"><div>
+   <b>Import complete — ${escapeHtml(applied.length)} setting(s) applied</b>
+   <div class="trace-step"><b>applied</b><span>${applied.length
+      ?applied.map(k=>`<span class="mono">${escapeHtml(k)}</span>`).join(', ')
+      :"nothing — the file matched none of this build's exportable settings"}</span></div>
+   ${skipped.map(one=>`<div class="trace-step"><b>skipped ·
+     <span class="mono">${escapeHtml(one.key)}</span></b><span style="opacity:.75">${escapeHtml(one.reason)}</span></div>`).join('')}
+  </div></div>`;
+}
+
+function backupSection(){
+ return `<div class="card wide"><h3>Settings backup</h3>${cell(`
+   ${backupResultCard()}
+   <div class="filter-row">
+     <button class="btn primary" onclick="exportSettings()">Export settings</button>
+     <button class="btn" onclick="pickSettingsFile()">Import settings…</button>
+     <input id="settingsFilePicker" type="file" accept="application/json,.json"
+       style="display:none" onchange="importSettingsFile(this)">
+   </div>
+   <small class="mono dim"><b>Export saves a file to your downloads folder</b> — chat presets and
+   parameters, background and recall preferences, voice settings, the display name. <b>Never a
+   credential</b>: nothing this dashboard treats as a secret has ever lived in the settings this reads
+   from, and the export is built from an allowlist rather than a filter — a preference added to NERVIS
+   later is excluded by default until it is deliberately added to that list, not included by default
+   until someone thinks to exclude it. <b>Not everything in "settings" travels</b>, on purpose: a
+   supervision adapter is a filesystem path bound to this machine, a background session id was minted
+   for this install, and a voice request counter describes a day that already happened — none of those
+   mean anything on another machine, or on this one after a reinstall. <b>Import applies only what the
+   same allowlist accepts</b>, whichever machine or person wrote the file, and reports the rest rather
+   than dropping it quietly.</small>`,'nervis')}</div>`;
+}
+
 /* M20's switch, in Settings beside the other things that change what NERVIS
    may read. Its own card rather than a line in another, because what it turns
    on is a search across every conversation stored on this machine — a wider
@@ -9207,6 +9345,26 @@ async function healthTest(key){
  const checks=(d.health.checks||[]).map(c=>`${c.name} ${c.status}`).join(', ')||'no checks';
  notify(`${key.toUpperCase()}: ${d.health.status} · ${checks} · `
    +`${d.available.length}/${d.capabilities.length} capabilities`);
+}
+
+/* What to say about one peer, when the direct probe and the registry can
+   disagree and only one of them is telling the truth.
+
+   Four cases, and only one of them is really "not answering": the registry
+   is the server-to-server read CORS cannot touch, so when it says a peer is
+   up and the browser's own probe still failed, the honest sentence names the
+   browser as the boundary rather than accusing the peer. */
+function peerAnswerNote(direct,registry,key){
+ if(direct)return 'answering';
+ const row=(registry.items||[]).find(x=>x.key===key);
+ const reachablePerRegistry=row&&['healthy','degraded'].includes(row.state);
+ if(reachablePerRegistry){
+  return registry.live
+   ?'reachable — NERVIS\'s own registry has it healthy, but this browser could not '
+    +'reach it directly (most likely a CORS boundary between two different origins)'
+   :'reachable per its last known state, unconfirmed just now';
+ }
+ return 'not answering';
 }
 
 async function serviceDiagnostics(key){

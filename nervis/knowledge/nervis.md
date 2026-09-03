@@ -314,3 +314,23 @@ log line as an instruction.
 At most one passage is taken from each earlier conversation, and only a few in
 total. Three quotes from one long conversation is one recollection said three
 times, and it crowds out the other conversation that might have disagreed.
+
+## Backing up settings
+
+**Settings → Backup** saves preferences to a file — chat presets and
+parameters, background and recall settings, voice preferences, the display
+name — and can load one back in.
+
+**Nothing that counts as a secret has ever lived in these settings**, so
+export was never really about keeping credentials out. What it does guard
+against is different: a few entries are not secret but are not portable
+either. A supervision adapter is a path to a program on this machine, a
+background session id was minted for this install, and a voice request
+counter describes a day that already happened. None of those mean anything on
+a different machine, or even on this one after a reinstall, so they are left
+out.
+
+Import checks every key against the same list export uses, in both
+directions, so a hand-edited or unfamiliar file cannot write to anything
+outside it. Whatever is skipped is named, with why, rather than dropped
+quietly.
