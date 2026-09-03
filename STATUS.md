@@ -4601,6 +4601,48 @@ footnote every other empty state carries. Nothing to fix.
 M18 declares `nervis.settings_backup@1`; the other three fixes improve
 existing capabilities rather than adding one. 793 nervis tests.
 
+### Two stale ticks, found by an independent audit and fixed, 3 Sep
+
+An audit run across all four apps — one agent per app, told to spot-check
+ticked milestones against real code rather than trust the checkmark —
+surfaced two real ones and one partial one, none in NERVIS.
+
+**RAVIS M20 was ticked with nothing behind it.** "Concurrency awareness —
+active requests, local congestion, SIRVIS contention evidence" has been ✅
+since 1 Sep. Grepped `ravis/src` for `active_requests`, `in_flight`,
+`queue_depth`, `congestion`, `contention`: nothing on-topic, every hit an
+unrelated use of "concurrent" (DB readers, health probes, session isolation).
+The tick was added by a commit that derived every checkmark from stage
+closure rather than checking exit criteria against code — and that same
+commit's message flagged SIRVIS M22 as a suspect for exactly this reason
+without applying the same check to RAVIS. Confirmed independently rather
+than taken on the audit's word: same three greps, same empty result.
+Un-ticked.
+
+**RAVIS M19 over-claimed by one word.** "Production observations — rolling
+latency, TTFT, error rate, throughput": three of the four are real and
+well-tested — `observations.py`'s rolling windows (eviction, corrupt-file
+recovery, the confident-vs-shown floor) and `HealthRegistry.error_rate()`.
+Throughput does not exist as a production observation anywhere in
+`src/ravis`. Kept ticked — the substance is real and shipped — with the row
+corrected to name what actually exists rather than un-ticking work that
+mostly happened.
+
+**SIRVIS M22 was the one flagged before and never resolved.** The 1 Sep
+commit that fixed M12 and M22b's missing ticks named M22 as "the likely
+candidate" for a stale one and declined to guess rather than risk "an honest
+discrepancy replaced with a confident wrong answer." Two days and one
+version later (still 0.15.5), nothing had changed: no `.app` bundle,
+packaging script or build config anywhere in the repo. Un-ticked, with the
+earlier flag's own reasoning quoted in the row so the next person does not
+have to re-derive why.
+
+**Neither fix touches Stage 10's closure.** Both M19 and M20 map to Stage 10
+in RAVIS.md's own gate mapping, and Stage 10 was closed on a separate,
+already-scored twelve-item runbook §8 acceptance list — none of the twelve
+scenarios mention throughput or concurrency. `tools/check_plans.py` still passes:
+un-ticking a row doesn't change its width or its stage assignment.
+
 ### Next — in this order
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
