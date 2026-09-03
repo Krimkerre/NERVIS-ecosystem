@@ -81,18 +81,29 @@ def build() -> str:
    <stop offset="0" stop-color="{BG_TOP}"/>
    <stop offset="1" stop-color="{BG_BOTTOM}"/>
   </linearGradient>
-  <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-   <feGaussianBlur stdDeviation="22"/>
+  <filter id="glowFar" x="-90%" y="-90%" width="280%" height="280%">
+   <feGaussianBlur stdDeviation="46"/>
   </filter>
-  <filter id="coreglow" x="-100%" y="-100%" width="300%" height="300%">
-   <feGaussianBlur stdDeviation="14"/>
+  <filter id="glowNear" x="-60%" y="-60%" width="220%" height="220%">
+   <feGaussianBlur stdDeviation="20"/>
+  </filter>
+  <filter id="coreglow" x="-120%" y="-120%" width="340%" height="340%">
+   <feGaussianBlur stdDeviation="22"/>
   </filter>
  </defs>
  <g clip-path="url(#squircle)">
   <polygon points="{squircle}" fill="url(#bg)"/>
+  <!-- **Two blur passes, not one.** A single feGaussianBlur reads as a soft
+       edge; the PDF's own _mark() fakes a glow with three concentric strokes
+       precisely because one pass never gave it the wide, low haze *and* the
+       tight, bright bloom at once. A wide low-opacity pass under a tighter
+       brighter one is the same two-scale idea, done with real blur instead
+       of three shapes. -->
   <polygon points="{outer}" fill="none" stroke="{LOGO_EDGE}" stroke-width="{STROKE_WIDTH}"
-    filter="url(#glow)" opacity="0.55"/>
-  <polygon points="{core}" fill="{LOGO_CORE}" filter="url(#coreglow)" opacity="0.5"/>
+    filter="url(#glowFar)" opacity="0.55"/>
+  <polygon points="{outer}" fill="none" stroke="{LOGO_EDGE}" stroke-width="{STROKE_WIDTH}"
+    filter="url(#glowNear)" opacity="0.85"/>
+  <polygon points="{core}" fill="{LOGO_CORE}" filter="url(#coreglow)" opacity="0.75"/>
   <polygon points="{outer}" fill="none" stroke="{LOGO_EDGE}" stroke-width="{STROKE_WIDTH}"
     stroke-linejoin="round"/>
   <polygon points="{core}" fill="{LOGO_CORE}"/>
