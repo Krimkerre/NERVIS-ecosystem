@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.conftest import as_administrator
 from tests.test_plural_upstreams import _built
 
 from ravis.app import create_app
@@ -108,7 +109,7 @@ def client(tmp_path: Path) -> Any:
     inner.state.credentials = CredentialStore(
         file=CredentialFile(tmp_path / "credentials.json"), environment={}, keychain=False
     )
-    with TestClient(app) as ready:
+    with TestClient(app, headers=as_administrator(inner.state.credentials)) as ready:
         yield ready
 
 

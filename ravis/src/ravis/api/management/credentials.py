@@ -108,34 +108,37 @@ def _may_write(request: Request) -> str | None:
     """Whether this request may change RAVIS's *configuration*.
 
     Enabling a provider, narrowing a pool, filtering a catalogue: settings, not
-    key material. A loopback-bound RAVIS is reachable only from the machine it
-    runs on, which is the deployment this is for — and since a non-loopback bind
-    now fails to start outright (§9.6.0 as amended by `ECOSYSTEM_RUNBOOK.md` §16
-    item 2), it is currently the *only* deployment. The identity check below is
-    kept rather than simplified away: it is what this will need when remote
-    returns, and an anonymous identity on a published service must not be able to
-    write settings.
+    key material.
 
-    **Being on loopback is not by itself authority**, and this comment should not
-    be read as saying so — §16 item 4 is the separate work of giving mutations
-    their own control-role check rather than inferring one from the bind.
+    **The loopback bypass is gone, which is the whole of §16 item 4.** This used
+    to return early on a loopback bind, so administration arrived free with the
+    ability to call the gateway: any local process that could send a prompt could
+    also disable a provider, narrow a catalogue, or re-point a pool for every
+    other client on the machine. Clarvis holds an ordinary client credential, so
+    "any local process" was not hypothetical.
 
-    **Credentials are not configuration and do not use this** — see
-    `_may_write_credentials`. §15.1 asks for a separate authorization for key
-    material specifically, and applying that bar to a provider toggle would take
-    the Providers screen away to close a gap about keys.
+    That bypass was defensible while the Providers screen called RAVIS directly
+    with nothing to present — a bar here would have been a bar on the user. It
+    stopped being defensible when those four writes moved behind NERVIS, which
+    already holds the `admin.` credential and already proxies the credential
+    writes the same way. The cost the old reasoning priced is gone; the gap is
+    not.
+
+    **Credentials remain separate** — see `_may_write_credentials`. Same grantor
+    today, different clause, and §15.1 is specifically about key material. Two
+    predicates rather than one so a future operator role can be given settings
+    without keys.
     """
-    settings = request.app.state.settings
-    if settings.is_loopback_bind():
-        return None
     identity = getattr(request.state, "identity", None)
-    # Read directly, not through `getattr(..., False)`. This guard was written
-    # against an `is_anonymous` that `ClientApplication` did not have, so the
-    # default answered every call: on a non-loopback bind an unauthenticated
-    # caller could write, delete and re-point provider credentials. A missing
-    # security predicate must raise, not resolve to "permitted".
-    if identity is None or identity.is_anonymous:
-        return "configuration changes require an authenticated client on a non-loopback bind"
+    # Read directly, not through `getattr(..., False)`. An earlier version of
+    # this guard was written against an `is_anonymous` that `ClientApplication`
+    # did not have, so the default answered every call. A missing security
+    # predicate must raise, not resolve to "permitted".
+    if identity is None or not identity.may_write_configuration:
+        return (
+            "changing RAVIS's configuration needs an admin credential (§16 item 4); "
+            "calling the gateway does not grant it"
+        )
     return None
 
 

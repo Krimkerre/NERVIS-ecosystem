@@ -151,46 +151,50 @@ def test_a_secret_is_not_written_into_the_json_file_world_readable(
     assert stat.S_IMODE(path.stat().st_mode) & 0o077 == 0, "owner only"
 
 
-def test_an_anonymous_caller_cannot_write_a_credential_on_a_published_bind() -> None:
-    """§9.6.0: an anonymous identity on a non-loopback bind must not write keys.
+def test_only_an_admin_identity_may_change_configuration() -> None:
+    """The guard, asserted through its three cases at once.
 
-    This guard shipped unreachable. It asked `getattr(identity, "is_anonymous",
-    False)` and `ClientApplication` has never carried that attribute, so the
-    default answered every call and the refusal was dead code — on a published
-    bind any unauthenticated caller could write, delete or re-point a provider
-    credential. Nothing failed, because a missing predicate reads as "permitted".
+    Its history is why all three are here. It first shipped unreachable — it
+    asked `getattr(identity, "is_anonymous", False)` and `ClientApplication` has
+    never carried that attribute, so the default answered every call and the
+    refusal was dead code. Then it read the *bind*: loopback returned early, so
+    on the only deployment that can now start (§16 item 2) every caller passed.
 
-    The three cases are asserted together because the bug is only visible in the
-    contrast: a loopback bind is *meant* to permit anonymous writes, so testing
-    the refusal alone would pass against a guard that refused everybody.
+    Both bugs share a shape — a permission that resolves to "yes" without an
+    identity ever being consulted — so the permitting case is asserted beside
+    the refusing ones. A guard that refuses everybody would satisfy the refusals
+    alone and take the Providers screen with it.
     """
     from ravis.api.management.credentials import _may_write
-    from ravis.identity import anonymous_identity
+    from ravis.identity import ClientApplication, anonymous_identity
 
     class _Request:
         def __init__(self, settings: Settings, identity: object) -> None:
             self.app = type("_App", (), {"state": type("_S", (), {"settings": settings})()})()
             self.state = type("_St", (), {"identity": identity})()
 
-    published = Settings(host="0.0.0.0", client_credential="secret")
-    assert not published.is_loopback_bind(), "the case this guard exists for"
-
-    anonymous = anonymous_identity(published)
-    assert anonymous.is_anonymous, "the predicate the guard reads"
-    refusal = _may_write(_Request(published, anonymous))
-    assert refusal is not None, "an anonymous caller must be refused"
-    assert "authenticated" in refusal
-
-    named = anonymous_identity(published).__class__(
-        application_id="client.nervis", label="NERVIS", rate_limit_per_minute=60
-    )
-    assert not named.is_anonymous
-    assert _may_write(_Request(published, named)) is None, "a named caller may write"
-
     loopback = Settings(host="127.0.0.1")
-    assert _may_write(_Request(loopback, anonymous_identity(loopback))) is None, (
-        "a loopback bind is reachable only from this machine, which is the "
-        "deployment this endpoint is for"
+
+    anonymous = anonymous_identity(loopback)
+    refusal = _may_write(_Request(loopback, anonymous))
+    assert refusal is not None, "an anonymous caller must be refused, on any bind"
+    assert "admin credential" in refusal
+
+    ordinary = ClientApplication(
+        application_id="clarvis", label="Clarvis", rate_limit_per_minute=60
+    )
+    assert not ordinary.may_write_configuration, "the field the guard reads"
+    assert _may_write(_Request(loopback, ordinary)) is not None, (
+        "an ordinary client credential routes; it does not administer"
+    )
+
+    administrative = ClientApplication(
+        application_id="nervis", label="NERVIS", rate_limit_per_minute=60,
+        may_write_configuration=True,
+    )
+    assert _may_write(_Request(loopback, administrative)) is None, (
+        "the admin credential NERVIS holds must still be able to configure, or "
+        "this closed the gap by removing the feature"
     )
 
 
@@ -272,18 +276,69 @@ def test_an_unauthenticated_caller_on_loopback_is_refused_too(tmp_path: Path) ->
         assert client.delete("/api/v1/providers/credentials/google").status_code == 403
 
 
-def test_configuration_writes_are_not_held_to_the_credential_bar() -> None:
-    """The falsifier for the split.
+def test_an_unauthenticated_configuration_write_is_refused() -> None:
+    """This asserted the opposite until 4 Sep, and the reasoning is worth keeping.
 
-    §15.1 is about key material. Enabling a provider or narrowing a catalogue is
-    configuration, and holding those to the same bar would take the Providers
+    It said holding configuration to the credential bar "would take the Providers
     screen away from a loopback install to close a gap about keys — a real cost
-    for no gain in the thing being protected.
+    for no gain". That was true of the screen as it stood: the browser called
+    RAVIS directly and had no credential to offer, so a bar here was a bar on the
+    user.
+
+    What changed is the screen, not the argument. Those four writes now go
+    through NERVIS, which already holds the `admin.` credential for exactly this
+    reason and already proxies the credential writes the same way — so the cost
+    the objection priced is gone, and what is left is the gap: administration
+    arriving free with the ability to call the gateway (§16 item 4).
     """
     settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
     app = create_app(settings)
 
     with TestClient(app) as client:
+        assert client.put(
+            "/api/v1/providers/openai/enabled", json={"enabled": False}
+        ).status_code == 403
+
+
+def test_calling_the_gateway_does_not_grant_reconfiguring_it(tmp_path: Path) -> None:
+    """The same separation §15.1 makes for keys, applied to settings.
+
+    An ordinary client credential routes and carries a policy. It must not be
+    able to disable a provider, re-point a pool or narrow a catalogue for every
+    other client on the machine — Clarvis holds one of these, and a bug in an
+    agent loop should not be able to reconfigure the gateway underneath it.
+    """
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+    inner = app
+    while not hasattr(inner, "state"):
+        inner = inner.app  # type: ignore[attr-defined]
+    inner.state.credentials = CredentialStore(
+        file=CredentialFile(tmp_path / "credentials.json"), environment={}, keychain=False
+    )
+    inner.state.credentials.store("client.ordinary", "an-ordinary-client-secret")
+
+    with TestClient(app, headers={"Authorization": "Bearer an-ordinary-client-secret"}) as client:
+        refused = client.put("/api/v1/providers/openai/enabled", json={"enabled": False})
+
+    assert refused.status_code == 403
+    assert "admin credential" in refused.json()["error"]["message"]
+
+
+def test_an_admin_credential_may_still_configure(tmp_path: Path) -> None:
+    """The permitting half, without which the refusals above prove only that
+    the endpoint is broken."""
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    app = create_app(settings)
+    inner = app
+    while not hasattr(inner, "state"):
+        inner = inner.app  # type: ignore[attr-defined]
+    inner.state.credentials = CredentialStore(
+        file=CredentialFile(tmp_path / "credentials.json"), environment={}, keychain=False
+    )
+    inner.state.credentials.store("admin.nervis", "an-admin-secret")
+
+    with TestClient(app, headers={"Authorization": "Bearer an-admin-secret"}) as client:
         assert client.put(
             "/api/v1/providers/openai/enabled", json={"enabled": False}
         ).status_code != 403

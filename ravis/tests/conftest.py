@@ -9,6 +9,7 @@ on any machine.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -49,3 +50,23 @@ def settings() -> Settings:
         database_path=":memory:",
         _env_file=None,  # type: ignore[call-arg]
     )
+
+
+ADMIN_SECRET = "an-admin-secret-for-tests"
+
+
+def as_administrator(store: Any) -> dict[str, str]:
+    """Store an `admin.` credential and return the header that presents it.
+
+    **Configuration writes need one from §16 item 4 onwards.** Before that, a
+    loopback bind was itself the permission, so a test could change a provider
+    or a pool with a bare `TestClient(app)`. That is the bypass item 4 removed:
+    administration used to arrive free with the ability to call the gateway.
+
+    Tests of the *feature* — does the toggle round-trip, does a filter select
+    what it says — take this and get on with it. Tests of the *boundary* build
+    their identity themselves, because what they are asserting is which callers
+    the guard turns away.
+    """
+    store.store("admin.tests", ADMIN_SECRET)
+    return {"Authorization": f"Bearer {ADMIN_SECRET}"}

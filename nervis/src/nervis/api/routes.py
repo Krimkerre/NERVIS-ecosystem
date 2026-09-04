@@ -438,6 +438,71 @@ async def forget_ravis_credential(name: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
+@router.put("/ravis/providers/{name}/enabled")
+async def set_ravis_provider_enabled(name: str, request: Request) -> Any:
+    """Turn one RAVIS provider on or off, with NERVIS's admin credential.
+
+    The four configuration proxies below exist for the reason §16 item 4 gives:
+    RAVIS stopped treating a loopback bind as authorization, and the browser must
+    not be handed the credential that replaces it. NERVIS already holds one and
+    already proxies the credential writes this way, so this is the same hop for
+    the writes that were left behind.
+    """
+    body = await _json_body(request)
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "PUT", f"/api/v1/providers/{name}/enabled",
+        request.app.state.settings.ravis_admin_credential,
+        {"enabled": bool(body.get("enabled"))},
+    )
+    return JSONResponse(answered, status_code=status)
+
+
+@router.put("/ravis/providers/{name}/models")
+async def set_ravis_model_filter(name: str, request: Request) -> Any:
+    """Narrow which of a provider's models RAVIS will offer."""
+    body = await _json_body(request)
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "PUT", f"/api/v1/providers/{name}/models",
+        request.app.state.settings.ravis_admin_credential,
+        dict(body),
+    )
+    return JSONResponse(answered, status_code=status)
+
+
+@router.put("/ravis/pools/{pool_key}/members")
+async def set_ravis_pool_members(pool_key: str, request: Request) -> Any:
+    """Pin a pool to chosen models, or clear the pin.
+
+    This one decides which models every client of that pool can reach, which is
+    why it was named in the audit beside the credential writes.
+    """
+    body = await _json_body(request)
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "PUT", f"/api/v1/pools/{pool_key}/members",
+        request.app.state.settings.ravis_admin_credential,
+        dict(body),
+    )
+    return JSONResponse(answered, status_code=status)
+
+
+@router.post("/ravis/pools/curate")
+async def curate_ravis_pools(request: Request) -> Any:
+    """Hand every pool back to its curated default — a removal, not a write."""
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "POST", "/api/v1/pools/curate",
+        request.app.state.settings.ravis_admin_credential,
+    )
+    return JSONResponse(answered, status_code=status)
+
+
 @router.get("/ravis/routes/for/{request_id}")
 async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]:
     """The route decision behind one request (§7.1).

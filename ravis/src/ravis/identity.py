@@ -88,6 +88,18 @@ class ClientApplication:
     # worse than no field at all.
     may_write_credentials: bool = False
 
+    # §16 item 4's separate authorization for *configuration*: enabling a
+    # provider, narrowing a catalogue, re-pointing a pool. Granted by the same
+    # `admin.` prefix as `may_write_credentials` and kept as its own field
+    # because they are different powers that happen to share a grantor today —
+    # a future operator role that may toggle a provider but never touch a key
+    # changes one of these and not the other.
+    #
+    # False for an ordinary client credential, which is the point. Clarvis holds
+    # one; a bug in an agent loop must not be able to disable a provider for
+    # every other client on the machine.
+    may_write_configuration: bool = False
+
     # The most *permissive* privacy posture this identity may operate at
     # (§9.6.0's "no privacy level above NORMAL" for anonymous). A request may
     # tighten past it and may never loosen below it — see `policy.py`, which
@@ -169,6 +181,7 @@ def _named_application(
         # keys — never a separate kind of caller, so everything else about it
         # (rate limit, policy, privacy ceiling) is resolved exactly as before.
         may_write_credentials=administrative,
+        may_write_configuration=administrative,
         max_privacy_level=PrivacyLevel.NORMAL,
     )
 

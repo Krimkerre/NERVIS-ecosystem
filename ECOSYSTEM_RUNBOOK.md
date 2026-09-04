@@ -1114,7 +1114,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       site with DOM nodes/`textContent` or one reviewed escaping layer. Set
       `injection_check.js`'s `CEILING` to `0`. Tests: attribute breakout, element insertion,
       `<img onerror>` and equivalent payloads, malformed markup, on every affected screen.
-- [ ] **4. RAVIS administration/inference separation.** An explicit service-control permission
+- [x] **4. RAVIS administration/inference separation.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* An explicit service-control permission
       gates every mutation (providers, model filters, pools, policies, budgets, credentials).
       Loopback origin alone must stop granting it. Anonymous and ordinary inference credentials
       get 403 on every management mutation; authorized administration stays audited and tested.

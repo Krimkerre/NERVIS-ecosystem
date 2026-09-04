@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2197 tests, no network, no live service
+.venv/bin/pytest                      # part of 2203 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 442 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 800 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 804 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2197 passing across the four, conformance `PASS`.
+Expected: all clean, 2203 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11410,6 +11410,60 @@ has shown can.
 Verified in the browser as well as by gate: the six touched screens render
 correctly with no tag text on screen, checked by scanning each one's rendered
 text rather than by looking at a screenshot.
+
+## Administration arrived free with the ability to send a prompt — 2026-09-04
+
+**§16 item 4, and verifying the finding changed it.** The audit said RAVIS's
+mutations lacked a control-role check. Read directly, four of the six already
+had one and the two credential writes were exactly right — an `admin.`-prefixed
+credential, no loopback bypass, refusing an ordinary client credential by
+design. The gap was one function.
+
+`_may_write` opened with `if settings.is_loopback_bind(): return None`. The
+identity check below it never ran on a default install, and after §16 item 2
+made loopback the only bind that starts, it never ran at all. So every
+configuration write — enabling a provider, narrowing a catalogue, re-pointing a
+pool — was unauthenticated, and the demonstration is one line: an unauthenticated
+`PUT /api/v1/providers/openai/enabled` answered **200 OK**.
+
+The consequence is the one §15.1 already wrote down for keys, one surface along:
+**administration arrived free with the ability to call the gateway.** Clarvis
+holds an ordinary client credential, so "any local process" was never
+hypothetical — a bug in an agent loop could have disabled a provider for
+everything else on the machine.
+
+**The codebase argued against this fix, and the argument was answered rather
+than overruled.** A test named `test_configuration_writes_are_not_held_to_the
+_credential_bar` asserted the opposite, reasoning that holding configuration to
+the credential bar "would take the Providers screen away from a loopback install
+to close a gap about keys — a real cost for no gain". That was true of the screen
+as it stood: the browser called RAVIS directly and had nothing to present, so a
+bar here was a bar on the user.
+
+What changed is the screen. The five writes now go through NERVIS, which already
+holds the `admin.` credential and already proxied the credential writes the same
+way — `peers/ravis.py` gained one `configure()` beside `write_credential`, and
+`api/routes.py` four thin routes. **The browser never holds the credential**,
+which is the whole reason for the hop: a runtime token in a tab is not an
+administrative secret, and a page cannot be given one it must not keep.
+
+`may_write_configuration` is its own field beside `may_write_credentials` rather
+than one flag for both. Same grantor today; different powers, and an operator
+role that may toggle a provider but never touch a key changes one and not the
+other.
+
+**Proven from both ends, and then through the button.** Direct to RAVIS with no
+credential is `403`; through NERVIS it is `200`. Then the Providers screen was
+driven in the browser with `fetch` instrumented: clicking the toggle issues
+`PUT /api/v1/ravis/providers/default/enabled` — NERVIS, not RAVIS — with no
+refusal, and the provider was flipped off and back on so nothing was left
+changed.
+
+Five existing tests broke and were right to: they exercised the feature without
+presenting a credential, which is precisely what stopped being allowed. They
+take a shared `as_administrator` helper now, which says in one place that a test
+of the feature acts as the operator while a test of the boundary builds its own
+identity.
 
 ## Starting the thing
 

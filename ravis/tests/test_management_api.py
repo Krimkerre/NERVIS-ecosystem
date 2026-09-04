@@ -7,6 +7,7 @@ here can leak a credential.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from tests.conftest import as_administrator
 from tests.conftest_upstream import RecordingUpstream
 from tests.test_transparent_proxy import _app_with
 
@@ -27,7 +28,13 @@ READ_ENDPOINTS = [
 
 
 def _client() -> TestClient:
+    """The app, with an admin credential presented.
+
+    Configuration writes need one from §16 item 4 onwards; the reads in this
+    file never did and are unaffected by carrying it.
+    """
     client, _ = _app_with(RecordingUpstream())
+    client.headers.update(as_administrator(client.app.app.state.credentials))
     return client
 
 

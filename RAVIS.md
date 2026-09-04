@@ -1038,6 +1038,33 @@ GET /api/v1/health          /api/v1/route-decisions
 List responses use `{items, next_cursor, snapshot_revision}`. Provider and model results are
 redacted and capability-evidenced.
 
+**Who may write, and why being local is not an answer.** The mutating half of this
+surface — enabling a provider, narrowing a catalogue, re-pointing a pool, and the
+credential writes §15.1 already separated — requires an `admin.`-prefixed credential.
+It does **not** accept a loopback bind as authorization, and that is a correction
+rather than a tightening for its own sake.
+
+Until 4 Sep it did. `_may_write` returned early whenever the bind was loopback, which
+after §16 item 2 made loopback the only bind that starts meant every configuration
+write was effectively unauthenticated. The consequence is the one §15.1 already
+states for keys, one surface along: **administration arrived free with the ability to
+call the gateway.** Clarvis holds an ordinary client credential, so "any local
+process" was never hypothetical — a bug in an agent loop could have disabled a
+provider for everything else on the machine.
+
+An ordinary client credential is therefore refused here, exactly as it is for keys.
+Two predicates rather than one — `may_write_configuration` and
+`may_write_credentials` — because they are different powers that share a grantor
+today, and an operator role that may toggle a provider but never touch a key changes
+one and not the other.
+
+**The dashboard did not lose the screen.** The objection to this bar, recorded when
+the split was first made, was that it "would take the Providers screen away from a
+loopback install" — true while the browser called RAVIS directly with nothing to
+present. Those five writes now go through NERVIS, which holds the `admin.` credential
+the launcher mints and already proxied the credential writes the same way. The
+credential never reaches the browser, which is the point of the hop.
+
 `/api/v1/pools` reads the `VirtualModelPool` set with each pool's declared requirements and its
 **currently eligible members, derived rather than stored** (§5.2) — so an installed model that
 gains or loses a capability moves the membership without anyone editing a list.

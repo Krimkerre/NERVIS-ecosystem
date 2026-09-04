@@ -7878,7 +7878,10 @@ const POOLEDIT={
   if(!models.length&&st.on.size!==st.all.length
      &&!armed('pool:'+pool,'Nothing is ticked, which leaves this pool with no members and every request to it refused'))return;
   try{
-   const r=await fetch(BASE.ravis+'/api/v1/pools/'+encodeURIComponent(key)+'/members',
+   /* Through NERVIS, which holds RAVIS's admin credential (§16 item 4). RAVIS
+      no longer takes a loopback bind as authorization for a write like this,
+      and the browser must not be given the credential that replaced it. */
+   const r=await fetch('/api/v1/ravis/pools/'+encodeURIComponent(key)+'/members',
      {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({models})});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
    const d=await r.json();
@@ -7914,7 +7917,7 @@ async function curatePools(){
  if(!armed('pool:curate','This discards every per-pool selection you made by hand'))return;
  if(note)note.textContent='resetting…';
  try{
-  const r=await fetch(BASE.ravis+'/api/v1/pools/curate',
+  const r=await fetch('/api/v1/ravis/pools/curate',
     {method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   if(!r.ok){if(note)note.textContent='RAVIS refused: HTTP '+r.status;return}
   if(note)note.textContent=curateOutcome(await r.json());
@@ -8784,7 +8787,7 @@ const PROVIDERS={
   const body={include:all?[]:[...st.on],exclude:[]};
   if(!all&&!st.on.size&&!armed('filter:'+name,'Nothing is ticked, which leaves this provider with no models at all'))return;
   try{
-   const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/models',
+   const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/models',
     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}
@@ -8798,7 +8801,7 @@ const PROVIDERS={
    include:split((document.getElementById(domId('mfi',name))||{}).value),
    exclude:split((document.getElementById(domId('mfe',name))||{}).value)};
   try{
-   const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/models',
+   const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/models',
     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}
@@ -8806,7 +8809,7 @@ const PROVIDERS={
  },
  async toggle(name,enabled){
   try{
-   const r=await fetch(BASE.ravis+'/api/v1/providers/'+encodeURIComponent(name)+'/enabled',
+   const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/enabled',
     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}

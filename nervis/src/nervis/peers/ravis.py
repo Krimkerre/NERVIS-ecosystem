@@ -138,6 +138,49 @@ async def forget_credential(
     )
 
 
+async def configure(
+    client: httpx.AsyncClient,
+    entry: RegistryEntry | None,
+    method: str,
+    path: str,
+    credential: str,
+    body: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """One configuration write, on the operator's behalf (§16 item 4).
+
+    **The same move `write_credential` already made, for the other four writes.**
+    RAVIS used to take a loopback bind as authorization for enabling a provider,
+    narrowing a catalogue or re-pointing a pool, so the dashboard `PUT` straight
+    to RAVIS with no header and it worked. That bypass meant administration
+    arrived free with the ability to call the gateway — Clarvis holds an ordinary
+    client credential, and a bug in an agent loop could have disabled a provider
+    for everything else on the machine.
+
+    So these travel here instead, and NERVIS presents the `admin.` credential the
+    launcher minted for it. **The browser never holds it**, which is the reason
+    for the hop: a page cannot be given a secret it must not keep, and a runtime
+    token in a tab is not the same thing as an administrative credential.
+
+    `method` and `path` are parameters rather than four near-identical functions
+    because the four differ in nothing else, and a copy is how one of them ends
+    up without the header — the note on `_credential_call` says the same thing
+    one surface along.
+    """
+    if entry is None or not entry.declaration.base_url:
+        return 503, {"message": "RAVIS is not registered"}
+    if not credential:
+        return 403, {
+            "message": (
+                "NERVIS holds no admin credential for RAVIS, so it cannot change its "
+                "configuration. The launcher mints one at start; if RAVIS was started "
+                "another way, set NERVIS_RAVIS_ADMIN_CREDENTIAL."
+            )
+        }
+    return await _credential_call(
+        client, method, f"{entry.declaration.base_url}{path}", credential, body
+    )
+
+
 async def _credential_call(
     client: httpx.AsyncClient,
     method: str,
