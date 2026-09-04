@@ -735,7 +735,7 @@ async def curate_pools(request: Request) -> Any:
     """
     refusal = _may_write(request)
     if refusal is not None:
-        return _refused(refusal)
+        return _refused(request, refusal)
     candidates, remote = await _pool_candidates(request)
     prices = {model: known.price_per_million for model, known in candidates.items()}
     applied = []
@@ -779,7 +779,7 @@ async def set_pool_members(
     # anonymous caller re-point every client's routing.
     refusal = _may_write(request)
     if refusal is not None:
-        return _refused(refusal)
+        return _refused(request, refusal)
     pool_id = f"{POOL_PREFIX}{pool_key}" if not pool_key.startswith(POOL_PREFIX) else pool_key
     pool = POOLS_BY_ID.get(pool_id)
     if pool is None:

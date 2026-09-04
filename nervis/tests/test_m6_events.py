@@ -616,9 +616,13 @@ def test_a_cursor_older_than_retention_is_refused_rather_than_silently_moved() -
     response = api.get("/api/v1/events/stream", headers={"last-event-id": "1"})
 
     assert response.status_code == 409
-    body = response.json()["detail"]
+    # §16 item 10: an HTTPException carries the §4.5 envelope now, so the
+    # refusal reads off `error` like every other refusal in the ecosystem.
+    body = response.json()["error"]
     assert body["code"] == "EVENT_CURSOR_EXPIRED"
-    assert body["oldest_sequence"] == 3
+    # The retention floor moved into `details`, which is where §4.5 puts
+    # everything a refusal carries beyond its code and message.
+    assert body["details"]["oldest_sequence"] == 3
 
 
 def test_a_cursor_that_is_not_a_number_is_refused() -> None:
@@ -634,7 +638,7 @@ def test_a_cursor_that_is_not_a_number_is_refused() -> None:
     response = api.get("/api/v1/events/stream", headers={"last-event-id": "not-a-number"})
 
     assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "EVENT_CURSOR_INVALID"
+    assert response.json()["error"]["code"] == "EVENT_CURSOR_INVALID"
 
 
 def test_a_cursor_inside_retention_still_resumes() -> None:

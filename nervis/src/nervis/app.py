@@ -27,6 +27,7 @@ from ecosystem_protocol import new_request_id, new_traceparent, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from nervis import background, documents, logs, notifications, supervision
 from nervis.api import (
@@ -226,6 +227,44 @@ def _register_error_handling(api: FastAPI) -> None:
     @api.exception_handler(NervisError)
     async def handle_nervis_error(request: Request, exc: NervisError) -> JSONResponse:
         return to_response(request, exc)
+
+    @api.exception_handler(StarletteHTTPException)
+    async def handle_http_exception(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """The refusals NERVIS did not raise itself (§16 item 10).
+
+        **One translation point was one too few.** `NervisError` was covered;
+        everything FastAPI raises on its own was not, so a 404 for a path that
+        does not exist and the events stream's own `409 EVENT_CURSOR_EXPIRED`
+        both arrived as `{"detail": …}` — Starlette's shape, not §4.5's. A
+        client parsing the envelope would have found no `error` object at all on
+        exactly the responses it most needs to read.
+
+        A `detail` that is already a mapping carries its own `code` and extras —
+        the cursor refusal names the retention floor — so it is unpacked rather
+        than stringified into the message.
+        """
+        detail = exc.detail
+        structured = detail if isinstance(detail, dict) else {}
+        message = str(structured.get("message") or detail)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": str(structured.get("code") or f"HTTP_{exc.status_code}"),
+                    "message": message,
+                    "retryable": exc.status_code in (429, 503),
+                    "details": {
+                        key: value for key, value in structured.items()
+                        if key not in ("code", "message")
+                    },
+                    "request_id": getattr(request.state, "request_id", ""),
+                    "trace_id": getattr(request.state, "trace_id", ""),
+                }
+            },
+            headers=getattr(exc, "headers", None),
+        )
 
 
 def _register_correlation(api: FastAPI) -> None:

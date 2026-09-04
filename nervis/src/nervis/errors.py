@@ -106,6 +106,12 @@ def to_response(request: Request, error: NervisError) -> JSONResponse:
             "error": {
                 "code": error.code,
                 "message": error.message,
+                # Retryability is a property of the failure, not of the
+                # caller's patience: a rate limit clears on its own, a rejected
+                # credential never will. §4.5 lists it and this envelope omitted
+                # it, so every client had to infer from the status code what the
+                # service already knew (§16 item 10).
+                "retryable": error.status in (429, 503),
                 "details": error.details,
                 "request_id": getattr(request.state, "request_id", ""),
                 "trace_id": getattr(request.state, "trace_id", ""),

@@ -11856,6 +11856,50 @@ is written down here as a decision rather than taken silently: **a per-service
 pull stream is deferred until something needs one.** The route stays, the
 contract is stated, and the heartbeat is what it honestly is.
 
+## Three services, three dialects, one specification — 2026-09-04
+
+**§16 item 10, and the item's own wording was the finding.** It asks for
+conformance "proven by one production-route conformance suite that all three
+services pass, **not a standalone helper test**". Each service already tested its
+own error helper. All three passed. All three services answered differently on
+the wire:
+
+    RAVIS   PUT /api/v1/providers/…   {"error": {"message", "type"}}
+    SIRVIS  POST /api/v1/benchmark…   {"error": {"code", "message", "details", …}}
+    NERVIS  GET  /ecosystem/events    {"detail": {"code", "message", …}}
+
+A helper test proves the helper. §4.5 governs what a *route* returns, and
+nothing was reading that.
+
+**RAVIS's helper was right and its route never called it.** `to_response` picks
+the OpenAI shape for `/v1` and the MEP envelope for everything else — correct,
+and `_refused` in the management module hand-built `{"message", "type"}` instead,
+so the branch that would have chosen right was never consulted. It raises
+`ForbiddenError` now and the existing translation does the rest.
+
+**`retryable` was missing from two of the three**, and it is the field with the
+most to say: a rate limit clears on its own and a missing scope never will, so a
+client without it has to infer from the status code what the service already
+knew. RAVIS had it. NERVIS and SIRVIS did not, and §4.5 has listed it throughout.
+
+**And one translation point was one too few, in all three.** Each service caught
+its own error type and nothing caught what the framework raises, so a 404 for a
+path that does not exist — and NERVIS's own `409 EVENT_CURSOR_EXPIRED` — arrived
+in Starlette's `{"detail": …}`. A client parsing the envelope found no `error`
+object on exactly the responses it most needs to read. All three now translate
+`HTTPException` as well, unpacking a structured detail rather than stringifying
+it, so the cursor refusal keeps naming its retention floor — in `details`, where
+§4.5 puts what a refusal carries beyond code and message.
+
+**The gate caught its own narrowness.** The first version probed one route per
+service and passed as soon as those three were fixed. Broadened to a service's
+own refusal, a framework 404 and a media-type refusal, it immediately found the
+404 hole in RAVIS and SIRVIS that the narrow version had just declared clean.
+
+`tools/conformance_check.py` lives beside the other gates rather than in any
+package's tests, and runs in CI: a conformance check owned by one service is a
+check that service can quietly relax.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

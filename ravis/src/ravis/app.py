@@ -29,6 +29,7 @@ from ecosystem_protocol import EventPublisher, new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ravis.admission import (
     BodySizeLimiter,
@@ -465,6 +466,39 @@ def _register_error_handling(api: FastAPI) -> None:
     @api.exception_handler(RavisError)
     async def handle_ravis_error(request: Request, exc: RavisError) -> JSONResponse:
         return to_response(request, exc)
+
+    @api.exception_handler(StarletteHTTPException)
+    async def handle_http_exception(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """The refusals this service did not raise itself (§16 item 10).
+
+        One translation point was one too few: the service's own error type was
+        covered and everything the framework raises was not, so a 404 for a path
+        that does not exist arrived as Starlette's `{"detail": …}` rather than
+        §4.5's envelope. A client parsing the envelope found no `error` object at
+        all on exactly the responses it most needs to read.
+        """
+        detail = exc.detail
+        structured = detail if isinstance(detail, dict) else {}
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": str(structured.get("code") or f"HTTP_{exc.status_code}"),
+                    "message": str(structured.get("message") or detail),
+                    "retryable": exc.status_code in (429, 503),
+                    "details": {
+                        key: value for key, value in structured.items()
+                        if key not in ("code", "message")
+                    },
+                    "request_id": getattr(request.state, "request_id", ""),
+                    "trace_id": getattr(request.state, "trace_id", ""),
+                }
+            },
+            headers=getattr(exc, "headers", None),
+        )
+
 
 
 def _translating_adapters(

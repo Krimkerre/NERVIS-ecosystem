@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from ravis.api.management import audit
 from ravis.credentials import CredentialStore
+from ravis.errors import ForbiddenError, to_response
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
 from ravis.reliability.failures import FailureClass, HealthScope
@@ -100,8 +101,15 @@ def _store(request: Request) -> CredentialStore:
     return request.app.state.credentials  # type: ignore[no-any-return]
 
 
-def _refused(detail: str) -> JSONResponse:
-    return JSONResponse({"error": {"message": detail, "type": "forbidden"}}, status_code=403)
+def _refused(request: Request, detail: str) -> JSONResponse:
+    """The refusal, in the dialect this path owes (§16 item 10).
+
+    Built through `to_response` rather than by hand. The hand-written version
+    answered `/api/v1` in the OpenAI shape — no `code`, no `retryable`, no
+    correlation ids — while `to_response` had picked the right shape by path
+    prefix all along and was never called.
+    """
+    return to_response(request, ForbiddenError(detail))
 
 
 def _may_write(request: Request) -> str | None:
@@ -218,7 +226,7 @@ async def set_credential(name: str, body: CredentialInput, request: Request) -> 
     """Store one provider credential, replacing any previous value."""
     refusal = _may_write_credentials(request)
     if refusal:
-        return _refused(refusal)
+        return _refused(request, refusal)
     if not body.secret.strip():
         return JSONResponse(
             {"error": {"message": "credential must not be empty",
@@ -287,7 +295,7 @@ async def forget_credential(name: str, request: Request) -> Any:
     """
     refusal = _may_write_credentials(request)
     if refusal:
-        return _refused(refusal)
+        return _refused(request, refusal)
     status = _store(request).forget(name)
     # `still_configured` is the fact worth auditing: a delete that leaves the
     # credential in place from the environment or the Keychain is not a failed
@@ -311,7 +319,7 @@ async def set_enabled(name: str, body: EnabledInput, request: Request) -> Any:
     """
     refusal = _may_write(request)
     if refusal:
-        return _refused(refusal)
+        return _refused(request, refusal)
     state: ProviderState = request.app.state.provider_state
     enabled = state.set_enabled(name, body.enabled)
     audit.record(request, audit.ACTION_PROVIDER_ENABLED, provider=name, enabled=enabled)
@@ -468,7 +476,7 @@ async def set_model_filter(name: str, body: FilterInput, request: Request) -> An
     """Replace one provider's filter, and report what it now selects."""
     refusal = _may_write(request)
     if refusal:
-        return _refused(refusal)
+        return _refused(request, refusal)
     filters: ModelFilters = request.app.state.model_filters
     filters.set_for(
         name, ModelFilter(include=tuple(body.include), exclude=tuple(body.exclude))

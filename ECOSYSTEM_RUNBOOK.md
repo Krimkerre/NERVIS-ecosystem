@@ -1146,7 +1146,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       existing private event stream becomes the canonical implementation or a thin alias to it.
       **Largest single item here — size and schedule it separately, not inside a stabilization
       sprint cadence.**
-- [ ] **10. Shared event/error/capability conformance.** The protocol package validates every
+- [x] **10. Shared event/error/capability conformance.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. `tools/conformance_check.py`, in CI.)* The protocol package validates every
       mandatory envelope field, semantic versions, the four capability states and their reasons,
       the canonical error envelope including `retryable`, correct 400/401/403/409/415/429/500/
       503 mapping — proven by one production-route conformance suite all three services pass,

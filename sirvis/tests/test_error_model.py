@@ -41,7 +41,12 @@ def test_a_failure_carries_the_shape_the_specification_publishes() -> None:
     body = response.json()
 
     assert response.status_code == 404
-    assert set(body["error"]) == {"code", "message", "details", "request_id", "trace_id"}
+    # `retryable` joined the set at §16 item 10 — §4.5 always listed it and this
+    # envelope always omitted it, so a client could not tell "wait and try
+    # again" from "this will never work" without reading the status itself.
+    assert set(body["error"]) == {
+        "code", "message", "retryable", "details", "request_id", "trace_id",
+    }
     assert body["error"]["code"] == "MODEL_NOT_FOUND"
 
 

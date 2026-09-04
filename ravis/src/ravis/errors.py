@@ -113,6 +113,24 @@ class UnsupportedMediaTypeError(RavisError):
     status = 415
 
 
+class ForbiddenError(RavisError):
+    """An authenticated caller asking for something it may not have (§16 item 10).
+
+    **Added because the management routes were hand-building their refusal.**
+    `_refused` returned `{"error": {"message", "type": "forbidden"}}` — the
+    OpenAI dialect — from `/api/v1`, where §4.5's MEP envelope applies. Both
+    shapes were already implemented correctly in `to_response`, which picks by
+    path prefix; the route simply never reached it, so the branch that would have
+    chosen right was never consulted.
+
+    Not retryable, and that is the point of the field: an admin credential does
+    not arrive by waiting.
+    """
+
+    code = "FORBIDDEN"
+    status = 403
+
+
 class NotFoundError(RavisError):
     """The addressed thing does not exist, or no longer does.
 

@@ -139,6 +139,14 @@ jobs:
       - name: the build plans are readable and complete
         run: python3 tools/check_plans.py
 
+      # **One suite, three services, their real routes (§16 item 10).** Each
+      # service tested its own error helper and all three passed while the
+      # services answered in three different dialects on the wire — a helper
+      # test proves the helper, and §4.5 governs what a *route* returns. This
+      # drives all three applications and reads what comes back.
+      - name: the three services answer one error envelope
+        run: python3 tools/conformance_check.py
+
   prototype:
     name: nervis — parse, endpoints, citations
     runs-on: ubuntu-latest
