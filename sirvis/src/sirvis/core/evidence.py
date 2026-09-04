@@ -360,6 +360,33 @@ def _canonical(mapping: Mapping[str, Any]) -> str:
     return ";".join(f"{key}={mapping[key]}" for key in sorted(mapping))
 
 
+class ValidityScope(str, Enum):
+    """What a validity warning actually undermines (§16 item 7).
+
+    **A record-level flag was too blunt to act on.** 44 of 93 records on the
+    machine this was written against were `SUSPECT`, and a consumer had two
+    equally wrong options: trust them all, or discard them all. Twenty-one were
+    suspect because the machine was thermally throttled — a 48% swing in
+    tokens/second, per `_thermal_warnings`, and no evidence at all about whether
+    the model formed well-formed tool calls. Discarding that is losing a correct
+    measurement because the room was warm.
+
+    Three scopes, because that is how the producers already divide and no finer
+    division is currently observable. A warning nobody can place stays
+    `CONDITIONS`, which is the conservative reading: it taints everything.
+    """
+
+    #: The rate numbers describe something other than the model — thermal
+    #: pressure, swap. Correctness claims on the same run are unaffected.
+    TIMING = "TIMING"
+    #: What came back is in question: tokens that never arrived as content,
+    #: unexpected generation stops. Timing may still be sound.
+    OUTPUT = "OUTPUT"
+    #: The run did not answer the question asked — a configuration mismatch, an
+    #: adapted prompt — so nothing measured on it is safe to reuse.
+    CONDITIONS = "CONDITIONS"
+
+
 class Validity(str, Enum):
     """Whether the conditions of a run allow its numbers to be believed (§11.8).
 
@@ -403,6 +430,12 @@ class EvidenceRecord:
     # fact from requesting and receiving the same value — so it is stored either
     # way rather than omitted when it matches.
     requested_configuration: Mapping[str, Any] = field(default_factory=dict)
+
+    # Which parts of this record the notes above call into question. Empty on a
+    # `VALID` record, and empty on records written before this existed — a
+    # reader must treat "no scopes" as "not stated" rather than as "nothing
+    # affected", which is why RAVIS keeps its previous behaviour for them.
+    validity_scopes: tuple[ValidityScope, ...] = ()
     machine_snapshot_id: str | None = None
     sirvis_version: str = "0.0.1"
 
@@ -432,6 +465,7 @@ class EvidenceRecord:
             "validity": self.validity.value,
             "validity_notes": list(self.validity_notes),
             "requested_configuration": dict(self.requested_configuration),
+            "validity_scopes": [scope.value for scope in self.validity_scopes],
             "machine_snapshot_id": self.machine_snapshot_id,
             "sirvis_version": self.sirvis_version,
         }

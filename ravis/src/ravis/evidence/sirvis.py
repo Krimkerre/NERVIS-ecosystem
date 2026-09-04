@@ -176,6 +176,11 @@ class EvidenceRecord:
     measured_at: str
     age_seconds: float | None
     samples: int
+    #: Which parts of the record its validity notes call into question, as
+    #: SIRVIS declared them (§16 item 7). Empty means *not stated* — every
+    #: record written before scopes existed has none — and is deliberately not
+    #: read as "nothing affected".
+    validity_scopes: tuple[str, ...] = ()
     metrics: Mapping[str, Any] = field(default_factory=dict)
     evidence_ref: str = ""
 
@@ -331,20 +336,33 @@ def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
             f"evidence is {record.provenance.value}, which cannot establish a capability",
             record,
         )
+    tainted = {scope.upper() for scope in record.validity_scopes} & {"OUTPUT", "CONDITIONS"}
+    if tainted:
+        # **The scope decides, not the flag (§16 item 7).** A tool-call verdict
+        # is a claim about what came back, so a warning about what came back —
+        # or about the run having answered a different question entirely —
+        # cannot establish it. A warning about *timing* can: a heat-soaked
+        # machine swings tokens/second by 48% and says nothing about whether the
+        # calls were well formed, and demoting on it would discard a correct
+        # measurement because the room was warm.
+        return EvidenceVerdict(
+            CapabilityState.UNKNOWN,
+            f"SIRVIS marked this evidence SUSPECT for {', '.join(sorted(tainted))}, "
+            "which is what this capability is measured from",
+            record,
+        )
     if record.validity.upper() == "INVALID":
         # **The same rule, for a measurement SIRVIS itself disowned (§16 item 7).**
         # `validity` was ingested here and read nowhere, so a record SIRVIS marked
         # unusable routed exactly as a clean one did — the shape of §16 items 2
         # and 4, where a value is computed correctly and applied nowhere.
         #
-        # `SUSPECT` is deliberately *not* caught. On the machine this was written
-        # against, 21 of the suspect records are suspect because it was thermally
-        # throttled — which undermines a *rate* and says nothing about whether the
-        # model formed well-formed tool calls. Demoting a capability on that would
-        # discard correct evidence because the room was warm. Which metric a
-        # warning undermines is SIRVIS's to express rather than RAVIS's to infer
-        # from prose, and until it does, suspect evidence counts and the route
-        # explanation says it was suspect.
+        # `SUSPECT` alone is still not caught, and now for a better reason than
+        # "RAVIS cannot tell": SIRVIS states the scope, and the check above reads
+        # it. A record suspect only for TIMING establishes this capability —
+        # a heat-soaked machine swings tokens/second by 48% and says nothing
+        # about whether calls were well formed. An unscoped one predates scopes
+        # entirely, counts as it always did, and carries the caveat.
         return EvidenceVerdict(
             CapabilityState.UNKNOWN,
             "SIRVIS marked this evidence INVALID, which cannot establish a capability",
@@ -394,6 +412,14 @@ def _caveat(record: EvidenceRecord) -> str:
     that nobody flagged to them.
     """
     if record.validity.upper() != "SUSPECT":
+        return ""
+    # A record whose only warnings are about timing is not a caveat on a
+    # correctness claim, so it does not earn one here. An *unscoped* suspect
+    # record does: "not stated" is not "nothing affected", and the honest
+    # handling of not-stated is to count it and say so.
+    if record.validity_scopes and not (
+        {scope.upper() for scope in record.validity_scopes} - {"TIMING"}
+    ):
         return ""
     return " — on evidence SIRVIS marked SUSPECT"
 
@@ -914,6 +940,9 @@ def _read_record(item: Any, by_variant: Mapping[str, str]) -> EvidenceRecord | N
             str(item.get("evidence_type") or ""), EvidenceProvenance.UNKNOWN
         ),
         validity=str(item.get("validity") or ""),
+        validity_scopes=tuple(
+            str(scope) for scope in (item.get("validity_scopes") or [])
+        ),
         measured_at=str(item.get("measured_at") or ""),
         age_seconds=_age(item.get("age_seconds")),
         samples=int(item.get("samples") or 0),

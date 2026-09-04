@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2249 tests, no network, no live service
+.venv/bin/pytest                      # part of 2259 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 449 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 454 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2249 passing across the four, conformance `PASS`.
+Expected: all clean, 2259 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11691,17 +11691,34 @@ the right argument attached: *"§13.3: never upgrade. An estimate cannot
 establish an invariant."* A measurement SIRVIS itself disowned is the same case,
 and now gets the same answer.
 
-**`SUSPECT` is deliberately not demoted, and the reasoning is the point.** Of
-those 44, twenty-one are suspect because the machine was thermally throttled.
-That undermines a *rate*; it says nothing about whether the model formed
-well-formed tool calls. Demoting a capability on it would discard correct
-evidence because the room was warm. Which metric a warning undermines is
-SIRVIS's to express rather than RAVIS's to infer from prose — so suspect
-evidence still counts, and the route explanation now says it was suspect. §9.7
-asks a route to explain itself; "chosen on a measurement its own producer
-flagged" is exactly what that is for. `INVALID` is caught outright: nothing on
-this machine carries it, which is why the guard costs nothing to add now and
-would cost something to add after the first one arrived.
+**`SUSPECT` is not demoted wholesale, and the first version of this said RAVIS
+could not do better because the reason lives in prose.** Asked whether the tool
+trials could count while the speed numbers did not, the answer is yes — by
+having SIRVIS say what each warning undermines instead of RAVIS guessing.
+
+`ValidityScope` is three values, because that is how the producers already
+divide: `TIMING` (thermal, swap — the rate describes something other than the
+model), `OUTPUT` (tokens that never arrived as content — what came back is in
+question), `CONDITIONS` (a configuration mismatch or an adapted prompt — the run
+answered a different question, so nothing on it is safe). The scope is attached
+to the producing function rather than to a table beside the call site, because
+`_thermal_warnings` is the thing that knows a heat-soaked run swings
+tokens/second by 48% and says nothing about correctness.
+
+RAVIS's `tool_verdict` is a claim about what came back, so it refuses `OUTPUT`
+and `CONDITIONS` and accepts `TIMING` — the twenty-one thermally-throttled
+records now establish tool-call capability, and their rates remain flagged for
+anyone reading those. An **unscoped** record predates the field and keeps its
+previous behaviour exactly: empty means *not stated*, never *nothing affected*,
+so reading it as clean would trust 44 records blindly and reading it as tainted
+would demote them on no evidence. `INVALID` is caught outright regardless of
+scope — nothing carries it today, which is why the guard is free now and would
+not be after the first one arrived.
+
+A test covers the seam between the services, because that is where a field like
+this normally dies: everything either side can be right while the parser drops
+the key, which is precisely how `validity` itself came to be ingested and never
+read.
 
 **What item 7 literally asked for was the data.** The stored configuration is
 `{**spec.load, **effective}`, so effective overwrites requested and only the

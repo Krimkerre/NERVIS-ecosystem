@@ -56,6 +56,7 @@ from sirvis.core.evidence import (
     Provenance,
     TrialRate,
     Validity,
+    ValidityScope,
 )
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import record_snapshot
@@ -966,6 +967,24 @@ def _effective_configuration(
     }
 
 
+def _scoped(scope: ValidityScope) -> Any:
+    """Tag a warning producer with what its warnings undermine (§16 item 7).
+
+    On the function rather than in a lookup table beside the call site, because
+    the producer is the thing that knows: `_thermal_warnings` has a docstring
+    explaining that a heat-soaked run swings tokens/second by 48% and says
+    nothing about correctness. A table elsewhere would be that knowledge stored
+    where it is not maintained.
+    """
+
+    def attach(producer: Any) -> Any:
+        producer.scope = scope
+        return producer
+
+    return attach
+
+
+@_scoped(ValidityScope.CONDITIONS)
 def _configuration_warnings(spec: ExperimentSpec, resident: Sequence[LoadedModel]) -> list[str]:
     """§7.1 and §11.8: an effective configuration that is not the requested one.
 
@@ -1002,10 +1021,25 @@ def _evidence(
     one (M7).
     """
     measured = [r for r in outcome.repetitions if r.phase == "measured"]
-    warnings = list(outcome.warnings) + _generation_warnings(measured)
-    warnings += _suppression_warnings(outcome, measured)
-    warnings += _thermal_warnings(outcome)
-    warnings += _swap_warnings(outcome)
+    # **Assembled with the scope each producer declares**, so a reader can ask
+    # "is the timing trustworthy" without parsing prose (§16 item 7).
+    # `outcome.warnings` is whatever ran earlier — the configuration comparison
+    # among it — and is read as CONDITIONS, the conservative scope: a warning
+    # nobody can place must taint everything rather than nothing.
+    scoped: list[tuple[ValidityScope, str]] = [
+        (ValidityScope.CONDITIONS, note) for note in outcome.warnings
+    ]
+    for producer, argument in (
+        (_generation_warnings, measured),
+        (_thermal_warnings, outcome),
+        (_swap_warnings, outcome),
+    ):
+        scoped += [(producer.scope, note) for note in producer(argument)]
+    scoped += [
+        (_suppression_warnings.scope, note)
+        for note in _suppression_warnings(outcome, measured)
+    ]
+    warnings = [note for _, note in scoped]
     # Either the runtime reported nothing, or it reported a count the content
     # stream contradicts. Both mean the numerator is inferred rather than
     # counted, and §12.1's lattice then weakens the whole record — which is the
@@ -1106,6 +1140,7 @@ def _evidence(
         rates=_rates(outcome),
         validity=Validity.SUSPECT if warnings else Validity.VALID,
         validity_notes=tuple(warnings),
+        validity_scopes=tuple(dict.fromkeys(scope for scope, _ in scoped)),
         # The request itself, unmerged. `configuration` above is
         # `{**spec.load, **effective}` because identity must name what ran; this
         # is the other half, so a reader can compare without parsing a warning.
@@ -1143,6 +1178,7 @@ def _rates(outcome: ExperimentOutcome) -> dict[str, TrialRate]:
     return rates
 
 
+@_scoped(ValidityScope.OUTPUT)
 def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
     """§11.8's validity warnings that this engine can actually observe *here*.
 
@@ -1178,6 +1214,7 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
 SWAP_GROWTH_BYTES = 256 * 1024 * 1024
 
 
+@_scoped(ValidityScope.TIMING)
 def _swap_warnings(outcome: ExperimentOutcome) -> list[str]:
     """§11.8's swap warning, which was measured everywhere and reported nowhere.
 
@@ -1208,6 +1245,7 @@ def _swap_warnings(outcome: ExperimentOutcome) -> list[str]:
     ]
 
 
+@_scoped(ValidityScope.TIMING)
 def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:
     """§11.8: flag a thermally compromised run. Never discard it.
 
@@ -1234,6 +1272,7 @@ def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:
     return []
 
 
+@_scoped(ValidityScope.CONDITIONS)
 def _suppression_warnings(
     outcome: ExperimentOutcome, measured: Sequence[Repetition]
 ) -> list[str]:

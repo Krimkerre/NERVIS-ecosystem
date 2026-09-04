@@ -13,6 +13,8 @@ item 4: a value computed correctly and then applied nowhere.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ravis.core.capabilities import CapabilityState
 from ravis.evidence.sirvis import EvidenceProvenance, EvidenceRecord, tool_verdict
 
@@ -95,3 +97,91 @@ def test_a_suspect_record_is_named_as_one_in_the_explanation() -> None:
 def test_a_clean_record_carries_no_caveat() -> None:
     """The falsifier: a caveat on everything would say nothing."""
     assert "SUSPECT" not in tool_verdict(_record("VALID")).detail
+
+
+def _scoped(validity: str, scopes: list[str]) -> EvidenceRecord:
+    record = _record(validity)
+    return replace(record, validity_scopes=tuple(scopes))
+
+
+def test_a_thermally_throttled_run_still_establishes_tool_calls() -> None:
+    """The case that made a blanket rule wrong in both directions.
+
+    A heat-soaked machine swings tokens/second by 48% — SIRVIS measured that —
+    and says nothing about whether the model formed well-formed tool calls.
+    Trusting it for the rate would be wrong; discarding the capability over it
+    throws away a correct measurement because the room was warm.
+    """
+    verdict = tool_verdict(_scoped("SUSPECT", ["TIMING"]))
+
+    assert verdict.state is CapabilityState.SUPPORTED
+    assert "SUSPECT" not in verdict.detail, (
+        "a timing warning is not a caveat on a correctness claim"
+    )
+
+
+def test_output_trouble_does_not_establish_a_capability() -> None:
+    """Tokens that never arrived as content are a fact about what came back,
+    which is exactly what a tool-call verdict is a claim about."""
+    verdict = tool_verdict(_scoped("SUSPECT", ["OUTPUT"]))
+
+    assert verdict.state is not CapabilityState.SUPPORTED
+    assert "OUTPUT" in verdict.detail
+
+
+def test_a_conditions_warning_taints_the_capability_too() -> None:
+    """It ran under settings nobody asked for, so no metric on it answers the
+    question that was asked."""
+    assert tool_verdict(
+        _scoped("SUSPECT", ["CONDITIONS"])
+    ).state is not CapabilityState.SUPPORTED
+
+
+def test_an_unscoped_suspect_record_keeps_its_previous_behaviour() -> None:
+    """Every record written before scopes existed has none.
+
+    Reading "no scopes" as "nothing affected" would trust them blindly; reading
+    it as "everything affected" would demote 44 records on this machine at once,
+    on no evidence. It means *not stated*, and the honest handling of not-stated
+    is the behaviour that was already there: it counts, and it says so.
+    """
+    verdict = tool_verdict(_scoped("SUSPECT", []))
+
+    assert verdict.state is CapabilityState.SUPPORTED
+    assert "SUSPECT" in verdict.detail
+
+
+def test_the_scopes_survive_the_hop_between_services() -> None:
+    """The seam, which is where a field like this normally dies quietly.
+
+    SIRVIS publishes `validity_scopes` in its evidence payload and RAVIS builds
+    its own record from that JSON. Everything either side of this could be
+    correct while the parser silently dropped the key — which is exactly how
+    `validity` itself came to be ingested and never read.
+    """
+    from ravis.evidence.sirvis import _read_record
+
+    parsed = _read_record(
+        {
+            "evidence_id": "ev1",
+            "sirvis_version": "0.1.0",
+            "target_key": "tk",
+            "machine_id": "m1",
+            "role": "clarvis-agent",
+            "target": {
+                "model_family": "granite", "variant": "v",
+                "runtime": "mlx", "runtime_config": {},
+            },
+            "suite": "clarvis-agent",
+            "evidence_type": "MEASURED",
+            "validity": "SUSPECT",
+            "validity_scopes": ["TIMING"],
+            "measured_at": "2026-09-04T00:00:00Z",
+            "samples": 24,
+            "metrics": {},
+        },
+        {},
+    )
+
+    assert parsed is not None
+    assert parsed.validity_scopes == ("TIMING",)

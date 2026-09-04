@@ -619,6 +619,30 @@ thermal_policy:
 
 Flag thermally compromised runs. **Do not silently discard them.**
 
+**A validity warning carries what it undermines (§16 item 7, 4 Sep).** Flagging the
+run was only half of "do not silently discard": a consumer holding one flag for the
+whole record has two equally wrong options, trust it all or drop it all. On this
+machine 44 of 93 records were `SUSPECT` and twenty-one of those only because it was
+thermally throttled — a 48% swing in tokens/second, and no evidence at all about
+whether the model formed well-formed tool calls.
+
+Every note therefore declares a `ValidityScope`:
+
+| Scope | What is in question | Producers |
+|---|---|---|
+| `TIMING` | the rate describes something other than the model | thermal, swap |
+| `OUTPUT` | what came back — tokens that never arrived as content, unexpected stops | generation |
+| `CONDITIONS` | the run answered a different question, so nothing on it is safe | configuration mismatch, prompt adaptation |
+
+The scope belongs to the producing function rather than to a table beside the call
+site, because the producer is what knows. A warning that cannot be placed is
+`CONDITIONS` — the conservative reading, tainting everything rather than nothing.
+
+Consumers read the scope against what they are claiming: RAVIS's tool-call verdict
+refuses `OUTPUT` and `CONDITIONS` and accepts `TIMING`. **An empty scope list means
+*not stated*, never *nothing affected*** — records written before this carry none,
+and a reader must keep its previous handling for them rather than infer either way.
+
 **Validity** is `VALID`, `VALID_WITH_WARNINGS` or `INVALID`. Warnings include swap, thermal
 pressure, runtime changed, background contention, unexpected generation stop, effective
 config mismatch, load instability. **Never hide an integrity problem.**
