@@ -224,3 +224,18 @@ def test_an_empty_filter_result_says_how_far_it_looked(tmp_path: Path) -> None:
     found = logs.read(tmp_path, "nervis", text="absent-word")
     assert found["items"] == []
     assert found["filtered"] is True and found["scanned"] == 50
+
+
+def test_the_listing_names_a_file_without_naming_the_machine(tmp_path: Path) -> None:
+    """§16 item 12: evidence is inspectable without exposing private paths.
+
+    The listing exists so an operator can see which log a screen is reading, and
+    `.run/nervis.log` says that as well as an absolute path does. What the
+    absolute path adds is the home directory — a username, a layout, and on a
+    surface NERVIS publishes with no authentication at all.
+    """
+    _write(tmp_path, "nervis", [{"level": "INFO", "logger": "a", "message": "here"}])
+    for one in logs.sources(tmp_path):
+        assert not one.path.startswith("/")
+        assert str(tmp_path) not in one.path
+        assert one.path.endswith(logs.FILES[one.service])

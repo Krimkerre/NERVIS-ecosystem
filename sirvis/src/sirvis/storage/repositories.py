@@ -16,6 +16,7 @@ in flight.
 from __future__ import annotations
 
 import json
+import pathlib
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -256,6 +257,22 @@ def list_runs(database: Database, limit: int = 5,
     return [_run_with_results(database, row) for row in page], following
 
 
+def shown(stored: str | None) -> str:
+    """A results directory as an operator reads it, without the machine under it.
+
+    Rows written before the launcher existed hold `results/exp_…`; rows written
+    since hold the absolute path the launcher passes in `SIRVIS_RESULTS_PATH`.
+    Publishing both as the last two segments makes them agree *and* drops the
+    home directory, which §16 item 12 asks of every inspectable surface — the
+    directory name is what lets somebody find the raw files, and the path above
+    it only says whose machine ran them.
+    """
+    if not stored:
+        return ""
+    path = pathlib.PurePath(stored)
+    return f"{path.parent.name}/{path.name}" if path.parent.name else path.name
+
+
 def _run_with_results(database: Database, row: Any) -> dict[str, Any]:
     results = database.connection.execute(
         "SELECT result_id, target_key, evidence_id, validity, payload, created_at"
@@ -270,7 +287,7 @@ def _run_with_results(database: Database, row: Any) -> dict[str, Any]:
         "detail": row["detail"],
         "runtime_key": row["runtime_key"],
         "runtime_snapshot": json.loads(row["runtime_snapshot"]),
-        "results_path": row["results_path"],
+        "results_path": shown(row["results_path"]),
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
         "results": [

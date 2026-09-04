@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2271 tests, no network, no live service
+.venv/bin/pytest                      # part of 2274 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 46 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 455 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 819 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 821 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2271 passing across the four, conformance `PASS`.
+Expected: all clean, 2274 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,95 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## The golden path, run against the running thing — 2026-09-05
+
+**§16 item 12, and the first thing to say about it is what it found.** Three
+inspectable surfaces were publishing this machine's home directory: NERVIS's
+`/api/v1/logs` (`items[].path`), its `/api/v1/learned` (`path`), and SIRVIS's
+`/api/v1/benchmark-runs` (`results_path`). All three now publish the file inside
+the directory the operator configured and nothing above it — `.run/nervis.log`,
+`knowledge/learned.md`, `results/exp_c109…`. The purpose each served survives
+intact, because "which file is this screen reading" and "where does the record
+live so I can edit it" are both answered by the relative path; what the absolute
+one added was a username and a layout, on surfaces NERVIS serves with no
+authentication of its own. A pleasant side effect on the SIRVIS half: rows
+written before the launcher existed were already relative and rows written since
+were absolute, and the two now agree.
+
+**`tools/acceptance_run.py` is the procedure, and it is not a test suite.**
+`tools/conformance_check.py` comes closest and still imports the applications and
+drives them through `TestClient` — right for a contract check, wrong for the
+question item 12 asks, which is whether four programs on one machine perform one
+task together. This one starts nothing, imports nothing from the packages, and
+speaks HTTP to whatever the launcher left running.
+
+**The order is route → measure → route again, and that is the whole design.**
+Item 12's sentence is one chain — *SIRVIS measures a model, RAVIS selects **it**,
+Clarvis works **through that route*** — so a procedure that measured the smallest
+build and then routed a pool of five hundred would prove three unrelated things
+in sequence. RAVIS names the model first; SIRVIS measures the model RAVIS named;
+RAVIS must then still select it. The run reads:
+
+    PASS  RAVIS selected exaone-deep-2.4b
+    PASS  asked 4096, ran at 8192 — recorded, and scoped CONDITIONS
+    PASS  RAVIS re-read SIRVIS after 90s: exaone-deep-2.4b went from UNKNOWN to
+          UNSUPPORTED — 0/24 well-formed tool calls, below the 95% threshold
+    PASS  the measured model exaone-deep-2.4b is the one selected
+    PASS  579 considered, 562 excluded each with a reason, winner explained in
+          849 characters
+
+The second line is §16 item 7 working on live traffic for the first time: RAVIS's
+own routing call had already loaded the build at 8192, so SIRVIS could not have
+4096, and the record says what it ran at instead of what it asked for. The third
+is the hinge — RAVIS's belief about a build changed *because* of a measurement
+taken minutes earlier, with a number behind it.
+
+**Two assertions were wrong before they were right, and both failed the same
+way.** The first asked RAVIS whether it held evidence id `ev_…`; RAVIS publishes
+no record ids, so it would have reported an ignored measurement forever. The
+second asked whether RAVIS's record *count* had risen; records are keyed by build
+and role, so a second `general` measurement of the same build replaces a row and
+moves no number at all. What moves is the verdict, and only a tool-call trial can
+move it — §13.2's bar is eight phrasings times three repetitions, so the
+procedure now runs two jobs: the small configured one the first clause is about,
+and the 24-attempt trial the third clause needs. Neither wrong assertion was
+found by reasoning about the code; both were found by running it and reading what
+came back.
+
+**The harness also tripped a limit that was doing its job.** An anonymous caller
+gets sixty requests a minute from RAVIS, and a sweep of twenty-one evidence
+surfaces plus decision polling crosses that alone — which arrived as a 429 that
+looked, for one reading, like RAVIS degrading when SIRVIS stopped. The answer is
+to wait, not to authenticate as somebody else and not to call the refusal a
+defect.
+
+**Two clauses need a person, and the procedure says so rather than pretending.**
+`clarvis.runTask` takes no arguments and reads its task from an input box; undo
+always raises a modal wanting a click. So those steps pause for input, their
+outcome is checked from *outside* the editor — the `clarvis/*` branch, the
+checkpoint directory, RAVIS's own decision log — and `--unattended` exits 3,
+never 0. A skipped clause is never a passed one:
+
+    PROVED   SIRVIS measures a model with truthful requested/effective conditions
+    PROVED   RAVIS selects it and explains every candidate, exclusion, winning factor
+    NOT RUN  Clarvis performs a contained, undoable task through that route
+    PROVED   NERVIS shows live progress and the joined trace
+    PROVED   restarting a component produces accurate degraded state and recovery
+    PROVED   evidence is inspectable without credentials, prompts or private paths
+    PROVED   the direct-provider path still works
+    NOT RUN  the Bridge-disabled path still works
+
+Live progress is asserted live: the event stream is opened and read to its
+`ecosystem.stream.live` boundary *before* any work starts, so the sixteen frames
+that arrived are frames, not a replay a buffering hub could have produced at the
+end. The trace joins spans from all three services with `partial=False`, and no
+span claims a duration it could not have measured. The restart clause stops
+SIRVIS by pid, requires NERVIS to say `unreachable` rather than `stopped`,
+requires RAVIS to keep routing without it — including the direct address, which
+is what "still works" is actually about — and requires a returning SIRVIS to
+carry the same `service_id` with a new `instance_id`, which is the only thing
+that distinguishes a restart from a cached answer.
 
 ## Starting the thing
 

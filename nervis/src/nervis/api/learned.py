@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from nervis import learned
+from nervis import learned, logs
 from nervis.errors import NotFoundError
 
 router = APIRouter(prefix="/api/v1/learned", tags=["learned"])
@@ -28,12 +28,16 @@ async def list_notes() -> dict[str, Any]:
     The path is returned because "you can edit this yourself" is only true if
     somebody is told where. A screen that lists notes without saying what it is
     listing makes the file feel like an internal detail rather than the record.
+
+    Relative, though. Naming the file serves that purpose; naming the machine's
+    home directory serves nobody, and this route has no authentication in front
+    of it (§16 item 12).
     """
     found = learned.notes()
     return {
         "items": [note.as_dict() for note in found],
         "count": len(found),
-        "path": str(learned.path()),
+        "path": logs.shown(learned.path()),
     }
 
 

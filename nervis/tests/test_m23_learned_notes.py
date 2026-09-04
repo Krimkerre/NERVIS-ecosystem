@@ -228,3 +228,17 @@ def test_learning_is_matched_before_benchmarking() -> None:
     )
     assert offer is not None
     assert offer.operation == "nervis.knowledge.learn"
+
+
+def test_the_notes_route_says_where_without_saying_whose_machine(notes: Path) -> None:
+    """§16 item 12, the same rule the log listing follows.
+
+    Telling somebody the record lives in `knowledge/learned.md` is what makes
+    "you can edit this yourself" true. Telling them it lives under a named home
+    directory adds nothing they need and one thing they did not ask to publish.
+    """
+    from nervis import logs
+    shown = logs.shown(learned.path(notes))
+    assert not shown.startswith("/")
+    assert shown.endswith("learned.md")
+    assert str(Path.home()) not in shown

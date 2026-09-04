@@ -705,3 +705,17 @@ def test_the_evidence_surface_publishes_the_tombstone() -> None:
     assert body["items"] == []
     assert [t["result_id"] for t in body["tombstones"]] == [result_id]
     assert body["tombstones"][0]["reason"] == "measured against the wrong context"
+
+
+def test_a_run_names_its_results_directory_and_not_the_machine() -> None:
+    """§16 item 12: inspectable evidence, without private paths.
+
+    The launcher passes an absolute `SIRVIS_RESULTS_PATH`, so every row written
+    since carries a home directory that the earlier, relative rows do not. Both
+    publish as the directory an operator would go and open.
+    """
+    from sirvis.storage.repositories import shown
+
+    assert shown("/Users/someone/code/NERVIS-ecosystem/sirvis/results/exp_1") == "results/exp_1"
+    assert shown("results/exp_1") == "results/exp_1"
+    assert shown("") == ""

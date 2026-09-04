@@ -144,6 +144,22 @@ def _redact_structured(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def shown(path: Path) -> str:
+    """A path as an operator needs to read it, without the machine it sits on.
+
+    §16 item 12 asks that evidence be inspectable without exposing private
+    paths, and both halves of that matter here. The listing exists so somebody
+    can see *which* file a screen is reading — `.run/nervis.log` says that as
+    well as an absolute path does. What the absolute path adds is a home
+    directory: a username and a layout, published on a surface NERVIS serves
+    with no authentication of its own.
+
+    So the answer is the file inside the directory the operator configured,
+    named the way they named it, and nothing above that.
+    """
+    return f"{path.parent.name}/{path.name}" if path.parent.name else path.name
+
+
 def sources(run_directory: Path) -> list[Source]:
     """Every documented adapter, present or not.
 
@@ -159,7 +175,7 @@ def sources(run_directory: Path) -> list[Source]:
         stat = path.stat() if exists else None
         found.append(Source(
             service=service,
-            path=str(path),
+            path=shown(path),
             present=exists,
             format="json-lines" if service in STRUCTURED else "text",
             bytes=stat.st_size if stat else 0,
