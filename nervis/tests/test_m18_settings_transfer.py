@@ -9,6 +9,7 @@ counter, a session id nobody minted for the destination.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -25,7 +26,7 @@ from nervis.settings_transfer import (
     import_settings,
 )
 from nervis.storage import prepare_database
-from nervis.voice import read_setting
+from nervis.voice import read_setting, write_setting
 
 
 @pytest.fixture()
@@ -219,3 +220,81 @@ def test_the_import_endpoint_reports_what_it_skipped(client: TestClient) -> None
 def test_the_import_endpoint_refuses_a_foreign_file(client: TestClient) -> None:
     response = client.post("/api/v1/settings/import", json={"hello": "world"})
     assert response.status_code == 422
+
+
+def test_a_string_setting_survives_a_round_trip_unquoted(database: Any) -> None:
+    """Export then import must leave the value the app's own readers expect.
+
+    The defect this pins: import wrote `json.dumps(value)` while export decoded
+    leniently, so every *string* setting gained a pair of literal quotes each
+    time a backup was restored — and gained another on the next restore.
+    Booleans and numbers were immune, because `json.dumps(True)` is `true` and
+    that is already how they are stored, so the whole class hid behind the
+    settings that looked fine.
+
+    Observed as a dashboard stuck on the browser's own voice: `selected_profile`
+    held `"vp_1044b39e85"` including the quotes, no profile id ever matched it,
+    and `/voice/speak` answered `no_voice` for a voice that was plainly chosen
+    on screen.
+    """
+    write_setting(database, "voice.selected_profile", "vp_1044b39e85")
+    write_setting(database, "voice.fallback", "silence")
+
+    import_settings(database, export_settings(database))
+
+    assert read_setting(database, "voice.selected_profile") == "vp_1044b39e85"
+    assert read_setting(database, "voice.fallback") == "silence"
+
+
+def test_repeated_restores_do_not_nest_the_encoding(database: Any) -> None:
+    """The failure compounded, which is why one round trip is not enough proof."""
+    write_setting(database, "voice.selected_profile", "vp_1044b39e85")
+    for _ in range(3):
+        import_settings(database, export_settings(database))
+    assert read_setting(database, "voice.selected_profile") == "vp_1044b39e85"
+
+
+def test_structured_settings_still_round_trip(database: Any) -> None:
+    """The fix must not un-encode the settings that are genuinely JSON.
+
+    `chat.presets` is a list and is stored as JSON text; a repair that wrote
+    every value bare would turn it into a Python `repr` and break it on read.
+    """
+    write_setting(database, "chat.presets", '[{"id": "cp_nervis", "name": "NERVIS"}]')
+    write_setting(database, "voice.daily_cap", "200")
+    write_setting(database, "voice.enabled", "true")
+
+    import_settings(database, export_settings(database))
+
+    assert json.loads(read_setting(database, "chat.presets"))[0]["id"] == "cp_nervis"
+    assert read_setting(database, "voice.daily_cap") == "200"
+    assert read_setting(database, "voice.enabled") == "true"
+
+
+def test_the_repair_migration_unquotes_what_the_old_importer_wrote(tmp_path: Any) -> None:
+    """Fixing the writer does not un-write the damage already in the database.
+
+    Reproduces the exact state found on the running installation — the value
+    including its quote characters — and asserts the migration leaves the id a
+    profile lookup can actually match, while a setting that is legitimately
+    JSON keeps its encoding.
+    """
+    path = str(tmp_path / "corrupt.db")
+    first = prepare_database(path)
+    with first.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES ('voice.selected_profile', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ('"vp_1044b39e85"',),
+        )
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES ('chat.presets', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ('[{"id": "cp_nervis"}]',),
+        )
+        connection.execute("DELETE FROM applied_migration WHERE version >= 11")
+
+    repaired = prepare_database(path)
+    assert read_setting(repaired, "voice.selected_profile") == "vp_1044b39e85"
+    # A list is JSON on purpose and must survive untouched.
+    assert json.loads(read_setting(repaired, "chat.presets"))[0]["id"] == "cp_nervis"

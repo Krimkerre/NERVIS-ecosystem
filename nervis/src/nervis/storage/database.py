@@ -354,6 +354,42 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        11,
+        "unquote the string settings a restored backup double-encoded",
+        # **A repair, because the bug wrote to the user's data.** Until
+        # `settings_transfer._encoded` existed, importing a settings backup
+        # wrote every value through `json.dumps` — which is correct for the
+        # structured ones and destructive for strings, adding quote characters
+        # that then *are* the value. `voice.selected_profile` came out holding
+        # `"vp_1044b39e85"` including the quotes, matched no profile id, and the
+        # dashboard fell back to the browser's own voice for a JARVIS that was
+        # plainly selected on screen. Fixing the writer does not un-write that.
+        #
+        # **Only the four string settings, and only when they are actually
+        # quoted.** `TRIM`/`LIKE` would be a blunter instrument than this
+        # deserves: `json_valid`/`json_type` lets the repair say exactly what it
+        # means — a stored value that is itself a JSON *string* — so a setting
+        # holding legitimate JSON (`chat.presets` is a list) is untouched, and
+        # so is one already correct. `json_extract(value, '$')` then yields the
+        # string without its quotes.
+        #
+        # Idempotent by construction: after it runs the values are no longer
+        # JSON strings, so a second run matches nothing.
+        """
+        UPDATE setting
+           SET value = json_extract(value, '$')
+         WHERE key IN (
+                   'voice.selected_profile',
+                   'voice.fallback',
+                   'chat.preset',
+                   'chat.system',
+                   'user.display_name'
+               )
+           AND json_valid(value)
+           AND json_type(value) = 'text';
+        """,
+    ),
 ]
 
 

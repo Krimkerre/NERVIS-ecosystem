@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2191 tests, no network, no live service
+.venv/bin/pytest                      # part of 2195 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 795 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 799 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2191 passing across the four, conformance `PASS`.
+Expected: all clean, 2195 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11217,6 +11217,50 @@ Two tests, and the pair is the point: a fifteen-minute gap files nothing, and an
 ordinary one-second tick still files the note. A guard that reopened the window
 on every sweep would be a centre that had quietly stopped reporting recoveries,
 which is the same defect wearing the opposite sign.
+
+## The voice was chosen all along, and the quotes were the bug — 2026-09-04
+
+**Asked why the dashboard was speaking in the browser's voice instead of Fish
+Audio.** Everything on screen said it should not be: the credential configured,
+five profiles saved, JARVIS S2.1 PRO selected, not muted, the daily cap switched
+off and nothing spent today.
+
+`POST /api/v1/voice/speak` answered `409 no_voice`, "no voice has been chosen" —
+for a voice plainly chosen. The stored setting says why:
+
+    voice.selected_profile = '"vp_1044b39e85"'      <- quotes included
+    voice.fallback         = '"silence"'
+    voice.enabled          = 'true'                 <- correct, and the reason it hid
+
+`_profile_for` compares that against a profile id and never matches, so it
+returns `None` and the browser reads the line itself. The same quotes make
+`voice.fallback` never equal `silence`, so the mode that means *say nothing*
+spoke anyway — one root cause wearing two faces.
+
+**M18's settings import wrote it.** Export decodes leniently — `json.loads`,
+falling back to the raw string — while import wrote every value through
+`json.dumps`. That is right for the structured settings and destructive for
+strings, and the asymmetry compounds: each restore adds another pair of quotes.
+
+It survived this long because the settings that would have exposed it are immune.
+`json.dumps(True)` is `true` and `json.dumps(200)` is `200`, which is already how
+those are stored, so booleans and numbers round-trip perfectly and only the four
+string-valued settings could carry the damage. A backup that restored "fine" was
+restoring fine for every value anybody thought to check.
+
+`_encoded` is the inverse `_decoded` never had: strings bare, everything else
+through `json.dumps`, so `chat.presets` stays the JSON list it is meant to be.
+
+**Fixing the writer does not un-write the damage**, so migration 11 repairs the
+rows. It matches on `json_type(value) = 'text'` rather than on quote characters:
+that says exactly what is wrong — a stored value that is itself a JSON string —
+leaves legitimate JSON alone, and is idempotent, because after it runs the values
+are no longer JSON strings.
+
+Four tests: a round trip leaves a string unquoted, three restores do not nest,
+structured settings still survive, and the migration repairs the exact state
+found on the running installation. Then confirmed by running it — `/voice/speak`
+answers `200` with 12 KB of MPEG layer III audio where it answered `409` before.
 
 ## Starting the thing
 

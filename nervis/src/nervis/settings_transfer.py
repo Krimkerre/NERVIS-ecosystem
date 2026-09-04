@@ -83,6 +83,28 @@ def _decoded(value: str) -> Any:
         return value
 
 
+def _encoded(value: Any) -> str:
+    """The inverse of `_decoded`, and the reason this is not `json.dumps`.
+
+    **Strings are stored bare in this table**, which is what every reader of it
+    expects: `read_setting` hands back the column verbatim and `_profile_for`
+    compares it to a profile id. `json.dumps` on a string adds quote characters
+    that are part of the value from then on, so a restored backup left
+    `voice.selected_profile` holding `"vp_1044b39e85"` — quotes included —
+    matching no profile at all, and another restore would have nested them
+    again.
+
+    It hid because the settings that looked fine were immune: `json.dumps(True)`
+    is `true` and `json.dumps(200)` is `200`, which is already exactly how those
+    are stored. Only string-valued settings could carry the damage, and there
+    are four of them on the exportable list.
+
+    Everything that is genuinely structured — `chat.presets` is a list — still
+    goes through `json.dumps`, because that *is* how those are stored.
+    """
+    return value if isinstance(value, str) else json.dumps(value)
+
+
 def export_settings(database: Database) -> dict[str, Any]:
     """Every exportable setting, as a file a person can save and reload.
 
@@ -158,7 +180,7 @@ def import_settings(database: Database, payload: Any) -> ImportOutcome:
             connection.execute(
                 "INSERT INTO setting (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, json.dumps(value)),
+                (key, _encoded(value)),
             )
     outcome.applied = sorted(accepted)
     return outcome
