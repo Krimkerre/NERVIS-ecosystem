@@ -366,3 +366,46 @@ def test_an_uninstalled_optional_peer_files_nothing(client: TestClient) -> None:
     filed = client.get("/api/v1/notifications").json()["items"]
     for entry in optional:
         assert not any(entry.declaration.label in n["title"] for n in filed)
+
+
+def test_a_wake_from_sleep_does_not_file_a_note_for_every_service(client: TestClient) -> None:
+    """The machine slept; the services never moved.
+
+    Reported as a centre holding four "is back to healthy" notes per wake, on a
+    laptop sleeping every fifteen minutes: probing stops with the machine, every
+    entry ages into `stale` while nothing is asking it anything, and the first
+    sweep after the wake finds all four alive at once.
+
+    The startup window does not cover this. It is keyed to when *this process*
+    began probing, and NERVIS never restarted — `probe_started_at` was hours
+    old, so the window had long since closed. What the guards missed is that a
+    resumed loop and a fresh one are the same situation: a period nobody was
+    watching, followed by observations that only look like transitions.
+    """
+    api = client.app  # type: ignore[attr-defined]
+    api.state.probe_started_at = time.monotonic() - 3600  # long settled
+    api.state.last_sweep_at = time.time() - 900  # ...and then fifteen minutes asleep
+
+    app_module._reopen_window_after_a_gap(api)
+
+    before = {e.key: RegistryState.STALE for e in api.state.registry.all()}
+    app_module._announce_transitions(api, before)
+    assert client.get("/api/v1/notifications").json()["unread"] == 0
+
+
+def test_an_ordinary_tick_leaves_the_window_closed(client: TestClient) -> None:
+    """The pair that keeps the fix from being a mute button.
+
+    A guard that reopened the window on every sweep would be a centre that had
+    quietly stopped reporting recoveries at all — so the gap has to be measured,
+    not assumed, and an ordinary interval must still file the note.
+    """
+    api = client.app  # type: ignore[attr-defined]
+    api.state.probe_started_at = time.monotonic() - 3600
+    api.state.last_sweep_at = time.time() - 1  # the loop ran when it said it would
+
+    app_module._reopen_window_after_a_gap(api)
+
+    before = {e.key: RegistryState.STALE for e in api.state.registry.all()}
+    app_module._announce_transitions(api, before)
+    assert client.get("/api/v1/notifications").json()["unread"] > 0

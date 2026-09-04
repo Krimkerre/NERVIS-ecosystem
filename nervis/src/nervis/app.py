@@ -187,6 +187,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # When probing began, for the startup window in `_next_interval`. Monotonic
     # so a clock adjustment cannot widen or close the window by surprise.
     api.state.probe_started_at = time.monotonic()
+    # When the last sweep began, for `_reopen_window_after_a_gap`. Wall clock
+    # rather than monotonic, and that is the whole point — see that function.
+    api.state.last_sweep_at = time.time()
     # M8a. The secret is created on first run rather than configured — see
     # `enrollment.py` for why a file's permissions are the authentication here.
     api.state.enrollment_secret = load_or_create(settings.database_path)
@@ -485,6 +488,40 @@ def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
         )
 
 
+def _reopen_window_after_a_gap(api: FastAPI) -> None:
+    """Treat a resumed probe loop exactly like a freshly started one.
+
+    **A laptop that sleeps produces a notification centre full of recoveries
+    that never happened.** Probing stops with the machine, so every entry ages
+    into `stale` while nothing is asking it anything, and the first sweep after
+    the wake finds all of them alive at once — filed as one "is back to healthy"
+    per service, per wake. Observed on a machine sleeping every fifteen minutes:
+    four notes each time, the wake in `pmset -g log` a minute before each batch.
+
+    The startup window in `_note_state_change` cannot catch this. It is keyed to
+    when *this process* began probing, and nothing restarted — `probe_started_at`
+    was hours old and the window long closed. But the two situations are the
+    same one: a period during which nobody was watching, followed by readings
+    that only look like transitions. So this reopens that window rather than
+    inventing a second kind of quiet, which also restores the fast re-probe in
+    `_next_interval` — after a wake, probing quickly is wanted anyway.
+
+    **Wall clock, deliberately, where the rest of this file uses monotonic.**
+    `time.monotonic()` does not advance while the system is asleep, so the gap
+    this exists to detect is precisely the gap monotonic cannot see. The cost is
+    that an NTP correction can trip it; that spends thirty seconds of silence on
+    a clock jump, which is the harmless direction to be wrong in.
+    """
+    settings: Settings = api.state.settings
+    now = time.time()
+    slept_through = now - getattr(api.state, "last_sweep_at", now)
+    # The yardstick is the interval we asked for plus the window itself: longer
+    # than that and the loop did not run when it said it would.
+    if slept_through > settings.probe_interval_seconds + settings.startup_window_seconds:
+        api.state.probe_started_at = time.monotonic()
+    api.state.last_sweep_at = now
+
+
 async def _refresh_periodically(api: FastAPI) -> None:
     """Re-probe on a timer, tolerating everything.
 
@@ -494,6 +531,7 @@ async def _refresh_periodically(api: FastAPI) -> None:
     reason.
     """
     while True:
+        _reopen_window_after_a_gap(api)
         try:
             await refresh_registry(api)
         except asyncio.CancelledError:

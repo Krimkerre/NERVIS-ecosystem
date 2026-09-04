@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2189 tests, no network, no live service
+.venv/bin/pytest                      # part of 2191 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 793 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 795 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2189 passing across the four, conformance `PASS`.
+Expected: all clean, 2191 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11175,6 +11175,48 @@ built its fixture with *this* renderer: a page with a footer on it is no longer
 text-free, so a test that claimed to prove "a scan has no text" would have
 passed forever without testing it. It uses a genuinely blank page now, built by
 the library that reads it.
+
+## Four recoveries that never happened, per wake — 2026-09-04
+
+**Reported as a notification centre full of "is back to healthy", blamed on
+restarting the stack.** The record said otherwise, and the difference is the fix.
+
+`nervis.service.state_changed` in the hub keeps every transition, including the
+ones the centre stays quiet about, so the two cases are distinguishable after
+the fact:
+
+  - Today's actual restarts, 14:11 and 14:35: `discovering -> unreachable ->
+    healthy`, all four services, inside three seconds. **Zero notes filed.** The
+    startup window and the `discovering` guard both did their job.
+  - Yesterday's floods, 20:57 / 21:12 / 21:27 / 21:44: `stale -> healthy`, four
+    notes each time. Not `discovering` — so nothing had restarted.
+
+`stale` is what an entry ages into when nobody asks it anything, and all four
+went there at once *including NERVIS's probe of itself*, which no service outage
+explains. `pmset -g log` names the cause: sleeps at 20:56, 21:06, 21:21, 21:37,
+each wake a minute or so before a batch of notes. The laptop was sleeping every
+fifteen minutes, which is exactly the spacing of the floods.
+
+So the guard was right and its trigger was too narrow. `_note_state_change`'s
+quiet window is keyed to `probe_started_at` — when *this process* began probing
+— and NERVIS never restarted, so the window had closed hours earlier. A resumed
+loop and a fresh one are the same situation: nobody was watching for a while,
+and the readings afterwards only look like transitions.
+
+`_reopen_window_after_a_gap` reopens the existing window instead of inventing a
+second kind of silence, which also restores the fast re-probe in
+`_next_interval` — wanting to probe quickly after a wake is not a coincidence,
+it is the same reason. **It measures the gap on the wall clock, deliberately,
+where the rest of the file uses monotonic:** Python's `time.monotonic()` is
+`mach_absolute_time()` here, which does not advance while the machine is asleep,
+so the gap this exists to detect is the one monotonic cannot see. An NTP
+correction can trip it and spend thirty seconds of silence, which is the
+harmless direction.
+
+Two tests, and the pair is the point: a fifteen-minute gap files nothing, and an
+ordinary one-second tick still files the note. A guard that reopened the window
+on every sweep would be a centre that had quietly stopped reporting recoveries,
+which is the same defect wearing the opposite sign.
 
 ## Starting the thing
 
