@@ -1092,7 +1092,7 @@ acceptance condition requires one, and only then correct the specification or st
 was wrong. Never combine a security fix with a refactor, a dashboard restructure or feature
 work in the same patch (§3's change-order discipline applies here without exception).
 
-- [ ] **1. Clarvis Bridge trust boundary.** `clarvis.bridge.enabled`, `.nervisUrl`,
+- [x] **1. Clarvis Bridge trust boundary.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* `clarvis.bridge.enabled`, `.nervisUrl`,
       `.enrollmentSecretPath` become machine-scoped (VS Code `application` scope, not merely
       Restricted Mode's list) so no workspace can set them at all. Bridge startup refuses an
       untrusted workspace regardless. `nervisUrl` accepts loopback only. The enrollment secret

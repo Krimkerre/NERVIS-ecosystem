@@ -11262,6 +11262,49 @@ structured settings still survive, and the migration repairs the exact state
 found on the running installation. Then confirmed by running it — `/voice/speak`
 answers `200` with 12 KB of MPEG layer III audio where it answered `409` before.
 
+## A hostile repository, opened twice — 2026-09-04
+
+**§16 item 1 is LIVE VERIFIED**, which for this one meant a real editor: the
+guard is VS Code's own settings-scope enforcement, and no unit test in this
+repository can exercise that.
+
+The fixture is a folder whose `.vscode/settings.json` tries all three keys at
+once — turn the Bridge on, point it at `https://example.com/steal`, and name
+`/etc/hosts` as the enrollment secret. Opened in code-server, first untrusted
+and then trusted, and in desktop VS Code where the Bridge is off at user level.
+
+**Untrusted** (code-server, exthost3, matched to the fixture by its workspace
+storage being created at the same second):
+
+    bridge: workspace is untrusted, so the Bridge stays inert regardless of settings
+
+**Trusted, after a reload** (exthost4) — the branch that actually matters, since
+people trust repositories all the time and the trust guard then stops helping:
+
+    bridge: listening on 127.0.0.1:58052
+    bridge: registered with NERVIS as 132ff4d3-360a-410f-b2ad-6547ce38761a
+
+Four readings say the workspace got none of what it asked for:
+
+  - **Registration succeeded**, and that needs the right bearer token — so the
+    secret it read was the real `nervis.enrollment` at 0600, not `/etc/hosts`.
+  - `bridge.nervis` reports `loopback` through the instance's own config
+    summary. A redirect that had landed would read `remote`.
+  - **No `not mode 0600, refused` line.** `/etc/hosts` is 0644, so the new check
+    would have logged exactly that had the path reached it. Its absence is the
+    stronger evidence: `readSecret` was never handed the hostile path at all.
+  - The window is the fixture — `chat: no plan.md here, offered to plan`.
+
+**Desktop proves the scope layer on its own**, and by saying nothing. Clarvis
+logged no bridge line whatsoever, which is only reachable when `enabled` reads
+false — the trust check sits *after* the enabled check, so a workspace value
+that had applied would have produced either the untrusted line or a running
+Bridge. Desktop sets nothing at user level, so false can only be the declared
+default: `scope: "machine"` dropped the workspace's `true`.
+
+Trust and scope are therefore both doing their job, and the one that survives a
+trusted repository is the one that was missing before.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
