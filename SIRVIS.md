@@ -213,10 +213,21 @@ them for negotiation, and `/ecosystem/*` follows the runbook.
 
 **Origin and Host validation.** SIRVIS serves a browser dashboard from the same origin as those
 mutating endpoints, so any page the user visits could otherwise POST to `127.0.0.1:8721`.
-Reject a non-allow-listed `Origin` or `Host`, require a non-simple content type plus a CSRF
-token on mutations, and apply the same origin policy to `/ecosystem/events`. A token check and
-an origin check answer different questions — the browser already carries the user's
-credentials — so both are required.
+Reject a non-allow-listed `Origin` or `Host`, and require a non-simple content type on
+mutations. A token check and an origin check answer different questions — the browser already
+carries the user's credentials — so both are required.
+
+**Amended 4 Sep (§16 item 5).** `Host` was not read anywhere until then: the origin check
+runs inside `require`, which guards mutations, and the disclosure a rebound page performs is
+a *read* of every model, benchmark and machine detail on the box. It is middleware now, ahead
+of reads and writes alike.
+
+The CSRF token this asked for is deliberately not built. It defends an *ambient* credential —
+a cookie the browser attaches by itself — and SIRVIS has none: every mutation carries a
+runtime-scoped token in an `Authorization` header, which a cross-origin page cannot set
+without a preflight measured against an allowlist that is empty by default. The credential
+does the token's work one layer earlier. `/ecosystem/events` is the shared heartbeat route and
+carries no data yet; it gets these rules when §16 item 9 makes it a real stream.
 
 **Retrieved content and the fencing rule.** Under runbook §9 the producer owns fencing. SIRVIS
 has exactly one such path: **optional external judges**, where a model's generated output

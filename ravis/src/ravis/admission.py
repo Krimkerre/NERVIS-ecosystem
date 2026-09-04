@@ -25,7 +25,11 @@ from collections import defaultdict, deque
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ravis.config import Settings
-from ravis.errors import OriginRejectedError, RateLimitedError
+from ravis.errors import (
+    OriginRejectedError,
+    RateLimitedError,
+    UnsupportedMediaTypeError,
+)
 
 # Methods that change state. Origin and CSRF requirements apply to these; a GET
 # that a browser can make cross-origin is a disclosure risk, but a POST is an
@@ -144,6 +148,75 @@ def client_address(headers: dict[str, str], peer: str, settings: Settings) -> st
     except ValueError:
         return peer
     return candidate
+
+
+# Content types a browser can send from a plain `<form>` without asking
+# permission first. A request carrying one of these is never preflighted, so the
+# Origin allowlist never gets consulted — which is precisely why a mutation must
+# not accept them.
+SAFELISTED_CONTENT_TYPES = frozenset({
+    "text/plain",
+    "application/x-www-form-urlencoded",
+    "multipart/form-data",
+})
+
+
+def check_content_type(headers: dict[str, str], method: str) -> None:
+    """Refuse a state-changing request that a form could have sent.
+
+    **This makes an argument the code already made actually true.** The CORS
+    note below reasons that `/v1/chat/completions` is safe from a page because "a
+    JSON body always preflights, so this permits an allow-listed origin and
+    nobody else". Nothing on the server side made the body JSON: the handler read
+    raw bytes and parsed them whatever the header said, so a form posting
+    `text/plain` — safelisted, never preflighted, therefore never measured
+    against the Origin allowlist — was accepted and ran inference on the
+    operator's account. Found by reading the handler rather than by testing the
+    claim, which is the usual way an assumed control turns out to be absent.
+
+    Only the three safelisted types are refused, rather than requiring JSON
+    outright. A `DELETE` with no body carries no content type and must still
+    work, and anything a browser cannot send without a preflight is already
+    covered by the Origin check.
+    """
+    if method.upper() not in MUTATING_METHODS:
+        return
+    media = headers.get("content-type", "").split(";")[0].strip().lower()
+    if media in SAFELISTED_CONTENT_TYPES:
+        raise UnsupportedMediaTypeError(
+            "a state-changing request must be sent as application/json",
+            media_type=media,
+            method=method,
+        )
+
+
+def check_host(headers: dict[str, str], settings: Settings) -> None:
+    """Reject a request that believes it is talking to somewhere else.
+
+    **This is the half `check_origin` structurally cannot do.** A page on
+    `attacker.example` whose DNS is re-pointed at `127.0.0.1` — rebinding —
+    reaches RAVIS as a *same-origin* request, and browsers omit `Origin` on
+    same-origin GETs. `check_origin` then sees no origin to reject and allows it,
+    exactly as its comment says it should: "no Origin header means no browser
+    made this request" is true of curl and false of this.
+
+    What the request cannot hide is the name the browser resolved, which is still
+    in `Host`. RAVIS binds loopback and nothing else can start (§16 item 2), so a
+    `Host` naming anything else describes a route RAVIS does not have.
+
+    An absent `Host` is refused too: HTTP/1.1 requires one, so its absence is a
+    client doing something deliberate rather than an ordinary caller.
+    """
+    host = headers.get("host", "").strip()
+    if not host:
+        raise OriginRejectedError("a Host header is required", origin="", method="")
+    # The port is not checked, only the name. A deployment may move the port and
+    # the launcher already does when one is taken; the attack this defends does
+    # not turn on which port answered. Brackets come off IPv6 literals.
+    name = host.rsplit(":", 1)[0] if host.count(":") == 1 or host.startswith("[") else host
+    permitted = {one.strip("[]").lower() for one in settings.allowed_hosts}
+    if name.strip("[]").lower() not in permitted:
+        raise OriginRejectedError("Host is not allow-listed", origin=host, method="")
 
 
 def check_origin(headers: dict[str, str], method: str, settings: Settings) -> None:

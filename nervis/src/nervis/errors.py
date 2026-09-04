@@ -61,6 +61,18 @@ class UnauthorizedError(NervisError):
     status = 401
 
 
+class HostRejectedError(NervisError):
+    """The request named a host NERVIS does not answer to (§16 item 5).
+
+    403 rather than 401: nothing about a credential would help. The request took
+    a route this service does not have, which is what a DNS-rebound page looks
+    like from the inside.
+    """
+
+    code = "HOST_REJECTED"
+    status = 403
+
+
 class RefusedError(NervisError):
     """A well-formed request that breaks a rule NERVIS enforces.
 

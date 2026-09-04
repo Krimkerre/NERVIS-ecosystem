@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     # which is the property that matters: this API stores provider credentials,
     # and "any local page may write one" is the browser handing a stranger a
     # local write primitive. A named port is a boundary; "localhost" is not.
+    # Host names this service may be addressed by. Loopback only, matching the
+    # only bind that can start (§16 item 2). It is a setting rather than a
+    # constant because a deployment behind a reverse proxy is addressed by the
+    # proxy's name, and because the test suite addresses it as `testserver` —
+    # both are configuration, not exceptions to carve into the check.
+    allowed_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
+
     allowed_origins: list[str] = [
         "http://127.0.0.1:8790",
         "http://localhost:8790",

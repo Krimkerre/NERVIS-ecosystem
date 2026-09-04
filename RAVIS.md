@@ -191,12 +191,27 @@ names the host and points at `ECOSYSTEM_RUNBOOK.md` §16 item 2, which lists wha
 operation has to prove before this reopens.
 
 **Origin and Host validation.** Loopback is not a boundary against a browser: any page the
-user visits can issue a cross-origin request to `127.0.0.1`. RAVIS therefore rejects
-requests whose `Origin` or `Host` is not allow-listed, requires a non-simple content type
-plus a CSRF token on every mutating endpoint, and applies the same origin policy to
-`/ecosystem/events` that it applies to HTTP. This is independent of §9.6's identity model —
-an identity check does not stop a browser the user is already authenticated in, and an
-origin check does not identify the caller. Both are required.
+user visits can issue a cross-origin request to `127.0.0.1`. RAVIS rejects requests whose
+`Origin` or `Host` is not allow-listed, and refuses a state-changing request sent as one of
+the three CORS-safelisted content types. This is independent of §9.6's identity model — an
+identity check does not stop a browser the user is already authenticated in, and an origin
+check does not identify the caller. Both are required.
+
+**Amended 4 Sep (§16 item 5): two of those were claims rather than code.** `Host` was not
+read anywhere, and no content type was required — the handler took raw bytes and parsed
+them whatever the header said, so a form posting `text/plain` never preflighted, was never
+measured against the origin allowlist, and ran inference on the operator's account. Both
+are enforced now, and the second makes `admission.py`'s own argument ("a JSON body always
+preflights") true of the server rather than only of the browser.
+
+**A CSRF token is not among them, and the omission is deliberate.** This clause used to
+require one. What a CSRF token defends is an *ambient* credential — a cookie the browser
+attaches by itself — and RAVIS has none: every privileged call carries a bearer credential
+in an `Authorization` header, which a cross-origin page cannot set without a preflight that
+consults an allowlist empty by default. Adding a token would defend a vector this design
+does not have, while implying the header requirement was insufficient. `Host`, `Origin`,
+the content-type rule and the credential are the controls; the token was a fifth name for
+work three of them already do.
 
 **Gate:** every limit has a negative test proving refusal; the body-size test proves refusal
 occurs without authentication having run; a wrong-`Origin` mutation is rejected; and a

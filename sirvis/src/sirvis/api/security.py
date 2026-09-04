@@ -296,6 +296,30 @@ def cors_headers(origin: str, settings: Settings) -> dict[str, str]:
     }
 
 
+def check_host(headers: dict[str, str], settings: Settings) -> None:
+    """Reject a request that believes it is talking to somewhere else (§16 item 5).
+
+    **The half `check_origin` cannot do.** A page on `attacker.example` whose DNS
+    is re-pointed at `127.0.0.1` reaches SIRVIS as a *same-origin* request, and
+    browsers omit `Origin` on same-origin GETs — so the origin check sees nothing
+    to reject. The name the browser resolved is still in `Host`, and SIRVIS binds
+    loopback and nothing else can start, so any other name describes a route it
+    does not have.
+
+    **Applied to reads as well as writes**, which is why it is middleware rather
+    than another line in `require`. That function guards mutations; the
+    disclosure this defends is a *read* of every model, benchmark and machine
+    detail on the box.
+    """
+    host = headers.get("host", "").strip()
+    if not host:
+        raise ForbiddenError("a Host header is required")
+    name = host.rsplit(":", 1)[0] if host.count(":") == 1 or host.startswith("[") else host
+    permitted = {one.strip("[]").lower() for one in settings.allowed_hosts}
+    if name.strip("[]").lower() not in permitted:
+        raise ForbiddenError("Host is not allow-listed", host=host)
+
+
 def check_origin(headers: dict[str, str], settings: Settings) -> None:
     """Refuse a browser request from an origin nobody allow-listed (§4.5).
 
@@ -321,10 +345,21 @@ def check_content_type(headers: dict[str, str]) -> None:
     forces the browser to ask SIRVIS first, and that question is one
     `check_origin` gets to answer.
 
-    §4.5 also asks for a CSRF token. There is none yet, and pretending otherwise
-    would be worse than the gap: a CSRF token must be bound to a session, and
-    SIRVIS has no sessions until the dashboard at M14. Recorded as a deviation
-    rather than stubbed into something that looks like protection.
+    §4.5 also asks for a CSRF token, and this said there was none yet, blocked on
+    sessions that arrive with the dashboard at M14. Revisited under §16 item 5,
+    the answer is that one is not the right control here rather than a missing
+    one.
+
+    **A CSRF token defends an *ambient* credential** — a cookie the browser
+    attaches by itself, so that reaching the endpoint proves nothing about who
+    asked. SIRVIS has no cookies. Every mutation carries a runtime-scoped token
+    in an `Authorization` header (`require` below), which a cross-origin page
+    cannot set without a preflight, and the preflight is measured against an
+    allowlist that is empty by default.
+
+    So the credential already does the work a token would, one layer earlier. The
+    deviation is closed by argument rather than by code, and the three controls
+    that carry it are named: the `Host` check, the origin check, and this one.
     """
     content_type = headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type != "application/json":

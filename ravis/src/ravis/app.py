@@ -33,6 +33,8 @@ from fastapi.responses import JSONResponse, Response
 from ravis.admission import (
     BodySizeLimiter,
     RateLimiter,
+    check_content_type,
+    check_host,
     check_origin,
     client_address,
     cors_headers,
@@ -432,7 +434,9 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
         request.state.identity = identity
 
         try:
+            check_host(headers, settings)
             check_origin(headers, request.method, settings)
+            check_content_type(headers, request.method)
             peer = request.client.host if request.client else "unknown"
             address = client_address(headers, peer, settings)
             api.state.rate_limiter.check(

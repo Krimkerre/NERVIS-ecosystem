@@ -22,7 +22,12 @@ from fastapi.responses import JSONResponse, Response
 
 from sirvis import jobs as job_store
 from sirvis.api import router as api_router
-from sirvis.api.security import cors_headers, ensure_bootstrap_token, is_preflight
+from sirvis.api.security import (
+    check_host,
+    cors_headers,
+    ensure_bootstrap_token,
+    is_preflight,
+)
 from sirvis.config import Settings
 from sirvis.core.machine import machine_identity
 from sirvis.ecosystem import sirvis_surface
@@ -193,6 +198,13 @@ def _register_cors(api: FastAPI) -> None:
         settings: Settings = request.app.state.settings
         origin = request.headers.get("origin", "")
         headers = {key.lower(): value for key, value in request.headers.items()}
+        # **Before the preflight answer, and before every read.** `require`
+        # guards mutations; a DNS-rebound page reading the machine inventory
+        # never reaches it (§16 item 5).
+        try:
+            check_host(headers, settings)
+        except SirvisError as refusal:
+            return to_response(request, refusal)
         if is_preflight(request.method, headers):
             return Response(status_code=204, headers=cors_headers(origin, settings))
         response = await call_next(request)

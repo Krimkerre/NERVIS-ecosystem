@@ -33,5 +33,11 @@ def isolated_config_home(tmp_path: Path, monkeypatch: Any) -> Iterator[Path]:
     home = tmp_path / "config-home"
     home.mkdir()
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+    # `TestClient` addresses the app as `http://testserver`, so the §16 item 5
+    # Host check would refuse the whole suite. Named once here rather than
+    # carved into the check as a test-shaped exception.
+    monkeypatch.setenv(
+        "NERVIS_SERVED_HOSTS", '["127.0.0.1", "localhost", "::1", "testserver"]'
+    )
     monkeypatch.setenv("APPDATA", str(home))
     yield home

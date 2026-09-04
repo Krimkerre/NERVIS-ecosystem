@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     # exposes runtime mutations that load and unload models, and "any local page
     # may call them" is a browser handing a stranger the ability to evict a
     # model another client is holding.
+    # Host names this service may be addressed by (§16 item 5). Loopback only,
+    # matching the only bind that can start. A setting rather than a constant so
+    # a reverse proxy — and the test suite's `testserver` — are configuration
+    # rather than exceptions carved into the check.
+    allowed_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
+
     allowed_origins: list[str] = [
         "http://127.0.0.1:8790",
         "http://localhost:8790",

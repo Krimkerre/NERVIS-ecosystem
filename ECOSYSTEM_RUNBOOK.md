@@ -1118,7 +1118,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       gates every mutation (providers, model filters, pools, policies, budgets, credentials).
       Loopback origin alone must stop granting it. Anonymous and ordinary inference credentials
       get 403 on every management mutation; authorized administration stays audited and tested.
-- [ ] **5. Host/Origin/CSRF.** SIRVIS's gap is confirmed (`security.py`'s own comment admits the
+- [x] **5. Host/Origin/CSRF.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. Extended to NERVIS, and the CSRF token deliberately not built — reasoning in `RAVIS.md` §4.4.)* SIRVIS's gap is confirmed (`security.py`'s own comment admits the
       missing CSRF token). Verify whether RAVIS shares it before fixing it there — unconfirmed,
       not assumed. Where it applies: validate `Host`, validate `Origin`, require an explicit
       CSRF token on browser mutations, require an approved non-simple content type, apply the

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2206 tests, no network, no live service
+.venv/bin/pytest                      # part of 2229 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 442 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 804 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 447 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2206 passing across the four, conformance `PASS`.
+Expected: all clean, 2229 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11540,6 +11540,68 @@ before writing, with a copy taken first.
 
 `local` has no entry there at all now, which is why it still reads enabled: an
 absent provider is enabled, and only a deliberate toggle writes one.
+
+## The header nobody read, and the content type nobody required — 2026-09-04
+
+**§16 item 5, and verifying it moved almost every conclusion.** The item said
+SIRVIS's gap was confirmed and RAVIS's was unverified. Read directly, RAVIS's
+posture was better than implied in one place and worse in two others.
+
+**Origin was real.** `check_origin` is wired into RAVIS's middleware for every
+method and router, with a two-entry allowlist and no loopback bypass. SIRVIS's
+runs inside `require`. Tested live, a hostile origin is refused:
+
+    POST /v1/chat/completions, Origin: https://evil.example  →  403
+
+**`Host` was read nowhere, in any of the three.** That is the half an origin
+check structurally cannot do. A page on `attacker.example` whose DNS is
+re-pointed at `127.0.0.1` — rebinding — arrives as a *same-origin* request, and
+browsers omit `Origin` on same-origin GETs, so the origin check has nothing to
+reject and says so in its own comment: "no Origin header means no browser made
+this request" is true of curl and false of exactly this attack. The same request
+without an Origin header ran inference and returned 200.
+
+**And RAVIS required no content type**, which a parallel read caught and I had
+not. `admission.py` argues `/v1/chat/completions` is safe from a page because "a
+JSON body always preflights, so this permits an allow-listed origin and nobody
+else" — but the handler read raw bytes and `json.loads` them whatever the header
+said. A form posting `text/plain` is CORS-safelisted, never preflights, is
+therefore never measured against the allowlist, and was accepted. Same shape as
+§16 items 2 and 4: an argument the code makes about itself that nothing enforces.
+
+    before:  POST text/plain → 200, a real Anthropic call billed
+    after:   POST text/plain → 415
+
+**Extended to NERVIS, which the item does not name.** It is the service actually
+opened in a browser, it proxies to the other two, and it holds RAVIS's `admin.`
+credential. A rebinding attacker who found RAVIS and SIRVIS shut would come here.
+Closing two of three doors is not a defence.
+
+**The CSRF token is deliberately not built, and the deviation is closed by
+argument rather than left open.** SIRVIS's code recorded it as a gap blocked on
+sessions arriving at M14. Revisited, a token is not the right control here: what
+it defends is an *ambient* credential — a cookie the browser attaches by itself
+— and none of these services uses cookies. Every privileged call carries a
+bearer credential in an `Authorization` header, which a cross-origin page cannot
+set without a preflight, and the preflight consults an allowlist empty by
+default. The credential does the token's work one layer earlier. Building one
+anyway would defend a vector this design does not have while implying the header
+requirement was insufficient.
+
+**The allowlist is a setting, which the first attempt got wrong.** Hard-coding
+loopback names refused 150+ tests at once, because `TestClient` addresses the app
+as `http://testserver`. Named once per service in `conftest` instead — the test
+host is configuration, not an exception to carve into a security check.
+
+Two fixtures were unrealistic and are now honest rather than exempted: the
+Clarvis conformance harness addressed the app as `http://ravis.invalid`, and its
+buffering check hand-built an ASGI scope with no `Host` header at all, which no
+real server ever sends. Both were the check finding fixtures that had drifted
+from what a request looks like.
+
+Verified live on all three: a rebound name is `403` on 8790, 8731 and 8721;
+ordinary calls are `200`; and nine dashboard screens across the three services
+issue no `403` or `415` between them.
 
 ## Starting the thing
 

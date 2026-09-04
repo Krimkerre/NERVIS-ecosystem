@@ -42,6 +42,12 @@ def _no_live_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("SIRVIS_LMSTUDIO_BASE_URL", UNREACHABLE_RUNTIME)
     monkeypatch.setenv("SIRVIS_LMSTUDIO_CLI_PATH", UNREACHABLE_CLI)
+    # `TestClient` addresses the app as `http://testserver`, so the §16 item 5
+    # Host check would refuse the whole suite. Named here once rather than
+    # carved into the check as a test-shaped exception.
+    monkeypatch.setenv(
+        "SIRVIS_ALLOWED_HOSTS", '["127.0.0.1", "localhost", "::1", "testserver"]'
+    )
 
 
 @pytest.fixture(autouse=True)

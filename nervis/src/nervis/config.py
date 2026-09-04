@@ -160,6 +160,16 @@ class Settings(BaseSettings):
     # scheduler attached.
     allowed_hosts: list[str] = []
 
+    # Host names NERVIS itself answers to (§16 item 5). Distinct from
+    # `allowed_hosts` directly above, which is the *outbound* list of peers
+    # NERVIS may probe — the two were nearly given the same name, and a reader
+    # who conflated them would think this service already checked its own.
+    #
+    # NERVIS is the one opened in a browser, which makes it the richest target
+    # for DNS rebinding: it proxies to the other two and holds RAVIS's admin
+    # credential.
+    served_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
+
     # How often the registry re-probes, and how long an entry stays believable
     # without one. The second must exceed the first or every entry would spend
     # part of each cycle stale.

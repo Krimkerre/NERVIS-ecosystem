@@ -59,7 +59,7 @@ from nervis.ecosystem import (
     nervis_surface,
 )
 from nervis.enrollment import load_or_create
-from nervis.errors import NervisError, to_response
+from nervis.errors import HostRejectedError, NervisError, to_response
 from nervis.events import Hub
 from nervis.instances import Instances
 from nervis.probes import probe
@@ -229,6 +229,24 @@ def _register_correlation(api: FastAPI) -> None:
 
     @api.middleware("http")
     async def correlate(request: Request, call_next: NextCall) -> Any:
+        # **The Host check first, before anything reads the request (§16 item 5).**
+        # A page on `attacker.example` whose DNS is re-pointed at `127.0.0.1`
+        # reaches NERVIS as a same-origin request, and browsers omit `Origin` on
+        # same-origin GETs — so an origin check has nothing to reject. The name
+        # the browser resolved is still in `Host`, and NERVIS binds loopback and
+        # nothing else can start. Reads matter as much as writes here: this is
+        # the service that proxies to the other two and holds RAVIS's admin
+        # credential.
+        host = request.headers.get("host", "").strip()
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 or host.startswith("[") else host
+        permitted = {one.strip("[]").lower() for one in api.state.settings.served_hosts}
+        if not host or name.strip("[]").lower() not in permitted:
+            # `request.state.request_id` is not set yet — the check runs before
+            # correlation on purpose, so a rebound request is refused before
+            # anything reads it. `to_response` tolerates the absence.
+            return to_response(
+                request, HostRejectedError("Host is not allow-listed", host=host)
+            )
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
         # The **trace id**, not the whole header. §11.2 joins events from
         # different services on this value, and `traceparent`'s third field is a

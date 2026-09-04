@@ -206,7 +206,7 @@ async def _through_ravis(chunks: list[bytes]) -> tuple[ReadStream, list[bytes]]:
     app = _app_against(upstream)
     received: list[bytes] = []
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client, client.stream(
         "POST", "/v1/chat/completions", json={"model": "fixture-model", "stream": True}
     ) as response:
@@ -312,7 +312,7 @@ async def _pool_request(
     app = _app_against(upstream, capabilities)
     await app.app.state.model_registry.refresh()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client:
         return await client.post(
             "/v1/chat/completions", json={"model": pool, "stream": stream}
@@ -389,7 +389,7 @@ async def _check_fallback(result: ConformanceResult) -> None:
     await app.app.state.model_registry.refresh()
     received: list[bytes] = []
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client, client.stream(
         "POST", "/v1/chat/completions", json={"model": "ravis/clarvis-agent", "stream": True}
     ) as response:
@@ -413,7 +413,7 @@ async def _check_models_endpoint(result: ConformanceResult) -> None:
     """`/v1/models` answers 200 without credentials, from cache (§5.0.1)."""
     app = _app_against(_FixtureUpstream(fixtures.PLAIN_CHAT))
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://ravis.invalid"
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client:
         response = await client.get("/v1/models")
     result.record(
@@ -563,6 +563,10 @@ async def _count_body_messages(chunks: list[bytes]) -> int:
         "headers": [
             (b"content-type", b"application/json"),
             (b"content-length", str(len(body)).encode()),
+            # A real server always populates this; the scope is hand-built here,
+            # and without it the §16 item 5 Host check refuses the request and
+            # this measures a 403 rather than whether the stream was buffered.
+            (b"host", b"127.0.0.1"),
         ],
         "client": ("127.0.0.1", 1),
     }

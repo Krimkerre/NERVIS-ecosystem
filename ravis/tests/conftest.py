@@ -37,6 +37,11 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     either.
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    # `TestClient` addresses the app as `http://testserver`, so the Host check
+    # added for §16 item 5 would refuse the whole suite. Named here once rather
+    # than carved into the check as a test-shaped exception, and rather than
+    # rewritten into two hundred call sites.
+    monkeypatch.setenv("RAVIS_ALLOWED_HOSTS", '["127.0.0.1", "localhost", "::1", "testserver"]')
 
 
 @pytest.fixture

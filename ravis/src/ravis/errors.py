@@ -97,6 +97,22 @@ class OriginRejectedError(RavisError):
     status = 403
 
 
+class UnsupportedMediaTypeError(RavisError):
+    """A state-changing request arrived as a form rather than as JSON (§4.4).
+
+    **This is a CSRF control, not a parsing preference.** The three content types
+    a browser can send without a preflight — `text/plain`,
+    `application/x-www-form-urlencoded`, `multipart/form-data` — are exactly the
+    ones a hostile page can produce with a plain `<form>`, and a request that
+    never preflights is never measured against the Origin allowlist. Refusing
+    them is what makes `admission.py`'s "a JSON body always preflights" argument
+    true of the server rather than only of the browser.
+    """
+
+    code = "UNSUPPORTED_MEDIA_TYPE"
+    status = 415
+
+
 class NotFoundError(RavisError):
     """The addressed thing does not exist, or no longer does.
 
