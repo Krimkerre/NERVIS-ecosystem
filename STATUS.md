@@ -25,14 +25,14 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2265 tests, no network, no live service
+.venv/bin/pytest                      # part of 2268 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 46 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 455 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 816 tests
 ```
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 816 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2265 passing across the four, conformance `PASS`.
+Expected: all clean, 2268 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11805,6 +11805,56 @@ the installer's success line.
 **SIRVIS is exempt for now, and by fact rather than by argument.** §9 gives it
 one fencing path — generated output entering an external judge — and no judge
 path exists in the code. Nothing to fence until §16's later items build one.
+
+## The canonical stream carries events — 2026-09-04
+
+**§16 item 9, and it was much smaller than its own warning suggested.** The item
+called this the largest single piece and said to schedule it separately. Read
+first, most of it already existed.
+
+§4.1 describes `/ecosystem/events` as *the* canonical stream: `id`/`event`/`data`
+frames, `Last-Event-ID` replay, `409 EVENT_CURSOR_EXPIRED` past retention,
+bounded subscriber buffers, `ecosystem.stream.gap` on overflow. The shared
+package answered every one of those with a heartbeat comment, on all three
+services. A consumer following the specification would have connected, held the
+line, and received nothing but colons for ever.
+
+**NERVIS already implemented all of it** — replay from a cursor, the expiry
+refusal, a live marker separating backlog from new traffic, gap frames that end
+the stream, and a shutdown check so an open feed cannot hold the process open.
+On `/api/v1/events/stream`, its own private path. So this was never "build a
+stream": it was "let the service that has one supply it", which is what the item
+means by an injected source.
+
+`app.state.ecosystem_events` is that injection. It takes the *request* rather
+than a parsed cursor, because the service that owns the retention window is the
+only one that can say whether a `Last-Event-ID` still falls inside it — parsing
+it in the shared package would put that decision where it cannot be answered.
+
+**`event_frames` is a plain function that validates and then returns the
+generator**, which is the one subtlety. An async generator would not run its body
+until the first frame was pulled, by which time the response has begun and a
+`409` can no longer be sent — so an expired cursor would arrive as a broken
+stream rather than as the refusal §4.1 names.
+
+Verified against the running stack rather than in a test:
+
+    GET /ecosystem/events          id: 67406, event: sirvis.recommendation.created
+    Last-Event-ID: 67400           resumes at 67401
+    Last-Event-ID: 1               409 EVENT_CURSOR_EXPIRED, floor 17433
+
+**RAVIS and SIRVIS still heartbeat, and that is the honest answer rather than a
+gap.** Both already publish — through `EventPublisher`, by *pushing* to NERVIS —
+so the ecosystem's events do move, and NERVIS's stream above is the aggregate
+that consumers actually want. Neither service has a local retained buffer to
+replay from, and nothing consumes a per-service pull stream today. "Connected,
+nothing to say" is true of them; an empty stream dressed as a full one would not
+be, which is the defect this item exists to remove rather than relocate.
+
+Building those buffers is a real piece of work with no current consumer, so it
+is written down here as a decision rather than taken silently: **a per-service
+pull stream is deferred until something needs one.** The route stays, the
+contract is stated, and the heartbeat is what it honestly is.
 
 ## Starting the thing
 

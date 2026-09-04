@@ -50,6 +50,7 @@ from nervis.api import (
 )
 from nervis.api import router as api_router
 from nervis.api.chat_personas import seed_chat_defaults
+from nervis.api.events import event_frames
 from nervis.config import Settings
 from nervis.ecosystem import (
     BUILD_VERSION,
@@ -84,6 +85,15 @@ def create_app(settings: Settings) -> FastAPI:
     _attach_shared_state(api, settings)
     _register_correlation(api)
     _register_error_handling(api)
+    # **The canonical stream is this service's stream (§16 item 9).** The shared
+    # package's `/ecosystem/events` heartbeated on every service while §4.1
+    # described it as *the* event stream — `Last-Event-ID` replay, cursor expiry,
+    # bounded buffers, gap frames. NERVIS already implements all of it, so the
+    # canonical route is given that generator rather than a second copy of
+    # semantics it would be expensive to get subtly different.
+    #
+    # Set before the router is included so no request can arrive between the two.
+    api.state.ecosystem_events = event_frames
     api.include_router(ecosystem_router)
     api.include_router(api_router)
     api.include_router(chat_router)

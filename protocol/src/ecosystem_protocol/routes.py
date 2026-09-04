@@ -114,17 +114,36 @@ async def read_version(request: Request) -> dict[str, Any]:
 
 
 @router.get("/events")
-async def stream_events(response: Response) -> StreamingResponse:
-    """The canonical v1 event stream.
+async def stream_events(request: Request, response: Response) -> StreamingResponse:
+    """The canonical v1 event stream, carrying real events where there are any.
 
     A service publishes no events until it has something to say, but the stream
     exists and heartbeats from the start, because a consumer must be able to
     connect, hold the connection and reconnect before there is traffic to carry.
     Building it later would mean discovering the reconnect semantics under load.
+
+    **And it stayed a heartbeat after there was traffic (§16 item 9).** §4.1
+    describes this route as the canonical stream — `id`/`event`/`data` frames,
+    `Last-Event-ID` replay, `409 EVENT_CURSOR_EXPIRED` past retention, bounded
+    subscriber buffers, `ecosystem.stream.gap` on overflow — and a consumer
+    following that would have held the line and received comments for ever.
+    NERVIS implements every one of those clauses on its own private path, so the
+    fix is not a second stream: a service that *has* one supplies it here.
+
+    `app.state.ecosystem_events` is that injection point. It takes the request
+    rather than a parsed cursor, because the service owning the retention window
+    is the one that can say whether a `Last-Event-ID` still falls inside it —
+    parsing it here would put that decision in the package that cannot answer it.
+
+    **A service without one keeps the heartbeat, and that is honest.** RAVIS and
+    SIRVIS publish by pushing to NERVIS rather than by being polled, so neither
+    has a stream to offer yet. "Connected, nothing to say" is true; an empty
+    event stream pretending to be a full one would not be.
     """
     del response  # FastAPI supplies it; the StreamingResponse below owns headers.
+    source = getattr(request.app.state, "ecosystem_events", None)
     return StreamingResponse(
-        heartbeat_stream(),
+        source(request) if source is not None else heartbeat_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

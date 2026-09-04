@@ -120,8 +120,7 @@ async def read_quarantine(request: Request) -> dict[str, Any]:
     return {"items": request.app.state.hub.quarantined(_int(request.query_params.get("limit"), 50))}
 
 
-@router.get("/stream")
-async def stream(request: Request) -> StreamingResponse:
+def event_frames(request: Request) -> AsyncIterator[bytes]:
     """Live events, with replay from `Last-Event-ID`.
 
     The replay is read from storage before the subscription is drained, so an
@@ -183,8 +182,29 @@ async def stream(request: Request) -> StreamingResponse:
             # about a tab somebody closed an hour ago.
             hub.unsubscribe(queue)
 
+    return frames()
+
+
+@router.get("/stream")
+async def stream(request: Request) -> StreamingResponse:
+    """NERVIS's own event stream, and the body of the canonical one.
+
+    **Split from `event_frames` for §16 item 9.** `/ecosystem/events` in the
+    shared package was a heartbeat on every service while §4.1 described it as
+    the canonical stream — replay, cursor expiry, gap frames, the lot. All of
+    that already existed here, on a private path, so the canonical route now
+    takes this generator rather than growing a second implementation of
+    semantics that are expensive to get subtly different.
+
+    **The cursor check has to happen before any byte is written**, which is why
+    `event_frames` is a plain function that validates and *then* returns the
+    generator. An async generator would not run its body until the first frame
+    was pulled — by which time the response has started and a `409` can no
+    longer be sent, so an expired cursor would arrive as a broken stream instead
+    of the refusal §4.1 names.
+    """
     return StreamingResponse(
-        frames(),
+        event_frames(request),
         media_type="text/event-stream",
         headers={"cache-control": "no-store", "x-accel-buffering": "no"},
     )

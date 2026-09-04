@@ -1140,7 +1140,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       cannot approve an action, select a tool, supply a command, change provider or model,
       widen access, or override instructions — backed by a code-level guarantee that no path
       treats fenced content as a command, not by the fence text alone.
-- [ ] **9. Canonical `/ecosystem/events`.** Replace the heartbeat-only route with a real stream:
+- [x] **9. Canonical `/ecosystem/events`.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. NERVIS serves the real stream; RAVIS and SIRVIS heartbeat honestly, because they publish by pushing. A per-service pull stream is a separate decision, recorded below.)* Replace the heartbeat-only route with a real stream:
       genuine `id`/`event`/`data` frames, `Last-Event-ID`, replay, expired-cursor `409`, bounded
       subscriber buffers, gap events after overflow, authentication and Origin policy. NERVIS's
       existing private event stream becomes the canonical implementation or a thin alias to it.
