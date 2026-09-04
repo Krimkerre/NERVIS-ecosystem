@@ -11965,6 +11965,41 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
 
+## A rule that was verified only by nobody having broken it — 2026-09-05
+
+**§3 names an import check that did not exist.** Three products share one
+repository, and §3 is blunt about the cost: *"nothing about a repository boundary
+enforces a module boundary."* Its answer is a prohibition on shared database
+tables, provider clients, routing engines and benchmark logic, "enforced by an
+import check in CI rather than by the filesystem, **which makes it a rule that is
+actually verified instead of merely implied**". The rule held — grep says no
+product imports a peer today — but it held by luck, which is the state that
+sentence was written to prevent. `tools/check_imports.py` is the check the
+sentence promised.
+
+It refuses both directions: a product importing a peer, and the protocol package
+importing any of them, because a contract that reaches into a consumer is a
+dependency pointing the wrong way. `tools/` is exempt and has to be —
+`tools/conformance_check.py` drives all three applications in one process,
+and a gate forbidding that would forbid its own sibling. Proved by breaking it in
+both directions and watching it exit 1, then removing the probes.
+
+**`tools/conformance_check.py` was run by nothing.** The one suite that holds all three
+services to §4.5 on their own routes appeared only in
+`.github/workflows/checks.yml`, whose own header says the file does not run. It
+is in the clean-clone gate now, beside the new import check.
+
+**Two soft spots in the acceptance procedure, both mine.** Its "through that
+route" step matched any decision selecting the model and recorded a miss with
+`note` rather than `bad` — reasoning that a different pool was "a configuration
+fact rather than a failure". True of the configuration, false of the clause: item
+12 asks whether Clarvis worked *through that route*, and a run that cannot show
+the editor's turn reaching the measured model has not shown it. The decision must
+now also be newer than the moment the task began, or a decision the procedure
+made itself minutes earlier would answer for the editor. And its trace assertion
+required spans from NERVIS and RAVIS while `STATUS.md` described all three; SIRVIS
+runs two benchmarks under that trace, so the assertion now requires it.
+
 ## Six fields §4.4 names that no event ever carried — 2026-09-05
 
 **The envelope shipped half its specification.** §4.4 lists twelve fields; the

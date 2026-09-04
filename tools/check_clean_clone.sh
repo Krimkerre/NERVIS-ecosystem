@@ -80,6 +80,16 @@ echo "=== repository gates ==="
 step "STATUS.md is current"    nervis-eco python tools/check_status.py
 step "nothing unreferenced"    nervis-eco python tools/check_dead_code.py
 step "build plans readable"   nervis-eco python tools/check_plans.py
+# §3 prohibits shared business logic "enforced by an import check in CI rather
+# than by the filesystem". There was no such check until 5 September; the rule
+# held because nobody had broken it, which is the state that sentence exists to
+# prevent.
+step "no product imports a peer" nervis-eco python tools/check_imports.py
+# The cross-service envelope suite. It was named only in
+# `.github/workflows/checks.yml`, a file whose own header says it does not run,
+# so the one gate that checks all three services against §4.5 was checked by
+# nothing.
+step "error envelope conformance" nervis-eco python tools/conformance_check.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

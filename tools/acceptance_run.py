@@ -63,6 +63,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -1079,15 +1080,41 @@ def checkpointed() -> list[str]:
 
 
 def through_that_route(result: Result, model: str, since: float) -> None:
-    """"Through that route" — the editor's traffic reached the same model, checked at RAVIS."""
+    """"Through that route" — the editor's traffic reached the same model, checked at RAVIS.
+
+    **Dated, and a failure when it is missing.** The first version matched any
+    decision selecting the model and recorded a miss with `note` rather than
+    `bad`, reasoning that a different pool was "a configuration fact rather than
+    a failure". That is true of the configuration and false of the clause: item
+    12 asks whether Clarvis worked *through that route*, and a run that cannot
+    show the editor's turn reaching the measured model has not shown it. The
+    decision must also be newer than the moment the task started, or a decision
+    this procedure made itself, minutes earlier, would answer for the editor.
+    """
     _, body, _ = call("GET", f"{RAVIS}/api/v1/route-decisions?limit=100")
     items = body.get("items", []) if isinstance(body, dict) else []
-    recent = [d for d in items if d.get("selected") == model]
+    recent = [d for d in items
+              if d.get("selected") == model and _decided_after(d.get("decided_at", ""), since)]
     if recent:
-        result.ok("clarvis", f"RAVIS recorded a decision selecting {model} for the editor's turn")
+        result.ok("clarvis", f"RAVIS recorded a decision selecting {model} for the editor's "
+                             f"turn, {len(recent)} since the task began")
     else:
-        result.note(f"no decision in the last 100 selected {model} — the agent may have used a "
-                    "different pool, which is a configuration fact rather than a failure")
+        result.bad("clarvis", f"no decision since the task began selected {model}; the editor's "
+                              "turn did not go through the route this run measured")
+
+
+def _decided_after(stamp: str, since: float) -> bool:
+    """Whether a decision's timestamp is later than a wall-clock mark.
+
+    RAVIS stamps decisions in UTC as `2026-09-05T21:04:02Z`. An unparseable or
+    absent stamp counts as *not* after: this gate exists to refuse an unproven
+    claim, so the answer it cannot establish is no.
+    """
+    try:
+        decided = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return False
+    return decided.timestamp() >= since
 
 
 def bridge_disabled(result: Result, port: int, unattended: bool) -> None:
@@ -1182,7 +1209,7 @@ def main() -> int:
         direct_provider(result, provider or "local", model, when="with everything healthy")
         redaction(result)
         nervis_turn(result, arguments.pool)
-        joined_trace(result, feed, {"nervis", "ravis"})
+        joined_trace(result, feed, {"nervis", "ravis", "sirvis"})
     finally:
         feed.stop()
     clarvis_clause(result, Path(arguments.workspace or ROOT), model, arguments.unattended)
