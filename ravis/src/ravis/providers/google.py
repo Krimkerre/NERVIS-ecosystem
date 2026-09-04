@@ -109,6 +109,18 @@ class GoogleUpstreamError(RuntimeError):
     and this message reaches the client verbatim when a chain runs out.
     """
 
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        """`status` is carried so the caller can tell whose fault this was.
+
+        Without it every upstream refusal reached `_adapter_failure` as an
+        unclassifiable `RuntimeError` and became `UNKNOWN` — so an upstream
+        answering *400: max_tokens must be an integer* was reported to the client
+        as `502 upstream_error`, blaming a provider that had worked correctly and
+        said exactly what was wrong.
+        """
+        super().__init__(message)
+        self.status = status
+
 
 class GoogleAdapter:
     """A `TranslatingAdapter` for the Gemini API (§6, Path B)."""
@@ -364,7 +376,10 @@ def _raise_for_status(response: httpx.Response, body: bytes) -> None:
             detail = str((payload.get("error") or {}).get("message") or "")
     except ValueError:
         detail = ""
-    raise GoogleUpstreamError(detail or f"google returned HTTP {response.status_code}")
+    raise GoogleUpstreamError(
+        detail or f"google returned HTTP {response.status_code}",
+        status=response.status_code,
+    )
 
 
 def _loads(body: bytes) -> Any:

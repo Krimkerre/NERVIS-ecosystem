@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2229 tests, no network, no live service
+.venv/bin/pytest                      # part of 2242 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2229 passing across the four, conformance `PASS`.
+Expected: all clean, 2242 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11602,6 +11602,68 @@ from what a request looks like.
 Verified live on all three: a rebound name is `403` on 8790, 8731 and 8721;
 ordinary calls are `200`; and nine dashboard screens across the three services
 issue no `403` or `415` between them.
+
+## Malformed input, and whose fault a failure is — 2026-09-04
+
+**§16 item 6, found by sending bad payloads at a running RAVIS rather than by
+reading.** Sixteen deliberately malformed requests produced six 5xx answers, in
+two families that turned out to be different defects.
+
+**SIRVIS's half did not reproduce.** Every malformed payload — members not a
+list, context lengths absurd or negative, lease periods as strings, unknown enum
+values, empty bodies — answered `422` carrying SIRVIS's own canonical envelope.
+The audit's "bad limits/context/lease values crash to 500" is not true of this
+build. Probed with a real token against the running service, mutations and all.
+One real gap did surface while looking: that envelope has no `retryable`, which
+§4.5 lists as mandatory. Left for item 10, which owns the shared schema.
+
+**RAVIS's first defect was a guard that only ran when it was not needed.**
+`_inspect` checked `messages` *if it was already a list*, so any other type
+walked past and crashed further in — `'int' object has no attribute 'get'`
+inside `content.py`, surfacing as a bare `500 Internal Server Error` with no
+OpenAI-shaped body at all. Reading the guard would not have shown it. It looks
+correct until you ask what happens when its condition is false.
+
+**The second was worse than a wrong status code.** A request with no `model`
+routed as the empty string, which reached a real local runtime, failed to
+connect, and was reported to the caller as the *upstream's* failure — and those
+connection failures are legitimately counted against the runtime's health, so a
+malformed request left a mark on a provider that had done nothing wrong.
+
+    before:  {"messages":[…]}  →  502  "No upstream attempt succeeded.
+                                        Tried:  (connection_failure)"
+    after:   400  "'model' is required and must be a non-empty string"
+
+**And a third, upstream of both.** `max_tokens: "lots"` is forwarded — correctly,
+since a transparent proxy does not own the upstream's schema — and Anthropic
+answers *400: max_tokens: Input should be a valid integer*. RAVIS reported that
+as `502 upstream_error`, outcome `unknown`, because `AnthropicUpstreamError` is a
+`RuntimeError` carrying a message and no status, so `_adapter_failure` had
+nothing to classify from.
+
+That function already carried the right argument for the neighbouring case —
+*"without this distinction one client sending an untranslatable body would walk
+the provider's circuit breaker toward open"* — and applied it only to a
+`TranslationError`. An upstream answering 4xx is making the same statement in
+its own words. Both upstream errors carry their status now.
+
+Fixing the classification was not enough: the response was still `502`, because
+chain exhaustion chose its status from *whether anything was tried* rather than
+from *why everything failed*. Both halves were needed — one so the record is
+true, one so the caller is told the truth.
+
+**What is deliberately still accepted**, and this is the line rather than an
+omission: `temperature: 99999`, `stream: "yes"`, `tools: "none"` all forward and
+answer 200. RAVIS validates the two fields it dereferences itself — `model`, to
+route on, and `messages`, to walk — and nothing else. Validating `temperature`
+here would invent a contract RAVIS has no business holding (§1's non-invention
+rule, applied to a request body), and the upstream owns and enforces its own.
+
+The first attempt got that line wrong: requiring `messages` broke fifty-six
+tests that send a model and a parameter to exercise forwarding. Absent is not
+malformed on a transparent path; present-and-wrong-typed is.
+
+    16 malformed payloads:  6 × 5xx  →  0 × 5xx
 
 ## Starting the thing
 

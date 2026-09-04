@@ -94,6 +94,20 @@ transparent gateway: RAVIS answers identity, health and capability negotiation b
 proxies its first completion. `/ecosystem/*` returns the MEP error envelope, not the
 OpenAI-compatible shapes `/v1` returns (§21).
 
+**Malformed input on `/v1` answers 400, never a 5xx (§16 item 6, 4 Sep).** RAVIS
+validates the two fields it dereferences itself — `model`, to route on, and
+`messages`, to walk — and forwards everything else untouched, because a transparent
+proxy does not own the upstream's schema (§1's non-invention rule, applied to a
+request body). So `temperature: 99999` still travels and the upstream decides; a
+`messages` that is not a list is refused here, because RAVIS is the thing that would
+crash on it.
+
+**An upstream's own 4xx is the client's fault, and is reported as one.** It used to
+surface as `502 upstream_error` with outcome `unknown` — the status was discarded
+when the error was raised, so nothing downstream could classify it. Blaming a
+provider that answered correctly is both untrue and an invitation to retry
+something that cannot succeed.
+
 ## 4.1 MEP capabilities
 
 | Capability | Advertise only when |

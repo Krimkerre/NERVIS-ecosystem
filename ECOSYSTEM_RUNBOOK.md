@@ -1123,7 +1123,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       not assumed. Where it applies: validate `Host`, validate `Origin`, require an explicit
       CSRF token on browser mutations, require an approved non-simple content type, apply the
       same rules to event streams and control endpoints alike.
-- [ ] **6. RAVIS/SIRVIS input validation.** Validate complete payloads — shapes, message/tool
+- [x] **6. RAVIS/SIRVIS input validation.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. SIRVIS's half did not reproduce; RAVIS's was two defects, not one.)* Validate complete payloads — shapes, message/tool
       entries, numeric ranges, enum values, session membership, context/lease bounds, body and
       list size limits — before routing, benchmarking or config conversion. Malformed input
       always returns the canonical structured 400, never a 500 or 502.

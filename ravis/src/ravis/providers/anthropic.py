@@ -96,6 +96,18 @@ class AnthropicUpstreamError(RuntimeError):
     out of candidates.
     """
 
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        """`status` is carried so the caller can tell whose fault this was.
+
+        Without it every upstream refusal reached `_adapter_failure` as an
+        unclassifiable `RuntimeError` and became `UNKNOWN` — so an upstream
+        answering *400: max_tokens must be an integer* was reported to the client
+        as `502 upstream_error`, blaming a provider that had worked correctly and
+        said exactly what was wrong.
+        """
+        super().__init__(message)
+        self.status = status
+
 
 # How long a discovery read is believed. The same window the other adapters
 # use: a catalogue changes daily rather than by the second, and this is about
@@ -367,7 +379,10 @@ def _raise_for_status(response: httpx.Response, body: bytes) -> None:
     """
     if response.status_code < 400:
         return
-    raise AnthropicUpstreamError(f"anthropic {response.status_code}: {_message_in(body)}")
+    raise AnthropicUpstreamError(
+        f"anthropic {response.status_code}: {_message_in(body)}",
+        status=response.status_code,
+    )
 
 
 def _message_in(body: bytes) -> str:

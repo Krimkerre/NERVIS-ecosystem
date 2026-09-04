@@ -508,11 +508,18 @@ def _adapter_failure(failure: Exception) -> FailureClass:
     walk the provider's circuit breaker toward open, and take the provider
     offline for every other caller on the machine.
     """
-    return (
-        FailureClass.INVALID_REQUEST
-        if isinstance(failure, TranslationError)
-        else FailureClass.UNKNOWN
-    )
+    if isinstance(failure, TranslationError):
+        return FailureClass.INVALID_REQUEST
+    # **An upstream's own 4xx says the same thing in its own words.** The
+    # argument above applied to only one of the two ways a request can be the
+    # client's fault: RAVIS refusing to render it, and the upstream refusing to
+    # accept it. The second reached here as an unclassifiable `RuntimeError` and
+    # became `UNKNOWN`, so `400: max_tokens must be an integer` was reported to
+    # the caller as `502 upstream_error` — blaming a provider that had worked.
+    status = getattr(failure, "status", None)
+    if isinstance(status, int):
+        return classify_response(status, str(failure).encode()) or FailureClass.UNKNOWN
+    return FailureClass.UNKNOWN
 
 
 async def _translated_frames(
@@ -659,10 +666,63 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     if not isinstance(parsed, dict):
         return _openai_error("Request body must be a JSON object", "invalid_request_error", 400)
 
-    messages = parsed.get("messages", [])
-    if isinstance(messages, list):
-        check_image_count(messages, request.app.state.settings)
+    refusal = _shape_refusal(parsed)
+    if refusal is not None:
+        return refusal
+
+    check_image_count(parsed.get("messages") or [], request.app.state.settings)
     return parsed
+
+
+def _shape_refusal(parsed: dict[str, Any]) -> JSONResponse | None:
+    """Refuse a payload RAVIS itself cannot read, and nothing more.
+
+    **Only the two fields RAVIS dereferences.** This is a transparent proxy: the
+    upstream owns its own schema, and validating `temperature` or `tools` here
+    would invent a contract RAVIS has no business holding — the non-invention
+    rule in the runbook's §1, applied to a request body. What RAVIS *does* read
+    is `model`, to route on, and `messages`, to walk. Those two must be the shape
+    it walks, or the walk crashes.
+
+    It did. `messages` was checked only when it was already a list, so any other
+    type went past the guard and failed further in — `'int' object has no
+    attribute 'get'` inside `content.py`, surfacing as a bare 500 with no
+    OpenAI-compatible body at all. A missing `model` was worse than a wrong
+    number: it routed as the empty string, reached a real local runtime, failed
+    to connect, and was reported to the caller as the *upstream's* failure.
+
+    Found by sending bad payloads at a running RAVIS. Reading the guard would not
+    have shown it, because the guard looks correct until you ask what happens
+    when its condition is false.
+    """
+    model = parsed.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return _openai_error(
+            "'model' is required and must be a non-empty string",
+            "invalid_request_error",
+            400,
+        )
+
+    # **Absent is not malformed**, and this is the line the first version got
+    # wrong. A transparent proxy forwards what it was given and lets the upstream
+    # own its own schema (the runbook's non-invention rule); requiring `messages`
+    # here refused requests the upstream would have answered, and broke fifty-six
+    # tests that send a model and a parameter to check the forwarding path.
+    #
+    # Present-but-wrong-typed is different: RAVIS walks this list itself.
+    messages = parsed.get("messages")
+    if messages is not None and not isinstance(messages, list):
+        return _openai_error(
+            "'messages' must be a list", "invalid_request_error", 400
+        )
+    for index, message in enumerate(messages or []):
+        if not isinstance(message, dict):
+            return _openai_error(
+                f"'messages[{index}]' must be an object",
+                "invalid_request_error",
+                400,
+            )
+    return None
 
 
 def _disabled(request: Request) -> frozenset[str]:
@@ -1772,6 +1832,17 @@ def _chain_exhausted(chain: AttemptChain) -> JSONResponse:
     broken" and "your upstream was already known to be broken, come back in
     thirty seconds".
     """
+    # **A client error stays a client error, however many candidates saw it.**
+    # `max_tokens: "lots"` is forwarded — a transparent proxy does not own the
+    # upstream's schema — and Anthropic answers *400: max_tokens: Input should be
+    # a valid integer*. Every candidate then refuses it for the same reason, the
+    # chain exhausts, and reporting 502 tells the caller their upstream is broken
+    # when it worked perfectly and said exactly what was wrong. 5xx here would
+    # also invite a retry that cannot succeed.
+    if chain.last_class is FailureClass.INVALID_REQUEST:
+        return JSONResponse(
+            status_code=400, content=json.loads(_exhausted_body(chain))
+        )
     tried_something = any(attempt.outcome != "skipped" for attempt in chain.attempts)
     return JSONResponse(
         status_code=502 if tried_something else 503,
