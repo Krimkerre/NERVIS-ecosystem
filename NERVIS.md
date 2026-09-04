@@ -740,9 +740,23 @@ section owns rather than one each caller makes.
   is entitled to know who is asking; NERVIS presents its own identity on ordinary reads for that
   reason alone, and a rate-limited read that reports as an empty service is the defect this
   prevents.
+- **Holding a credential is not deciding to use it (added 5 Sep).** The four rules above kept the
+  credential away from the browser and left the *decision* ungated: six routes proxy RAVIS
+  configuration mutations, and until this anything able to reach NERVIS's port could invoke them
+  while holding nothing. That is the gate `ECOSYSTEM_RUNBOOK.md` §15.1's item 4 closed at RAVIS,
+  re-opened one hop up, in routes whose own docstrings cite it. NERVIS mints a control token per
+  process, serves it inside `index.html`, and requires it back on those six —
+  `nervis/src/nervis/api/control.py`. It is a CSRF token in the precise sense `RAVIS.md` §4.4 says
+  RAVIS does not need one: RAVIS's callers present a bearer header a cross-origin page cannot set,
+  while the dashboard presents nothing and the browser's willingness to send the request is itself
+  the authority. A page on another origin may issue the request and may not read the document, so
+  it never learns the value. A local process that can read the page can already do whatever the
+  page can do; that boundary is the operating system's, and this does not pretend to hold it.
 
-**Gate:** a credential issued for one peer never appears in a request to another, and no
-credential is served to the browser by any endpoint.
+**Gate:** a credential issued for one peer never appears in a request to another, no credential is
+served to the browser by any endpoint, and every route that spends a peer credential on a mutation
+requires the control token — proved by `nervis/tests/test_control_token.py`, which lists the six
+rather than deriving them, so a seventh added without the gate fails the list.
 
 ---
 

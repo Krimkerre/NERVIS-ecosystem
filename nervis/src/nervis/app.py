@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,6 +121,13 @@ def create_app(settings: Settings) -> FastAPI:
 
 def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     """Everything a handler reaches for through `request.app.state`."""
+    # **Minted per process, persisted nowhere.** It authorises the six RAVIS
+    # configuration proxies below and nothing else — see `api/control.py` for
+    # what it defends and why a bearer credential would not. A restart is a new
+    # value, which is the right behaviour for something a page holds: a browser
+    # tab left open overnight loses the ability to change configuration until it
+    # reloads, and reloading is how it gets the current token.
+    api.state.control_token = secrets.token_urlsafe(32)
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
 

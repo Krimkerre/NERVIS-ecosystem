@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2274 tests, no network, no live service
+.venv/bin/pytest                      # part of 2295 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 46 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 821 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2274 passing across the four, conformance `PASS`.
+Expected: all clean, 2295 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,47 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## The gate NERVIS re-opened one hop up — 2026-09-05
+
+**Working §15 found it in the first hour.** The line reads "NERVIS cannot bypass a
+Clarvis or RAVIS safety gate", and it could. §16 item 4 stopped RAVIS treating a
+loopback bind as authorization: every management mutation there needs an admin
+credential and an anonymous caller gets 403. NERVIS holds that credential and
+proxies six of those mutations — provider enable, model filters, pool members,
+pool curation, credential write and delete — and NERVIS asks for nothing. So
+anything able to reach `127.0.0.1:8790` could change RAVIS's configuration while
+holding nothing at all. Moving the credential out of the browser's reach was the
+right half; leaving the decision to *use* it ungated was the half nobody looked
+at, in a route whose own docstring cites item 4.
+
+**A page token, not a bearer credential, and the difference is the threat.**
+RAVIS deliberately declined to build a CSRF token, and `RAVIS.md` §4.4 gives the
+reason: such a token defends *ambient* authority, and RAVIS's callers present a
+bearer header, which a page on another origin cannot set. NERVIS's dashboard is
+the opposite case — a same-origin page carrying no credential, where the
+browser's willingness to send the request *is* the authority. So NERVIS mints a
+value per process, embeds it in the page it serves, and requires it back on those
+six routes. A page on another origin may issue the request and may not read
+`/index.html`, so it never learns the value.
+
+**What it does not stop, said plainly.** A local process that can read the page
+can already do anything the page can do. That boundary belongs to the operating
+system, and claiming otherwise would be the "looks encrypted and isn't" mistake
+§16 item 2 refused to make. Reads stay open: a console that demanded a credential
+before drawing a health table is a console nobody opens.
+
+Nothing persists the token, so a restart retires it and a tab left open overnight
+loses the ability to change configuration until it reloads — which is how it gets
+the current one. Live, after a restart:
+
+    without the header   403 CONTROL_TOKEN_REQUIRED, the §4.5 envelope
+    with the page's own  200 {"name":"openai","enabled":true}
+    /api/v1/services, /api/v1/settings, /api/v1/ravis   no token in any of them
+
+Twenty-one tests: each of the six routes refused without it and with a wrong one,
+each reaching its next hop with the right one, reads still open, the token in the
+page and on no JSON surface, and two processes never sharing a value.
 
 ## The golden path, run against the running thing — 2026-09-05
 

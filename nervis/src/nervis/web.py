@@ -19,13 +19,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, Response
 
 # The dashboard sits beside the package rather than inside it: `src/nervis/` is
 # the importable module and `nervis/index.html` is the repository's own file,
 # already referenced by `tools/run.py` and by every bookmark anyone has.
 DASHBOARD = Path(__file__).resolve().parents[2] / "index.html"
+
+#: Replaced with this process's control token when the page is served. Left as
+#: itself in the file on disk, so the repository's copy is still a page anybody
+#: can open directly and nothing in git ever holds a live token.
+CONTROL_PLACEHOLDER = "__NERVIS_CONTROL_TOKEN__"
 
 
 def register_dashboard(api: FastAPI) -> None:
@@ -44,18 +49,29 @@ def register_dashboard(api: FastAPI) -> None:
         return RedirectResponse("/index.html")
 
     @api.get("/index.html", include_in_schema=False)
-    async def dashboard() -> Response:
+    async def dashboard(request: Request) -> Response:
         if not DASHBOARD.is_file():
             return Response(
                 f"No dashboard at {DASHBOARD}. The API is unaffected; see /api/v1/health.",
                 status_code=404,
                 media_type="text/plain",
             )
+        # **Served as text, not as a file, because the page carries a value.**
+        # `api/control.py` mints a control token per process and the six RAVIS
+        # configuration proxies require it back; the page is where it is handed
+        # over, because a page on another origin may request this document and
+        # may not read it. `FileResponse` cannot do that, so the substitution
+        # happens here — the placeholder is the only edit, and a repository
+        # checkout with no NERVIS running still opens as an ordinary file.
+        page = DASHBOARD.read_text(encoding="utf-8").replace(
+            CONTROL_PLACEHOLDER, str(getattr(request.app.state, "control_token", "")),
+        )
         # No caching. The dashboard is edited constantly during development and
         # a cached copy of yesterday's build reporting today's data is the
-        # single most confusing failure this project has produced.
-        return FileResponse(
-            DASHBOARD,
+        # single most confusing failure this project has produced. It matters
+        # twice over now: a cached page holds a token a restart has retired.
+        return Response(
+            page,
             media_type="text/html",
             headers={"Cache-Control": "no-store"},
         )

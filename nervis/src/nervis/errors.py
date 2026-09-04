@@ -73,6 +73,20 @@ class HostRejectedError(NervisError):
     status = 403
 
 
+class ControlTokenRequiredError(NervisError):
+    """A configuration change arrived without the dashboard's control token.
+
+    403 rather than 401, for `HostRejectedError`'s reason rather than
+    `UnauthorizedError`'s: there is no credential a caller could go and fetch.
+    The token is minted per process and handed to the page NERVIS serves, so the
+    only way to hold it is to be that page — and telling a caller to authenticate
+    would be telling it to do something impossible.
+    """
+
+    code = "CONTROL_TOKEN_REQUIRED"
+    status = 403
+
+
 class RefusedError(NervisError):
     """A well-formed request that breaks a rule NERVIS enforces.
 

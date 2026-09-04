@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="nervis-control" content="__NERVIS_CONTROL_TOKEN__">
 <title>NERVIS Dashboard — live build</title>
 <style>
 /* ==========================================================================
@@ -1758,6 +1759,17 @@ function recentDecisions(payload){
      and then left the reader to go and find it. */
   record:d}))};
 }
+/* **The token NERVIS put in this page, sent back on configuration changes.**
+   §16 item 4 stopped RAVIS trusting a loopback bind, and NERVIS proxies six of
+   those mutations with the credential that replaced it. The header is what
+   proves the request came from this page rather than from any other thing that
+   can reach the port: a page on another origin may issue the request and cannot
+   read this document, so it never learns the value. Empty when the file is
+   opened directly from disk, which is a page with no NERVIS to change anything
+   in. Every configuration write goes through `control_headers()` — a helper
+   rather than six literals, so the seventh cannot quietly ship without it. */
+const CONTROL_TOKEN=(document.querySelector('meta[name="nervis-control"]')||{}).content||'';
+function control_headers(){return{'content-type':'application/json','x-nervis-control':CONTROL_TOKEN}}
 const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
 
@@ -7882,7 +7894,7 @@ const POOLEDIT={
       no longer takes a loopback bind as authorization for a write like this,
       and the browser must not be given the credential that replaced it. */
    const r=await fetch('/api/v1/ravis/pools/'+encodeURIComponent(key)+'/members',
-     {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({models})});
+     {method:'PUT',headers:control_headers(),body:JSON.stringify({models})});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
    const d=await r.json();
    /* Named rather than swallowed. A picker that reported success on a selection
@@ -7918,7 +7930,7 @@ async function curatePools(){
  if(note)note.textContent='resetting…';
  try{
   const r=await fetch('/api/v1/ravis/pools/curate',
-    {method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    {method:'POST',headers:control_headers(),body:'{}'});
   if(!r.ok){if(note)note.textContent='RAVIS refused: HTTP '+r.status;return}
   if(note)note.textContent=curateOutcome(await r.json());
  }catch(e){if(note)note.textContent='RAVIS is not reachable.';return}
@@ -8788,7 +8800,7 @@ const PROVIDERS={
   if(!all&&!st.on.size&&!armed('filter:'+name,'Nothing is ticked, which leaves this provider with no models at all'))return;
   try{
    const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/models',
-    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    {method:'PUT',headers:control_headers(),body:JSON.stringify(body)});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}
   delete this.picked[name];
@@ -8802,7 +8814,7 @@ const PROVIDERS={
    exclude:split((document.getElementById(domId('mfe',name))||{}).value)};
   try{
    const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/models',
-    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    {method:'PUT',headers:control_headers(),body:JSON.stringify(body)});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}
   ravisProviders();
@@ -8810,7 +8822,7 @@ const PROVIDERS={
  async toggle(name,enabled){
   try{
    const r=await fetch('/api/v1/ravis/providers/'+encodeURIComponent(name)+'/enabled',
-    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})});
+    {method:'PUT',headers:control_headers(),body:JSON.stringify({enabled})});
    if(!r.ok){alert('RAVIS refused: HTTP '+r.status);return}
   }catch(e){alert('RAVIS is not reachable.');return}
   ravisProviders();
@@ -10736,7 +10748,7 @@ const CREDS={
       form is not a place to keep one. NERVIS holds it, exactly as it holds
       SIRVIS's admin token for deleting a result. */
    const r=await fetch(BASE.nervis+'/api/v1/ravis/credentials/'+encodeURIComponent(name),
-    {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({secret})});
+    {method:'PUT',headers:control_headers(),body:JSON.stringify({secret})});
    /* Cleared whether or not the write succeeded: a failed save should not leave
       the key sitting in a DOM node for the next person at the screen. */
    field.value='';
@@ -10757,7 +10769,8 @@ const CREDS={
    /* Through NERVIS for the same reason as saving: §15.1 is about who may
       change key material, and removing a key changes it. */
    const gone=await fetch(
-    BASE.nervis+'/api/v1/ravis/credentials/'+encodeURIComponent(name),{method:'DELETE'});
+    BASE.nervis+'/api/v1/ravis/credentials/'+encodeURIComponent(name),
+    {method:'DELETE',headers:control_headers()});
    if(!gone.ok){
     const said=await gone.json().catch(()=>({}));
     alert(said.message||('The key was not removed: HTTP '+gone.status));

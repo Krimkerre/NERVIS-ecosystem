@@ -22,10 +22,11 @@ from pathlib import Path
 from typing import Any
 
 from ecosystem_protocol import wire_identifier
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from nervis import documents
+from nervis.api.control import require_control
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
@@ -393,7 +394,7 @@ async def upload_to_workspace(name: str, request: Request) -> Any:
     return {"file": {"name": stored.shown, "bytes": stored.written}}
 
 
-@router.put("/ravis/credentials/{name}")
+@router.put("/ravis/credentials/{name}", dependencies=[Depends(require_control)])
 async def set_ravis_credential(name: str, request: Request) -> Any:
     """Store a provider key in RAVIS, with NERVIS's admin credential (§15.1).
 
@@ -425,7 +426,7 @@ async def set_ravis_credential(name: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
-@router.delete("/ravis/credentials/{name}")
+@router.delete("/ravis/credentials/{name}", dependencies=[Depends(require_control)])
 async def forget_ravis_credential(name: str, request: Request) -> Any:
     """Remove a provider key from RAVIS. Same authorization as writing one:
     §15.1 is about who may change key material, and removing it changes it."""
@@ -438,7 +439,7 @@ async def forget_ravis_credential(name: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
-@router.put("/ravis/providers/{name}/enabled")
+@router.put("/ravis/providers/{name}/enabled", dependencies=[Depends(require_control)])
 async def set_ravis_provider_enabled(name: str, request: Request) -> Any:
     """Turn one RAVIS provider on or off, with NERVIS's admin credential.
 
@@ -459,7 +460,7 @@ async def set_ravis_provider_enabled(name: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
-@router.put("/ravis/providers/{name}/models")
+@router.put("/ravis/providers/{name}/models", dependencies=[Depends(require_control)])
 async def set_ravis_model_filter(name: str, request: Request) -> Any:
     """Narrow which of a provider's models RAVIS will offer."""
     body = await _json_body(request)
@@ -473,7 +474,7 @@ async def set_ravis_model_filter(name: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
-@router.put("/ravis/pools/{pool_key}/members")
+@router.put("/ravis/pools/{pool_key}/members", dependencies=[Depends(require_control)])
 async def set_ravis_pool_members(pool_key: str, request: Request) -> Any:
     """Pin a pool to chosen models, or clear the pin.
 
@@ -491,7 +492,7 @@ async def set_ravis_pool_members(pool_key: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
-@router.post("/ravis/pools/curate")
+@router.post("/ravis/pools/curate", dependencies=[Depends(require_control)])
 async def curate_ravis_pools(request: Request) -> Any:
     """Hand every pool back to its curated default — a removal, not a write."""
     status, answered = await ravis_peer.configure(
