@@ -19,11 +19,14 @@ for a request ID returns whole records rather than fragments.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
 import sys
 import uuid
+from collections.abc import Iterator
+from contextvars import ContextVar
 from typing import Any
 
 # Fields that must never be written to a log, in any product (runbook §9).
@@ -32,6 +35,76 @@ from typing import Any
 REDACTED_KEYS = frozenset(
     {"authorization", "api_key", "credential", "token", "prompt", "messages", "content"}
 )
+
+
+#: The request being served on this task, for whatever logs underneath it.
+#:
+#: **A context variable rather than an argument threaded through every call.**
+#: `JsonLineFormatter` has always promoted these three fields when a record
+#: carries them, and nothing ever set them: no log line in the ecosystem was
+#: correlated with anything, while §4.3 fixed the vocabulary and §15 claimed the
+#: property. Passing IDs into every `logger.info` across four packages is a rule
+#: that holds for a month — the call added later without them is invisible, and
+#: it is always the one being read during an incident. This is set once, where
+#: each service already identifies the request, and reaches lines this codebase
+#: never wrote — `httpx` logging an outbound call now names the inbound request
+#: that caused it, which no call-site change could have done.
+#:
+#: **Except uvicorn's access line**, which is written after the application has
+#: returned and the context has been reset, so it carries nothing. Recorded
+#: rather than worked around: the access line already names the method, path and
+#: status, and reaching it would mean owning uvicorn's logging rather than the
+#: application's.
+_CARRIED: ContextVar[dict[str, str]] = ContextVar("ecosystem_correlation", default={})
+
+
+@contextlib.contextmanager
+def carrying(request_id: str = "", trace_id: str = "",
+             application_id: str = "") -> Iterator[None]:
+    """Mark this task as serving one request, for the duration of the block.
+
+    Empty values are dropped rather than carried: a field present and blank
+    reads as "this request had no trace", which is a different claim from "this
+    line belongs to no request", and startup logging is the second one.
+    """
+    carried = {
+        name: value for name, value in (
+            ("request_id", request_id),
+            ("trace_id", trace_id),
+            ("application_id", application_id),
+        ) if value
+    }
+    token = _CARRIED.set(carried)
+    try:
+        yield
+    finally:
+        _CARRIED.reset(token)
+
+
+def correlation() -> dict[str, str]:
+    """What this task is currently serving, if anything.
+
+    Public because the log filter is not the only consumer: an event published
+    while handling a request belongs to the same request, and reading it here
+    keeps one answer rather than two that drift.
+    """
+    return dict(_CARRIED.get())
+
+
+class CorrelationFilter(logging.Filter):
+    """Attach the current request's IDs to records that do not carry their own.
+
+    **Fills gaps, never overrules.** A line that names a different request — a
+    background task acting on behalf of one — is telling the truth about itself,
+    and replacing that with the ambient value would substitute a default for a
+    fact.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        for name, value in _CARRIED.get().items():
+            if not getattr(record, name, None):
+                setattr(record, name, value)
+        return True
 
 
 class JsonLineFormatter(logging.Formatter):
@@ -71,6 +144,10 @@ def configure_logging(level: str) -> None:
     """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonLineFormatter())
+    # On the handler rather than on a logger: a filter attached to one logger
+    # never sees another's records, and the lines worth correlating during an
+    # incident include uvicorn's, which this package does not own.
+    handler.addFilter(CorrelationFilter())
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)

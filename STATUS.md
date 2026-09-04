@@ -25,14 +25,14 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2295 tests, no network, no live service
+.venv/bin/pytest                      # part of 2301 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 46 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 52 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 ```
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2295 passing across the four, conformance `PASS`.
+Expected: all clean, 2301 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,42 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## No log line in the ecosystem was correlated with anything — 2026-09-05
+
+**Working §15 again, and this one had been true on paper since §4.3 was
+written.** `JsonLineFormatter` promotes `request_id`, `trace_id` and
+`application_id` to top-level fields whenever a record carries them, which is
+what makes them filterable at a collector. Nothing in four packages ever set
+them: a search for `extra=` carrying any of the three returns nothing in NERVIS,
+RAVIS or SIRVIS. So the vocabulary was fixed, the promotion was implemented, the
+checklist claimed the property, and every log line on this machine was an island.
+
+**A context variable, not an argument at every call site.** Threading IDs
+through every `logger.info` in four packages is a rule that holds for a month:
+the call added later without them is invisible, and it is always the one being
+read during an incident. `carrying()` is set once in each service's correlation
+middleware — where the request is already being identified — and
+`CorrelationFilter` attaches the values to whatever is logged underneath. The
+filter fills gaps and never overrules: a line naming a different request, as a
+background task acting on behalf of one does, is telling the truth about itself.
+
+The proof is a line this codebase did not write:
+
+    {"level":"INFO","logger":"httpx","message":"HTTP Request: POST …/v1/tts …",
+     "request_id":"1f1249e7…","trace_id":"e473cb48…"}
+
+`httpx` logging an outbound call, now naming the inbound request that caused it.
+No call-site change could have reached that.
+
+**Uvicorn's access line still carries nothing, and that is recorded rather than
+worked around.** It is written after the application returns and the context has
+been reset. The access line already names method, path and status, and reaching
+it would mean owning uvicorn's logging rather than the application's.
+
+RAVIS carries the third field as well, because by that point in its middleware it
+has resolved *who* is asking, and §4.3 names `application_id` beside the other
+two for exactly that.
 
 ## The gate NERVIS re-opened one hop up — 2026-09-05
 

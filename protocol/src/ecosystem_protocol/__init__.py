@@ -20,8 +20,11 @@ from ecosystem_protocol.capabilities import (
 )
 from ecosystem_protocol.events import envelope, redact_deep, stable_event_id
 from ecosystem_protocol.observability import (
+    CorrelationFilter,
     JsonLineFormatter,
+    carrying,
     configure_logging,
+    correlation,
     new_request_id,
     new_traceparent,
     redact,
@@ -47,7 +50,10 @@ __all__ = [
     "Capability",
     "wire_identifier",
     "EcosystemSurface",
+    "CorrelationFilter",
     "JsonLineFormatter",
+    "carrying",
+    "correlation",
     "capability_snapshot",
     "configure_logging",
     "new_request_id",

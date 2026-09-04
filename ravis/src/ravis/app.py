@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 import httpx
-from ecosystem_protocol import EventPublisher, new_request_id, trace_id_from
+from ecosystem_protocol import EventPublisher, carrying, new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -446,7 +446,14 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
         except RavisError as refusal:
             return to_response(request, refusal)
 
-        response = await call_next(request)
+        # The ids the response will carry, put where anything logging underneath
+        # this request can reach them without being handed them. RAVIS is the
+        # one service that also knows *who* is asking by this point, and §4.3
+        # names `application_id` alongside the other two for exactly that.
+        with carrying(request_id=request.state.request_id,
+                      trace_id=request.state.trace_id,
+                      application_id=identity.application_id):
+            response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         # Report the resolved identity back; never read it as an assertion
         # (RAVIS.md §9.6.0).

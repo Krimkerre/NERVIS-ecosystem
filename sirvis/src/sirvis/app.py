@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
-from ecosystem_protocol import EventPublisher, new_request_id, trace_id_from
+from ecosystem_protocol import EventPublisher, carrying, new_request_id, trace_id_from
 from ecosystem_protocol import router as ecosystem_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -279,6 +279,10 @@ def _register_correlation(api: FastAPI) -> None:
         request.state.trace_id = trace_id_from(
             request.headers.get("traceparent", "")
         )
-        response = await call_next(request)
+        # The same two ids the response will carry, put where anything logging
+        # underneath this request can reach them without being handed them.
+        with carrying(request_id=request.state.request_id,
+                      trace_id=request.state.trace_id):
+            response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
