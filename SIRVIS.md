@@ -634,9 +634,14 @@ Every note therefore declares a `ValidityScope`:
 | `OUTPUT` | what came back — tokens that never arrived as content, unexpected stops | generation |
 | `CONDITIONS` | the run answered a different question, so nothing on it is safe | configuration mismatch, prompt adaptation |
 
-The scope belongs to the producing function rather than to a table beside the call
-site, because the producer is what knows. A warning that cannot be placed is
-`CONDITIONS` — the conservative reading, tainting everything rather than nothing.
+The scope belongs to the **warning**, not to the function that emits it: a single
+producer emits warnings of different kinds. `_suppression_warnings` reports both
+reasoning tokens (`TIMING` — the note itself says the throughput covers the answer
+only and the time-to-first-token includes the thinking) and a suppressed prompt
+(`CONDITIONS`). Attaching a scope per producer read the first as the second, which
+would have demoted `gemma-4-e4b` from 24/24 well-formed tool calls. A warning that
+cannot be placed is `CONDITIONS` — the conservative reading, tainting everything
+rather than nothing.
 
 Consumers read the scope against what they are claiming: RAVIS's tool-call verdict
 refuses `OUTPUT` and `CONDITIONS` and accepts `TIMING`. **An empty scope list means

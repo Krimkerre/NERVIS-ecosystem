@@ -24,7 +24,7 @@ from tests.conftest_lmstudio import INSTALLED
 
 from sirvis.benchmarks import BenchmarkTest, ExperimentSpec, GenerationConfig, run_experiment
 from sirvis.benchmarks.engine import answer_offset
-from sirvis.core.evidence import EvidenceKind, Validity
+from sirvis.core.evidence import EvidenceKind, Validity, ValidityScope
 from sirvis.errors import ModelNotFoundError
 from sirvis.resources import ResourceManager
 from sirvis.runtimes.base import GenerationChunk, LoadedModel, RuntimeUnavailableError
@@ -657,8 +657,12 @@ def test_a_run_that_swapped_says_so() -> None:
     warnings = _swap_warnings(_Outcome())  # type: ignore[arg-type]
 
     assert warnings, "a run that paged three gigabytes is not a clean measurement"
-    assert "swap grew" in warnings[0]
-    assert "after_load" in warnings[0], "and says where the peak was"
+    # Scoped pairs since §16 item 7: paging makes the *rate* describe the disk
+    # as well as the model, and says nothing about what came back.
+    scope, note = warnings[0]
+    assert scope is ValidityScope.TIMING
+    assert "swap grew" in note
+    assert "after_load" in note, "and says where the peak was"
 
 
 def test_a_machine_already_swapping_is_not_blamed_on_the_run() -> None:

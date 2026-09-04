@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2259 tests, no network, no live service
+.venv/bin/pytest                      # part of 2260 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 454 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 455 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2259 passing across the four, conformance `PASS`.
+Expected: all clean, 2260 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11696,14 +11696,30 @@ could not do better because the reason lives in prose.** Asked whether the tool
 trials could count while the speed numbers did not, the answer is yes — by
 having SIRVIS say what each warning undermines instead of RAVIS guessing.
 
-`ValidityScope` is three values, because that is how the producers already
-divide: `TIMING` (thermal, swap — the rate describes something other than the
-model), `OUTPUT` (tokens that never arrived as content — what came back is in
-question), `CONDITIONS` (a configuration mismatch or an adapted prompt — the run
-answered a different question, so nothing on it is safe). The scope is attached
-to the producing function rather than to a table beside the call site, because
-`_thermal_warnings` is the thing that knows a heat-soaked run swings
-tokens/second by 48% and says nothing about correctness.
+`ValidityScope` is three values: `TIMING` (the rate describes something other
+than the model), `OUTPUT` (what came back is in question), `CONDITIONS` (the run
+answered a different question, so nothing on it is safe).
+
+**The first version attached the scope to the producing function, and asking
+which models the change would demote is what proved that wrong.** Ten model/role
+pairs carried output-trouble records; nine would have lost their only evidence.
+Narrowing to what actually feeds a tool-call verdict left three, all
+`gemma-4-e4b` — scoring **24/24 and 21/24 well-formed tool calls** while carrying
+"6 repetition(s) generated tokens that never arrived as content".
+
+That note reads like the model produced nothing. It is the opposite: those are
+reasoning tokens, and the note says where they go — *"spent before the first
+answer token: the throughput here covers the answer only, and the
+time-to-first-token includes the thinking"*. The fact recorded is which window
+the tokens landed in, which is rate accounting. Scoping its producer
+`CONDITIONS` would have demoted a model that answered every tool call correctly
+— the mistake scopes exist to prevent, reached by a different route.
+
+So the scope belongs to the **warning**, not the producer. `_suppression_warnings`
+emits both that timing note and a genuine `CONDITIONS` one about a suppressed
+prompt; `_generation_warnings` emits a genuine `OUTPUT` one — "the call succeeded
+but the model produced nothing to measure" — beside it. Every producer returns
+`(scope, message)` pairs now, in both the single-model and multi-model engines.
 
 RAVIS's `tool_verdict` is a claim about what came back, so it refuses `OUTPUT`
 and `CONDITIONS` and accepts `TIMING` — the twenty-one thermally-throttled

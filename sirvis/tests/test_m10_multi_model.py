@@ -29,6 +29,7 @@ from sirvis.benchmarks.multi import (
     run_multi_experiment,
 )
 from sirvis.benchmarks.spec import BenchmarkTest
+from sirvis.core.evidence import ValidityScope
 from sirvis.core.runtime_sets import RuntimeSet, RuntimeSetMember
 from sirvis.resources import ResourceExhaustedError, ResourceManager
 from sirvis.runtimes.base import GenerationChunk, LoadedModel
@@ -297,7 +298,7 @@ def test_a_member_failing_under_concurrent_load_does_not_cancel_the_other(
 
     assert outcome.repetitions_for("chat", MODE_CONCURRENT), "the survivor must be measured"
     assert not outcome.repetitions_for("agent", MODE_CONCURRENT)
-    assert any("under concurrent load" in warning for warning in outcome.warnings)
+    assert any("under concurrent load" in note for _, note in outcome.warnings)
 
 
 # ── The interaction matrix ───────────────────────────────────────────────────
@@ -397,7 +398,7 @@ def test_a_load_failure_never_reports_the_combination_as_working(tmp_path: Any) 
     assert outcome.matrix["complete"] is False
     assert outcome.matrix["conditions"] == [MODE_ALONE]
     assert MODE_SEQUENTIAL not in outcome.matrix["rows"]["chat"]["figures"]
-    assert any("say nothing about the combination" in w for w in outcome.warnings)
+    assert any("say nothing about the combination" in note for _, note in outcome.warnings)
 
 
 def test_a_failed_load_leaves_nothing_resident(tmp_path: Any) -> None:
@@ -599,7 +600,7 @@ def test_a_run_whose_thermal_state_moved_says_so(tmp_path: Any) -> None:
     outcome, _ = run(a_spec(), FakeRuntime(), tmp_path,
                      thermal=lambda: next(states, "fair"))
 
-    assert any("thermal state changed" in note for note in outcome.warnings)
+    assert any("thermal state changed" in note for _, note in outcome.warnings)
 
 
 def test_a_run_at_one_thermal_state_is_not_flagged(tmp_path: Any) -> None:
@@ -702,7 +703,10 @@ def test_a_run_hot_throughout_is_flagged_not_read_as_steady() -> None:
     warnings = _thermal_warnings(outcome)
 
     assert warnings, "one distinct reading is not the same as a healthy machine"
-    assert "throughout" in warnings[0]
+    # Scoped pairs since §16 item 7 — thermal pressure is a TIMING fact.
+    scope, note = warnings[0]
+    assert scope is ValidityScope.TIMING
+    assert "throughout" in note
 
 
 def test_a_run_cool_throughout_is_still_not_flagged() -> None:

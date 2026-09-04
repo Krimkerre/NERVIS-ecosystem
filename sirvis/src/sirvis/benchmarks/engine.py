@@ -338,7 +338,10 @@ class ExperimentOutcome:
     result_ids: list[str] = field(default_factory=list)
     repetitions: list[Repetition] = field(default_factory=list)
     telemetry: list[MemorySample] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    # Scoped pairs, like every producer returns (§16 item 7). Was a bare list
+    # of strings; the scope has to travel with the warning or a consumer is back
+    # to matching prose.
+    warnings: list[ScopedWarning] = field(default_factory=list)
     # The suppression that got this build answering, when it answered nothing as
     # written. Part of the evidence identity rather than a footnote, because a
     # measurement taken under a changed prompt is evidence about a different
@@ -572,10 +575,11 @@ async def _execute(
     )
     load_seconds = None if was_warm else clock() - started
     if was_warm:
-        outcome.warnings.append(
+        outcome.warnings.append((
+            ValidityScope.TIMING,
             f"{spec.model_key} was already resident, so no load time was measured — "
-            "a warm acquire says nothing about how long this model takes to load"
-        )
+            "a warm acquire says nothing about how long this model takes to load",
+        ))
     outcome.telemetry.append(sampler.sample(AFTER_LOAD))
     directory.append_log(
         f"acquired {spec.model_key} (session {lease.session_id}, "
@@ -604,12 +608,13 @@ async def _execute(
             # most of the value of a run that ended early. So the check is
             # cooperative and the granularity is one test.
             if should_stop is not None and should_stop():
-                outcome.warnings.append(
+                outcome.warnings.append((
+                    ValidityScope.CONDITIONS,
                     "cancelled after "
                     f"{len([r for r in outcome.repetitions if r.phase != 'load'])} "
                     "measured repetition(s); the results kept are the ones taken "
-                    "before the request to stop"
-                )
+                    "before the request to stop",
+                ))
                 break
             await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
         if spec.tool_trials:
@@ -967,25 +972,26 @@ def _effective_configuration(
     }
 
 
-def _scoped(scope: ValidityScope) -> Any:
-    """Tag a warning producer with what its warnings undermine (§16 item 7).
+# Every warning producer returns `(scope, message)` pairs.
+#
+# **The scope belongs to the warning, not to the function that emits it**, and
+# that correction came from real data. Tagging the *producer* read
+# `_generation_warnings` as `OUTPUT`, which is right for "the call succeeded but
+# the model produced nothing" and wrong for its neighbour: "tokens that never
+# arrived as content" is `hidden_tokens`, which the engine defines as a reasoning
+# model thinking before its first content token — "spent inside the
+# time-to-first-token window rather than in the generation window". That is rate
+# accounting.
+#
+# `gemma-4-e4b` carried exactly that note beside **24/24 well-formed tool calls**.
+# A per-producer scope would have demoted a model that answered every one — the
+# mistake scopes exist to prevent, reached by a different route.
+ScopedWarning = tuple[ValidityScope, str]
 
-    On the function rather than in a lookup table beside the call site, because
-    the producer is the thing that knows: `_thermal_warnings` has a docstring
-    explaining that a heat-soaked run swings tokens/second by 48% and says
-    nothing about correctness. A table elsewhere would be that knowledge stored
-    where it is not maintained.
-    """
 
-    def attach(producer: Any) -> Any:
-        producer.scope = scope
-        return producer
-
-    return attach
-
-
-@_scoped(ValidityScope.CONDITIONS)
-def _configuration_warnings(spec: ExperimentSpec, resident: Sequence[LoadedModel]) -> list[str]:
+def _configuration_warnings(
+    spec: ExperimentSpec, resident: Sequence[LoadedModel]
+) -> list[ScopedWarning]:
     """§7.1 and §11.8: an effective configuration that is not the requested one.
 
     Not an error. A benchmark run at 8K on a request for 32K is a perfectly good
@@ -995,16 +1001,19 @@ def _configuration_warnings(spec: ExperimentSpec, resident: Sequence[LoadedModel
     loaded = next((model for model in resident if model.model_key == spec.model_key), None)
     if loaded is None:
         return []
-    warnings = []
+    warnings: list[ScopedWarning] = []
     requested = spec.load.get("context_length")
     effective = loaded.effective.get("context_length")
     if requested and effective and int(requested) != int(effective):
-        warnings.append(
+        warnings.append((
+            ValidityScope.CONDITIONS,
             f"requested context_length {requested} but the model is loaded at {effective}; "
-            "this result describes the configuration that ran, not the one asked for"
-        )
+            "this result describes the configuration that ran, not the one asked for",
+        ))
     if loaded.ignored:
-        warnings.append(f"the runtime ignored: {', '.join(loaded.ignored)}")
+        warnings.append(
+            (ValidityScope.CONDITIONS, f"the runtime ignored: {', '.join(loaded.ignored)}")
+        )
     return warnings
 
 
@@ -1024,21 +1033,12 @@ def _evidence(
     # **Assembled with the scope each producer declares**, so a reader can ask
     # "is the timing trustworthy" without parsing prose (§16 item 7).
     # `outcome.warnings` is whatever ran earlier — the configuration comparison
-    # among it — and is read as CONDITIONS, the conservative scope: a warning
-    # nobody can place must taint everything rather than nothing.
-    scoped: list[tuple[ValidityScope, str]] = [
-        (ValidityScope.CONDITIONS, note) for note in outcome.warnings
-    ]
-    for producer, argument in (
-        (_generation_warnings, measured),
-        (_thermal_warnings, outcome),
-        (_swap_warnings, outcome),
-    ):
-        scoped += [(producer.scope, note) for note in producer(argument)]
-    scoped += [
-        (_suppression_warnings.scope, note)
-        for note in _suppression_warnings(outcome, measured)
-    ]
+    # among it — and already carries its own scopes.
+    scoped: list[ScopedWarning] = list(outcome.warnings)
+    scoped += _generation_warnings(measured)
+    scoped += _suppression_warnings(outcome, measured)
+    scoped += _thermal_warnings(outcome)
+    scoped += _swap_warnings(outcome)
     warnings = [note for _, note in scoped]
     # Either the runtime reported nothing, or it reported a count the content
     # stream contradicts. Both mean the numerator is inferred rather than
@@ -1178,8 +1178,7 @@ def _rates(outcome: ExperimentOutcome) -> dict[str, TrialRate]:
     return rates
 
 
-@_scoped(ValidityScope.OUTPUT)
-def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
+def _generation_warnings(measured: Sequence[Repetition]) -> list[ScopedWarning]:
     """§11.8's validity warnings that this engine can actually observe *here*.
 
     Only the ones it can see. Background contention, load instability and
@@ -1192,19 +1191,25 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
     misleading kind: a reader was told the unclaimed warnings were background
     contention and load instability, and inferred the rest were covered.
     """
-    warnings = []
+    warnings: list[ScopedWarning] = []
     empty = [r.index for r in measured if not r.content]
     if empty:
         # M2 found a reasoning model spending its whole budget on thinking. The
         # call succeeded and the model said nothing, and those are two facts.
-        warnings.append(
+        # OUTPUT: unlike the reasoning-token note in `_suppression_warnings`,
+        # this one really is "nothing came back".
+        warnings.append((
+            ValidityScope.OUTPUT,
             f"{len(empty)} measured repetition(s) returned no content — the call "
-            "succeeded but the model produced nothing to measure"
-        )
+            "succeeded but the model produced nothing to measure",
+        ))
     unexpected = sorted({r.finish_reason for r in measured
                          if r.finish_reason not in _EXPECTED_STOPS})
     if unexpected:
-        warnings.append(f"unexpected generation stop: {', '.join(str(r) for r in unexpected)}")
+        warnings.append((
+            ValidityScope.OUTPUT,
+            f"unexpected generation stop: {', '.join(str(r) for r in unexpected)}",
+        ))
     return warnings
 
 
@@ -1214,8 +1219,7 @@ def _generation_warnings(measured: Sequence[Repetition]) -> list[str]:
 SWAP_GROWTH_BYTES = 256 * 1024 * 1024
 
 
-@_scoped(ValidityScope.TIMING)
-def _swap_warnings(outcome: ExperimentOutcome) -> list[str]:
+def _swap_warnings(outcome: ExperimentOutcome) -> list[ScopedWarning]:
     """§11.8's swap warning, which was measured everywhere and reported nowhere.
 
     `MemoryProbe.sample` reads `vm.swapusage` at baseline, after load, post-run
@@ -1237,16 +1241,16 @@ def _swap_warnings(outcome: ExperimentOutcome) -> list[str]:
     growth = (peak.swap_used_bytes or 0) - (baseline.swap_used_bytes or 0)
     if growth < SWAP_GROWTH_BYTES:
         return []
-    return [
+    return [(
+        ValidityScope.TIMING,
         f"swap grew by {growth / (1024 ** 3):.1f} GB during this run "
         f"(baseline {(baseline.swap_used_bytes or 0) / (1024 ** 3):.1f} GB, "
         f"peak {(peak.swap_used_bytes or 0) / (1024 ** 3):.1f} GB at {peak.point}); "
-        "these numbers measured the disk as well as the model"
-    ]
+        "these numbers measured the disk as well as the model",
+    )]
 
 
-@_scoped(ValidityScope.TIMING)
-def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:
+def _thermal_warnings(outcome: ExperimentOutcome) -> list[ScopedWarning]:
     """§11.8: flag a thermally compromised run. Never discard it.
 
     The numbers are real; what they measure is a machine under duress, and on
@@ -1258,24 +1262,25 @@ def _thermal_warnings(outcome: ExperimentOutcome) -> list[str]:
     """
     before, after = outcome.thermal_before, outcome.thermal_after
     if is_compromised(before) and before == after:
-        return [
+        return [(
+            ValidityScope.TIMING,
             f"the machine reported thermal pressure '{before}' throughout; these "
             "numbers describe a throttled machine and are not comparable with "
-            "results taken from a rested one"
-        ]
+            "results taken from a rested one",
+        )]
     if before != after and (is_compromised(before) or is_compromised(after)):
-        return [
+        return [(
+            ValidityScope.TIMING,
             f"thermal pressure changed from '{before or 'unknown'}' to "
             f"'{after or 'unknown'}' during the run, so the later repetitions were "
-            "not taken under the same conditions as the earlier ones"
-        ]
+            "not taken under the same conditions as the earlier ones",
+        )]
     return []
 
 
-@_scoped(ValidityScope.CONDITIONS)
 def _suppression_warnings(
     outcome: ExperimentOutcome, measured: Sequence[Repetition]
-) -> list[str]:
+) -> list[ScopedWarning]:
     """What the run had to do to get an answer, and what it could not measure.
 
     An adapted run is `SUSPECT` rather than `VALID`, and deliberately: the
@@ -1283,27 +1288,38 @@ def _suppression_warnings(
     a consumer filtering for clean measurements should not silently receive one
     taken under a different question.
     """
-    notes = []
+    notes: list[ScopedWarning] = []
     thought = [r.hidden_tokens for r in measured if r.hidden_tokens]
     if thought:
-        notes.append(
+        # **TIMING, not OUTPUT** — and the note says why itself. These tokens
+        # exist; they are reasoning, and the fact recorded is *which window they
+        # landed in*. `gemma-4-e4b` carried this beside 24/24 well-formed tool
+        # calls, so reading it as a statement about what came back would demote a
+        # model that answered every one.
+        notes.append((
+            ValidityScope.TIMING,
             f"{len(thought)} repetition(s) generated tokens that never arrived as "
             f"content — a median of {int(statistics.median(thought))} of them. Those are "
             "reasoning, spent before the first answer token: the throughput here covers "
-            "the answer only, and the time-to-first-token includes the thinking"
-        )
+            "the answer only, and the time-to-first-token includes the thinking",
+        ))
     if outcome.thinking_suppression:
-        notes.append(
+        # CONDITIONS: a different prompt from the one the suite declares, so the
+        # run answered a different question and nothing on it transfers.
+        notes.append((
+            ValidityScope.CONDITIONS,
             "the prompt as written produced no content, so this was measured with "
             f"thinking suppressed via {outcome.thinking_suppression} — a different "
             "prompt from the one this suite declares, and recorded in the evidence "
-            "identity as such"
-        )
+            "identity as such",
+        ))
     elif outcome.suppressions_tried:
-        notes.append(
+        # OUTPUT: nothing came back at all, whatever was tried.
+        notes.append((
+            ValidityScope.OUTPUT,
             "the build answered nothing as written, and none of "
-            f"{', '.join(outcome.suppressions_tried)} changed that"
-        )
+            f"{', '.join(outcome.suppressions_tried)} changed that",
+        ))
     return notes
 
 

@@ -50,6 +50,7 @@ from sirvis.benchmarks.engine import (
     RUNTIME_KEY,
     GenerationRuntime,
     Repetition,
+    ScopedWarning,
     _effective_configuration,
     _evidence,
     _inventory,
@@ -57,6 +58,7 @@ from sirvis.benchmarks.engine import (
     _resolve,
 )
 from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec
+from sirvis.core.evidence import ValidityScope
 from sirvis.core.machine import record_snapshot
 from sirvis.core.runtime_sets import RuntimeSet
 from sirvis.errors import RuntimeUnreachableError
@@ -195,7 +197,8 @@ class MultiModelOutcome:
     measurements: dict[str, dict[str, list[Repetition]]] = field(default_factory=dict)
     matrix: dict[str, Any] = field(default_factory=dict)
     telemetry: list[MemorySample] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    # Scoped pairs, like the single-model outcome (§16 item 7).
+    warnings: list[ScopedWarning] = field(default_factory=list)
     # The rows `finish_run` wrote. Printed by the CLI summary rather than
     # merely held: an outcome that says where its files went but not which
     # database rows it produced leaves the lookup to a timestamp guess, which is
@@ -293,7 +296,7 @@ async def run_multi_experiment(
     return outcome
 
 
-def _thermal_warnings(outcome: MultiModelOutcome) -> list[str]:
+def _thermal_warnings(outcome: MultiModelOutcome) -> list[ScopedWarning]:
     """§11.8: flag a thermally compromised run; never silently discard it.
 
     **A degradation percentage compares two conditions, and this run measures
@@ -332,19 +335,21 @@ def _thermal_warnings(outcome: MultiModelOutcome) -> list[str]:
     # throttled.
     if readings and all(is_compromised(state) for state in readings.values()):
         described = ", ".join(f"{point} {state}" for point, state in sorted(readings.items()))
-        return [
+        return [(
+            ValidityScope.TIMING,
             f"the machine reported thermal pressure throughout this run ({described}); "
             "these numbers describe a throttled machine and are not comparable with "
-            "results taken from a rested one"
-        ]
+            "results taken from a rested one",
+        )]
     if len(distinct) < 2:
         return []
     described = ", ".join(f"{point} {state}" for point, state in sorted(readings.items()))
-    return [
+    return [(
+        ValidityScope.TIMING,
         "the machine's thermal state changed during this run "
         f"({described}), so the conditions being compared were not measured "
-        "under equal conditions and the degradation figures include that drift"
-    ]
+        "under equal conditions and the degradation figures include that drift",
+    )]
 
 
 async def _execute(
@@ -466,11 +471,14 @@ async def _load_together(
         if lease is not None:
             await resources.release(lease.session_id)
         outcome.co_residency_failure = str(failure)
-        outcome.warnings.append(
+        # CONDITIONS: the combination this run exists to measure never existed,
+        # so nothing measured here answers the question that was asked.
+        outcome.warnings.append((
+            ValidityScope.CONDITIONS,
             f"the members of {spec.runtime_set.name} could not be made co-resident: {failure}. "
             "The alone measurements below describe each model by itself and say nothing "
-            "about the combination"
-        )
+            "about the combination",
+        ))
         directory.append_log(f"co-residency failed: {failure}")
         return None
     outcome.telemetry.append(sampler.sample(AFTER_LOAD))
@@ -564,9 +572,10 @@ async def _run_concurrent(
     )
     for member, result in zip(spec.per_role, gathered, strict=True):
         if isinstance(result, BaseException):
-            outcome.warnings.append(
-                f"{member.role} failed under concurrent load: {result}"
-            )
+            outcome.warnings.append((
+                ValidityScope.OUTPUT,
+                f"{member.role} failed under concurrent load: {result}",
+            ))
             continue
         role, measured = result
         outcome.record(role, MODE_CONCURRENT, measured)
@@ -623,7 +632,7 @@ class _Shim:
         # Shared lists, not copies: what `_measure` appends must land on the
         # run's own record, or a warning raised mid-measurement would vanish
         # with the shim.
-        self.warnings: list[str] = outcome.warnings
+        self.warnings: list[ScopedWarning] = outcome.warnings
         self.telemetry: list[MemorySample] = outcome.telemetry
         self.suppressions_tried: list[str] = []
         self.thinking_suppression: str | None = None
