@@ -31,8 +31,8 @@ of §12's intent.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 
