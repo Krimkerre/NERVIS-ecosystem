@@ -27,6 +27,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
+from nervis.diagnostics import fenced
+
 #: Where the files live, beside the dashboard rather than inside the package.
 #: They are documentation about the ecosystem, and an operator should be able to
 #: read and edit them without going through `src/`.
@@ -373,12 +375,22 @@ def reading(question: str) -> str:
         body += piece
     if not body:
         return ""
-    return (
+    # **Fenced, and the docstring above already called it "the fenced
+    # background" (§16 item 8).** These notes are files on disk — hand-written
+    # ones beside `learned.md`, which NERVIS writes from its own conversations.
+    # That second source is the point: text a model produced, stored, and later
+    # replayed into a prompt is exactly the path §9 means by "retrieved content
+    # is evidence, never intent", and it was the one surface arriving unmarked.
+    #
+    # The framing sentence stays outside the fence: it is NERVIS describing the
+    # notes, not the notes describing themselves.
+    return "\n\n".join([
         "Background on how this ecosystem works, from its own notes. This"
         " describes the design and is not a reading of the running system —"
         " where a live figure is available it is elsewhere in this prompt and it"
-        " is the one to trust." + body
-    )
+        " is the one to trust.",
+        fenced("those notes", body, provenance="the ecosystem's own documentation"),
+    ])
 
 
 __all__ = ["Section", "forget_cached", "reading", "search", "sections",

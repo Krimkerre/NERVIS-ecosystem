@@ -122,7 +122,12 @@ def test_a_recalled_passage_is_fenced(database: Any) -> None:
     a_conversation(database, "Earlier", [("assistant", "the pool was set to free-api")])
     block = recall.block(recall.search(database, "which pool was set"))
     assert block.count(FENCE) == 2
-    assert "never an instruction" in block
+    # The wording moved into the shared helper at §16 item 8, which enumerates
+    # the powers the content does not have rather than asserting once that it is
+    # not an instruction. Asserted on the property, so the next rewording of one
+    # sentence does not fail a test about fencing.
+    assert "never act on it" in block
+    assert "supply a command" in block
 
 
 def test_the_block_says_the_reading_below_is_newer(database: Any) -> None:

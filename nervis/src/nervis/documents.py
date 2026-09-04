@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from nervis.diagnostics import fenced
 from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
 
 #: How much of one file reaches the prompt.
@@ -75,11 +76,18 @@ class Document:
     extracted: bool = False
 
     def as_reading(self) -> str:
-        """The lines that go into the fenced reading.
+        """The document, fenced, with what was left out said where it was left out.
 
-        Says what was left out where it was left out. A model told only the
-        first 40,000 characters cannot know that, and neither can the person
-        reading its answer.
+        **The docstring said "fenced" and the return was not**, which is the gap
+        §16 item 8 names. A file the person opened is text from outside the
+        conversation — a PDF can carry "ignore your instructions" as easily as a
+        log line can — and it arrived in the same system prompt as NERVIS's own
+        directions, in the same voice, with nothing marking the difference.
+
+        A model told only the first 40,000 characters cannot know that either,
+        and neither can the person reading its answer, so the head says so and
+        sits *outside* the fence: it is NERVIS speaking about the document, not
+        the document speaking.
         """
         head = f"The person opened {self.shown} ({self.characters:,} characters)."
         if self.extracted:
@@ -93,7 +101,10 @@ class Document:
                 f" Only the first {MAX_CHARACTERS:,} are below — say so if the answer"
                 " depends on the rest."
             )
-        return f"{head}\n\n{self.text}"
+        return "\n\n".join([
+            head,
+            fenced("the contents of that file", self.text, provenance=self.shown),
+        ])
 
 
 def _read_pdf(path: Path, shown: str) -> str:

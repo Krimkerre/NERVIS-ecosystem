@@ -1133,7 +1133,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       required conditions weren't met. Implement real `wait`/`preempt` behaviour or remove those
       labels from the shipped contract — a label with no behaviour behind it is the same defect
       as an optimistic milestone tick (§14.8).
-- [ ] **8. Retrieved-content fencing, generalized.** One shared fencing helper, not per-surface
+- [x] **8. Retrieved-content fencing, generalized.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. NERVIS and Clarvis; SIRVIS's judge path is unbuilt, so it has nothing to fence yet.)* One shared fencing helper, not per-surface
       special-casing, covering every model-facing evidence block: files, diffs, search results,
       diagnostics, terminal/test output, learned notes, web results — not only the two gaps this
       audit happened to name. The wrapper states source and provenance and that the content

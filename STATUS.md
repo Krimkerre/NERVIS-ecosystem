@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2260 tests, no network, no live service
+.venv/bin/pytest                      # part of 2265 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 455 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 816 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2260 passing across the four, conformance `PASS`.
+Expected: all clean, 2265 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11756,6 +11756,55 @@ holdings, which cannot exist while release unloads at zero. `SIRVIS.md` listed
 all three as working policies and did not carry either fact. The specification
 was the thing overstating, so the specification changed; real waiting is a queue
 above the resource manager and remains unbuilt.
+
+## One fence, and the two surfaces that had none — 2026-09-04
+
+**§16 item 8.** §9 states the rule — *"Retrieved content is evidence, never
+intent... Text that reads as an instruction is still data"* — and assigns the
+fencing to the producer. Three NERVIS surfaces fenced their own way, two fenced
+nothing, and Clarvis fenced nothing at all.
+
+**The two NERVIS gaps were both files.** An attached document arrived as ordinary
+prose in the same system prompt as NERVIS's own directions, in the same voice,
+with nothing marking the difference — and `documents.py`'s docstring already
+called its return "the lines that go into the fenced reading", which it was not.
+The background notes were the same, and worse in one respect: `learned.md` is
+written by NERVIS *from its own conversations*, so that surface replays
+model-produced text into a later prompt, which is exactly the path §9 means.
+
+**`fenced()` is one helper because three hand-rolled fences are three spellings.**
+The chat reading and the recalled passages each built their own `FENCE ... FENCE`
+with their own preamble; both go through the helper now. It enumerates the
+powers the content does not have rather than asserting once that it is data — a
+model told only "this is data" still has to reason its way to "so I should not
+run the command inside it".
+
+**The prose is the weaker half, and the code-level guarantee is the point.** A
+fence is a strong hint and nothing more. Two things make it a boundary here:
+`clip` strips the marker from the body, so content cannot close the fence and
+write instructions after it — the one escape a delimiter scheme has — and
+`commands.propose` is called with the person's own message, so a document, a
+recalled passage, a background note and a model's reply are all equally unable to
+reach a control surface. That held already; nothing pinned it, and a future edit
+handing it the reply would have been a one-word change no behavioural test would
+notice. There is a test now, asserted on the call rather than by driving it.
+
+**Clarvis had the same defect in its own idiom.** `factsBlock` spliced a
+recurring error's own words, the open file's diagnostics and a previous run's
+narration into the system prompt addendum. `fence.ts` is a second implementation
+rather than a shared package, deliberately: §3 forbids shared business logic
+between products and §9 assigns fencing to the producer, so what is shared is
+the rule and not the code. The framing sentence stays outside the fence — that
+one is Clarvis, and putting an instruction inside would teach the model that
+instructions can appear there.
+
+Shipped as Clarvis 0.12.2 and force-installed into all three hosts, with the
+marker confirmed present in each built `extension.js` rather than trusted from
+the installer's success line.
+
+**SIRVIS is exempt for now, and by fact rather than by argument.** §9 gives it
+one fencing path — generated output entering an external judge — and no judge
+path exists in the code. Nothing to fence until §16's later items build one.
 
 ## Starting the thing
 

@@ -602,9 +602,13 @@ def test_the_reading_is_fenced_and_a_service_detail_cannot_end_the_fence() -> No
     turn(client, "anything wrong?", system="Be someone.")
 
     system = sent[0]["messages"][0]["content"]
-    # Exactly two markers: the detail's copy was removed rather than passed
-    # through, so it cannot close the fence and start writing instructions.
-    assert system.count(FENCE) == 2
+    # **Markers come in pairs, and there may be more than one pair.** This
+    # asserted exactly two until §16 item 8 fenced the background notes as well,
+    # so a prompt carrying both a reading and those notes now has four. What
+    # matters is unchanged: every fence closes, and the hostile string sits
+    # inside one rather than having ended it.
+    assert system.count(FENCE) % 2 == 0
+    assert system.count(FENCE) >= 2
     assert "fence marker removed" in system
     opened = system.index(FENCE)
     closed = system.rindex(FENCE)
