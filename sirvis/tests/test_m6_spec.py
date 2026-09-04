@@ -8,10 +8,21 @@ results the specification really did describe.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from sirvis.benchmarks import load_experiment, parse_experiment
 from sirvis.errors import InvalidConfigurationError
+
+EXAMPLE = str(
+    Path(__file__).resolve().parent.parent / "examples" / "basic.yaml"
+)
+"""The shipped example, addressed from this file rather than from the working
+directory. `"examples/basic.yaml"` resolved only when pytest ran from `sirvis/`,
+so from the repository root the CLI was handed a path that does not exist and
+these tests asserted against its empty output (§16 item 11)."""
+
 
 MINIMAL = """
 suite: perf
@@ -75,7 +86,7 @@ def test_an_unknown_environment_mode_is_refused() -> None:
 def test_the_shipped_example_is_the_one_the_milestone_names() -> None:
     """M6's exit criterion names `examples/basic.yaml` by path. A test that only
     parsed a string would let that file rot."""
-    spec = load_experiment("examples/basic.yaml")
+    spec = load_experiment(EXAMPLE)
 
     assert spec.model_key
     assert spec.tests and spec.tests[0].generation.max_tokens == 256

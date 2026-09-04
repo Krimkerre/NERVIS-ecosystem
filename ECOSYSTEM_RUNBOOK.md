@@ -1151,7 +1151,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       the canonical error envelope including `retryable`, correct 400/401/403/409/415/429/500/
       503 mapping — proven by one production-route conformance suite all three services pass,
       not a standalone helper test.
-- [ ] **11. Gates back to green, milestones reconciled.** Fix rather than waive: NERVIS
+- [x] **11. Gates back to green, milestones reconciled.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. Every gate green; the milestone relabelling is a ratchet in `tools/check_plans.py`, not a sweep, for the reason the item itself gives.)* Fix rather than waive: NERVIS
       telemetry's failure-to-`Unknown` behaviour (confirmed — `sample_system` calls
       `psutil.virtual_memory`/`swap_memory` with no surrounding `try`/`except`, contradicting
       `SystemSample`'s own documented intent), and every other gate this audit named, each

@@ -547,13 +547,17 @@ def _editor_destination(request: Request) -> dict[str, Any]:
     which of those it had.
     """
     instances = getattr(request.app.state, "instances", None)
-    registered = bool(instances and instances.all())
+    # Read once, and through a name a type checker can follow. The previous
+    # shape asked `instances.all()` again inside `if registered:`, where the
+    # narrowing lived in a boolean rather than in the value — safe at runtime,
+    # and mypy correctly could not see it (§16 item 11).
+    entries = list(instances.all()) if instances is not None else []
+    registered = bool(entries)
     label = ""
-    if registered:
-        for entry in instances.all():
-            label = str(getattr(entry, "workspace_label", "") or "")
-            if label:
-                break
+    for entry in entries:
+        label = str(getattr(entry, "workspace_label", "") or "")
+        if label:
+            break
     root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
     return {
         "registered": registered,

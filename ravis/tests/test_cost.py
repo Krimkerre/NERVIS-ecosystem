@@ -376,7 +376,14 @@ def test_a_local_model_is_free_rather_than_unpriced() -> None:
     # And the adapters record one, which is the half that was missing: without
     # it the engine is correct and the answer is still UNKNOWN.
     for runtime in ("lmstudio", "ollama"):
-        source = Path(f"src/ravis/providers/{runtime}.py").read_text()
+        # Relative to this file, not to the working directory: run from the
+        # repository root rather than from `ravis/`, the old path resolved
+        # nowhere and the test failed for a reason that had nothing to do with
+        # pricing (§16 item 11).
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "src" / "ravis" / "providers" / f"{runtime}.py"
+        ).read_text()
         assert "known.price = Price(" in source, f"{runtime} records no split price"
 
 

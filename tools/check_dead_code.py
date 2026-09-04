@@ -146,12 +146,15 @@ def attribute_reads() -> set[str]:
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 reads.add(node.attr)
             # `getattr(x, "field")` is a read the AST spells differently.
-            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id == "getattr" and len(node.args) >= 2:
-                    if isinstance(node.args[1], ast.Constant) and isinstance(
-                        node.args[1].value, str
-                    ):
-                        reads.add(node.args[1].value)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+            ):
+                reads.add(node.args[1].value)
     return reads
 
 

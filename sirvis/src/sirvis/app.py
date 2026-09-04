@@ -238,7 +238,7 @@ def _register_error_handling(api: FastAPI) -> None:
         all on exactly the responses it most needs to read.
         """
         detail = exc.detail
-        structured = detail if isinstance(detail, dict) else {}
+        structured: dict[str, Any] = detail if isinstance(detail, dict) else {}
         return JSONResponse(
             status_code=exc.status_code,
             content={

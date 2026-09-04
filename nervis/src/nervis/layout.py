@@ -151,8 +151,15 @@ def _marked(text: str, depth: int) -> tuple[Span, ...]:
         if mark == "code":
             inner: tuple[Span, ...] = (Span(found.group(1), code=True),)
         else:
+            # `# type: ignore` with its sentence, per §14.1's rule for an
+            # exemption: `mark` is one of `_MARKS`' three field names, chosen by
+            # the loop above, and `dataclasses.replace` cannot be checked
+            # against a keyword the checker only sees as `str`. The alternative
+            # is three near-identical branches to tell mypy what `_MARKS`
+            # already says — more code, saying it twice, to check nothing that
+            # is actually in doubt.
             inner = tuple(
-                replace(span, **{mark: True})
+                replace(span, **{mark: True})  # type: ignore[arg-type]
                 for span in _marked(found.group(1), index)
             )
         return (

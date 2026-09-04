@@ -41,6 +41,23 @@ SPECS = ("NERVIS.md", "RAVIS.md", "SIRVIS.md")
 ROW = re.compile(r"^\|\s*\*\*(M\d+[a-z]?)\*\*")
 MAPPING_HEADING = re.compile(r"^##\s+\d+\.\d+\s+Ecosystem gate mapping")
 
+# §14.8's four states, and the binary tick they replace.
+#
+# **A ratchet, not a sweep.** 64 rows still carry `✅`, and converting them all
+# would mean asserting a state for each — that a milestone is merely
+# IMPLEMENTED, or AUTOMATED VERIFIED, or actually LIVE VERIFIED. §16 item 11 is
+# explicit that those may be applied "only to rows independently reverified as
+# wrong, not the audit's list at face value", and §14.6 records what happens
+# here when a number is copied rather than run. Relabelling 64 milestones from a
+# desk would be exactly that, at scale.
+#
+# So the count may fall and may not rise, the same shape as the complexity and
+# liveness ratchets. A row touched for any other reason gets its real state on
+# the way past, and the ceiling comes down with it.
+STATES = ("IMPLEMENTED", "AUTOMATED VERIFIED", "LIVE VERIFIED", "BLOCKED")
+LEGACY_TICK = re.compile(r"^\|\s*\*\*M\d+[a-z]?\*\*\s*✅")
+LEGACY_CEILING = 64
+
 
 def _milestone_table(lines: list[str]) -> list[tuple[int, str]]:
     """Every milestone row, as (line number, raw line)."""
@@ -108,8 +125,36 @@ def _unassigned(spec: str, rows: list[tuple[int, str]], mapping: str) -> list[st
     ]
 
 
+def _state_faults(spec: str, rows: list[tuple[int, str]]) -> tuple[list[str], int]:
+    """Rows using a completion marker §14.8 does not define, and the legacy count.
+
+    Two different things, and only one of them is a fault. A row still carrying
+    `✅` is *old*, and the ratchet above says why that is tolerated. A row
+    carrying some fifth word is *wrong*: §14.7 lets a product add detail beside
+    the required state and not invent a softer one, and a state nobody defined
+    is exactly the optimistic checkmark §14.8 replaced, respelled.
+    """
+    faults: list[str] = []
+    legacy = 0
+    for number, line in rows:
+        if LEGACY_TICK.match(line):
+            legacy += 1
+            continue
+        # The marker is whatever sits between the identifier and the first pipe.
+        marker = line.split("**", 2)[-1].split("|")[0].strip()
+        if not marker or marker.startswith("*("):
+            continue  # unstarted, or an annotation like *(stretch)*
+        if not any(marker.startswith(state) for state in STATES):
+            faults.append(
+                f"{spec}:{number}: {marker!r} is not one of §14.8's states "
+                f"({', '.join(STATES)})"
+            )
+    return faults, legacy
+
+
 def main() -> int:
     problems: list[str] = []
+    legacy_rows = 0
     for spec in SPECS:
         path = ROOT / spec
         if not path.exists():
@@ -119,6 +164,9 @@ def main() -> int:
         rows = _milestone_table(lines)
         problems.extend(_shape_faults(spec, rows))
         problems.extend(_unassigned(spec, rows, _mapping_text(lines)))
+        faults, legacy = _state_faults(spec, rows)
+        problems.extend(faults)
+        legacy_rows += legacy
 
     if problems:
         print("the build plans have drifted:\n")
@@ -129,10 +177,22 @@ def main() -> int:
             "so a defect here reaches the file a cold session trusts."
         )
         return 1
+    if legacy_rows > LEGACY_CEILING:
+        print(f"{legacy_rows} milestone rows still carry the binary ✅, above the "
+              f"ceiling of {LEGACY_CEILING}.\n")
+        print("§14.8 replaced it with four states because one symbol cannot say")
+        print("whether code exists, a test passed, or somebody watched it work.")
+        print("Give the new row its real state; never raise this number.")
+        return 1
+    if legacy_rows < LEGACY_CEILING:
+        print(f"{legacy_rows} rows still carry ✅ — below the ceiling of "
+              f"{LEGACY_CEILING}. Lower LEGACY_CEILING in {Path(__file__).name}.")
+        return 1
     total = sum(len(_milestone_table((ROOT / s).read_text(encoding="utf-8").split("\n")))
                 for s in SPECS)
     print(f"{total} milestone rows across {len(SPECS)} specs: every row is the table's "
-          "own width, and every milestone is assigned to a stage or deferred by name")
+          "own width, every milestone is assigned to a stage or deferred by name, "
+          f"and {legacy_rows} still carry the pre-§14.8 tick")
     return 0
 
 

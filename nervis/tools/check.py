@@ -19,7 +19,12 @@ actually blanked screens: a `TypeError` while building a template string. Run it
 too — CI runs both.
 Run:  node tools/render_check.js
 """
-import pathlib, re, shutil, subprocess, sys, tempfile
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 html = (ROOT / "index.html").read_text()
@@ -183,8 +188,8 @@ elif uncited:
 lines = html[html.index("const DEMO_API={"):].splitlines()
 # Stop at whichever comes first: the object's own close, or the next top-level
 # declaration. CLARVIS_BRIDGE follows immediately and has members of its own.
-lines = lines[1: next(i for i, l in enumerate(lines[1:], 1)
-                      if l.rstrip() == "};" or l.startswith("const "))]
+lines = lines[1: next(i for i, line in enumerate(lines[1:], 1)
+                      if line.rstrip() == "};" or line.startswith("const "))]
 for i, line in enumerate(lines):
     m = re.match(r" (\w+)\(", line)
     if not m:
@@ -205,10 +210,10 @@ for i, line in enumerate(lines):
 # `DEMO_API.runBenchmark()`, a method `DEMO_API` does not have. It rendered
 # enabled and threw a TypeError on click, on a screen where it was the main
 # action. `runBenchmark` had been in `UNBUILT` the whole time.
-methods = set(re.findall(r"^\s*(\w+)\s*\([^)]*\)\s*\{", 
+methods = set(re.findall(r"^\s*(\w+)\s*\([^)]*\)\s*\{",
                          html[html.find("const DEMO_API={"):
                                 html.find("const DEMO_API={") + 900], re.M))
-unbuilt = set(re.findall(r"^\s*(\w+):\s*'", 
+unbuilt = set(re.findall(r"^\s*(\w+):\s*'",
                          html[html.find("const UNBUILT="):
                                 html.find("const UNBUILT=") + 1200], re.M))
 # A handler is a DEMO_API method, a page-local function, or an UNBUILT entry.

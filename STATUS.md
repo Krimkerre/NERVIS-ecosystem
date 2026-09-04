@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2268 tests, no network, no live service
+.venv/bin/pytest                      # part of 2271 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 46 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 455 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 816 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 819 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2268 passing across the four, conformance `PASS`.
+Expected: all clean, 2271 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11899,6 +11899,71 @@ own refusal, a framework 404 and a media-type refusal, it immediately found the
 `tools/conformance_check.py` lives beside the other gates rather than in any
 package's tests, and runs in CI: a conformance check owned by one service is a
 check that service can quietly relax.
+
+## Every gate green, and two of them were hiding real bugs — 2026-09-04
+
+**§16 item 11: fix rather than waive, each triaged on its own merits.** Eleven
+failures across four suites and three linters, and the useful finding is that
+"pre-existing, unrelated" was wrong about three of them.
+
+**Six failing tests were one defect wearing two hats.** `test_cost` read
+`src/ravis/providers/lmstudio.py` and the five SIRVIS `m6` tests passed
+`examples/basic.yaml` to a CLI — both relative to the *working directory*, so
+both passed from inside their own package and failed from the repository root. A
+test that only passes from one directory is a test that will fail in CI on the
+day the runner changes, for a reason unrelated to what it checks. Anchored to
+`__file__`.
+
+**`WRONG_KIND` was referenced and never defined.** `tools/probe_models.py`
+returns it when a model answers with no `choices` — a `NameError` on that path,
+and then a `KeyError` in the display map, which has no entry for it either. Not
+style: a latent crash in the tool that decides which models are usable. Defined
+properly rather than folded into a neighbour, because "returned a completion
+carrying no text" and "did not return a completion" are different facts and this
+file's own design keeps those apart.
+
+**The telemetry probe now degrades like every other probe beside it.**
+`_load_average`, `_disk` and `_thermal_state` each catch and return `None`;
+`psutil.virtual_memory()` and `swap_memory()` were called raw at the top of
+`sample_system`, so a platform refusing either took the whole reading down
+instead of one field. `SystemSample`'s docstring already stated the rule — *"a
+zero for 'we could not read swap' is a number somebody will believe"* — and the
+two calls that mattered most did not follow it. Found by the external audit in a
+sandbox; a hardened profile denies the same call on a real machine.
+
+**One mypy error was mine, from item 10 an hour earlier.** The other two were
+long-standing and needed different answers. `chat.py`'s was a false positive
+hiding behind a boolean: `registered = bool(instances and instances.all())`
+narrows a value into a flag, and the later `instances.all()` is safe at runtime
+and unprovable to a checker. Restructured so the narrowing lives in the value —
+clearer code, and the warning goes with it. `layout.py`'s is a real limitation:
+`replace(span, **{mark: True})` uses a field name the checker only sees as
+`str`, and the alternative is three near-identical branches to restate what
+`_MARKS` already says. A narrow `type: ignore` with its sentence, which is what
+§14.1 asks an exemption to be. SIRVIS's two were missing PyYAML stubs — an
+environment gap, now in its dev extras so a fresh clone gets them.
+
+**`tools/check_plans.py` enforces §14.8, as a ratchet rather than a sweep.** Sixty-four
+rows still carry the binary `✅`, and converting them would mean asserting for
+each whether it is merely IMPLEMENTED, AUTOMATED VERIFIED, or actually LIVE
+VERIFIED. Item 11 says to apply those states "only to rows independently
+reverified as wrong", and §14.6 records what happens here when a number is
+copied rather than run — relabelling sixty-four milestones from a desk would be
+exactly that, at scale. So the count may fall and may not rise, and a row using
+some fifth word is refused outright: §14.7 lets a product add detail beside the
+required state, not invent a softer one. Checked both ways by breaking it —
+`MOSTLY DONE` is rejected, and a real state drops the count and asks for the
+ceiling to come down.
+
+Clarvis 0.12.3 brings `AgentRunner.loop` under its complexity ceiling. `begin()`
+is one question with one answer — may this run start, and under what protection
+— and returns `null` when refused, having already yielded the reason, so the
+caller reads as "did it start" rather than holding a second copy of the refusal.
+
+    tests   nervis 0  ravis 0  sirvis 0  protocol 0   failures
+    mypy    all four packages clean
+    ruff    all packages and tools clean
+    gates   status · plans · dead code · conformance · 20 JS checks
 
 ## Starting the thing
 

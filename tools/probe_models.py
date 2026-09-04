@@ -55,6 +55,14 @@ RECORD = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "r
 PROBE = {"max_tokens": 8, "messages": [{"role": "user", "content": "Say ready."}]}
 
 WORKS, QUIET, GONE, BROKEN = "works", "quiet", "gone", "broken"
+# **A fifth verdict the code already returned and nobody had defined.** A model
+# answering with no `choices` at all is not `QUIET` — that one accepted the
+# request and returned a completion carrying no text, which is an image, audio
+# or reasoning build. This is a reply that is not a chat completion in the first
+# place. `WRONG_KIND` was referenced on the no-choices path and defined nowhere,
+# so that branch raised `NameError`; it would then have hit a display map with
+# no entry for it either (§16 item 11).
+WRONG_KIND = "wrong-kind"
 
 
 def _call(path: str, credential: str, payload: Any = None, method: str = "GET") -> Any:
@@ -204,7 +212,8 @@ def main() -> int:
         )
         verdict, why = _verdict(answer)
         record[model] = {"verdict": verdict, "detail": why}
-        mark = {WORKS: "ok  ", QUIET: "hm  ", GONE: "GONE", BROKEN: "??  "}[verdict]
+        mark = {WORKS: "ok  ", QUIET: "hm  ", GONE: "GONE", BROKEN: "??  ",
+                WRONG_KIND: "kind"}[verdict]
         print(f"  {mark} {model}" + (f"  — {why}" if why else ""))
 
     everything = _stored()

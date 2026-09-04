@@ -10,9 +10,20 @@ and waits — and refuses outright when there is nobody there to ask.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from sirvis.cli import main
+
+EXAMPLE = str(
+    Path(__file__).resolve().parent.parent / "examples" / "basic.yaml"
+)
+"""The shipped example, addressed from this file rather than from the working
+directory. `"examples/basic.yaml"` resolved only when pytest ran from `sirvis/`,
+so from the repository root the CLI was handed a path that does not exist and
+these tests asserted against its empty output (§16 item 11)."""
+
 
 # A port nothing listens on. §14.5, and the reason the run below fails cleanly
 # rather than measuring anything.
@@ -32,7 +43,7 @@ def test_it_refuses_to_load_a_model_with_nobody_to_ask(
     """Not politeness. An unattended script that meant to run this can pass
     `--yes`; one that did not should not discover the difference by finding a
     14 GB model resident an hour later."""
-    code = main(["benchmark", "run", "examples/basic.yaml"])
+    code = main(["benchmark", "run", EXAMPLE])
 
     captured = capsys.readouterr()
     assert code == 2
@@ -45,7 +56,7 @@ def test_it_says_what_it_will_load_before_it_loads_it(
 ) -> None:
     """The model, the configuration and the amount of work — before any of it
     happens, not in a summary afterwards."""
-    main(["benchmark", "run", "examples/basic.yaml", "--yes"])
+    main(["benchmark", "run", EXAMPLE, "--yes"])
 
     printed = capsys.readouterr().out
     assert "qwen2.5-coder-7b-instruct" in printed
@@ -58,7 +69,7 @@ def test_an_absent_runtime_fails_the_run_rather_than_the_command(
 ) -> None:
     """§15.4: SIRVIS works standalone. A closed LM Studio is the ordinary state
     of a laptop, and the message has to name that rather than a stack trace."""
-    code = main(["benchmark", "run", "examples/basic.yaml", "--yes"])
+    code = main(["benchmark", "run", EXAMPLE, "--yes"])
 
     assert code == 1
     assert "not answering" in capsys.readouterr().err
@@ -68,7 +79,7 @@ def test_the_model_can_be_overridden_so_the_example_stays_runnable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The shipped example names a model this machine may not have installed."""
-    main(["benchmark", "run", "examples/basic.yaml", "--yes", "--model", "something-else"])
+    main(["benchmark", "run", EXAMPLE, "--yes", "--model", "something-else"])
 
     assert "something-else" in capsys.readouterr().out
 

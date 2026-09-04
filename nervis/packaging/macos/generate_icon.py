@@ -74,7 +74,8 @@ def build() -> str:
   re-run it (or ./build_icon.sh, which calls it) rather than hand-editing the
   polygon points below.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}" viewBox="0 0 {CANVAS} {CANVAS}">
+<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}"
+     height="{CANVAS}" viewBox="0 0 {CANVAS} {CANVAS}">
  <defs>
   <clipPath id="squircle"><polygon points="{squircle}"/></clipPath>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">

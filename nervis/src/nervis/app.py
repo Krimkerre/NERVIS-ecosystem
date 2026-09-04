@@ -246,7 +246,7 @@ def _register_error_handling(api: FastAPI) -> None:
         than stringified into the message.
         """
         detail = exc.detail
-        structured = detail if isinstance(detail, dict) else {}
+        structured: dict[str, Any] = detail if isinstance(detail, dict) else {}
         message = str(structured.get("message") or detail)
         return JSONResponse(
             status_code=exc.status_code,

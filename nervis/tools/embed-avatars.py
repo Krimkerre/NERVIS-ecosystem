@@ -8,7 +8,10 @@ open from disk with no server.
 
 Run after editing any avatar:  python3 tools/embed-avatars.py
 """
-import base64, pathlib, re, sys
+import base64
+import pathlib
+import re
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Order matters only for readability. Leaving one out of this list would

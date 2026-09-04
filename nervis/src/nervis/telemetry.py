@@ -114,22 +114,55 @@ def sample_system(*, processes: int = TOP_PROCESSES) -> SystemSample:
     Nothing here blocks: every call is a read of something the kernel already
     maintains. That is what makes it safe to take on every dashboard poll.
     """
-    memory = psutil.virtual_memory()
-    swap = psutil.swap_memory()
+    memory = _memory()
+    swap = _swap()
     return SystemSample(
         sampled_at=time.time(),
         hostname=platform.node() or None,
         os_description=_os_description(),
         cpu_count=os.cpu_count(),
         load_average=_load_average(),
-        memory_total_bytes=memory.total,
-        memory_available_bytes=memory.available,
-        swap_total_bytes=swap.total,
-        swap_used_bytes=swap.used,
+        memory_total_bytes=memory[0],
+        memory_available_bytes=memory[1],
+        swap_total_bytes=swap[0],
+        swap_used_bytes=swap[1],
         **_disk(),
         thermal_state=_thermal_state(),
         processes=_processes(processes),
     )
+
+
+def _memory() -> tuple[int | None, int | None]:
+    """Total and available memory, or a pair of absences.
+
+    **The two readings this module took raw (§16 item 11).** Every other probe
+    here already degrades — `_load_average`, `_disk` and `_thermal_state` each
+    catch and return `None` — and `SystemSample`'s own docstring states why:
+    "absent is a real state and reported as such: a zero for 'we could not read
+    swap' is a number somebody will believe". These two were called at the top of
+    `sample_system` with nothing around them, so a platform refusing either took
+    the whole sample down rather than one field of it.
+
+    Reported by an external audit from a sandbox where `psutil.swap_memory()`
+    raised. That is not only a sandbox: a hardened profile can deny the same
+    call on a real machine, and a control plane that stops reporting its own
+    host because one counter is unreadable is exactly the failure this module's
+    absence-as-a-value design exists to avoid.
+    """
+    try:
+        reading = psutil.virtual_memory()
+    except OSError:
+        return None, None
+    return reading.total, reading.available
+
+
+def _swap() -> tuple[int | None, int | None]:
+    """Swap total and used, or a pair of absences. See `_memory`."""
+    try:
+        reading = psutil.swap_memory()
+    except OSError:
+        return None, None
+    return reading.total, reading.used
 
 
 def _os_description() -> str:

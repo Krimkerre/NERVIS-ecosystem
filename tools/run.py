@@ -227,7 +227,12 @@ def responds(url: str, timeout: float = 1.5) -> bool:
             return True
     except urllib.error.HTTPError:
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - every failure here means "not answering"
+        # Deliberately blind. This asks one question — did something answer on
+        # that port — and a refused connection, a DNS failure, a timeout and a
+        # malformed reply are all the same answer. Narrowing it would mean
+        # listing the ways a service can be down, and the list would be wrong
+        # the first time a new one appeared.
         return False
 
 
@@ -597,6 +602,10 @@ def teach_ravis_the_admin_credential() -> str:
         finished = subprocess.run(
             [str(executable), "credential", "admin.launcher"],
             input=secret, text=True, capture_output=True, timeout=20,
+            # The return code is read below rather than raised on: a refusal
+            # here is a line the launcher prints, not a reason to stop starting
+            # the ecosystem.
+            check=False,
         )
     except Exception as failure:  # noqa: BLE001 - a launcher never dies of this
         return f"could not be stored: {failure}"
