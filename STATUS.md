@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2242 tests, no network, no live service
+.venv/bin/pytest                      # part of 2249 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 447 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 449 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 811 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2242 passing across the four, conformance `PASS`.
+Expected: all clean, 2249 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11664,6 +11664,65 @@ tests that send a model and a parameter to exercise forwarding. Absent is not
 malformed on a transparent path; present-and-wrong-typed is.
 
     16 malformed payloads:  6 × 5xx  →  0 × 5xx
+
+## SIRVIS was already telling the truth; nobody was listening — 2026-09-04
+
+**§16 item 7, and verifying it inverted the finding.** The item asks that SIRVIS
+"can never report a successful benchmark under settings it did not apply". It
+already cannot. `_configuration_warnings` compares the requested load against
+what the runtime reports resident, and the engine's own docstring puts the
+principle better than the audit did:
+
+> A benchmark run at 8K on a request for 32K is a perfectly good measurement —
+> of a model at 8K — and the only unacceptable outcome is publishing it as
+> though it answered the question that was asked.
+
+A mismatch becomes a validity note and the record is marked `SUSPECT`.
+
+**The defect is one service along.** RAVIS ingests `validity` into
+`EvidenceRecord` and reads it nowhere — grep for `.validity` outside the field
+declaration and the round-trip returns nothing. On this machine that is not
+hypothetical: **44 of 93 evidence records are `SUSPECT`**, and every one fed
+routing exactly as the 49 clean ones did. The same shape as §16 items 2 and 4 —
+a value computed correctly and applied nowhere.
+
+`tool_verdict` already refuses to establish a capability from an estimate, with
+the right argument attached: *"§13.3: never upgrade. An estimate cannot
+establish an invariant."* A measurement SIRVIS itself disowned is the same case,
+and now gets the same answer.
+
+**`SUSPECT` is deliberately not demoted, and the reasoning is the point.** Of
+those 44, twenty-one are suspect because the machine was thermally throttled.
+That undermines a *rate*; it says nothing about whether the model formed
+well-formed tool calls. Demoting a capability on it would discard correct
+evidence because the room was warm. Which metric a warning undermines is
+SIRVIS's to express rather than RAVIS's to infer from prose — so suspect
+evidence still counts, and the route explanation now says it was suspect. §9.7
+asks a route to explain itself; "chosen on a measurement its own producer
+flagged" is exactly what that is for. `INVALID` is caught outright: nothing on
+this machine carries it, which is why the guard costs nothing to add now and
+would cost something to add after the first one arrived.
+
+**What item 7 literally asked for was the data.** The stored configuration is
+`{**spec.load, **effective}`, so effective overwrites requested and only the
+merged result survives — correct for identity, since §12.2 keys a record on what
+*ran*, and lossy for a reader, who sees `context_length: 8192` and cannot tell
+whether that was asked for or was the runtime overriding a request for 32768.
+The prose warning said so, and prose is not something a router can compare.
+`requested_configuration` is stored beside it now, always — "asked for nothing"
+and "asked for what it got" are different facts, and an omitted key cannot tell
+them apart. It flows through `as_dict()` into the stored payload, so every new
+run carries it; existing records correctly lack it rather than being backfilled
+with a guess.
+
+**And the labels.** §16 item 7 also asks for real `wait`/`preempt` or their
+removal. The manager is entirely honest about both — *"`WAIT` does not actually
+wait here — it reports exhaustion... saying so is better than a `wait` that
+silently behaves like `reject`"*, and `PREEMPT` reclaims only unreferenced
+holdings, which cannot exist while release unloads at zero. `SIRVIS.md` listed
+all three as working policies and did not carry either fact. The specification
+was the thing overstating, so the specification changed; real waiting is a queue
+above the resource manager and remains unbuilt.
 
 ## Starting the thing
 

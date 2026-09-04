@@ -390,6 +390,19 @@ class EvidenceRecord:
     rates: Mapping[str, TrialRate] = field(default_factory=dict)
     validity: Validity = Validity.VALID
     validity_notes: tuple[str, ...] = ()
+
+    # **What the run asked for, beside what it got (§16 item 7).** The identity
+    # above is keyed on the *effective* configuration, and must stay that way —
+    # §12.2's collision rule means a run that requested 32768 and got 8192 is the
+    # same measurement as one that requested 8192, because the same thing ran.
+    #
+    # That keying loses the request, though, and the request is what tells a
+    # reader whether the number answers their question. The mismatch was already
+    # reported as a validity note, in prose; prose is not something a router can
+    # compare. Empty when nothing was requested for a key, which is a different
+    # fact from requesting and receiving the same value — so it is stored either
+    # way rather than omitted when it matches.
+    requested_configuration: Mapping[str, Any] = field(default_factory=dict)
     machine_snapshot_id: str | None = None
     sirvis_version: str = "0.0.1"
 
@@ -418,6 +431,7 @@ class EvidenceRecord:
             },
             "validity": self.validity.value,
             "validity_notes": list(self.validity_notes),
+            "requested_configuration": dict(self.requested_configuration),
             "machine_snapshot_id": self.machine_snapshot_id,
             "sirvis_version": self.sirvis_version,
         }

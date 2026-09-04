@@ -1127,7 +1127,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       entries, numeric ranges, enum values, session membership, context/lease bounds, body and
       list size limits — before routing, benchmarking or config conversion. Malformed input
       always returns the canonical structured 400, never a 500 or 502.
-- [ ] **7. SIRVIS effective-condition truthfulness.** Before reusing a resident model, compare
+- [x] **7. SIRVIS effective-condition truthfulness.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. SIRVIS was already truthful; RAVIS was ignoring what it said.)* Before reusing a resident model, compare
       requested against effective configuration; reject incompatible reuse or report the
       effective values explicitly; store both alongside the result; mark a run invalid when its
       required conditions weren't met. Implement real `wait`/`preempt` behaviour or remove those

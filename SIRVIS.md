@@ -431,6 +431,21 @@ defaults; renewal allowed.
 **Load conflict policies:** `wait` (default), `reject`, `preempt`. **Preemption is never
 implicit.**
 
+**Amended 4 Sep (§16 item 7): two of those three are names, and the code says so.**
+`wait` does not wait — `_make_room` reports exhaustion, because a queue that blocked
+inside the resource lock would deadlock against every release that could free the
+capacity it waits for, so bounded queueing belongs above that layer. `preempt`
+reclaims only *unreferenced* holdings, and release unloads at zero, so no such
+holding can currently exist: it refuses exactly as `reject` does. The branch is kept
+because §9 names the policy and because it becomes reachable the moment models are
+retained warm after their last release.
+
+So all three currently refuse, and only `reject` refuses for the reason its name
+gives. The manager's own docstrings state both facts plainly — *"saying so is better
+than a `wait` that silently behaves like `reject`"* — and this clause did not, which
+is the gap. Real waiting is a queue above the manager and is not built; when it is,
+this sentence stops needing the paragraph under it.
+
 Use per-runtime locking, bounded queues, capacity reservations, startup timeouts,
 lease heartbeats, idempotent operations and cleanup after crash. Ownership is explicit so
 RAVIS and NERVIS never fight over lifecycle.

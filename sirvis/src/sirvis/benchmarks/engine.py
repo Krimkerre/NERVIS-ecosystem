@@ -1106,6 +1106,10 @@ def _evidence(
         rates=_rates(outcome),
         validity=Validity.SUSPECT if warnings else Validity.VALID,
         validity_notes=tuple(warnings),
+        # The request itself, unmerged. `configuration` above is
+        # `{**spec.load, **effective}` because identity must name what ran; this
+        # is the other half, so a reader can compare without parsing a warning.
+        requested_configuration=dict(spec.load),
         machine_snapshot_id=str(machine["snapshot_id"]),
     )
 

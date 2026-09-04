@@ -331,6 +331,25 @@ def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
             f"evidence is {record.provenance.value}, which cannot establish a capability",
             record,
         )
+    if record.validity.upper() == "INVALID":
+        # **The same rule, for a measurement SIRVIS itself disowned (§16 item 7).**
+        # `validity` was ingested here and read nowhere, so a record SIRVIS marked
+        # unusable routed exactly as a clean one did — the shape of §16 items 2
+        # and 4, where a value is computed correctly and applied nowhere.
+        #
+        # `SUSPECT` is deliberately *not* caught. On the machine this was written
+        # against, 21 of the suspect records are suspect because it was thermally
+        # throttled — which undermines a *rate* and says nothing about whether the
+        # model formed well-formed tool calls. Demoting a capability on that would
+        # discard correct evidence because the room was warm. Which metric a
+        # warning undermines is SIRVIS's to express rather than RAVIS's to infer
+        # from prose, and until it does, suspect evidence counts and the route
+        # explanation says it was suspect.
+        return EvidenceVerdict(
+            CapabilityState.UNKNOWN,
+            "SIRVIS marked this evidence INVALID, which cannot establish a capability",
+            record,
+        )
     counted = record.rate(RATE_TOOL_CALLS)
     if counted is None:
         return EvidenceVerdict(
@@ -358,9 +377,25 @@ def tool_verdict(record: EvidenceRecord | None) -> EvidenceVerdict:
     return EvidenceVerdict(
         CapabilityState.SUPPORTED,
         f"{passed}/{total} well-formed tool calls over {phrasings} phrasings, "
-        f"measured by SIRVIS for {record.role}" + _measured_at(record),
+        f"measured by SIRVIS for {record.role}" + _measured_at(record) + _caveat(record),
         record,
     )
+
+
+def _caveat(record: EvidenceRecord) -> str:
+    """Say when a capability rests on evidence SIRVIS flagged (§16 item 7).
+
+    Suspect evidence still establishes the capability — see the note in
+    `tool_verdict` for why demoting on it would discard correct measurements
+    because the machine was warm. What it must not do is arrive looking clean.
+    §9.7 asks a route to explain itself, and "chosen on a measurement its own
+    producer marked suspect" is exactly the kind of thing that explanation is
+    for: it costs one clause here and saves somebody reading a benchmark number
+    that nobody flagged to them.
+    """
+    if record.validity.upper() != "SUSPECT":
+        return ""
+    return " — on evidence SIRVIS marked SUSPECT"
 
 
 def _measured_at(record: EvidenceRecord) -> str:
