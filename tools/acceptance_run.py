@@ -1009,9 +1009,7 @@ def clarvis_clause(result: Result, workspace: Path, model: str, unattended: bool
     marker = time.time()
     input("    Press Enter when the task has finished. ")
     branches = git(workspace, "branch", "--list", "clarvis/*").strip()
-    checkpoint = (Path.home() / "Library/Application Support/Code/User/globalStorage"
-                  / "krimkerre.clarvis" / "checkpoint")
-    captured = sorted(p.name for p in checkpoint.iterdir()) if checkpoint.is_dir() else []
+    captured = checkpointed()
     if branches:
         result.ok("clarvis", f"contained on its own branch: {branches.lstrip('* ')}")
     else:
@@ -1031,6 +1029,26 @@ def clarvis_clause(result: Result, workspace: Path, model: str, unattended: bool
         result.bad("clarvis", f"the workspace is still modified after undo: {dirty[:120]}")
     else:
         result.ok("clarvis", "undo restored the workspace; git reports it clean")
+
+
+def checkpointed() -> list[str]:
+    """What the last agent run copied before touching anything.
+
+    Both hosts, because the task may be driven from either and each keeps its
+    own global storage: desktop VS Code under `Library/Application Support/Code`
+    and code-server under `.local/share/code-server`. Whichever holds files is
+    the one that ran, and looking in only the first is how a run in the other
+    reads as "nothing to undo from".
+    """
+    homes = (Path.home() / "Library/Application Support/Code/User/globalStorage",
+             Path.home() / ".local/share/code-server/User/globalStorage")
+    for home in homes:
+        store = home / "krimkerre.clarvis" / "checkpoint"
+        if store.is_dir():
+            found = sorted(item.name for item in store.iterdir())
+            if found:
+                return found
+    return []
 
 
 def through_that_route(result: Result, model: str, since: float) -> None:
