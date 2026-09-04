@@ -423,7 +423,7 @@ def measure(result: Result, model: str, context_length: int) -> dict[str, Any]:
             "results_path": run.get("results_path", ""), "model": model}
 
 
-def trial(result: Result, model: str) -> bool:
+def trial(result: Result, model: str) -> str:
     """A second, larger measurement: the tool-call trial RAVIS can form a verdict from.
 
     Two jobs rather than one, because a role run and a configured run are
@@ -456,13 +456,19 @@ def trial(result: Result, model: str) -> bool:
                            }, "model": model, "clarvis_role": "clarvis-agent"})
     if status != 202 or not isinstance(body, dict):
         result.bad("route", f"the trial submit returned {status}: {str(body)[:160]}")
-        return False
+        return ""
     job = poll_job(result, body.get("job", {}).get("job_id", ""))
     if job.get("state") != "succeeded":
         result.bad("route", f"the trial ended {job.get('state')}: {job.get('detail')}")
-        return False
-    result.ok("measure", "the tool-call trial completed on the same build")
-    return True
+        return ""
+    _, run, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-runs/{job.get('run_id')}")
+    rows = run.get("results", []) if isinstance(run, dict) else []
+    evidence_id = rows[0].get("evidence_id", "") if rows else ""
+    if not evidence_id:
+        result.bad("route", "the trial produced no evidence record to look for")
+        return ""
+    result.ok("measure", f"the tool-call trial completed on the same build: {evidence_id}")
+    return evidence_id
 
 
 def poll_job(result: Result, job_id: str, ceiling: float = 900.0) -> dict[str, Any]:
@@ -548,37 +554,41 @@ def ravis_verdict(model: str) -> dict[str, Any]:
     return next((i for i in rows if i.get("model_id") == model), {})
 
 
-def consumed(result: Result, model: str, before: dict[str, Any]) -> bool:
-    """Wait until RAVIS's belief about the build has changed, and say how.
+def consumed(result: Result, model: str, evidence_id: str) -> bool:
+    """Wait until RAVIS is citing *this* run's evidence record for the build.
 
     The hinge of "RAVIS selects **it**". RAVIS re-reads SIRVIS on a cache timer
     and publishes no route to force it, so this waits rather than pokes — a back
     door built for a test would be a back door.
 
-    What is watched is the *verdict*, not a count. RAVIS keys records by build
-    and role, so a fresh measurement of a build it already knows replaces a row
-    rather than adding one; the tally never moves and a procedure asserting on
-    it would report an ignored measurement forever. The verdict does move, and
-    it is the thing the next step depends on.
+    **The record id, not the verdict and not a tally.** Two earlier versions of
+    this assertion were wrong in the same direction. A count cannot move:
+    records are keyed by build and role, so a fresh measurement replaces a row
+    rather than adding one. A changed verdict works exactly once: the second run
+    of this procedure measures the same build to the same conclusion, so
+    "UNKNOWN became UNSUPPORTED" never happens again and a repeatable procedure
+    would fail on its second use. The record id is unique per run and is what
+    RAVIS publishes once it holds a verdict, so it answers the only question
+    worth asking — is RAVIS reading the measurement this run just took.
     """
     say(f"\n4. RAVIS reads the new evidence (up to {EVIDENCE_CEILING_SECONDS:.0f}s; its "
         f"cache TTL is {EVIDENCE_TTL_SECONDS:.0f}s)")
-    was = before.get("state", ""), before.get("detail", "")
     started = time.monotonic()
 
-    def changed() -> bool:
-        now = ravis_verdict(model)
-        return (now.get("state", ""), now.get("detail", "")) != was
+    def cited() -> bool:
+        held = (ravis_verdict(model).get("evidence") or {}).get("evidence_id", "")
+        return bool(held) and held == evidence_id
 
-    if not wait_for(changed, EVIDENCE_CEILING_SECONDS, interval=15.0):
+    if not wait_for(cited, EVIDENCE_CEILING_SECONDS, interval=15.0):
         now = ravis_verdict(model)
-        result.bad("route", f"after {EVIDENCE_CEILING_SECONDS:.0f}s RAVIS still says "
-                            f"{now.get('state')} / {str(now.get('detail'))[:60]!r}; selection "
-                            "would be asserted against a snapshot older than the measurement")
+        held = (now.get("evidence") or {}).get("evidence_id", "") or "nothing"
+        result.bad("route", f"after {EVIDENCE_CEILING_SECONDS:.0f}s RAVIS still cites {held} "
+                            f"for {model}, not {evidence_id}; selection would be asserted "
+                            "against a snapshot older than the measurement")
         return False
     now = ravis_verdict(model)
-    result.ok("route", f"RAVIS re-read SIRVIS after {int(time.monotonic() - started)}s: "
-                       f"{model} went from {was[0]} to {now.get('state')} — "
+    result.ok("route", f"RAVIS re-read SIRVIS after {int(time.monotonic() - started)}s and now "
+                       f"cites {evidence_id}: {model} is {now.get('state')} — "
                        f"{str(now.get('detail'))[:70]}")
     return True
 
@@ -1145,12 +1155,13 @@ def main() -> int:
     feed.start()
     try:
         model, provider = name_the_model(result, arguments.pool)
-        believed = ravis_verdict(model)
         measured = measure(result, model, arguments.context)
         if not measured:
             result.bad("route", "no measurement to select on; the chain stopped at SIRVIS")
-        elif trial(result, model) and consumed(result, model, believed):
-            route(result, arguments.pool, model)
+        else:
+            evidence_id = trial(result, model)
+            if evidence_id and consumed(result, model, evidence_id):
+                route(result, arguments.pool, model)
         direct_provider(result, provider or "local", model, when="with everything healthy")
         redaction(result)
         nervis_turn(result, arguments.pool)
