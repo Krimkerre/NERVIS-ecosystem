@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any, Mapping, Sequence
 
 
@@ -414,7 +415,11 @@ def propose(
     # Learning sits above benchmarking because *"remember that qwen3-4b is the
     # fast one"* names a model, and read the other way round it becomes an offer
     # to measure one.
-    for attempt in (
+    # Typed as what it is. A lambda carries no annotations and cannot be given
+    # any, so calling one is a call into an untyped function — which this
+    # package's own settings refuse. Naming the tuple's type puts the signature
+    # back where the reader and the checker can both see it.
+    attempts: tuple[Callable[[], Proposal | None], ...] = (
         lambda: _switch_proposal(question, pools) if SWITCH.search(question) and pools else None,
         lambda: _cancel_from(question, jobs),
         lambda: _saving_proposal(question, default_name),
@@ -423,7 +428,8 @@ def propose(
         lambda: _handoff_proposal(question, clarvis),
         lambda: _learning_proposal(question),
         lambda: _benchmark_proposal(question, models) if BENCHMARK.search(question) else None,
-    ):
+    )
+    for attempt in attempts:
         found = attempt()
         if found is not None:
             return found

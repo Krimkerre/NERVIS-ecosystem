@@ -20,7 +20,7 @@ import httpx
 from ecosystem_protocol import new_request_id
 from fastapi import APIRouter, Request
 
-from nervis.api.chat import _forwarded
+from nervis.api.chat_calls import _forwarded
 from nervis.diagnostics import build_packet, fenced_prompt
 from nervis.registry import RegistryEntry
 from nervis.traces import assemble

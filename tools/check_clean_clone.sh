@@ -83,14 +83,26 @@ step "build plans readable"   nervis-eco python tools/check_plans.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the eleven that need no live service) ==="
+echo "=== dashboard gates (the eighteen that need no live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else
   echo "  npm ci FAILED"
   fail=$((fail + 1))
 fi
-for gate in render complexity shaping empty_world liveness injection routing outcome stream preserve attachment; do
+# **All eighteen, not the eleven this loop started with.** The other seven —
+# background, handler, learned, notification, plan, proposal, supervision — were
+# listed in `.github/workflows/checks.yml` and nowhere else, and that file does
+# not run: GitHub Actions is switched off on both repositories, deliberately and
+# for cost. So the workflow file stopped being a gate the day it was disabled,
+# and seven checks quietly became things somebody had to remember to type.
+#
+# Each was run before being added here and passes with no service up, which is
+# what "needs no live service" has to mean for a gate that runs against a fresh
+# clone. `honesty_check.js` and `recovery_check.js` stay out of this loop
+# because they read live endpoints and are run separately.
+for gate in render complexity shaping empty_world liveness injection routing outcome stream \
+            preserve attachment background handler learned notification plan proposal supervision; do
   step "dashboard $gate" nervis-eco/nervis node "tools/${gate}_check.js"
 done
 

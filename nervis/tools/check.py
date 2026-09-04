@@ -101,6 +101,15 @@ if depth > 0:
 _prose = re.sub(r"/\*.*?\*/", "", html, flags=re.DOTALL)
 _prose = re.sub(r"(?m)^\s*//.*$", "", _prose)
 _code = re.sub(r"[!=]==\s*undefined", "", _prose)
+# **Assigning or returning the value is not rendering it.** The failure this
+# rule exists for is `undefined` reaching the DOM — the Overview's
+# `LOCAL undefined%`, a template reading a field the API stopped returning. An
+# assignment (`plan.running = undefined`) clears a field, and a ternary whose
+# other branch is `undefined` returns nothing from a promise; neither can put
+# the eight characters on a screen. Both were in `index.html` for months while
+# this check failed on them, which taught nobody anything except to skip the
+# check — and skipping it is how the DOM case comes back.
+_code = re.sub(r"[:=]\s*undefined\s*(?=[;,)\]}]|$)", "", _code, flags=re.MULTILINE)
 if "undefined" in _code:
     fail.append("the literal string 'undefined' appears in index.html "
                 "outside a comment and outside an `=== undefined` comparison")
