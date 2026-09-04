@@ -101,7 +101,12 @@ CLAUSES = {
 RATE_LIMIT_PAUSE_SECONDS = 20.0
 
 EVIDENCE_TTL_SECONDS = 300.0
-EVIDENCE_CEILING_SECONDS = 360.0
+# The TTL plus a whole cycle's margin. RAVIS's refresh clock is its own and is
+# not synchronised with this procedure, so the wait begins at an arbitrary point
+# in a 300-second cycle and the refresh itself is not instant: a run measured
+# 240 seconds here, which left a 360-second ceiling with one minute of headroom
+# and a flake waiting to happen.
+EVIDENCE_CEILING_SECONDS = 480.0
 
 
 class Result:
@@ -423,7 +428,7 @@ def measure(result: Result, model: str, context_length: int) -> dict[str, Any]:
             "results_path": run.get("results_path", ""), "model": model}
 
 
-def trial(result: Result, model: str) -> str:
+def trial(result: Result, model: str) -> tuple[str, float]:
     """A second, larger measurement: the tool-call trial RAVIS can form a verdict from.
 
     Two jobs rather than one, because a role run and a configured run are
@@ -441,6 +446,7 @@ def trial(result: Result, model: str) -> str:
     a signal that anything was read.
     """
     say(f"\n3. SIRVIS runs the tool-call trial on {model} (24 attempts; a few minutes)")
+    began = time.time()
     status, body, _ = call("POST", f"{SIRVIS}/api/v1/benchmark-jobs",
                            token=token("nervis-benchmark"), trace=result.traceparent,
                            body={"specification": {
@@ -456,19 +462,19 @@ def trial(result: Result, model: str) -> str:
                            }, "model": model, "clarvis_role": "clarvis-agent"})
     if status != 202 or not isinstance(body, dict):
         result.bad("route", f"the trial submit returned {status}: {str(body)[:160]}")
-        return ""
+        return "", began
     job = poll_job(result, body.get("job", {}).get("job_id", ""))
     if job.get("state") != "succeeded":
         result.bad("route", f"the trial ended {job.get('state')}: {job.get('detail')}")
-        return ""
+        return "", began
     _, run, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-runs/{job.get('run_id')}")
     rows = run.get("results", []) if isinstance(run, dict) else []
     evidence_id = rows[0].get("evidence_id", "") if rows else ""
     if not evidence_id:
         result.bad("route", "the trial produced no evidence record to look for")
-        return ""
+        return "", began
     result.ok("measure", f"the tool-call trial completed on the same build: {evidence_id}")
-    return evidence_id
+    return evidence_id, began
 
 
 def poll_job(result: Result, job_id: str, ceiling: float = 900.0) -> dict[str, Any]:
@@ -554,42 +560,53 @@ def ravis_verdict(model: str) -> dict[str, Any]:
     return next((i for i in rows if i.get("model_id") == model), {})
 
 
-def consumed(result: Result, model: str, evidence_id: str) -> bool:
+def consumed(result: Result, model: str, evidence_id: str, began: float) -> bool:
     """Wait until RAVIS is citing *this* run's evidence record for the build.
 
     The hinge of "RAVIS selects **it**". RAVIS re-reads SIRVIS on a cache timer
     and publishes no route to force it, so this waits rather than pokes — a back
     door built for a test would be a back door.
 
-    **The record id, not the verdict and not a tally.** Two earlier versions of
-    this assertion were wrong in the same direction. A count cannot move:
-    records are keyed by build and role, so a fresh measurement replaces a row
-    rather than adding one. A changed verdict works exactly once: the second run
-    of this procedure measures the same build to the same conclusion, so
-    "UNKNOWN became UNSUPPORTED" never happens again and a repeatable procedure
-    would fail on its second use. The record id is unique per run and is what
-    RAVIS publishes once it holds a verdict, so it answers the only question
-    worth asking — is RAVIS reading the measurement this run just took.
+    **The record id *and its age*, because three earlier versions of this
+    assertion were wrong in the same direction.** A count cannot move: records
+    are keyed by build and role, so a fresh measurement replaces a row rather
+    than adding one. A changed verdict works exactly once: the second run
+    measures the same build to the same conclusion, so "UNKNOWN became
+    UNSUPPORTED" never happens again. And the id alone is not unique per run
+    either — it is derived from build, role and suite, so an identical trial
+    yields an identical id and RAVIS can satisfy the match with a record from
+    days ago. The run that found that read `re-read SIRVIS after 0s`, which is
+    not a fast cache but an assertion that never tested anything.
+
+    So the record must also be *younger than this procedure's own trial*. Age is
+    published beside the id and is computed against the measurement's own
+    timestamp, which makes it the one field a stale record cannot satisfy.
     """
     say(f"\n4. RAVIS reads the new evidence (up to {EVIDENCE_CEILING_SECONDS:.0f}s; its "
         f"cache TTL is {EVIDENCE_TTL_SECONDS:.0f}s)")
     started = time.monotonic()
 
     def cited() -> bool:
-        held = (ravis_verdict(model).get("evidence") or {}).get("evidence_id", "")
-        return bool(held) and held == evidence_id
+        held = ravis_verdict(model).get("evidence") or {}
+        if held.get("evidence_id") != evidence_id:
+            return False
+        age = held.get("age_seconds")
+        return isinstance(age, (int, float)) and age <= time.time() - began
 
     if not wait_for(cited, EVIDENCE_CEILING_SECONDS, interval=15.0):
         now = ravis_verdict(model)
-        held = (now.get("evidence") or {}).get("evidence_id", "") or "nothing"
-        result.bad("route", f"after {EVIDENCE_CEILING_SECONDS:.0f}s RAVIS still cites {held} "
-                            f"for {model}, not {evidence_id}; selection would be asserted "
-                            "against a snapshot older than the measurement")
+        held = now.get("evidence") or {}
+        result.bad("route", f"after {EVIDENCE_CEILING_SECONDS:.0f}s RAVIS cites "
+                            f"{held.get('evidence_id') or 'nothing'} aged "
+                            f"{held.get('age_seconds')}s for {model}; this run's trial is "
+                            f"{evidence_id}, {int(time.time() - began)}s old — selection would "
+                            "be asserted against a snapshot older than the measurement")
         return False
     now = ravis_verdict(model)
-    result.ok("route", f"RAVIS re-read SIRVIS after {int(time.monotonic() - started)}s and now "
-                       f"cites {evidence_id}: {model} is {now.get('state')} — "
-                       f"{str(now.get('detail'))[:70]}")
+    aged = (now.get("evidence") or {}).get("age_seconds")
+    result.ok("route", f"RAVIS re-read SIRVIS after {int(time.monotonic() - started)}s and cites "
+                       f"{evidence_id}, measured {int(aged or 0)}s ago: {model} is "
+                       f"{now.get('state')} — {str(now.get('detail'))[:60]}")
     return True
 
 
@@ -1159,8 +1176,8 @@ def main() -> int:
         if not measured:
             result.bad("route", "no measurement to select on; the chain stopped at SIRVIS")
         else:
-            evidence_id = trial(result, model)
-            if evidence_id and consumed(result, model, evidence_id):
+            evidence_id, began = trial(result, model)
+            if evidence_id and consumed(result, model, evidence_id, began):
                 route(result, arguments.pool, model)
         direct_provider(result, provider or "local", model, when="with everything healthy")
         redaction(result)

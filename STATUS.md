@@ -11967,6 +11967,13 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
 
 ## The golden path, run against the running thing — 2026-09-05
 
+**§16 is gone from `ECOSYSTEM_RUNBOOK.md`, which is what it said it would do.** The
+twelve-item stabilization track opened on 3 September against an independent audit and
+closed on the 5th; §15's security line now points at that work instead of at a list of
+checkboxes, and §15.1 records what the track was, so the "§16 item *n*" citations left
+in `RAVIS.md` and `SIRVIS.md` still resolve to something true. A temporary section that
+outlives its work is the drift §14 exists to prevent.
+
 **§16 item 12, and the first thing to say about it is what it found.** Three
 inspectable surfaces were publishing this machine's home directory: NERVIS's
 `/api/v1/logs` (`items[].path`), its `/api/v1/learned` (`path`), and SIRVIS's
@@ -12032,16 +12039,46 @@ defect.
 always raises a modal wanting a click. So those steps pause for input, their
 outcome is checked from *outside* the editor — the `clarvis/*` branch, the
 checkpoint directory, RAVIS's own decision log — and `--unattended` exits 3,
-never 0. A skipped clause is never a passed one:
+never 0. A skipped clause is never a passed one, which is what the unattended
+run says and the attended one does not have to:
 
     PROVED   SIRVIS measures a model with truthful requested/effective conditions
     PROVED   RAVIS selects it and explains every candidate, exclusion, winning factor
-    NOT RUN  Clarvis performs a contained, undoable task through that route
+    PROVED   Clarvis performs a contained, undoable task through that route
     PROVED   NERVIS shows live progress and the joined trace
     PROVED   restarting a component produces accurate degraded state and recovery
     PROVED   evidence is inspectable without credentials, prompts or private paths
     PROVED   the direct-provider path still works
-    NOT RUN  the Bridge-disabled path still works
+    PROVED   the Bridge-disabled path still works
+
+**Run attended, 5 September: every clause proved.** The editor half is the half no
+script can reach, and it is the half that had the most room to disappoint:
+
+    PASS  contained on its own branch: clarvis/add-a-one-line-comment-at-the-top-…
+    PASS  checkpoint holds 1 file(s) to undo from
+    PASS  RAVIS recorded a decision selecting exaone-deep-2.4b for the editor's turn
+    PASS  undo restored the workspace; git reports it clean
+    PASS  port 60953 refuses connections — off means unbound, not guarded
+
+The third line is "through that route", checked at RAVIS rather than by asking the
+extension whether it had done what it was told. The last one distinguishes a Bridge
+that is off from a Bridge that is politely refusing, which are different security
+properties and only one of them is what `enabled: false` claims.
+
+**A fourth wrong assertion, found the same way as the first three.** Matching RAVIS's
+cited `evidence_id` looked airtight and was not: the id is derived from build, role and
+suite, so an identical trial produces an identical id and RAVIS can satisfy the match
+with a record from an earlier run. The tell was in the output — `re-read SIRVIS after
+0s`, which is not a fast cache but an assertion that never tested anything. The record
+must also be younger than this run's own trial, and with that added the same step waits
+240 seconds and reports `cites ev_68263ee884149be3, measured 240s ago` against a
+previously cited record that was 948 seconds old. Four versions of one check, each
+wrong in the same direction — reading a field that cannot distinguish the case — and
+each caught by running the thing rather than by reasoning about it.
+
+That 240 also set the ceiling. It was 360 seconds against a 300-second cache whose
+refresh clock is RAVIS's own and unsynchronised with the run, which left about a minute
+of headroom and a flake waiting to happen; it is 480 now.
 
 Live progress is asserted live: the event stream is opened and read to its
 `ecosystem.stream.live` boundary *before* any work starts, so the sixteen frames

@@ -1072,7 +1072,10 @@ may only add product-specific detail beside the required state.
 - [ ] Pairwise and full E2E suites pass against real services.
 - [ ] The failure/degradation matrix passes with no unsafe failover.
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
-- [ ] Security, threat-model and privacy gates pass.
+- [x] Security, threat-model and privacy gates pass — the stabilization track of
+      3–5 September 2026, twelve items closed against an independent audit, each with
+      its evidence in `STATUS.md` and its regression test in the owning product. The
+      last of them is a live golden-path run: `tools/acceptance_run.py`.
 - [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
 - [ ] Compatibility matrix, operator runbook, release notes and known limitations are published.
 - [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
@@ -1082,91 +1085,27 @@ The ecosystem is accepted only when every checked item links to reproducible evi
 
 ---
 
-## 16. Stabilization track (temporary — closes and is deleted when complete)
+### 15.1 The stabilization track, and where it went
 
-Opened following an independent security and correctness audit of the shipped ecosystem,
-2026-09-03. Every item below is a defect against contracts already written elsewhere in this
-document — most of §9 does not change; the code does. This section exists only to sequence and
-track closing that gap, and is removed once every box is checked, its evidence appended to
-`STATUS.md`, and §15's "Security, threat-model and privacy gates pass" line points to that
-evidence instead of to this section.
+An independent security and correctness audit of the shipped ecosystem, 2026-09-03,
+found twelve defects against contracts already written elsewhere in this document.
+They were closed one narrow patch at a time between 3 and 5 September 2026, each with
+the regression test that demonstrated the defect first, and this section held the list
+while that was in progress.
 
-**Working rule, every item below:** one small, independently reviewable patch. Write the
-regression test that demonstrates the defect, confirm it fails for the intended reason, apply
-the narrowest fix, run the component's full gate suite, perform the live check where the
-acceptance condition requires one, and only then correct the specification or status text that
-was wrong. Never combine a security fix with a refactor, a dashboard restructure or feature
-work in the same patch (§3's change-order discipline applies here without exception).
+**The list is gone because it was temporary and is finished, not because it was
+abandoned.** Its items are cited by number across the product documents — "§16 item 5"
+in `RAVIS.md` and `SIRVIS.md`, among others — and those citations still mean something:
+item *n* of the stabilization track, whose evidence is the `STATUS.md` entry of that
+date. Nothing else in this runbook is written to expire, and a temporary section that
+outlives its work becomes exactly the drift §14 exists to prevent.
 
-- [x] **1. Clarvis Bridge trust boundary.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* `clarvis.bridge.enabled`, `.nervisUrl`,
-      `.enrollmentSecretPath` become machine-scoped (VS Code `application` scope, not merely
-      Restricted Mode's list) so no workspace can set them at all. Bridge startup refuses an
-      untrusted workspace regardless. `nervisUrl` accepts loopback only. The enrollment secret
-      must be a regular file, mode `0600`. Its path may be logged; its contents never are,
-      before or after a validation failure.
-- [x] **2. Loopback-only containment, all three Python services.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* Refuse a non-loopback bind
-      outright rather than pass unproven TLS arguments — a remote mode that looks encrypted and
-      isn't is worse than no remote mode, which is the defect being closed. Real remote
-      operation (TLS actually wired to the listener, mandatory per-request authentication,
-      Host/Origin validation, SSE held to the same rules as ordinary HTTP, positive tests
-      against a real TLS listener) is a separate, later patch, not a rider on this one.
-- [x] **3. NERVIS zero-injection.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* Replace unescaped interpolation at every HTML-construction
-      site with DOM nodes/`textContent` or one reviewed escaping layer. Set
-      `injection_check.js`'s `CEILING` to `0`. Tests: attribute breakout, element insertion,
-      `<img onerror>` and equivalent payloads, malformed markup, on every affected screen.
-- [x] **4. RAVIS administration/inference separation.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* An explicit service-control permission
-      gates every mutation (providers, model filters, pools, policies, budgets, credentials).
-      Loopback origin alone must stop granting it. Anonymous and ordinary inference credentials
-      get 403 on every management mutation; authorized administration stays audited and tested.
-- [x] **5. Host/Origin/CSRF.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. Extended to NERVIS, and the CSRF token deliberately not built — reasoning in `RAVIS.md` §4.4.)* SIRVIS's gap is confirmed (`security.py`'s own comment admits the
-      missing CSRF token). Verify whether RAVIS shares it before fixing it there — unconfirmed,
-      not assumed. Where it applies: validate `Host`, validate `Origin`, require an explicit
-      CSRF token on browser mutations, require an approved non-simple content type, apply the
-      same rules to event streams and control endpoints alike.
-- [x] **6. RAVIS/SIRVIS input validation.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. SIRVIS's half did not reproduce; RAVIS's was two defects, not one.)* Validate complete payloads — shapes, message/tool
-      entries, numeric ranges, enum values, session membership, context/lease bounds, body and
-      list size limits — before routing, benchmarking or config conversion. Malformed input
-      always returns the canonical structured 400, never a 500 or 502.
-- [x] **7. SIRVIS effective-condition truthfulness.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. SIRVIS was already truthful; RAVIS was ignoring what it said.)* Before reusing a resident model, compare
-      requested against effective configuration; reject incompatible reuse or report the
-      effective values explicitly; store both alongside the result; mark a run invalid when its
-      required conditions weren't met. Implement real `wait`/`preempt` behaviour or remove those
-      labels from the shipped contract — a label with no behaviour behind it is the same defect
-      as an optimistic milestone tick (§14.8).
-- [x] **8. Retrieved-content fencing, generalized.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. NERVIS and Clarvis; SIRVIS's judge path is unbuilt, so it has nothing to fence yet.)* One shared fencing helper, not per-surface
-      special-casing, covering every model-facing evidence block: files, diffs, search results,
-      diagnostics, terminal/test output, learned notes, web results — not only the two gaps this
-      audit happened to name. The wrapper states source and provenance and that the content
-      cannot approve an action, select a tool, supply a command, change provider or model,
-      widen access, or override instructions — backed by a code-level guarantee that no path
-      treats fenced content as a command, not by the fence text alone.
-- [x] **9. Canonical `/ecosystem/events`.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. NERVIS serves the real stream; RAVIS and SIRVIS heartbeat honestly, because they publish by pushing. A per-service pull stream is a separate decision, recorded below.)* Replace the heartbeat-only route with a real stream:
-      genuine `id`/`event`/`data` frames, `Last-Event-ID`, replay, expired-cursor `409`, bounded
-      subscriber buffers, gap events after overflow, authentication and Origin policy. NERVIS's
-      existing private event stream becomes the canonical implementation or a thin alias to it.
-      **Largest single item here — size and schedule it separately, not inside a stabilization
-      sprint cadence.**
-- [x] **10. Shared event/error/capability conformance.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. `tools/conformance_check.py`, in CI.)* The protocol package validates every
-      mandatory envelope field, semantic versions, the four capability states and their reasons,
-      the canonical error envelope including `retryable`, correct 400/401/403/409/415/429/500/
-      503 mapping — proven by one production-route conformance suite all three services pass,
-      not a standalone helper test.
-- [x] **11. Gates back to green, milestones reconciled.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`. Every gate green; the milestone relabelling is a ratchet in `tools/check_plans.py`, not a sweep, for the reason the item itself gives.)* Fix rather than waive: NERVIS
-      telemetry's failure-to-`Unknown` behaviour (confirmed — `sample_system` calls
-      `psutil.virtual_memory`/`swap_memory` with no surrounding `try`/`except`, contradicting
-      `SystemSample`'s own documented intent), and every other gate this audit named, each
-      triaged on its own merits rather than assumed cheap. Update `check_plans.py` to enforce
-      §14.8. Apply those states only to rows independently reverified as wrong, not the audit's
-      list at face value — this document already has one incident of a number copied without
-      being run (§14.6).
-- [ ] **12. Golden-path live acceptance run.** SIRVIS measures a model with truthful
-      requested/effective conditions; RAVIS selects it and explains every candidate, exclusion
-      and winning factor; Clarvis performs a contained, undoable task through that route; NERVIS
-      shows live progress and the joined trace; restarting a component produces accurate
-      degraded state and recovery; the evidence is inspectable without exposing credentials,
-      prompts or private paths; direct-provider and Bridge-disabled paths still work. One
-      repeatable procedure, no mocks. This closes the section.
-
-Closing this section requires every box checked, its evidence in `STATUS.md`, and §15
-re-pointed at that evidence. Nothing here is satisfied by editing a status line without the run
-behind it — the exact failure this track exists to end.
+What it closed, in one line each: the Clarvis Bridge trust boundary; loopback-only
+containment across all three Python services; zero HTML injection in the dashboard;
+administration separated from inference in RAVIS; `Host`/`Origin` validation; complete
+input validation before routing or benchmarking; truthful effective conditions on
+measured evidence; one fencing helper for every model-facing evidence block; a real
+`/ecosystem/events` stream with replay and expiry; one conformance suite all three
+services pass on their own routes; every gate green with milestone states enforced as
+a ratchet; and a golden-path acceptance run driven live against the running ecosystem,
+no mocks, which is `tools/acceptance_run.py` and is repeatable.
