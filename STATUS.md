@@ -11333,7 +11333,7 @@ test against a real TLS listener. Refusing is the honest failure — a remote mo
 that looks encrypted and is not is worse than none, because the operator stops
 looking.
 
-**And then `check_dead_code.py` refused the compromise.** The first version kept
+**And then `tools/check_dead_code.py` refused the compromise.** The first version kept
 `tls_certificate_path` and `tls_key_path`, inert and commented as such, on the
 grounds that remote will need exactly them. The gate flagged all six fields —
 two per service — with the argument this patch is itself built on: *"each of
