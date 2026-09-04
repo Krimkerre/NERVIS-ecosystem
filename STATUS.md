@@ -11531,11 +11531,15 @@ Studio is not running.
 What is actually true of it is that the model runs on this machine, so it says
 that. Two lines in `tools/run.py`; nothing in RAVIS held the name.
 
-One loose end left alone deliberately: `~/.config/ravis/providers.json` still
-carries a `default` key holding `{"enabled": true}`. It is inert — no provider
-by that name is declared any more, and `enabled: true` is what a new provider
-gets anyway — and rewriting an operator's configuration file to tidy a
-harmless key is not a thing to do without being asked.
+The stale key in `~/.config/ravis/providers.json` was left behind at first and
+then removed on request. It held `{"enabled": true}` for a provider no longer
+declared — inert, since that is also what an unlisted provider gets. Asked
+before touching it rather than tidying it in passing: it is an operator's
+configuration file, and the removal was checked against its exact contents
+before writing, with a copy taken first.
+
+`local` has no entry there at all now, which is why it still reads enabled: an
+absent provider is enabled, and only a deliberate toggle writes one.
 
 ## Starting the thing
 
