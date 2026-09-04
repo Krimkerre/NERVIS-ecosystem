@@ -36,7 +36,7 @@ from ravis.core.capabilities import (
     apply_configured,
 )
 from ravis.core.requests import NormalizedRequest
-from ravis.providers.base import ProtocolMode, ProviderHealth
+from ravis.providers.base import HEALTH_TIMEOUT_SECONDS, ProtocolMode, ProviderHealth
 from ravis.upstream import Upstream
 
 # Capabilities implied by speaking the OpenAI chat-completions protocol at all.
@@ -83,7 +83,9 @@ class GenericOpenAiAdapter:
         started = time.monotonic()
         try:
             response = await self._client.get(
-                self._upstream.api_url("/models"), headers=self._headers()
+                self._upstream.api_url("/models"),
+                headers=self._headers(),
+                timeout=HEALTH_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
         except httpx.HTTPError as failure:

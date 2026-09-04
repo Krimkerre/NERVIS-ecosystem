@@ -55,7 +55,7 @@ from ravis.providers.anthropic_wire import (
     render_request,
     sse_payloads,
 )
-from ravis.providers.base import ProtocolMode, ProviderHealth
+from ravis.providers.base import HEALTH_TIMEOUT_SECONDS, ProtocolMode, ProviderHealth
 from ravis.upstream import Upstream
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,10 @@ class AnthropicAdapter:
             return ProviderHealth(reachable=False, detail="no anthropic upstream configured")
         started = time.monotonic()
         try:
-            response = await self._client.get(self._url(MODELS_PATH), headers=self._headers())
+            response = await self._client.get(
+                self._url(MODELS_PATH), headers=self._headers(),
+                timeout=HEALTH_TIMEOUT_SECONDS,
+            )
             response.raise_for_status()
         except httpx.HTTPError as failure:
             return ProviderHealth(reachable=False, detail=type(failure).__name__)

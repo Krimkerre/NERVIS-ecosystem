@@ -39,7 +39,7 @@ from ravis.core.capabilities import (
 )
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import NormalizedResponse, NormalizedStreamEvent
-from ravis.providers.base import ProtocolMode, ProviderHealth
+from ravis.providers.base import HEALTH_TIMEOUT_SECONDS, ProtocolMode, ProviderHealth
 from ravis.providers.google_wire import (
     StreamReader,
     dropped_parameters,
@@ -152,7 +152,10 @@ class GoogleAdapter:
             return ProviderHealth(reachable=False, detail="no google upstream configured")
         started = time.monotonic()
         try:
-            response = await self._client.get(self._url(MODELS_PATH), headers=self._headers())
+            response = await self._client.get(
+                self._url(MODELS_PATH), headers=self._headers(),
+                timeout=HEALTH_TIMEOUT_SECONDS,
+            )
             response.raise_for_status()
         except httpx.HTTPError as failure:
             return ProviderHealth(reachable=False, detail=type(failure).__name__)

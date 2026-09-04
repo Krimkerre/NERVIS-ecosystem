@@ -34,6 +34,22 @@ from ravis.core.capabilities import ModelCapabilities
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import NormalizedResponse, NormalizedStreamEvent
 
+#: How long a health probe may take before it is called unreachable.
+#:
+#: **Separate from `upstream_timeout_seconds`, which is 300 seconds.** That
+#: number is right for what it governs — streaming a long completion — and wrong
+#: for asking whether a provider is alive. The probe shares the upstream client,
+#: so it inherited the 300, and a provider that accepted a connection and then
+#: stalled would have held the Providers screen for five minutes. The client's
+#: 10-second connect timeout does not cover it: a server answering slowly is not
+#: a server failing to connect.
+#:
+#: Five seconds is above every real measurement taken here — OpenAI's `/models`
+#: is the slowest at ~830 ms — and far below the point where a person decides
+#: the page is broken. A probe that exceeds it is reported unreachable, which is
+#: the honest answer: a provider this slow to say hello is not one to route to.
+HEALTH_TIMEOUT_SECONDS = 5.0
+
 
 class ProtocolMode(str, Enum):
     """Which execution path an adapter's upstream requires (§6).

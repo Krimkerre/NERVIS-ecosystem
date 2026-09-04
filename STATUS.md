@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2203 tests, no network, no live service
+.venv/bin/pytest                      # part of 2206 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 804 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2203 passing across the four, conformance `PASS`.
+Expected: all clean, 2206 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11464,6 +11464,60 @@ presenting a credential, which is precisely what stopped being allowed. They
 take a shared `as_administrator` helper now, which says in one place that a test
 of the feature acts as the operator while a test of the boundary builds its own
 identity.
+
+## The Providers screen was waiting on California — 2026-09-04
+
+**Reported as "RAVIS often has a delay when checking pools or providers".**
+Measured before anything was changed: `/api/v1/providers` took 0.85 s
+consistently while returning 1.9 KB, and `/api/v1/pools` took 0.2 s returning
+67 KB. Size was not the story.
+
+The endpoint probes every provider's health live on each request, concurrently,
+so the wait is whichever provider is slowest. The response says which:
+
+    openai      830 ms      anthropic   258 ms
+    google      185 ms      openrouter  118 ms
+    default     fails immediately (LM Studio not running)
+
+Nothing was malfunctioning. OpenAI's health check is `GET /models` — the
+cheapest call the protocol offers, and still a round trip to another continent
+returning their whole catalogue. Pools is unrelated and local: 200 ms deriving
+membership across the merged catalogue.
+
+**The delay was the symptom; the timeout was the bug.** The probe shares the
+upstream client, whose read timeout is `upstream_timeout_seconds` — 300 seconds,
+and right for what it governs, streaming a long completion. A health check
+inherited it. A provider that accepted a connection and then stalled would have
+held the screen for five minutes, and the 10-second connect timeout does not
+cover that: a server answering slowly is not a server failing to connect. On a
+later run OpenAI answered in 2.2 s rather than 830 ms, which is how wide that
+variance already is.
+
+`HEALTH_TIMEOUT_SECONDS = 5.0` now bounds it — above every measurement taken
+here, far below the point where somebody decides the page is broken.
+
+**Then the cache, and then the cache was not enough.** Holding readings for ten
+seconds made a repeat open instant and left the ordinary case untouched: you
+look at Providers, go elsewhere, come back a minute later, and pay the full
+probe again. That is still the reported complaint. So an expired reading is
+*served* and refreshed behind the answer — the badge on screen is then at most
+one visit old rather than at most ten seconds old, which is the right trade for
+a reachability reading that was already a statement about a moment gone by the
+time it painted.
+
+    first call     0.89 s      (nothing cached yet)
+    repeat         0.025 s
+    after 12 s     0.06 s      (stale served, refresh behind it)
+
+The screen paints in **80 ms**, from ~1 s.
+
+**One measurement of my own was wrong, and the record is worth keeping.** A
+browser loop that clicked away and back reported ~940 ms per open long after the
+endpoint was fast, and I nearly went looking for a second defect on the strength
+of it. Sampling `#content` by wall-clock instead showed every provider present
+at 80 ms. The loop was measuring its own navigation churn — clicking to a heavy
+screen and away again before it had settled. A measurement that disagrees with
+four others is the one to re-examine first.
 
 ## Starting the thing
 

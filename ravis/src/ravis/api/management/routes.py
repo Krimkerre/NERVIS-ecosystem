@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -336,9 +337,13 @@ async def read_providers(request: Request) -> dict[str, Any]:
     disabled = state.disabled()
 
     entries = _provider_entries(request)
+    # Held on the app so it lives exactly as long as the process does. A
+    # module-level dict would outlive a test and be shared by the next one.
+    cache = request.app.state.__dict__.setdefault("provider_health_cache", ProviderHealthCache())
+    now = time.monotonic()
     probes = await asyncio.gather(
         *(
-            _probe(adapter) if name not in disabled else _skipped()
+            _probe(adapter, cache, now) if name not in disabled else _skipped()
             for name, adapter, _, _built in entries
         )
     )
@@ -463,22 +468,110 @@ def _reliability(health: HealthRegistry, name: str) -> dict[str, Any]:
     }
 
 
-async def _probe(adapter: Any) -> dict[str, Any]:
+#: How long a reachability reading stays good enough to reuse.
+#:
+#: Reported as "RAVIS often has a delay when checking pools or providers".
+#: Measured: every open of the screen probed every provider live, concurrently,
+#: so the wait was the slowest one — OpenAI's `/models` at ~830 ms. Nothing was
+#: malfunctioning; the answer comes from another continent.
+#:
+#: Short on purpose. Somebody who has just started LM Studio is watching this
+#: screen to see it appear, and a minute of stale "not answering" would read as
+#: the fix not having worked. Ten seconds removes the cost of flipping back to a
+#: screen you were just on, which is where the delay is actually felt.
+HEALTH_CACHE_SECONDS = 10.0
+
+
+async def _probe(
+    adapter: Any,
+    cache: "ProviderHealthCache | None" = None,
+    now: float | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
     """One provider's health, as the listing reports it.
 
     A failing probe is a *result*, not an error: "this provider is not
     answering" is exactly what the screen exists to show, so an exception here
     becomes a row saying so rather than a 500 that hides every other provider.
+
+    **Failures are cached too, and that is the point rather than an oversight.**
+    An unreachable provider is the probe that costs the most — it runs to
+    `HEALTH_TIMEOUT_SECONDS` rather than answering — and it is the one somebody
+    reloads most often, because they are waiting for it to come back.
+
+    `now` is a parameter so the window can be tested without sleeping through
+    it; `cache` is passed in rather than held here so it lives on the app and
+    dies with it, and so two tests never share one.
     """
+    if cache is not None and now is not None and not force:
+        cached = cache.readings.get(adapter.name)
+        if cached is not None:
+            if now - cached[0] < HEALTH_CACHE_SECONDS:
+                return cached[1]
+            # **Stale is served, and refreshed behind the answer.** A ten-second
+            # window only helps somebody who returns to the screen inside ten
+            # seconds, which is not how the screen is used — you look at
+            # Providers, go elsewhere, come back a minute later, and pay the
+            # full probe again. That was still "RAVIS often has a delay".
+            #
+            # So an expired reading answers immediately and a fresh probe runs
+            # behind it. The reading on screen is then at most one visit old
+            # rather than at most ten seconds old, which is the right trade for
+            # a reachability badge: it is already a statement about a moment
+            # that has passed by the time it is painted.
+            _refresh_later(adapter, cache)
+            return cached[1]
     try:
         health = await adapter.health()
+        result = {
+            "reachable": health.reachable,
+            "detail": health.detail,
+            "latency_ms": health.latency_ms,
+        }
     except Exception as failure:  # noqa: BLE001 - any adapter fault is a health result
-        return {"reachable": False, "detail": str(failure), "latency_ms": None}
-    return {
-        "reachable": health.reachable,
-        "detail": health.detail,
-        "latency_ms": health.latency_ms,
-    }
+        result = {"reachable": False, "detail": str(failure), "latency_ms": None}
+    if cache is not None and now is not None:
+        cache.readings[adapter.name] = (now, result)
+    return result
+
+
+@dataclass
+class ProviderHealthCache:
+    """Readings, and the refreshes running behind them.
+
+    A plain dict held both for a while, under a reserved `_inflight` key whose
+    value was a different shape from every other entry — a type that lies is
+    worse than a class nobody needed.
+    """
+
+    readings: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict)
+    inflight: dict[str, Any] = field(default_factory=dict)
+
+
+def _refresh_later(adapter: Any, cache: "ProviderHealthCache") -> None:
+    """Re-probe one provider without anybody waiting for it.
+
+    **One in flight per provider.** Without the guard, a screen opened three
+    times in a second launches three probes at a provider that is slow —
+    which is exactly the provider you least want to send three requests to.
+    The sentinel is the task itself, cleared when it finishes.
+    """
+    if adapter.name in cache.inflight:
+        return
+
+    async def run() -> None:
+        try:
+            await _probe(adapter, cache, time.monotonic(), force=True)
+        finally:
+            cache.inflight.pop(adapter.name, None)
+
+    try:
+        cache.inflight[adapter.name] = asyncio.get_running_loop().create_task(run())
+    except RuntimeError:
+        # No running loop, which is a synchronous caller in a test rather than
+        # anything to recover from. The stale reading has already been returned.
+        cache.inflight.pop(adapter.name, None)
 
 
 async def _skipped() -> dict[str, Any]:
