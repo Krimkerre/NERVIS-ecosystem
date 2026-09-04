@@ -481,6 +481,30 @@ that are not obviously in its list and belong there:
 These three are what make a management API bootstrap itself: every other setting is a
 consequence, and these are the authority.
 
+**And a workspace is the second adversary for the same three.** The list above was
+written against NERVIS; an audit found the identical authority reachable from a much
+cheaper direction. Until 4 Sep these were ordinary window-scoped settings, so a
+repository's own `.vscode/settings.json` could turn the Bridge on, name any URL as
+NERVIS, and name any file as the enrolment secret — whose contents are then sent to
+that URL as a bearer token. Opening a folder was the entire attack.
+
+They are `scope: "machine"` now, which is VS Code refusing the workspace value before
+Clarvis ever reads it — the same declaration `chat.baseUrl.*` already carried for the
+same reason. Three narrower checks sit behind it, because a scope declaration is one
+mechanism and this is a credential leaving the machine: the Bridge refuses to start in
+an untrusted workspace at all, `nervisUrl` is rejected unless it is loopback, and the
+enrolment secret must be a regular file at `0600` — never a symlink, never a directory.
+The path may be logged and the contents never are.
+
+> **Verified in a real editor, because no unit test in either repository can reach
+> this.** The guard is VS Code's own scope enforcement. A fixture repository asking for
+> all three at once was opened untrusted (the Bridge stayed inert) and then trusted and
+> reloaded — the branch that matters, since trust is given routinely and the trust check
+> then stops helping. Trusted, the Bridge ran on loopback with the real `0600` secret and
+> registered normally, and the hostile secret path never reached the file check at all:
+> `/etc/hosts` is `0644` and would have produced a refusal line, which is absent.
+> Recorded in `STATUS.md`, 2026-09-04.
+
 ### The rule worth keeping, if the list is ever forgotten
 
 **NERVIS may narrow what Clarvis will do; it may never widen it.** Lowering a step
