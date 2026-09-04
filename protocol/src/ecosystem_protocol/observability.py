@@ -60,7 +60,7 @@ _CARRIED: ContextVar[dict[str, str]] = ContextVar("ecosystem_correlation", defau
 
 @contextlib.contextmanager
 def carrying(request_id: str = "", trace_id: str = "",
-             application_id: str = "") -> Iterator[None]:
+             application_id: str = "", session_id: str = "") -> Iterator[None]:
     """Mark this task as serving one request, for the duration of the block.
 
     Empty values are dropped rather than carried: a field present and blank
@@ -72,6 +72,11 @@ def carrying(request_id: str = "", trace_id: str = "",
             ("request_id", request_id),
             ("trace_id", trace_id),
             ("application_id", application_id),
+            # §4.4 puts `session_id` on every event and §4.3 fixes it as shared
+            # vocabulary. Clarvis sends `x-session-id`, RAVIS reads it into a
+            # session, NERVIS forwards it — and no event ever carried it, so
+            # NERVIS's `session_id` column had a reader, a schema and no writer.
+            ("session_id", session_id),
         ) if value
     }
     token = _CARRIED.set(carried)

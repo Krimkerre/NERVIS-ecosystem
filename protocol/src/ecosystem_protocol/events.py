@@ -30,7 +30,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from ecosystem_protocol.observability import REDACTED_KEYS
+from ecosystem_protocol.observability import REDACTED_KEYS, correlation
+
+#: §4.4's `event_version`. One version so far, and saying so beats implying a
+#: negotiation that does not happen — the same reasoning the log adapter's
+#: `"version": "1"` already uses.
+EVENT_VERSION = "1.0.0"
 
 # §4.4's required fields, mirroring `nervis/events.py`'s `REQUIRED`. Named here
 # so a producer fails in its own tests rather than in the hub's quarantine.
@@ -110,6 +115,7 @@ def envelope(
     data: Mapping[str, Any] | None = None,
     event_id: str = "",
     occurred_at: str = "",
+    subject: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """One §4.4 envelope, redacted, ready to send.
 
@@ -127,9 +133,14 @@ def envelope(
     """
     if severity not in SEVERITIES:
         raise ValueError(f"{severity!r} is not one of {', '.join(SEVERITIES)}")
+    payload = dict(data or {})
     body = {
         "event_id": event_id or uuid.uuid4().hex,
         "event_type": event_type,
+        # §4.4 names it and every producer omitted it. Event type *plus version*
+        # determines the `data` schema, so a consumer holding two shapes of one
+        # type has no way to tell which it is looking at.
+        "event_version": EVENT_VERSION,
         # UTC with an explicit offset. The hub sorts on this to build a
         # waterfall across services, and a naive local timestamp from one
         # producer would place its span at an hour that never happened.
@@ -141,8 +152,55 @@ def envelope(
             "instance_id": instance_id,
             "machine_id": machine_id,
         },
-        "data": redact_deep(dict(data or {})),
+        "data": redact_deep(payload),
+        # **A record of what was removed, not a decoration.** §4.4 asks the
+        # producer to declare this, and a constant empty list would state that
+        # nothing was redacted while `redact_deep` was redacting — a worse
+        # answer than omitting the field, because it is a confident one.
+        "privacy": {
+            "classification": "operational",
+            "redactions": sorted(redacted_keys(payload)),
+        },
     }
-    if trace_id:
-        body["trace_id"] = trace_id
+    if subject:
+        body["subject"] = dict(subject)
+    # **The request this was emitted under, when there is one.** Filled from the
+    # correlation context rather than from a parameter: the caller that knows
+    # these values is the middleware, not the code deciding to emit an event, and
+    # every producer that had to be handed them would eventually be one that was
+    # not. Absent rather than empty — "not applicable" and "this had none" are
+    # different claims, and `summarise` treats the second as a fault.
+    carried = correlation()
+    for name in ("request_id", "session_id"):
+        if carried.get(name):
+            body[name] = carried[name]
+    if trace_id or carried.get("trace_id"):
+        body["trace_id"] = trace_id or carried["trace_id"]
+    # `span_id` is deliberately absent. §4.4 lists it "where applicable" and a
+    # producer here has no span to name: NERVIS derives spans from these events
+    # rather than the other way round, so minting one would be inventing a
+    # structure nothing keeps (§1).
     return body
+
+
+def redacted_keys(value: Any, *, depth: int = 0) -> set[str]:
+    """Which key names `redact_deep` would replace in this payload.
+
+    Walked separately rather than returned alongside the redaction so the two
+    can be read independently: this answers "what did the producer hold back",
+    which belongs in the envelope, while `redact_deep` answers "what does the
+    consumer get".
+    """
+    found: set[str] = set()
+    if depth > 6:
+        return found
+    if isinstance(value, Mapping):
+        for key, held in value.items():
+            if str(key).lower() in REDACTED_KEYS:
+                found.add(str(key))
+            else:
+                found |= redacted_keys(held, depth=depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= redacted_keys(item, depth=depth + 1)
+    return found

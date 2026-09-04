@@ -24,6 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from ecosystem_protocol import router as ecosystem_router
+from ecosystem_protocol.events import envelope
 
 
 def _app(source: Any = None) -> FastAPI:
@@ -91,3 +92,59 @@ def test_the_source_is_given_the_request_so_it_can_resume() -> None:
         client.get("/ecosystem/events", headers={"Last-Event-ID": "ev-41"})
 
     assert seen == ["ev-41"]
+
+
+def test_the_envelope_carries_every_field_4_4_names() -> None:
+    """§4.4 lists twelve fields; the producer envelope shipped six of them.
+
+    `event_version`, `subject`, `request_id`, `session_id` and `privacy` were
+    absent from every event any service published — so a consumer reading the
+    specification and the wire saw two different shapes, and the fields §4.3
+    fixes the vocabulary for could not be joined on because they were not there.
+    """
+    from ecosystem_protocol.observability import carrying
+
+    with carrying(request_id="req-9", trace_id="trace-9", session_id="sess-9"):
+        body = envelope(
+            event_type="ravis.route.selected",
+            service_type="ravis",
+            subject={"type": "session", "id": "sess-9"},
+            data={"model": "qwen", "api_key": "sk-should-not-survive"},
+        )
+    assert body["event_version"] == "1.0.0"
+    assert body["subject"] == {"type": "session", "id": "sess-9"}
+    assert body["request_id"] == "req-9"
+    assert body["session_id"] == "sess-9"
+    assert body["trace_id"] == "trace-9"
+
+
+def test_the_privacy_block_names_what_was_actually_removed() -> None:
+    """`redactions` is a record, not a decoration.
+
+    §4.4 asks producers to declare it; a constant empty list would say "nothing
+    was removed" while `redact_deep` was removing things, which is worse than
+    omitting the field.
+    """
+    body = envelope(
+        event_type="ravis.route.selected",
+        service_type="ravis",
+        trace_id="t",
+        data={"model": "qwen", "api_key": "sk-x", "nested": {"prompt": "hello"}},
+    )
+    assert body["privacy"]["classification"] == "operational"
+    assert sorted(body["privacy"]["redactions"]) == ["api_key", "prompt"]
+    assert body["data"]["api_key"] == "[redacted]"
+    assert body["data"]["nested"]["prompt"] == "[redacted]"
+
+
+def test_an_event_with_nothing_to_redact_says_so_rather_than_omitting_it() -> None:
+    body = envelope(event_type="a.b", service_type="ravis", trace_id="t", data={"n": 1})
+    assert body["privacy"] == {"classification": "operational", "redactions": []}
+
+
+def test_correlation_ids_are_absent_rather_than_empty_outside_a_request() -> None:
+    """Absent means "not applicable"; empty means "this had none", which differs."""
+    body = envelope(event_type="a.b", service_type="sirvis", trace_id="t", data={})
+    assert "request_id" not in body
+    assert "session_id" not in body
+    assert "subject" not in body

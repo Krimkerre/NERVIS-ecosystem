@@ -65,7 +65,7 @@ from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
-from ravis.sessions import SessionStore
+from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.storage import prepare_database
 from ravis.transparent import adapter_for, build_transparents
 from ravis.upstream import Upstream, create_client, upstream_from
@@ -452,7 +452,12 @@ def _register_middleware(api: FastAPI, settings: Settings) -> None:
         # names `application_id` alongside the other two for exactly that.
         with carrying(request_id=request.state.request_id,
                       trace_id=request.state.trace_id,
-                      application_id=identity.application_id):
+                      application_id=identity.application_id,
+                      # Read here rather than only where a session is resolved,
+                      # because every event emitted under this request belongs
+                      # to the same conversation whether or not the route
+                      # bothered to look the session up.
+                      session_id=request.headers.get(SESSION_HEADER, "")):
             response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         # Report the resolved identity back; never read it as an assertion

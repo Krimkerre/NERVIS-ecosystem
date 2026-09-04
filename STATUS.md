@@ -25,14 +25,14 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2301 tests, no network, no live service
+.venv/bin/pytest                      # part of 2305 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 52 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 56 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 ```
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2301 passing across the four, conformance `PASS`.
+Expected: all clean, 2305 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,39 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## Six fields §4.4 names that no event ever carried — 2026-09-05
+
+**The envelope shipped half its specification.** §4.4 lists twelve fields; the
+shared producer envelope wrote six. Missing were `event_version`, `subject`,
+`request_id`, `session_id` and `privacy` — so a consumer reading the runbook and
+a consumer reading the wire saw two different shapes, and "event type plus
+version determines the `data` schema" had no version to determine it with.
+
+**`session_id` was the worst of them, because every other part existed.**
+Clarvis sends `x-session-id`, RAVIS reads it into a session, NERVIS forwards it,
+NERVIS's database declares the column, and `events.py` reads
+`event.get("session_id")` to fill it. No producer ever set it. A schema, a
+reader, a forwarder and no writer — the same shape as the dead definitions
+`tools/check_dead_code.py` exists to find, spread across four files so no single
+one of them looked wrong.
+
+The correlation context added an hour earlier is what made the fix small: the
+middleware already knows the request, and now the session too, so an event
+emitted while serving one inherits both instead of every producer being handed
+them. Live, after a restart:
+
+    ravis.route.selected    session: acceptance-session-894971ec  version: 1.0.0
+    ravis.request.completed session: acceptance-session-894971ec  privacy: operational
+
+**`privacy.redactions` names what was actually removed.** §4.4 asks the producer
+to declare it, and a constant empty list would state that nothing was redacted
+while `redact_deep` was redacting — a worse answer than omitting the field,
+because it is a confident one.
+
+**`span_id` stays absent, deliberately.** §4.4 lists it "where applicable" and a
+producer has no span to name: NERVIS derives spans *from* these events, so
+minting one would invent a structure nothing keeps (§1).
 
 ## No log line in the ecosystem was correlated with anything — 2026-09-05
 
