@@ -1111,7 +1111,7 @@ function cell(body,src){
 }
 /* MEASURED / ESTIMATED / UNKNOWN must survive to the pixel: a bare number is
    a claim the underlying evidence may not support. */
-const prov=(kind,detail='')=>`<span class="prov" data-kind="${kind}">${kind}${detail?' · '+detail:''}</span>`;
+const prov=(kind,detail='')=>`<span class="prov" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}${detail?' · '+escapeHtml(detail):''}</span>`;
 const stamp=sec=>`<span class="stamp${sec>60?' stale':''}">as of ${sec<60?sec+'s':Math.round(sec/60)+'m'} ago</span>`;
 const banner=(title,body,tone='warn')=>`<div class="banner" data-tone="${tone}"><div><b>${title}</b><p>${body}</p></div></div>`;const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 /* --------------------------------------------------------------------------
@@ -3611,10 +3611,23 @@ const explains=(summary,body)=>`<details class="explains" id="${domId('x',summar
    catalogue, recommendations and downloads, RAVIS's settings and conformance,
    NERVIS's traces — passes `false` explicitly, because the service answering
    says nothing about a figure that was never going to come from it. */
+/* Markup a caller vouches for, so everything else can be escaped by default.
+
+   `kpis` took its three fields verbatim, which is right for the two callers that
+   hand it `prov(...)` output and wrong for the twenty-three that hand it a
+   provider's error text or a model id. Escaping all of them would have broken
+   the two; escaping none of them is what the injection gate kept finding. So the
+   default inverts — data is escaped, markup is announced — which is the same
+   allowlist shape as `EXPORTABLE` and `DECISION_FIELDS`: a field added later is
+   safe unless somebody says otherwise, and the failure direction is a visible
+   `&lt;span&gt;` rather than a live one. */
+const safe=html=>({html});
+const held=v=>v&&typeof v==='object'&&'html' in v?v.html:escapeHtml(v==null?'':v);
+
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
  const real=x[4]===undefined?(own?SOURCE[own]==='live':false):!!x[4];
- return `<div class="card kpi${liveClass(real)}${own&&!usable(own)?' is-absent':''}"><h3>${x[0]}</h3>${
-  cell(`<strong>${x[1]}</strong><small>${x[2]}</small>`,own)}</div>`}).join('');
+ return `<div class="card kpi${liveClass(real)}${own&&!usable(own)?' is-absent':''}"><h3>${held(x[0])}</h3>${
+  cell(`<strong>${held(x[1])}</strong><small>${held(x[2])}</small>`,own)}</div>`}).join('');
 /* One bar of a trace waterfall. Hoisted out of the Overview because the Traces
    screen draws the identical thing, and a span NERVIS never received must look
    the same on both: a dashed hole with its own label, never a duration invented
@@ -3752,7 +3765,7 @@ async function nervis(){
    ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
  +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}${r.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':r.state}</span></div>`).join('')}
+   ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}${r.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':escapeHtml(r.state)}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
   <!-- Read from the registry, like the Ecosystem map tab it is a smaller
        version of. It was five fixed nodes at fixed positions — RAVIS, SIRVIS,
@@ -5441,7 +5454,7 @@ async function mapView(){
    <small class="mono dim"><b>LM Studio and Ollama draw as one node.</b> They are interchangeable local runtimes serving the same purpose, and this diagram answers <i>can NERVIS reach a local model</i> rather than <i>which of two ports is listening</i> — it is green when <b>either</b> answers, and the label says which. Both are still listed separately on the registry table, which is where the narrower question belongs; that is also why <b>Registered</b> counts six and this draws four. The hub is the only vantage point NERVIS has. An edge here means "NERVIS holds this connection and negotiated this capability" — nothing more. Peer-to-peer traffic, such as RAVIS reading SIRVIS evidence, is visible only where a trace correlates it, which is the Traces screen and not this one.</small></div>
   <div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Capability negotiation</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span>Protocol</span><span>Negotiated capability</span><span>State</span></div>
-   ${svc.items.map(s=>`<div class="table-row five caps"><span>${escapeHtml(s.label)}</span><span class="mono">${escapeHtml(s.build_version)}</span><span class="mono">${escapeHtml(s.protocol_version?'proto '+s.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(s.capability)}${s.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':s.state}</span></div>`).join('')}
+   ${svc.items.map(s=>`<div class="table-row five caps"><span>${escapeHtml(s.label)}</span><span class="mono">${escapeHtml(s.build_version)}</span><span class="mono">${escapeHtml(s.protocol_version?'proto '+s.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(s.capability)}${s.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(s.state)?'':(s.awaiting_first_contact?' dim':' warn')}">${s.awaiting_first_contact?'not configured':escapeHtml(s.state)}</span></div>`).join('')}
    <small class="mono dim">an unknown capability is unavailable, not disabled-and-hopeful. An unsupported required major marks that one <b>feature</b> incompatible — never the whole dashboard, while other surfaces still negotiate.</small></div>
   <div class="card narrow${escapeHtml(liveClass(svc.live))}"><h3>Observer-side state</h3>
    ${svc.items.map(s=>`<div class="trace-step"><b>${escapeHtml(s.label)}</b><span>${escapeHtml(s.state)}${REASON[s.state]?' · '+REASON[s.state]:''} ${stamp(s.age ?? 0)}</span></div>`).join('')}
@@ -5776,7 +5789,7 @@ async function settingsView(){
  $('#content').innerHTML=
   section('Ecosystem', liveCard + `<div class="card full"><h3>Services</h3>
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
-   ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${name}</span><span class="mono" style="opacity:.7">${url||'in-process'}</span><span class="mono">${mode}</span><span style="opacity:.75">${MAY[mode]}</span><span><button class="btn" onclick="healthTest('${jsAttr(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
+   ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${escapeHtml(name)}</span><span class="mono" style="opacity:.7">${escapeHtml(url||'in-process')}</span><span class="mono">${escapeHtml(mode)}</span><span style="opacity:.75">${escapeHtml(MAY[mode]==null?'':MAY[mode])}</span><span><button class="btn" onclick="healthTest('${jsAttr(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>`)
   + section('Voice', await voiceSection())
   + section('Privacy and retention', `<div class="card wide"><h3>Privacy</h3>
@@ -6618,7 +6631,8 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
    ['Memory',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'resident now · budget not detected':`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
    ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
      fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
-   ['Evidence',`${measured.length} / ${builds.length}`,`${prov('MEASURED')} n=${rn.samples} each`]],'sirvis')
+   ['Evidence',`${measured.length} / ${builds.length}`,
+     safe(`${prov('MEASURED')} n=${escapeHtml(rn.samples)} each`)]],'sirvis')
  /* `fromSirvis`, like the sibling cards on this screen. These two hardcoded
     ` live` and so rendered the eleven mock builds — a fictional catalogue — as
     a live read of what is installed on this machine. */
@@ -6786,7 +6800,7 @@ async function sirvisDiscover(){
    /* The catalogue above is a stored transcription and `false` is correct for
       it. This one is not: the disk figure comes from SIRVIS's live machine
       read, and it is what decides whether a row can be downloaded at all. */
-   ['Disk free',free+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',mc.live],
+   ['Disk free',free+' GB',safe(stamp(SERVICES.sirvis.age)),'sirvis',mc.live],
    ['Smallest',Math.min(...cat.items.filter(x=>!x.installed).map(x=>x.size_gb))+' GB',
     'of what is not installed','sirvis',false]])
  +`<div class="card full"><h3>Catalog <span class="chip" id="discoverCount">${escapeHtml(cat.items.length)} of ${escapeHtml(cat.items.length)}</span></h3>${cell(`
@@ -6799,7 +6813,7 @@ async function sirvisDiscover(){
    ${explains('what a catalogue entry cannot tell you',`
    <div class="table-row head"><span>Question</span><span style="grid-column:2/-1">Answered by</span></div>
    <div class="table-row"><span>Will it download?</span><span style="grid-column:2/-1;opacity:.75">this page — size against ${free} GB of free disk</span></div>
-   <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${escapeHtml(mc.memory_gb)} GB of memory on ${mc.model||mc.chip||'this machine'}</span></div>
+   <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${escapeHtml(mc.memory_gb)} GB of memory on ${escapeHtml(mc.model||mc.chip||'this machine')}</span></div>
    <div class="table-row"><span>Will it be any good at your work?</span><span style="grid-column:2/-1;opacity:.75">a benchmark run, per role — nothing on this page predicts it</span></div>
    <div class="table-row"><span>Will it run alongside your other model?</span><span style="grid-column:2/-1;opacity:.75">a Runtime set measurement, which is a separate subject again</span></div>
    <small class="mono dim">file size is a fact about the disk, not about the machine. Parameter count and quantization are the two numbers most often used to guess the other three answers, and guessing them is exactly what SIRVIS exists to stop.</small>`)}`,'sirvis')}</div>
@@ -6948,7 +6962,7 @@ async function sirvisRuntimeSets(){
    ['Pairings',String(rs.pairs.length),'measured co-resident','sirvis',rs.live],
    ['Heaviest',heaviest?gbOr(heaviest.peak_gb):'—',heaviest?'resident, no swap':'peak memory not on this record','sirvis',rs.live],
    ['Degraded',anyFollowUp?String(degraded.length):'—',anyFollowUp?'on behaviour, not memory':'no tool-call trial yet (M13)','sirvis',rs.live],
-   ['Evidence',rs.samples+' runs',prov(rs.evidence_type)+' per pairing','sirvis',rs.live]])
+   ['Evidence',rs.samples+' runs',safe(prov(rs.evidence_type)+' per pairing'),'sirvis',rs.live]])
  +`<div class="card full${escapeHtml(liveClass(rs.live))}"><h3>Every measured pairing</h3>${cell(`
    <div class="table-row head six"><span>Build A</span><span>Build B</span><span>Peak</span><span>First token</span><span>Follow-up</span><span>Note</span></div>
    ${rs.pairs.map(p=>{const bad=known(p).some(f=>f!=='used-result'&&f!=='never-reached');
@@ -7362,7 +7376,7 @@ async function sirvisDownloads(){
  const failed=d.items.find(x=>x.status==='failed');
  const pct=x=>Math.round(x.bytes/x.total*100);
  $('#content').innerHTML=kpis([
-   ['Disk free',d.disk_free_gb+' GB',`${stamp(SERVICES.sirvis.age)}`,'sirvis',false],
+   ['Disk free',d.disk_free_gb+' GB',safe(stamp(SERVICES.sirvis.age)),'sirvis',false],
    ['Downloading',String(by('downloading')),'resumable · survives reload','sirvis',false],
    ['Completed',String(by('completed')),'verified and installed','sirvis',false],
    ['Failed',String(by('failed')),failed?failed.error:'none','sirvis',false]])
@@ -7407,7 +7421,7 @@ async function systemView(){
  const usedPct=Math.round((m.memory_gb-m.available_gb)/m.memory_gb*100);
  $('#content').innerHTML=kpis([
    ['Memory',m.available_gb+' GB',`free of ${m.memory_gb} · ${m.swap_gb} GB swap`,'sirvis'],
-   ['Thermal',m.thermal_state,`${stamp(SERVICES.sirvis.age)}`,'sirvis'],
+   ['Thermal',m.thermal_state,safe(stamp(SERVICES.sirvis.age)),'sirvis'],
    ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
    ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
  /* Four cards, two services, and they go down separately: `now` is NERVIS's
@@ -8517,18 +8531,18 @@ async function ravisSettings(){
    <small class="mono dim">this card used to list five actions under a chip reading <b>has an endpoint</b>, with a working-looking button beside each. Not one of them existed: RAVIS publishes nine reads and no writes. The buttons raised a toast and changed nothing, which is worse than an absent control — an operator learns the system does something it does not, and only finds out when it matters. The suite is a real operation and runs on the CLI, which is where it is named.</small>`,'ravis')}</div>
   <div class="card wide"><h3>Serving surface</h3>${cell(`
    <div class="table-row head"><span>Endpoint</span><span>Status</span><span style="grid-column:3/-1">Constraint</span></div>
-   ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${ep}</span><span class="chip${warnUnless(st==='required')}">${st}</span><span style="grid-column:3/-1;opacity:.75">${note}</span></div>`).join('')}
+   ${s.serving.endpoints.map(([ep,st,note])=>`<div class="table-row"><span class="mono">${escapeHtml(ep)}</span><span class="chip${warnUnless(st==='required')}">${escapeHtml(st)}</span><span style="grid-column:3/-1;opacity:.75">${escapeHtml(note)}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${escapeHtml(s.serving.supported.length)} supported</span></div>
    <small class="mono dim" style="opacity:.8">${escapeHtml(s.serving.supported.join(' · '))}</small>
    <small class="mono dim">${escapeHtml(s.serving.note)}. Errors are <b>${escapeHtml(s.serving.error_shape)}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
   <div class="card full"><h3>Listen address <span class="chip${warnUnless(BASE.ravis.startsWith('https'))}">${escapeHtml(BASE.ravis.startsWith('https')?'tls':'no tls on this address')}</span></h3>${cell(`
    <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
-   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${what}</span><span class="mono" style="grid-column:2/4">${escapeHtml(BASE.ravis)}${path}</span><span style="grid-column:4/-1;opacity:.75">${who}</span></div>`).join('')}
+   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${escapeHtml(what)}</span><span class="mono" style="grid-column:2/4">${escapeHtml(BASE.ravis)}${escapeHtml(path)}</span><span style="grid-column:4/-1;opacity:.75">${escapeHtml(who)}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:11px"><b>what RAVIS was started with</b><span>not published — nothing serves the settings document, so the host it bound, the port it was given and whether it answers anywhere other than this address are not readable from here</span></div>
    <small class="mono dim">all three surfaces share one port, so they move together. There is no endpoint to change this and that is structural rather than an omission: rebinding the socket a request arrived on would drop that request. It is set at start and changed by restarting.<br>${escapeHtml(s.listen.note)}.<br>a runtime version of this is written up as <b>PROPOSED</b> in RAVIS.md §15.1.1, with the six questions that block it — response ordering, in-flight streams, rollback when the new bind fails, propagation to the clients holding the old address, ownership, and its own permission. It is not in the agreed mutation list, so nothing here writes it.</small>`,'ravis')}</div>
   <div class="card wide"><h3>What breaks if the port changes</h3>${cell(`
    <div class="table-row head"><span>Service</span><span>Holds</span><span style="grid-column:3/-1">If it is not updated</span></div>
-   ${s.listen.dependants.map(([svc,holds,effect])=>`<div class="table-row"><span>${svc}</span><span class="mono" style="opacity:.75">${holds}</span><span style="grid-column:3/-1;opacity:.75">${effect}</span></div>`).join('')}
+   ${s.listen.dependants.map(([svc,holds,effect])=>`<div class="table-row"><span>${escapeHtml(svc)}</span><span class="mono" style="opacity:.75">${escapeHtml(holds)}</span><span style="grid-column:3/-1;opacity:.75">${escapeHtml(effect)}</span></div>`).join('')}
    <small class="mono dim">this is why the address is not a field you edit in one place and forget. Clarvis probes <b>/v1/models</b> unauthenticated with a 2 s timeout and reads any failure as <b>provider offline</b>, so a moved port looks to a user like RAVIS is down rather than like RAVIS moved. NERVIS's copy lives in its own registry, on <b>NERVIS → Settings</b>, and is edited there because it is NERVIS's configuration rather than RAVIS's.</small>`,'ravis')}</div>
   <div class="card narrow"><h3>Not changeable here</h3>${cell(`
    <div class="trace-step"><b>listen address</b><span>restart · no endpoint</span></div>
@@ -11695,7 +11709,7 @@ function notify(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show
    fact it cannot detect — the enclosure name, the at-rest memory baseline, and
    the model budget derived from that baseline. Printing `null` or defaulting to
    a number would both be worse: one looks broken, the other looks measured. */
-function orUnknown(v,suffix){return v==null?'<span class="mono" style="opacity:.5">not detected</span>':v+(suffix||'')}
+function orUnknown(v,suffix){return v==null?'<span class="mono" style="opacity:.5">not detected</span>':escapeHtml(v)+(suffix||'')}
 /* An absent value, said once.
  *
  * `dash(x)` appeared forty-one times across the view functions, and every one of

@@ -25,18 +25,28 @@
  * write. There is no benign reading of it: the same position would take
  * `<script>` or an `onerror` handler from a provider's error text.
  *
- * What this deliberately does NOT prove: that quoted attributes are safe.
- * That one is settled by proof rather than by probe — see `escapeHtml`, which
- * must escape quotes for an attribute interpolation to be safe at all.
+ * **Quoted attributes used to be outside this check**, settled by reading
+ * `escapeHtml` rather than by probing. That was a reasonable line to draw while
+ * the count was nine and the tag probe had plenty to find; it is the wrong line
+ * at zero, where the only remaining way back in is an escaper at some call site
+ * that covers angle brackets and forgets quotes. `attributeBreakout` asks that
+ * question directly now, on the same render machinery.
  */
 
 const { loadPage } = require("./page_context.js");
 
-/* Sites still to convert. Was 28 across 27 screens when this check was written;
-   579 individual interpolations reached the markup unescaped. Nine remain: the
-   invented-data sweep deleted the fixtures, and their template literals went
-   with them. Lower it whenever the count drops — never raise it. */
-const CEILING = 9;
+/* **Zero, and the ratchet is over.** This was 28 sites across 27 screens when
+   the check was written, with 579 individual interpolations reaching the markup
+   unescaped; the invented-data sweep took it to nine, and §16 item 3 took the
+   last nine.
+
+   It stays a named constant rather than becoming a bare `if (findings.length)`
+   so that raising it is a visible edit in a diff somebody reviews, with this
+   comment attached. **It must not be raised.** A screen that cannot be escaped
+   is a screen that needs `textContent`, not an allowance — and the two helpers
+   most of the nine ran through, `kpis` and `prov`, now escape by default, so a
+   new screen inherits the safe behaviour instead of having to remember it. */
+const CEILING = 0;
 
 /* Two markers, because there are two questions.
  *
@@ -51,13 +61,27 @@ const CEILING = 9;
 const PROBE = ' <vxs onerror=vxjs>';
 const ESCAPED = '&lt;vxs';
 
-function poison(value, depth = 0) {
+/* The third question, and the one the tag probe deliberately cannot ask.
+ *
+ * `PROBE` carries no quotes of its own precisely so that element injection
+ * reports cleanly (see above), which leaves *attribute breakout* unmeasured: a
+ * value interpolated inside `title="…"` or `data-kind="…"` escapes its
+ * attribute with a bare `"` and gains a handler without ever opening a tag.
+ * `escapeHtml` covers it — it escapes quotes as well as angle brackets — and an
+ * escaper that did not is the ordinary way this comes back.
+ *
+ * A raw `"` immediately before the marker means the quote arrived from data as
+ * a quote. `&quot; vxatr` is the same value escaped, and is the pass. */
+const ATTR_PROBE = '" vxatr=vxjs';
+const ATTR_BROKE = '" vxatr';
+
+function poison(value, depth = 0, probe = PROBE) {
   if (depth > 12) return value;
-  if (typeof value === "string") return value + PROBE;
-  if (Array.isArray(value)) return value.map((item) => poison(item, depth + 1));
+  if (typeof value === "string") return value + probe;
+  if (Array.isArray(value)) return value.map((item) => poison(item, depth + 1, probe));
   if (value && typeof value === "object") {
     const out = {};
-    for (const key of Object.keys(value)) out[key] = poison(value[key], depth + 1);
+    for (const key of Object.keys(value)) out[key] = poison(value[key], depth + 1, probe);
     return out;
   }
   return value;
@@ -67,7 +91,7 @@ function poison(value, depth = 0) {
    correctly shaped payloads for all thirty-five screens, which is what makes
    this cover the whole page rather than the handful of endpoints a fixture
    file happens to describe. */
-function poisonApi(api) {
+function poisonApi(api, probe = PROBE) {
   let wrapped = 0;
   for (const namespace of Object.keys(api)) {
     const group = api[namespace];
@@ -84,7 +108,7 @@ function poisonApi(api) {
          instead of the namespace's — which turns every one of those into
          "is not a function" and stops the check before it proves anything. */
       group[name] = async function (...args) {
-        return poison(await original.apply(this, args));
+        return poison(await original.apply(this, args), 0, probe);
       };
       wrapped += 1;
     }
@@ -105,6 +129,13 @@ function poisonApi(api) {
   const findings = [];
   const threw = [];
   let checked = 0;
+  /* Set while sweeping, because the check below used to read only whatever the
+     *last* screen left in the DOM. That was survivable while findings existed —
+     a non-empty result skips the test — and it failed the moment the count
+     reached zero, reporting "the probe never reached the markup" for a page
+     where every screen had just escaped it correctly. The self-check was right
+     to exist and wrong about where to look. */
+  let everReached = false;
 
   for (const [app, config] of Object.entries(exported.APP_CONFIG)) {
     const render = renderers[app];
@@ -123,6 +154,8 @@ function poisonApi(api) {
       }
       for (const [key, node] of elements.entries()) {
         const markup = String(node.innerHTML || "");
+        /* Recorded per screen, not read off the last one. See `reached` below. */
+        if (markup.includes(ESCAPED)) everReached = true;
         if (!markup.includes("<vxs")) continue;
         const at = markup.indexOf("<vxs");
         findings.push({
@@ -147,8 +180,8 @@ function poisonApi(api) {
      would mean the check is broken rather than the page is safe — which is the
      failure mode that made an earlier honesty check report every badge correct
      while capturing nothing. */
-  const reached = [...elements.values()]
-    .some((node) => String(node.innerHTML || "").includes(ESCAPED));
+  const reached = everReached
+    || [...elements.values()].some((node) => String(node.innerHTML || "").includes(ESCAPED));
   if (!reached && !findings.length) {
     console.error(
       "the probe never reached the markup — no screen contains it in either\n" +
@@ -167,6 +200,16 @@ function poisonApi(api) {
      at the first finding would hide the second half of the property every time
      the first half regressed — and the two are fixed together. */
   const over = await overEscaped();
+  const broke = await attributeBreakout();
+
+  if (broke.length) {
+    console.error(
+      `${broke.length} attribute breakout(s) — a quote from data closed an attribute:\n`);
+    for (const f of broke) console.error(`  • ${f.screen} → ${f.sink}\n      …${f.context}…`);
+    console.error(
+      "\nThe value needs an escaper that covers quotes, not only angle\n" +
+      "brackets. `escapeHtml` does; a bespoke one at the call site may not.\n");
+  }
 
   /* A ratchet, not a pass/fail, and one-sided.
    *
@@ -213,15 +256,15 @@ function poisonApi(api) {
       "\nscreen as text. This is the other half of the same mistake and the half" +
       "\nno security check looks for.");
   }
-  if (findings.length > CEILING || over.length) process.exit(1);
+  if (findings.length > CEILING || over.length || broke.length) process.exit(1);
 
   /* Said only when it is true. A check that prints "no injection" while
      reporting twenty-two of them two lines above is the kind of confident
      wrong sentence this whole repository is written against. */
   if (!findings.length) {
     console.log(
-      `no injection through ${wrapped} API methods across ${checked} screens, ` +
-      `and no screen escapes its own markup`);
+      `no injection, no attribute breakout and no over-escaping — ` +
+      `${wrapped} API methods across ${checked} screens, all three probes`);
   } else {
     console.log(
       `${checked} screens probed through ${wrapped} API methods; no screen ` +
@@ -243,6 +286,41 @@ function poisonApi(api) {
  * half, "escape everything" passes the injection check and destroys the page.
  *
  * A fresh load, because the run above deliberately poisoned every API method. */
+/* Attribute breakout, over every screen, on the same render machinery. */
+async function attributeBreakout() {
+  const { exported, elements } = loadPage();
+  /* Shared with the tag pass rather than re-implemented: the first version
+     wrapped the methods here with an arrow and lost `this`, which is the exact
+     trap `poisonApi` already carries a comment about. */
+  poisonApi(exported.API, ATTR_PROBE);
+  const renderers = { nervis: exported.nervis, ravis: exported.ravis,
+                      sirvis: exported.sirvis, clarvis: exported.clarvis };
+  const found = [];
+  for (const [app, config] of Object.entries(exported.APP_CONFIG)) {
+    const render = renderers[app];
+    if (typeof render !== "function") continue;
+    for (const view of config.nav) {
+      exported.state.app = app;
+      exported.state.view = view;
+      for (const node of elements.values()) node.innerHTML = "";
+      try {
+        await Promise.race([render(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("slow")), 5000))]);
+      } catch { /* a throw is render_check's finding, not this one */ }
+      for (const [key, node] of elements.entries()) {
+        const markup = String(node.innerHTML || "");
+        const at = markup.indexOf(ATTR_BROKE);
+        if (at === -1) continue;
+        found.push({ screen: `${app}/${view}`, sink: key,
+          context: markup.slice(Math.max(0, at - 80), at + 30).replace(/\s+/g, " ") });
+      }
+    }
+  }
+  if (exported.stopPolling) exported.stopPolling();
+  return found;
+}
+
 async function overEscaped() {
   const { exported, elements } = loadPage();
   const renderers = { nervis: exported.nervis, ravis: exported.ravis,

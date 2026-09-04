@@ -1223,9 +1223,23 @@ underneath it: `escapeHtml` did not escape quotes, so 72 attribute sites were
 escaped in appearance only; an inline handler is parsed twice, so `&#39;` is
 decoded back to a quote before JavaScript sees it and the three sites that
 "fixed" this by replacing quotes were no safer; and ids were written escaped and
-read raw. Now 108 interpolations and 22 sites, held by a one-sided ratchet.
-**Not finished** — the remainder are compound expressions a position-aware
-scanner cannot classify safely, and they come down in reviewable passes.
+read raw. It came down in reviewable passes — 22 sites, then nine.
+
+**Finished 4 Sep: the count is zero and the ceiling with it** (§16 item 3). The
+last nine were not nine separate edits. Six ran through two shared helpers,
+`kpis` and `prov`, and those now escape by default with an explicit `safe()` for
+the two callers that hand them real markup — so the fix is structural rather
+than a sweep, and a screen added tomorrow inherits it instead of having to
+remember. The remaining three were a settings table, a machine name and
+`orUnknown`, whose absent branch returns markup and whose value branch therefore
+looked like markup too.
+
+The gate gained the question it used to decline to ask. It probed element
+injection and over-escaping; quoted attributes were left to be settled by
+reading `escapeHtml`, which is a defensible line at nine sites and the wrong one
+at zero, where a bespoke escaper at some call site covering `<` and forgetting
+`"` is the only way back in. `attributeBreakout` asks it directly across all 36
+screens, and was checked by reopening a real site and watching it report.
 
 **Targeted updates instead of full re-render.** Rebuilt as *preserve and
 restore*, not as a diff, and the difference is deliberate: a keyed reconciler

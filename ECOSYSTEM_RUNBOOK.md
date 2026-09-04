@@ -1110,7 +1110,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       operation (TLS actually wired to the listener, mandatory per-request authentication,
       Host/Origin validation, SSE held to the same rules as ordinary HTTP, positive tests
       against a real TLS listener) is a separate, later patch, not a rider on this one.
-- [ ] **3. NERVIS zero-injection.** Replace unescaped interpolation at every HTML-construction
+- [x] **3. NERVIS zero-injection.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* Replace unescaped interpolation at every HTML-construction
       site with DOM nodes/`textContent` or one reviewed escaping layer. Set
       `injection_check.js`'s `CEILING` to `0`. Tests: attribute breakout, element insertion,
       `<img onerror>` and equivalent payloads, malformed markup, on every affected screen.

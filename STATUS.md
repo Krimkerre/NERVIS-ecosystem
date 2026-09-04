@@ -11360,6 +11360,57 @@ stronger, since such a bind does not start at all. It also carries a note that
 being on loopback is not itself authority — §16 item 4 is where mutations get a
 control-role check instead of inferring one from the bind.
 
+## Nine injection sites, and the two helpers most of them ran through — 2026-09-04
+
+**§16 item 3. `tools/injection_check.js`'s ceiling is zero and the ratchet is
+retired.** The gate renders all 36 screens with every one of 44 API methods
+returning a hostile payload, so the work list came from running it rather than
+from reading: nine sites across nine screens, each printed with its context.
+
+Six of the nine were two shared helpers. `kpis` took its three fields verbatim
+and `prov` took its `data-kind` attribute and its text the same way, so Thermal,
+Profile, Conformance, Runtime sets and both service tables were one defect
+counted several times. Escaping inside the helper fixes all of them and every
+screen written later — which is the difference between this and a sweep.
+
+**But `kpis` has two callers that hand it real markup**, a `prov(...)` fragment,
+and blanket escaping would have broken them. So the default inverted instead:
+values are escaped, markup is announced through `safe(...)`. That is the same
+allowlist shape as `EXPORTABLE` and `DECISION_FIELDS` — a field added later is
+safe unless somebody says otherwise, and the failure direction is a visible
+`&lt;span&gt;` rather than a live one.
+
+**The gate caught the over-escaping immediately**, which is the half no security
+check normally looks for. Three screens began rendering `<span class="stamp">as
+of …</span>` as text, because `stamp()` output reached `kpis` through callers my
+own scan for markup had missed — it looked for a literal `<` and those build the
+fragment through a helper. The gate found in seconds what reading had not.
+
+**Then it failed for a reason that was its own.** With the count at zero it
+reported "the probe never reached the markup — this run proved nothing": the
+self-check that the probe is visible at all read only whatever the *last* screen
+left in the DOM, which was survivable while findings existed and wrong the moment
+there were none. Fixed to record visibility while sweeping. §14.6's rule applied
+as written — when a check reports a problem in its own output, fix the check.
+
+**A third probe, because the second line was drawn at nine sites.** The gate
+deliberately did not test quoted attributes: its `PROBE` carries no quotes so
+element injection reports cleanly, and attribute safety was left to be settled by
+reading `escapeHtml`. Defensible at nine; wrong at zero, where an escaper at some
+call site covering `<` and forgetting `"` is the only remaining way in.
+`attributeBreakout` now asks directly, reusing `poisonApi` — after a first
+version wrapped the methods with an arrow, lost `this`, and hit the exact trap
+that function already carries a comment about.
+
+**Checked by making it fail.** The new probe was verified by reopening `prov`'s
+`data-kind` and watching it report `data-kind="" vxatr=vxjs"` on sirvis/Runtime
+sets, then restored. A probe that has never caught anything is a probe nobody
+has shown can.
+
+Verified in the browser as well as by gate: the six touched screens render
+correctly with no tag text on screen, checked by scanning each one's rendered
+text rather than by looking at a screenshot.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
