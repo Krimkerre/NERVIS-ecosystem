@@ -427,8 +427,14 @@ def _default_upstreams() -> dict[str, str]:
     **No credential is read, only the name of each provider that has one.** The
     file is opened to list its keys and never its values.
     """
+    # **`local`, not `default`.** It was named `default` because it is the one
+    # declared unconditionally, which is a fact about this function rather than
+    # about the provider — and the screen showed it beside `openai` and
+    # `anthropic`, where "default" reads as "the one requests go to unless you
+    # say otherwise". It is not that: routing picks per pool on evidence. What
+    # is actually true of it is that the model runs on this machine.
     upstreams: list[dict[str, str]] = [
-        {"name": "default", "base_url": LM_STUDIO, "kind": "lmstudio"}
+        {"name": "local", "base_url": LM_STUDIO, "kind": "lmstudio"}
     ]
     try:
         stored = json.loads(
@@ -809,7 +815,7 @@ def start() -> int:
     if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
         declared = _default_upstreams()
         named = [one["name"] for one in json.loads(declared["RAVIS_UPSTREAMS"])] \
-            if "RAVIS_UPSTREAMS" in declared else ["default"]
+            if "RAVIS_UPSTREAMS" in declared else ["local"]
         print(f"\nRAVIS upstreams defaulted to: {', '.join(named)}.")
         print(f"  Local runtime at {LM_STUDIO}; hosted ones are the providers this")
         print("  machine already holds a key for. Set RAVIS_UPSTREAMS to override.")

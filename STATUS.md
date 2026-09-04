@@ -11519,6 +11519,24 @@ at 80 ms. The loop was measuring its own navigation churn — clicking to a heav
 screen and away again before it had settled. A measurement that disagrees with
 four others is the one to re-examine first.
 
+## The local provider is called `local` — 2026-09-04
+
+It was `default`, which described this function rather than the provider: it is
+the upstream `_default_upstreams()` declares unconditionally. On screen, beside
+`openai` and `anthropic`, that reads as "the one requests go to unless you say
+otherwise" — and it is not. Routing chooses per pool on evidence, and this one
+is often the *least* likely to be chosen, since it is unreachable whenever LM
+Studio is not running.
+
+What is actually true of it is that the model runs on this machine, so it says
+that. Two lines in `tools/run.py`; nothing in RAVIS held the name.
+
+One loose end left alone deliberately: `~/.config/ravis/providers.json` still
+carries a `default` key holding `{"enabled": true}`. It is inert — no provider
+by that name is declared any more, and `enabled: true` is what a new provider
+gets anyway — and rewriting an operator's configuration file to tidy a
+harmless key is not a thing to do without being asked.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
