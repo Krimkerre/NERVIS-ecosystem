@@ -227,3 +227,24 @@ def test_an_in_memory_database_is_one_database_not_one_per_connection() -> None:
 
     applied = second.execute("SELECT COUNT(*) FROM applied_migration").fetchone()[0]
     assert applied == len(MIGRATIONS)
+
+
+def test_a_fully_configured_remote_bind_is_refused() -> None:
+    """SIRVIS's half of the same rule — see `ECOSYSTEM_RUNBOOK.md` §16 item 2.
+
+    `cli.py` never passes `ssl_certfile`/`ssl_keyfile` to `uvicorn.run`, so a
+    certificate and key in the settings change nothing about the wire. The bind
+    is refused until remote operation is actually built.
+    """
+    from sirvis.config import Settings as SirvisSettings
+    from sirvis.config import inspect_configuration as inspect_sirvis
+
+    report = inspect_sirvis(
+        SirvisSettings(  # type: ignore[call-arg]
+            host="0.0.0.0",  # noqa: S104
+            client_credential="s3cret",
+            _env_file=None,
+        )
+    )
+
+    assert report.is_startable() is False

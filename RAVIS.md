@@ -178,11 +178,17 @@ rate limiting comes from forwarded headers **only** for configured trusted proxi
 from the socket otherwise. An untrusted forwarded header is a rate-limit bypass.
 
 **Startup refusal.** The runbook requires binding locally by default, with remote exposure
-an explicit choice carrying **TLS and authentication** — both, not either. RAVIS enforces
-that rather than documenting it: a non-loopback bind **fails to start** unless TLS *and* a
-client credential are configured, naming whichever is missing. Fail closed. A
-credential-only non-loopback bind is the trap this closes: it would otherwise publish the
-model registry to the network in cleartext while passing every other check.
+an explicit choice carrying **TLS and authentication** — both, not either. RAVIS enforced
+that by refusing a non-loopback bind unless TLS *and* a client credential were configured,
+naming whichever was missing.
+
+**Amended 4 Sep: the bind is refused outright.** The old rule was satisfiable and still not
+safe. `cli.py` calls `uvicorn.run` without `ssl_certfile` or `ssl_keyfile`, so configuring
+both pieces produced a bind that started and published the model registry in cleartext —
+the exact trap the rule existed to close, reached by satisfying it. Naming the missing
+piece made it worse, since supplying it is what an operator would then do. The finding now
+names the host and points at `ECOSYSTEM_RUNBOOK.md` §16 item 2, which lists what remote
+operation has to prove before this reopens.
 
 **Origin and Host validation.** Loopback is not a boundary against a browser: any page the
 user visits can issue a cross-origin request to `127.0.0.1`. RAVIS therefore rejects
@@ -194,7 +200,8 @@ origin check does not identify the caller. Both are required.
 
 **Gate:** every limit has a negative test proving refusal; the body-size test proves refusal
 occurs without authentication having run; a wrong-`Origin` mutation is rejected; and a
-non-loopback bind with a credential but no TLS fails to start.
+non-loopback bind fails to start *however it is configured* — including with both a
+credential and TLS paths, which is the case that used to pass.
 
 > Six of these — body size, image count, inbound rate limiting, URL refusal, client address
 > and startup refusal — were identified against Alexander Keisse's `ai-router`

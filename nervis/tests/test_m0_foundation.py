@@ -363,21 +363,21 @@ def test_a_loopback_configuration_is_serveable() -> None:
     assert report.findings == []
 
 
-def test_a_remote_bind_without_tls_or_a_credential_refuses_to_start() -> None:
-    """§15: loopback-first, and a remote NERVIS requires both.
+def test_a_remote_bind_refuses_to_start_on_the_host_alone() -> None:
+    """§15 is loopback-first, and the bind is now the whole of the finding.
 
-    Either alone is the trap the rule exists to close — a credential-only bind
-    passes every other check and then serves a control plane in cleartext.
+    This asserted two findings naming what was missing — a credential and TLS —
+    which is what an operator would then supply, arriving at a bind that starts
+    and still serves in cleartext. Naming the missing pieces invites completing
+    the set, and the completed set was the defect. One fatal finding on the host
+    is the honest report while remote operation is unbuilt.
     """
     report = inspect_configuration(
         Settings(database_path=":memory:", host="0.0.0.0", _env_file=None)  # type: ignore[call-arg]  # noqa: S104
     )
 
     assert not report.is_startable
-    assert {finding.setting for finding in report.findings if finding.fatal} == {
-        "NERVIS_CLIENT_CREDENTIAL",
-        "NERVIS_TLS_CERTIFICATE_PATH",
-    }
+    assert {finding.setting for finding in report.findings if finding.fatal} == {"NERVIS_HOST"}
 
 
 def test_a_credential_alone_is_still_refused() -> None:
@@ -496,3 +496,25 @@ def test_the_os_description_is_specific_enough_for_a_bug_report(settings: Settin
 
     assert body["os_description"].strip()
     assert body["os_description"] != "Darwin"
+
+
+def test_a_fully_configured_remote_bind_is_refused() -> None:
+    """The §15 rule was satisfiable and still not safe.
+
+    `cli.py` calls `uvicorn.run` without `ssl_certfile` or `ssl_keyfile`, so a
+    NERVIS naming a certificate and a key serves its control plane in plain HTTP
+    regardless — validated configuration that is never applied. Refused outright
+    until remote operation is built and proven (`ECOSYSTEM_RUNBOOK.md` §16
+    item 2), because a remote mode that looks encrypted and is not is worse than
+    no remote mode.
+    """
+    report = inspect_configuration(
+        Settings(  # type: ignore[call-arg]
+            database_path=":memory:",
+            host="0.0.0.0",  # noqa: S104
+            client_credential="s3cret",
+            _env_file=None,
+        )
+    )
+
+    assert report.is_startable is False

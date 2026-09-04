@@ -75,11 +75,18 @@ class Settings(BaseSettings):
     trusted_proxies: list[str] = []
 
     # ── Remote exposure (§4.4 startup refusal) ───────────────────────────────
-    # Binding beyond loopback requires BOTH of these. Either alone fails to
-    # start, which is the trap the rule exists to close.
+    # **The TLS settings were deleted with the rule that referenced them.** They
+    # were read by nothing — `cli.py` never passed them to `uvicorn.run`, which
+    # is the defect that closed this door — and `check_dead_code.py` puts it
+    # exactly right: a field like that "makes something look implemented".
+    # Keeping them for the remote mode §16 item 2 will build would be keeping the
+    # affordance that caused this. Two lines come back when something reads them.
+    # `extra="ignore"` means a stale env var is harmless in the meantime.
+    #
+    # `client_credential` stays because RAVIS's `identity.py` genuinely reads it.
+    # In NERVIS and SIRVIS nothing does, which is its own finding rather than
+    # this one — see §16 item 4.
     client_credential: str = ""
-    tls_certificate_path: str = ""
-    tls_key_path: str = ""
 
     # ── The single upstream M1 forwards to (RAVIS.md §6, Path A) ────────────
     # One upstream, no routing: M1 proves the boring path works before anything
@@ -455,32 +462,29 @@ def _check_capabilities_file(settings: Settings, report: ConfigurationReport) ->
 
 
 def _check_remote_exposure(settings: Settings, report: ConfigurationReport) -> None:
-    """Refuse a non-loopback bind that lacks TLS or a credential.
+    """Refuse a bind that is not loopback, whatever else is configured.
 
-    The runbook requires remote exposure to carry TLS *and* authentication —
-    both, not either (§4.4). The trap this closes is the credential-only bind:
-    it passes every other check and publishes the model registry to the network
-    in cleartext. Each missing piece is reported separately, so the operator is
-    told what to add rather than merely that something is wrong.
+    **This used to require TLS and a credential, and that rule was satisfiable
+    without being true.** `cli.py` calls `uvicorn.run` without `ssl_certfile` or
+    `ssl_keyfile`, so a bind naming a certificate and a key served plain HTTP
+    regardless: configuration validated at startup and then never applied. An
+    external audit found the same shape in all three services.
+
+    Refusing is the honest failure. A remote mode that looks encrypted and is not
+    is worse than no remote mode, because the operator stops looking. The two
+    findings that used to name what was missing are gone with it — naming them
+    invites completing the set, and the completed set was the defect.
+
+    Remote operation returns when it is built and proven end to end: TLS wired to
+    the listener, per-request authentication, Host and Origin validation, SSE held
+    to the same rules, and a test against a real TLS listener.
+    `ECOSYSTEM_RUNBOOK.md` §16 item 2 lists it.
     """
     report.findings.append(
         ConfigurationFinding(
-            False,
+            True,
             "host",
-            f"binding beyond loopback ({settings.host}) — TLS and a credential are required",
+            f"binding beyond loopback ({settings.host}) is not supported yet"
+            " — see ECOSYSTEM_RUNBOOK.md §16 item 2",
         )
     )
-    if not settings.client_credential:
-        report.findings.append(
-            ConfigurationFinding(
-                True, "client_credential", "required for a non-loopback bind, and is not set"
-            )
-        )
-    if not (settings.tls_certificate_path and settings.tls_key_path):
-        report.findings.append(
-            ConfigurationFinding(
-                True,
-                "tls_certificate_path",
-                "TLS is required for a non-loopback bind, and is not configured",
-            )
-        )

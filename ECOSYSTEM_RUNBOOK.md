@@ -676,9 +676,11 @@ any local one, so `ravis/cheap` resolves to the GPU rather than to a slow model
 on the laptop's CPU. This is the machine-dependence RAVIS M26 was amended for.
 
 **Exposure is gated, and asymmetrically.** SIRVIS refuses a non-loopback bind
-without *both* TLS and a credential — §9's rule below, enforced at startup,
-closing the credential-only bind that "looks configured and publishes every
-model on the machine in cleartext". NERVIS's endpoint guard is loopback-only by
+outright — §9's rule below, enforced at startup. It formerly refused only a bind
+lacking TLS or a credential, which closed the credential-only case and left the
+one that mattered: a bind naming both started, and served every model on the
+machine in cleartext anyway, because nothing passed the certificate to the
+server. NERVIS's endpoint guard is loopback-only by
 default and refuses a bare hostname outright, so the box is admitted by literal
 address through `NERVIS_ALLOWED_HOSTS`. The model runtime itself carries no such
 rule: it is an endpoint somebody chose to expose, not a control-plane service.
@@ -698,8 +700,12 @@ and stopped together, and what a trace looks like when it crosses a machine.
 
 ## 9. Security and privacy gates
 
-- Bind locally by default. Remote access is an explicit deployment choice with TLS and
-  authentication.
+- Bind locally by default. **Remote access is currently refused outright, in all three
+  services**, because the rule this line used to state was satisfiable without being true:
+  the TLS paths were validated at startup and never passed to the listener, so a bind that
+  named a certificate and a key served cleartext. Remote returns as an explicit deployment
+  choice carrying TLS *and* authentication once §16 item 2 has built and proven it — the
+  requirement is unchanged, its enforcement is now honest about not existing yet.
 - Authenticate service-control operations separately from read-only diagnostics.
 - Provider credentials stay in their owning secure store. NERVIS never receives raw
   provider keys.
@@ -1098,7 +1104,7 @@ work in the same patch (§3's change-order discipline applies here without excep
       untrusted workspace regardless. `nervisUrl` accepts loopback only. The enrollment secret
       must be a regular file, mode `0600`. Its path may be logged; its contents never are,
       before or after a validation failure.
-- [ ] **2. Loopback-only containment, all three Python services.** Refuse a non-loopback bind
+- [x] **2. Loopback-only containment, all three Python services.** *(LIVE VERIFIED 2026-09-04 — see `STATUS.md`.)* Refuse a non-loopback bind
       outright rather than pass unproven TLS arguments — a remote mode that looks encrypted and
       isn't is worse than no remote mode, which is the defect being closed. Real remote
       operation (TLS actually wired to the listener, mandatory per-request authentication,

@@ -42,13 +42,18 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ── Remote exposure (runbook §9, §15) ────────────────────────────────────
-    # Binding beyond loopback requires BOTH. Either alone fails to start, which
-    # is the trap the rule exists to close: a credential-only bind passes every
-    # other check and then serves a control plane in cleartext. NERVIS is the
-    # service where this matters most — it is the one with buttons.
+    # **The TLS settings were deleted with the rule that referenced them.** They
+    # were read by nothing — `cli.py` never passed them to `uvicorn.run`, which
+    # is the defect that closed this door — and `check_dead_code.py` puts it
+    # exactly right: a field like that "makes something look implemented".
+    # Keeping them for the remote mode §16 item 2 will build would be keeping the
+    # affordance that caused this. Two lines come back when something reads them.
+    # `extra="ignore"` means a stale env var is harmless in the meantime.
+    #
+    # `client_credential` stays because RAVIS's `identity.py` genuinely reads it.
+    # In NERVIS and SIRVIS nothing does, which is its own finding rather than
+    # this one — see §16 item 4.
     client_credential: str = ""
-    tls_certificate_path: str = ""
-    tls_key_path: str = ""
 
     # ── The peers NERVIS reads (§5) ──────────────────────────────────────────
     # Absent is a legitimate state and M0's exit requires it: NERVIS must start,
@@ -232,30 +237,29 @@ def _is_loopback(host: str) -> bool:
 
 
 def _check_remote_exposure(settings: Settings, report: ConfigurationReport) -> None:
-    """§15's rule for a NERVIS that is not loopback-only.
+    """Refuse a bind that is not loopback, whatever else is configured.
 
-    Each missing piece is reported separately, so an operator is told what to
-    add rather than that something is wrong.
+    **This used to require TLS and a credential, and that rule was satisfiable
+    without being true.** `cli.py` calls `uvicorn.run` without `ssl_certfile` or
+    `ssl_keyfile`, so a NERVIS naming a certificate and a key served its control
+    plane in cleartext regardless: the configuration was validated at startup and
+    then never applied. `client_credential` had the matching hole — checked once
+    here, read on no request path. An external audit found the same shape in all
+    three services.
+
+    Refusing is the honest failure. A remote mode that looks encrypted and is not
+    is worse than no remote mode, because the operator stops looking. Remote
+    operation returns when it is built and proven end to end — TLS actually wired
+    to the listener, per-request authentication, Host and Origin validation, SSE
+    held to the same rules, and a test against a real TLS listener —
+    `ECOSYSTEM_RUNBOOK.md` §16 item 2 lists it.
     """
     report.findings.append(
         ConfigurationFinding(
             "NERVIS_HOST",
-            f"{settings.host} is not loopback; §15 requires TLS and a credential",
+            f"{settings.host} is not loopback, and remote operation is not built"
+            " yet — see ECOSYSTEM_RUNBOOK.md §16 item 2",
+            fatal=True,
         )
     )
-    if not settings.client_credential:
-        report.findings.append(
-            ConfigurationFinding(
-                "NERVIS_CLIENT_CREDENTIAL",
-                "a remote bind requires a client credential",
-                fatal=True,
-            )
-        )
-    if not (settings.tls_certificate_path and settings.tls_key_path):
-        report.findings.append(
-            ConfigurationFinding(
-                "NERVIS_TLS_CERTIFICATE_PATH",
-                "a remote bind requires TLS; set both the certificate and the key",
-                fatal=True,
-            )
-        )
+

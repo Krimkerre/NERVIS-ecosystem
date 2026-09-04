@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2195 tests, no network, no live service
+.venv/bin/pytest                      # part of 2197 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 43 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 441 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 799 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 442 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 800 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2195 passing across the four, conformance `PASS`.
+Expected: all clean, 2197 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11304,6 +11304,61 @@ default: `scope: "machine"` dropped the workspace's `true`.
 
 Trust and scope are therefore both doing their job, and the one that survives a
 trusted repository is the one that was missing before.
+
+## The remote mode that was validated and never applied — 2026-09-04
+
+**§16 item 2, and the rule it replaces was satisfiable without being true.** All
+three services refused a non-loopback bind unless TLS *and* a client credential
+were configured. Configure both and the bind started — and served cleartext,
+because no `cli.py` passes `ssl_certfile` or `ssl_keyfile` to `uvicorn.run`. The
+certificate was checked as a non-empty string at startup and never reached the
+listener. `client_credential` had the matching hole in NERVIS and SIRVIS: read
+once here, read on no request path.
+
+The rule therefore did its worst work when it was obeyed. It named the missing
+piece so an operator would supply it, and supplying it is what produced the
+insecure bind — a refusal that reads as a shopping list is an instruction to
+complete the set.
+
+The test that proved it is the one that used to say the opposite:
+`test_both_together_are_accepted` asserted a fully-configured remote bind was
+startable. It is now `test_a_fully_configured_remote_bind_is_refused_too`, and
+the same inversion exists for NERVIS and SIRVIS.
+
+**A non-loopback bind is now refused outright, whatever it carries.** One fatal
+finding naming the host and pointing at §16 item 2, which lists what remote has
+to prove before it reopens: TLS actually wired to the listener, per-request
+authentication, Host and Origin validation, SSE held to the same rules, and a
+test against a real TLS listener. Refusing is the honest failure — a remote mode
+that looks encrypted and is not is worse than none, because the operator stops
+looking.
+
+**And then `check_dead_code.py` refused the compromise.** The first version kept
+`tls_certificate_path` and `tls_key_path`, inert and commented as such, on the
+grounds that remote will need exactly them. The gate flagged all six fields —
+two per service — with the argument this patch is itself built on: *"each of
+these makes something look implemented."* Keeping the affordance that caused the
+defect, to save re-adding two lines later, is not a trade worth making. They are
+deleted; `extra="ignore"` makes a stale env var harmless. `client_credential`
+stays, because RAVIS's `identity.py` genuinely reads it — that NERVIS's and
+SIRVIS's copies are read by nothing is a separate finding, and §16 item 4's.
+
+**Verified by running it, not only by test.** All three `serve` commands refused
+with the certificate, key and credential all set:
+
+    FATAL  NERVIS_HOST: 0.0.0.0 is not loopback, and remote operation is not
+           built yet — see ECOSYSTEM_RUNBOOK.md §16 item 2
+    FATAL  host: binding beyond loopback (0.0.0.0) is not supported yet
+
+and the stack then started clean on loopback, which is the half worth checking
+whenever a refusal is added.
+
+Two comments were corrected rather than left to rot, both of which reasoned
+*from* the old rule. `credentials.py` argued that reaching a management route on
+a non-loopback bind implied an identity had been presented; that premise is now
+stronger, since such a bind does not start at all. It also carries a note that
+being on loopback is not itself authority — §16 item 4 is where mutations get a
+control-role check instead of inferring one from the bind.
 
 ## Starting the thing
 

@@ -847,8 +847,12 @@ with a health-test button per service.
 
 # 15. Security and privacy
 
-- Loopback-first. Remote NERVIS requires TLS, authentication, authorization and explicit
-  exposure. Localhost-only MVP may use simple local auth; a NERVIS session token follows.
+- Loopback-first, and **loopback-only for now**: a non-loopback bind fails to start
+  whatever it is configured with, because the TLS this clause requires was validated at
+  startup and never reached the listener (`ECOSYSTEM_RUNBOOK.md` §16 item 2). Remote NERVIS
+  still requires TLS, authentication, authorization and explicit exposure — that is what
+  §16 item 2 has to build before the bind reopens. Localhost-only MVP may use simple local
+  auth; a NERVIS session token follows.
 - Separate **viewer**, **operator**, **benchmark-control**, **routing-control** and
   **supervisor** permissions.
 - Store peer credentials in OS-backed secure storage; **never return them to the browser**, and

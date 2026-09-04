@@ -275,10 +275,12 @@ def _run_preflight(settings: Settings) -> int:
 def _run_serve(settings: Settings) -> int:
     """Start the server, unless the configuration is unsafe.
 
-    The refusal is deliberate and is the §4.4 startup rule: a non-loopback bind
-    without both TLS and a credential fails to start rather than starting and
-    hoping. Importing uvicorn here rather than at module scope keeps `doctor`
-    runnable in an environment where the server dependency is not installed.
+    The refusal is deliberate and is the §4.4 startup rule, now at its strongest
+    reading: a non-loopback bind fails to start at all, because the TLS this call
+    would need is not wired to `uvicorn.run` below and a rule satisfiable without
+    being true is worse than no rule (`ECOSYSTEM_RUNBOOK.md` §16 item 2).
+    Importing uvicorn here rather than at module scope keeps `doctor` runnable in
+    an environment where the server dependency is not installed.
     """
     report = inspect_configuration(settings)
     if not report.is_startable():

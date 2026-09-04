@@ -109,10 +109,16 @@ def _may_write(request: Request) -> str | None:
 
     Enabling a provider, narrowing a pool, filtering a catalogue: settings, not
     key material. A loopback-bound RAVIS is reachable only from the machine it
-    runs on, which is the deployment this is for. A non-loopback bind already
-    fails to start without TLS *and* a client credential (§9.6.0), so reaching
-    here on one means an identity was presented — and an anonymous identity on a
-    published service must not be able to write settings.
+    runs on, which is the deployment this is for — and since a non-loopback bind
+    now fails to start outright (§9.6.0 as amended by `ECOSYSTEM_RUNBOOK.md` §16
+    item 2), it is currently the *only* deployment. The identity check below is
+    kept rather than simplified away: it is what this will need when remote
+    returns, and an anonymous identity on a published service must not be able to
+    write settings.
+
+    **Being on loopback is not by itself authority**, and this comment should not
+    be read as saying so — §16 item 4 is the separate work of giving mutations
+    their own control-role check rather than inferring one from the bind.
 
     **Credentials are not configuration and do not use this** — see
     `_may_write_credentials`. §15.1 asks for a separate authorization for key
