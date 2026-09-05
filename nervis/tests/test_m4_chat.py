@@ -2587,7 +2587,24 @@ def test_no_capability_reason_names_a_milestone_that_has_shipped() -> None:
     table = (Path(__file__).resolve().parents[2] / "NERVIS.md").read_text(
         encoding="utf-8"
     )
-    shipped = set(re.findall(r"^\| \*\*(M\d+[a-z]?)\*\* ✅ \|", table, re.MULTILINE))
+    # §14.8's states, not the tick they replaced. A milestone that has shipped is
+    # one whose code exists on the path that ships — IMPLEMENTED and everything
+    # above it. BLOCKED is deliberately absent: it is the one state that means
+    # the thing is *not* there, which is exactly what a deferral may legitimately
+    # point at.
+    #
+    # **This test found the conversion, the way it was built to.** Every row
+    # carried `✅` until the sixty-four legacy ticks were converted; the pattern
+    # here still read the old form, matched nothing, and the guard below refused
+    # to let it pass on an empty set. A check that quietly stops checking is
+    # worse than one that fails, and this is what that sentence is for.
+    shipped = set(
+        re.findall(
+            r"^\| \*\*(M\d+[a-z]?)\*\* (?:IMPLEMENTED|AUTOMATED VERIFIED|LIVE VERIFIED)\b",
+            table,
+            re.MULTILINE,
+        )
+    )
     assert len(shipped) > 5, (
         "no shipped milestones were read from NERVIS.md — this check would pass "
         "vacuously, which is worse than failing"
