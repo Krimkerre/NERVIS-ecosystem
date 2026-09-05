@@ -1,0 +1,20 @@
+; Seatbelt profile (macOS `sandbox-exec`) denying network access to the
+; process it wraps, while leaving everything else — reading and, where a
+; caller separately allows it via Node's own permission model, writing files
+; — untouched. Node's `--permission` flags have no network dimension at all
+; (`node --help` lists `--allow-fs-read`, `--allow-fs-write`, `--allow-child-
+; process`, `--allow-worker`, `--allow-addons`, and nothing for sockets), so
+; the vm-escape mitigation in tools/check_clean_clone.sh needed a second,
+; OS-level layer for the one thing Node's own model cannot restrict: a script
+; that reaches `process` under the fs/child-process lockdown can still call
+; `fetch()` or open a raw socket and quietly read a file's contents out over
+; the network, which is a real concern next to a repository that (as of this
+; scan) has a committed secret sitting in it.
+;
+; `(allow default)` first, then the one denial: this profile is not trying to
+; be a general sandbox, only to close the one gap Node's model leaves open.
+; `tools/sandbox_check.js` proves this holds by reproducing the exploit and
+; attempting an outbound fetch from inside it, under this exact profile.
+(version 1)
+(allow default)
+(deny network*)

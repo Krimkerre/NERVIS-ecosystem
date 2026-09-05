@@ -13280,6 +13280,42 @@ access from an escaped script) without it.
 
 NERVIS 0.23.5.
 
+## F1's mitigation closes network too — 2026-09-05
+
+**The process-level fix shipped for the vm escape (0.23.5) had a named gap:
+Node's own permission model has no network dimension.** An escaped script
+could no longer write a file or spawn a process, but it could still call
+`fetch()` and quietly read something out over the internet — pointed out
+directly rather than found later, and worth closing given this same repository
+carries a committed secret (F7).
+
+**`tools/no-network.sb` is a macOS Seatbelt profile, `(deny network*)` on top
+of `(allow default)`, wrapped around every gate with `sandbox-exec`.** Checked
+live: the identical fetch-based escape
+(`console.log.constructor('return fetch')()`) that reached a real HTTP
+response unguarded reports `fetch failed` under the profile. Combined with the
+existing `--permission --allow-fs-read=*`, an escaped script now has read
+access to the tree and nothing else — no writes, no subprocess, no network.
+
+**`tools/sandbox_check.js` now proves two mitigations independently, not one.**
+The file-write escape and the network escape are different techniques closed
+by different layers, so a script reaching `process` could still have one
+available if only one layer actually applied — checked separately, each
+guarded and unguarded, so a regression in either layer fails on its own rather
+than being masked by the other still holding. Both directions were fail-proved
+by hand: breaking the write check's guard, and separately the network check's
+guard, each produced exactly the failure naming which layer had gone missing.
+
+**Said once, plainly, rather than implied: this is macOS-only.**
+`sandbox-exec` does not exist on Linux or Windows. `check_clean_clone.sh` now
+detects the platform and prints a one-line note when it is not Darwin — the
+fs/child-process lockdown still applies everywhere, and network is only
+withheld where `sandbox-exec` exists. A mitigation that quietly protects less
+on one platform than another is exactly the kind of gap this whole fix exists
+to stop being silent about.
+
+All twenty-one gates pass under the combined lockdown. NERVIS 0.23.6.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

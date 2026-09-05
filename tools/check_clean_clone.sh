@@ -179,22 +179,44 @@ fi
 # this directory shells out to another process). A vm escape under this flag
 # still gets a `process` reference — Node's permission model does not and
 # cannot change what `vm` itself leaks — but it cannot act on it: no file goes
-# unlinked or rewritten, no command runs. This is the mitigation the finding's
-# own report calls "isolate the whole check process", made concrete without
-# touching a single gate's logic; the fuller fix it also names — stop executing
-# index.html at all, in favour of static parsing — is the repository owner's
-# call, not a change this script makes for them.
+# unlinked or rewritten, no command runs.
+#
+# **Network is the gap Node's own model cannot close, and it is a real one.**
+# `--permission` has no socket dimension at all — a script that reaches
+# `process` under the flags above can still call `fetch()` and quietly read a
+# file out over the network, which matters next to a repository that (as of
+# this scan) has a committed secret sitting in it. `tools/no-network.sb` is a
+# macOS Seatbelt profile denying exactly that, wrapped around the same node
+# invocation with `sandbox-exec`. Elsewhere — this script also runs on Linux,
+# where `sandbox-exec` does not exist — the fs/child-process lockdown above
+# still applies and the network gap is real; said once here rather than
+# silently, since a gate that quietly protects less on one platform than
+# another is the kind of gap this whole fix exists to stop being silent about.
+#
+# Together these are the mitigation the finding's own report calls "isolate
+# the whole check process", made concrete without touching a single gate's
+# logic; the fuller fix it also names — stop executing index.html at all, in
+# favour of static parsing — is the repository owner's call, not a change this
+# script makes for them.
+if [ "$(uname -s)" = "Darwin" ]; then
+  PROFILE="$(pwd)/nervis-eco/tools/no-network.sb"
+  NODE_GUARD=(sandbox-exec -f "$PROFILE" node --permission --allow-fs-read="*")
+else
+  echo "  (not macOS — network is not sandboxed for these gates; fs/child-process still are)"
+  NODE_GUARD=(node --permission --allow-fs-read="*")
+fi
 for gate in render complexity shaping empty_world liveness injection routing outcome stream \
             preserve attachment background handler learned notification plan proposal supervision \
             capability provenance; do
-  step "dashboard $gate" nervis-eco/nervis node --permission --allow-fs-read="*" "tools/${gate}_check.js"
+  step "dashboard $gate" nervis-eco/nervis "${NODE_GUARD[@]}" "tools/${gate}_check.js"
 done
 # **Held out of the loop above, and for the opposite reason of the two at the
-# top.** `sandbox_check.js` proves the mitigation above actually holds, which
-# means it has to spawn its own child processes — one run with the same
-# `--permission` flags the loop uses, one without, so it can tell a guarded
-# escape from one nothing is stopping. Running it under those same flags would
-# deny it the very capability its job is to test with.
+# top.** `sandbox_check.js` proves the mitigation above actually holds — the
+# fs/child-process lockdown and, on macOS, the network denial — which means it
+# has to spawn its own child processes, network call included, one run
+# wrapped exactly as the loop wraps it, one run bare, so it can tell a guarded
+# escape from one nothing is stopping. Running it under those same wrappers
+# would deny it the very capability its job is to test with.
 step "dashboard sandbox" nervis-eco/nervis node "tools/sandbox_check.js"
 
 # Chat quotes these files to operators. A name in them that no longer exists is

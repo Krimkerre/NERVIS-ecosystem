@@ -91,7 +91,24 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.5
+## NERVIS — 0.23.6
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The F1 mitigation now also closes network.** 0.23.5 stopped an escaped script from
+  writing files or spawning processes, but Node's own permission model has no socket
+  dimension at all — an escape could still call `fetch()` and quietly read a file out
+  over the network, which mattered next to a repository that (as of the scan) has a
+  committed secret in it. On macOS, every gate now also runs under a `sandbox-exec`
+  Seatbelt profile (`tools/no-network.sb`) denying network access outright.
+  `tools/sandbox_check.js` proves both halves independently — a file-write escape and a
+  network escape, each run guarded and unguarded — because a script that reaches
+  `process` has both available unless both layers are actually in place. **Stated
+  plainly rather than silently:** `sandbox-exec` is macOS-only; on other platforms the
+  gates keep the filesystem/`child_process` lockdown and network stays open, which
+  `check_clean_clone.sh` now says out loud rather than implying full parity.
+
+### 0.23.5
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
