@@ -12014,6 +12014,42 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
 
+## The gate for independent buildability was the one place it was guaranteed — 2026-09-05
+
+**`tools/check_clean_clone.sh` installs all four packages into one virtual
+environment and runs every suite there.** So a package that forgot to declare
+`psutil` passes: a sibling brought it. §3 gave up two repositories for one on the
+argument that *"the property that matters is independent buildability, not
+repository count"*, kept by "separate packages, separate entry points, separate
+databases" — and the gate written to hold that property was the single
+environment where the dependency graph could not be incomplete.
+
+**It has happened, and the fix left its own note.** `ravis/pyproject.toml`:
+*"Imported since M0 (`app.py` reads its correlation helpers) and never declared —
+RAVIS was getting the shared package by accident of the environment."* From M0
+until somebody happened to look, because every environment anybody ran had the
+shared package in it.
+
+`tools/import_alone.py` walks every module of one package and imports it, in an
+environment holding that package and its declared dependencies and nothing else.
+Four fresh environments, one per package, in the clean-clone gate.
+
+**Imports rather than suites, and that is the trade.** Four suites in four
+environments take four times as long to answer a broader question badly. Walking
+the modules finds an undeclared dependency at the moment it is missing, which is
+the moment a service fails to start. A dependency used only inside a function
+body escapes, and that is a stated limit rather than an oversight.
+
+`__main__` is skipped: it is *meant* to run when imported — that is how
+`python -m nervis` works, and each of these exists because `python3 -m sirvis`
+once failed on a scheduled task. Importing it would run the CLI, which is the
+module behaving correctly and the check behaving badly.
+
+All four pass today, which is the answer the property deserved rather than the
+one it was getting. Proved the check can fail by uninstalling `psutil` — a
+dependency NERVIS does declare — and watching it name `nervis.api` and
+`nervis.app` as unloadable.
+
 ## `schema_versions` named an artifact that did not exist — 2026-09-05
 
 **Every service has published `schema_versions: {"mep": …}` since Stage 1, and

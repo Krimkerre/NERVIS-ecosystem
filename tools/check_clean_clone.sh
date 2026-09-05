@@ -76,6 +76,37 @@ for package in protocol ravis sirvis nervis; do
   step "$package pytest" "nervis-eco/$package" pytest -q
 done
 
+# **One environment per package, and nothing of its siblings in it.**
+#
+# The section above installs all four packages into a single environment and
+# runs every suite there — so a package that forgot to declare `psutil` passes,
+# because a sibling brought it. §3 gave up two repositories for one on the
+# argument that "the property that matters is independent buildability", and the
+# gate meant to hold that property was the one place the dependency graph was
+# guaranteed complete. It has happened: `ravis/pyproject.toml` still carries the
+# note about `ecosystem-protocol` being "imported since M0 and never declared".
+#
+# Imports rather than tests, deliberately. Four suites in four environments take
+# four times as long to answer a broader question badly; walking every module
+# finds the undeclared dependency at the moment it is missing, which is the
+# moment a service fails to start. `ecosystem-protocol` is installed alongside
+# because three of them *declare* it — a declared dependency is the opposite of
+# the thing being tested.
+echo "=== per package: loadable from its own declarations alone ==="
+for package in protocol ravis sirvis nervis; do
+  alone="$WORK/clean/alone-$package"
+  module=$([ "$package" = protocol ] && echo ecosystem_protocol || echo "$package")
+  if python3 -m venv "$alone" >/dev/null 2>&1 \
+     && "$alone/bin/pip" install -q --upgrade pip >/dev/null 2>&1 \
+     && (cd nervis-eco && "$alone/bin/pip" install -q -e ./protocol >/dev/null 2>&1) \
+     && (cd nervis-eco && "$alone/bin/pip" install -q -e "./$package" >/dev/null 2>&1); then
+    step "$package alone" nervis-eco "$alone/bin/python" tools/import_alone.py "$module"
+  else
+    printf '  FAIL  %s alone (could not install it by itself)\n' "$package"
+    fail=$((fail + 1))
+  fi
+done
+
 echo "=== repository gates ==="
 step "STATUS.md is current"    nervis-eco python tools/check_status.py
 step "nothing unreferenced"    nervis-eco python tools/check_dead_code.py
