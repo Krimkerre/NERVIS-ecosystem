@@ -12925,6 +12925,22 @@ decision fails three tests; a yes that runs the remembered copy rather than the 
 fails one; an offer that stops naming the file fails two. 1,322 Clarvis tests pass,
 16 of them in a real VS Code host, and the four Python suites are green.
 
+## The clean-clone gate, green again after the conversion — 2026-09-05
+
+`51 passed, 0 failed`, from a fresh clone with fresh venvs, after the milestone
+conversion had left it red on `nervis pytest` for the reason recorded above. Ten
+steps more than the `41 passed` last written down, which is the import, schema,
+degradation, pairwise, release, compatibility and capability work of the last two
+days arriving in the gate rather than beside it.
+
+**One thing the gate still cannot see.** Its Clarvis block runs `npm test`, which is
+`node --test "out/**/*.test.js"` — and Clarvis's host tests are `.spec.ts`, run by
+`npm run test:host` under a real VS Code. So the sixteen tests that need an editor,
+including the Bridge-disabled proof and the five new ones for the handoff file, are
+outside the only gate that runs. Adding them means the gate downloads a VS Code
+build, which is a real cost to weigh rather than a line to slip in; noted here so it
+is a decision somebody makes rather than a gap nobody sees.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
