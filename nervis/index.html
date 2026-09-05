@@ -290,7 +290,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .prov[data-kind="MEASURED"]{color:#3ddc97;background:rgba(61,220,151,.13)}
 .prov[data-kind="ESTIMATED"]{color:#ffb648;background:rgba(255,182,72,.13)}
 .prov[data-kind="UNKNOWN"]{color:#8b9bb0;background:rgba(139,155,176,.13)}
-.prov[data-kind="PARTIALLY_MEASURED"]{color:#55dcff;background:rgba(85,220,255,.13)}
+.prov[data-kind="PARTIALLY_MEASURED"]{color:#55dcff;background:rgba(85,220,255,.13)}.prov[data-kind="OBSERVED"]{color:#a99bff;background:rgba(125,108,255,.15)}
 .table-row.head .sortable{cursor:pointer;user-select:none}
 .table-row.head .sortable:hover{color:var(--accent)}
 .table-row.head .sorted{color:var(--accent)}
@@ -1112,7 +1112,23 @@ function cell(body,src){
 }
 /* MEASURED / ESTIMATED / UNKNOWN must survive to the pixel: a bare number is
    a claim the underlying evidence may not support. */
-const prov=(kind,detail='')=>`<span class="prov" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}${detail?' · '+escapeHtml(detail):''}</span>`;
+/* Producer-side evidence kinds, as the badge the reader sees.
+ 
+   **`OBSERVED` is not `MEASURED`, and this is where that was being lost.**
+   `ravis/evidence/sirvis.py` keeps `OBSERVED_BY_RAVIS` and `MEASURED_BY_SIRVIS`
+   apart deliberately — "both are measurements, and only one of them was taken
+   under controlled conditions" — and the legend on the Evidence screen showed
+   RAVIS's rolling window over real traffic wearing the same green badge as a
+   benchmark run with a fixed prompt, a warm runtime and a sample count. §15 asks
+   for the provenance distinction end to end, and the last inch is the pixel.
+ 
+   Normalised here rather than at each call site: one caller passes a raw
+   `provenance.kind` straight through, so an unmapped name reached `data-kind`
+   with no rule to style it — a badge that silently stops looking like a badge. */
+const PROV_BADGE={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'OBSERVED',
+                  PROVIDER_METADATA:'ESTIMATED'};
+const prov=(kind,detail='')=>{const shown=PROV_BADGE[kind]||kind;
+ return `<span class="prov" data-kind="${escapeHtml(shown)}">${escapeHtml(shown)}${detail?' · '+escapeHtml(detail):''}</span>`};
 const stamp=sec=>`<span class="stamp${sec>60?' stale':''}">as of ${sec<60?sec+'s':Math.round(sec/60)+'m'} ago</span>`;
 const banner=(title,body,tone='warn')=>`<div class="banner" data-tone="${tone}"><div><b>${title}</b><p>${body}</p></div></div>`;const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 /* --------------------------------------------------------------------------
@@ -4509,7 +4525,6 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
  const conv=await API.nervis.conversation();
  const ids=[...new Set(conv.messages.map(m=>m.route_decision_id).filter(Boolean))];
  const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await chatDecision(id)])));
- const ekind={MEASURED_BY_SIRVIS:'MEASURED',OBSERVED_BY_RAVIS:'MEASURED',PROVIDER_METADATA:'ESTIMATED',ESTIMATED:'ESTIMATED',UNKNOWN:'UNKNOWN'};
  /* The route card is a lookup by decision id — the same record RAVIS's own Routes
     screen renders. A router that cannot say why is just a proxy. */
  /* Built from the decision RAVIS actually recorded. Cost and time-to-first-token
@@ -8381,7 +8396,7 @@ async function ravisEvidence(){
  /* RAVIS's own provenance enum, and the mapping it applies on the way in. It never
     upgrades a value: SIRVIS's PARTIALLY_MEASURED arrives as ESTIMATED, not MEASURED. */
  const MAP=[['MEASURED_BY_SIRVIS','MEASURED','repeated benchmark runs on this machine, with spread and sample count'],
-            ['OBSERVED_BY_RAVIS','MEASURED','RAVIS’s own production timings — what it is doing during normal use'],
+            ['OBSERVED_BY_RAVIS','OBSERVED','RAVIS’s own production timings — a measurement, but a rolling window over whatever traffic happened, not a controlled run'],
             ['PROVIDER_METADATA','ESTIMATED','the provider’s published claim; useful, unverified, and not a measurement'],
             ['ESTIMATED','ESTIMATED','interpolated from a neighbouring build — never promoted by being reused'],
             ['UNKNOWN','UNKNOWN','no evidence. Distinct from a bad score, and it stays distinct']];

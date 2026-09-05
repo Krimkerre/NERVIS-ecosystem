@@ -120,7 +120,7 @@
         "notes": "none recorded",
         "co_residency": "not recorded"
       },
-      "finding": "agent lost null% of its throughput under concurrent load",
+      "finding": "agent has no concurrent measurement to compare against",
       "live": true
     },
     "source": "live"
