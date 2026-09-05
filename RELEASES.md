@@ -91,9 +91,22 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.0
+## NERVIS — 0.23.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The control-token gate is now checked for completeness, not just for the six routes
+  that remember to declare it.** Reverifying §15's safety-gate line found the guard was a
+  hand-written list of six paths agreeing with itself by construction — a seventh mutating
+  route added without the guard would have shipped silently. The gate now walks the real
+  route table and asserts that anything reaching `settings.ravis_admin_credential` requires
+  the token, whatever verb it arrives on; proved by adding an ungated route and watching it
+  fail. **Operator note, unchanged in substance but now written down where the checklist
+  reads it:** the token is CSRF-grade, stopping a cross-origin page with no credential —
+  it does not stop a local process that can already reach this port, which is the
+  operating system's boundary rather than this one's.
+
+### 0.23.0
 
 - **Changing RAVIS's configuration through NERVIS now needs the dashboard's control token.**
   NERVIS holds RAVIS's admin credential and proxies six configuration mutations, and asked
@@ -176,6 +189,15 @@ Published as gates rather than as a list, so they are counted rather than rememb
   VERIFIED**. The checkmark they replaced could not have told an operator which of the three
   they were reading, and for sixty-five milestones it did not.
 - `clarvis/docs/code-server-matrix.md` — graded against Clarvis 0.0.1 and not re-run since.
+- **NERVIS's control token is CSRF-grade, not authentication.** It stops a page on
+  another origin from driving RAVIS's six proxied configuration mutations with no
+  credential at all — the gap RAVIS's own stabilization work found. It does not stop a
+  local process that can already reach NERVIS's port, because the token sits in the page
+  NERVIS serves with no login of its own; a reader of that page could already do anything
+  the page can do. `tools/check_clean_clone.sh` (`nervis pytest`) now also asserts the
+  gated set is complete — every route reading `settings.ravis_admin_credential` requires
+  the token — derived from the route table rather than a hand-kept list, so a new
+  mutation added without the guard fails the build rather than shipping quietly.
 
 ## Compatibility
 

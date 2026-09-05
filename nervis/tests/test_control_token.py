@@ -146,3 +146,107 @@ def test_two_processes_do_not_share_a_token(tmp_path: Any) -> None:
             made.append(token_of(client))
     assert made[0] != made[1]
     assert all(len(token) >= 32 for token in made)
+
+
+def test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated() -> None:
+    """`MUTATIONS` above is a list a route can fall off of. This is the gate.
+
+    **Not "any non-GET route under `/api/v1/ravis`."** `/api/v1/ravis/{surface}`
+    accepts POST too — §14.3's negotiated recommendations take a body — and reads
+    nothing of RAVIS's configuration; gating it would refuse a read for holding no
+    control token, which is exactly the console-that-asks-for-a-credential mistake
+    this module's own docstring rejects. The line that actually matters is whether
+    a route's handler ever reaches `settings.ravis_admin_credential` — that value
+    is RAVIS's own configuration authority, and any code path holding it can act on
+    RAVIS's behalf whether or not it happens to arrive by PUT, POST or DELETE.
+
+    **Found by walking the real route table, not a copy of it.** FastAPI wraps an
+    included router lazily now; `_IncludedRouter.original_router` is the escape
+    hatch back to routes with a normal `.dependant` on them. A handler is said to
+    "reach" the credential when its compiled bytecode names it — `co_names` holds
+    every attribute FastAPI's dependency injection could not have hidden, since
+    the reference has to survive to be read at all.
+
+    **Proved to fail, not just written to pass.** Commenting out `require_control`
+    on any one of the six turns this red; the module's other tests only prove the
+    six that already remember to ask are guarded; this is the one that would have
+    noticed a seventh that forgot.
+    """
+    from fastapi.routing import _IncludedRouter
+
+    from nervis.api.control import require_control
+    from nervis.app import create_app
+    from nervis.config import Settings
+
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=":memory:", workspace_path="/tmp",
+        served_hosts=["127.0.0.1", "localhost", "::1", "testserver"],
+        _env_file=None,
+    )
+    app = create_app(settings)
+
+    def touches_the_credential(route: Any) -> bool:
+        code = getattr(getattr(route, "endpoint", None), "__code__", None)
+        return code is not None and "ravis_admin_credential" in code.co_names
+
+    def gated(route: Any) -> bool:
+        dependant = getattr(route, "dependant", None)
+        return dependant is not None and any(
+            dependency.call is require_control for dependency in dependant.dependencies
+        )
+
+    ravis_routes = [
+        route
+        for included in app.routes
+        if isinstance(included, _IncludedRouter)
+        for route in included.original_router.routes
+        if getattr(route, "path", "").startswith("/api/v1/ravis")
+    ]
+    # If FastAPI's internals move again, this fails loudly rather than passing on
+    # an empty list — the same "would pass vacuously" guard the milestone-state
+    # check in test_m4_chat.py carries for the same reason.
+    assert len(ravis_routes) >= len(MUTATIONS), (
+        f"found only {len(ravis_routes)} /api/v1/ravis routes; the real table has "
+        f"at least {len(MUTATIONS)} — route discovery is broken, not the gate"
+    )
+
+    ungated = [
+        f"{sorted(route.methods - {'HEAD'})} {route.path}"
+        for route in ravis_routes
+        if touches_the_credential(route) and not gated(route)
+    ]
+    assert not ungated, (
+        "these routes read settings.ravis_admin_credential and do not require "
+        f"the control token: {ungated}"
+    )
+
+    # And the reverse mistake, so `MUTATIONS` cannot silently drift ahead of the
+    # code: every literal example above has to land on a route that touches the
+    # credential, or the list is exercising something that has moved. Matched
+    # through Starlette's own path compiler rather than string equality, because
+    # `MUTATIONS` holds instantiated examples ("providers/openai/enabled") and the
+    # route table holds templates ("providers/{name}/enabled").
+    from starlette.routing import compile_path
+
+    credentialed = [route for route in ravis_routes if touches_the_credential(route)]
+    for method, literal_path, _ in MUTATIONS:
+        landed = [
+            route for route in credentialed
+            if method in route.methods and compile_path(route.path)[0].match(literal_path)
+        ]
+        assert landed, (
+            f"{method} {literal_path} in MUTATIONS matches no route that touches "
+            "the credential — the list is testing a path that has moved"
+        )
+    # And nothing touches the credential that MUTATIONS never named at all.
+    unnamed = [
+        route for route in credentialed
+        if not any(
+            method in route.methods and compile_path(route.path)[0].match(literal_path)
+            for method, literal_path, _ in MUTATIONS
+        )
+    ]
+    assert not unnamed, (
+        f"these routes touch the credential and are not in MUTATIONS: "
+        f"{[(sorted(r.methods - {'HEAD'}), r.path) for r in unnamed]}"
+    )

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2341 tests, no network, no live service
+.venv/bin/pytest                      # part of 2342 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 865 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 866 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2341 passing across the four, conformance `PASS`.
+Expected: all clean, 2342 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12940,6 +12940,50 @@ including the Bridge-disabled proof and the five new ones for the handoff file, 
 outside the only gate that runs. Adding them means the gate downloads a VS Code
 build, which is a real cost to weigh rather than a line to slip in; noted here so it
 is a decision somebody makes rather than a gap nobody sees.
+
+## §15's safety-gate line, closed to what it can actually prove — 2026-09-05
+
+**Reverifying against §15 found the control-token guard was a list agreeing with itself
+by construction.** `nervis/tests/test_control_token.py` wrote the six gated RAVIS routes
+out as a literal tuple, with its own comment saying why: "a list built from the code
+under test agrees with it by construction." True, and beside the point — it proves the
+six that remember to ask for the token are guarded, and says nothing about a seventh
+that does not, which is exactly the shape of mistake a guard added under time pressure
+tends to make.
+
+**The gate now walks the real route table.** FastAPI wraps an included router lazily in
+this version — `app.routes` holds `_IncludedRouter` wrappers, not flat routes — so the
+test reaches through `.original_router` to get to real `APIRoute` objects with a normal
+`.dependant`. A route is judged not by its HTTP verb but by whether its handler's
+compiled bytecode names `ravis_admin_credential`: `/api/v1/ravis/{surface}` also answers
+POST, for §14.3's negotiated recommendations, and touches nothing of RAVIS's
+configuration — gating it by verb alone would have refused a read for holding no control
+token, the console-that-asks-for-a-credential mistake the module's own docstring already
+rejects. Six routes touch the credential; all six are gated; the two that answer POST for
+other reasons are not, correctly. The literal `MUTATIONS` tuple stays, now cross-checked
+against the derived set through Starlette's own path compiler rather than deleted, so it
+still fails first and points at the exact route.
+
+**Proved twice.** Removing `require_control` from one of the six existing routes fails
+the new assertion, as expected. The test this was actually written for is the other
+direction: I added a seventh mutating route that reads the credential and carries no
+guard, and the new test caught it where the old one structurally could not — the old
+tuple has no way to know a route it was never told about exists. Both changes reverted;
+`git status` clean throughout.
+
+**The checklist line itself was unconditional; the property is not.** §15's "NERVIS
+cannot bypass a Clarvis or RAVIS safety gate" read as a flat claim. The Clarvis half is
+structural — the Bridge refuses every non-GET method before path matching, so there is no
+write path to route around. The RAVIS half is real but narrower: the token stops a
+cross-origin page from issuing a mutation with no credential at all, which is the gate
+that was missing until 5 September. It is not authentication — the token sits in an
+unauthenticated page, so a local process that can already reach NERVIS's port can read it
+and use it, exactly as it could already reach anything else that process can reach. This
+was already stated honestly in `nervis/src/nervis/api/control.py`'s own docstring and
+nowhere the checklist reads it; the line now carries the same distinction, so a reader of
+`ECOSYSTEM_RUNBOOK.md` gets the same answer as a reader of the code.
+
+NERVIS 0.23.1. `nervis/tests/test_control_token.py` now 23 tests, all passing.
 
 ## Starting the thing
 

@@ -1082,7 +1082,18 @@ may only add product-specific detail beside the required state.
       SecretStorage are unchanged.
 - [ ] Multiple Clarvis instances remain isolated.
 - [ ] NERVIS negotiates actual capabilities; no UI assumes a missing API.
-- [ ] NERVIS cannot bypass a Clarvis or RAVIS safety gate.
+- [ ] NERVIS cannot bypass a Clarvis or RAVIS safety gate. *The Clarvis half is
+      structural: the Bridge refuses every non-GET method before path matching, so no
+      write path exists for NERVIS to route around (`clarvis/src/bridge/server.ts`).
+      The RAVIS half is a control token required on the six configuration mutations
+      NERVIS proxies (`nervis/src/nervis/api/control.py`, `tools/check_clean_clone.sh`
+      via `nervis pytest`) — it stops a cross-origin page from issuing them with no
+      credential at all, which is the gate that was missing. It is not authentication:
+      the token is minted per process and embedded in NERVIS's own unauthenticated
+      page, so a local process able to reach NERVIS's port can read it and use it, the
+      way it could already reach anything else that process can reach. That boundary
+      is the operating system's, stated rather than assumed — see `nervis/src/nervis/
+      api/control.py`'s own docstring.*
 - [ ] code-server compatibility is evidenced for every supported matrix cell.
 - [ ] Pairwise and full E2E suites pass against real services.
 - [ ] The failure/degradation matrix passes with no unsafe failover.
