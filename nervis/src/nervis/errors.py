@@ -87,6 +87,26 @@ class ControlTokenRequiredError(NervisError):
     status = 403
 
 
+class CrossOriginMutationRefusedError(NervisError):
+    """A state-changing request arrived from somewhere that is not this page.
+
+    **A different threat than `HostRejectedError`'s.** The Host check catches a
+    page whose *own* hostname has been re-pointed at this machine — the request
+    still looks same-origin to the browser, and only the literal `Host` string
+    gives it away. This catches the ordinary case that check cannot: a page
+    genuinely served from another origin, making an ordinary cross-origin
+    `fetch()`, which needs no rebinding and no vulnerability of its own — only a
+    server that acts on a request without checking where it came from.
+
+    403 rather than 401 for the same reason `ControlTokenRequiredError` is: this
+    is not a credential the caller could go and present differently. The
+    request is refused because of what it *is*, not what it is missing.
+    """
+
+    code = "CROSS_ORIGIN_MUTATION_REFUSED"
+    status = 403
+
+
 class RefusedError(NervisError):
     """A well-formed request that breaks a rule NERVIS enforces.
 

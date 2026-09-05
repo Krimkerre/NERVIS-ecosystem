@@ -4,12 +4,19 @@ Assembly only. Every decision this file makes is about wiring — what exists,
 in what order, sharing what state — and none of it is about behaviour, which
 lives in the modules being wired.
 
-**No CORS middleware, and that is a decision rather than an omission.** NERVIS
-serves the dashboard and the dashboard's own API from one origin, so its
-requests are same-origin and CORS never enters the picture. The dashboard's
-cross-origin reads go to RAVIS and SIRVIS, which each carry the allowlist that
-governs them. Adding a third copy here would be a header nobody's browser ever
-sends a request past.
+**No CORS middleware — and that reasoning was wrong once, reverifying §15
+found the hole it left.** NERVIS serves the dashboard and the dashboard's own
+API from one origin, so its own requests are same-origin and reading a
+response back needs nothing added. What this file said next did not follow
+from that: *"a header nobody's browser ever sends a request past"* — but CORS
+response headers govern whether a page's script may *read* a response, never
+whether the browser sends the request or whether a server acts on it. A page
+on another origin can `fetch()` a state-changing route here with a body shaped
+like a "simple request" and no server-side check ever saw it coming, which was
+verified live against every route in this file except the six the control
+token already covers. `nervis.api.origin_guard` closes it — checked in
+`_register_correlation`, beside the Host check that solves the adjacent and
+different problem of a page whose own hostname has been re-pointed here.
 """
 
 from __future__ import annotations
@@ -63,7 +70,13 @@ from nervis.ecosystem import (
     nervis_surface,
 )
 from nervis.enrollment import load_or_create
-from nervis.errors import HostRejectedError, NervisError, to_response
+from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
+from nervis.errors import (
+    CrossOriginMutationRefusedError,
+    HostRejectedError,
+    NervisError,
+    to_response,
+)
 from nervis.events import Hub
 from nervis.instances import Instances
 from nervis.probes import probe
@@ -285,6 +298,11 @@ def _register_correlation(api: FastAPI) -> None:
     the one most likely to be tempted to trust one.
     """
 
+    # Computed once, not per request: `served_hosts` and the port are fixed for
+    # the life of this process, and the values a legitimate `Origin` can carry
+    # do not change between one request and the next.
+    same_origin = expected_origins(api.state.settings.served_hosts, api.state.settings.port)
+
     @api.middleware("http")
     async def correlate(request: Request, call_next: NextCall) -> Any:
         # **The Host check first, before anything reads the request (§16 item 5).**
@@ -304,6 +322,20 @@ def _register_correlation(api: FastAPI) -> None:
             # anything reads it. `to_response` tolerates the absence.
             return to_response(
                 request, HostRejectedError("Host is not allow-listed", host=host)
+            )
+        # **The check the Host check cannot make (`nervis.api.origin_guard`).**
+        # A page genuinely served from another origin needs no rebinding at
+        # all — it reaches this address directly, and its request carries that
+        # origin honestly. Refused here, before anything reads the request, for
+        # the same reason the Host check is: a request this service will not
+        # act on should not get as far as acting on it.
+        if refuses_cross_origin_mutation(request.method, request.headers, same_origin):
+            return to_response(
+                request,
+                CrossOriginMutationRefusedError(
+                    "this request did not come from this page",
+                    method=request.method,
+                ),
             )
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
         # The **trace id**, not the whole header. §11.2 joins events from

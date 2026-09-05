@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2343 tests, no network, no live service
+.venv/bin/pytest                      # part of 2366 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 866 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 889 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2343 passing across the four, conformance `PASS`.
+Expected: all clean, 2366 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -13114,6 +13114,65 @@ Wired into `tools/check_clean_clone.sh`'s dashboard-gate loop, which the header
 comment now correctly calls twenty rather than nineteen.
 
 NERVIS 0.23.2.
+
+## A page on another origin could mutate this service — 2026-09-05
+
+**Raised by another model reading this repository, and it was right, though
+narrower than it first read.** The claim was that hostile browser pages could
+reach "currently unprotected supervision/chat routes through browser-friendly
+requests." Checked rather than trusted: it understated the scope (at least ten
+route files share the defect, not two) and did not test the worst-sounding
+consequence, which turned out not to hold.
+
+**Confirmed live, against the real app, before anything was fixed.** Every
+mutating route parses its body with `json.loads(await request.body())` or
+`request.json()` — neither reads `Content-Type`. A `fetch()` sent with
+`Content-Type: text/plain` is a browser "simple request": no CORS preflight,
+sent regardless of what the server would answer. A forged `Origin` header and
+a `text/plain` body containing JSON flipped NERVIS's supervision switch and
+wrote an attacker-chosen executable and argument list into the adapter table
+— through the real app, nothing refusing it. `app.py`'s own former reasoning
+for skipping CORS said *"a header nobody's browser ever sends a request
+past"*; that is false — CORS response headers govern whether a page's script
+may *read* a response, never whether the browser sends the request or the
+server acts on it.
+
+**Then checked whether the scariest chain actually completes, and it does
+not.** Configuring a fake service's executable as `/bin/bash` with `args:
+["-c", "<anything>"]`, then asking to start it, was tried live. Every declared
+service — `nervis`, `ravis`, `sirvis` — defaults to `ownership=EXTERNAL`, and
+grepping the whole codebase found nothing that ever assigns
+`ownership=NERVIS_MANAGED` to any of them. `may_control()` refuses
+unconditionally for anything not `nervis_managed`: *"sirvis is external —
+NERVIS observes it and never controls it."* So there is no remote-code-
+execution path today. The unauthenticated write into the adapter table still
+happened, and is a landmine rather than a live gun: it becomes one the day
+that ownership default changes without this being re-examined.
+
+**`nervis/src/nervis/api/origin_guard.py` closes the write path, in one place
+rather than ten.** `Sec-Fetch-Site` is checked first — a browser sets it and a
+page cannot override it, so `cross-site` is unambiguous — falling back to
+`Origin` for older clients, and treating the absence of both as what it is:
+not a browser request subject to fetch metadata or CORS at all, the same
+"co-resident process is an OS boundary" reasoning `nervis/src/nervis/api/
+control.py` already states for the control token. Wired into
+`_register_correlation`, beside the Host check that solves the *different*
+problem of a page whose own hostname has been re-pointed at this machine —
+that check reads `Host`, which a rebound page still sends honestly; this one
+reads what a browser reports about where the *request* came from, which a
+rebound page also still reports honestly, and a genuinely foreign origin
+cannot fake.
+
+**Proved by disabling the check and watching seven tests fail**, across five
+different route files reached through one middleware, then restored. The
+original live proof-of-concept — enable, then configure `sirvis` with a bash
+payload — is its own regression test, both steps required to refuse.
+`nervis/tests/test_origin_guard.py`: 23 tests. Reads stay open cross-origin,
+unchanged; the dashboard's own same-origin calls are unaffected, checked both
+as `TestClient`'s header-free default and as a real browser's
+`Sec-Fetch-Site: same-origin`.
+
+NERVIS 0.23.3. Suite: 889 tests.
 
 ## Starting the thing
 

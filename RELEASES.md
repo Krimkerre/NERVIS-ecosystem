@@ -91,7 +91,29 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.2
+## NERVIS — 0.23.3
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **A page on another origin could mutate this service, and now cannot.** The control
+  token protects six RAVIS-proxy routes; every other state-changing route — supervision,
+  chat, background jobs, settings import, proposals, and more — checked nothing about
+  where a request came from. This module's own reasoning for skipping CORS argued *"a
+  header nobody's browser ever sends a request past"*, which does not hold: CORS response
+  headers govern whether a page's script may read a response, never whether the browser
+  sends the request or the server acts on it. Verified live before the fix: a forged
+  `Origin` and a `Content-Type: text/plain` body — a browser "simple request", no
+  preflight — flipped the supervision switch and wrote an attacker-chosen executable and
+  argument list into the adapter table. **Not remote code execution**: every declared
+  service defaults to `ownership=EXTERNAL`, and nothing in this codebase grants
+  `nervis_managed`, so the launch step that would run that executable refuses
+  unconditionally today — but the write went through unchecked regardless, and would
+  become one the day that default changes without this being re-examined.
+  `nervis.api.origin_guard` checks `Sec-Fetch-Site` (falling back to `Origin`) on every
+  non-`GET`/`HEAD`/`OPTIONS` request, refusing anything that reads as cross-origin while
+  leaving every read, and every non-browser caller, untouched.
+
+### 0.23.2
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
