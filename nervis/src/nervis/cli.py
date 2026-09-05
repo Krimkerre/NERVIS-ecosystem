@@ -191,6 +191,15 @@ def _restore(settings: Settings, version: int | None) -> int:
         return EXIT_FATAL_CONFIGURATION
 
     print("stop the service before restoring; a running one holds its own connection")
-    restored = restore_backup(database, version)
+    try:
+        restored = restore_backup(database, version)
+    except (FileNotFoundError, OSError) as refusal:
+        # **The sentence, not the traceback.** `restore_backup` refuses a
+        # version it cannot find with a message naming the versions that do
+        # exist, and nothing caught it — so the one command an operator reaches
+        # for while something is already wrong answered with a stack trace and
+        # buried the useful line inside it.
+        print(refusal)
+        return EXIT_FATAL_CONFIGURATION
     print(f"{database} restored to schema version {restored}")
     return EXIT_OK

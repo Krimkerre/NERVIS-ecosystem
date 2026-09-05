@@ -92,3 +92,30 @@ def test_results_latest_says_so_when_nothing_has_been_measured(
     assert main(["results", "latest"]) == 0
 
     assert "no benchmark runs" in capsys.readouterr().out
+
+
+def test_restoring_a_version_that_has_no_backup_says_so_rather_than_crashing(  # noqa: ANN001
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The same defect NERVIS and RAVIS had, in the same command.
+
+    `restore_backup` refuses a missing version with a sentence naming the
+    versions that exist, and no CLI caught it — so the command an operator
+    reaches for while something is already wrong answered with a traceback.
+    """
+    import shutil
+
+    from sirvis.cli import EXIT_FATAL_CONFIGURATION, main
+    from sirvis.storage.database import prepare_database
+
+    database = tmp_path / "sirvis.db"
+    monkeypatch.setenv("SIRVIS_DATABASE_PATH", str(database))
+    prepare_database(str(database))
+    shutil.copyfile(database, database.with_name(f"{database.name}.v1.bak"))
+
+    code = main(["restore-database", "--version", "9999"])
+
+    assert code == EXIT_FATAL_CONFIGURATION
+    said = capsys.readouterr().out
+    assert "no backup at version 9999" in said
+    assert "Traceback" not in said

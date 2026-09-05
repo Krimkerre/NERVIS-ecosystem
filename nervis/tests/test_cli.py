@@ -6,12 +6,14 @@ every test here runs with no peer, no dashboard assumption and a fresh database.
 
 from __future__ import annotations
 
+import shutil
 from typing import Any
 
 import pytest
 
 from nervis.cli import EXIT_FATAL_CONFIGURATION, EXIT_OK, main
 from nervis.storage import MIGRATIONS
+from nervis.storage.database import prepare_database
 
 
 def test_doctor_succeeds_with_nothing_else_running(monkeypatch, tmp_path, capsys) -> None:  # noqa: ANN001
@@ -137,3 +139,31 @@ def test_doctor_names_a_refused_endpoint(  # noqa: ANN001
 
     assert "REFUSED" in printed
     assert "not loopback" in printed
+
+
+def test_restoring_a_version_that_has_no_backup_says_so_rather_than_crashing(  # noqa: ANN001
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The command an operator actually types, through `main()`.
+
+    `restore_backup` refuses a missing version with a `FileNotFoundError`
+    carrying a sentence that names the versions that *do* exist — and no CLI
+    caught it, so the operator got a traceback instead of the sentence. The
+    rollback library is tested nine ways per package; the command was tested
+    none, which is how a good error message stayed invisible.
+    """
+    monkeypatch.setenv("NERVIS_DATABASE_PATH", str(tmp_path / "nervis.db"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    database = tmp_path / "nervis.db"
+    prepare_database(str(database))
+    # One backup beside it, named the way the migration path names them, so the
+    # command gets past "nothing to restore" and reaches the version it cannot
+    # find — which is the branch that raised.
+    shutil.copyfile(database, database.with_name(f"{database.name}.v1.bak"))
+
+    code = main(["restore-database", "--version", "9999"])
+
+    assert code == EXIT_FATAL_CONFIGURATION
+    said = capsys.readouterr().out
+    assert "no backup at version 9999" in said
+    assert "Traceback" not in said

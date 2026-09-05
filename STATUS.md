@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2310 tests, no network, no live service
+.venv/bin/pytest                      # part of 2313 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 843 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2310 passing across the four, conformance `PASS`.
+Expected: all clean, 2313 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,24 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## The one command an operator runs while something is already wrong — 2026-09-05
+
+**`restore-database --version` answered with a traceback, in all three
+services.** `restore_backup` refuses a version it cannot find with a sentence
+naming the versions that do exist — the careful message was already written —
+and no CLI caught the exception carrying it. So the command somebody reaches for
+*because* something has gone wrong printed "stop the service before restoring",
+then a stack trace, with the useful line buried inside it.
+
+The rollback library is tested nine ways per package. The command an operator
+actually types was tested none, in any of the three, which is exactly how a good
+error message stays invisible: everything around it is covered, and the path
+between the library and the person is not.
+
+Each CLI now catches it, prints the sentence, and exits `EXIT_FATAL_CONFIGURATION`
+— and each package has a test that drives `main()` with a version that does not
+exist and asserts the words appear and "Traceback" does not.
 
 ## Retried forever, at a fixed interval, by every producer at once — 2026-09-05
 
