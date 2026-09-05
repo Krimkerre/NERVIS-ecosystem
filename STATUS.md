@@ -25,14 +25,14 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2305 tests, no network, no live service
+.venv/bin/pytest                      # part of 2310 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 56 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 456 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 ```
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 842 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2305 passing across the four, conformance `PASS`.
+Expected: all clean, 2310 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -11964,6 +11964,40 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     mypy    all four packages clean
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
+
+## Retried forever, at a fixed interval, by every producer at once — 2026-09-05
+
+**§10 requires retriable operations to be "bounded and jittered"; the event
+publisher was neither.** A failed batch went back to the front of its buffer and
+was re-posted on the next two-second tick, indefinitely. The *buffer* is bounded
+— the deque drops the oldest and says so — but the attempts never were, so a
+collector down for an hour was asked eighteen hundred times by each producer.
+And the interval was fixed: RAVIS and SIRVIS lose the same collector in the same
+instant, so their retries stayed in lockstep for the whole outage and arrived
+together, hardest at the moment it was coming back up. That is the herd the
+specification's one word guards against, and grepping the ecosystem for `jitter`
+returned nothing at all.
+
+The wait now doubles per consecutive failure, capped at thirty seconds — a
+ceiling because the thing being waited for is a local process somebody may have
+just restarted, and a producer that has backed off to minutes reports an outage
+that ended long ago. Jitter is multiplicative and half-to-full rather than
+zero-to-full: a jitter that can return almost nothing turns the first failure
+into a busy loop. Success puts the plain interval straight back.
+
+The jitter source is injectable, so the five tests pin it and assert the shape:
+each failure waits longer, the wait is capped, two producers that failed together
+wait differently, and a recovery restores the interval. The backoff itself leaves
+no log line — the publisher logs on buffer overrun, not per failure — so its
+evidence is the tests rather than a live trace, and what the live run shows is
+that the loop survives an outage and delivers afterwards: three RAVIS events in
+the hub after NERVIS was killed and restarted, carrying the session and version
+fields added earlier today.
+
+**And the clean-clone gate has a green run at last.** `41 passed, 0 failed`,
+including the two gates wired into it this afternoon. The only run this file had
+previously recorded (2 September) failed, and none since had been recorded at
+all — which is what let three gate failures sit undiscovered until this morning.
 
 ## A rule that was verified only by nobody having broken it — 2026-09-05
 

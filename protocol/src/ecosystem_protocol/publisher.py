@@ -39,7 +39,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from collections import deque
+from collections.abc import Callable
 from typing import Any, Mapping, Protocol
 
 from ecosystem_protocol.events import envelope
@@ -47,6 +49,11 @@ from ecosystem_protocol.events import envelope
 LOG = logging.getLogger("ecosystem.publisher")
 
 # How many events wait for a collector that is not answering. Two hundred and
+#: The ceiling on a retry wait. Thirty seconds because the thing being waited
+#: for is a local process a person may have just restarted, and a producer that
+#: has backed off to minutes reports an outage that ended long ago.
+MAX_BACKOFF_SECONDS = 30.0
+
 # fifty-six matches the hub's own subscriber buffer, for the same reason it
 # picked that number: enough to ride out a restart, not enough to matter if it
 # is never drained.
@@ -86,6 +93,7 @@ class EventPublisher:
         machine_id: str = "",
         base_url: str = "",
         buffer: int = DEFAULT_BUFFER,
+        jitter: Callable[[], float] | None = None,
     ) -> None:
         self.service_type = service_type
         self.service_id = service_id
@@ -93,6 +101,10 @@ class EventPublisher:
         self.machine_id = machine_id
         self._base_url = base_url.rstrip("/")
         self._pending: deque[dict[str, Any]] = deque(maxlen=buffer)
+        self._consecutive = 0
+        # Injectable so a test can pin it. `random.random` is the default rather
+        # than a parameter every caller has to remember to pass.
+        self._jitter = jitter or random.random
         self._published = 0
         self._dropped = 0
         self._failures = 0
@@ -183,6 +195,39 @@ class EventPublisher:
         self._last_error = ""
         return len(batch)
 
+    def note_failure(self) -> None:
+        """One more consecutive failure, for the next wait to answer."""
+        self._consecutive += 1
+
+    def note_success(self) -> None:
+        """Back to the ordinary interval. A producer that has recovered stops
+        apologising for an outage that is over."""
+        self._consecutive = 0
+
+    def wait(self, *, every: float) -> float:
+        """How long before the next attempt, given how the last ones went.
+
+        **§10: "Retriable operations are bounded and jittered."** This loop was
+        neither. A failed batch went back to the front of the buffer and was
+        re-posted on the next fixed tick, forever — bounded in memory by the
+        deque and unbounded in attempts, so a collector that was down for an
+        hour was asked eighteen hundred times by each producer, hardest at the
+        moment it was coming back up.
+
+        Doubling is bounded by `MAX_BACKOFF_SECONDS`, because a wait that grows
+        without a ceiling answers a long outage by having stopped checking.
+        Jitter is multiplicative and applied to the whole wait: RAVIS and SIRVIS
+        lose the same collector in the same instant, and without it their
+        retries stay in lockstep for the length of the outage and arrive
+        together — which is the herd the specification's word guards against.
+        """
+        if self._consecutive == 0:
+            return every
+        grown = min(every * (2 ** self._consecutive), MAX_BACKOFF_SECONDS)
+        # Half to full, rather than zero to full: a jitter that can return
+        # almost nothing turns the first failure into a busy loop.
+        return float(grown * (0.5 + 0.5 * self._jitter()))
+
     async def run(self, client: _Poster, *, every: float = 2.0) -> None:
         """Drain forever. Cancellation is the ordinary way this ends.
 
@@ -193,9 +238,16 @@ class EventPublisher:
         """
         while True:
             try:
-                await asyncio.sleep(every)
+                await asyncio.sleep(self.wait(every=every))
+                sent = 0
                 while await self.flush(client):
-                    pass
+                    sent += 1
+                # A drain that moved nothing while events are waiting is the
+                # collector refusing them; `flush` has already recorded why.
+                if sent or not self._pending:
+                    self.note_success()
+                else:
+                    self.note_failure()
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - the loop outlives its failures

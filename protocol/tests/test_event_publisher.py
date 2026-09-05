@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from ecosystem_protocol import EventPublisher, envelope, redact_deep, stable_event_id
-from ecosystem_protocol.publisher import DEFAULT_BUFFER
+from ecosystem_protocol.publisher import DEFAULT_BUFFER, MAX_BACKOFF_SECONDS
 
 
 class Collector:
@@ -285,3 +285,62 @@ def test_a_disabled_publisher_reports_nothing() -> None:
 
     assert publisher.snapshot()["dropped"] == 0
     del logging
+
+
+# ── Backing off, because §10 asks for it ────────────────────────────────────
+
+
+def test_a_healthy_collector_is_polled_at_the_plain_interval() -> None:
+    """Backoff is a response to failure, not a tax on the ordinary case."""
+    publisher = a_publisher()
+    assert publisher.wait(every=2.0) == 2.0
+
+
+def test_each_consecutive_failure_waits_longer() -> None:
+    """§10: "Retriable operations are bounded and jittered."
+
+    The publisher re-posted a failed batch every two seconds forever — bounded in
+    memory by the buffer, unbounded in attempts, and at a fixed interval. With
+    the collector down, two producers hammered it in step for as long as the
+    outage lasted, and hit it hardest at the moment it was coming back up.
+    """
+    publisher = a_publisher(jitter=lambda: 1.0)
+    waits = []
+    for _ in range(5):
+        publisher.note_failure()
+        waits.append(publisher.wait(every=2.0))
+    assert waits == sorted(waits)
+    assert waits[0] > 2.0
+    assert waits != [waits[0]] * len(waits)
+
+
+def test_the_wait_is_capped_so_recovery_is_not_hours_away() -> None:
+    """Doubling without a ceiling means an outage of an hour is answered by a
+    producer that has stopped checking. The cap is what keeps recovery prompt."""
+    publisher = a_publisher(jitter=lambda: 1.0)
+    for _ in range(50):
+        publisher.note_failure()
+    assert publisher.wait(every=2.0) <= MAX_BACKOFF_SECONDS
+
+
+def test_jitter_separates_two_producers_that_failed_together() -> None:
+    """RAVIS and SIRVIS lose the same collector at the same instant.
+
+    Without jitter their retries stay in lockstep for the whole outage and
+    arrive together — which is the thundering herd §10's word guards against,
+    and is worst exactly when the collector is coming back.
+    """
+    one, two = a_publisher(jitter=lambda: 0.5), a_publisher(jitter=lambda: 1.0)
+    one.note_failure()
+    two.note_failure()
+    assert one.wait(every=2.0) != two.wait(every=2.0)
+
+
+def test_a_success_puts_the_interval_back() -> None:
+    """The producer that recovers stops apologising for the outage."""
+    publisher = a_publisher(jitter=lambda: 1.0)
+    for _ in range(4):
+        publisher.note_failure()
+    assert publisher.wait(every=2.0) > 2.0
+    publisher.note_success()
+    assert publisher.wait(every=2.0) == 2.0
