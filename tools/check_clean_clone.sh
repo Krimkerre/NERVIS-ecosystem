@@ -130,6 +130,10 @@ step "released schemas"        nervis-eco python tools/schema_check.py
 # The gate parses that sentence, so a condition added to the runbook and not to
 # the matrix fails here rather than being noticed by nobody.
 step "degradation matrix"      nervis-eco python tools/check_degradation.py
+# §13.4's pairwise gate, against a real SIRVIS. The suite that claimed to be it
+# served hand-authored payloads through a mock, so a renamed SIRVIS field left it
+# passing while routing stopped seeing evidence.
+step "sirvis→ravis pairwise"   nervis-eco python tools/pairwise_check.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

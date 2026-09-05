@@ -12014,6 +12014,58 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
 
+## §13.4's pairwise gate, against a SIRVIS that is actually there — 2026-09-05
+
+**The gate existed and its fixtures did not come from SIRVIS.** §13.4 asks that
+*"real SIRVIS measured, estimated, unknown, stale, tombstoned, runtime-down and
+unsupported-major fixtures produce deterministic route effects"*, and
+`ravis/tests/test_sirvis_evidence.py` says in its own docstring that it is that
+gate. It serves seven hand-authored payloads through `httpx.MockTransport`. That
+proves RAVIS's *reader* copes with seven shapes; it cannot prove SIRVIS emits
+them. Rename a field in SIRVIS and those tests keep passing while routing stops
+seeing evidence — two descriptions of one contract again, one enforced by tests
+and the other by nobody.
+
+`tools/pairwise_check.py` files each state into a real SIRVIS application and
+reads it back with RAVIS's own `EvidenceStore` over an ASGI transport. The record
+is built from SIRVIS's dataclasses, its rate comes from SIRVIS's own trial
+harness, and it is stored through the `create_experiment` → `start_run` →
+`finish_run` path a benchmark uses. Nothing between the two is written by the
+gate.
+
+**The first run failed, and the failure was the point.** Every measured state
+came back *"no SIRVIS evidence for this build"* — because the record carried a
+variant id this file invented, and evidence is filed by *variant* while RAVIS
+queries by *runtime key*. The mapping between them needs §6's inventory, which is
+SIRVIS's. The gate now asks SIRVIS for the id rather than deriving one, which is
+the same lesson in miniature: a fixture that does not come from the service is a
+fixture about nothing.
+
+Proved it bites by renaming `phrasings` to `phrasing_count` in SIRVIS's evidence
+serialisation. The pairwise gate fails; the mock-based suite passes unchanged.
+
+**Two states are deterministic and not distinct, and the gate says so.** RAVIS
+never reads the `tombstones` key, so a withdrawn measurement and one that never
+existed produce the same route effect — while `SIRVIS.md` §15.1 says the
+tombstone exists precisely because *"a build with no evidence and a build whose
+evidence was withdrawn are indistinguishable on every other surface, and lead to
+different decisions"*. Runtime-down is the same shape: SIRVIS answers
+`unresolved_candidates` to say it could not ask the runtime, and RAVIS reads only
+`items`. §13.4 asks for deterministic effects and gets them. It does not get
+distinguishable ones, and that is now asserted as it is rather than glossed.
+
+**What is still not real, said rather than implied.** The numbers are not
+measured — a genuine tool-call rate needs a model, and a gate that loaded one
+would not run from a clean clone. SIRVIS's own harness is driven against a
+scripted runtime, so `phrasings`, `repetitions`, `outcomes` and the method string
+are derived by SIRVIS from scripted deltas; the failing script drops the
+arguments, which is the real failure mode this machine has seen and which SIRVIS
+names `lost-arguments`. The live measured path stays `tools/acceptance_run.py`'s
+job. An unsupported protocol major cannot be produced by a real SIRVIS at all —
+the version is a module constant, deliberately, because "a protocol version that
+two services disagree about is not a protocol" — so that one state is forced by
+rebinding it, and the file says so where it does it.
+
 ## Nineteen failure conditions, named in one sentence and scored nowhere — 2026-09-05
 
 **§10 is the failure and graceful-degradation matrix and it was never a matrix.**
