@@ -41,22 +41,36 @@ SPECS = ("NERVIS.md", "RAVIS.md", "SIRVIS.md")
 ROW = re.compile(r"^\|\s*\*\*(M\d+[a-z]?)\*\*")
 MAPPING_HEADING = re.compile(r"^##\s+\d+\.\d+\s+Ecosystem gate mapping")
 
-# §14.8's four states, and the binary tick they replace.
+# **`CLARVIS.md` is named by §14.8 and was read by nothing.** Its milestones are
+# headings rather than table rows — `### E-C8 ✅ — Receiving a task from NERVIS` —
+# so every check above walked straight past them, and the last surviving `✅` in
+# the ecosystem sat in the one document the gate could not see. The shape is
+# different; the rule is the same, and a rule that stops at a file format is a
+# rule with a hole in it.
+CLARVIS = "CLARVIS.md"
+CLARVIS_MILESTONE = re.compile(r"^###\s+(E-C\d+)\s*(.*?)\s*—")
+
+# §14.8's four states, and the binary tick they replaced.
 #
-# **A ratchet, not a sweep.** 64 rows still carry `✅`, and converting them all
-# would mean asserting a state for each — that a milestone is merely
-# IMPLEMENTED, or AUTOMATED VERIFIED, or actually LIVE VERIFIED. §16 item 11 is
-# explicit that those may be applied "only to rows independently reverified as
-# wrong, not the audit's list at face value", and §14.6 records what happens
-# here when a number is copied rather than run. Relabelling 64 milestones from a
-# desk would be exactly that, at scale.
+# **The ratchet reached its floor, and the floor is where it stays.** Sixty-four
+# rows carried `✅` for as long as §14.8 had existed, tolerated under a ceiling
+# that could fall and never rise, because converting them meant asserting for
+# each whether a milestone is merely IMPLEMENTED, AUTOMATED VERIFIED, or
+# actually LIVE VERIFIED — and §16 item 11 was explicit that a state may be
+# applied "only to rows independently reverified", never relabelled from a desk.
+# So they were reverified: every row read against its own acceptance column, on
+# the evidence that exists for it, with the weakest clause naming the state.
+# Twenty-one were live, twenty-nine had a test and no live run behind them, and
+# fourteen turned out to be code with nothing exercising the criterion at all —
+# which is precisely the distinction one checkmark could not make, and the reason
+# it stopped being enough.
 #
-# So the count may fall and may not rise, the same shape as the complexity and
-# liveness ratchets. A row touched for any other reason gets its real state on
-# the way past, and the ceiling comes down with it.
+# There is no ceiling any more because there is nothing left to tolerate. A row
+# arriving with `✅` is now a regression rather than a leftover, and it fails
+# here on the commit that adds it, while the person adding it still knows which
+# of the four states is true.
 STATES = ("IMPLEMENTED", "AUTOMATED VERIFIED", "LIVE VERIFIED", "BLOCKED")
 LEGACY_TICK = re.compile(r"^\|\s*\*\*M\d+[a-z]?\*\*\s*✅")
-LEGACY_CEILING = 64
 
 
 def _milestone_table(lines: list[str]) -> list[tuple[int, str]]:
@@ -152,6 +166,32 @@ def _state_faults(spec: str, rows: list[tuple[int, str]]) -> tuple[list[str], in
     return faults, legacy
 
 
+def _clarvis_faults(lines: list[str]) -> tuple[list[str], int]:
+    """The same state rule, applied to the one document that states it in headings.
+
+    A heading with nothing between the identifier and the dash is unstarted, and
+    unstarted is not a claim — the same tolerance the table rows get.
+    """
+    faults: list[str] = []
+    legacy = 0
+    for number, line in enumerate(lines, 1):
+        found = CLARVIS_MILESTONE.match(line)
+        if not found:
+            continue
+        marker = found.group(2).strip()
+        if not marker:
+            continue
+        if marker == "✅":
+            legacy += 1
+            continue
+        if not any(marker.startswith(state) for state in STATES):
+            faults.append(
+                f"{CLARVIS}:{number}: {marker!r} is not one of §14.8's states "
+                f"({', '.join(STATES)})"
+            )
+    return faults, legacy
+
+
 def main() -> int:
     problems: list[str] = []
     legacy_rows = 0
@@ -168,6 +208,14 @@ def main() -> int:
         problems.extend(faults)
         legacy_rows += legacy
 
+    clarvis = ROOT / CLARVIS
+    if not clarvis.exists():
+        problems.append(f"{CLARVIS} is missing; §14.8 names it alongside the three specs")
+    else:
+        faults, legacy = _clarvis_faults(clarvis.read_text(encoding="utf-8").split("\n"))
+        problems.extend(faults)
+        legacy_rows += legacy
+
     if problems:
         print("the build plans have drifted:\n")
         for problem in problems:
@@ -177,22 +225,21 @@ def main() -> int:
             "so a defect here reaches the file a cold session trusts."
         )
         return 1
-    if legacy_rows > LEGACY_CEILING:
-        print(f"{legacy_rows} milestone rows still carry the binary ✅, above the "
-              f"ceiling of {LEGACY_CEILING}.\n")
-        print("§14.8 replaced it with four states because one symbol cannot say")
-        print("whether code exists, a test passed, or somebody watched it work.")
-        print("Give the new row its real state; never raise this number.")
-        return 1
-    if legacy_rows < LEGACY_CEILING:
-        print(f"{legacy_rows} rows still carry ✅ — below the ceiling of "
-              f"{LEGACY_CEILING}. Lower LEGACY_CEILING in {Path(__file__).name}.")
+    if legacy_rows:
+        print(f"{legacy_rows} milestone row(s) carry the binary ✅, which §14.8 "
+              f"replaced.\n")
+        print("One symbol cannot say whether code exists, whether a test passed,")
+        print("or whether somebody watched it work against the running services.")
+        print("Every other row has been judged against its own acceptance column;")
+        print("give this one its real state rather than reopening the exception.")
         return 1
     total = sum(len(_milestone_table((ROOT / s).read_text(encoding="utf-8").split("\n")))
                 for s in SPECS)
-    print(f"{total} milestone rows across {len(SPECS)} specs: every row is the table's "
-          "own width, every milestone is assigned to a stage or deferred by name, "
-          f"and {legacy_rows} still carry the pre-§14.8 tick")
+    headings = sum(bool(CLARVIS_MILESTONE.match(line))
+                   for line in (ROOT / CLARVIS).read_text(encoding="utf-8").split("\n"))
+    print(f"{total} milestone rows across {len(SPECS)} specs and {headings} in {CLARVIS}: "
+          "every row is the table's own width, every milestone is assigned to a stage or "
+          "deferred by name, and nothing anywhere still carries the pre-§14.8 tick")
     return 0
 
 

@@ -12810,6 +12810,59 @@ is what "still works" is actually about — and requires a returning SIRVIS to
 carry the same `service_id` with a new `instance_id`, which is the only thing
 that distinguishes a restart from a cached answer.
 
+## Sixty-five milestones say which of three things they mean — 2026-09-05
+
+**The ratchet is at zero and gone, rather than lowered.** `tools/check_plans.py` had
+tolerated sixty-four rows still carrying the pre-§14.8 `✅` under a ceiling that could
+fall and never rise, because converting them meant asserting for each whether a
+milestone is merely IMPLEMENTED, AUTOMATED VERIFIED, or actually LIVE VERIFIED — and
+§16 item 11 was explicit that a state may be applied *"only to rows independently
+reverified"*, never relabelled from a desk. So they were reverified: every row read
+against its own acceptance column, on the evidence that exists for it, with the state
+set by the weakest clause and that clause named. Fourteen agents did the reading; every
+judgement carries file paths, test names and `STATUS.md` line ranges.
+
+**Twenty-one are LIVE VERIFIED, twenty-nine AUTOMATED VERIFIED, fifteen IMPLEMENTED.**
+That last number is the finding. Fifteen milestones ship code that nothing exercises
+against the criterion the row itself states — not untested code, but code whose *own
+acceptance sentence* has no test behind it. One checkmark could not have said that
+about any of them, which is what §14.8 has claimed since it was written and could not
+demonstrate until now.
+
+**Five rows were judged BLOCKED and none of them was converted**, because all five turned
+out to be rows that never carried a tick. The judges said so themselves rather than
+forcing a state onto an unstarted milestone, which is the failure mode being closed here
+running in the other direction.
+
+**The last `✅` in the ecosystem was in the one document the gate could not see.**
+§14.8 names `CLARVIS.md` alongside the three specs; its milestones are headings
+(`### E-C8 ✅ — Receiving a task from NERVIS`) rather than table rows, so every check in
+`tools/check_plans.py` walked straight past them. A rule that stops at a file format is a
+rule with a hole in it. The gate reads the headings now, and it caught E-C8 on the first
+run after the extension.
+
+**E-C8 is IMPLEMENTED, and reverifying it found something.** Its exit clause says a
+NERVIS-authored task *"is offered as a build with its origin visible in the prompt"*.
+`handoffOffer()` is a pure string builder with six tests; the route that reads the file
+and puts the offer on screen has none. More than that, the task is not offered as a build
+at all — `ChatService.offerNervisTask` posts a transcript note and returns, where
+`offerToResumeBuild` sets `awaitingBuildAnswer` and posts choices, so the person has to
+retype the task to start anything. This is the recurring shape again in new clothes: the
+handoff is read correctly, phrased correctly, and reaches no runner. Written beside the
+row in `CLARVIS.md`, together with a design question found on the way — `clearNervisTask()`
+deletes the file at the moment of offering, before the person answers, so the artifact the
+exit promises is *"editable before it runs"* is already gone and only the transcript text
+survives. Paired NERVIS M27 carries the identical clause and is IMPLEMENTED for the same
+reason; the pair needs one live run, not more code.
+
+**Checked by breaking it, in both documents and both directions.** A row put back to `✅`
+fails; a row given a fifth word (`MOSTLY DONE`) is refused by name. The summary line was
+wrong on its first run — it counted `CLARVIS.md`'s headings with `findall` over the whole
+file and no `MULTILINE`, so `^` matched only at position zero and it printed `0 in
+CLARVIS.md` while the per-line check was working correctly. A number computed one way and
+checked another is the same defect this repository keeps finding, small enough this time to
+be caught by reading its own output.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

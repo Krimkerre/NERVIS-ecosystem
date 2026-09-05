@@ -670,7 +670,7 @@ Established Clarvis release gates plus ecosystem degradation, upgrade, rollback 
 what it was; rollback to the prior `.vsix` succeeds with workspace data and SecretStorage
 intact.
 
-### E-C8 ✅ — Receiving a task from NERVIS *(paired with NERVIS M27)*
+### E-C8 IMPLEMENTED — Receiving a task from NERVIS *(paired with NERVIS M27)*
 
 Recognise a handoff file NERVIS wrote into the workspace, and say so when offering it.
 
@@ -695,6 +695,32 @@ the prompt is editable before it runs, as any other handoff is; every tool call 
 same gates; **with the Bridge disabled the whole flow is unchanged**, because nothing in it
 depends on the Bridge; and §9's rule holds — the file is evidence of what somebody asked for,
 never an instruction Clarvis follows unreviewed.
+
+**Why this is IMPLEMENTED rather than verified, on reverification against §14.8.** The exit's
+first clause is the one that holds it there, for three reasons found together. `handoffOffer()`
+is a pure string builder with six tests; the *route* that reads the file and puts the offer in
+the panel — `waitingNervisTask` → `offerNervisTask` → `note` — has no test, and a test of a
+helper is not a test of a route. The task is also not offered *as a build*: `offerNervisTask`
+posts a transcript note and returns, where `offerToResumeBuild` sets `awaitingBuildAnswer` and
+posts choices, so the person must retype the task to start anything. And the provenance sentence
+— the one thing this milestone says it adds — goes through the voice rewrite with only the
+filename pinned in the keep-list, so nothing asserts that "this came from NERVIS" survives to the
+screen.
+
+**A design question, recorded rather than silently answered.** `offerNervisTask` calls
+`clearNervisTask()` at the moment of offering, before the person has answered — deliberately, so
+a declined task does not re-offer on every window open. But the exit says the prompt is *editable
+before it runs, as any other handoff is*, and the artifact somebody was invited to edit is
+already deleted by then; what survives is text in a transcript. The other two clauses are
+unevidenced rather than contradicted: "every tool call still passes the same gates" holds
+vacuously while the handoff reaches no runner, and "with the Bridge disabled the whole flow is
+unchanged" is structurally true — `nervisHandoff.ts` imports nothing — with no test asserting it
+as a property on the reading side.
+
+**Paired M27 cannot lift this and is IMPLEMENTED for the same reason.** Its own exit reads
+*"Clarvis offers it as a build with the prompt visible and editable"* — the identical clause —
+and NERVIS's suite cannot reach an editor to test it. The pair needs one live run: a real NERVIS
+write, a real editor window, the offer observed with its origin intact after the rewrite.
 
 ---
 

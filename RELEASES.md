@@ -144,7 +144,12 @@ Published as gates rather than as a list, so they are counted rather than rememb
 - `tools/pairwise_check.py` — §13.4's evidence states. Two are deterministic and *not*
   distinguishable: RAVIS cannot tell a withdrawn measurement from one that never existed, nor
   a runtime that could not be asked from a build with nothing measured.
-- `tools/check_plans.py` — sixty-four milestone rows still carry the pre-§14.8 tick.
+- `tools/check_plans.py` — every milestone now carries one of §14.8's four states, and the
+  states are themselves the limitation. Fifteen are **IMPLEMENTED**: code on the shipping path
+  with no test exercising the row's own acceptance criterion. Twenty-nine are **AUTOMATED
+  VERIFIED**: tested, never demonstrated against running services. Twenty-one are **LIVE
+  VERIFIED**. The checkmark they replaced could not have told an operator which of the three
+  they were reading, and for sixty-five milestones it did not.
 - `clarvis/docs/code-server-matrix.md` — graded against Clarvis 0.0.1 and not re-run since.
 
 ## Compatibility

@@ -1055,6 +1055,11 @@ as absent. This section generalises that shape; it isn't a new idea.
 Per §14.1, a state nobody checks is a preference — and an unchecked convention silently
 downgrading to an optimistic checkmark is the exact failure this closes.
 
+**Including `CLARVIS.md`, whose milestones are headings rather than table rows.** The gate read
+the three specs and walked past the fourth document this section names, so the last surviving
+`✅` in the ecosystem sat in the one file nothing checked. A rule that stops at a file format is
+a rule with a hole in it; the shape differs and the requirement does not.
+
 A product document may not soften this to a single completion mark for convenience (§14.7); it
 may only add product-specific detail beside the required state.
 
