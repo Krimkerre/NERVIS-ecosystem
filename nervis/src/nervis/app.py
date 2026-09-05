@@ -61,6 +61,7 @@ from nervis.api import (
 from nervis.api import router as api_router
 from nervis.api.chat_personas import seed_chat_defaults
 from nervis.api.events import event_frames
+from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
 from nervis.config import Settings
 from nervis.ecosystem import (
     BUILD_VERSION,
@@ -70,7 +71,6 @@ from nervis.ecosystem import (
     nervis_surface,
 )
 from nervis.enrollment import load_or_create
-from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
 from nervis.errors import (
     CrossOriginMutationRefusedError,
     HostRejectedError,

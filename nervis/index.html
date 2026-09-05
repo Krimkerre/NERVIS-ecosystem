@@ -5906,6 +5906,19 @@ function rememberToken(value){
   else sessionStorage.removeItem(TOKEN_KEY);
  }catch(e){/* private mode, or storage disabled: the token stays in memory */}
 }
+
+/* SIRVIS redacts a lease's `owner` for a caller presenting no token — a
+   Claude Security scan found that once `owner` became a real caller identity
+   (the fix for close/renew's missing ownership check), the residency read's
+   open-to-anyone design started naming which real token opened each session
+   to a fully anonymous network peer. This tab already holds a real token for
+   the writes on the Runtime screen, so sending it on this one read too costs
+   nothing and is what un-redacts the Owner column there. Its own function,
+   not inlined at the call site, so the one branch it needs does not count
+   against `sirvisRuntime`'s own complexity. */
+function residencyAuthHeader(){
+ return RUNTIME_TOKEN?{authorization:'Bearer '+RUNTIME_TOKEN}:undefined;
+}
 (function(){
  /* The remembered one first, so a reload keeps working; the fragment overrides
     it, because a launcher that just minted a fresh token means it. */
@@ -6357,15 +6370,8 @@ function foreignInstancesCard(foreign,live=false){
 async function sirvisRuntime(){
  heading('Runtime','What is resident, who holds it, and when their claim lapses.',
    control('Refresh evidence','refreshEvidence'));
- /* SIRVIS redacts a lease's `owner` for a caller presenting no token — a
-    Claude Security scan found that once `owner` became a real caller identity
-    (the fix for close/renew's missing ownership check), this read's
-    open-to-anyone design started naming which real token opened each session
-    to a fully anonymous network peer. This tab already holds a real token for
-    the writes on this same screen, so sending it here too costs nothing and
-    is what un-redacts the Owner column below. */
- const residencyAuth=RUNTIME_TOKEN?{authorization:'Bearer '+RUNTIME_TOKEN}:undefined;
- const [res,mdl]=await Promise.all([liveSirvis('/api/v1/runtime/residency',residencyAuth),API.sirvis.models()]);
+ const [res,mdl]=await Promise.all([
+   liveSirvis('/api/v1/runtime/residency',residencyAuthHeader()),API.sirvis.models()]);
  if(!res){$('#content').innerHTML=runtimeUnreachable();return}
 
  const held=res.holdings||[],leases=res.leases||[],foreign=res.foreign||[];

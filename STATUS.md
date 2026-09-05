@@ -13532,6 +13532,41 @@ readable nowhere `git` can reach it going forward.
 
 NERVIS 0.23.10.
 
+## Asked whether F1-F7 broke anything else — the real answer was a full clean-clone run, 2026-09-06
+
+Each fix above was tested against the real suites it touched at the time it
+shipped, but never all together, end to end, against a fresh clone — which is
+this repository's own answer to "did we break anything" (`tools/check_clean_clone.sh`'s
+own header: "the gate now, not a rehearsal of one"). Asked directly, that gate
+was run rather than the question answered from memory.
+
+**Two failures, one real.** 0.23.9's dashboard fix for the F5/F6 residency
+redaction added one ternary inline inside `sirvisRuntime` — `RUNTIME_TOKEN
+? {...} : undefined` — which pushed that function from complexity 13 to 14,
+one over `complexity_check.js`'s ratchet. Pulled into its own named function,
+`residencyAuthHeader`, since the one branch it needs no longer has to count
+against the caller that merely uses it; `dashboard shaping`, `render` and
+`liveness` all still pass, confirming the extraction changed nothing about
+what the screen actually does.
+
+**The other predates this session and touches nothing F1-F7 changed:**
+`nervis/src/nervis/app.py` had one import out of sorted order, and
+`nervis/tests/test_origin_guard.py` had one test signature over the line
+length limit — both pre-existing, both `ruff`-flagged independent of any
+finding here, both trivial one-line fixes made while the gate was open rather
+than left as a second thing to explain.
+
+**Full run, clean:** `protocol`/`ravis`/`sirvis`/`nervis` each lint, type-check
+and test clean from a fresh clone; all four load standalone from their own
+declared dependencies; every repository gate (`STATUS.md` current, no
+gitignored path tracked, nothing unreferenced, no product imports a peer,
+envelope conformance, schemas, degradation matrix, sirvis→ravis pairwise,
+release notes, peer compatibility, nervis prototype checks, clarvis
+conformance) and all twenty-one dashboard gates pass; Clarvis's own types,
+lint and tests pass. 54 of 54.
+
+NERVIS 0.23.11.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

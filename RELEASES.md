@@ -91,7 +91,20 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.10
+## NERVIS — 0.23.11
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The clean-clone gate is green again.** A full end-to-end `tools/check_clean_clone.sh`
+  run after F5/F6/F7 above found two failures, one real: 0.23.9's `residencyAuthHeader`
+  ternary, inlined at its call site, pushed `sirvisRuntime`'s complexity from 13 to 14 —
+  now its own named function, under the ratchet again with the identical behaviour
+  `dashboard shaping`/`render`/`liveness` confirm unchanged. The other predates this
+  session entirely and is unrelated to any of it: an import in `app.py` out of sorted
+  order, and one test signature over the line-length limit in `test_origin_guard.py` —
+  both trivial, both fixed while the gate was open.
+
+### 0.23.10
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

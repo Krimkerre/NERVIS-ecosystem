@@ -126,7 +126,9 @@ CROSS_ORIGIN_TARGETS = (
 
 
 @pytest.mark.parametrize(("method", "path", "body"), CROSS_ORIGIN_TARGETS)
-def test_a_forged_cross_origin_request_is_refused(client: Any, method: str, path: str, body: bytes) -> None:
+def test_a_forged_cross_origin_request_is_refused(
+    client: Any, method: str, path: str, body: bytes
+) -> None:
     answered = client.request(method, path, content=body, headers=EVIL)
     assert answered.status_code == 403
     error = answered.json()["error"]
