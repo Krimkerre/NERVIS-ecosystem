@@ -134,6 +134,10 @@ step "degradation matrix"      nervis-eco python tools/check_degradation.py
 # served hand-authored payloads through a mock, so a renamed SIRVIS field left it
 # passing while routing stopped seeing evidence.
 step "sirvis→ravis pairwise"   nervis-eco python tools/pairwise_check.py
+# §15 asks for published release notes and there were none, at any version, for
+# any of the five. The gate reads each component's own manifest, so a version
+# bumped without a note fails at the moment it is bumped.
+step "release notes"           nervis-eco python tools/check_releases.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

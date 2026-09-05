@@ -12014,6 +12014,45 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
 
+## Five version numbers that nothing explained — 2026-09-05
+
+**§15 asks that release notes be published and there were none — at any version,
+for any of the five components.** `ravis 0.21.2` told an operator that something
+had changed twice since `0.21.0` and nothing whatever about what. The same for
+NERVIS at 0.23.0, SIRVIS at 0.15.5, Clarvis at 0.12.5 and the protocol package at
+0.2.0.
+
+`RELEASES.md` is the notes, one section per component, and
+`tools/check_releases.py` is the gate: each version is read from that component's
+own manifest, so a bump with no note fails at the moment it is bumped — the only
+moment the change is still in somebody's head. It refuses the mirror case too, a
+note heading a version nobody ships, which is usually a typo and always a claim
+about something that does not exist.
+
+**The file starts where it starts, and does not invent what came before.**
+Reconstructing twenty-odd past releases from commit messages would produce a
+document that reads like a record and is a guess — §14.6 has one incident of a
+number copied rather than run, and this would be the same mistake in prose. The
+history that exists is this file and the git log, both contemporaneous. The gate
+requires only the version each component currently declares, so the record grows
+forward and no new gap can open.
+
+**Per component rather than one ecosystem version**, because §3 keeps the four
+products independently buildable and shipped on their own cadence. A single
+number would be a fifth thing to keep in step with four others, and the first
+release where they disagreed would make it a lie. What ties the entries together
+is the protocol version, recorded on each.
+
+**Known limitations are published as gates rather than as a list**, so they are
+counted rather than remembered: §10's nineteen conditions and their gaps, §13.4's
+two indistinguishable evidence states, the sixty-four milestone rows still on the
+pre-§14.8 tick, and a code-server matrix graded against Clarvis 0.0.1.
+
+The compatibility matrix §15 names in the same sentence is still missing, and the
+runbook now says so where it asks for it: minimum and maximum *peer* versions are
+declared nowhere. Every component records the protocol version it speaks, which
+is the half that exists.
+
 ## §13.4's pairwise gate, against a SIRVIS that is actually there — 2026-09-05
 
 **The gate existed and its fixtures did not come from SIRVIS.** §13.4 asks that

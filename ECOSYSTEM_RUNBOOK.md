@@ -1087,7 +1087,13 @@ may only add product-specific detail beside the required state.
       its evidence in `STATUS.md` and its regression test in the owning product. The
       last of them is a live golden-path run: `tools/acceptance_run.py`.
 - [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
-- [ ] Compatibility matrix, operator runbook, release notes and known limitations are published.
+- [ ] Compatibility matrix, operator runbook, release notes and known limitations are
+      published. *Release notes are `RELEASES.md`, enforced by `tools/check_releases.py`:
+      each component's version is read from its own manifest, so a bump with no note fails
+      the gate. Known limitations are published as gates rather than as a list — §10's
+      matrix, §13.4's pairwise states, the milestone ratchet — so they are counted rather
+      than remembered. The compatibility matrix is the part still missing: minimum and
+      maximum peer versions are declared nowhere.*
 - [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.
