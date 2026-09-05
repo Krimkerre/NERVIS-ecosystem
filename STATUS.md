@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2314 tests, no network, no live service
+.venv/bin/pytest                      # part of 2320 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 844 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2314 passing across the four, conformance `PASS`.
+Expected: all clean, 2320 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12013,6 +12013,43 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## A hard constraint that refuses at the route, not only in the engine — 2026-09-05
+
+**§15: "RAVIS enforces hard constraints before preferences, and explains routes
+and rejections."** The engine's half was covered thoroughly — every refusal
+family in `ravis/tests/test_policy.py`, and `ravis/tests/test_pool_locality.py` proving `ravis/local`
+never selects a remote model. Both call the engine directly. Nothing drove a
+request into `/v1/chat/completions` and asserted that a policy stopped it.
+
+That is a larger gap than it sounds, because the pieces between a request and the
+engine are exactly where a constraint goes missing: `_policy_for` reads the
+identity from request state rather than the payload (§9.6.0 — a claimed identity
+is never accepted), `effective_policy` merges the operator's posture with what
+the request declared, and `policy_refusals` runs a second pass for the *addressed*
+model because a direct address names something no pool contains. Each is a place
+where a policy can be computed correctly and applied to nothing, which is the
+defect this repository has now found six times.
+
+**The baseline is part of the test, because the claim is about order.**
+"Constraints before preferences" cannot be shown by a refusal alone — a pool that
+refuses everything refuses correctly by accident. So the first test proves the
+same request succeeds and reaches a remote model with no policy in the way, and
+the rest prove that exact model is then excluded by name and by reason. A refusal
+is evidence of ordering only when the thing refused would otherwise have won.
+
+The model that won is read off the wire rather than out of the reply: the reply
+belongs to the fixture, the request belongs to the router, and "which model won"
+means the one that was asked for.
+
+**The assertion that matters most is not about a status code.** `LOCAL_ONLY` is a
+promise about where the text goes, so one test checks the upstream was never
+contacted at all. A 422 arriving after the prompt has already left the machine is
+the failure that would matter most and show least.
+
+Six tests. Proved they bite by passing an empty `policy_refusals` into the engine
+— policy computed and applied nowhere, the exact shape — and watching five fail,
+including the one that reports the prompt reaching the upstream.
 
 ## Usage and errors were named in the contract and absent from the suite — 2026-09-05
 
