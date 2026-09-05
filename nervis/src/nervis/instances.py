@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from hmac import compare_digest
 from typing import Any, Callable, Mapping
 
+from nervis.compatibility import supported
+
 from .registry import EndpointRefusedError, allowed_endpoint
 
 logger = logging.getLogger("nervis.instances")
@@ -47,6 +49,12 @@ logger = logging.getLogger("nervis.instances")
 # into a Bridge with the Bridge's own credential.
 CLAIMABLE = frozenset({
     "service", "instance_id", "machine_id", "port",
+    # §12's peer window needs a number, and a Bridge is the one peer that had
+    # none: every other service states its version on `/ecosystem/identity`,
+    # and an extension host registers instead. So the claim is where it has to
+    # arrive. It is a version string and nothing else — judged against the
+    # window, never used to look anything up.
+    "build_version",
     "api_version", "protocol_version", "capabilities",
 })
 
@@ -78,6 +86,7 @@ class Instance:
     instance_id: str
     base_url: str
     machine_id: str = ""
+    build_version: str = ""
     api_version: str = ""
     protocol_version: str = ""
     capabilities: dict[str, str] = field(default_factory=dict)
@@ -116,6 +125,11 @@ class Instance:
             "label": self.label,
             "endpoint": self.base_url,
             "machine_id": self.machine_id,
+            "build_version": self.build_version,
+            # Answered here for the same reason the registry answers it for the
+            # declared peers: a window nothing consults is a window nobody keeps.
+            "peer_supported": supported(self.service, self.build_version).supported,
+            "peer_support_detail": supported(self.service, self.build_version).reason,
             "api_version": self.api_version,
             "protocol_version": self.protocol_version,
             "capabilities": dict(self.capabilities),
@@ -178,6 +192,7 @@ class Instances:
             instance_id=instance_id,
             base_url=base_url,
             machine_id=str(accepted.get("machine_id") or ""),
+            build_version=str(accepted.get("build_version") or ""),
             api_version=str(accepted.get("api_version") or ""),
             protocol_version=str(accepted.get("protocol_version") or ""),
             capabilities=_capabilities(accepted.get("capabilities")),

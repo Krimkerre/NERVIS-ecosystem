@@ -77,18 +77,19 @@ def test_an_unparseable_version_says_so_rather_than_guessing() -> None:
     assert "not-a-version" in answer.reason
 
 
-def test_every_declared_peer_is_a_service_nervis_actually_talks_to() -> None:
+def test_every_peer_with_a_window_is_one_nervis_can_actually_see() -> None:
     """A range for a peer that does not exist is a claim about nothing.
 
-    Clarvis is deliberately absent: its Bridge publishes no product version, so
-    NERVIS has nothing to judge — see `CANNOT_BE_JUDGED`, which records the gap
-    rather than letting a window sit there applying to nothing.
+    Two surfaces, because peers arrive two ways: RAVIS and SIRVIS are declared
+    and probed, and a Clarvis Bridge registers itself. Both report a version and
+    both are judged; a window for anything else would apply to nothing.
     """
     from nervis.config import Settings
+    from nervis.instances import DYNAMIC_SERVICES
     from nervis.registry import declared_services
 
     settings = Settings(database_path=":memory:", workspace_path="/tmp", _env_file=None)  # type: ignore[call-arg]
-    known = {service.key for service in declared_services(settings)}
+    known = {service.key for service in declared_services(settings)} | set(DYNAMIC_SERVICES)
     assert set(SUPPORTED_PEERS) <= known, set(SUPPORTED_PEERS) - known
 
 
@@ -134,6 +135,62 @@ def test_the_registry_reports_it_on_the_services_surface() -> None:
 
     assert answered.status_code == 200
     rows = {row["key"]: row for row in answered.json()["items"]}
-    for peer in SUPPORTED_PEERS:
+    # The declared peers only: a Bridge is judged on the instances surface it
+    # registers into, which `test_the_instance_row_carries_the_version_and_the_verdict`
+    # covers.
+    for peer in set(SUPPORTED_PEERS) & set(rows):
         assert "peer_supported" in rows[peer], f"{peer} row carries no compatibility answer"
         assert "peer_support_detail" in rows[peer]
+
+
+# ── The Bridge's own version, once it publishes one ─────────────────────────
+
+
+def test_a_bridge_may_claim_its_build_version() -> None:
+    """§12's window needs a number, and the Bridge published none.
+
+    Every other peer states its version on `/ecosystem/identity`; a Clarvis
+    Bridge is an extension host rather than a service and registers instead, so
+    the claim is where its version has to arrive. `CLAIMABLE` is a closed
+    allowlist — the field does not exist until it is on it.
+    """
+    from nervis.instances import CLAIMABLE
+
+    assert "build_version" in CLAIMABLE
+
+
+def test_the_claimed_version_is_judged_like_any_other_peer() -> None:
+    from nervis.compatibility import SUPPORTED_PEERS, supported
+
+    assert "clarvis" in SUPPORTED_PEERS
+    assert supported("clarvis", SUPPORTED_PEERS["clarvis"].maximum).supported
+    assert not supported("clarvis", "0.1.0").supported
+
+
+def test_a_bridge_registering_without_one_is_not_called_unsupported() -> None:
+    """Older Bridges exist and keep working.
+
+    A Bridge built before this field registers exactly as it always did, and an
+    absent version is not a mismatch — saying "unsupported" about a number
+    nobody sent is the confident-wrong-answer failure again.
+    """
+    from nervis.compatibility import supported
+
+    assert supported("clarvis", "").supported
+
+
+def test_the_instance_row_carries_the_version_and_the_verdict() -> None:
+    """Registered, stored, published, judged — the whole path.
+
+    A version accepted by the allowlist and dropped before the surface would be
+    the same defect one step later: a value read correctly and applied nowhere.
+    """
+    from nervis.instances import Instance
+
+    instance = Instance(service="clarvis", instance_id="i1", base_url="http://127.0.0.1:1",
+                        build_version="0.1.0")
+    row = instance.as_dict(now=instance.renewed_at)
+
+    assert row["build_version"] == "0.1.0"
+    assert row["peer_supported"] is False
+    assert "0.1.0" in row["peer_support_detail"]

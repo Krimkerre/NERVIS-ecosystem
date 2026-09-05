@@ -65,18 +65,18 @@ SUPPORTED_PEERS: dict[str, Window] = {
         minimum="0.14.0", maximum="0.15.999",
         note="read for evidence and benchmark jobs; its absence degrades rather than stops",
     ),
+    "clarvis": Window(
+        minimum="0.11.0", maximum="0.12.999",
+        note="the Bridge NERVIS reads status and configuration summaries from; it claims "
+             "its version at registration rather than serving an identity surface",
+    ),
 }
 
-#: **Clarvis is missing from that table, and the reason is a gap rather than an
-#: oversight.** Its Bridge registers with `api_version` and `protocol_version`
-#: and publishes no product version at all (`/api/v1/registry/instances`), so
-#: NERVIS holds nothing to compare a window against. A range declared for it
-#: would be exactly the dead declaration this module exists to stop being: a
-#: rule with no value to apply it to. Closing it means the Bridge publishing its
-#: extension version at registration, which is Clarvis's change to make.
-CANNOT_BE_JUDGED = {
-    "clarvis": "the Bridge publishes no product version at registration",
-}
+#: Peers whose version NERVIS cannot judge. Empty, and kept as a named place
+#: rather than deleted: Clarvis sat here until its Bridge published a version at
+#: registration, and the next peer that registers without one belongs here rather
+#: than in a window that applies to nothing.
+CANNOT_BE_JUDGED: dict[str, str] = {}
 
 
 def _parts(version: str) -> tuple[int, ...] | None:

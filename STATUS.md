@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2330 tests, no network, no live service
+.venv/bin/pytest                      # part of 2335 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 854 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 859 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2330 passing across the four, conformance `PASS`.
+Expected: all clean, 2335 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12013,6 +12013,41 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## The one peer NERVIS could not judge now says its version — 2026-09-05
+
+**The gap recorded an hour earlier, closed.** §12's peer matrix covered RAVIS and
+SIRVIS and listed Clarvis as *not judged*, because a Bridge published no product
+version anywhere: every other peer states one on `/ecosystem/identity`, and an
+extension host has no surface for NERVIS to probe. Its registration claim was the
+only place a version could arrive, and it carried none.
+
+**The Bridge already knew it.** `identity.build_version` has been on the Bridge's
+own identity surface all along; it simply never travelled in the claim. It does
+now, taken from that same value rather than read a second time — two places
+stating a version is one place stating it and one going stale.
+
+NERVIS's claim allowlist is closed by construction, so the field had to be added
+there to exist at all, and `Instance.as_dict` answers `peer_supported` beside it
+the way the registry does for the declared peers. An older Bridge registering
+without one is *not* called unsupported: a version nobody sent is not a
+mismatch.
+
+**Two tests failed on the change within the hour, which is what they are for.**
+Clarvis pins the claim's key set against NERVIS's allowlist, and its `Claim` type
+is checked by the compiler — so the new field failed the pinned set and the
+fixture that built a claim, in the two places that would have gone quietly stale.
+
+The matrix now reads:
+
+    peer       supported range        ships      verdict
+    clarvis    0.11.0 … 0.12.999      0.12.6     inside
+    ravis      0.20.0 … 0.21.999      0.21.2     inside
+    sirvis     0.14.0 … 0.15.999      0.15.5     inside
+
+`CANNOT_BE_JUDGED` is empty and stays as a named place rather than being deleted:
+the next peer that registers without a version belongs there rather than in a
+window that applies to nothing.
 
 ## Which peer versions this build supports, said out loud — 2026-09-05
 

@@ -85,6 +85,8 @@ def main() -> int:
 
     for peer, why in sorted(CANNOT_BE_JUDGED.items()):
         print(f"  {peer:<10} {'—':<22} {shipped(peer) or '—':<10} not judged: {why}")
+    if not CANNOT_BE_JUDGED:
+        print("\n  every peer states a version NERVIS can judge")
 
     if failures:
         print("\nthe declared windows and the shipped versions disagree:\n")

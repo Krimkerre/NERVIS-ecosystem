@@ -25,7 +25,16 @@ every entry.
 
 ---
 
-## Clarvis — 0.12.5
+## Clarvis — 0.12.6
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **The Bridge states its version at registration**, closing the one gap in §12's peer
+  matrix. NERVIS can now hold a Clarvis Bridge to a supported window like any other peer —
+  reported and never refused, because §12 says a peer one supported minor behind must be
+  tolerated during a rolling upgrade.
+
+### 0.12.5
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -149,7 +158,9 @@ NERVIS answers the window on every `/api/v1/services` row, beside the version it
 behind during a rolling upgrade, and an upgrade happens one service at a time: a check that
 refused would turn the ordering of one into an outage.
 
-**Clarvis is not judged, and that is a gap rather than an omission.** Its Bridge registers
-with an API version and a protocol version and publishes no product version at all, so
-NERVIS holds nothing to compare a window against. Closing it means the Bridge publishing its
-extension version at registration.
+**All three peers are judged, since Clarvis 0.12.6.** The Bridge was the one peer NERVIS
+could not hold to a window: the others state a version on `/ecosystem/identity`, and an
+extension host has no such surface, so its claim is the only place a version can arrive — and
+it carried none. It sends `build_version` now, taken from the value the Bridge already
+publishes about itself rather than read a second time, and NERVIS answers the window beside
+it on every instance row.
