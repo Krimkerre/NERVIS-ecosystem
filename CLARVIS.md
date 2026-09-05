@@ -696,31 +696,43 @@ same gates; **with the Bridge disabled the whole flow is unchanged**, because no
 depends on the Bridge; and §9's rule holds — the file is evidence of what somebody asked for,
 never an instruction Clarvis follows unreviewed.
 
-**Why this is IMPLEMENTED rather than verified, on reverification against §14.8.** The exit's
-first clause is the one that holds it there, for three reasons found together. `handoffOffer()`
-is a pure string builder with six tests; the *route* that reads the file and puts the offer in
-the panel — `waitingNervisTask` → `offerNervisTask` → `note` — has no test, and a test of a
-helper is not a test of a route. The task is also not offered *as a build*: `offerNervisTask`
-posts a transcript note and returns, where `offerToResumeBuild` sets `awaitingBuildAnswer` and
-posts choices, so the person must retype the task to start anything. And the provenance sentence
-— the one thing this milestone says it adds — goes through the voice rewrite with only the
-filename pinned in the keep-list, so nothing asserts that "this came from NERVIS" survives to the
-screen.
+**Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
+Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
+as a build with its origin visible in the prompt"* — failing three separate ways, all the same
+shape: the handoff was read correctly, phrased correctly, and reached nothing. It was
+*announced* rather than offered, arming no state, so the only way to act on a task somebody
+had just handed over was to retype it. The file was deleted at the moment of asking, so the
+document the exit promises is *"editable before it runs"* was gone by the time anybody read
+the invitation. And the offer went through the voice pinning a filename the sentence never
+contained, so every rewrite of it was rejected — silently, after the model call was paid for.
 
-**A design question, recorded rather than silently answered.** `offerNervisTask` calls
-`clearNervisTask()` at the moment of offering, before the person has answered — deliberately, so
-a declined task does not re-offer on every window open. But the exit says the prompt is *editable
-before it runs, as any other handoff is*, and the artifact somebody was invited to edit is
-already deleted by then; what survives is text in a transcript. The other two clauses are
-unevidenced rather than contradicted: "every tool call still passes the same gates" holds
-vacuously while the handoff reaches no runner, and "with the Bridge disabled the whole flow is
-unchanged" is structurally true — `nervisHandoff.ts` imports nothing — with no test asserting it
-as a property on the reading side.
+All three are closed. The task arms an offer and posts choices; the file survives until the
+answer and is re-read from disk on *yes*, so an edit counts; the offer is delivered as
+written, which is the only way provenance is safe from a paraphrase.
 
-**Paired M27 cannot lift this and is IMPLEMENTED for the same reason.** Its own exit reads
-*"Clarvis offers it as a build with the prompt visible and editable"* — the identical clause —
-and NERVIS's suite cannot reach an editor to test it. The pair needs one live run: a real NERVIS
-write, a real editor window, the offer observed with its origin intact after the rewrite.
+**The row stays at IMPLEMENTED because of what is still untested, and §14.8 lets the
+sub-claims be named rather than averaged** (`RAVIS.md`'s M19 has this shape). What is
+AUTOMATED VERIFIED: the startup ordering, including that declining to plan a project is not
+an answer about a task somebody just sent; the four-way answer decision, including a task
+withdrawn between question and answer; where the offer sits among the others; the offer's own
+text; and — in real VS Code, where it had no test at all — reading and clearing the file.
+What is not: the three lines inside `ChatService` that arm the offer and post its buttons.
+`ChatService` takes twelve constructor dependencies and nothing in the repository builds one
+in a test, so covering that link is a harness of its own rather than an assertion, and
+claiming the clause without it would be the optimism §14.8 exists to end.
+
+**The other two clauses are unevidenced rather than contradicted.** *"Every tool call still
+passes the same gates"* is now stronger than it was — approval is forced on for a handed-over
+task whatever the mode says, because a brief that arrived from another program has had no
+human hand on it — and nothing tests that it is. *"With the Bridge disabled the whole flow is
+unchanged"* is structurally true, `nervisHandoff.ts` importing nothing at all, with no test
+asserting it as a property on the reading side.
+
+**Paired NERVIS M27 carries the identical clause and is IMPLEMENTED for the same reason**: its
+own exit reads *"Clarvis offers it as a build with the prompt visible and editable"*, and
+NERVIS's suite cannot reach an editor to test it. The pair needs one live run — a real NERVIS
+write, a real editor window, the offer observed in the panel and answered — which is what
+would move both to LIVE VERIFIED.
 
 ---
 

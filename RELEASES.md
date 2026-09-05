@@ -25,7 +25,32 @@ every entry.
 
 ---
 
-## Clarvis — 0.12.6
+## Clarvis — 0.12.7
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A task handed over from NERVIS is now an offer, not an announcement.** It was posted into
+  the transcript and nothing was armed, so no buttons appeared and the only way to act on a
+  task somebody had just sent was to retype it. E-C8's exit says it *"is offered as a build"*,
+  and a sentence with no answer attached is not an offer.
+- **The handoff file survives until you answer it.** It was deleted at the moment of asking —
+  for a good reason, so a declined task would not be re-offered at every window — but the same
+  exit says the prompt is *"editable before it runs"*, and the document you were invited to
+  edit was already gone. Saying yes now re-reads it from disk, so an edit counts; a task
+  withdrawn between question and answer says so instead of running a document its author took
+  back. **Operator note:** the offer names `clarvis-task.md` and waits.
+- **A handed-over task asks before every step**, whatever the mode would otherwise do. A brief
+  that arrived from another program has had no human hand on it, and §9's rule is that the file
+  is evidence of what somebody asked for, never an instruction followed unreviewed.
+- **The startup ordering moved into the pure decision that exists for it.** The handoff was a
+  hand-placed `if` whose *position* was the rule, encoding an exemption — declining to plan a
+  project is not an answer about a task somebody just sent — that lived only in a comment. That
+  file exists because the same mistake has now happened three times in the same method.
+- **The offer stopped going through the voice**, which was a defect on its own: it pinned
+  `clarvis-task.md` as a fact the sentence never contained, so every rewrite was rejected,
+  silently, after the model call had been paid for.
+
+### 0.12.6
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

@@ -1096,11 +1096,12 @@ may only add product-specific detail beside the required state.
       published. *Release notes are `RELEASES.md`, enforced by `tools/check_releases.py`:
       each component's version is read from its own manifest, so a bump with no note fails
       the gate. Known limitations are published as gates rather than as a list — §10's
-      matrix, §13.4's pairwise states, the milestone ratchet — so they are counted rather
-      than remembered. The compatibility matrix is `tools/check_compatibility.py`, which
+      matrix, §13.4's pairwise states, and the milestone states themselves now that every
+      row carries one — so they are counted rather than remembered. The compatibility matrix is `tools/check_compatibility.py`, which
       prints it and fails when a peer ships outside the window NERVIS declares — printed
-      rather than filed, because a table in a document is a copy that goes stale. Clarvis
-      is the one peer it cannot judge: its Bridge publishes no product version.*
+      rather than filed, because a table in a document is a copy that goes stale. All three
+      peers are judged, since Clarvis 0.12.6: the Bridge was the one that published no
+      product version, and now claims one at registration.*
 - [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.

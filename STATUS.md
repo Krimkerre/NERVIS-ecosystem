@@ -12863,6 +12863,68 @@ CLARVIS.md` while the per-line check was working correctly. A number computed on
 checked another is the same defect this repository keeps finding, small enough this time to
 be caught by reading its own output.
 
+## E-C8, and a check that refused to pass vacuously — 2026-09-05
+
+**The milestone conversion broke a test, and the test said so in the words it was
+written with.** `nervis/tests/test_m4_chat.py` reads NERVIS.md to find which
+milestones have shipped, so it can refuse a capability that explains itself by
+deferring to something already built. It grepped for `| **M12** ✅ |`. Converting
+the sixty-four legacy ticks removed every one of them, the pattern matched nothing,
+and the assertion beneath it fired: *"no shipped milestones were read from NERVIS.md
+— this check would pass vacuously, which is worse than failing"*. That sentence is
+the reason this was a red suite instead of a check that had quietly stopped
+checking. It reads the four states now, with BLOCKED excluded, being the one state
+that means the thing is genuinely not there.
+
+**I did not find it.** `tools/check_plans.py` and `tools/check_status.py` were both
+run before that commit and both passed; the product suites were not run at all, and
+the commit went out. It was found by an agent re-judging §15's first acceptance line
+against the repository, which is the second time this session that an independent
+pass has caught something a targeted gate could not. Read the gate that covers the
+files you touched, not the gate you happen to be working on.
+
+**E-C8's three gaps are closed, and the row stays IMPLEMENTED.** The exit clause
+*"a NERVIS-authored task is offered as a build with its origin visible in the
+prompt"* was failing three ways, all the same shape — read correctly, phrased
+correctly, reaching nothing. It was announced rather than offered, arming no state,
+so `OFFER_ORDER` never saw it and the only way to act on a task somebody had handed
+over was to retype it. The file was deleted at the moment of asking, so the document
+the exit calls *"editable before it runs"* was gone before anybody read the
+invitation. And the offer went through the voice pinning `clarvis-task.md` as a fact
+its sentence never contained, so every rewrite was rejected — silently, after the
+model call had been paid for, which is a line where the voice had simply stopped
+working and nothing said so.
+
+All three are closed in Clarvis 0.12.7. The offer arms and posts buttons; the file
+survives until the answer and is re-read from disk on yes, so an edit counts and a
+task withdrawn in between says so rather than running a document its author took
+back; the offer ships as written. Approval is forced on for a handed-over task
+whatever the mode says — a brief from another program has had no human hand on it,
+and §9's rule is that the file is evidence of what somebody asked for, never an
+instruction followed unreviewed.
+
+**The startup ordering moved into `startupOffer.ts`, which exists because this has
+now happened three times in the same method.** The handoff was a hand-placed `if`
+whose position was the rule, and the exemption it encoded — declining to plan a
+project is not an answer about a task somebody just sent — was a comment. Both are
+inputs to the pure decision now, and both have tests.
+
+**Why the row is still IMPLEMENTED, stated rather than averaged** (§14.8 allows
+sub-claims; `RAVIS.md`'s M19 has the shape). Automated now: the startup ordering
+including the decline exemption, the four-way answer decision, offer precedence, the
+offer's own text, and — in real VS Code, where it had none — reading and clearing
+the file. Not: the three lines inside `ChatService` that arm the offer and post its
+buttons. `ChatService` takes twelve constructor dependencies and nothing in either
+repository builds one in a test, so that link is a harness of its own rather than an
+assertion. Paired NERVIS M27 is IMPLEMENTED for the mirror reason — its clause is
+about what happens in an editor, and NERVIS's suite cannot reach one. One live run
+moves both.
+
+**Every new guard was proved to fail.** The handoff dropped from the startup
+decision fails three tests; a yes that runs the remembered copy rather than the file
+fails one; an offer that stops naming the file fails two. 1,322 Clarvis tests pass,
+16 of them in a real VS Code host, and the four Python suites are green.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
