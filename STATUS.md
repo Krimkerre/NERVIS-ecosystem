@@ -11965,6 +11965,55 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
 
+## Two mechanisms nothing could reach — 2026-09-05
+
+**The dashboard's capability gating had no check.** §15 asks that NERVIS
+negotiate actual capabilities and that no UI assume a missing API; the page has
+three mechanisms for it — `capable()`, `cell()`'s withheld branch, `gated()` —
+and they were built precisely because `capable` had once been found defined and
+never called. Nothing exercised them, which is that same fault one step later.
+
+`nervis/tools/capability_check.js` renders every screen in the world the other
+gates miss. `render_check` runs with every read failing and `empty_world_check`
+with every read answering emptily; in both, a service is reachable or it is not.
+This one has every service healthy, answering, and advertising a list that does
+not contain what the screens ask for — a peer that has withdrawn a surface.
+Thirty-six screens survive it, twenty-four say so, and none says so when the
+fifteen declared capabilities are advertised. That third assertion is what makes
+the first two mean anything: a gate reporting "withdrawn" unconditionally would
+satisfy them while telling a reader nothing. Proved it can fail by making
+`capable()` ignore the capability list and watching it report the mechanism as
+unreached.
+
+Three facts about the page were learned by getting them wrong first, and are
+written into the file: capabilities arrive as an object of id → state from the
+registry and as a list from `/ecosystem/capabilities`; an empty list means
+"nobody has told us" rather than "offers nothing", which is why the withheld
+world advertises an unrelated capability instead of none; and the page's own
+registry read is what sets `REGISTRY_AT`, so rendering before it lands reports a
+live mechanism as dead.
+
+**Clarvis's gate was tested for what it says, never for what it does.**
+`Gate.ts` classifies dangerous commands and `explainGate` phrases the question,
+both covered thoroughly. Whether refusing actually stops the command was covered
+nowhere: the decision lived inside `AgentRunner.runGated`, private on a class
+importing `vscode`, unreachable from a `node --test` suite. The most
+consequential branch in the agent was the least exercised.
+
+It now lives in `gateDecision.ts` — three inputs, four outcomes — with
+`AgentRunner` calling it rather than holding a second copy. `escapes` is separate
+from `!confined` because a machine with no sandbox confines nothing either, and
+those want opposite handling: one was permitted at a modal, the other has
+permitted nothing and still owes the person a separate question. Nine tests,
+including one asserting `classifyCommand` still returns the verdicts the others
+are about — without it they could quietly start testing the ungated path while
+claiming to test the gate.
+
+And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
+`streamNarration` and `ReplyStateReader`, which is what it is called now: named
+for the agent loop, it meant anyone looking for that coverage found a file with
+the right name and stopped looking. Clarvis 0.12.5.
+
 ## Two documents that said what was not so — 2026-09-05
 
 **§15's first line asked for something that does not exist.** *"All four
