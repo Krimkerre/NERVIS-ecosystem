@@ -145,7 +145,7 @@ step "peer compatibility"      nervis-eco python tools/check_compatibility.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the twenty that need no live service) ==="
+echo "=== dashboard gates (the twenty-one that need no live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else
@@ -163,11 +163,39 @@ fi
 # what "needs no live service" has to mean for a gate that runs against a fresh
 # clone. `honesty_check.js` and `recovery_check.js` stay out of this loop
 # because they read live endpoints and are run separately.
+# **Every gate runs with Node's own permission model on, not by habit but
+# because of what index.html is.** `page_context.js`'s `loadPage()` executes
+# index.html's inline `<script>` inside `node:vm` — and index.html is exactly
+# what an ordinary pull request edits. Node's `vm` module is not a security
+# boundary (its own docs say so), and a Claude Security scan proved it: a
+# branch that plants `(console.log.constructor('return process')()).mainModule
+# .require('child_process').execSync(...)` in that script gets a real shell the
+# moment any one of these twenty gates runs against it — reviewing the branch
+# is the trigger, no merge required. Read access stays open (`--allow-fs-read=*`
+# — every gate here genuinely reads across the tree) but filesystem *writes*
+# and `child_process` stay off, which is what the demonstrated exploit needs
+# and what none of these twenty gates uses in their own right (checked: only
+# `shaping_check.js --update`, never invoked here, writes anything; nothing in
+# this directory shells out to another process). A vm escape under this flag
+# still gets a `process` reference — Node's permission model does not and
+# cannot change what `vm` itself leaks — but it cannot act on it: no file goes
+# unlinked or rewritten, no command runs. This is the mitigation the finding's
+# own report calls "isolate the whole check process", made concrete without
+# touching a single gate's logic; the fuller fix it also names — stop executing
+# index.html at all, in favour of static parsing — is the repository owner's
+# call, not a change this script makes for them.
 for gate in render complexity shaping empty_world liveness injection routing outcome stream \
             preserve attachment background handler learned notification plan proposal supervision \
             capability provenance; do
-  step "dashboard $gate" nervis-eco/nervis node "tools/${gate}_check.js"
+  step "dashboard $gate" nervis-eco/nervis node --permission --allow-fs-read="*" "tools/${gate}_check.js"
 done
+# **Held out of the loop above, and for the opposite reason of the two at the
+# top.** `sandbox_check.js` proves the mitigation above actually holds, which
+# means it has to spawn its own child processes — one run with the same
+# `--permission` flags the loop uses, one without, so it can tell a guarded
+# escape from one nothing is stopping. Running it under those same flags would
+# deny it the very capability its job is to test with.
+step "dashboard sandbox" nervis-eco/nervis node "tools/sandbox_check.js"
 
 # Chat quotes these files to operators. A name in them that no longer exists is
 # a wrong answer delivered confidently, which is worse than no answer.

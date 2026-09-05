@@ -11,6 +11,29 @@
  * anything touches an element, so the DOM only has to absorb writes rather than
  * model them. A hundred lines buys that; jsdom would buy a faithful DOM, an npm
  * dependency tree, and a lockfile in a repository that has almost none.
+ *
+ * **`loadPage()` executes untrusted content, and `node:vm` is not a boundary
+ * around it.** `index.html` is exactly what an ordinary pull request edits,
+ * and the `<script>` this function runs is that content verbatim. Node's own
+ * documentation is explicit that `vm` "is not a security mechanism; do not
+ * use it to run untrusted code" — and a Claude Security scan demonstrated why:
+ * every host-realm function this file hands the sandbox (the built-ins in
+ * `makeContext` below, and this shim's own `element()`/`document`/`history`
+ * objects alike, since a plain function defined out here carries the same
+ * real `Function.prototype` regardless of which object it is attached to)
+ * lets a script inside reach `.constructor.constructor('return process')` and
+ * obtain a reference to the real Node process. Fixing the enumerated globals
+ * alone does not close this — the shim's own objects reopen the identical
+ * escape — and there is no complete fix available inside this file: closing
+ * it for real means either not executing `index.html` as code at all (static
+ * parsing, as `handler_check.js` already does for a different purpose) or
+ * accepting that anything run here can obtain `process` and containing the
+ * *process*, not the script. Every caller of `loadPage()` is expected to run
+ * under Node's own permission model (`--permission --allow-fs-read=*`, no
+ * fs-write, no child-process) for exactly this reason — see
+ * `tools/check_clean_clone.sh`'s gate loop — which does not stop the escape
+ * but stops it from being able to act: no file written or deleted, no
+ * `child_process` reachable, whatever a script inside obtains.
  */
 
 const fs = require("node:fs");

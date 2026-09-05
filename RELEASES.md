@@ -91,7 +91,29 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.4
+## NERVIS — 0.23.5
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **A Claude Security scan of this repository found a HIGH-severity `node:vm` sandbox
+  escape, and it is mitigated at the process level.** `nervis/tools/page_context.js`'s
+  `loadPage()` executes `index.html`'s inline `<script>` inside `node:vm` for every one
+  of the dashboard's check tools — and `index.html` is exactly what an ordinary pull
+  request edits. Node's own documentation says `vm` "is not a security mechanism", and
+  the scan proved it: a script planted there gets a real `process` reference and, from
+  it, `child_process`, achieving arbitrary code execution on whatever machine reviews the
+  branch — no merge required. There is no complete fix inside `page_context.js` itself:
+  the same escape is reachable through the file's own DOM-shim objects, not only the
+  named built-ins, so a narrower patch would look closed and not be. Every gate now runs
+  under Node's own permission model (`--permission --allow-fs-read=*`, no filesystem
+  write, no `child_process`) — the escape still reaches `process`, but can no longer act
+  on it. `tools/sandbox_check.js` is the new gate proving this holds: it reproduces the
+  exact reported escape in a real child process, twice — once under the restricted flags,
+  once without — and fails if the guarded run can still write a file. **Not yet done:**
+  the fuller fix the scan also named, replacing `vm` execution with static parsing of
+  `index.html`, remains an architectural decision for later.
+
+### 0.23.4
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -13217,6 +13217,69 @@ services, which is a different codebase and a different gap.
 
 NERVIS 0.23.4, RAVIS 0.21.4, SIRVIS 0.15.6. Suite: 2370 tests.
 
+## A Claude Security scan found a HIGH severity vm escape — mitigated at the process level — 2026-09-05
+
+**A whole-repository scan flagged, and the panel confirmed, that `node:vm` was
+never a sandbox here.** `nervis/tools/page_context.js`'s `loadPage()` executes
+`index.html`'s inline `<script>` inside `node:vm` for every one of the
+dashboard's twenty check scripts — and `index.html` is exactly what an
+ordinary pull request edits. Node's own documentation says plainly that `vm`
+"is not a security mechanism; do not use it to run untrusted code." Proved
+live, in a throwaway script outside any workspace, deleted after: a script run
+inside this "sandbox" reaches `.constructor.constructor('return process')`,
+obtains a real `process`, and from there `child_process.execSync` — a real
+shell, on whatever machine reviews the branch, no merge required.
+
+**A first attempt at a targeted patch was refused, correctly.** Asked to patch
+only the enumerated built-ins the finding named, the patch-generator instead
+built its own proof that the identical escape is reachable through
+`page_context.js`'s own hand-rolled `document`/`history`/`element()` shim
+objects — load-bearing for every dependent gate, and not on the finding's
+list. A patch closing only the named globals would have read as fixed while
+leaving the same door open one step over. It declined rather than ship that.
+
+**The actual mitigation: contain the process, not the script.** There is no
+patch inside `page_context.js` that closes this — the finding's own two real
+remedies (stop executing `index.html` as code at all, in favour of static
+parsing; or isolate the whole check process) both cross-cut every dependent
+gate script. The second is now live, at the invocation layer rather than
+inside any gate's logic: every one of the twenty gates in
+`tools/check_clean_clone.sh` runs under Node's own permission model —
+`--permission --allow-fs-read=*`, filesystem writes and `child_process`
+withheld. The escape still reaches `process`; nothing about the permission
+model changes what `vm` itself leaks. What changes is that reaching `process`
+no longer means anything: no file written or deleted, no command run.
+Checked against every gate first — only `shaping_check.js --update` (never
+invoked in the gate loop) writes anything, and nothing in the directory shells
+out to another process, so the restriction costs nothing today.
+
+**`nervis/tools/sandbox_check.js` is the twenty-first gate, proving the
+mitigation rather than assuming it.** It reproduces the exact reported escape
+in a real child process — a real file, not `node -e`, because
+`process.mainModule` (which the escape needs to reach `require`) is only set
+for an actual entry-point file, the same shape every gate script runs in —
+twice: once under the restricted flags, once without. It fails if the guarded
+run can still write a file, and fails a second way if the unguarded run
+*can't* — the check proving it can tell a guarded run from a broken one,
+not merely report green by construction. Held out of the uniform gate loop
+deliberately: it needs `child_process` itself to spawn its test children, which
+the very flags it is testing would deny it.
+
+**Proved by breaking it, in both directions.** Simulating a dropped
+`--permission` flag in the gate loop failed the check with a named reason
+("the mitigation does not hold") and a second, independent symptom (no
+`BLOCKED` in the output). Restored, and reran green.
+
+**Not yet done, and said so rather than implied otherwise.** The fuller fix —
+replacing `vm` execution with static parsing of `index.html`, so nothing ever
+runs untrusted script at all — remains the repository owner's call: it
+touches every one of the twenty gates' own logic, not just their invocation,
+and needs care around the two live-endpoint checks' real `fetch()`/
+`AbortSignal` usage. This closes the acute risk (arbitrary file/process
+access from an escaped script) without it.
+
+NERVIS 0.23.5.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
