@@ -138,6 +138,10 @@ step "sirvis→ravis pairwise"   nervis-eco python tools/pairwise_check.py
 # any of the five. The gate reads each component's own manifest, so a version
 # bumped without a note fails at the moment it is bumped.
 step "release notes"           nervis-eco python tools/check_releases.py
+# §12 asks for a published compatibility matrix and peer version windows. The
+# gate prints the matrix and fails when a peer ships outside the window NERVIS
+# declares for it, or when a window is too narrow for §12's rolling upgrade.
+step "peer compatibility"      nervis-eco python tools/check_compatibility.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

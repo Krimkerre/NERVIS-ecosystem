@@ -28,6 +28,8 @@ from enum import Enum
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from nervis.compatibility import supported
+
 logger = logging.getLogger("nervis.registry")
 
 
@@ -184,6 +186,7 @@ class RegistryEntry:
         stored separately, and a registry listing is exactly the surface where
         one would otherwise be published by accident.
         """
+        peer = supported(self.key, self.build_version)
         return {
             "key": self.key,
             "label": self.declaration.label,
@@ -198,6 +201,11 @@ class RegistryEntry:
             "instance_id": self.instance_id,
             "machine_id": self.machine_id,
             "build_version": self.build_version,
+            # §12's peer window, answered beside the version it judges. Reported
+            # and never refused: an upgrade happens one service at a time, and a
+            # check that refused would make the ordering of one an outage.
+            "peer_supported": peer.supported,
+            "peer_support_detail": peer.reason,
             "protocol_version": self.protocol_version,
             "api_version": self.api_version,
             "capabilities": dict(self.capabilities),

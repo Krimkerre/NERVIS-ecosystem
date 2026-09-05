@@ -138,6 +138,18 @@ Published as gates rather than as a list, so they are counted rather than rememb
 - `tools/check_plans.py` — sixty-four milestone rows still carry the pre-§14.8 tick.
 - `clarvis/docs/code-server-matrix.md` — graded against Clarvis 0.0.1 and not re-run since.
 
-**Not yet published:** the compatibility matrix §15 asks for in the same sentence. Minimum and
-maximum *peer* versions are declared nowhere; every component records the protocol version it
-speaks, which is the part that exists.
+## Compatibility
+
+`tools/check_compatibility.py` prints the matrix and holds it to what the peers actually
+ship. It is not reproduced here: a table in a document is a second copy of the windows
+`nervis/src/nervis/compatibility.py` declares, and the copy is the one that goes stale.
+
+NERVIS answers the window on every `/api/v1/services` row, beside the version it judges —
+**reported, never refused.** §12 says NERVIS must *tolerate* a peer one supported minor
+behind during a rolling upgrade, and an upgrade happens one service at a time: a check that
+refused would turn the ordering of one into an outage.
+
+**Clarvis is not judged, and that is a gap rather than an omission.** Its Bridge registers
+with an API version and a protocol version and publishes no product version at all, so
+NERVIS holds nothing to compare a window against. Closing it means the Bridge publishing its
+extension version at registration.

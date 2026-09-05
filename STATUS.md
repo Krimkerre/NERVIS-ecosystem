@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2320 tests, no network, no live service
+.venv/bin/pytest                      # part of 2330 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 844 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 854 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2320 passing across the four, conformance `PASS`.
+Expected: all clean, 2330 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12013,6 +12013,44 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## Which peer versions this build supports, said out loud — 2026-09-05
+
+**§12 asks to "publish compatibility matrices and minimum/maximum peer
+versions", and there were none.** The registry has read every peer's
+`build_version` since M2, published it on `/api/v1/services`, and compared it to
+nothing. Four products on independent cadences and no statement anywhere about
+which combinations were meant to work — so an operator running a NERVIS six
+minors ahead of its RAVIS had no way of being told, and the first symptom would
+be a surface answering in a shape this build does not read.
+
+`nervis/src/nervis/compatibility.py` declares the windows, NERVIS answers them on
+every services row beside the version they judge, and
+`tools/check_compatibility.py` prints the matrix and holds it to two facts it
+cannot check about itself: every peer ships inside its own window, and every
+window is at least a minor wide.
+
+**Reported, never refused, because §12 chose that word.** *"NERVIS must tolerate
+peers one supported minor behind during a rolling upgrade."* An upgrade happens
+one service at a time; a check that refused would turn the ordering of one into
+an outage, which is the opposite of tolerating. The answer travels beside the
+version and changes nothing else.
+
+**The matrix is printed rather than filed.** A table in `RELEASES.md` would be a
+second copy of the windows, and the copy is the one that goes stale — the defect
+this whole day has been about. `RELEASES.md` points at the gate instead.
+
+**Clarvis is the peer it cannot judge, and that is recorded rather than faked.**
+Its Bridge registers with an API version and a protocol version and publishes no
+product version at all, so NERVIS holds nothing to compare a window against. A
+range declared for it would have been precisely the dead declaration this module
+exists to stop being — a rule with no value to apply it to. `CANNOT_BE_JUDGED`
+names it, the matrix prints it as unjudged, and closing it means the Bridge
+publishing its version at registration, which is Clarvis's change to make.
+
+Ten tests, including §12's rolling-upgrade clause held for every peer rather than
+for the one I remembered. Proved the gate bites by shipping RAVIS past its window
+and by narrowing a window below a minor.
 
 ## Five version numbers that nothing explained — 2026-09-05
 
