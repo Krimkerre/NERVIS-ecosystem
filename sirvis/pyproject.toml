@@ -1,6 +1,6 @@
 [project]
 name = "sirvis"
-version = "0.15.5"
+version = "0.15.6"
 description = "Local model evidence plane — benchmarks, provenance and recommendations"
 requires-python = ">=3.11"
 dependencies = [

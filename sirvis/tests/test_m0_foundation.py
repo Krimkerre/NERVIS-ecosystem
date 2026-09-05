@@ -11,8 +11,13 @@ would block the entire ecosystem schedule on an application being open.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import sqlite3
+from typing import Any, AsyncIterator
 
+import httpx
+import uvicorn
 from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol
 from fastapi.testclient import TestClient
 
@@ -248,3 +253,43 @@ def test_a_fully_configured_remote_bind_is_refused() -> None:
     )
 
     assert report.is_startable() is False
+
+
+@contextlib.asynccontextmanager
+async def _running(app: Any) -> AsyncIterator[str]:
+    """`sirvis serve`'s own call, minus the part that blocks forever.
+
+    `test_the_service_starts_with_no_runtime_present` above proves the *app*
+    comes up with nothing else running — through `TestClient`, an ASGI
+    transport with no socket. Reverifying §15 found that no test in this suite,
+    or any sibling's, had ever asked uvicorn to actually bind one. Port 0 so a
+    run of this suite never collides with a real SIRVIS.
+    """
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="critical"))
+    task = asyncio.create_task(server.serve())
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("uvicorn never reported started — this test is broken, not SIRVIS")
+        port = server.servers[0].sockets[0].getsockname()[1]
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        await task
+
+
+async def test_serve_binds_a_real_port_with_no_runtime_present(settings: Settings) -> None:
+    """M0's exit in full: *"sirvis serve" works* and *"no runtime dependency
+    needed to start"* — proved as a real socket and a real HTTP round trip,
+    the same distinction `test_the_service_starts_with_no_runtime_present`
+    above cannot make on its own.
+    """
+    unreachable = settings.model_copy(update={"lmstudio_base_url": "http://127.0.0.1:9"})
+    async with _running(create_app(unreachable)) as base_url, httpx.AsyncClient() as client:
+        answered = await client.get(f"{base_url}/ecosystem/health")
+
+    assert answered.status_code == 200
+    assert answered.json()["live"] is True

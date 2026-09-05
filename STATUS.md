@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2366 tests, no network, no live service
+.venv/bin/pytest                      # part of 2370 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 889 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 458 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2366 passing across the four, conformance `PASS`.
+Expected: all clean, 2370 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -13173,6 +13173,49 @@ as `TestClient`'s header-free default and as a real browser's
 `Sec-Fetch-Site: same-origin`.
 
 NERVIS 0.23.3. Suite: 889 tests.
+
+## "Run independently" proved with a real socket, not assumed by one that never had one — 2026-09-05
+
+**§15 item 1's own reading of the ecosystem named the gap precisely.** Every
+existing standalone test — `test_the_service_starts_with_no_runtime_present`,
+`test_doctor_succeeds_on_a_default_configuration`, and their siblings — drives
+the app through `TestClient`, which is an ASGI transport: no socket, no port,
+nothing that could fail to bind one. "Products build and run independently"
+was proved for the *build* half (`tools/import_alone.py`, isolated venvs, since
+the milestone-ratchet work) and asserted rather than proved for the *run* half.
+`RAVIS.md`'s own M0 row said so in as many words: held at IMPLEMENTED because
+*"`ravis serve` binding a port alone is tested nowhere."*
+
+**A real `uvicorn.Server`, bound to port 0, driven by a real HTTP client — in
+all three Python services.** `nervis/tests/test_m0_foundation.py`,
+`ravis/tests/test_cli.py` and `sirvis/tests/test_m0_foundation.py` each gained
+a small async context manager that starts the actual server the CLI's own
+`serve` command runs, waits for `server.started`, yields the real bound
+address, and shuts it down cleanly afterward. Each service is asked for its
+health with every peer absent — the same "no external service required"
+configuration the ASGI tests already used, now proved against a socket a
+different process could have connected to.
+
+**RAVIS's M0 moves from IMPLEMENTED to AUTOMATED VERIFIED**, the exact gap
+that held it there now closed. NERVIS and SIRVIS were already AUTOMATED
+VERIFIED; the evidence behind that state is stronger now, not the state
+itself — a claim resting on an ASGI transport and a claim resting on a real
+socket were both "AUTOMATED VERIFIED" by §14.8's letter, and only one of them
+could have caught a service that forgot how to bind a port.
+
+**Proved by breaking each one and watching it fail.** Pointing the health
+check at a route that does not exist failed all three new tests with a real
+404 from a real socket, not a fixture disagreeing with itself; each was
+restored and reruns confirmed green.
+
+**What §15 item 1 still does not have.** Clarvis's own standalone proof,
+`clarvis/src/test/bridgeDisabled.spec.ts`, is real and passes under `npm run
+test:host` — but that script sits outside `tools/check_clean_clone.sh`, whose
+Clarvis block runs `npm test`, which cannot match a `.spec.ts` file. Recorded
+here again rather than left to be assumed fixed alongside the three Python
+services, which is a different codebase and a different gap.
+
+NERVIS 0.23.4, RAVIS 0.21.4, SIRVIS 0.15.6. Suite: 2370 tests.
 
 ## Starting the thing
 

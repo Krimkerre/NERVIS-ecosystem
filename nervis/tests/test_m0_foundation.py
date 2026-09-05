@@ -15,9 +15,13 @@ watches to be healthy cannot be used to find out why they are not.
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+import contextlib
+from typing import Any, AsyncIterator
 
+import httpx
 import pytest
+import uvicorn
 from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol
 from fastapi.testclient import TestClient
 
@@ -518,3 +522,61 @@ def test_a_fully_configured_remote_bind_is_refused() -> None:
     )
 
     assert report.is_startable is False
+
+
+@contextlib.asynccontextmanager
+async def _running(app: Any) -> AsyncIterator[str]:
+    """`nervis serve`'s own call, minus the part that blocks forever.
+
+    Every other test in this file drives the app through `TestClient`, which is
+    an ASGI transport — no socket, no port, no process that could fail to bind
+    one. M0's own exit criterion is `"nervis serve" starts`, and reverifying
+    §15 found nothing had ever asked uvicorn to actually do that: `cli.py`'s
+    `_serve` calls `uvicorn.run` exactly this way, and nothing in this suite had
+    called it at all. Bound on port 0 so a run of this suite never collides with
+    a real NERVIS, or with another test running the same file in parallel.
+    """
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="critical"))
+    task = asyncio.create_task(server.serve())
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("uvicorn never reported started — this test is broken, not NERVIS")
+        port = server.servers[0].sockets[0].getsockname()[1]
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        await task
+
+
+async def test_serve_binds_a_real_port_with_every_peer_absent(tmp_path: Any) -> None:
+    """M0's headline claim, proved rather than assumed: a real socket, a real
+    HTTP round trip, RAVIS and SIRVIS genuinely absent — not an ASGI transport
+    that was never going to fail to bind anything.
+    """
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "nervis.db"), _env_file=None,
+    )
+    async with _running(create_app(settings)) as base_url, httpx.AsyncClient() as client:
+        answered = await client.get(f"{base_url}/ecosystem/health")
+
+    assert answered.status_code == 200
+    assert answered.json()["status"] in ("healthy", "degraded")
+
+
+async def test_serve_answers_its_dashboard_too(tmp_path: Any) -> None:
+    """The other half of M0's sentence: *"the browser opens the dashboard"* —
+    checked as a real request for the page a browser would actually load,
+    not the router table having a route registered for it.
+    """
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "nervis.db"), _env_file=None,
+    )
+    async with _running(create_app(settings)) as base_url, httpx.AsyncClient() as client:
+        answered = await client.get(f"{base_url}/index.html")
+
+    assert answered.status_code == 200
+    assert "<html" in answered.text.lower()

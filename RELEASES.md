@@ -91,7 +91,17 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.3
+## NERVIS — 0.23.4
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **`nervis serve` binding a real port with every peer absent is now proved, not
+  assumed.** Every existing test drove the app through `TestClient`, an ASGI transport
+  with no socket — none of them could have caught a failure to bind one. Two new tests
+  run a real `uvicorn.Server` on port 0 and hit it with a real HTTP client: the service
+  answers its health and serves the dashboard page, both with RAVIS and SIRVIS absent.
+
+### 0.23.3
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -164,7 +174,18 @@ every entry.
 
 ---
 
-## RAVIS — 0.21.3
+## RAVIS — 0.21.4
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **`ravis serve` binding a real port is now tested — M0's last untested clause.**
+  §15's "products build and run independently" line found it: `RAVIS.md`'s M0 was
+  IMPLEMENTED rather than AUTOMATED VERIFIED specifically because "`ravis serve`
+  binding a port alone is tested nowhere". A new test runs a real `uvicorn.Server`
+  on port 0 with no upstream configured and drives it with a real HTTP client. M0
+  moves to AUTOMATED VERIFIED.
+
+### 0.21.3
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -193,7 +214,16 @@ every entry.
 
 ---
 
-## SIRVIS — 0.15.5
+## SIRVIS — 0.15.6
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
+
+- **`sirvis serve` binding a real port with no runtime present is now proved.** The
+  existing standalone test drives the app through `TestClient`, which has no socket
+  to fail to bind; a new one runs a real `uvicorn.Server` on port 0 and reaches it
+  with a real HTTP client, LM Studio genuinely absent.
+
+### 0.15.5
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
 

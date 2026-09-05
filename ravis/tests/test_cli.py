@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-import pytest
+import asyncio
+import contextlib
+from typing import Any, AsyncIterator
 
+import httpx
+import pytest
+import uvicorn
+
+from ravis.app import create_app
 from ravis.cli import EXIT_FATAL_CONFIGURATION, EXIT_OK, main
+from ravis.config import Settings
 
 
 def test_doctor_succeeds_on_a_default_configuration(monkeypatch, capsys) -> None:  # noqa: ANN001
@@ -88,3 +96,45 @@ def test_restoring_a_version_that_has_no_backup_says_so_rather_than_crashing(  #
     said = capsys.readouterr().out
     assert "no backup at version 9999" in said
     assert "Traceback" not in said
+
+
+@contextlib.asynccontextmanager
+async def _running(app: Any) -> AsyncIterator[str]:
+    """`ravis serve`'s own call, minus the part that blocks forever.
+
+    Reverifying §15 found `RAVIS.md`'s M0 row held to IMPLEMENTED rather than
+    AUTOMATED VERIFIED for exactly this gap: "ravis serve binding a port alone
+    is tested nowhere." Every test above drives `main()`, which for `serve`
+    calls `uvicorn.run` and never returns — nothing here could call it and stay
+    in control of the test. Port 0 so a run of this suite never collides with a
+    real RAVIS.
+    """
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="critical"))
+    task = asyncio.create_task(server.serve())
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("uvicorn never reported started — this test is broken, not RAVIS")
+        port = server.servers[0].sockets[0].getsockname()[1]
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        await task
+
+
+async def test_serve_binds_a_real_port_with_no_upstream_configured(tmp_path) -> None:  # noqa: ANN001
+    """M0's acceptance in full: `ravis doctor` and `ravis serve` work "without
+    contacting any upstream" — proved as a real socket and a real HTTP round
+    trip, not the ASGI transport every other RAVIS test uses, which was never
+    going to fail to bind anything.
+    """
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "ravis.db"), _env_file=None,
+    )
+    async with _running(create_app(settings)) as base_url, httpx.AsyncClient() as client:
+        answered = await client.get(f"{base_url}/ecosystem/health")
+
+    assert answered.status_code == 200

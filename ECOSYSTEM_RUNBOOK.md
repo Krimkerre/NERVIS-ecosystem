@@ -1069,6 +1069,14 @@ may only add product-specific detail beside the required state.
 
 - [ ] All four products build and run independently — §3 makes that "independent
       buildability, not repository count", and there are two repositories, not four.
+      *Reverified: NERVIS, RAVIS and SIRVIS each now bind a real socket and answer a
+      real HTTP request with every peer absent — `uvicorn.Server` on port 0, driven
+      by a real client, not the ASGI transport every other test in each suite uses,
+      which was never going to fail to bind anything. RAVIS's M0 moved from
+      IMPLEMENTED to AUTOMATED VERIFIED on exactly this gap closing. Still open:
+      Clarvis's own standalone proof (`bridgeDisabled.spec.ts`) sits outside
+      `tools/check_clean_clone.sh`, which cannot run a `.spec.ts` file — recorded
+      separately in `STATUS.md`.*
 - [ ] The non-invention rule appears in every app document and in agent working instructions.
 - [ ] MEP schemas, fixtures and versions are released and pinned.
 - [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error
