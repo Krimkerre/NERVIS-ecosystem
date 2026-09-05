@@ -13362,6 +13362,53 @@ weight.
 All twenty-one gates still pass on macOS under the combined lockdown.
 NERVIS 0.23.7.
 
+## F2: the same scan's markup parser could be recursed into a DoS — fixed directly, 2026-09-05
+
+The same Claude Security scan (F1 above) also flagged `nervis/src/nervis/layout.py`'s
+`_marked` — the function that splits a reply's text into bold/italic/code
+spans — for CWE-674 (uncontrolled recursion): an attacker-shaped reply body
+could drive it into stack exhaustion or quadratic-time blowup. Two rounds
+through the automated patch pipeline both failed adversarial review, each on a
+real defect: round one's fix was itself O(n²) on plain adversarial input, and
+round two fixed that but silently dropped italic styling in a case its own
+generator's tests didn't cover. The pipeline's own rule is that a second
+objection declines the unit rather than trying a third automated round — so
+this one was fixed directly instead of through `claude-security:suggest-patches`.
+
+**The actual bug, once found:** `_marked`'s replacement scan caches "no match
+found from this position on" per pattern — sound in principle, since a regex
+search's start position only moves forward within one call — but the cached
+"no match" was being *treated* as if it proved nothing, and re-run from
+scratch on every step regardless. A line with only two of the three mark kinds
+present (a long run of `**bold**` with no code spans, say) re-scanned the
+entire remaining text on every single step looking for a backtick that isn't
+there — quadratic in the length of the line. The fix caches that exhaustion
+permanently for the rest of one `_marked` call instead of re-earning it every
+step, which is what `search_from` never going backwards makes safe.
+
+Getting there also meant re-deriving why the original all-at-once recursive
+version was written with `(?<!\*)` on the italic pattern in the first place:
+a lookbehind checked against a position-anchored scan sees whatever character
+is actually at `pos - 1` in the *current* call's string, which is sometimes
+real preceding text and sometimes one character behind a span that was already
+sliced off and returned earlier in the scan — the same input then parses two
+different ways depending on where the scan last stopped. The fix drops the
+lookbehind from the compiled pattern and re-applies the same boundary check by
+hand, against the true previous character in the original string, only once a
+candidate has actually won the position it starts at.
+
+Verified the way this repository's own patch-verifiers would: the exact
+regression case from round two (`**warning***careful*` keeping both its bold
+and its italic) checked by hand, a 200,000-trial differential fuzz against a
+faithfully reproduced copy of the pre-patch recursive implementation with zero
+mismatches, and timing runs at up to 32,000 repeats across four adversarial
+shapes (code-only, bold-only, stray asterisks, interleaved bold/italic) — all
+scale linearly where the unfixed version could be driven quadratic.
+`mypy`/`ruff` clean, and the package's full suite (`nervis/tests/test_pdf.py`
+plus the rest) passes.
+
+NERVIS 0.23.8.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

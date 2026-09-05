@@ -98,13 +98,26 @@ _CODE = re.compile(r"`([^`]+)`")
 # decision not to parse italic at all was worried about.
 _ITALIC = re.compile(r"(?<!\*)\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)")
 
+# The same pattern minus the opening `(?<!\*)` lookbehind. `_marked` below
+# scans left to right by re-searching from a moving `pos` rather than always
+# from the start of the string (that quadratic mistake is the whole reason
+# this file changed — see its docstring). A lookbehind evaluated against that
+# moving `pos` sees whatever character happens to sit at `pos - 1`, which is
+# real text one call and, the next, one character behind a span that was
+# already sliced off and returned — the lookbehind can't tell those apart, so
+# the same input silently parses two different ways depending on where the
+# scan last stopped. `_marked` re-applies the boundary itself, checked against
+# the true previous character in the *original* string, only once a candidate
+# has actually won the position it starts at.
+_ITALIC_OPEN_UNCHECKED = re.compile(r"\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)")
+
 #: Tried outermost first, and the order is load-bearing twice. `**bold**` before
 #: `*italic*`, or the outer pair of a bold phrase matches as emphasis around a
 #: starred word. And **code last**, which was wrong the first time: with code
 #: first, ``**bold with `code` inside**`` split on the backticks and left the
 #: asterisks as literal text on both sides, because the bold pattern never saw
 #: an intact phrase to match.
-_MARKS = ((_BOLD, "bold"), (_ITALIC, "italic"), (_CODE, "code"))
+_MARKS = ((_BOLD, "bold"), (_ITALIC_OPEN_UNCHECKED, "italic"), (_CODE, "code"))
 
 
 def _spans(text: str) -> tuple[Span, ...]:
@@ -116,12 +129,86 @@ def _spans(text: str) -> tuple[Span, ...]:
     return _marked(text, 0) or (Span(""),)
 
 
-def _marked(text: str, depth: int) -> tuple[Span, ...]:
-    """Split on the first kind of mark that appears, then recurse either side.
+def _find_from(
+    pattern: re.Pattern[str],
+    text: str,
+    cache: dict[re.Pattern[str], re.Match[str] | None],
+    exhausted: set[re.Pattern[str]],
+    search_from: int,
+) -> re.Match[str] | None:
+    """`pattern.search(text, search_from)`, remembering the answer.
 
-    Recursive rather than three passes, so `**a `b` c**` keeps both — a flat
-    scan would find the bold, wrap the whole of it in one span, and the backtick
-    inside would never be looked at again.
+    A Claude Security scan found the previous version of this cache: it
+    remembered a *match*, but treated "no match anywhere past here" as if it
+    proved nothing, and re-ran the full remaining-text search on every single
+    step of `_marked`'s scan — quadratic in the length of the line, and the
+    reason a long run with only two of the three mark kinds present (long
+    stretches of bold with no code, say) could hang. The fix is that within one
+    call to `_marked`, `search_from` for a given pattern never goes backwards —
+    it is always `max` of where the scan last gave up on that pattern and where
+    the outer loop currently stands. So once `pattern.search` reports nothing
+    at or after some position, nothing can appear there on a *later*, larger
+    `search_from` either, and `exhausted` remembers that for the rest of this
+    call instead of re-earning it every step.
+    """
+    if pattern in exhausted:
+        return None
+    cached = cache.get(pattern)
+    if cached is None or cached.start() < search_from:
+        found = pattern.search(text, search_from)
+        cache[pattern] = found
+        if found is None:
+            exhausted.add(pattern)
+        return found
+    return cached
+
+
+def _next_mark(
+    text: str,
+    pos: int,
+    cache: dict[re.Pattern[str], re.Match[str] | None],
+    exhausted: set[re.Pattern[str]],
+    resume: dict[re.Pattern[str], int],
+) -> tuple[int, int, re.Match[str], str] | None:
+    """The earliest mark starting at or after `pos`, or `None` past the last one.
+
+    Split out of `_marked` on its own — a rejected `_ITALIC_OPEN_UNCHECKED`
+    candidate (see below) has to retry the whole "which mark opens first"
+    question rather than settle for the next-best one, and that retry is what
+    pushed `_marked` over ruff's complexity limit.
+    """
+    while True:
+        hits = []
+        for index, (pattern, mark) in enumerate(_MARKS):
+            found = _find_from(pattern, text, cache, exhausted, max(resume[pattern], pos))
+            if found is not None:
+                hits.append((found.start(), index, found, mark))
+        if not hits:
+            return None
+        start, index, found, mark = min(hits, key=lambda hit: (hit[0], hit[1]))
+        # `_ITALIC_OPEN_UNCHECKED` dropped the real pattern's `(?<!\*)`, so a
+        # candidate that opens right after a literal `*` — two stray asterisks,
+        # not one already spent by a mark that starts exactly at `pos` — is not
+        # really an opener at all. Reject it and make this pattern resume one
+        # character later, same as the lookbehind would have, then look again;
+        # the winning candidate can still be bold or code found in the meantime.
+        if mark == "italic" and start > pos and text[start - 1] == "*":
+            resume[_ITALIC_OPEN_UNCHECKED] = start + 1
+            cache[_ITALIC_OPEN_UNCHECKED] = None
+            continue
+        return start, index, found, mark
+
+
+def _marked(text: str, depth: int) -> tuple[Span, ...]:
+    """Split on each mark in turn, left to right, then recurse into each one.
+
+    Walks `text` once with a moving cursor `pos` rather than recursing on the
+    unmatched remainder as the very first version of this function did —that
+    version re-searched from the start of an ever-shrinking string, which is
+    fine for the two symmetric marks but cannot see a genuine `_ITALIC` open
+    boundary once the character before it has already been sliced away. This
+    version searches the one string that has everything: `text` itself, moving
+    `pos` forward instead of moving `text`'s start.
 
     `depth` stops the recursion at the number of mark kinds there are: a run
     that has been through all of them has nothing left to find, and without the
@@ -129,27 +216,35 @@ def _marked(text: str, depth: int) -> tuple[Span, ...]:
     """
     if not text or depth >= len(_MARKS):
         return (Span(text),) if text else ()
-    # **Whichever mark opens first, not whichever kind is listed first.**
-    # A fixed order gets one nesting right and the other wrong: code-first
-    # leaves the asterisks in ``**bold with `code` inside**``, and bold-first
-    # lets emphasis run inside a code span and print the backticks. Which one
-    # encloses the other is a fact about *this* string, and where each opens is
-    # how to read it. Ties keep `_MARKS` order, so `**` beats `*` at the same
-    # position.
-    hits = [(found.start(), index, pattern, mark)
-            for index, (pattern, mark) in enumerate(_MARKS)
-            if (found := pattern.search(text))]
-    for _, index, pattern, mark in sorted(hits, key=lambda hit: (hit[0], hit[1]))[:1]:
-        found = pattern.search(text)
-        if not found:
-            continue
+    spans: list[Span] = []
+    pos = 0
+    cache: dict[re.Pattern[str], re.Match[str] | None] = {}
+    exhausted: set[re.Pattern[str]] = set()
+    # Where each pattern is allowed to resume from — separate from `pos`
+    # because a rejected italic candidate (see `_next_mark`) needs to be
+    # skipped without also skipping past text no other mark has looked at yet.
+    resume = {pattern: 0 for pattern, _ in _MARKS}
+    while pos < len(text):
+        # **Whichever mark opens first, not whichever kind is listed first.**
+        # A fixed order gets one nesting right and the other wrong: code-first
+        # leaves the asterisks in ``**bold with `code` inside**``, and
+        # bold-first lets emphasis run inside a code span and print the
+        # backticks. Which one encloses the other is a fact about *this*
+        # string, and where each opens is how to read it. Ties keep `_MARKS`
+        # order, so `**` beats `*` at the same position.
+        hit = _next_mark(text, pos, cache, exhausted, resume)
+        if hit is None:
+            break
+        start, index, found, mark = hit
+        if start > pos:
+            spans.append(Span(text[pos:start]))
         # **Recursed into, except for code.** A bold phrase may contain a
         # backtick and the run inside it is both; wrapping the match in one span
         # would keep the backticks as text. Code is the exception on purpose:
         # what is inside one is not markup, so an asterisk there stays an
         # asterisk.
         if mark == "code":
-            inner: tuple[Span, ...] = (Span(found.group(1), code=True),)
+            spans.append(Span(found.group(1), code=True))
         else:
             # `# type: ignore` with its sentence, per §14.1's rule for an
             # exemption: `mark` is one of `_MARKS`' three field names, chosen by
@@ -158,16 +253,16 @@ def _marked(text: str, depth: int) -> tuple[Span, ...]:
             # is three near-identical branches to tell mypy what `_MARKS`
             # already says — more code, saying it twice, to check nothing that
             # is actually in doubt.
-            inner = tuple(
+            spans.extend(
                 replace(span, **{mark: True})  # type: ignore[arg-type]
                 for span in _marked(found.group(1), index)
             )
-        return (
-            _marked(text[: found.start()], index)
-            + inner
-            + _marked(text[found.end():], index)
-        )
-    return (Span(text),)
+        pos = found.end()
+        for pattern in resume:
+            resume[pattern] = max(resume[pattern], pos)
+    if pos < len(text):
+        spans.append(Span(text[pos:]))
+    return tuple(spans) if spans else (Span(text),)
 
 
 def parse(text: str) -> list[Block]:

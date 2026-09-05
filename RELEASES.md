@@ -91,7 +91,25 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.7
+## NERVIS — 0.23.8
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **F2: the reply-text markup parser could be driven into a quadratic-time hang, and is
+  fixed.** The same Claude Security scan that found F1 also flagged `_marked` in
+  `nervis/src/nervis/layout.py` for uncontrolled recursion (CWE-674). Two rounds through
+  the automated patch pipeline each failed adversarial review on a real defect — an O(n²)
+  fix, then a fix that silently dropped italic styling — so this one was fixed directly.
+  The root cause: an exhaustion cache meant to remember "no match past this point" was
+  re-scanning the remaining text from scratch every step regardless, quadratic on any line
+  with only two of the three mark kinds present. It now caches that exhaustion for real,
+  and the italic pattern's lookbehind — unsafe once the scan moves forward through one
+  shared string instead of recursing on ever-smaller slices — is re-applied by hand against
+  the true original text instead. Verified with a 200,000-trial differential fuzz against
+  the pre-patch implementation (zero mismatches) and linear timing up to 32,000 repeats
+  across four adversarial shapes.
+
+### 0.23.7
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
