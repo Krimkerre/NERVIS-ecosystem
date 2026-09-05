@@ -19,6 +19,7 @@ import contextlib
 import logging
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -437,6 +438,7 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
     stopping = getattr(api.state, "stopping", None)
     if stopping is not None and stopping.is_set():
         return
+    worth: list[_Noteworthy] = []
     for entry in api.state.registry.all():
         was = before.get(entry.key)
         if was is None or was == entry.state:
@@ -463,7 +465,10 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
                 "detail": entry.detail,
             },
         )
-        _note_state_change(api, entry, was)
+        noteworthy = _note_state_change(api, entry, was)
+        if noteworthy is not None:
+            worth.append(noteworthy)
+    _file_notes(api, worth)
 
 
 def _enforce_log_bounds(api: FastAPI) -> None:
@@ -481,20 +486,70 @@ def _enforce_log_bounds(api: FastAPI) -> None:
 # How a state reads in a sentence. The status bar's own words are for a glance
 # and these are for a line somebody reads tomorrow — "stale" without the age
 # beside it has told them nothing.
+# Two forms per state, because English does not derive the second from the first:
+# "has stopped answering" becomes "have stopped answering", and a rule that
+# appended a letter would write "has stopped answerings". Written out so a
+# reader can see the sentence each state produces.
 WRITTEN_STATE = {
-    "healthy": "is back to healthy",
-    "degraded": "is degraded",
-    "unreachable": "has stopped answering",
-    "stale": "has gone quiet",
-    "unhealthy": "reports itself unhealthy",
-    "incompatible": "is speaking a protocol NERVIS does not support",
-    "unauthorized": "is refusing NERVIS's credential",
-    "stopped": "has stopped",
-    "discovering": "is still negotiating",
+    "healthy": ("is back to healthy", "are back to healthy"),
+    "degraded": ("is degraded", "are degraded"),
+    "unreachable": ("has stopped answering", "have stopped answering"),
+    "stale": ("has gone quiet", "have gone quiet"),
+    "unhealthy": ("reports itself unhealthy", "report themselves unhealthy"),
+    "incompatible": ("is speaking a protocol NERVIS does not support",
+                     "are speaking a protocol NERVIS does not support"),
+    "unauthorized": ("is refusing NERVIS's credential", "are refusing NERVIS's credential"),
+    "stopped": ("has stopped", "have stopped"),
+    "discovering": ("is still negotiating", "are still negotiating"),
 }
 
 
-def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
+def _listed(labels: list[str]) -> str:
+    """`A`, `A and B`, `A, B and C` — the way a person would say it."""
+    if len(labels) == 1:
+        return labels[0]
+    return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+
+def _phrase_for(labels: list[str], state: str) -> str:
+    """One sentence for however many services reached the same state.
+
+    **Three notes for one event is how a centre teaches people to close it.** A
+    cold start brings the stack up in sequence, so RAVIS, SIRVIS and code-server
+    recover within one sweep of each other and filed one note each — three lines
+    saying the stack came up. This centre already carries that scar: it once
+    opened with four notes about an Ollama nobody had installed.
+    """
+    singular, plural = WRITTEN_STATE.get(state, (f"is now {state}", f"are now {state}"))
+    return f"{_listed(labels)} {singular if len(labels) == 1 else plural}"
+
+
+def _grouped(changes: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """Labels by the state they reached, in the order they were observed.
+
+    **Grouped by destination, which is what makes them one event.** A RAVIS that
+    came back and a SIRVIS that stopped answering in the same sweep are two
+    different things, and a single line saying both would be the flood's
+    opposite failure: a sentence nobody can act on.
+    """
+    grouped: dict[str, list[str]] = {}
+    for label, state in changes:
+        grouped.setdefault(state, []).append(label)
+    return grouped
+
+
+@dataclass(frozen=True)
+class _Noteworthy:
+    """One transition that survived the filters and is worth telling somebody."""
+
+    label: str
+    state: str
+    was: str
+    detail: str
+    usable: bool
+
+
+def _note_state_change(api: FastAPI, entry: Any, was: Any) -> _Noteworthy | None:
     """File the transition in the notification centre as well as the hub.
 
     **The announcement and the note are one event seen twice.** M21 is explicit
@@ -512,7 +567,7 @@ def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
     """
     database = getattr(api.state, "database", None)
     if database is None or entry.awaiting_first_contact:
-        return
+        return None
     # **Nothing is filed while the stack is still coming up.** A launcher starts
     # the services in sequence and the machine is busy doing it, so NERVIS's
     # early sweeps catch peers mid-startup and its own probe of itself can time
@@ -535,7 +590,7 @@ def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
     # NERVIS observed, and this is the shorter list of what is worth saying.
     settings: Settings = api.state.settings
     if time.monotonic() - api.state.probe_started_at <= settings.startup_window_seconds:
-        return
+        return None
     # **A first sighting is a roll call, not news.** `discovering` is the state
     # every entry starts in, so the first sweep after a restart moves all of
     # them out of it — and posting that would greet the user with one note per
@@ -546,25 +601,54 @@ def _note_state_change(api: FastAPI, entry: Any, was: Any) -> None:
     # service that was down before the restart and is still down produces no
     # note, which is right: nothing changed.
     if was.value == RegistryState.DISCOVERING.value:
+        return None
+    return _Noteworthy(
+        label=entry.declaration.label,
+        state=entry.state.value,
+        was=was.value,
+        detail=entry.detail,
+        usable=bool(entry.is_usable),
+    )
+
+
+def _file_notes(api: FastAPI, worth: list[_Noteworthy]) -> None:
+    """One note per destination state, for everything this sweep saw move.
+
+    **The sweep is the unit, because the sweep is the observation.** Filing per
+    transition produced three lines for one event on every cold start — the
+    launcher brings the stack up in sequence, so RAVIS, SIRVIS and code-server
+    all recover inside one pass. Three notes saying "the stack came up" is how a
+    centre teaches somebody to close it unread, which is the same failure as the
+    flood the startup window already exists to stop, arriving a different way.
+    """
+    database = getattr(api.state, "database", None)
+    if database is None or not worth:
         return
-    label = entry.declaration.label
-    moved = WRITTEN_STATE.get(entry.state.value, f"is now {entry.state.value}")
-    with contextlib.suppress(Exception):
-        notifications.post(
-            database,
-            kind="service_state",
-            title=f"{label} {moved}",
-            # §4.1's discipline, carried through: the note says why it exists,
-            # and the why is the transition rather than the destination. "RAVIS
-            # is degraded" is a status; "it was healthy twenty seconds ago" is
-            # the reason anybody wants to know about it now.
-            reason=f"its state moved from {was.value} to {entry.state.value}",
-            body=entry.detail,
-            severity=(
-                "warning" if not entry.is_usable else "info"
-            ),
-            source="registry",
-        )
+    by_state = _grouped([(one.label, one.state) for one in worth])
+    for state, labels in by_state.items():
+        moved = [one for one in worth if one.state == state]
+        froms = sorted({one.was for one in moved})
+        with contextlib.suppress(Exception):
+            notifications.post(
+                database,
+                kind="service_state",
+                title=_phrase_for(labels, state),
+                # §4.1's discipline, carried through: the note says why it
+                # exists, and the why is the transition rather than the
+                # destination. "RAVIS is degraded" is a status; "it was healthy
+                # twenty seconds ago" is the reason anybody wants to know now.
+                # Several services rarely move *from* the same state, so the
+                # sentence names each origin it saw rather than picking one.
+                reason=(f"state moved from {' and '.join(froms)} to {state}"),
+                # The details differ per service, so they are labelled. One
+                # unlabelled blob would leave a reader guessing which sentence
+                # belonged to which name.
+                body="; ".join(f"{one.label}: {one.detail}" for one in moved if one.detail),
+                # Warning when *any* of them is unusable: a line that said "info"
+                # because two of three recovered would bury the one that did not.
+                severity="warning" if any(not one.usable for one in moved) else "info",
+                source="registry",
+            )
 
 
 def _reopen_window_after_a_gap(api: FastAPI) -> None:

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2335 tests, no network, no live service
+.venv/bin/pytest                      # part of 2341 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 859 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 865 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2335 passing across the four, conformance `PASS`.
+Expected: all clean, 2341 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12013,6 +12013,45 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## Three notes for one event — 2026-09-05
+
+**Reported from a real boot:** *"RAVIS is back to healthy"*, *"SIRVIS is back to
+healthy"*, *"code-server is back to healthy"* — three lines in the notification
+centre for a single event, which is the stack coming up. The launcher starts the
+services in sequence, so they recover inside one probe sweep of each other, and
+each transition filed its own note.
+
+This centre already carries that scar. The startup window exists because a cold
+start once produced a note per service saying each had stopped answering, every
+one true for about twenty seconds; the "absent is not news" rule exists because
+it once opened with four notes about an Ollama nobody had installed. Three lines
+saying "the stack came up" is the same failure arriving a third way: a centre
+that teaches somebody to close it unread.
+
+Notes are filed per sweep now, grouped by the state reached:
+
+    RAVIS is back to healthy
+    RAVIS, SIRVIS and code-server are back to healthy
+    RAVIS and SIRVIS have stopped answering
+
+**Grouped by destination, because that is what makes them one event.** A RAVIS
+that came back and a SIRVIS that stopped answering in the same sweep are two
+different things, and one line saying both would be this failure's opposite: a
+sentence nobody can act on.
+
+**Two forms per state, written out rather than derived.** English does not make
+the plural by adding a letter — "has stopped answering" becomes "have stopped
+answering", and a rule that appended an `s` would write "has stopped answerings".
+A test walks every state a service can reach and fails if the two forms read
+identically, so a state added later cannot quietly get one.
+
+Severity is `warning` when *any* service in a group is unusable: a line that read
+`info` because two of three recovered would bury the one that did not. The body
+labels each detail with its service, since one unlabelled blob would leave a
+reader guessing which sentence belonged to which name. The hub still records
+every transition individually — it is the record of what NERVIS observed, and
+this is the shorter list of what is worth saying.
 
 ## The one peer NERVIS could not judge now says its version — 2026-09-05
 
