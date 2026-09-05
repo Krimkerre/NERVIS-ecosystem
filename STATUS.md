@@ -13043,6 +13043,43 @@ has nothing to do with data staying inside a jurisdiction. A search for
 No code changed; nothing to test or run. `RAVIS.md` §9.2 and `RELEASES.md`'s
 known limitations both say the same thing now.
 
+## The translated-path disconnect test could not fail — 2026-09-05
+
+**Same shape as `session_id`, on a test this time rather than a formatter.**
+Reverifying §15's OpenAI-compatibility line found
+`ravis/tests/test_translated_path.py::test_a_disconnect_closes_the_adapter_stream` asserting `adapter.closed is
+True` — a flag the adapter sets in its own `finally`, which fires whether the
+stream was abandoned two events in or drained to the last of fifty. A Path B
+that caught the disconnect, kept reading anyway, and closed normally at the
+end would have passed this exactly as written. Nothing caught it because the
+test read as discriminating — it broke out of the client's read loop early —
+without checking that the *provider side* actually stopped.
+
+**The break was real, and specific: `TestClient` cannot express this at all.**
+Instrumenting the fake adapter with a pull counter and driving the original
+test through `TestClient(...).stream()` showed `pulled` still at `0` after
+reading two chunks — the client had not yet caused the adapter to produce a
+single event, because `TestClient` hands nothing back until the whole response
+is generated. `ravis/tests/test_transparent_proxy.py` documents the identical limitation
+for the transparent path and solved it the same way: drive the relay generator
+directly, call `.aclose()` on it the way Starlette does on a real disconnect,
+and count what the fake upstream actually produced.
+`ravis/tests/test_translated_path.py` had no such test; it does now, built on
+`_translated_relay` and the same `_Call`/`AttemptChain` construction
+`ravis/tests/test_fallback.py` already uses for this
+exact purpose.
+
+**Proved by injecting the failure the test exists to catch.** A version of
+`_translated_frames` that buffers every event from the adapter before yielding
+the first frame — a plausible regression, not a contrived one; it is what
+"switch to a library that streams less eagerly" looks like — pulled all fifty
+events and left the old assertion (`closed is True`) satisfied, because the
+generator still ran to completion normally. The new assertion catches it:
+`the adapter produced 50 of its 50 events after the relay was closed`.
+Reverted; tree stayed clean throughout.
+
+RAVIS 0.21.3. Suite: 958 tests, all passing.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

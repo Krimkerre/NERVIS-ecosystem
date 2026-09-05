@@ -17,9 +17,10 @@ import httpx
 from fastapi.testclient import TestClient
 from tests.conftest_upstream import RecordingUpstream
 
+from ravis.api.openai.chat import _Call, _translated_relay
 from ravis.app import create_app
 from ravis.config import Settings
-from ravis.core.requests import NormalizedRequest
+from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import (
     FinishReason,
     NormalizedResponse,
@@ -27,6 +28,7 @@ from ravis.core.responses import (
     StreamEventType,
     Usage,
 )
+from ravis.reliability import AttemptChain, HealthRegistry
 
 
 class FakeAnthropic:
@@ -54,6 +56,12 @@ class FakeAnthropic:
         self.fail = fail
         self.saw: list[NormalizedRequest] = []
         self.closed = False
+        # How many of `self.events` were actually produced, as opposed to
+        # merely offered. `closed` alone cannot tell a real disconnect from a
+        # stream that ran to completion — `finally` fires either way — so a
+        # test proving abandonment has to count what was pulled, the same way
+        # `RecordingUpstream.frames_pulled` does for the transparent path.
+        self.pulled = 0
 
     async def complete(self, request: NormalizedRequest) -> NormalizedResponse:
         self.saw.append(request)
@@ -70,6 +78,7 @@ class FakeAnthropic:
                 if self.fail:
                     raise RuntimeError(self.fail)
                 for event in self.events:
+                    self.pulled += 1
                     yield event
                     await asyncio.sleep(0)
             finally:
@@ -179,19 +188,63 @@ def test_an_adapter_that_fails_before_a_byte_does_not_pretend_to_have_answered()
     assert "refused" in response.text
 
 
-def test_a_disconnect_closes_the_adapter_stream() -> None:
+async def test_a_disconnect_closes_the_adapter_stream() -> None:
     """§8.6. Left to the garbage collector the provider keeps generating tokens
-    nobody reads and, on a paid provider, nobody should be billed for."""
+    nobody reads and, on a paid provider, nobody should be billed for.
+
+    **Rewritten: the original version could not fail.** It read two chunks off
+    `TestClient(...).stream(...)` and then asserted `adapter.closed is True` —
+    but `closed` is set in the adapter's own `finally`, which fires whether the
+    stream was abandoned early *or* ran to completion. A Path B that ignored
+    the disconnect entirely and drained all fifty events would still close
+    normally at the end and pass this exactly as written. Confirmed by
+    instrumenting `FakeAnthropic` with a pull counter and driving it through
+    the real app: reading two chunks off `TestClient` left `pulled` at 0,
+    because `TestClient` hands nothing back until the whole response is
+    generated — the same limitation `test_a_disconnect_stops_the_upstream_
+    generation` in `test_transparent_proxy.py` documents for the transparent
+    path, for the identical reason.
+
+    Driven against `_translated_relay` directly instead, mirroring that test
+    and `test_cancellation_does_not_trigger_a_fallback`: pull one frame, close
+    the generator the way Starlette does on a real disconnect, and assert on
+    how much of the adapter's fifty events were ever produced.
+    """
     adapter = FakeAnthropic(events=[
         NormalizedStreamEvent(type=StreamEventType.TEXT, text=f"chunk {i}") for i in range(50)
     ])
-    with _app(adapter) as client, client.stream(
-        "POST", "/v1/chat/completions",
-        json={"model": "ravis/fake/claude-x", "stream": True},
-    ) as response:
-        for _ in zip(range(2), response.iter_bytes()):
-            pass
+    request = normalize(json.dumps({"model": "ravis/fake/claude-x", "stream": True}).encode(),
+                        {"model": "ravis/fake/claude-x", "stream": True})
+    request.requested_model = "ravis/fake/claude-x"
+    chain = AttemptChain(health=HealthRegistry(), provider=adapter.name)
+    started = chain.begin("ravis/fake/claude-x")
+    call = _Call(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(500))),
+        destination=lambda _: ("http://unused.invalid", {}),
+        body=b"{}",
+        payload={"model": "ravis/fake/claude-x", "stream": True},
+        chain=chain,
+        recorded=None,
+    )
 
+    relay = _translated_relay(call, adapter, request, "ravis/fake/claude-x",
+                              "chatcmpl-test", started)
+    # Two pulls, not one: `_translated_frames` yields RAVIS's own opening
+    # frame first, before it ever touches the adapter (documented at its own
+    # definition — "the opening frame ... is constructed here, before this
+    # function has awaited the provider at all"). The first `__anext__` only
+    # reaches that; the second is what actually enters the adapter's stream.
+    await relay.__anext__()
+    await relay.__anext__()
+    await relay.aclose()
+    await call.client.aclose()
+
+    # The discriminating assertion: a Path B that ignored the disconnect and
+    # drained the adapter would leave `pulled` at 50, not close to 0.
+    assert adapter.pulled <= 1, (
+        f"the adapter produced {adapter.pulled} of its 50 events after the "
+        "relay was closed — a disconnect must reach the provider"
+    )
     assert adapter.closed is True
 
 

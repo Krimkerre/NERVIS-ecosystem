@@ -128,7 +128,20 @@ every entry.
 
 ---
 
-## RAVIS — 0.21.2
+## RAVIS — 0.21.3
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **The translated-path (Path B) disconnect test could not fail, and now can.** It asserted
+  the adapter's generator closed, which its own `finally` guarantees whether the stream was
+  abandoned early or drained to the end — so a proxy that ignored a client disconnect and
+  read every remaining event anyway would have passed unchanged. Rewritten to drive the relay
+  directly and count how many of the adapter's events were actually produced, mirroring the
+  transparent path's `frames_pulled` check. Proved against an injected eager-buffering bug
+  that pulled all fifty events before yielding the first frame: the new assertion catches it,
+  the old one would not have.
+
+### 0.21.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
