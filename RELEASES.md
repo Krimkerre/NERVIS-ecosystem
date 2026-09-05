@@ -91,7 +91,26 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.6
+## NERVIS — 0.23.7
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **F1's network mitigation now covers Linux, not only macOS.** `unshare --net
+  --map-root-user` — standard on every mainstream distro, no install needed — drops
+  each gate into a fresh network namespace, probed for availability first since
+  unprivileged user namespaces are disabled on some hardened or older distributions.
+  **Windows gets no third mechanism; it gets a recommendation.** Native Windows has no
+  equivalent this repository's own tooling can wire in without an administrator-level
+  firewall change or a custom compiled helper — out of proportion for what this is. An
+  operator wanting this guarantee on Windows runs these gates under **WSL2** (a real
+  Linux kernel, so the Linux branch applies unchanged) rather than natively; WSL1 does
+  not count, since it has no real network namespaces. `tools/sandbox_check.js` now
+  proves whichever layer the running platform actually has, and states plainly when
+  none applies rather than reporting a false pass. **Verification note:** the Linux
+  branch is implemented and reasoned through carefully but has not been executed on a
+  real Linux or WSL2 host this session — only macOS, where the full suite passes.
+
+### 0.23.6
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

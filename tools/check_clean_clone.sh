@@ -185,26 +185,54 @@ fi
 # `--permission` has no socket dimension at all — a script that reaches
 # `process` under the flags above can still call `fetch()` and quietly read a
 # file out over the network, which matters next to a repository that (as of
-# this scan) has a committed secret sitting in it. `tools/no-network.sb` is a
-# macOS Seatbelt profile denying exactly that, wrapped around the same node
-# invocation with `sandbox-exec`. Elsewhere — this script also runs on Linux,
-# where `sandbox-exec` does not exist — the fs/child-process lockdown above
-# still applies and the network gap is real; said once here rather than
-# silently, since a gate that quietly protects less on one platform than
-# another is the kind of gap this whole fix exists to stop being silent about.
+# this scan) has a committed secret sitting in it. Two real, no-extra-install
+# mechanisms close it, one per kernel: `tools/no-network.sb`, a macOS Seatbelt
+# profile denying network outright, wrapped with `sandbox-exec`; and on Linux,
+# `unshare --net --map-root-user`, which drops the process into a fresh
+# network namespace with nothing in it — the flag maps the caller to root
+# *inside that new namespace only*, which is what makes creating it possible
+# without already being root. **This is also the Windows answer.** Native
+# Windows has no equivalent this script can wire in without either an
+# administrator-level firewall rule (a system-security change, not something
+# this repository's own tooling should be making on somebody's machine) or a
+# custom compiled helper — disproportionate for what this is. WSL2 sidesteps
+# the question rather than solving it: it runs a real Linux kernel, so
+# `uname -s` reports `Linux` and the branch below applies unchanged. WSL1 does
+# not count — it translates syscalls rather than running one, and does not
+# have real network namespaces. An operator on Windows wanting this guarantee
+# runs this under WSL2, not natively; that is a recommendation for the
+# operator's runbook, not a thing this script can silently arrange.
 #
 # Together these are the mitigation the finding's own report calls "isolate
 # the whole check process", made concrete without touching a single gate's
 # logic; the fuller fix it also names — stop executing index.html at all, in
 # favour of static parsing — is the repository owner's call, not a change this
 # script makes for them.
-if [ "$(uname -s)" = "Darwin" ]; then
-  PROFILE="$(pwd)/nervis-eco/tools/no-network.sb"
-  NODE_GUARD=(sandbox-exec -f "$PROFILE" node --permission --allow-fs-read="*")
-else
-  echo "  (not macOS — network is not sandboxed for these gates; fs/child-process still are)"
-  NODE_GUARD=(node --permission --allow-fs-read="*")
-fi
+case "$(uname -s)" in
+  Darwin)
+    PROFILE="$(pwd)/nervis-eco/tools/no-network.sb"
+    NODE_GUARD=(sandbox-exec -f "$PROFILE" node --permission --allow-fs-read="*")
+    ;;
+  Linux)
+    # Probed rather than assumed: unprivileged user namespaces (what
+    # `--map-root-user` needs to unshare the network namespace without real
+    # root) are disabled on some hardened or older distributions. `true` costs
+    # nothing to run and fails exactly the way the real invocation would if
+    # this is one of them.
+    if unshare --net --map-root-user -- true >/dev/null 2>&1; then
+      NODE_GUARD=(unshare --net --map-root-user -- node --permission --allow-fs-read="*")
+    else
+      echo "  (Linux, but 'unshare --net --map-root-user' is not usable here — unprivileged" \
+           "user namespaces may be disabled; network is not sandboxed for these gates," \
+           "fs/child-process still are)"
+      NODE_GUARD=(node --permission --allow-fs-read="*")
+    fi
+    ;;
+  *)
+    echo "  (neither macOS nor Linux — network is not sandboxed for these gates; fs/child-process still are)"
+    NODE_GUARD=(node --permission --allow-fs-read="*")
+    ;;
+esac
 for gate in render complexity shaping empty_world liveness injection routing outcome stream \
             preserve attachment background handler learned notification plan proposal supervision \
             capability provenance; do

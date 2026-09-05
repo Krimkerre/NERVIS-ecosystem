@@ -13316,6 +13316,52 @@ to stop being silent about.
 
 All twenty-one gates pass under the combined lockdown. NERVIS 0.23.6.
 
+## F1's network mitigation reaches Linux, and Windows gets a recommendation instead of a third mechanism — 2026-09-05
+
+**Asked directly whether the other platforms could be covered too, rather than
+leaving macOS as the only one.** Linux has a real, no-install answer: `unshare
+--net --map-root-user` drops a process into a fresh network namespace, the
+same shape as the macOS Seatbelt profile but built from a kernel primitive
+instead of a profile file. Probed before being relied on, the same way the
+macOS branch already was — some hardened or older distributions disable
+unprivileged user namespaces, which is what `--map-root-user` needs to create
+the namespace without real root, and a probe that costs one `true` invocation
+finds that out before a real gate run would fail confusingly.
+
+**Windows does not get a matching mechanism, because there is not a
+proportionate one.** The two real options were an administrator-level
+Windows Firewall rule — a system-security change, and not one this
+repository's own tooling should make on somebody's machine even if asked —
+or a custom compiled helper, a different scope of project than a shell
+script. Asked plainly whether running NERVIS through WSL2 instead of native
+Windows would help: yes, specifically WSL2 rather than WSL1, because WSL2 is
+a real Linux kernel and reports itself as `Linux` to both `uname` and
+`process.platform` — the Linux branch above applies to it unchanged, with no
+separate code path needed. WSL1 does not count: it translates syscalls rather
+than running a kernel, and has no real network namespaces. This is now the
+documented answer for a Windows operator wanting the network guarantee,
+recorded in `tools/check_clean_clone.sh`'s own comment rather than assumed.
+
+**`tools/sandbox_check.js` now tests whichever layer the running platform
+actually has**, computing a single `NETWORK_GUARD_AVAILABLE` flag the real
+gate invocation and the test share, so the two cannot drift into testing a
+different configuration than the one that ships. Where neither layer applies
+— Linux with unshare unavailable, or a platform with neither mechanism at
+all — it says so in its own output rather than silently reporting a pass that
+proves nothing.
+
+**Said once, plainly, because it matters for how much to trust this:** the
+Linux branch is written and reasoned through with the same care as the macOS
+one, but this session runs on macOS — there is no Linux or WSL2 host here to
+actually execute `unshare --net --map-root-user` against, only to read its
+documented behaviour and reproduce the same probe-then-fallback shape already
+proven on macOS. The macOS path was fail-proved directly, twice, as before.
+The Linux path needs a real run on Linux or WSL2 before it carries the same
+weight.
+
+All twenty-one gates still pass on macOS under the combined lockdown.
+NERVIS 0.23.7.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

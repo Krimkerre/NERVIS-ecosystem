@@ -13,18 +13,27 @@
  * around static parsing instead of execution, or accepting the escape and
  * containing what it can do — which is what every gate's invocation now does:
  * `tools/check_clean_clone.sh` runs each one under `--permission
- * --allow-fs-read=*` (filesystem writes and `child_process` withheld) and,
- * on macOS, wrapped in `sandbox-exec -f tools/no-network.sb` (network
- * withheld too — Node's own permission model has no socket dimension at all).
+ * --allow-fs-read=*` (filesystem writes and `child_process` withheld) and, on
+ * macOS or Linux, a second layer denying network outright — `sandbox-exec -f
+ * tools/no-network.sb` on macOS, `unshare --net --map-root-user` on Linux.
+ * Node's own permission model has no socket dimension at all, on either
+ * platform.
  *
- * **Two escapes, because the two mitigations close different doors.** The
- * file-write PoC is what Node's `--permission` flags stop; the network PoC is
- * what only the Seatbelt profile stops, checked separately because a script
- * that reaches `process` still has both available unless *both* layers are
- * in place — a repository with a committed secret sitting in it (this scan's
- * own F7) makes the quiet one, reading a file and phoning it out, the one
- * worth checking for on its own rather than assuming the first mitigation
- * covers it.
+ * **Windows has neither layer, and WSL2 is the documented way around that**
+ * rather than a third mechanism: it runs a real Linux kernel, `uname`/
+ * `process.platform` reads `linux` inside it, and the branch below applies
+ * unchanged. WSL1 does not — no real network namespaces — and native Windows
+ * has no equivalent this file can probe for at all.
+ *
+ * **Three escapes, because the mitigations close different doors on
+ * different platforms.** The file-write PoC is what `--permission` stops,
+ * everywhere. The network PoC is what only a second, platform-specific layer
+ * stops — checked against whichever one this platform actually has, since a
+ * script that reaches `process` still has the write escape *and* the network
+ * escape available unless every applicable layer is in place. A repository
+ * with a committed secret sitting in it (this scan's own F7) makes the quiet
+ * one, reading a file and phoning it out, worth checking for on its own
+ * rather than assuming the write mitigation covers it too.
  *
  * **This is not a test of `page_context.js`.** It spawns its own child
  * processes running the identical escape techniques standalone, because the
@@ -44,14 +53,32 @@ const path = require("node:path");
 
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const PROFILE = path.join(REPO_ROOT, "tools", "no-network.sb");
-const ON_MACOS = process.platform === "darwin";
+const PLATFORM = process.platform; // 'darwin', 'linux', 'win32', ...
 
-/* The exact wrapper `check_clean_clone.sh` runs every gate under. Built the
- * same way there: `sandbox-exec` first (macOS only — it does not exist
- * elsewhere), then Node's own permission flags. */
+/* Probed, never assumed — the same check `check_clean_clone.sh` runs before
+ * relying on `unshare`. Unprivileged user namespaces (what `--map-root-user`
+ * needs to create a network namespace without real root) are disabled on
+ * some hardened or older distributions, and `true` costs nothing to run. */
+function unshareNetWorks() {
+  try {
+    execFileSync("unshare", ["--net", "--map-root-user", "--", "true"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const NETWORK_GUARD_AVAILABLE = PLATFORM === "darwin" || (PLATFORM === "linux" && unshareNetWorks());
+
+/* The exact wrapper `check_clean_clone.sh` runs every gate under, computed
+ * the same way there, platform by platform. */
 function guardedCommand() {
   const node = [process.execPath, "--permission", "--allow-fs-read=*"];
-  return ON_MACOS ? ["sandbox-exec", "-f", PROFILE, ...node] : node;
+  if (PLATFORM === "darwin") return ["sandbox-exec", "-f", PROFILE, ...node];
+  if (PLATFORM === "linux" && NETWORK_GUARD_AVAILABLE) {
+    return ["unshare", "--net", "--map-root-user", "--", ...node];
+  }
+  return node;
 }
 
 function run(command, scriptPath) {
@@ -84,7 +111,7 @@ function withPoc(source, fn) {
 
 const failures = [];
 
-// ── The file-write escape: what --permission closes ─────────────────────────
+// ── The file-write escape: what --permission closes, everywhere ────────────
 
 const MARKER = path.join(REPO_ROOT, ".sandbox_check_marker_delete_me");
 const WRITE_POC = `
@@ -144,7 +171,7 @@ if (!unguardedWrite.acted) {
   );
 }
 
-// ── The network escape: what only the macOS Seatbelt profile closes ─────────
+// ── The network escape: what only a platform-specific second layer closes ──
 
 const NET_POC = `
 (async () => {
@@ -162,12 +189,12 @@ function ranNetUnder(command) {
   return { output: withPoc(NET_POC, (pocPath) => run(command, pocPath)) };
 }
 
-if (ON_MACOS) {
+if (NETWORK_GUARD_AVAILABLE) {
   const guardedNet = ranNetUnder(guardedCommand());
   if (!/^BLOCKED-NET/.test(guardedNet.output)) {
     failures.push(
       `guarded run: the network escape was not blocked (output: ${guardedNet.output}) ` +
-      "— tools/no-network.sb may not be applying, or sandbox-exec's behaviour changed"
+      "— the platform's network guard may not be applying, or its behaviour changed"
     );
   }
   const unguardedNet = ranNetUnder([process.execPath]);
@@ -182,10 +209,14 @@ if (ON_MACOS) {
     );
   }
 } else {
+  const why = PLATFORM === "linux"
+    ? "'unshare --net --map-root-user' is not usable here (unprivileged user namespaces may be disabled)"
+    : PLATFORM === "win32"
+      ? "there is no equivalent on native Windows — run under WSL2 (a real Linux kernel, not WSL1) for this guarantee"
+      : `no network guard is defined for '${PLATFORM}'`;
   console.log(
-    "  (not macOS — tools/no-network.sb only applies there; the deployed gates " +
-    "run with fs/child-process withheld and network open on this platform, " +
-    "which is stated in check_clean_clone.sh rather than checked here)"
+    `  (${why}; the deployed gates run with fs/child-process withheld and network ` +
+    "open on this platform, which check_clean_clone.sh states rather than checking here)"
   );
 }
 
@@ -197,5 +228,5 @@ if (failures.length) {
 console.log(
   "the vm escape reaches `process` under the guarded run exactly as it does " +
   "unguarded, and is blocked from writing a file" +
-  (ON_MACOS ? " or reaching the network" : "") + " either way in the guarded run"
+  (NETWORK_GUARD_AVAILABLE ? " or reaching the network" : "") + " either way in the guarded run"
 );
