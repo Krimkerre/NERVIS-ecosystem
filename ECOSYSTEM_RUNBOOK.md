@@ -1053,7 +1053,8 @@ may only add product-specific detail beside the required state.
 
 ## 15. Whole-ecosystem acceptance checklist
 
-- [ ] All four repositories build and run independently.
+- [ ] All four products build and run independently — §3 makes that "independent
+      buildability, not repository count", and there are two repositories, not four.
 - [ ] The non-invention rule appears in every app document and in agent working instructions.
 - [ ] MEP schemas, fixtures and versions are released and pinned.
 - [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error

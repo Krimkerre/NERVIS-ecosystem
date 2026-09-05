@@ -11965,6 +11965,28 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
 
+## Two documents that said what was not so — 2026-09-05
+
+**§15's first line asked for something that does not exist.** *"All four
+repositories build and run independently"* — while §3, forty lines earlier,
+says there are **two** repositories and states the goal as *"independent
+buildability, not repository count"*. The acceptance checklist contradicted the
+architecture section it is meant to check, and a reader settling the line would
+have gone looking for four repositories to build. It now asks about the four
+products and cites §3's phrasing.
+
+**Clarvis's agent instructions carried no non-invention rule.** §15 asks that it
+appear "in every app document and in agent working instructions", and
+`clarvis/AGENTS.md` — the file every coding agent working on that repository is
+told to read first — had nothing: no "non-invention", no "No agent may invent",
+nothing on stopping at an integration gate. Clarvis is the product furthest from
+the runbook, in a different repository and a different language, which makes it
+the one most likely to guess at RAVIS's routes and NERVIS's Bridge protocol
+because guessing is convenient. It now carries the rule, what it means for this
+repository specifically, and the sentence that outranks it — observed runtime
+behaviour beats the document, and faking the expected behaviour to satisfy a
+checklist is never the answer.
+
 ## "agent lost null% of its throughput under concurrent load" — 2026-09-05
 
 **A finding built from a measurement nobody took.** The Runtime Sets card
