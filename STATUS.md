@@ -13014,6 +13014,35 @@ the same line, not started here.
 
 ecosystem-protocol 0.2.1. Protocol suite: 62 tests, up from 61.
 
+## The hard column advertised an enforcement nobody wrote — 2026-09-05
+
+**`data residency` sat in `RAVIS.md` §9.2's hard-constraints list beside ten real
+ones**, with nothing distinguishing it from them. Reverifying §15 checked all
+eleven against the code: `RoutingPolicy` carries no region or jurisdiction field
+(`ravis/src/ravis/policy.py`), no provider anywhere declares where it is hosted,
+and neither `policy_refusals` nor `RoutingEngine` mentions residency. The soft
+column two rows down already discloses its own gaps in one sentence — `"prefer
+SIRVIS-tested`, `prefer provider X`, `energy` and `evidence confidence` remain
+unimplemented"` — and the hard column had no equivalent, so a reader had no way
+to tell a real hard constraint from one that was aspirational.
+
+**Asked rather than assumed which way to close it.** Building real enforcement
+means inventing a taxonomy that does not exist anywhere in this codebase —
+which jurisdictions matter, how a provider declares one, what an operator
+configures — and this repository's own rule is not to invent what nobody asked
+for. Given the choice between documenting the gap, building it, or dropping the
+line, the answer was to document it, matching the soft column's own pattern
+exactly.
+
+**One coincidence worth a sentence of its own.** "Residency" already names a
+real, implemented concept in `RAVIS.md` — keeping a *model* warm in memory
+(M5's residency, described three paragraphs above the hard/soft table) — which
+has nothing to do with data staying inside a jurisdiction. A search for
+"residency" in this codebase finds the wrong one; the new note says so.
+
+No code changed; nothing to test or run. `RAVIS.md` §9.2 and `RELEASES.md`'s
+known limitations both say the same thing now.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

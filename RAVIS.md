@@ -699,6 +699,16 @@ configured their own. A client that sets its own TTL keeps it.
 `prefer SIRVIS-tested`, `prefer provider X`, `energy` and `evidence confidence`
 remain unimplemented.
 
+**The hard column owes the same disclosure, for one entry.** `data residency` is
+unimplemented: `RoutingPolicy` (`ravis/src/ravis/policy.py`) carries no region or
+jurisdiction field, no provider anywhere declares where it is hosted, and no
+refusal in `policy_refusals` or `RoutingEngine` mentions it. Unlike the soft
+column above, the hard table never said so — it read as an enforced exclusion
+next to ten that are, which is the exact optimism this document exists to
+prevent. (`residency` elsewhere in this document is the unrelated, implemented
+concept above — a *model* kept warm in memory, not data staying in a
+jurisdiction; the shared word is a coincidence worth not tripping over.)
+
 If cloud fallback would violate a local-only or privacy policy, return a structured **no-route**
 error rather than routing around it.
 

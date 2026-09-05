@@ -201,6 +201,11 @@ Published as gates rather than as a list, so they are counted rather than rememb
   VERIFIED**. The checkmark they replaced could not have told an operator which of the three
   they were reading, and for sixty-five milestones it did not.
 - `clarvis/docs/code-server-matrix.md` — graded against Clarvis 0.0.1 and not re-run since.
+- **`data residency`, listed in `RAVIS.md` §9.2 as a hard routing constraint, is unimplemented.**
+  No provider declares a jurisdiction, `RoutingPolicy` carries no region field, and nothing
+  refuses a route on it. The other ten hard constraints in that table are real; this one was
+  advertised without a line saying otherwise, which the soft column's unimplemented entries
+  already had and the hard column now has too.
 - **NERVIS's control token is CSRF-grade, not authentication.** It stops a page on
   another origin from driving RAVIS's six proxied configuration mutations with no
   credential at all — the gap RAVIS's own stabilization work found. It does not stop a
