@@ -104,6 +104,12 @@ class ReadStream:
     finish_reasons: list[str] = field(default_factory=list)
     saw_done: bool = False
     malformed_frames: int = 0
+    #: The final usage frame, when the upstream sent one. `None` and `{}` are
+    #: different answers: no frame arrived, versus one arrived carrying nothing.
+    usage: dict[str, Any] | None = None
+    #: An error the upstream sent *after* committing to a 200. A reader that
+    #: does not surface this waits forever for a stream that has ended.
+    error: dict[str, Any] | None = None
 
 
 def read_stream(chunks: list[bytes]) -> ReadStream:
@@ -132,7 +138,17 @@ def read_stream(chunks: list[bytes]) -> ReadStream:
 
 
 def _absorb_frame(result: ReadStream, frame: dict[str, Any]) -> None:
-    """Apply one decoded frame to the accumulating read."""
+    """Apply one decoded frame to the accumulating read.
+
+    **Not only `choices`.** A usage frame carries an empty `choices` and an
+    upstream error carries none at all, so a reader walking choices alone sees
+    both as nothing — which is exactly how a proxy dropping either would have
+    gone unnoticed by a suite built on this reader.
+    """
+    if isinstance(frame.get("usage"), dict):
+        result.usage = frame["usage"]
+    if isinstance(frame.get("error"), dict):
+        result.error = frame["error"]
     for choice in frame.get("choices") or []:
         delta = choice.get("delta") or {}
         result.text += delta.get("content") or ""

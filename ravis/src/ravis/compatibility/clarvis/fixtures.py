@@ -90,10 +90,47 @@ TRUNCATED_STREAM = [
     b'data: {"choices":[{"index":0,"delta":{"content":"lo"}}]}\n\n',
 ]
 
+# ── Usage, on the final frame ────────────────────────────────────────────────
+# What an upstream sends for `stream_options: {"include_usage": true}`: a last
+# frame carrying no choices at all, only the token counts. §15 lists usage among
+# the things that must pass contract tests and no fixture carried one, so the
+# suite could not have noticed a proxy that dropped the frame — and dropping it
+# is easy, because a frame with an empty `choices` looks like nothing to a
+# reader that only walks choices.
+#
+# The counts are the shape a cost engine reads. A proxy that forwards the frame
+# but loses `usage` is the same defect wearing a `[DONE]` on the end.
+USAGE_STREAM = [
+    b'data: {"id":"c","object":"chat.completion.chunk","choices":[{"index":0,'
+    b'"delta":{"role":"assistant"}}]}\n\n',
+    b'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\n',
+    b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+    b'data: {"id":"c","object":"chat.completion.chunk","choices":[],'
+    b'"usage":{"prompt_tokens":19,"completion_tokens":3,"total_tokens":22}}\n\n',
+    b"data: [DONE]\n\n",
+]
+
+# ── An upstream that fails after the headers ─────────────────────────────────
+# The case §15 names as "errors" and no fixture covered. A provider that dies
+# mid-generation cannot use a status code — it has already sent 200 — so it
+# sends an error *frame* and stops. There is no `[DONE]`.
+#
+# Both halves matter. The error must reach the client, because a proxy that
+# swallows it leaves a reader waiting forever for a stream that has ended; and
+# the text already delivered must survive, because it is what the user is
+# looking at.
+UPSTREAM_ERROR_MIDSTREAM = [
+    b'data: {"choices":[{"index":0,"delta":{"content":"Here is the"}}]}\n\n',
+    b'data: {"error":{"message":"upstream connection reset","type":"server_error",'
+    b'"code":"upstream_error"}}\n\n',
+]
+
 ALL_FIXTURES = {
     "plain_chat": PLAIN_CHAT,
     "fragmented_tool_call": FRAGMENTED_TOOL_CALL,
     "parallel_tool_calls": PARALLEL_TOOL_CALLS,
     "reasoning_stream": REASONING_STREAM,
     "misaligned_chunks": MISALIGNED_CHUNKS,
+    "usage_stream": USAGE_STREAM,
+    "upstream_error_midstream": UPSTREAM_ERROR_MIDSTREAM,
 }

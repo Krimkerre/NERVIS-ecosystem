@@ -28,6 +28,16 @@ EXPECTED_CHECKS = {
     "multiple tool indexes",
     "reasoning_content preserved",
     "reasoning kept out of content",
+    # §15 lists usage and errors among the contract tests and no fixture carried
+    # either: a usage frame has an empty `choices` and an upstream error has
+    # none, so a reader walking choices saw both as nothing, and a proxy that
+    # dropped them looked correct to every other check here.
+    "usage frame reaches the client",
+    "usage counts are unchanged",
+    "a mid-stream upstream error reaches the client",
+    "the error is passed through unchanged",
+    "text delivered before the failure survives it",
+    "a failed stream is not reported as complete",
     "bytes preserved across re-chunking",
     "stream is not buffered",
     "cancellation propagated",

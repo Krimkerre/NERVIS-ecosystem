@@ -26,7 +26,7 @@ cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
 .venv/bin/pytest                      # part of 2314 tests, no network, no live service
-.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
+.venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
@@ -12013,6 +12013,39 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## Usage and errors were named in the contract and absent from the suite — 2026-09-05
+
+**§15 lists "streaming, cancellation, tools, errors and usage" and the
+conformance suite had fixtures for three of them.** Five recorded streams, not
+one carrying a `usage` frame, not one an upstream failure. The suite that decides
+whether RAVIS may advertise OpenAI compatibility was silent on two of the five
+things the line names.
+
+**Both are invisible to a reader that walks `choices`, which is why they were
+missed.** A usage frame carries an empty `choices` and only token counts; an
+upstream error carries none at all. `ReadStream` looked at choices alone, so a
+proxy dropping either looked correct to every check in the file — and to the
+reader those checks are built on. It reads both now, keeping `None` and `{}`
+apart: no frame arrived is a different answer from one arrived carrying nothing.
+
+The error fixture is the case a status code cannot express: a provider that dies
+mid-generation has already sent 200, so it reports the failure as a frame and
+stops, with no `[DONE]` ever. Four assertions, because four things can go wrong
+independently — the error reaches the client, it is unchanged, the text already
+delivered survives it, and the stream is not reported as complete. A reader that
+never sees the error waits forever for something that has ended.
+
+RAVIS passes all six on the first run: the gap was coverage, not behaviour.
+Proved they can fail by dropping frames containing `usage` or `error` at the
+relay and watching each name its upstream and proxied values.
+
+**And a number that had drifted.** `capabilities.py` advertises
+`ravis.openai_compatible.chat_completions@1` as available "because
+`ravis conformance clarvis` passes all sixteen checks". There are twenty-three,
+and the count is pinned by `test_every_expected_check_is_present` — so a stale
+number there is a comment nobody re-read rather than a suite that shrank. It says
+twenty-three, and says which it was.
 
 ## The gate for independent buildability was the one place it was guaranteed — 2026-09-05
 

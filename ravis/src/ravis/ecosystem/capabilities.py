@@ -60,8 +60,11 @@ def _installed_version(distribution: str) -> str:
 BUILD_VERSION = _installed_version("ravis")
 
 DECLARED: dict[str, Capability] = {
-    # Available because `ravis conformance clarvis` passes all sixteen checks
-    # against the transparent route, and M9 verified it against a real client.
+    # Available because `ravis conformance clarvis` passes all twenty-three
+    # checks against the transparent route, and M9 verified it against a real
+    # client. Sixteen when this was written; the count is pinned by
+    # `test_every_expected_check_is_present`, so a number here that drifts is a
+    # comment nobody re-read rather than a suite that shrank.
     # That is the "provider *and* gateway conformance" §4.1 asks for.
     "ravis.openai_compatible.chat_completions@1": Capability(
         version="1.0.0", state=AVAILABLE

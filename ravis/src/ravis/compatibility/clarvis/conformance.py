@@ -286,6 +286,8 @@ async def _run_every_check() -> ConformanceResult:
     await _check_frames_are_well_formed(result)
     await _check_tool_calls(result)
     await _check_reasoning(result)
+    await _check_usage(result)
+    await _check_upstream_error(result)
     await _check_byte_preservation(result)
     await _check_not_buffered(result)
     await _check_cancellation(result)
@@ -503,6 +505,62 @@ async def _check_reasoning(result: ConformanceResult) -> None:
         "reasoning kept out of content",
         proxied.text == direct.text and "user wants" not in proxied.text,
         f"content={proxied.text!r}",
+    )
+
+
+async def _check_usage(result: ConformanceResult) -> None:
+    """§15 lists usage among the contract tests, and no fixture carried one.
+
+    The frame an upstream sends for `stream_options: {"include_usage": true}`
+    has an empty `choices` and only token counts, so a proxy that drops it looks
+    correct to every other check in this suite — and to the reader those checks
+    are built on, until it learned to look. What reads the counts downstream is
+    the cost engine, which cannot invent them.
+    """
+    direct = read_stream(fixtures.USAGE_STREAM)
+    proxied, _ = await _through_ravis(fixtures.USAGE_STREAM)
+    result.record(
+        "usage frame reaches the client",
+        proxied.usage is not None,
+        f"usage={proxied.usage}",
+    )
+    result.record(
+        "usage counts are unchanged",
+        proxied.usage == direct.usage,
+        f"upstream={direct.usage} proxied={proxied.usage}",
+    )
+
+
+async def _check_upstream_error(result: ConformanceResult) -> None:
+    """An upstream that fails after the headers, which §15 names and nothing covered.
+
+    A provider that dies mid-generation has already sent 200, so it reports the
+    failure as a frame and stops — no `[DONE]`, ever. Two things must survive:
+    the error, because a reader that never sees it waits forever for a stream
+    that has ended; and the text already delivered, because that is what the
+    person is looking at while it happens.
+    """
+    direct = read_stream(fixtures.UPSTREAM_ERROR_MIDSTREAM)
+    proxied, _ = await _through_ravis(fixtures.UPSTREAM_ERROR_MIDSTREAM)
+    result.record(
+        "a mid-stream upstream error reaches the client",
+        proxied.error is not None,
+        f"error={proxied.error}",
+    )
+    result.record(
+        "the error is passed through unchanged",
+        proxied.error == direct.error,
+        f"upstream={direct.error} proxied={proxied.error}",
+    )
+    result.record(
+        "text delivered before the failure survives it",
+        proxied.text == direct.text and proxied.text != "",
+        f"text={proxied.text!r}",
+    )
+    result.record(
+        "a failed stream is not reported as complete",
+        not proxied.saw_done,
+        "a [DONE] appeared on a stream the upstream never finished",
     )
 
 
