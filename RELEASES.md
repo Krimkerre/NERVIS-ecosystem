@@ -91,7 +91,21 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.1
+## NERVIS — 0.23.2
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The provenance badge map is now a gate, not a fix that happened once.** `PROV_BADGE`
+  and `prov()` exist because RAVIS's own rolling observation over real traffic wore the
+  same green `MEASURED` badge as a SIRVIS benchmark run — found by a person reading the
+  Evidence screen, on 5 September, with eighteen dashboard gates already running against
+  the page and not one of them calling `prov()` with a value of its own choosing. The
+  twentieth gate does: every kind either surface can actually send is checked against its
+  expected badge, checked against the page's own CSS so nothing renders unstyled, and the
+  regression itself — a benchmark and RAVIS's observation rendering identically — is its
+  own named assertion rather than left to be implied by two rows of a table.
+
+### 0.23.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -13080,6 +13080,41 @@ Reverted; tree stayed clean throughout.
 
 RAVIS 0.21.3. Suite: 958 tests, all passing.
 
+## The provenance badge gets its own gate — 2026-09-05
+
+**A fix from earlier this week had nothing keeping it fixed.** `PROV_BADGE` and
+`prov()` exist because a person reading the Evidence screen found RAVIS's own
+rolling observation over real traffic — `OBSERVED_BY_RAVIS`, explicitly *"a
+measurement, but not one taken under controlled conditions"* — wearing the same
+green `MEASURED` badge as a SIRVIS benchmark run with a fixed prompt and a warm
+runtime. Reverifying §15 checked whether anything would notice if that
+happened again: `grep`ing `nervis/tests/`, `tools/` and `nervis/tools/*.js` for
+`PROV_BADGE`, `data-kind` or `OBSERVED_BY_RAVIS` found nothing outside
+`index.html` itself. Eighteen dashboard gates ran against this page and not one
+called `prov()` with a value of its own choosing.
+
+**`nervis/tools/provenance_check.js` is the twentieth.** It checks every kind
+either producer can actually send — RAVIS's `EvidenceProvenance` (five names,
+read from `ravis/src/ravis/evidence/sirvis.py`) and SIRVIS's own `evidence_type`
+reaching `prov()` unmapped at three call sites, seven kinds in total — against
+the badge it must show, and against `index.html`'s own CSS, so a kind `prov()`
+renders correctly but nothing colours also fails. The regression itself is a
+named assertion: `MEASURED_BY_SIRVIS` and `OBSERVED_BY_RAVIS` must never render
+identically, rather than being implied by two rows of a table happening to
+disagree.
+
+**Proved against all three ways it can fail, each restored after.** The
+original bug, replayed — `OBSERVED_BY_RAVIS` mapped back onto `'MEASURED'` —
+fails on both the specific-badge assertion and the named regression check.
+Deleting `PARTIALLY_MEASURED`'s CSS rule fails the styled-badge check. Adding
+an unexpected mapping to `PROV_BADGE` fails the completeness check on the map's
+own keys. `git status` stayed clean throughout each.
+
+Wired into `tools/check_clean_clone.sh`'s dashboard-gate loop, which the header
+comment now correctly calls twenty rather than nineteen.
+
+NERVIS 0.23.2.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -145,7 +145,7 @@ step "peer compatibility"      nervis-eco python tools/check_compatibility.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the nineteen that need no live service) ==="
+echo "=== dashboard gates (the twenty that need no live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else
@@ -165,7 +165,7 @@ fi
 # because they read live endpoints and are run separately.
 for gate in render complexity shaping empty_world liveness injection routing outcome stream \
             preserve attachment background handler learned notification plan proposal supervision \
-            capability; do
+            capability provenance; do
   step "dashboard $gate" nervis-eco/nervis node "tools/${gate}_check.js"
 done
 
