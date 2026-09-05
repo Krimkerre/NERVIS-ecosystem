@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2370 tests, no network, no live service
+.venv/bin/pytest                      # part of 2375 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 458 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 463 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2370 passing across the four, conformance `PASS`.
+Expected: all clean, 2375 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -13408,6 +13408,73 @@ scale linearly where the unfixed version could be driven quadratic.
 plus the rest) passes.
 
 NERVIS 0.23.8.
+
+## F5/F6: the same scan's runtime sessions had no ownership check — fixed directly, and its own fix's leak closed too, 2026-09-06
+
+The same Claude Security scan (F1, F2 above) flagged two sinks in
+`sirvis/src/sirvis/api/routes.py` sharing one root cause (CWE-863):
+`close_session` and `renew_session` checked only that the caller held *some*
+`Scope.RUNTIME` token, never whether it was the token that opened the session.
+Session ids are not secret — `GET /api/v1/runtime/residency` lists every live
+one, by design and unauthenticated — so any RUNTIME-token holder could learn
+a session_id there and then release or indefinitely renew a session it did
+not open, taking another client's loaded model out from under it or starving
+capacity from `max_loaded_models`'s small ceiling.
+
+Sent through the automated patch pipeline as one combined unit (both sinks
+share the same fix), it took two rounds and a second objection — the pipeline's
+own rule after that is to decline rather than try a third time blind — so this
+was fixed directly, the same way F2 was.
+
+**Round 1** bound `Lease.owner` to `caller.label`, the real identity `require`
+already resolves from the bearer token's hash, replacing a self-declared
+`owner` string the request body could set to anything. `close_session` and
+`renew_session` now check the caller's label against the lease's real owner
+before acting (an `Scope.ADMIN` caller, or a session that no longer exists,
+is let through — the first to preserve the escape hatch `force_unload` already
+has, the second so the underlying action's own idempotent 404 still fires
+unshadowed). This part was independently verified sound in both rounds and is
+unchanged in what shipped.
+
+**The adversarial second pass on round 1 found a real regression it introduced**:
+`GET /api/v1/runtime/residency` is *intentionally* unauthenticated — reads
+stay open by design — and it echoes every lease's `owner`. Before round 1,
+that value was attacker/opener-chosen junk; after binding it to a real token's
+label, the same open read started disclosing the true identity of every
+RUNTIME credential in use to a fully anonymous network peer — exactly the kind
+of thing this codebase elsewhere admin-gates (`GET /tokens` requires
+`Scope.ADMIN` specifically because "the list of what credentials exist is
+itself worth protecting").
+
+**Round 2's fix for that overcorrected**: it redacted `owner` to `null`
+unconditionally for every reader of `residency()`. Its own verifier's
+independent review (not the generator's self-report) traced every consumer of
+that field in the repository and found one the fix broke: `nervis/index.html`'s
+Runtime screen reads a lease's `owner` for its **Owner** column and to detect
+which lease is the dashboard's own (`l.owner==='nervis-dashboard'`, deciding
+whether to offer "Release lease"). Unconditional redaction silently blanked
+both — a real, shipped consumer regressed by the fix meant to protect it from
+an anonymous one. Second objection, unit declined by the pipeline.
+
+**The fix that shipped** keeps round 1's ownership check unchanged and
+resolves the tension directly: `ResourceManager.residency()` takes a
+`reveal_owner` flag, and `read_residency` sets it from whether the request
+carries *any* valid bearer token — `resolve_caller`, which never raises, told
+this endpoint who is asking without demanding they be anyone. A caller with no
+token gets `owner: null` on every lease; a caller with any valid token (no
+particular scope required — this is not an authorization check, just "you
+hold a real credential") sees the real value, exactly as it always could act
+on its own session. NERVIS's dashboard already holds and sends a real
+`nervis-dashboard`-labelled token for the writes on this same screen
+(`tools/run.py`'s `dashboard_token()`); `liveSirvis`'s one residency call now
+attaches it, so the Owner column and self-lease detection work exactly as
+before, unauthenticated network peers get nothing, and both F5 and F6's
+exploit paths are closed. `nervis/tools/shaping_check.js`, `render_check.js`
+and `liveness_check.js` still pass; the full `sirvis` suite (34 tests in
+`sirvis/tests/test_m8_resources.py` alone, five of them new) passes,
+`mypy`/`ruff` clean on both packages.
+
+SIRVIS 0.15.7. NERVIS 0.23.9.
 
 ## Starting the thing
 

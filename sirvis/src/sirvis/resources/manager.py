@@ -215,6 +215,16 @@ class ResourceManager:
             orphaned = self._drop_references(session_id, lease.model_keys)
         return await self._unload_all(orphaned)
 
+    def lease_owner(self, session_id: str) -> str | None:
+        """Who a *live* session belongs to, or None when there is no such lease.
+
+        A read with no side effects, for a caller deciding whether it may act
+        on this session at all — before `release`/`renew` run and make their
+        own, different, decision about whether the session exists.
+        """
+        lease = self._leases.get(session_id)
+        return lease.owner if lease is not None else None
+
     def renew(self, session_id: str, lease_seconds: float | None = None) -> Lease | None:
         """Extend a lease, or return None when it has already lapsed.
 
@@ -260,12 +270,18 @@ class ResourceManager:
             return existed
         return True
 
-    def residency(self) -> dict[str, Any]:
+    def residency(self, *, reveal_owner: bool = False) -> dict[str, Any]:
         """What is held, by how many sessions, and what is leased.
 
         The view §9 exists to make possible: RAVIS and NERVIS can see who is
         using what instead of guessing, which is the alternative that has them
         fighting over lifecycle.
+
+        `reveal_owner` defaults closed: `owner` became a real caller identity
+        rather than a self-declared string once close/renew started enforcing
+        it (CWE-863's fix), and this view has no caller of its own to check —
+        that decision belongs to whoever calls this with the request in hand,
+        the same way the rest of this class never reads a header itself.
         """
         return {
             "max_loaded": self._max_loaded,
@@ -283,7 +299,10 @@ class ResourceManager:
                 }
                 for key, holding in sorted(self._holdings.items())
             ],
-            "leases": [lease.as_dict() for lease in self._leases.values()],
+            "leases": [
+                lease.as_dict() if reveal_owner else {**lease.as_dict(), "owner": None}
+                for lease in self._leases.values()
+            ],
         }
 
     async def foreign_instances(self) -> list[str]:

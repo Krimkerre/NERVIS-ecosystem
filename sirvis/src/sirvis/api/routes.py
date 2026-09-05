@@ -20,10 +20,12 @@ from fastapi import APIRouter, Request
 
 from sirvis import jobs
 from sirvis.api.security import (
+    Caller,
     Scope,
     redacted,
     require,
     require_unauthenticated_post,
+    resolve_caller,
     token_summary,
 )
 from sirvis.core.inventory import Inventory, build_inventory
@@ -46,6 +48,7 @@ from sirvis.core.runtime_sets import (
 from sirvis.errors import (
     BenchmarkNotFoundError,
     DeadlineExceededError,
+    ForbiddenError,
     InsufficientMemoryError,
     InvalidConfigurationError,
     LoadFailedError,
@@ -1052,13 +1055,18 @@ async def open_session(request: Request) -> dict[str, Any]:
     without saying it has finished, which is indistinguishable from it being
     slow.
     """
-    require(request, Scope.RUNTIME)
+    caller = require(request, Scope.RUNTIME)
     body = await _json_body(request)
     wanted, pinned = await _session_members(request, body)
     await _refuse_uninstalled(request, wanted)
 
     manager: ResourceManager = request.app.state.resources
-    owner = str(body.get("owner") or "anonymous")
+    # The lease is bound to the token that opened it, not to a string the
+    # request body can claim to be — a self-declared "owner" let any RUNTIME
+    # caller name someone else's session as its own and later act on it
+    # (a Claude Security scan, CWE-863). `caller.label` is the identity
+    # `require` already verified against the database.
+    owner = caller.label
     seconds = body.get("lease_seconds")
     session_id: str | None = None
     lease = None
@@ -1193,11 +1201,36 @@ def _member_configuration(member: Any) -> dict[str, Any]:
     return configuration
 
 
+def _require_lease_owner(manager: ResourceManager, session_id: str, caller: Caller) -> None:
+    """Refuse to act on a *live* session that belongs to a different caller.
+
+    Close and renew used to check only that the caller held some RUNTIME
+    token, never whose session this actually is (a Claude Security scan,
+    CWE-863) — so any RUNTIME client could release or indefinitely renew a
+    session it did not open, once it learned the session_id from
+    `/runtime/residency`. This is the one check both endpoints share.
+
+    An ADMIN-scoped caller is let through regardless — the same named escape
+    hatch §9 gives `force_unload` — for a legitimate cross-caller action such
+    as an admin dashboard or a cleanup job. A session that is not currently
+    live (already released, or never existed) is also let through: whether
+    that is a no-op or a 404 is `release`/`renew`'s own decision to make, and
+    duplicating it here would risk disagreeing with it.
+    """
+    owner = manager.lease_owner(session_id)
+    if owner is None or owner == caller.label or caller.permits(Scope.ADMIN):
+        return
+    raise ForbiddenError(
+        "this session belongs to a different caller", required_scope=Scope.ADMIN.value
+    )
+
+
 @router.delete("/runtime/sessions/{session_id}")
 async def close_session(request: Request, session_id: str) -> dict[str, Any]:
     """Release a session's claims. Idempotent (§9)."""
-    require(request, Scope.RUNTIME)
+    caller = require(request, Scope.RUNTIME)
     manager: ResourceManager = request.app.state.resources
+    _require_lease_owner(manager, session_id, caller)
     unloaded = await manager.release(session_id)
     return {"session_id": session_id, "state": "released", "unloaded": unloaded}
 
@@ -1210,8 +1243,9 @@ async def renew_session(request: Request, session_id: str) -> dict[str, Any]:
     already been released, and handing back a fresh lease would tell the client
     it still holds something it does not.
     """
-    require(request, Scope.RUNTIME)
+    caller = require(request, Scope.RUNTIME)
     manager: ResourceManager = request.app.state.resources
+    _require_lease_owner(manager, session_id, caller)
     renewed = manager.renew(session_id)
     if renewed is None:
         raise BenchmarkNotFoundError(
@@ -1229,9 +1263,24 @@ async def read_residency(request: Request) -> dict[str, Any]:
     models the runtime loaded by itself — LM Studio does this when a request
     wants more context than the running copy has — which occupy memory SIRVIS
     is accounting for and does not own.
+
+    This read stays open to anyone, by design (§4.5) — but "anyone" used to
+    mean everyone got the same answer, and once a lease's `owner` became a
+    real caller identity rather than a self-declared string (the fix for
+    CWE-863 above), that answer started naming which real token opened each
+    session to a fully anonymous network peer, the same fact `GET /tokens`
+    requires `Scope.ADMIN` to protect. So this is the one read that looks at
+    who is asking without demanding they be anyone: a caller presenting any
+    valid token — RUNTIME is enough, this is not a scope check — sees real
+    ownership, exactly as it always could for its own session; a caller
+    presenting none sees `owner: null` on every lease instead. NERVIS's own
+    dashboard already holds and sends a real token for the writes on this
+    same resource, so it loses nothing by sending it here too.
     """
     manager: ResourceManager = request.app.state.resources
-    return manager.residency() | {
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    caller = resolve_caller(request.app.state.database, headers)
+    return manager.residency(reveal_owner=not caller.is_anonymous) | {
         "foreign": await manager.foreign_instances(),
         "snapshot_revision": SNAPSHOT_REVISION,
     }

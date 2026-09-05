@@ -495,6 +495,156 @@ def test_renewing_a_lapsed_session_is_a_404_not_a_new_lease() -> None:
     assert response.status_code == 404
 
 
+# ── Ownership on close, renew and residency (a Claude Security scan, CWE-863:
+# any RUNTIME token could act on anyone's session, having learned the
+# session_id from the unauthenticated `/runtime/residency`; and the fix for
+# that turned `owner` into a real caller identity, which then had to stop
+# leaking through that same unauthenticated read) ───────────────────────────
+
+
+def _api_with_tokens() -> tuple[object, str, str, str]:
+    """The real app with three tokens: a session's owner, another ordinary
+    RUNTIME caller, and an admin — exactly the three identities the ownership
+    check and the residency redaction must tell apart.
+    """
+    import httpx
+    from fastapi.testclient import TestClient
+    from tests.conftest_lmstudio import transport
+
+    from sirvis.api.security import Scope, mint_token
+    from sirvis.app import create_app
+    from sirvis.config import Settings
+    from sirvis.runtimes import LMStudioAdapter
+
+    settings = Settings(database_path=":memory:", lmstudio_base_url="http://127.0.0.1:9",
+                        _env_file=None)  # type: ignore[call-arg]
+    app = create_app(
+        settings,
+        runtime=LMStudioAdapter(
+            "http://runtime.invalid", client=httpx.AsyncClient(transport=transport())
+        ),
+    )
+    app.state.resources = ResourceManager(runtime=FakeRuntime(), max_loaded=2)
+    return (
+        TestClient(app),
+        mint_token(app.state.database, "owner", {Scope.RUNTIME}),
+        mint_token(app.state.database, "other", {Scope.RUNTIME}),
+        mint_token(app.state.database, "admin", {Scope.ADMIN}),
+    )
+
+
+def _open(client: object, token: str, owner_claim: str | None = None) -> dict:
+    auth = {"content-type": "application/json", "authorization": f"Bearer {token}"}
+    body: dict = {"models": [{"model_id": "qwen2.5-coder-7b-instruct"}]}
+    if owner_claim is not None:
+        body["owner"] = owner_claim
+    return client.post("/api/v1/runtime/sessions", json=body, headers=auth).json()  # type: ignore[attr-defined]
+
+
+def test_the_owning_caller_can_still_close_and_renew_its_own_session() -> None:
+    """No regression: binding ownership to the real caller must not refuse
+    the owner itself."""
+    client, owner_token, _other_token, _admin_token = _api_with_tokens()
+    auth = {"content-type": "application/json", "authorization": f"Bearer {owner_token}"}
+
+    opened = _open(client, owner_token)
+
+    renewed = client.post(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{opened['session_id']}/renew", headers=auth
+    )
+    assert renewed.status_code == 200
+
+    closed = client.delete(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{opened['session_id']}", headers=auth
+    ).json()
+    assert closed["unloaded"] == ["qwen2.5-coder-7b-instruct"]
+
+
+def test_a_non_owning_runtime_caller_cannot_close_or_renew_someone_elses_session() -> None:
+    """The exploit F5/F6 describe: any RUNTIME token, not just the owner's,
+    used against a session_id learned from the unauthenticated residency read.
+    """
+    client, owner_token, other_token, _admin_token = _api_with_tokens()
+    other_auth = {"content-type": "application/json", "authorization": f"Bearer {other_token}"}
+
+    opened = _open(client, owner_token)
+    session_id = opened["session_id"]
+
+    renew_attempt = client.post(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{session_id}/renew", headers=other_auth
+    )
+    assert renew_attempt.status_code == 403
+    assert renew_attempt.json()["error"]["code"] == "FORBIDDEN"
+
+    close_attempt = client.delete(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{session_id}", headers=other_auth
+    )
+    assert close_attempt.status_code == 403
+    assert close_attempt.json()["error"]["code"] == "FORBIDDEN"
+
+    # Refused, not silently accepted: the model is still held under the
+    # original session once both attempts have been made.
+    residency = client.get(  # type: ignore[attr-defined]
+        "/api/v1/runtime/residency", headers=other_auth
+    ).json()
+    assert residency["holdings"][0]["sessions"] == [session_id]
+
+
+def test_an_admin_can_still_close_or_renew_a_session_it_does_not_own() -> None:
+    """The named escape hatch (§9's `force_unload` pattern) for a legitimate
+    cross-caller action such as an admin dashboard or a cleanup job."""
+    client, owner_token, _other_token, admin_token = _api_with_tokens()
+    admin_auth = {"content-type": "application/json", "authorization": f"Bearer {admin_token}"}
+
+    opened = _open(client, owner_token)
+    renewed = client.post(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{opened['session_id']}/renew", headers=admin_auth
+    )
+    assert renewed.status_code == 200
+
+    closed = client.delete(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{opened['session_id']}", headers=admin_auth
+    ).json()
+    assert closed["unloaded"] == ["qwen2.5-coder-7b-instruct"]
+
+
+def test_a_self_declared_owner_cannot_grant_ownership_of_someone_elses_session() -> None:
+    """`owner` in the request body used to be trusted outright — the root
+    cause under both F5 and F6. It must now be inert."""
+    client, owner_token, other_token, _admin_token = _api_with_tokens()
+    other_auth = {"content-type": "application/json", "authorization": f"Bearer {other_token}"}
+
+    opened = _open(client, owner_token)
+
+    # Claiming to already be the owner in the body grants nothing: ownership
+    # comes from the bearer token that authenticated this request, never from
+    # anything the request body says about itself.
+    close_attempt = client.delete(  # type: ignore[attr-defined]
+        f"/api/v1/runtime/sessions/{opened['session_id']}", headers=other_auth
+    )
+    assert close_attempt.status_code == 403
+
+
+def test_residency_redacts_owner_unless_the_caller_holds_any_token() -> None:
+    """The round-1 regression this fix also closes: binding `owner` to a real
+    caller identity means a caller presenting *no* token must not see it — the
+    same fact `GET /tokens` requires `Scope.ADMIN` to protect — while a caller
+    presenting *any* valid token (not necessarily the session's own) still
+    sees it, exactly as it always could for a session it can already act on.
+    """
+    client, owner_token, other_token, _admin_token = _api_with_tokens()
+    _open(client, owner_token)
+
+    anonymous = client.get("/api/v1/runtime/residency").json()  # type: ignore[attr-defined]
+    assert anonymous["leases"][0]["owner"] is None
+
+    other_auth = {"authorization": f"Bearer {other_token}"}
+    as_other = client.get(  # type: ignore[attr-defined]
+        "/api/v1/runtime/residency", headers=other_auth
+    ).json()
+    assert as_other["leases"][0]["owner"] == "owner"
+
+
 # ── The three codes §4.3 published and nothing raised ───────────────────────
 
 

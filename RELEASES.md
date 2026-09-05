@@ -91,7 +91,20 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.8
+## NERVIS — 0.23.9
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **F5/F6 (paired with a SIRVIS fix): the Runtime screen's Owner column and self-lease
+  detection now send the dashboard's own token on the one read that needs it.** SIRVIS's
+  `close_session`/`renew_session` gained a real ownership check (see the SIRVIS entry
+  below), which meant `GET /api/v1/runtime/residency`'s `owner` field became a real
+  identity that had to stop leaking to an anonymous caller — and this dashboard reads that
+  same endpoint with no token at all today. `liveSirvis`'s residency call now attaches the
+  tab's own runtime token when it holds one, which is what un-redacts the value SIRVIS
+  otherwise reports as `null`; every other `liveSirvis` caller is unaffected.
+
+### 0.23.8
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -290,7 +303,30 @@ every entry.
 
 ---
 
-## SIRVIS — 0.15.6
+## SIRVIS — 0.15.7
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
+
+- **F5/F6: any RUNTIME-scoped caller could release or renew a session it did not open,
+  and now cannot.** A Claude Security scan found `close_session`/`renew_session` checked
+  only that the caller held *some* `Scope.RUNTIME` token, never whether it was the one
+  that opened the session — and session ids are not secret, since the unauthenticated
+  `GET /api/v1/runtime/residency` lists every live one by design. Sent through the
+  automated patch pipeline, it took two rounds and a second objection (the pipeline
+  declines rather than trying a third time blind), so this was fixed directly. `Lease.owner`
+  is now the caller's real, server-verified identity rather than a self-declared request-body
+  string, and close/renew require it to match (an `Scope.ADMIN` caller, or a session that no
+  longer exists, is let through). **That fix's own first attempt introduced a real
+  regression**, caught by its own adversarial verifier: binding `owner` to a real identity
+  meant the intentionally-open residency read started disclosing every RUNTIME token's true
+  label to an anonymous caller — the kind of fact `GET /tokens` already admin-gates for the
+  same reason. `residency()` now takes a `reveal_owner` flag; `read_residency` sets it from
+  whether the request carries *any* valid token (no particular scope required — this is not
+  an authorization check), so an anonymous caller gets `owner: null` on every lease and a
+  credentialed one — including NERVIS's own dashboard, now sending its token on this one
+  read (see the NERVIS entry) — sees the real value exactly as before.
+
+### 0.15.6
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
 

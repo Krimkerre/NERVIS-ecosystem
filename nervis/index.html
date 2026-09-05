@@ -1795,8 +1795,8 @@ const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
    error: every caller below falls back to the transcription and says which one
    it drew. The timeout is short on purpose — a dashboard that hangs for thirty
    seconds because a service is down is worse than one that says it is down. */
-async function liveSirvis(path){
- try{const r=await fetch(BASE.sirvis+path,{signal:AbortSignal.timeout(2000)});
+async function liveSirvis(path,headers){
+ try{const r=await fetch(BASE.sirvis+path,{signal:AbortSignal.timeout(2000),headers});
      return r.ok?await r.json():null}
  catch(e){return null}}
 
@@ -6357,7 +6357,15 @@ function foreignInstancesCard(foreign,live=false){
 async function sirvisRuntime(){
  heading('Runtime','What is resident, who holds it, and when their claim lapses.',
    control('Refresh evidence','refreshEvidence'));
- const [res,mdl]=await Promise.all([liveSirvis('/api/v1/runtime/residency'),API.sirvis.models()]);
+ /* SIRVIS redacts a lease's `owner` for a caller presenting no token — a
+    Claude Security scan found that once `owner` became a real caller identity
+    (the fix for close/renew's missing ownership check), this read's
+    open-to-anyone design started naming which real token opened each session
+    to a fully anonymous network peer. This tab already holds a real token for
+    the writes on this same screen, so sending it here too costs nothing and
+    is what un-redacts the Owner column below. */
+ const residencyAuth=RUNTIME_TOKEN?{authorization:'Bearer '+RUNTIME_TOKEN}:undefined;
+ const [res,mdl]=await Promise.all([liveSirvis('/api/v1/runtime/residency',residencyAuth),API.sirvis.models()]);
  if(!res){$('#content').innerHTML=runtimeUnreachable();return}
 
  const held=res.holdings||[],leases=res.leases||[],foreign=res.foreign||[];
