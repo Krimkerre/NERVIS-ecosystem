@@ -12014,6 +12014,48 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
 
+## Nineteen failure conditions, named in one sentence and scored nowhere — 2026-09-05
+
+**§10 is the failure and graceful-degradation matrix and it was never a matrix.**
+It names its conditions in one running sentence — *"each service absent at
+startup; crash and restart mid-operation; slow response; timeout; …"* — and then
+lists six required outcomes. Nothing in this repository turned that into cells,
+so "which of the nineteen are covered" was a question with no answer, and a
+matrix nobody can score is one that gets called done.
+
+`tools/check_degradation.py` is the matrix, and its output is the artifact. Each
+condition carries its evidence, the *kind* of evidence it is, what is still
+missing, and the smallest step that would close it.
+
+**The conditions are parsed from the runbook rather than copied.** That is the
+whole drift protection: a condition added to §10 and not to the file fails the
+gate, and a cell naming a condition §10 does not is refused. Two lists that must
+agree are one list and one copy, and the copy is always the stale one — §3's
+argument about documents in two repositories, applied to a sentence.
+
+**Every cell reads PARTIAL, and that is the honest answer rather than a hedge.**
+All nineteen have real evidence and most are handled thoroughly; none is complete
+in §10's sense, which asks not that the condition be *handled* but that the six
+outcomes hold under it. Handling a condition and holding the outcomes are
+different claims, and the gap sentence on each cell says which part is missing.
+
+**The audit that prompted this was wrong about one cell, which is why the cells
+were checked rather than trusted.** It reported `full disk` as having zero
+coverage, on a grep for `ENOSPC|no space|disk full` that returned nothing. There
+are thirteen pieces of evidence; the handling simply is not written in those
+words. The gap is real — nothing simulates a full disk — but "zero coverage" was
+not the finding.
+
+**What the ratchet holds.** `WITHOUT_LIVE_EVIDENCE` counts cells resting on unit
+tests alone — a helper asserted rather than a service observed. It is zero, and
+it may fall and never rise, so the file cannot be weakened later by adding a cell
+that cites a pure function and calling the condition handled. `tools/check_plans.py`'s
+discipline, applied to a second list.
+
+Proved it fails in each of its four ways: a condition added to §10, a cell naming
+one §10 does not, an evidence path that no longer exists, and a cell resting on
+unit tests alone.
+
 ## A hard constraint that refuses at the route, not only in the engine — 2026-09-05
 
 **§15: "RAVIS enforces hard constraints before preferences, and explains routes

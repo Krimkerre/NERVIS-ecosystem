@@ -762,6 +762,15 @@ Required outcomes:
 - Recovery is idempotent — no duplicated jobs, charges, agent actions or approvals.
 - Standalone product behaviour stays usable whenever that product's own dependencies are healthy.
 
+**Scored in `tools/check_degradation.py`, which parses the sentence above.** The conditions
+were named here and enumerated nowhere, so which of them were covered was a question with no
+answer — and a matrix nobody can score is one that gets called done. Each condition now
+carries its evidence, the kind of evidence it is (a helper asserted, a route answered, a
+running service observed), what is still missing, and the smallest step that would close it.
+A condition added to this list and not to that file fails the gate; a cell naming a condition
+this list does not is refused. Every cell reads PARTIAL today: the ecosystem handles all
+nineteen, and handling a condition is not the same as holding the six outcomes under it.
+
 ---
 
 ## 11. Observability rollout

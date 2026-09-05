@@ -126,6 +126,10 @@ step "error envelope conformance" nervis-eco python tools/conformance_check.py
 # schemas; these are generated from the models, so this fails when the released
 # files and the code disagree, and when a service stops satisfying them.
 step "released schemas"        nervis-eco python tools/schema_check.py
+# §10 names nineteen failure conditions in one sentence and nothing scored them.
+# The gate parses that sentence, so a condition added to the runbook and not to
+# the matrix fails here rather than being noticed by nobody.
+step "degradation matrix"      nervis-eco python tools/check_degradation.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
