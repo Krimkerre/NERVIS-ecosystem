@@ -12122,7 +12122,14 @@ const EVENTS={
       the status existing: a silent reconnect here is a feed with a hole in it
       and a reader with no reason to doubt it. */
    const body=await response.json().catch(()=>({}));
-   const floor=(body.detail||{}).oldest_sequence;
+   /* **`error.details`, not `detail`.** This read Starlette's raw shape, and
+      §16 item 10 moved every refusal onto §4.5's envelope — so the floor was
+      `undefined` from that day, the sentence quietly dropped its most useful
+      half, and nothing failed loudly enough to notice. The old path is kept as
+      a fallback because a NERVIS older than that change answers the old way,
+      and a missing number here should degrade to a shorter sentence rather
+      than to a wrong one. */
+   const floor=((body.error||{}).details||body.detail||{}).oldest_sequence;
    this.cursor='';this.gaps++;this.state='expired';
    this.detail=`this tab was away longer than the hub keeps events${floor?`, which now start at ${floor}`:''} — the ones in between are gone`;
    this._later();

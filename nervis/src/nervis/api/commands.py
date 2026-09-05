@@ -33,6 +33,7 @@ import httpx
 from fastapi import APIRouter, Request
 
 from nervis import chat, commands, handoff, learned, pdf, transcript
+from nervis.api.chat_calls import _forwarded
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -211,7 +212,18 @@ async def _submit_benchmark(request: Request, model: str) -> dict[str, Any]:
         answered = await client.post(
             entry.declaration.base_url + "/api/v1/benchmark-jobs",
             json={"specification": specification, "model": model},
-            headers={"Authorization": f"Bearer {settings.sirvis_client_credential}"},
+            # **The caller's trace, not just the credential.** SIRVIS reads the
+            # inbound `traceparent` into the job it queues, so the run joins the
+            # trace that asked for it — and this call sent authorization alone,
+            # which meant a benchmark started from NERVIS's own command surface
+            # opened a trace of its own. The one place a person can ask for a
+            # measurement and then go looking for it was the one place it could
+            # not be found.
+            headers=_forwarded(
+                getattr(request.state, "request_id", ""),
+                getattr(request.state, "trace_id", ""),
+                settings.sirvis_client_credential,
+            ),
             timeout=SUBMIT_TIMEOUT_SECONDS,
         )
     except httpx.HTTPError as failure:

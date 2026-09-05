@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2313 tests, no network, no live service
+.venv/bin/pytest                      # part of 2314 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 17 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 843 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 844 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2313 passing across the four, conformance `PASS`.
+Expected: all clean, 2314 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12013,6 +12013,42 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 `streamNarration` and `ReplyStateReader`, which is what it is called now: named
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
+
+## Three surfaces that told the truth everywhere except at the end — 2026-09-05
+
+**RAVIS's own observation wore SIRVIS's badge.** `ravis/src/ravis/evidence/sirvis.py` keeps
+`OBSERVED_BY_RAVIS` and `MEASURED_BY_SIRVIS` apart deliberately — *"both are
+measurements, and only one of them was taken under controlled conditions"* — and
+the Evidence screen's legend, the card whose whole job is teaching a reader what
+provenance means, gave RAVIS's rolling window over whatever traffic happened the
+same green `MEASURED` badge as a benchmark run with a fixed prompt, a warm
+runtime and a recorded sample count. §15 asks for the distinction end to end and
+the last inch is the pixel. `OBSERVED` is its own badge now, and `prov()`
+normalises the producer-side names in one place — one caller passed a raw
+`provenance.kind` through, so an unmapped name reached `data-kind` with no rule
+to style it, and a badge that silently stops looking like a badge is worse than a
+wrong one.
+
+`ekind` went with it: a second copy of the same collapse, declared once and read
+nowhere, invisible to `tools/check_dead_code.py` because that gate sweeps dashboard
+*functions* and this was an object constant. A dead definition holding a wrong
+mapping is a trap for whoever wires it up first.
+
+**The expired-cursor message could never say the floor.** §16 item 10 moved every
+NERVIS refusal onto §4.5's envelope, and the stream reader still read Starlette's
+old `body.detail` — so `oldest_sequence` was `undefined` from that day and the
+sentence quietly dropped its most useful half. It reads `error.details` now, with
+the old path kept as a fallback: a missing number should shorten the sentence,
+not falsify it.
+
+**A benchmark queued through NERVIS opened a trace of its own.** SIRVIS reads the
+inbound `traceparent` into the job it queues, so a submitted run joins the trace
+that asked for it — and NERVIS's command surface sent `Authorization` and nothing
+else. The one place a person can ask for a measurement and then go looking for it
+was the one place it could not be found. It forwards through the same
+`_forwarded` helper chat and diagnostics already use: a new span in the same
+trace, never the parent id echoed back, which would draw two siblings where there
+is a call. Proved by reverting the fix and watching the new test fail.
 
 ## Two documents that said what was not so — 2026-09-05
 

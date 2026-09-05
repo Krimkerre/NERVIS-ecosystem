@@ -1076,6 +1076,50 @@ def test_a_confirmed_command_is_carried_out_with_nervis_own_credential() -> None
     assert body["specification"]["suite"] == "performance-basic"
 
 
+def test_a_queued_benchmark_joins_the_trace_that_asked_for_it() -> None:
+    """§11.2: the run belongs to the trace of the request that submitted it.
+
+    SIRVIS reads the inbound `traceparent` into the job it queues, so a benchmark
+    submitted with one joins the caller's trace and shows up on the waterfall.
+    This call sent `Authorization` and nothing else, so a measurement started
+    from NERVIS's own command surface opened a trace of its own — the one place
+    a person can ask for a benchmark and then go looking for it was the one place
+    it could not be found.
+    """
+    sent: list[httpx.Request] = []
+    client = an_api()
+    client.app.state.settings.sirvis_client_credential = "benchmark-scoped"  # type: ignore[attr-defined]
+    entry = client.app.state.registry.get("sirvis")  # type: ignore[attr-defined]
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.benchmarks.jobs": "available"}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(202, json={"job": {"job_id": "job-2", "state": "pending"}})
+
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+    trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+    answered = client.post(
+        "/api/v1/commands/run",
+        json={"operation": "sirvis.benchmark.submit", "target": "phi-4-mini-instruct"},
+        headers={"traceparent": f"00-{trace}-0123456789abcdef-01"},
+    )
+
+    assert answered.status_code == 200
+    forwarded = sent[0].headers
+    # A new span in the same trace, not the header echoed back: forwarding the
+    # parent id would draw two siblings where there is a call (§11.2).
+    assert trace in forwarded["traceparent"]
+    assert forwarded["traceparent"] != f"00-{trace}-0123456789abcdef-01"
+    assert forwarded["x-request-id"]
+    # The credential the submit already carried, unchanged.
+    assert forwarded["authorization"] == "Bearer benchmark-scoped"
+
+
 def test_an_operation_outside_the_set_does_not_exist() -> None:
     """§12's wording, and a real distinction: a surface that fails validation
     differently for near-misses can be enumerated by probing it."""
