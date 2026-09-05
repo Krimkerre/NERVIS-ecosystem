@@ -56,12 +56,15 @@ def written() -> Any:
 
 def test_a_line_written_inside_a_request_carries_its_ids(written: Any) -> None:
     logger, records = written
-    with carrying(request_id="req-1", trace_id="trace-1", application_id="clarvis"):
+    with carrying(
+        request_id="req-1", trace_id="trace-1", application_id="clarvis", session_id="sess-1"
+    ):
         logger.info("routing")
     payload = json.loads(records[-1])
     assert payload["request_id"] == "req-1"
     assert payload["trace_id"] == "trace-1"
     assert payload["application_id"] == "clarvis"
+    assert payload["session_id"] == "sess-1"
     assert payload["message"] == "routing"
 
 
@@ -77,6 +80,25 @@ def test_a_line_written_outside_a_request_carries_none_of_them(written: Any) -> 
     assert "request_id" not in payload
     assert "trace_id" not in payload
     assert "application_id" not in payload
+    assert "session_id" not in payload
+
+
+def test_session_id_reaches_the_line_it_was_added_for(written: Any) -> None:
+    """The regression this file did not catch until reverifying §15.
+
+    `carrying()` has accepted `session_id` since the event envelope needed it
+    (§4.4), and `CorrelationFilter` copies it onto a record exactly the way it
+    copies `request_id` — but `JsonLineFormatter`'s promotion tuple never named
+    it, so it rode as far as the record and stopped there. Every test above
+    happened to assert `request_id` and `trace_id`, which were both promoted
+    correctly, so nothing here ever exercised the field that was not. Isolated
+    from the general carries-its-ids test so a future field gets its own
+    assertion rather than riding along with `session_id`'s.
+    """
+    logger, records = written
+    with carrying(session_id="sess-only"):
+        logger.info("one field, on its own")
+    assert json.loads(records[-1])["session_id"] == "sess-only"
 
 
 def test_the_context_does_not_leak_past_the_request(written: Any) -> None:

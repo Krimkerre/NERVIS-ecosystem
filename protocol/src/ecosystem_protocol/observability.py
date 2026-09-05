@@ -131,7 +131,16 @@ class JsonLineFormatter(logging.Formatter):
         # tried and why. The formatter emitted the headline and discarded the
         # reason, so the log said "no upstream attempt succeeded" and left the
         # reader to go and reproduce it.
-        for field in ("request_id", "trace_id", "application_id", "detail"):
+        #
+        # `session_id` was the same mistake one hop earlier. `carrying()` has
+        # accepted it since §4.4's event envelope needed it, `CorrelationFilter`
+        # copies it onto every record the same way it copies `request_id`, and
+        # this tuple never named it — so a line logged inside
+        # `carrying(session_id=...)` carried everything else and silently
+        # dropped the one field §4.3 promises. Found reverifying §15, not by a
+        # test: nothing asserted the promoted set, so nothing noticed the set
+        # was short one name.
+        for field in ("request_id", "trace_id", "application_id", "session_id", "detail"):
             value = getattr(record, field, None)
             if value:
                 payload[field] = value

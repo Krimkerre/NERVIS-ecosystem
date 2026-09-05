@@ -25,14 +25,14 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2342 tests, no network, no live service
+.venv/bin/pytest                      # part of 2343 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
 The other three packages are checked the same way, from their own directories:
 
 ```bash
-cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 61 tests
+cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 457 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 866 tests
 ```
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 866 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2342 passing across the four, conformance `PASS`.
+Expected: all clean, 2343 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -12984,6 +12984,35 @@ nowhere the checklist reads it; the line now carries the same distinction, so a 
 `ECOSYSTEM_RUNBOOK.md` gets the same answer as a reader of the code.
 
 NERVIS 0.23.1. `nervis/tests/test_control_token.py` now 23 tests, all passing.
+
+## `session_id` reached the record and stopped there — 2026-09-05
+
+**Same defect this repository keeps finding, one hop later.** §15's reverification
+named it directly: `carrying()` has accepted `session_id` since the event envelope
+needed it (§4.4), and `CorrelationFilter` copies it onto every log record the same
+way it already copies `request_id` — a value computed correctly and carried
+correctly, and `JsonLineFormatter`'s promotion tuple never named it, so it reached
+the record and was thrown away one line before the write. Nothing caught it because
+nothing asserted the promoted set; every existing test happened to check
+`request_id` and `trace_id`, both of which were correctly promoted, so a field
+missing from the tuple was invisible to a suite that never looked at it.
+
+**Fixed at the one place it actually breaks, and proved by breaking it again.**
+Added to the tuple in `protocol/src/ecosystem_protocol/observability.py`; the new
+test failed exactly there when the fix was reverted, and passed once it was
+restored — the tree was left clean throughout.
+
+**Not closed by this, and said so rather than left to be assumed.** §15's line
+reads "session_id is accepted by exactly one of the four products", and this fix
+does not change that count. RAVIS is the one service that reads `x-session-id`
+into its own correlation context; SIRVIS and NERVIS never do — NERVIS forwards the
+header downstream to RAVIS without ever reading it into its own context, and
+SIRVIS's `app.py` middleware passes only `request_id` and `trace_id`. So §4.3's
+"logs ... carry ... session_id" is now true for a request RAVIS serves, and still
+false for one SIRVIS or NERVIS serves on its own. That is a second, larger piece of
+the same line, not started here.
+
+ecosystem-protocol 0.2.1. Protocol suite: 62 tests, up from 61.
 
 ## Starting the thing
 

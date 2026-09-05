@@ -155,7 +155,19 @@ every entry.
 
 ---
 
-## ecosystem-protocol — 0.2.0
+## ecosystem-protocol — 0.2.1
+
+**Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
+
+- **`session_id` reached the log record and stopped there.** `carrying()` has accepted it
+  since the event envelope needed it, and `CorrelationFilter` copied it onto every record
+  the same way it copies `request_id` — but `JsonLineFormatter`'s promotion tuple never
+  named it, so it never reached the written line. The one service that already sends it
+  (RAVIS, from `x-session-id`) now has it in its own logs. **Not closed by this:** SIRVIS
+  and NERVIS still never read the header into their own correlation context at all, so
+  §4.3's "logs carry ... session_id" is still only true for requests RAVIS serves.
+
+### 0.2.0
 
 **Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
 
