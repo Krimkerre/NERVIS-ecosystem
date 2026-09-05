@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "Error": {
+      "description": "\u00a74.5's body. `retryable` is what separates \"wait\" from \"never\".",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "request_id": {
+          "default": "",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "trace_id": {
+          "default": "",
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "title": "Error",
+      "type": "object"
+    }
+  },
+  "$id": "https://nervis.local/mep/1.0.0/error_envelope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The envelope \u00a74.5 governs \u2014 RAVIS's OpenAI-compatible routes excepted,\nbecause clients parse those and the exception is deliberate.",
+  "properties": {
+    "error": {
+      "$ref": "#/$defs/Error"
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "title": "ErrorEnvelope",
+  "type": "object"
+}

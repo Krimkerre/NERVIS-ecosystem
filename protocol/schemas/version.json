@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "CompatibleProtocol": {
+      "properties": {
+        "max": {
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "title": "Min",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "CompatibleProtocol",
+      "type": "object"
+    }
+  },
+  "$id": "https://nervis.local/mep/1.0.0/version.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "\u00a74.1. \"Must answer even when `ready` is false.\"",
+  "properties": {
+    "api_version": {
+      "title": "Api Version",
+      "type": "string"
+    },
+    "build_version": {
+      "title": "Build Version",
+      "type": "string"
+    },
+    "compatible_protocol": {
+      "$ref": "#/$defs/CompatibleProtocol"
+    },
+    "protocol_version": {
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "schema_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Schema Versions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "build_version",
+    "api_version",
+    "protocol_version",
+    "schema_versions",
+    "compatible_protocol"
+  ],
+  "title": "Version",
+  "type": "object"
+}

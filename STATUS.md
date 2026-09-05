@@ -12014,6 +12014,52 @@ And `AgentRunner.test.ts` never imported `AgentRunner`. Its four tests cover
 for the agent loop, it meant anyone looking for that coverage found a file with
 the right name and stopped looking. Clarvis 0.12.5.
 
+## `schema_versions` named an artifact that did not exist — 2026-09-05
+
+**Every service has published `schema_versions: {"mep": …}` since Stage 1, and
+there were no schemas.** No file, no fixture, no validator, in either repository.
+§15 asks that "MEP schemas, fixtures and versions are released and pinned"; what
+was released was a version number for a thing nobody could read. The same shape
+as `capable()` defined and never called, as `session_id` with a column and no
+writer, as §3's import check that existed only in a sentence — except this one
+was being told to every peer that asked.
+
+**Generated, never hand-written, and that is the whole design.** The obvious way
+to release a schema is to write the JSON by hand, and it is the way that drifts:
+two descriptions of one envelope, one enforced by tests and the other by nobody.
+`protocol/src/ecosystem_protocol/schemas.py` holds the models, `protocol/schemas/*.json`
+is the released artifact rendered from them, and `tools/schema_check.py` fails
+when the two disagree. The files stay on disk because a consumer in another
+language needs a file rather than a Python import.
+
+**Pydantic because it was already here** — it arrives with FastAPI, generates the
+schema and validates a payload, so the released file and the validator are one
+definition and no dependency joined a package whose argument is that it stays
+small (§3).
+
+**Strict, because this judges a wire rather than a caller.** Pydantic coerces by
+default: `"false"` becomes `True`. A validator that repairs what it is judging
+calls every producer conformant, and the fixture that caught it was exactly
+`ready: "false"` — accepted, coerced, and readiness had stopped being truthful in
+the field §4.1 wrote the rule for. The second catch was `ravis.sessions@1` as a
+capability `id`: §4.1 says the `<id>@<major>` notation "is never a wire value",
+and a rule stated only in prose arrives on the wire eventually. The `id` field
+now refuses an `@`.
+
+**Fixtures say what a reader must refuse, which no schema states about itself.**
+Twenty-three cases, each `invalid` one naming the rule it breaks, drawn from what
+this ecosystem has actually done: the five envelope fields no producer sent until
+this morning, the `unhealthy` status §4.1 lists and nothing emits — accepted, on
+purpose, because a schema written from observed traffic would tell the first
+service to report it that it was wrong — and Starlette's raw `detail` shape, the
+one all three services sent until §16 item 10.
+
+Modelled from §4's text rather than from what the services happen to send, and it
+passed on the first run against all three: six schemas, twenty-three fixtures,
+three services, four metadata routes each. Proved it can fail in both directions
+by changing a model without re-rendering, and by making `/ecosystem/version`
+answer a string where the map goes.
+
 ## Three surfaces that told the truth everywhere except at the end — 2026-09-05
 
 **RAVIS's own observation wore SIRVIS's badge.** `ravis/src/ravis/evidence/sirvis.py` keeps

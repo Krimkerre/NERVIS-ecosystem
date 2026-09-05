@@ -1,0 +1,51 @@
+{
+  "$id": "https://nervis.local/mep/1.0.0/identity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "\u00a74.1's identity, and \u00a74.1's identity rules about what these may not be.\n\n`machine_id` is \"locally generated, opaque, non-hardware-derived and\nresettable \u2014 never a serial number, MAC address, username or reversible\nfingerprint\". A schema cannot enforce that; it is recorded here because the\nfield's type is the least interesting thing about it.",
+  "properties": {
+    "api_version": {
+      "title": "Api Version",
+      "type": "string"
+    },
+    "build_version": {
+      "title": "Build Version",
+      "type": "string"
+    },
+    "instance_id": {
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "machine_id": {
+      "title": "Machine Id",
+      "type": "string"
+    },
+    "protocol_version": {
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "service_id": {
+      "title": "Service Id",
+      "type": "string"
+    },
+    "service_type": {
+      "title": "Service Type",
+      "type": "string"
+    },
+    "started_at": {
+      "title": "Started At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "service_id",
+    "service_type",
+    "instance_id",
+    "machine_id",
+    "api_version",
+    "protocol_version",
+    "build_version",
+    "started_at"
+  ],
+  "title": "Identity",
+  "type": "object"
+}

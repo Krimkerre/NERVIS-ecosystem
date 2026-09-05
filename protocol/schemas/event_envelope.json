@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "Privacy": {
+      "properties": {
+        "classification": {
+          "title": "Classification",
+          "type": "string"
+        },
+        "redactions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redactions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "title": "Privacy",
+      "type": "object"
+    },
+    "Source": {
+      "description": "Which service produced an event. `service_type` is load-bearing: NERVIS\ngroups events into spans by it, so a producer that omits it lands in a lane\ncalled \"unknown\" with everybody else who omitted it.",
+      "properties": {
+        "instance_id": {
+          "default": "",
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "machine_id": {
+          "default": "",
+          "title": "Machine Id",
+          "type": "string"
+        },
+        "service_id": {
+          "default": "",
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_type": {
+          "title": "Service Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service_type"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "Subject": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "title": "Subject",
+      "type": "object"
+    }
+  },
+  "$id": "https://nervis.local/mep/1.0.0/event_envelope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "\u00a74.4. Twelve fields, of which the producer shipped six until 5 September.\n\n`span_id` is absent rather than optional-and-empty: \u00a74.4 lists it \"where\napplicable\", and a producer here has no span to name \u2014 NERVIS derives spans\n*from* these events, so minting one would invent a structure nothing keeps.",
+  "properties": {
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "title": "Event Type",
+      "type": "string"
+    },
+    "event_version": {
+      "title": "Event Version",
+      "type": "string"
+    },
+    "occurred_at": {
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "privacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Privacy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "severity": {
+      "enum": [
+        "debug",
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Subject"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "trace_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Id"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "source",
+    "severity"
+  ],
+  "title": "EventEnvelope",
+  "type": "object"
+}

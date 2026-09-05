@@ -90,6 +90,11 @@ step "no product imports a peer" nervis-eco python tools/check_imports.py
 # so the one gate that checks all three services against §4.5 was checked by
 # nothing.
 step "error envelope conformance" nervis-eco python tools/conformance_check.py
+# §15 asks that MEP schemas, fixtures and versions be "released and pinned".
+# `/ecosystem/version` published `schema_versions` for years and there were no
+# schemas; these are generated from the models, so this fails when the released
+# files and the code disagree, and when a service stops satisfying them.
+step "released schemas"        nervis-eco python tools/schema_check.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 

@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "Check": {
+      "description": "One thing a service tested about itself.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "Check",
+      "type": "object"
+    }
+  },
+  "$id": "https://nervis.local/mep/1.0.0/health.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "\u00a74.1. `ready` is independently truthful \u2014 a TCP connect is not readiness.",
+  "properties": {
+    "checked_at": {
+      "title": "Checked At",
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/Check"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "live": {
+      "title": "Live",
+      "type": "boolean"
+    },
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "healthy",
+        "degraded",
+        "unhealthy"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "live",
+    "ready",
+    "checked_at"
+  ],
+  "title": "Health",
+  "type": "object"
+}

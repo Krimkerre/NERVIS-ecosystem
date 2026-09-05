@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "Capability": {
+      "description": "\u00a74.1. `id` carries the identifier alone.\n\nThe `<id>@<major>` notation prose and the dashboard use is shorthand for the\n`{id, version}` pair and is **never a wire value** \u2014 which is precisely the\nkind of rule that survives in a document and dies on a wire, so the schema\nkeeps them as two fields.",
+      "properties": {
+        "constraints": {
+          "additionalProperties": true,
+          "title": "Constraints",
+          "type": "object"
+        },
+        "id": {
+          "pattern": "^[^@]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "degraded",
+            "unavailable",
+            "disabled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "state"
+      ],
+      "title": "Capability",
+      "type": "object"
+    }
+  },
+  "$id": "https://nervis.local/mep/1.0.0/capabilities.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/Capability"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision"
+  ],
+  "title": "Capabilities",
+  "type": "object"
+}

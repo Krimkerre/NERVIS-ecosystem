@@ -165,19 +165,31 @@ def serialised_wholesale() -> set[str]:
     naming one, so their fields have no attribute read to find and are not dead.
     Exempting the class is cruder than tracking the call, and crude in the safe
     direction: it under-reports rather than accusing working code.
+
+    **`model_json_schema()` and `model_validate()` are the same thing one step
+    further.** A model rendered into a released JSON Schema, or used to validate
+    somebody else's payload, reads every field by construction — the fields *are*
+    the description. Without this the gate reported four fields of the MEP
+    envelopes as dead, including `retryable`, which §4.5 requires and which two
+    services were missing until §16 item 10 put it there.
     """
     exempt: set[str] = set()
+    # A module that renders or validates its models wholesale exempts all of
+    # them: the call names no field, and every field is part of what it renders.
+    wholesale_modules = ("model_json_schema(", "model_validate(")
     for package in PACKAGES:
         for path in sorted((ROOT / package / "src").rglob("*.py")):
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
+            whole_file = path.read_text(encoding="utf-8")
+            renders = any(mark in whole_file for mark in wholesale_modules)
             for node in tree.body:
                 if not isinstance(node, ast.ClassDef):
                     continue
                 body = ast.unparse(node)
-                if any(mark in body for mark in ("asdict(", "model_dump(", "__dict__")):
+                if renders or any(mark in body for mark in ("asdict(", "model_dump(", "__dict__")):
                     exempt.add(node.name)
     return exempt
 

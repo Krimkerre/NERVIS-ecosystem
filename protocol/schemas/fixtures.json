@@ -1,0 +1,233 @@
+{
+  "_comment": [
+    "Language-neutral conformance fixtures for the MEP envelopes (§4.6, §15).",
+    "",
+    "A schema says what a shape is; a fixture says what a *reader* must accept and what",
+    "it must refuse. Those are different tests, and only the second one catches a",
+    "validator that is quietly permissive — which is the failure mode that matters,",
+    "because a permissive validator passes everything including the payload that broke",
+    "production.",
+    "",
+    "Every `invalid` case names the rule it breaks in `why`. They are drawn from things",
+    "this ecosystem has actually done rather than from a list of ways JSON can be wrong:",
+    "the six fields no producer sent until 5 September, the status nobody emits, the",
+    "capability identifier carrying its @major into a wire value.",
+    "",
+    "JSON rather than Python so a consumer in another language can read them, which is",
+    "what §4.6 means by language-neutral."
+  ],
+  "health": {
+    "valid": [
+      {
+        "why": "the ordinary answer, and the one every service gives today",
+        "payload": {
+          "status": "healthy", "live": true, "ready": true,
+          "checked_at": "2026-09-05T12:00:00Z",
+          "checks": [{"name": "database", "status": "pass", "detail": ""}]
+        }
+      },
+      {
+        "why": "live but not ready — §4.1's whole point about readiness being separate",
+        "payload": {
+          "status": "degraded", "live": true, "ready": false,
+          "checked_at": "2026-09-05T12:00:00Z",
+          "checks": [{"name": "database", "status": "fail", "detail": "migrating"}]
+        }
+      },
+      {
+        "why": "unhealthy, which §4.1 lists and nothing in this repository emits — a reader must still accept it",
+        "payload": {
+          "status": "unhealthy", "live": true, "ready": false,
+          "checked_at": "2026-09-05T12:00:00Z", "checks": []
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "`status` outside the three §4.1 names; 'ok' is the one everybody invents",
+        "payload": {"status": "ok", "live": true, "ready": true, "checked_at": "2026-09-05T12:00:00Z"}
+      },
+      {
+        "why": "`ready` as a string; a truthy 'false' is how readiness stops being truthful",
+        "payload": {"status": "healthy", "live": true, "ready": "false", "checked_at": "2026-09-05T12:00:00Z"}
+      },
+      {
+        "why": "a check with no status, which reads as a check that passed",
+        "payload": {
+          "status": "healthy", "live": true, "ready": true, "checked_at": "2026-09-05T12:00:00Z",
+          "checks": [{"name": "database"}]
+        }
+      }
+    ]
+  },
+  "identity": {
+    "valid": [
+      {
+        "why": "every field §4.1 requires",
+        "payload": {
+          "service_id": "9c0d6924", "service_type": "nervis", "instance_id": "a739d292",
+          "machine_id": "b2a10526", "api_version": "1", "protocol_version": "1.0.0",
+          "build_version": "0.23.0", "started_at": "2026-09-05T11:00:00Z"
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "no `machine_id`; the field carrying §4.1's strongest privacy rule is the one to drop by accident",
+        "payload": {
+          "service_id": "9c0d6924", "service_type": "nervis", "instance_id": "a739d292",
+          "api_version": "1", "protocol_version": "1.0.0", "build_version": "0.23.0",
+          "started_at": "2026-09-05T11:00:00Z"
+        }
+      }
+    ]
+  },
+  "capabilities": {
+    "valid": [
+      {
+        "why": "id and version as two fields, which is what @major is shorthand for",
+        "payload": {
+          "revision": 4,
+          "capabilities": [{
+            "id": "ravis.openai_compatible.chat_completions", "version": "1.0.0",
+            "state": "available", "constraints": {}, "reason": ""
+          }]
+        }
+      },
+      {
+        "why": "a capability withdrawn with its reason — the case the dashboard's withheld branch renders",
+        "payload": {
+          "revision": 5,
+          "capabilities": [{
+            "id": "ravis.sessions", "version": "1.0.0", "state": "unavailable",
+            "constraints": {}, "reason": "the session store is migrating"
+          }]
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "`@1` in the id — §4.1 says the notation is never a wire value",
+        "payload": {
+          "revision": 4,
+          "capabilities": [{"id": "ravis.sessions@1", "version": "1.0.0", "state": "available"}]
+        }
+      },
+      {
+        "why": "a state outside the four; 'enabled' is the plausible wrong word",
+        "payload": {
+          "revision": 4,
+          "capabilities": [{"id": "ravis.sessions", "version": "1.0.0", "state": "enabled"}]
+        }
+      }
+    ]
+  },
+  "version": {
+    "valid": [
+      {
+        "why": "what the three services answer today",
+        "payload": {
+          "build_version": "0.23.0", "api_version": "1", "protocol_version": "1.0.0",
+          "schema_versions": {"mep": "1.0.0"},
+          "compatible_protocol": {"min": "1.0.0", "max": "1.999.999"}
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "`schema_versions` as a bare string — a map of names to versions collapsed to one number",
+        "payload": {
+          "build_version": "0.23.0", "api_version": "1", "protocol_version": "1.0.0",
+          "schema_versions": "1.0.0",
+          "compatible_protocol": {"min": "1.0.0", "max": "1.999.999"}
+        }
+      },
+      {
+        "why": "no `compatible_protocol`, which is what a consumer negotiates against",
+        "payload": {
+          "build_version": "0.23.0", "api_version": "1", "protocol_version": "1.0.0",
+          "schema_versions": {"mep": "1.0.0"}
+        }
+      }
+    ]
+  },
+  "event_envelope": {
+    "valid": [
+      {
+        "why": "the full §4.4 envelope, including the five fields no producer sent until 5 September",
+        "payload": {
+          "event_id": "01J8Z2K", "event_type": "ravis.route.selected", "event_version": "1.0.0",
+          "occurred_at": "2026-09-05T12:00:00+00:00",
+          "source": {"service_type": "ravis", "service_id": "r1", "instance_id": "i1", "machine_id": "m1"},
+          "subject": {"type": "session", "id": "sess-9"},
+          "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+          "request_id": "b91cee39", "session_id": "sess-9", "severity": "info",
+          "data": {"model": "exaone-deep-2.4b"},
+          "privacy": {"classification": "operational", "redactions": []}
+        }
+      },
+      {
+        "why": "an event outside any request: the correlation fields are absent, not empty",
+        "payload": {
+          "event_id": "01J8Z2L", "event_type": "sirvis.benchmark.started", "event_version": "1.0.0",
+          "occurred_at": "2026-09-05T12:00:01+00:00",
+          "source": {"service_type": "sirvis"}, "severity": "info", "data": {},
+          "privacy": {"classification": "operational", "redactions": ["api_key"]}
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "no `source.service_type`; NERVIS groups spans by it, so this lands in a lane called unknown",
+        "payload": {
+          "event_id": "01J8Z2M", "event_type": "a.b", "event_version": "1.0.0",
+          "occurred_at": "2026-09-05T12:00:00+00:00", "source": {}, "severity": "info", "data": {}
+        }
+      },
+      {
+        "why": "a severity outside the five; 'warn' is the one every logger uses",
+        "payload": {
+          "event_id": "01J8Z2N", "event_type": "a.b", "event_version": "1.0.0",
+          "occurred_at": "2026-09-05T12:00:00+00:00",
+          "source": {"service_type": "ravis"}, "severity": "warn", "data": {}
+        }
+      },
+      {
+        "why": "no `event_version` — event type plus version determines the data schema, so this one has none",
+        "payload": {
+          "event_id": "01J8Z2P", "event_type": "a.b",
+          "occurred_at": "2026-09-05T12:00:00+00:00",
+          "source": {"service_type": "ravis"}, "severity": "info", "data": {}
+        }
+      }
+    ]
+  },
+  "error_envelope": {
+    "valid": [
+      {
+        "why": "§4.5 in full, with the retention floor a client needs to resume",
+        "payload": {
+          "error": {
+            "code": "EVENT_CURSOR_EXPIRED",
+            "message": "cursor 1 is older than the retention floor 412",
+            "retryable": false,
+            "details": {"oldest_sequence": 412, "latest_sequence": 900},
+            "request_id": "b91cee39", "trace_id": "4bf92f35"
+          }
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "why": "no `retryable`; a client cannot tell wait-and-retry from never, which is the field's whole purpose",
+        "payload": {
+          "error": {"code": "CAPABILITY_UNAVAILABLE", "message": "not offered", "details": {}}
+        }
+      },
+      {
+        "why": "Starlette's raw shape — the one three services sent until §16 item 10",
+        "payload": {"detail": {"code": "EVENT_CURSOR_EXPIRED", "message": "expired"}}
+      }
+    ]
+  }
+}
