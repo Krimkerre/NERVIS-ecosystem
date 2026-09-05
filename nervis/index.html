@@ -2337,7 +2337,16 @@ const API={
       notes:(anyResult.validity_notes||[]).join('; ')||'none recorded',
       basis:m.basis,
       co_residency:this._coResidency(m)},
-    finding:roles.map(r=>`${r} lost ${round((deg(r).concurrent||{}).tokens_per_second,1)}% of its throughput under concurrent load`).join(', and ')};
+    /* **A role with no concurrent measurement says so.** This built the sentence
+       unconditionally, and `round` answers `null` for a missing number — so a
+       Runtime Set that had never been measured under load rendered "agent lost
+       null% of its throughput under concurrent load", which reads as a finding
+       and is the absence of one. Same class as the Overview's `LOCAL undefined%`
+       that `tools/check.py` exists for, one type further along: not a field the
+       API stopped returning, but a measurement that was never taken. */
+    finding:roles.map(r=>{const lost=(deg(r).concurrent||{}).tokens_per_second;
+      return lost==null?`${r} has no concurrent measurement to compare against`
+        :`${r} lost ${round(lost,1)}% of its throughput under concurrent load`}).join(', and ')};
   },
 
   async _runtimeSetMock(){return{runtime_set_id:'',revision:null,name:'',evidence_type:'',samples:null,role:'',members:[],pairs:[],validity:'',verdict:'',finding:'',effective_config:{},combined_peak_gb:null,swap_gb:null,thermal:'',components:[]}},

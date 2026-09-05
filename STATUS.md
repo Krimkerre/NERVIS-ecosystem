@@ -11965,6 +11965,24 @@ caller reads as "did it start" rather than holding a second copy of the refusal.
     ruff    all packages and tools clean
     gates   status · plans · dead code · conformance · 20 JS checks
 
+## "agent lost null% of its throughput under concurrent load" — 2026-09-05
+
+**A finding built from a measurement nobody took.** The Runtime Sets card
+assembled its `finding` sentence unconditionally, and `round` answers `null` for
+a missing number — so a set that had never been measured under concurrent load
+rendered that sentence with `null` where the percentage belongs. It reads as a
+result. It is the absence of one.
+
+Same class as the Overview's `LOCAL undefined%` that `tools/check.py` was written
+for, one type further along: not a field the API stopped returning, but a
+measurement that was never taken at all. A role without one now says
+*"agent has no concurrent measurement to compare against"*, which is shorter than
+the sentence it replaces and true.
+
+Checked by running the expression against a measured role, a missing one, and a
+set holding one of each — the mixed case being the one that matters, since a card
+listing two roles must not let the measured one lend credibility to the other.
+
 ## The one command an operator runs while something is already wrong — 2026-09-05
 
 **`restore-database --version` answered with a traceback, in all three
