@@ -95,18 +95,24 @@ every entry.
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
-- **F7: a committed enrollment secret is untracked, and a gate now catches this class of
-  mistake repository-wide.** `nervis/nervis.enrollment` — the bearer secret gating
-  `POST /api/v1/registry/instances` — was committed and sitting in history despite
-  `*.enrollment` already being in `.gitignore` since M8a: a gitignore pattern only stops a
-  *future* `git add`, never untracks a path already committed. `git rm --cached` removes it
-  from tracking now (the file stays on disk at its required `0600`; nothing about a running
-  installation changes), and a new gate, `tools/check_no_tracked_secrets.py`, tests every
-  tracked file against `.gitignore` as if it were untracked, closing the actual gap rather
-  than re-stating the rule. **Not done, deliberately:** the secret is still readable in
-  every commit before this one, and neither purging history nor rotating the live credential
-  is something this pass did on its own judgment — both are destructive or live-impacting
-  enough to need the repository owner's explicit decision.
+- **F7: a committed enrollment secret is untracked, purged from history, and a gate now
+  catches this class of mistake repository-wide.** `nervis/nervis.enrollment` — the bearer
+  secret gating `POST /api/v1/registry/instances` — was committed and sitting in history
+  despite `*.enrollment` already being in `.gitignore` since M8a: a gitignore pattern only
+  stops a *future* `git add`, never untracks a path already committed. `git rm --cached`
+  removed it from tracking (the file stays on disk at its required `0600`; nothing about a
+  running installation changed), and a new gate, `tools/check_no_tracked_secrets.py`, tests
+  every tracked file against `.gitignore` as if it were untracked, closing the actual gap
+  rather than re-stating the rule. **History and rotation were the repository owner's calls,
+  asked for explicitly rather than assumed:** on confirmation, a full backup bundle was taken,
+  `git filter-repo` rewrote all 551 commits, two local-only refs from an unrelated tool
+  session still holding the secret were found and removed, and the rewritten history was
+  force-pushed to `origin/main` — verified after by confirming the secret's blob is
+  unreachable from `main`'s object graph and gone from the repository entirely, not by
+  trusting exit codes. The live secret itself was explicitly left unrotated, the repository
+  owner's choice; GitHub's own internal caching of pre-rewrite commits (a direct SHA link, an
+  open PR or fork) is outside what a rewrite here can guarantee, though none were found to
+  check.
 
 ### 0.23.9
 

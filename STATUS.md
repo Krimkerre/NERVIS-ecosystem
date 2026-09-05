@@ -13476,7 +13476,7 @@ and `liveness_check.js` still pass; the full `sirvis` suite (34 tests in
 
 SIRVIS 0.15.7. NERVIS 0.23.9.
 
-## F7: a committed enrollment secret — untracked and gated against, not purged, 2026-09-06
+## F7: a committed enrollment secret — untracked, gated against, and purged from history, 2026-09-06
 
 The same Claude Security scan found `nervis/nervis.enrollment` — the bearer
 secret `nervis/src/nervis/enrollment.py`'s `load_or_create()` mints and
@@ -13492,26 +13492,43 @@ retroactive effect on a path git already tracks. The rule existed and the
 file stayed committed regardless — a comment about the danger, not a check
 for it.
 
-**What this session fixed directly:** `git rm --cached nervis/nervis.enrollment`
-untracks it going forward (the file stays on disk at its required `0600`, so
-nothing about the running installation changes), and a new gate,
-`tools/check_no_tracked_secrets.py`, closes the actual gap: it tests every
-file git tracks against `.gitignore` as if untracked (`--no-index` is
-load-bearing — ordinary `check-ignore` exempts a path already in the index,
-which is the exact blind spot that let this ship in the first place),
-wired into `tools/check_clean_clone.sh` as "no gitignored path is tracked."
-Fail-proved against the pre-fix state directly (`git stash` back to the
-tracked file, confirmed the gate reports it, popped forward again).
+**What this session fixed directly, without asking:** `git rm --cached
+nervis/nervis.enrollment` untracks it going forward (the file stayed on disk
+at its required `0600`, so nothing about the running installation changed),
+and a new gate, `tools/check_no_tracked_secrets.py`, closes the actual gap: it
+tests every file git tracks against `.gitignore` as if untracked
+(`--no-index` is load-bearing — ordinary `check-ignore` exempts a path
+already in the index, which is the exact blind spot that let this ship in the
+first place), wired into `tools/check_clean_clone.sh` as "no gitignored path
+is tracked." Fail-proved against the pre-fix state directly (`git stash` back
+to the tracked file, confirmed the gate reports it, popped forward again).
 
-**What this session deliberately did not do.** The secret in
-`nervis/nervis.enrollment` is still readable in every commit before this one
-— untracking a path removes it from *future* commits, not history already
-published. Purging it (`git filter-repo`/BFG, rewriting every affected commit
-hash, requiring a force-push) is a destructive, hard-to-reverse operation on
-shared history, and rotating the live secret invalidates whatever currently
-holds it — both are the repository owner's call, made deliberately, not a
-scan's to execute on its own judgment. Recorded here as open rather than
-implied fixed alongside the tracking gap.
+**The rest needed the repository owner's decision, and was asked for
+explicitly** rather than executed on a scan's own judgment: purging the
+secret from history is a destructive, hard-to-reverse rewrite of shared
+history requiring a force-push, and rotating the live credential invalidates
+whatever currently trusts it. Asked separately, plainly, before touching
+either. **Purge: yes.** A full recovery bundle was taken first
+(`git bundle create ... --all`, kept outside the repository), then
+`git filter-repo --path nervis/nervis.enrollment --invert-paths --force`
+rewrote all 551 commits — verified after by walking `main`'s entire object
+graph and confirming the secret's blob hash
+(`cf0f8b62b634068810f7a8b3277db0ef73fb92a8`) is unreachable from it, not by
+trusting the tool's own exit code. Two local-only refs
+(`refs/codex/turn-diffs/checkpoints/...` — another tool's session
+checkpoints, never pushed) still held the blob after the rewrite; found,
+flagged, and — on confirmation — deleted and garbage-collected, after which
+`git cat-file` cannot find the blob at all: it no longer exists anywhere in
+the local repository. Then, on a second explicit confirmation immediately
+before the irreversible step, force-pushed to `origin/main` and re-fetched to
+confirm GitHub now serves the rewritten history with the same verification.
+**Caveat stated plainly:** GitHub's own internal caches (a direct commit-SHA
+URL, an open PR or fork referencing the old commits) can outlive a
+force-push for a period outside this repository's control; there were no
+open PRs or forks to check, which is the ordinary case this leaves uncovered
+rather than one confirmed clear. **Rotation: no**, the repository owner's
+explicit choice — the current secret value stays live and working, now
+readable nowhere `git` can reach it going forward.
 
 NERVIS 0.23.10.
 
