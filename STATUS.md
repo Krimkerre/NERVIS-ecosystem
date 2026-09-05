@@ -13476,6 +13476,45 @@ and `liveness_check.js` still pass; the full `sirvis` suite (34 tests in
 
 SIRVIS 0.15.7. NERVIS 0.23.9.
 
+## F7: a committed enrollment secret — untracked and gated against, not purged, 2026-09-06
+
+The same Claude Security scan found `nervis/nervis.enrollment` — the bearer
+secret `nervis/src/nervis/enrollment.py`'s `load_or_create()` mints and
+`api/instances.py` trusts as the sole credential gating
+`POST /api/v1/registry/instances` — committed and sitting in this
+repository's history (CWE-798), with the live value readable straight out of
+`git ls-tree HEAD`.
+
+**`.gitignore` already named the pattern (`*.enrollment`, added at M8a after
+the same mistake happened once before) and it did nothing**, because a
+`.gitignore` pattern only ever stops a *future* `git add`; it has no
+retroactive effect on a path git already tracks. The rule existed and the
+file stayed committed regardless — a comment about the danger, not a check
+for it.
+
+**What this session fixed directly:** `git rm --cached nervis/nervis.enrollment`
+untracks it going forward (the file stays on disk at its required `0600`, so
+nothing about the running installation changes), and a new gate,
+`tools/check_no_tracked_secrets.py`, closes the actual gap: it tests every
+file git tracks against `.gitignore` as if untracked (`--no-index` is
+load-bearing — ordinary `check-ignore` exempts a path already in the index,
+which is the exact blind spot that let this ship in the first place),
+wired into `tools/check_clean_clone.sh` as "no gitignored path is tracked."
+Fail-proved against the pre-fix state directly (`git stash` back to the
+tracked file, confirmed the gate reports it, popped forward again).
+
+**What this session deliberately did not do.** The secret in
+`nervis/nervis.enrollment` is still readable in every commit before this one
+— untracking a path removes it from *future* commits, not history already
+published. Purging it (`git filter-repo`/BFG, rewriting every affected commit
+hash, requiring a force-push) is a destructive, hard-to-reverse operation on
+shared history, and rotating the live secret invalidates whatever currently
+holds it — both are the repository owner's call, made deliberately, not a
+scan's to execute on its own judgment. Recorded here as open rather than
+implied fixed alongside the tracking gap.
+
+NERVIS 0.23.10.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -91,7 +91,24 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.9
+## NERVIS — 0.23.10
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **F7: a committed enrollment secret is untracked, and a gate now catches this class of
+  mistake repository-wide.** `nervis/nervis.enrollment` — the bearer secret gating
+  `POST /api/v1/registry/instances` — was committed and sitting in history despite
+  `*.enrollment` already being in `.gitignore` since M8a: a gitignore pattern only stops a
+  *future* `git add`, never untracks a path already committed. `git rm --cached` removes it
+  from tracking now (the file stays on disk at its required `0600`; nothing about a running
+  installation changes), and a new gate, `tools/check_no_tracked_secrets.py`, tests every
+  tracked file against `.gitignore` as if it were untracked, closing the actual gap rather
+  than re-stating the rule. **Not done, deliberately:** the secret is still readable in
+  every commit before this one, and neither purging history nor rotating the live credential
+  is something this pass did on its own judgment — both are destructive or live-impacting
+  enough to need the repository owner's explicit decision.
+
+### 0.23.9
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

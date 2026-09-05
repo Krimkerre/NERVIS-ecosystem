@@ -109,6 +109,10 @@ done
 
 echo "=== repository gates ==="
 step "STATUS.md is current"    nervis-eco python tools/check_status.py
+# A Claude Security scan found a committed enrollment secret whose own
+# .gitignore pattern had existed since M8a and did nothing, because a pattern
+# never untracks a path already committed — only `git rm --cached` does.
+step "no gitignored path is tracked" nervis-eco python tools/check_no_tracked_secrets.py
 step "nothing unreferenced"    nervis-eco python tools/check_dead_code.py
 step "build plans readable"   nervis-eco python tools/check_plans.py
 # §3 prohibits shared business logic "enforced by an import check in CI rather
