@@ -13697,6 +13697,29 @@ Checkbox closed in `ECOSYSTEM_RUNBOOK.md`. No code changed — this item
 turned out to already be true and already tested; what was missing was the
 record of having checked, not a fix.
 
+## §15's non-invention-rule item: one document out of eight didn't carry it, 2026-09-06
+
+Every candidate document was read, not assumed to already have it from a
+prior pass: this runbook, `RAVIS.md`, `SIRVIS.md`, `NERVIS.md`, `CLARVIS.md`,
+the root `AGENTS.md`, `nervis/AGENTS.md`, `clarvis/AGENTS.md`. Seven of eight
+already quoted §1's rule. `clarvis/plan.md` did not — it references
+`ECOSYSTEM_RUNBOOK.md` in its own NERVIS-Bridge milestone (M14) and
+`clarvis/AGENTS.md` already states the rule for that repository, but the
+rule itself was never quoted in the one file where Clarvis's actual
+milestone work and checklist live, which is the gap this checklist item
+means to close.
+
+Added the same statement `clarvis/AGENTS.md` already carries, as its own
+subsection alongside Plan Mode/Code Mode in plan.md's Working Process
+section, restated there rather than only cross-referenced because that is
+the file an agent building a Clarvis milestone is actually reading.
+Full Clarvis suite reverified after: 1322 of 1322, unaffected by a
+documentation-only addition.
+
+Clarvis 0.12.8. No NERVIS-ecosystem package changed — the seven documents
+already carrying the rule live in this repository, but none of their content
+needed to change, only Clarvis's.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

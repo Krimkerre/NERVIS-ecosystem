@@ -1084,7 +1084,14 @@ may only add product-specific detail beside the required state.
       assertion in the spec reports FAIL with the real Mocha failure output; a
       deliberately hung command under the new timeout wrapper reports FAIL in seconds,
       not the wrapper's own multi-minute ceiling.*
-- [ ] The non-invention rule appears in every app document and in agent working instructions.
+- [x] The non-invention rule appears in every app document and in agent working
+      instructions. *Checked by reading every candidate, not assumed: this runbook,
+      `RAVIS.md`, `SIRVIS.md`, `NERVIS.md`, `CLARVIS.md`, `AGENTS.md`,
+      `nervis/AGENTS.md` and `clarvis/AGENTS.md` all already carried it. Only
+      `clarvis/plan.md` — Clarvis's own build plan, where its milestone work and
+      checklist actually live, cross-referenced from `clarvis/AGENTS.md` but never
+      quoting the rule itself — did not. Added the same statement `AGENTS.md` already
+      carries (Clarvis 0.12.8).*
 - [ ] MEP schemas, fixtures and versions are released and pinned.
 - [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error
       envelopes conform.
