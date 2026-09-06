@@ -16,12 +16,32 @@ rather than reimplemented.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from nervis import commands, knowledge, learned
+
+
+def _search(question: str) -> list[knowledge.Section]:
+    """Term overlap alone — this file tests the learned-notes mechanism, not
+    embeddings, so RAVIS is faked as having no model configured (`503`,
+    `ravis.embeddings@1`'s own real degraded state) rather than mocking vectors
+    these tests have no opinion about."""
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(503, json={
+            "error": {"message": "no embedding model", "type": "embedding_not_configured"}
+        })
+
+    async def run() -> list[knowledge.Section]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            return await knowledge.search(question, client, "http://ravis.invalid")
+
+    return asyncio.run(run())
 
 
 @pytest.fixture()
@@ -48,7 +68,7 @@ def test_a_learned_note_is_indexed_like_any_other(notes: Path) -> None:
         "The GPU box", "An RX 6800 on the desk serves models over the LAN.",
         "remember that the gpu box has an rx 6800", root=notes,
     )
-    found = knowledge.search("what is in the gpu box")
+    found = _search("what is in the gpu box")
     assert [s.subject for s in found][:1] == ["learned"]
     assert found[0].learned is True
 
@@ -61,15 +81,15 @@ def test_a_note_is_knowable_the_moment_it_is_written(notes: Path) -> None:
     restart — which looks exactly like the feature not working and which no test
     against a fresh process would ever show.
     """
-    knowledge.search("routing")  # warm
-    assert not knowledge.search("is ollama installed")
+    _search("routing")  # warm
+    assert not _search("is ollama installed")
     learned.remember(
         "Ollama", "Not installed on this machine.", "note that", root=notes
     )
     # Asserted as "findable now", not as a count. The file's own title is a
     # section too, so the first note adds two — and a test that counted would be
     # measuring the preamble rather than the invalidation.
-    found = knowledge.search("is ollama installed")
+    found = _search("is ollama installed")
     assert found and found[0].heading == "Ollama"
 
 
@@ -86,7 +106,7 @@ def test_a_shipped_note_wins_and_the_learned_one_is_still_shown(notes: Path) -> 
         "How a request is routed", "Everything goes to the biggest model, always.",
         "remember that everything goes to the biggest model", root=notes,
     )
-    found = knowledge.search("how is a request routed")
+    found = _search("how is a request routed")
     assert len(found) == 2
     first, second = found
     assert first.subject == "ravis" and not first.learned
@@ -100,7 +120,7 @@ def test_a_shipped_note_wins_and_the_learned_one_is_still_shown(notes: Path) -> 
 def test_a_learned_note_on_its_own_subject_is_not_overruled(notes: Path) -> None:
     """The rule fires on a clash, not on the note being learned."""
     learned.remember("The GPU box", "An RX 6800 on the desk.", "remember", root=notes)
-    found = knowledge.search("what is in the gpu box")
+    found = _search("what is in the gpu box")
     assert found and not found[0].heading.endswith("(overruled)")
 
 
@@ -110,7 +130,7 @@ def test_the_clash_is_found_across_capitalisation(notes: Path) -> None:
     learned.remember(
         "how a REQUEST is Routed", "Round robin.", "remember", root=notes
     )
-    found = knowledge.search("how is a request routed")
+    found = _search("how is a request routed")
     assert any(s.heading.endswith("(overruled)") for s in found)
 
 

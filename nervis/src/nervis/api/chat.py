@@ -310,7 +310,10 @@ async def send(request: Request) -> Any:
     # service are different things and a model told neither will report
     # intentions as behaviour.
     awareness = "\n\n".join(
-        part for part in (awareness, knowledge.reading(content)) if part
+        part for part in (awareness, await knowledge.reading(
+            content, request.app.state.probe_client, request.app.state.settings.ravis_base_url,
+            request.app.state.settings.ravis_client_credential,
+        )) if part
     )
 
     # The standing statement first, then the specific offer if there is one.

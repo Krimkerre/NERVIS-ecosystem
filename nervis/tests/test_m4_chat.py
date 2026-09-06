@@ -359,6 +359,8 @@ def test_a_system_prompt_is_sent_first_when_asked_for() -> None:
     client = an_api()
 
     def handle(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -384,6 +386,8 @@ def test_nothing_here_carries_a_clarvis_session_or_a_tool() -> None:
     client = an_api()
 
     def handle(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -451,6 +455,8 @@ def test_a_greeting_carries_the_system_prompt_and_not_the_browsers_words() -> No
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("Ahoy."))))
 
@@ -560,6 +566,16 @@ def _capture_into(client: TestClient, sent: list[dict[str, Any]]) -> None:
     def capture(request: httpx.Request) -> httpx.Response:
         if "/api/v1/models" in str(request.url):
             return httpx.Response(200, json={"items": [{"id": "a", "local": True}]})
+        # `knowledge.reading()` also calls out on this same shared client, for
+        # a different reason and to a different path — not the completion this
+        # helper exists to capture. Answered rather than left to error, and
+        # excluded from `sent` the same way `/api/v1/models` already is above,
+        # so a turn that happens to ask something the knowledge base matches
+        # does not silently become the request every `sent[0]` assertion reads.
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -640,6 +656,8 @@ def test_a_figure_that_cannot_be_read_is_left_out_of_the_reading() -> None:
     def capture(request: httpx.Request) -> httpx.Response:
         if "/api/v1/models" in str(request.url):
             return httpx.Response(503, json={"error": "no"})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -793,6 +811,8 @@ def _with_models(client: TestClient, sent: list[dict[str, Any]], names: list[str
             return httpx.Response(
                 200, json={"items": [{"model_id": n, "local": True} for n in names]}
             )
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1191,6 +1211,8 @@ def _with_queue(
             return httpx.Response(200, json={"items": jobs})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1321,6 +1343,8 @@ def test_how_did_the_benchmark_go_is_answered_with_the_numbers() -> None:
             }]}]})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1374,6 +1398,8 @@ def test_a_slow_catalogue_read_does_not_empty_the_reading() -> None:
             if not answers["models"]:
                 raise httpx.ReadTimeout("too slow", request=request)
             return httpx.Response(200, json={"items": [{"model_id": "m", "local": True}]})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1402,6 +1428,8 @@ def test_a_catalogue_that_cannot_be_read_at_all_stays_absent() -> None:
     def capture(request: httpx.Request) -> httpx.Response:
         if "/api/v1/models" in str(request.url):
             return httpx.Response(503, json={"error": "no"})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1476,6 +1504,8 @@ def test_asking_what_is_loaded_reads_the_runtime_itself() -> None:
             ]})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1527,6 +1557,8 @@ def test_a_rate_limited_catalogue_read_is_asked_again() -> None:
             if tries["n"] == 1:
                 return httpx.Response(429, json={"error": {"message": "slow down"}})
             return httpx.Response(200, json={"items": [{"model_id": "m", "local": True}]})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1603,6 +1635,8 @@ def test_asking_what_happened_recently_reads_the_routing_record() -> None:
             return httpx.Response(200, json={"items": []})
         if "/api/v1/pools" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1634,6 +1668,8 @@ def test_a_pool_can_be_switched_by_asking() -> None:
             ]})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1661,6 +1697,8 @@ def test_a_pool_nobody_published_is_not_offered() -> None:
             return httpx.Response(200, json={"items": [{"pool_id": "ravis/auto"}]})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1841,6 +1879,8 @@ def test_the_house_style_is_a_switch_and_not_a_silent_rule() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -1862,6 +1902,8 @@ def test_nervis_is_told_what_to_call_you() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2081,6 +2123,8 @@ def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2115,6 +2159,8 @@ def test_the_conversation_being_had_is_never_recalled_into_itself() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2143,6 +2189,8 @@ def test_an_unreadable_exclusion_list_does_not_bar_everything() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2160,6 +2208,8 @@ def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2208,6 +2258,8 @@ def test_the_model_is_handed_a_clock_rather_than_forbidden_one() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2231,6 +2283,8 @@ def test_the_quiet_gap_is_measured_from_stored_turns() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2288,6 +2342,8 @@ def test_the_gap_is_worded_correctly_at_every_boundary(seconds: int, expected: s
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2310,6 +2366,8 @@ def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2386,6 +2444,8 @@ def test_the_gap_is_given_in_seconds_rather_than_rounded_away() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2418,6 +2478,8 @@ def test_the_clock_is_for_answering_about_not_for_garnish() -> None:
     sent: list[dict[str, Any]] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 
@@ -2828,6 +2890,8 @@ def _with_pools(client: TestClient, sent: list[dict[str, Any]], pools: list[str]
             return httpx.Response(200, json={"items": [{"pool_id": p} for p in pools]})
         if "/api/v1/models" in url:
             return httpx.Response(200, json={"items": []})
+        if "/v1/embeddings" in str(request.url):
+            return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
         return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("ok"))))
 

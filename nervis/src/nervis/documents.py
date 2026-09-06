@@ -103,7 +103,8 @@ class Document:
             )
         return "\n\n".join([
             head,
-            fenced("the contents of that file", self.text, provenance=self.shown),
+            fenced("the contents of that file", self.text, provenance=self.shown,
+                   max_chars=MAX_CHARACTERS),
         ])
 
 

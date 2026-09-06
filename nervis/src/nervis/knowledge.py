@@ -27,6 +27,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
+import httpx
+
 from nervis.diagnostics import fenced
 
 #: Where the files live, beside the dashboard rather than inside the package.
@@ -63,6 +65,38 @@ MAX_CHARACTERS = 6_000
 #: it is a matcher whose misses remove real answers, which is the shape of bug
 #: that took four attempts to get right elsewhere in this file's history.
 MIN_SCORE = 5.0
+
+#: The cosine-similarity floor for the embedding half of `search()`.
+#:
+#: **Measured against RAVIS's own `/v1/embeddings` (Ollama, `nomic-embed-text`),
+#: the same way `MIN_SCORE` was measured for term overlap — and re-measured
+#: here rather than carried over, because a different embedding model has a
+#: different score distribution and an assumption from one does not transfer.**
+#: The four questions from the chat log score 0.518 to 0.728; four questions
+#: squarely about state score 0.446 to 0.603. The ranges overlap more here
+#: than they did against a smaller model — "restart the stack" (0.571) and
+#: "system status?" (0.603) both score *above* "what is the fallback chain"
+#: (0.518) — which is the same finding `MIN_SCORE`'s own measurement made for
+#: term overlap, restated again for a second method: no single value cleanly
+#: separates *what does this mean* from *what is this doing right now*,
+#: because some phrasings of the second are genuinely close in meaning to an
+#: explanation of the first, and a stronger embedding model does not make that
+#: overlap go away.
+#:
+#: So this is not asked to do that separation alone — term overlap already
+#: does it for every case in the existing corpus, and stays exactly as it was.
+#: This threshold's job is narrower: catch the paraphrases term overlap
+#: cannot, because they share no vocabulary with the corpus at all. Set at
+#: 0.48, which catches *"are you aware of the latest updates and bugfixes"*
+#: (0.606, the question that started this), *"what changed recently"* (0.513)
+#: and *"anything noteworthy with ravis lately"* (0.628), while keeping two of
+#: the four state questions excluded with real margin (0.446–0.462). The other
+#: two, "restart the stack" and "system status?", are admitted — correctly,
+#: not despite the measurement: both now find real sections about exactly
+#: what they ask (`nervis.md`'s "Starting and stopping services" and its own
+#: status-tracking section), which is background a term-overlap search never
+#: had a chance to offer.
+EMBED_MIN_SCORE = 0.48
 
 #: Grammar, which is noise in any corpus.
 #:
@@ -177,6 +211,86 @@ def _weight() -> dict[str, float]:
     return {term: 1.0 + log(total / count) for term, count in seen.items()}
 
 
+async def _embed(
+    texts: list[str], client: httpx.AsyncClient, ravis_base_url: str, credential: str = ""
+) -> list[list[float]] | None:
+    """Real vectors from RAVIS's `/v1/embeddings`, or `None` when it cannot answer.
+
+    `None` is a real, expected outcome — RAVIS's own `ravis.embeddings@1`
+    capability is `DEGRADED`, never assumed `AVAILABLE`, because it forwards to
+    one configured local runtime with no fallback of its own. A machine with no
+    embedding model configured gets `search()`'s term-overlap half rather than
+    an error, the same "designed to degrade, not to fail" rule as everything
+    else in this ecosystem.
+    """
+    if not ravis_base_url:
+        return None
+    try:
+        response = await client.post(
+            f"{ravis_base_url}/v1/embeddings",
+            json={"input": texts},
+            headers={"authorization": f"Bearer {credential}"} if credential else {},
+            timeout=10.0,
+        )
+    except httpx.HTTPError:
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        payload = response.json()
+        rows = sorted(payload["data"], key=lambda row: row["index"])
+        vectors = [row["embedding"] for row in rows]
+    except (ValueError, KeyError, TypeError):
+        return None
+    # A row per input, not merely a 200 — an answer with too few or too many
+    # is a shape nothing here asked for, and a mismatched vector list is worse
+    # than none: the caller would zip it against the wrong texts silently.
+    if len(vectors) != len(texts):
+        return None
+    return vectors
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    """Similarity of two vectors, 1.0 identical, 0.0 unrelated or empty.
+
+    Three sums rather than a dependency: the corpus is a few hundred lines and
+    a question is one more string, which is the same proportionality argument
+    `search()`'s own docstring already made about a vector index.
+    """
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+
+
+#: Cached alongside `sections()`'s own tuple, and only ever valid for the exact
+#: tuple it was computed from — see `_section_vectors`.
+_vectors_for: tuple[Section, ...] | None = None
+_vectors: list[list[float]] | None = None
+
+
+async def _section_vectors(
+    client: httpx.AsyncClient, ravis_base_url: str, credential: str = ""
+) -> list[list[float]] | None:
+    """One vector per current section, embedded once and reused.
+
+    **Keyed on identity with `sections()`'s own tuple, not on a timer.** The
+    corpus changes when a file is edited or `forget_cached` runs — both already
+    invalidate `sections()` — so recomputing whenever that tuple is a new
+    object is exactly as fresh as the term-overlap weights beside it, with no
+    second expiry rule to keep in step with the first.
+    """
+    global _vectors_for, _vectors
+    current = sections()
+    if _vectors is not None and _vectors_for is current:
+        return _vectors
+    computed = await _embed([s.text for s in current], client, ravis_base_url, credential)
+    if computed is None:
+        return None
+    _vectors_for, _vectors = current, computed
+    return computed
+
+
 def forget_cached() -> None:
     """Drop the index, so the next question reads the directory again (M23).
 
@@ -188,11 +302,14 @@ def forget_cached() -> None:
     a bug that looks exactly like the feature not working, and that no test
     against a fresh process would ever show.
 
-    Both caches, because the weights are derived from the corpus: a new section
-    changes how rare every term in it is.
+    Three caches, because the weights and the vectors are both derived from the
+    corpus: a new section changes how rare every term in it is and needs its
+    own embedding.
     """
+    global _vectors_for, _vectors
     sections.cache_clear()
     _weight.cache_clear()
+    _vectors_for, _vectors = None, None
 
 
 @lru_cache(maxsize=1)
@@ -225,35 +342,19 @@ def sections() -> tuple[Section, ...]:
     return tuple(found)
 
 
-def search(question: str, limit: int = 3, subject: str = "") -> list[Section]:
-    """The sections most likely to answer this question, best first.
-
-    **Term overlap, not embeddings**, and that is a judgement about these
-    documents rather than a shortcut. They are short, headed, and written in the
-    same vocabulary the questions use — somebody asking how routing works says
-    "routing", and the section is called *How a request is routed*. A vector
-    index would be a dependency, a build step and an index to keep fresh, for a
-    corpus of a few hundred lines.
+def _term_scored(question: str, subject: str = "") -> list[tuple[float, int, Section]]:
+    """Term-overlap scoring alone — `search()`'s original and only method until
+    embeddings were added alongside it. Unchanged, and kept as its own function
+    so it still runs, exactly as before, on a machine where RAVIS has no
+    embedding model configured.
 
     A heading match counts triple. It is the section's own summary of itself,
     and a word in it is a far stronger signal than the same word buried in a
     paragraph that merely mentions it.
     """
-    def opening() -> list[Section]:
-        """A named subject's own file, from the top.
-
-        *"And you?"* carries no content word at all, so it cannot clear
-        `MIN_SCORE` however the corpus is weighted — and by the time this is
-        called the caller has already established which subject is meant.
-        Returning nothing is the assistant saying it has no reading on itself,
-        which is worse than opening its own file. Only when a subject was named:
-        an unscoped question that matches nothing still matches nothing.
-        """
-        return _hand_written_wins([one for one in sections() if one.subject == subject])[:limit]
-
     wanted = _terms(question)
     if not wanted:
-        return opening() if subject else []
+        return []
     weight = _weight()
     scored: list[tuple[float, int, Section]] = []
     # **`subject` scopes, it does not merely boost.** A question about NERVIS
@@ -276,10 +377,104 @@ def search(question: str, limit: int = 3, subject: str = "") -> list[Section]:
         # Index breaks ties so the order is total and reproducible — §9.7's rule
         # about determinism applies to anything that shapes an answer.
         scored.append((score, -index, section))
-    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    if not scored and subject:
+    return scored
+
+
+def _embed_scored(
+    query_vector: list[float],
+    vectors: list[list[float]],
+    all_sections: tuple[Section, ...],
+    subject: str = "",
+) -> list[tuple[float, int, Section]]:
+    """Cosine-scored sections clearing `EMBED_MIN_SCORE`, `_term_scored`'s twin
+    for the embedding half of `search()`."""
+    scored: list[tuple[float, int, Section]] = []
+    for index, (section, vector) in enumerate(zip(all_sections, vectors)):
+        if subject and section.subject != subject:
+            continue
+        score = _cosine(query_vector, vector)
+        if score < EMBED_MIN_SCORE:
+            continue
+        scored.append((score, -index, section))
+    return scored
+
+
+async def search(
+    question: str,
+    client: httpx.AsyncClient,
+    ravis_base_url: str,
+    *,
+    limit: int = 3,
+    subject: str = "",
+    credential: str = "",
+) -> list[Section]:
+    """The sections most likely to answer this question, best first.
+
+    **Term overlap and embeddings, not one replacing the other.** Term overlap
+    is unchanged from the version this docstring used to describe as the whole
+    of the method — these documents are short, headed, and written in the same
+    vocabulary the questions use, so it still finds every case it always found.
+    What it cannot find is a paraphrase sharing no vocabulary with the corpus
+    at all — *"are you aware of the latest updates and bugfixes"* scores zero
+    by term overlap no matter how the corpus is weighted, because "aware",
+    "latest", "update" and "bugfix" appear nowhere in it. Embeddings, called
+    through RAVIS's `/v1/embeddings` (see `EMBED_MIN_SCORE`), catch exactly
+    that case without touching what already worked.
+
+    **Embeddings are additive, not a replacement, for a reason beyond caution.**
+    A machine with no local embedding model configured — `ravis.embeddings@1`
+    is `DEGRADED`, never assumed `AVAILABLE` — gets term overlap alone, which
+    is the whole of what this function did before today and is still a
+    complete, working answer on its own.
+
+    When both are available, a section that clears the embedding floor ranks
+    ahead of one that only clears the term-overlap floor: a semantic match is
+    the richer signal once it exists at all. A section clearing *only* term
+    overlap still qualifies and still appears, ranked by its own score after
+    every embedding match — the paraphrase net catches more, it does not
+    catch instead.
+    """
+    def opening() -> list[Section]:
+        """A named subject's own file, from the top.
+
+        *"And you?"* carries no content word and no useful vector either, so it
+        clears neither floor — and by the time this is called the caller has
+        already established which subject is meant. Returning nothing is the
+        assistant saying it has no reading on itself, which is worse than
+        opening its own file. Only when a subject was named: an unscoped
+        question that matches nothing still matches nothing.
+        """
+        return _hand_written_wins([one for one in sections() if one.subject == subject])[:limit]
+
+    # A blank question — a greeting sends one — needs neither method run.
+    # Skipped before either, not merely before the first: `_term_scored`
+    # already turns this into no hits by itself, but nothing stopped an empty
+    # string from still being sent to RAVIS to be embedded, which is a real
+    # network call for a question that was never asked.
+    if not question or not question.strip():
+        return opening() if subject else []
+
+    term_hits = _term_scored(question, subject)
+    all_sections = sections()
+    vectors = await _section_vectors(client, ravis_base_url, credential)
+    embed_hits: list[tuple[float, int, Section]] = []
+    if vectors is not None:
+        embedded_question = await _embed([question], client, ravis_base_url, credential)
+        if embedded_question is not None:
+            embed_hits = _embed_scored(embedded_question[0], vectors, all_sections, subject)
+
+    if not term_hits and not embed_hits:
+        return opening() if subject else []
+
+    embed_hits.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    already = {-negindex for _, negindex, _ in embed_hits}
+    term_only = [row for row in term_hits if -row[1] not in already]
+    term_only.sort(key=lambda row: (row[0], row[1]), reverse=True)
+
+    merged = [section for _, _, section in embed_hits] + [section for _, _, section in term_only]
+    if not merged and subject:
         return opening()
-    return _hand_written_wins([section for _, _, section in scored])[:limit]
+    return _hand_written_wins(merged)[:limit]
 
 
 def _headed(section: Section) -> str:
@@ -355,7 +550,9 @@ def _about_itself(question: str) -> bool:
     return bool(_SECOND_PERSON.search(lowered))
 
 
-def reading(question: str) -> str:
+async def reading(
+    question: str, client: httpx.AsyncClient, ravis_base_url: str, credential: str = ""
+) -> str:
     """The fenced background this question needs, or nothing.
 
     Says what it is. A specification and a running service are different things,
@@ -364,7 +561,11 @@ def reading(question: str) -> str:
     """
     # A question about "you" is a question about NERVIS, and nothing in these
     # files says so — they are written in the third person, like notes.
-    best = search(question, subject="nervis") if _about_itself(question) else search(question)
+    best = (
+        await search(question, client, ravis_base_url, subject="nervis", credential=credential)
+        if _about_itself(question)
+        else await search(question, client, ravis_base_url, credential=credential)
+    )
     if not best:
         return ""
     body = ""
@@ -389,7 +590,8 @@ def reading(question: str) -> str:
         " describes the design and is not a reading of the running system —"
         " where a live figure is available it is elsewhere in this prompt and it"
         " is the one to trust.",
-        fenced("those notes", body, provenance="the ecosystem's own documentation"),
+        fenced("those notes", body, provenance="the ecosystem's own documentation",
+               max_chars=MAX_CHARACTERS),
     ])
 
 

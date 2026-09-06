@@ -128,9 +128,14 @@ def search(
 ) -> list[Passage]:
     """Earlier turns that look like they answer this question.
 
-    Term overlap rather than embeddings, for the reason `knowledge.search`
-    gives: these are short texts in the vocabulary the questions use, and a
-    vector index would be a dependency, a build step and an index to keep fresh.
+    Term overlap, not embeddings — `knowledge.search` added an embedding half
+    for a different reason that does not carry over here: it exists to catch a
+    paraphrase sharing no vocabulary with a small, fixed, hand-written corpus.
+    A conversation history is neither small nor fixed, is the user's own words
+    rather than documentation written for the question a reader would ask, and
+    recalling *this* turn rather than an unrelated one that merely resembles it
+    is exactly the kind of precision term overlap on shared vocabulary is
+    suited to and a semantic match is more likely to blur.
 
     **The current conversation is excluded**, because its turns are already in
     the prompt as history. Recalling them would quote the conversation to
