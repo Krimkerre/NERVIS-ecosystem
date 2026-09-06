@@ -13925,6 +13925,29 @@ than trusting a past pass:
 
 70 tests total (9 + 10 + 15 + 29 + 7), all passing. No code changed.
 
+## §15's clarvis-chat/clarvis-agent item: two genuinely separate pools, tested as such, 2026-09-06
+
+`ravis/src/ravis/core/pools.py` defines `ravis/clarvis-chat` and
+`ravis/clarvis-agent` as separate `VirtualModelPool`s with distinct curated
+families and evidence roles, and one structural difference that is the whole
+point: `clarvis-agent` makes tool support a hard invariant — "forbids
+admitting a non-tool-capable model however well it codes" — while
+`clarvis-chat` treats it as optional unless the request itself asks for
+tools. Reverified rather than trusted:
+
+- `test_a_chat_pool_without_tools_in_the_request_does_not_require_them`
+  (`ravis/tests/test_capability_filtering.py`) asserts the distinction
+  directly, not just the declaration that it exists.
+- `ravis/tests/test_clarvis_conformance.py` runs `ravis conformance clarvis`
+  — RAVIS.md §8.9's release gate — on every commit rather than only at
+  release time, asserting its Stage 2/Stage 3 requirements by name so
+  deleting a check fails the test instead of quietly shrinking the gate.
+- `ravis/tests/test_clarvis_preflight.py` covers `ravis preflight clarvis`'s
+  diagnosis of `clarvis-agent`'s own silent failure modes — tests that assert
+  the diagnosis, not just the exit code.
+
+32 tests across the four files run, all passing. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

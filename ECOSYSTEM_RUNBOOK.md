@@ -1182,7 +1182,21 @@ may only add product-specific detail beside the required state.
       turn a cancellation into a second request." `test_malformed_requests.py` covers
       errors, found originally by sending deliberately bad payloads at a running RAVIS
       rather than by reading the code. 70 tests total, all passing.*
-- [ ] `clarvis-chat` and `clarvis-agent` are independently configurable and tested.
+- [x] `clarvis-chat` and `clarvis-agent` are independently configurable and tested.
+      *`ravis/src/ravis/core/pools.py` defines them as genuinely separate
+      `VirtualModelPool`s — distinct curated families, distinct evidence roles, and one
+      structural difference that is the whole point: `clarvis-agent` makes tool support a
+      hard invariant ("§5.1's hard invariant forbids admitting a non-tool-capable model
+      however well it codes") while `clarvis-chat` treats it as optional unless the
+      request itself asks for tools. Reverified rather than trusted: 32 tests, including
+      `test_a_chat_pool_without_tools_in_the_request_does_not_require_them`
+      (`test_capability_filtering.py`), which asserts the distinction rather than the
+      declaration. `test_clarvis_conformance.py` runs `ravis conformance clarvis`
+      (RAVIS.md §8.9's release gate) on every commit rather than only at release time, and
+      asserts its Stage 2/Stage 3 requirements by name so deleting a check fails the test
+      instead of quietly shrinking the gate. `test_clarvis_preflight.py` covers
+      `ravis preflight clarvis`'s diagnosis of `clarvis-agent`'s own silent failure modes.
+      All 32 tests pass.*
 - [ ] Clarvis lifecycle, workspace containment, approval gates, provider abstraction and
       SecretStorage are unchanged.
 - [ ] Multiple Clarvis instances remain isolated.
