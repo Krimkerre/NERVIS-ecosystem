@@ -79,6 +79,17 @@ document, the full up-to-date version has to actually be written out in
 that same reply before offering the button, or what gets saved is whatever
 short remark was said instead.
 
+As of 7 September 2026: a saved or exported PDF can now look genuinely
+different, not just plain text on a page — real typography and colour,
+matched to a template PDF attached to the conversation when there is one
+(its fonts, sizes and palette, read directly, never invented), or a clean
+default look when there is not. Found while building it: the attachment a
+person feeds chat lives under the browser's own id, never the conversation's
+real one, so anything keyed on the conversation — this new style lookup,
+and the "annotated" filename fallback from the day before — found nothing
+against a real attachment, silently, since the day it shipped. Both now
+correctly find it.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2409 tests, no network, no live service
+.venv/bin/pytest                      # part of 2429 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 898 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 918 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2409 passing across the four, conformance `PASS`.
+Expected: all clean, 2429 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14785,6 +14785,64 @@ Built ahead of any consumer, named as exactly that in `RAVIS.md` and
 `nervis/knowledge/ravis.md` — the same pattern `ravis/chat`/`ravis/agent`
 already set for landing before the spec's own required-defaults list caught
 up to them.
+
+## A styled PDF writer, and a real bug it exposed in an already-shipped feature, 2026-09-07
+
+`pdf.py`'s hand-rolled writer became a reportlab-based one. It could not have
+become anything else: no tables, no images, no embedded fonts, one fixed
+palette — stated as fact in its own docstring since it was written, and the
+actual reason "make chat generate a visually appealing PDF" and "match a
+template's style" both needed a real library, not a bigger version of the
+same one. `pdfplumber` reads a template's own fonts, sizes, colours and
+margins into a new `nervis/src/nervis/style.py`; `render()` now takes an
+optional `StyleProfile` and applies it through reportlab's Platypus layer.
+`render_conversation` — the chat-transcript exporter — is untouched: a
+transcript is a picture of the chat window, not a document with a look of
+its own to lend or borrow, and the two renderers no longer share an
+implementation, only a handful of constants.
+
+Two real defects found empirically while building this, both fixed at
+their root rather than worked around: reportlab's base-14 text path writes
+the wrong byte for the bullet character (•) even under a correctly-declared
+WinAnsi font — confirmed directly against the installed version — so
+`pdf.py` substitutes the visually near-identical middle dot before
+rendering, documented as a deliberate substitution. And `SimpleDocTemplate.build([])`
+silently produces a zero-page PDF for empty text, which is not a file any
+reader opens — fixed with a single anchoring paragraph.
+
+**The real find was underneath all of it.** Extracting a template's style
+requires the newest attachment in a conversation, looked up by
+`conversation_id` — the same lookup the filename-fallback feature (shipped
+hours earlier the same day) already used. Traced directly against the
+dashboard's own code: every chat request sends `attachment_id` as the
+browser's own permanent, client-minted id, and only sends `conversation_id`
+once the *server* has assigned one — which never becomes the same value,
+for the entire life of a conversation, because nothing ever tells the
+browser to adopt it. Reading an attachment during a live turn already
+worked, because that one path is correctly keyed on `attachment_id`. Both
+the filename fallback and the new style extraction were keyed on
+`conversation_id` instead, meaning both found nothing, silently, against a
+real attachment, in any real conversation — not an edge case, the ordinary
+"clip, then question" first turn. Confirmed with a test built the way the
+dashboard actually behaves — attach under a browser-minted id, send one
+message, never manually reconcile — and it failed exactly as predicted
+before the fix.
+
+Fixed by reconciling the two ids where both are first known —
+`documents.reconcile_attachments()`, called right after `conversation_id`
+is assigned and before anything downstream (the save/export filename offer,
+the attachment reading) reads either one. A copy, not a move: the source id
+keeps working for the rest of that same request, and every later turn or
+save, keyed on the real `conversation_id`, now finds what was attached.
+Verified adversarially: reverting the call made the single-turn attach-and-
+save test fail with the wrong (question-derived) filename, confirming the
+reconciliation — not the lookup logic itself — was the missing piece.
+
+Full suite reran clean throughout (918, was 898 — 20 new: `style.py`'s own
+extraction tests, the chat-level wiring tests, one retroactive regression
+test for the filename fallback), `ruff` and `mypy` clean, `reportlab` and
+`pdfplumber` added as real dependencies with the same "not a few lines"
+justification `pypdf` already carried.
 
 ## Starting the thing
 
