@@ -206,14 +206,13 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="network loss",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
             ("live", "tools/acceptance_run.py:796"),
             ("route", "ravis/src/ravis/api/openai/chat.py:1411"),
-            ("route", "ravis/tests/test_fallback.py:449"),
+            ("route", "ravis/tests/test_fallback.py:171"),
+            ("route", "ravis/tests/test_fallback.py:195"),
         ],
-        gap="Nothing drives a pre-first-byte connection failure through RAVIS's real request route \u2014 the two branches at chat.py:1411-1412 and :1755-1757 that decide whether an unreachable upstream falls through to the next candidate",
-        closes_with="Add one route-level case to ravis/tests/test_fallback.py: give ScriptedUpstream a `refuse_transport` set so _handle raises httpx.ConnectError for the first candidate before any response, POST /v1/chat",
     ),
     Cell(
         condition="hung local runtime",

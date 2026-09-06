@@ -1321,14 +1321,24 @@ may only add product-specific detail beside the required state.
       true` — verified adversarially, not just written: a failing check
       temporarily reintroduced into `ravis_surface`'s `checks` mapping made
       this exact test fail, then was reverted. First `COVERED` cell this gate
-      has ever recorded; tally is now 1 `COVERED` / 18 `PARTIAL`.
-      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 18 conditions have
+      has ever recorded. A second followed the same day: "network loss" —
+      two route-level tests
+      (`ravis/tests/test_fallback.py::test_a_connection_that_never_completes_still_falls_back`
+      and its streaming twin) drive a real `httpx.ConnectError` through both
+      the non-streaming and streaming request paths and assert the chain
+      falls through to the next candidate, discovering along the way that a
+      `CONNECTION`-class failure gets exactly one same-target retry before
+      falling through — real, deliberate, previously-undocumented-in-a-test
+      behavior, not assumed. Also verified adversarially: narrowing the
+      exception type each path catches made the corresponding test fail,
+      then was reverted. Tally is now 2 `COVERED` / 17 `PARTIAL`.
+      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 17 conditions have
       real evidence and most are handled thoroughly; none is `COVERED` yet in
       §10's fuller sense of all six required outcomes proven. No remaining
       cell's own gap sentence describes actually-unsafe behavior in
       production — each names a specific missing route-level test. So "no
       unsafe failover" reads true on what exists; "the matrix passes" does
-      not — 18 dedicated tests away now, one fewer than this morning.*
+      not — 17 dedicated tests away now.*
 - [x] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
       *Reverified 6 September 2026: `nervis/tests/test_m7_traces.py` (correlated),
       `nervis/tests/test_m6_events.py` (bounded — the quarantine cap, the

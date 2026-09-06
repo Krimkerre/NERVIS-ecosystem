@@ -66,6 +66,7 @@ class ScriptedUpstream:
         self,
         catalogue: dict[str, dict[str, str]],
         refuse: dict[str, tuple[int, dict[str, Any]]] | None = None,
+        refuse_transport: set[str] | None = None,
         break_after: dict[str, int] | None = None,
         frames: list[bytes] | None = None,
         answers: dict[str, Any] | None = None,
@@ -73,6 +74,10 @@ class ScriptedUpstream:
         self.catalogue = catalogue
         # model → (status, body) for models that answer with an HTTP error.
         self.refuse = refuse or {}
+        # Models that never answer at all: the connection itself fails before
+        # any status line arrives, which is a different failure from `refuse`
+        # and reaches RAVIS as an `httpx.ConnectError` rather than a response.
+        self.refuse_transport = refuse_transport or set()
         # model → what it answers with a **200**. A dict is a JSON body where a
         # stream was asked for, which is how LM Studio reports anything it will
         # not serve; a list is a frame sequence, and an empty one is a stream
@@ -96,6 +101,8 @@ class ScriptedUpstream:
         payload = json.loads(request.content or b"{}")
         model = payload.get("model", "")
         self.served.append(model)
+        if model in self.refuse_transport:
+            raise httpx.ConnectError(f"connection refused for {model}", request=request)
         if model in self.refuse:
             status, body = self.refuse[model]
             return httpx.Response(status, json=body)
@@ -159,6 +166,47 @@ def test_an_overloaded_primary_falls_back_to_a_compatible_model() -> None:
         assert response.status_code == 200
         assert upstream.served == ["coder-a", "coder-b"]
         assert response.json()["model"] == "coder-b"
+
+
+def test_a_connection_that_never_completes_still_falls_back() -> None:
+    """§10's "network loss": a pre-first-byte transport failure, not an HTTP
+    error. `refuse` scripts an upstream that answers wrong; this scripts one
+    that never answers at all — `_handle` raises before a status line exists,
+    which is what `httpx.ConnectError` actually looks like on the wire. The
+    two branches this is written against (`chat.py`'s `except httpx.HTTPError`
+    around the non-streaming `client.post`, and its streaming twin) had never
+    been driven by a real connection failure through a real route.
+
+    A connection failure classifies as `FailureClass.CONNECTION`
+    (`classify_exception`), which `AttemptChain.failed` gives exactly one
+    same-target retry before falling through — the policy is "this class
+    proves the request never arrived", not "give up immediately" — so the
+    primary is genuinely asked twice before the fallback is.
+    """
+    upstream = ScriptedUpstream(TWO_CODERS, refuse_transport={"coder-a"})
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+        assert response.status_code == 200
+        assert upstream.served == ["coder-a", "coder-a", "coder-b"]
+        assert response.json()["model"] == "coder-b"
+
+
+def test_a_connection_that_never_completes_still_falls_back_while_streaming() -> None:
+    """The streaming twin of the test above (`chat.py`'s `_stream_failed`,
+    :1755-1757). Nothing has been sent to the client yet when the connection
+    fails — `committed` is false — so the policy is the same fall-through
+    rather than a terminated stream: the failure happened before anything was
+    promised to whoever is reading the response.
+    """
+    upstream = ScriptedUpstream(TWO_CODERS, refuse_transport={"coder-a"})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json={"model": AGENT_POOL, "stream": True}
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-a", "coder-b"]
+    assert received == b"".join(FRAMES)
 
 
 @pytest.mark.parametrize(

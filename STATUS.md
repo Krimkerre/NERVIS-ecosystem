@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2393 tests, no network, no live service
+.venv/bin/pytest                      # part of 2406 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 896 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2393 passing across the four, conformance `PASS`.
+Expected: all clean, 2406 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14417,6 +14417,43 @@ match. New test in `ravis/tests/test_m18b_events.py`; edit to
 production behavior changed, only the proof that existing behavior is
 correct.
 
+## A second `COVERED` cell the same day: "network loss," and a real behavior discovered along the way
+
+`tools/check_degradation.py`'s gap sentence for "network loss" named the exact
+recipe: give `ravis/tests/test_fallback.py`'s `ScriptedUpstream` a
+`refuse_transport` set so `_handle` raises `httpx.ConnectError` before any
+response, then drive it through both the non-streaming and streaming request
+paths. Both written and both real: `test_a_connection_that_never_completes_still_falls_back`
+and its streaming twin.
+
+**The first version of the non-streaming test was wrong, and the code was
+right.** It asserted `upstream.served == ["coder-a", "coder-b"]` — a single
+attempt at the failing primary, then straight to the fallback. The real
+behavior is `["coder-a", "coder-a", "coder-b"]`: `AttemptChain.failed`
+(`ravis/src/ravis/reliability/attempts.py`) gives a `FailureClass.CONNECTION`
+failure exactly one same-target retry before falling through, on the
+reasoning that this failure class "proves the request never arrived" rather
+than that the target itself is bad — a real, deliberate, bounded-retry policy
+that existed in the code and had no test driving a real connection failure
+through a real route to observe it. The test was corrected, not the code.
+
+**Verified adversarially, both paths separately.** Narrowing the non-streaming
+`except httpx.HTTPError` to `except httpx.HTTPStatusError` (which does not
+match a transport-level `ConnectError`) made the first test fail with the
+unhandled exception propagating, as it should. Inverting the streaming path's
+`if not committed:` to `if committed:` made the second test fail with the
+wrong branch taken — an "upstream stream interrupted" warning logged where a
+silent retry was expected. Both reverted; `git diff` confirmed clean.
+
+`tools/check_degradation.py`'s "network loss" cell is now `verdict="COVERED"`
+— the second `COVERED` cell this gate has recorded, tally moved to 2
+`COVERED` / 17 `PARTIAL`. `ECOSYSTEM_RUNBOOK.md`'s degradation-matrix note
+updated to match. 973 of 973 RAVIS tests pass with both new tests in place;
+`ruff` and `mypy` clean. No production behavior changed — the one-retry
+policy was already there; this is the first time anything drove it through a
+real connection failure to prove it, and named it in a test rather than only
+in a code comment.
+
 ## `nervis/knowledge/` updated with what changed, on the operator's own instruction
 
 Prompted by a direct question: does NERVIS chat know about any of the last
@@ -14471,6 +14508,142 @@ they share" section instead of adding a heading, which changes nothing about
 what is said and everything about whether the section count moves.
 `tools/knowledge_check.py` and all 891 of `nervis`'s own tests, including the
 falsifier, pass clean after the fix.
+
+## Real semantic retrieval for chat's knowledge base — asked for the hard way, built the hard way, 2026-09-06
+
+The operator asked chat *"are you aware of the latest updates and bugfixes"*
+and it said it knew nothing, even after the knowledge files above were
+updated and the stack restarted. Root cause: `knowledge.search()`'s
+term-overlap scoring is exactly what its own docstring always said it was —
+these documents are short and written in the questions' own vocabulary, and a
+paraphrase sharing none of that vocabulary scores zero no matter how the
+corpus is weighted. Offered a cheap, targeted "what's new" special case
+instead, the operator refused it directly and asked for the real thing built
+once rather than a handler per question shape — so this is a real redesign,
+not a workaround.
+
+**A second, independent, real bug surfaced while mapping the code for this
+and was fixed in the same pass.** `knowledge.reading()` assembled up to
+`MAX_CHARACTERS = 6,000` characters across several sections, then passed the
+whole body through `nervis/src/nervis/diagnostics.py`'s `fenced()` → `clip()`
+— a helper built for one short diagnostic field, which silently truncated
+*any* string over `MAX_FIELD_CHARS` (400) regardless of what called it.
+Verified directly: a 3,133-character assembled reading came out 401
+characters, no truncation notice, unlike `documents.py`'s equivalent path
+which does say "only the first N are below." The same bug hit `documents.py`
+too — `as_reading()`'s own 40,000-character budget was silently cut to 400 —
+and both are fixed by the same change: `fenced()`/`clip()` take a `max_chars`
+parameter instead of a hardcoded constant, defaulting to the original 400 for
+every call site that never had a reason to override it. A new regression
+test (`test_the_reading_is_not_silently_cut_to_one_field`) asserts a *second*
+matched section's heading actually survives into the reading — a bare length
+check cannot catch this regression, since the fence's own wrapper text alone
+comfortably clears a naive length threshold.
+
+**Architecture boundary held rather than shortcut.** `RAVIS.md`'s own
+product-boundary table gives RAVIS "local-runtime coordination" and
+explicitly denies NERVIS "any peer's business logic" — so embeddings became a
+real RAVIS capability, `POST /v1/embeddings` (`ravis.embeddings@1`,
+`DEGRADED`, honestly — one configured local runtime, no routing, no fallback
+chain, no conformance suite yet), pulled forward from `RAVIS.md`'s own
+deliberately-deferred "later" note rather than NERVIS reaching into Ollama or
+LM Studio directly. Tested in `ravis/tests/test_embeddings.py` (6 tests, the
+same `MockTransport` style as `ravis/tests/test_fallback.py`) and adversarially verified:
+narrowing the response-shape check briefly made a real test fail before being
+reverted.
+
+**The launcher gained one named exception, on the operator's own instruction
+after considering the alternative.** `tools/run.py` was originally going to
+lazy-load the embedding model through SIRVIS's Resource Manager on first use,
+keeping its own stated policy of never starting LM Studio, Ollama or Clarvis
+intact. The operator asked for Ollama specifically instead, because
+embeddings are now load-bearing for chat rather than an optional runtime
+choice like the policy is about — so `tools/run.py` starts and stops Ollama
+alongside the other four services, warming `nomic-embed-text` once at boot,
+with the module's own docstring now naming this as a decision rather than
+leaving a future reader to wonder why one runtime is treated differently.
+LM Studio and Clarvis remain untouched, for the original reason.
+
+**Model choice, considered rather than defaulted.** `all-minilm` (45MB,
+already pulled) was the first candidate; asked whether it was "too limited,"
+measured rather than guessed — a real semantic overlap exists between
+"system status?" and `nervis.md`'s own section on how status is tracked, an
+overlap that persisted (if anything, worsened in absolute-score terms) after
+switching to `nomic-embed-text` (274MB, pulled fresh). Kept `nomic-embed-text`
+on the operator's own choice after being shown `mxbai-embed-large` and
+`snowflake-arctic-embed:335m` as real alternatives. `EMBED_MIN_SCORE = 0.48`
+is empirically set from this exact model against the exact corpus, the same
+way `MIN_SCORE` was originally derived for term overlap — and re-measured,
+not carried over, when the model changed, because a different model's score
+distribution does not transfer.
+
+**Term overlap is kept, not replaced — embeddings are additive.** A machine
+with no local embedding model configured (`ravis.embeddings@1` `DEGRADED`,
+never assumed `AVAILABLE`) gets exactly the term-overlap answer `search()`
+always gave, proven by a dedicated test
+(`test_embeddings_unavailable_falls_back_to_term_overlap_alone`). When both
+signals are available, a section clearing the embedding floor ranks first; a
+section clearing only the term-overlap floor still appears, ranked after.
+
+**Twelve existing tests reworked, each reasoned about rather than silently
+dropped or force-passed**, against a small, purpose-built five-section corpus
+(the same choice `ravis/tests/test_fallback.py` makes with `TWO_CODERS` over RAVIS's real
+provider list) with real embeddings recorded once from RAVIS's own route into
+`nervis/tests/fixtures/knowledge_vectors.json` — a 160KB recorded fixture,
+not a live call, matching the same pattern this repository's conformance
+suites already use for the identical reason (§14.5 forbids live network in
+tests). `test_a_question_squarely_about_state_gets_no_background`'s own
+docstring is updated with the honest result: three of four state questions
+stay excluded, and "system status?" is admitted — correctly, not despite the
+measurement, because it now finds a real section about exactly that. The
+stemming-pair tests (`_stem` unification) stay as direct tests of unchanged,
+still-real fallback-path code rather than being deleted.
+
+**One real bug this rewrite introduced, caught by its own test suite before
+being trusted.** The first draft dropped `search()`'s original early exit for
+a blank question, so a greeting (which sends no content) made a live
+embedding call regardless — harmless in production, but it broke roughly
+forty existing `nervis/tests/test_m4_chat.py` tests whose mock transports assumed the
+first captured request was always the chat completion. Fixed at the root
+(`search()` now exits before either method runs, for a genuinely blank
+question) and, for tests exercising a *non-blank* message alongside this,
+`_capture_into` and every inline mock transport in that file gained the same
+`/v1/embeddings` passthrough already used for `/api/v1/models`. `_embed()`
+also gained a real defensive check — a response whose vector count does not
+match the request is treated as unusable rather than indexed past its end,
+which is what a canned test response with zero rows would otherwise crash on.
+
+**A related, separate ask, closed in the same pass: Ollama's real version
+now appears in NERVIS's own service registry**, not just the launcher's own
+status line — the more architecturally consistent home, chosen directly by
+the operator over the cheaper alternative. `nervis/src/nervis/adapters.py`
+gained an `ollama()` translate function reading Ollama's native `/api/version`
+(mirroring `codeserver()`'s existing pattern for a non-MEP peer's version),
+registered in `ADAPTERS`. Found and fixed a second real gap in the same
+pass: `probes.py`'s `_adapted()` discarded any translated result with no
+`capabilities` key, which was fine while every adapter had one but silently
+dropped Ollama's `build_version` — the one thing its adapter actually
+establishes. Fixed by checking for either field rather than only one.
+Verified live: `GET /api/v1/services` now reports `"build_version": "0.33.3"`
+for Ollama, sourced from the real endpoint, not invented.
+
+**A drive-by, also from a direct question:** the dashboard's "Protocol"
+column had no explanation of what it showed (the MEP major version each peer
+publishes) and no visible reason to care, since every peer today speaks
+protocol 1. Given a tooltip on the operator's own choice rather than removed
+or left as-is — `nervis/index.html`'s two "Service | Build | Protocol |
+Negotiated capability | State" header rows both explain it now. All 21 of
+`nervis/tools/*.js`'s static-analysis gates pass unchanged.
+
+Full verification: `ravis`'s suite (979 tests), `nervis`'s suite (896 tests),
+`ruff` and `mypy` clean across both, `tools/knowledge_check.py` clean,
+`tools/check_plans.py` and `tools/check_status.py` clean, and the exact
+motivating question tested live against the real stack — real RAVIS, real
+Ollama, real corpus — now returns real, relevant, multi-section background
+rather than nothing. `RAVIS.md`'s embeddings line, `README.md`'s "does not
+start" line, and `nervis/knowledge/ravis.md` and `nervis/knowledge/nervis.md`
+updated to match, per the standing instruction to keep this current with
+real changes as they land rather than after the fact.
 
 ## Starting the thing
 
