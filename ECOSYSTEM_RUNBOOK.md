@@ -1319,6 +1319,23 @@ may only add product-specific detail beside the required state.
       unsafe failover" reads true on what exists; "the matrix passes" does
       not — 19 dedicated tests away, not a reverification.*
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
+      *Reverified 6 September 2026: three of the four hold on fresh automated
+      evidence. `nervis/tests/test_m7_traces.py` (correlated),
+      `nervis/tests/test_m6_events.py` (bounded — the quarantine cap, the
+      dropped-subscriber frame) and `nervis/tests/test_m10_logs.py` plus
+      `protocol/tests/test_log_correlation.py` (redacted) — 105 tests rerun,
+      all passing, alongside the broader redaction coverage already spread
+      across all three services' own suites. "Optional to core operation" is
+      the one that doesn't have fresh proof: its evidence is Stage 7's live
+      collector-kill (`STATUS.md:5392`, pre-29 August) — twelve requests at
+      baseline latency with NERVIS's event hub dead, queued events delivered
+      cleanly on reconnect — real and substantial, but a one-off manual
+      exercise, not a repeatable test, and `nervis/src/nervis/events.py` has
+      had several commits since. This is the same gap `tools/check_degradation.py`
+      already names under "trace collector loss" — not reattempted live today
+      because redoing it means killing NERVIS on a machine with two live
+      code-server tabs and a desktop VS Code window registered against it.
+      Not closeable until that clause has an automated regression test.*
 - [x] Security, threat-model and privacy gates pass — the stabilization track of
       3–5 September 2026, twelve items closed against an independent audit, each with
       its evidence in `STATUS.md` and its regression test in the owning product. The

@@ -14176,6 +14176,38 @@ a reverification, so the checklist item stays unchecked with that distinction
 recorded rather than the item being either fabricated as done or left
 unexplained. No code changed; the edit is to `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's logs/events/traces item: three parts fresh, one part stale, 2026-09-06
+
+Reran rather than cited: `nervis/tests/test_m7_traces.py`,
+`nervis/tests/test_m6_events.py`, `nervis/tests/test_m10_logs.py` and
+`protocol/tests/test_log_correlation.py` (with `protocol/tests/test_event_publisher.py`
+and `protocol/tests/test_canonical_events.py` alongside it) — 105 tests, all passing, against the
+current code. Correlation, bounded buffering (the event hub's quarantine cap,
+the dropped-subscriber frame in `nervis/src/nervis/events.py`) and redaction
+all have current automated evidence, not carried-forward citations.
+
+**"Optional to core operation" is the exception, and it is the same gap named
+minutes earlier under the degradation matrix.** Its evidence is Stage 7's live
+collector-kill, recorded at `STATUS.md:5392`: NERVIS's event hub killed
+mid-run, twelve requests against a dependent service returning 200 in ~7ms —
+indistinguishable from the healthy baseline — and every event queued during
+the outage delivered as one ordered batch on reconnect. That is real behavior,
+observed directly, not inferred. It is also from before 29 August, and
+`git log` on `nervis/src/nervis/events.py` shows five commits since (the SSE
+cutoff-notification fix, the traces-index bounding fix, the event stream's own
+render-layer contract, among them) that the manual exercise was never rerun
+against. `tools/check_degradation.py`'s "trace collector loss" cell already
+names this precisely: a code comment and a one-off manual kill, no route-level
+regression test.
+
+Not redone live today. The stack is currently serving the operator's own
+VS Code window and two code-server tabs, each with a registered Clarvis
+instance — killing NERVIS to reproduce Stage 7's exercise would drop all three
+mid-session for a checklist item, which is a worse trade than leaving one
+clause's evidence dated. §15's logs/events/traces item stays unchecked for
+that one clause; the other three now have same-day proof. No code changed;
+the edit is to `ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
