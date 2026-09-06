@@ -1408,6 +1408,22 @@ may only add product-specific detail beside the required state.
       live incident. Not closeable until real content exists for that, and
       something is actually named the operator runbook.*
 - [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
+      *Reverified 6 September 2026, and the gap is not the gates. Both
+      `.github/workflows/checks.yml` (NERVIS-ecosystem: ravis, protocol,
+      sirvis, nervis, status, prototype/dashboard jobs) and
+      `clarvis/.github/workflows/ci.yml` are real and well-built. Run locally rather
+      than trusted from the YAML: `ruff check` and `mypy` clean on all four
+      Python components, `eslint` and `tsc --noEmit` clean on Clarvis, and
+      every test suite green — protocol 62, ravis 970, sirvis 469, nervis 891,
+      Clarvis 1322, 3714 tests total, zero failures. What is actually true is
+      the opposite of what §15 asks: `gh api repos/Krimkerre/NERVIS-ecosystem/actions/permissions`
+      and the same call on `clarvis` both return `"enabled":false` — GitHub
+      Actions is off on both repositories, deliberately, for cost. The last
+      real runs (30 August) completed as failures in 4-5 seconds, too fast to
+      be genuine jobs. So "the gates pass" is true and reverified; "the gates
+      run in CI" is false by design, not by defect. Not closeable while
+      Actions stays off, without either re-enabling it or naming a different
+      place these gates actually run automatically.*
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.
 "Implemented" without a passing exit criterion is not completion.

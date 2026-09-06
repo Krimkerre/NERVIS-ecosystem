@@ -14274,6 +14274,36 @@ do next. §15's publication item stays unchecked for that one clause; the
 other three now have same-session proof. No code changed; the edit is to
 `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's last item: the gates pass, and the reason they don't run in CI is that CI is off, 2026-09-06
+
+The final open line in §15 asks that §14's gates run in CI for every product
+and pass. Checked both halves separately rather than assumed together,
+because they turned out to disagree.
+
+**The gates pass, run for real rather than read off a YAML file.**
+`ruff check` and `mypy` clean across all four Python components; `eslint` and
+`tsc --noEmit` clean on Clarvis; every test suite green — protocol 62, ravis
+970, sirvis 469, nervis 891, Clarvis 1322. 3714 tests, zero failures, this
+session, this code. `.github/workflows/checks.yml` and
+`clarvis/.github/workflows/ci.yml` are real, well-built workflow files naming
+exactly these gates per product.
+
+**They do not run in CI, and the reason is a decision, not a defect.**
+`gh api repos/Krimkerre/NERVIS-ecosystem/actions/permissions` returns
+`"enabled":false`; the same call on `clarvis` returns the same. The operator
+disabled GitHub Actions on both repositories for cost. `gh run list` shows
+the last real attempts, 30 August, all completed as failures in 4-5 seconds —
+too fast to be a genuine lint/type/test pass across several hundred files,
+consistent with Actions refusing to even start rather than a job failing
+midway. This is recorded in memory now so a future session checks the live
+state with `gh` before citing the workflow files as evidence, rather than
+reading their presence as proof CI runs.
+
+§15's final item stays unchecked precisely because the two halves of its own
+sentence point opposite ways: "and pass" is true and freshly reverified,
+"run in CI" is false by design. No code changed; the edit is to
+`ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
