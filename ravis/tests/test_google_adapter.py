@@ -11,8 +11,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import FinishReason, StreamEventType
+from ravis.providers.base import TranslationError
 from ravis.providers.google_wire import (
     StreamReader,
     dropped_parameters,
@@ -306,3 +309,87 @@ def test_a_catalogue_that_cannot_be_read_leaves_a_model_at_its_defaults() -> Non
     assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN, (
         "a catalogue nobody could read says nothing about tools"
     )
+
+
+# ── `_path`: the one place a model name becomes part of the outbound URL ────
+#
+# `model` is `request.requested_model` — a string the client chose. The router
+# does not check it for a translated provider like this one (only Google's own
+# catalogue can say whether an address is real, and a foreign address is never
+# checked against ours), so `_path` is the last thing standing between a
+# crafted model string and the outbound request. `complete` and `_stream` both
+# splice its result straight into a URL, so this is tested once, here, rather
+# than duplicated at each call site.
+
+
+def test_known_forms_of_a_model_name_resolve_exactly_as_before() -> None:
+    """The fix must not change where a legitimate model ends up."""
+    from ravis.providers.google import _path
+
+    assert _path("gemini-3.6-flash") == "/v1beta/models/gemini-3.6-flash"
+    assert _path("models/gemini-1.5-pro") == "/v1beta/models/gemini-1.5-pro"
+    assert _path("gemini-2.0-flash-001") == "/v1beta/models/gemini-2.0-flash-001"
+    assert _path("/models/gemini-3.6-flash/") == "/v1beta/models/gemini-3.6-flash"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "../../../etc/passwd",
+        "models/../../secret",
+        "gemini-3.6-flash/../../evil",
+        "gemini?key=stolen",
+        "gemini-3.6-flash:admin",
+        "gemini\r\nHost: evil.example",
+        "",
+    ],
+)
+def test_a_model_shaped_outside_the_allow_list_is_refused(bad: str) -> None:
+    """Path-traversal and other structure-altering input never reaches a URL.
+
+    An allow-list of the shape a real Gemini model name takes, not a blocklist
+    of `../` and its variants — the failure this closes is any character
+    `_path` would otherwise have passed straight through unexamined.
+    """
+    from ravis.providers.google import _path
+
+    with pytest.raises(TranslationError, match="not a model address"):
+        _path(bad)
+
+
+def test_a_path_traversing_model_never_reaches_the_wire_non_streaming() -> None:
+    """`complete()`'s sink (finding F3): the refusal must fire before
+    `_client.post` is ever awaited, not after."""
+    import asyncio
+
+    import httpx
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise AssertionError("complete() must not have made an outbound request")
+
+    request = NormalizedRequest(messages=[{"role": "user", "content": "hi"}])
+    request.requested_model = "../../../etc/passwd"
+
+    with pytest.raises(TranslationError):
+        asyncio.run(_adapter(handler).complete(request))
+
+
+def test_a_path_traversing_model_never_reaches_the_wire_streaming() -> None:
+    """`_stream()`'s sink (finding F3): the same refusal, reached through the
+    `stream: true` branch instead."""
+    import asyncio
+
+    import httpx
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise AssertionError("stream() must not have made an outbound request")
+
+    request = NormalizedRequest(messages=[{"role": "user", "content": "hi"}])
+    request.requested_model = "models/../../secret"
+
+    async def drive() -> None:
+        async for _event in _adapter(handler).stream(request):
+            pass
+
+    with pytest.raises(TranslationError):
+        asyncio.run(drive())

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2375 tests, no network, no live service
+.venv/bin/pytest                      # part of 2385 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2375 passing across the four, conformance `PASS`.
+Expected: all clean, 2385 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -13566,6 +13566,22 @@ conformance) and all twenty-one dashboard gates pass; Clarvis's own types,
 lint and tests pass. 54 of 54.
 
 NERVIS 0.23.11.
+
+## F3 applied: the Gemini path-injection patch, checked before shipping rather than trusted, 2026-09-06
+
+F3 (`ravis/src/ravis/providers/google.py`'s `_path()` splicing
+`request.requested_model` unsanitized into the outbound Gemini URL) was the
+one finding from the same scan that had already earned a `.patch` file —
+generated, independently verified, and adversarially reviewed before this
+session ever touched the working tree, per `CLAUDE-SECURITY-20260905-142106
+/patches/F3.md`. Asked whether it was safe to apply, it was applied for real
+— `git apply`, not `--check` — and re-verified from scratch in the actual
+working tree rather than taking the earlier review's word for it a third
+time: the 28 tests written for this fix, the full 969-test `ravis` suite,
+`ruff`, and `mypy` all pass with the patch in place. Nothing was wrong with
+it; the answer to "did it apply correctly" was checked rather than assumed.
+
+RAVIS 0.21.5.
 
 ## Starting the thing
 

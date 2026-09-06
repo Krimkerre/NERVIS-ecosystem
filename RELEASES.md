@@ -299,10 +299,24 @@ every entry.
 
 ---
 
-## RAVIS — 0.21.4
+## RAVIS — 0.21.5
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
+- **F3: a client-controlled model string could redirect the outbound Gemini request path,
+  and now cannot.** `GoogleAdapter._path()` spliced `request.requested_model` — a string
+  the router never validates for a translated provider like this one — straight into the
+  outbound URL for both `complete()` and `_stream()`, so a shaped value such as
+  `../../../etc/passwd` or one carrying `?`/CRLF could alter which path actually gets
+  requested on Google's own host, using RAVIS's configured credential. A Claude Security
+  scan found it; the suggested-patches job produced the fix, and it earned its patch file
+  by passing an independent verifier and adversarial pass before this session applied it:
+  `_path()` now rejects anything outside an allow-list of the shape a real Gemini model
+  name takes (`[A-Za-z0-9][A-Za-z0-9._-]*`, no `/`, `%`, `?`, `#`, `:`, whitespace, or
+  control characters — checked, not assumed, against Unicode-bypass and ReDoS shapes),
+  raising the existing `TranslationError` (already mapped to a 400) instead. Every
+  legitimate call shape resolves exactly as before; 28 targeted tests plus the full
+  969-test suite pass, `ruff`/`mypy` clean.
 - **`ravis serve` binding a real port is now tested — M0's last untested clause.**
   §15's "products build and run independently" line found it: `RAVIS.md`'s M0 was
   IMPLEMENTED rather than AUTOMATED VERIFIED specifically because "`ravis serve`

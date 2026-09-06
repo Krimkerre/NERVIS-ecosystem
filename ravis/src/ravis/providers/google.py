@@ -24,6 +24,7 @@ judgements rather than transcription are argued.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, AsyncGenerator
 
@@ -39,7 +40,12 @@ from ravis.core.capabilities import (
 )
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import NormalizedResponse, NormalizedStreamEvent
-from ravis.providers.base import HEALTH_TIMEOUT_SECONDS, ProtocolMode, ProviderHealth
+from ravis.providers.base import (
+    HEALTH_TIMEOUT_SECONDS,
+    ProtocolMode,
+    ProviderHealth,
+    TranslationError,
+)
 from ravis.providers.google_wire import (
     StreamReader,
     dropped_parameters,
@@ -87,6 +93,17 @@ DISCOVERY_TTL_SECONDS = 300.0
 DEFAULT_MAX_OUTPUT_TOKENS: int | None = None
 
 
+# The character shape a legitimate Gemini model name — or RAVIS's own
+# `models/`-prefixed address for one — can take. The catalogue's own ids look
+# like `gemini-3.6-flash` or `gemini-2.0-flash-001`; a direct address is the
+# same string with `models/` in front. Nothing else is a model this adapter
+# could ever have been asked for, so this is an allow-list of that shape
+# rather than a blocklist of dangerous characters — a blocklist chasing `../`,
+# an encoded slash, a stray `?` one pattern at a time is exactly the kind of
+# check a variant nobody thought of slips past.
+_MODEL_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-])*")
+
+
 def _path(model: str) -> str:
     """The versioned path for one model, whichever form its name arrived in.
 
@@ -94,10 +111,21 @@ def _path(model: str) -> str:
     too, so this tolerates both rather than assuming one — a direct address
     written `ravis/google/gemini-3.6-flash` should reach the same place as one
     written `ravis/google/models/gemini-3.6-flash`.
+
+    `model` is `request.requested_model` — a string the caller chose, that the
+    router does not check for a translated provider like this one (only the
+    provider's own catalogue can say whether an address is real, and a foreign
+    one is never checked against ours; see `RoutingEngine._direct`). It is
+    spliced straight into the outbound URL below, so anything shaped outside
+    `_MODEL_NAME` is refused here rather than allowed to alter which path gets
+    requested on Google's own host.
     """
     bare = model.strip("/")
     if not bare.startswith("models/"):
         bare = f"models/{bare}"
+    name = bare[len("models/") :]
+    if not _MODEL_NAME.fullmatch(name):
+        raise TranslationError(f"not a model address this adapter can route to: {model!r}")
     return f"{API_ROOT}/{bare}"
 
 
