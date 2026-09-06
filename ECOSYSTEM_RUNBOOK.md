@@ -1097,18 +1097,32 @@ may only add product-specific detail beside the required state.
       SecretStorage are unchanged.
 - [ ] Multiple Clarvis instances remain isolated.
 - [ ] NERVIS negotiates actual capabilities; no UI assumes a missing API.
-- [ ] NERVIS cannot bypass a Clarvis or RAVIS safety gate. *The Clarvis half is
-      structural: the Bridge refuses every non-GET method before path matching, so no
-      write path exists for NERVIS to route around (`clarvis/src/bridge/server.ts`).
-      The RAVIS half is a control token required on the six configuration mutations
-      NERVIS proxies (`nervis/src/nervis/api/control.py`, `tools/check_clean_clone.sh`
-      via `nervis pytest`) — it stops a cross-origin page from issuing them with no
-      credential at all, which is the gate that was missing. It is not authentication:
-      the token is minted per process and embedded in NERVIS's own unauthenticated
-      page, so a local process able to reach NERVIS's port can read it and use it, the
-      way it could already reach anything else that process can reach. That boundary
-      is the operating system's, stated rather than assumed — see `nervis/src/nervis/
-      api/control.py`'s own docstring.*
+- [x] NERVIS cannot bypass a Clarvis or RAVIS safety gate. *Reverified against the
+      current code and its own tests, not just read. The Clarvis half is structural
+      two ways over: the Bridge refuses every non-GET method before path matching
+      (`clarvis/src/bridge/server.ts`), proved by `server.test.ts`'s "every method
+      other than GET is refused, on every path" and "a write to an unknown path
+      answers the same as a write to a known one" (the method check really does run
+      before routing, not just refuse what it happens to recognise) — 1322 of 1322
+      Clarvis tests passing; and NERVIS's own Bridge-reading code
+      (`nervis/src/nervis/peers/clarvis.py`) declares exactly one surface, a GET, and
+      has no write call anywhere to attempt one with. The RAVIS half is a control
+      token required on the six configuration mutations NERVIS proxies
+      (`nervis/src/nervis/api/control.py`), each of which still forwards RAVIS's own
+      real admin credential on every call rather than substituting the page token for
+      it (confirmed reading `set_ravis_credential` and its siblings in
+      `nervis/src/nervis/api/routes.py`) — the token stops a cross-origin page from
+      issuing them with no credential at all, RAVIS's own admin check is never
+      skipped. `nervis/tests/test_control_token.py`'s
+      `test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated` walks the
+      real route table rather than a hand-kept list, so a seventh mutation added
+      without the guard fails the suite instead of shipping quietly — 22 of 22
+      passing. It is not authentication: the token is minted per process and
+      embedded in NERVIS's own unauthenticated page, so a local process able to
+      reach NERVIS's port can read it and use it, the way it could already reach
+      anything else that process can reach. That boundary is the operating system's,
+      stated rather than assumed — see `nervis/src/nervis/api/control.py`'s own
+      docstring.*
 - [ ] code-server compatibility is evidenced for every supported matrix cell.
 - [ ] Pairwise and full E2E suites pass against real services.
 - [ ] The failure/degradation matrix passes with no unsafe failover.

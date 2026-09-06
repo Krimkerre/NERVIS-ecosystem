@@ -13665,6 +13665,38 @@ more than before this closed.
 
 NERVIS 0.23.13.
 
+## §15's "NERVIS cannot bypass a safety gate" item, reverified rather than reread, 2026-09-06
+
+The checklist item stood unchecked with a note describing the mechanism, not
+a verification run — the same gap item 1 had before its own reverification.
+Closed the same way: read the current code, not the note about it, and ran
+what already tests it rather than adding something new.
+
+**Clarvis.** `clarvis/src/bridge/server.ts` still refuses every non-GET
+method before it looks at the path — confirmed in the source, not assumed
+from the doc — and `server.test.ts` proves it two ways: every method but GET
+gets a 405 on a known path, and a write to an *unknown* path answers
+identically to a write to a known one, so the method check truly runs before
+routing rather than only refusing routes it recognises. Full Clarvis suite:
+1322 of 1322. Checked NERVIS's own side too, not only the Bridge's:
+`nervis/src/nervis/peers/clarvis.py` declares exactly one surface it ever
+reads, a GET, and has no write call anywhere in it to attempt one with —
+NERVIS cannot bypass a gate it never tries to reach past.
+
+**RAVIS.** The six routes `nervis/src/nervis/api/control.py`'s
+`require_control` gates (`nervis/src/nervis/api/routes.py`) were read one by
+one: each still forwards `request.app.state.settings.ravis_admin_credential`
+to RAVIS on every call, so NERVIS's own control token is an *additional*
+gate in front of a browser page, never a substitute for the credential RAVIS
+itself checks. `nervis/tests/test_control_token.py`'s
+`test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated` walks
+the real route table for anything reaching that credential rather than a
+hand-kept list of six — 22 of 22 passing, including that one.
+
+Checkbox closed in `ECOSYSTEM_RUNBOOK.md`. No code changed — this item
+turned out to already be true and already tested; what was missing was the
+record of having checked, not a fix.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
