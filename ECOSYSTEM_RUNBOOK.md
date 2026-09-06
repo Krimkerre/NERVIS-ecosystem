@@ -1388,6 +1388,25 @@ may only add product-specific detail beside the required state.
       rather than filed, because a table in a document is a copy that goes stale. All three
       peers are judged, since Clarvis 0.12.6: the Bridge was the one that published no
       product version, and now claims one at registration.*
+      *Reverified 6 September 2026: `tools/check_releases.py` and
+      `tools/check_compatibility.py` both rerun clean — 5 components ship a
+      version with notes, and all three peers ship inside the window this
+      NERVIS declares. Known limitations' three gates (§10, §13.4, milestone
+      states) were each independently reverified earlier in this same pass
+      through §15. "Operator runbook" is the one clause of the four that had
+      never actually been examined until now, and it does not have one
+      dedicated document: `README.md`'s "Running it" section (start/stop per
+      platform, the `status` subcommand, `.run/`'s log files, what each minted
+      credential is for) and `ECOSYSTEM_RUNBOOK.md` itself (whose own header
+      names "release operators" as an audience) between them cover getting the
+      ecosystem running and reading its published state, but neither is
+      labeled as the operator runbook, and there is no troubleshooting or
+      incident-response guide anywhere — confirmed by grep, not assumed: zero
+      hits for what to do when a service won't start, a job is stuck, or a
+      dashboard reads degraded. The degradation matrix's gap sentences are
+      written for the engineer closing a test, not the operator watching a
+      live incident. Not closeable until real content exists for that, and
+      something is actually named the operator runbook.*
 - [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.

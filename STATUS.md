@@ -14245,6 +14245,35 @@ strung together as the sequence §13 actually describes. §15's rollback item
 stays unchecked for that reason. No code changed; the edit is to
 `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's publication item: three gates reran clean, one clause examined for the first time, 2026-09-06
+
+`tools/check_releases.py` and `tools/check_compatibility.py` rerun rather than
+cited: 5 components ship a version with notes (Clarvis 0.12.8, NERVIS 0.23.14,
+RAVIS 0.21.6, SIRVIS 0.15.8, ecosystem-protocol 0.2.1), and all three peers
+ship inside the window this NERVIS declares for them. "Known limitations
+published as gates" rests on §10, §13.4 and the milestone-state machinery,
+each already reverified earlier in this same pass through §15 — not
+re-cited from an old date, reverified minutes-to-hours ago in this
+conversation.
+
+**"Operator runbook" had never been looked at before, in either direction.**
+No prior STATUS.md entry mentions it. What exists: `README.md`'s "Running it"
+section (start/stop per platform, `python3 tools/run.py status`, `.run/`'s
+per-service log files, and a table of what each of the three minted
+credentials is for and why), and `ECOSYSTEM_RUNBOOK.md` itself, whose own
+header names "release operators" as one of its three audiences alongside
+coding agents and maintainers. Between them: real, genuine coverage of
+getting the ecosystem running and reading its published state. What is
+missing, confirmed by grep rather than assumed: nothing anywhere is *named*
+the operator runbook, and there is no troubleshooting or incident-response
+document — zero hits for what an operator does when a service refuses to
+start, a benchmark job is stuck, or the dashboard shows degraded. The
+degradation matrix's per-cell gap sentences are written for the engineer who
+will close the test, not the person watching a live incident decide what to
+do next. §15's publication item stays unchecked for that one clause; the
+other three now have same-session proof. No code changed; the edit is to
+`ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
