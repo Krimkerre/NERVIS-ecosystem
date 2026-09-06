@@ -13720,6 +13720,50 @@ Clarvis 0.12.8. No NERVIS-ecosystem package changed — the seven documents
 already carrying the rule live in this repository, but none of their content
 needed to change, only Clarvis's.
 
+## M8b was done, and two documents still said it was blocked, 2026-09-06
+
+Found in passing, not gone looking for: `NERVIS.md`'s M8b row carried the
+status tag `LIVE VERIFIED` and, in the very same cell, prose saying "Blocked
+on Clarvis building the Bridge... the Clarvis repository contains no
+implementation" — a milestone table contradicting itself in one row. The
+same claim sat in `nervis/src/nervis/peers/clarvis.py`'s module docstring.
+
+**Read the actual code rather than trusting either document.** The Bridge
+exists (`clarvis/src/bridge/`, eight modules, `clarvis/plan.md`'s M14 signed
+off 29 Aug with Stage 8's exit criteria met) and NERVIS already reads it:
+`nervis/src/nervis/bridges.py`'s own docstring says so directly — *"The
+Bridge exists now, so this reads it"* — polling `/v1/status` and `config`,
+wired into `api/instances.py` and `api/chat_reads.py`. `nervis/src/nervis/
+clarvis.py` (M9) folds the same event stream every peer ingests into agent
+runs, tasks and gate history, so M8b's original scope — "status, mode, busy,
+agent/task events, gate state" — is fully covered, split across two
+milestones' worth of code rather than missing. `nervis/tests/test_m8a_registration.py`'s
+own comment already knew this: *"M8b was blocked on Clarvis building a
+Bridge... `bridges.py` is the read that unblocked."* The two documents were
+simply never updated when it shipped.
+
+**Why `peers/clarvis.py` still exists, and why it doesn't do the reading.**
+Written before the Bridge did, when declaring the §6.3 surface without a
+reader was the honest thing to do. It was never wired into `api/routes.py`'s
+`PEERS` dict the way RAVIS and SIRVIS are — a Bridge's identity, auth and
+per-instance token don't fit that generic negotiation shape — so `bridges.py`
+became the real read path independently, and `peers/clarvis.py` was left
+behind with a stale docstring and exactly one real consumer:
+`nervis/tests/test_m8a_registration.py`'s §6.7 write-surface guard, confirming every
+surface Clarvis specifies is a GET. Its docstring now says that plainly
+instead of describing a blocked milestone that finished without it.
+
+**Verified rather than assumed correct after editing:** 43 tests across
+`nervis/tests/test_m8a_registration.py` (16), `nervis/tests/test_m8b_status.py` (12) and
+`nervis/tests/test_m9_clarvis_diagnostics.py` (15) still pass, `ruff`/`mypy` clean,
+`tools/check_dead_code.py` still finds `peers/clarvis.py`'s one real
+consumer and reports nothing unreferenced.
+
+No behaviour changed anywhere — this was a milestone table and a docstring
+catching up to code that had already shipped.
+
+NERVIS 0.23.14.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

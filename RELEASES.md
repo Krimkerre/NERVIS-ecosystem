@@ -91,7 +91,27 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.13
+## NERVIS — 0.23.14
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **M8b's own row said "blocked" while its status tag said LIVE VERIFIED — corrected to
+  match the code, which was already done.** Found while closing an unrelated §15 item:
+  `NERVIS.md`'s M8b row and `nervis/src/nervis/peers/clarvis.py`'s docstring both still
+  said the Clarvis repository had no Bridge implementation. It has, and has since 29
+  August — `nervis/src/nervis/bridges.py` polls a live Bridge's `/v1/status` and `config`
+  (wired into `api/instances.py` and `api/chat_reads.py`), and `nervis/src/nervis/clarvis.py`
+  (M9) folds its event stream into agent runs, tasks and gate history. Neither goes
+  through `peers/clarvis.py`'s `SERVICE`/`SURFACES` declaration — Clarvis was
+  deliberately never added to `api/routes.py`'s generic per-surface `PEERS` negotiation,
+  since a Bridge's identity, auth and per-instance token don't fit the shape RAVIS and
+  SIRVIS share — so that module's docstring now says what it actually is: the source for
+  one still-real check, `test_m8a_registration.py`'s §6.7 write-surface guard, not the
+  read path. No behaviour changed; 43 tests across `test_m8a_registration.py`,
+  `test_m8b_status.py` and `test_m9_clarvis_diagnostics.py` pass unmodified, `ruff`/`mypy`
+  clean.
+
+### 0.23.13
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
