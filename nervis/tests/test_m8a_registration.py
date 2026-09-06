@@ -105,6 +105,43 @@ def test_a_service_that_is_not_per_instance_may_not_register(tmp_path: Path) -> 
     assert "may not register dynamically" in response.text
 
 
+def test_a_bridge_speaking_an_unsupported_major_protocol_is_refused(tmp_path: Path) -> None:
+    """§5.2's rule already guards the two peer-to-peer read paths (NERVIS
+    probing RAVIS/SIRVIS, RAVIS reading SIRVIS evidence) — this is the third
+    path, and the one a registrant pushes rather than NERVIS pulling. Refused
+    outright rather than accepted-and-marked-incompatible, because `Instance`
+    has no incompatible state to mark and registration is exactly the one
+    moment NERVIS can answer the claim synchronously.
+    """
+    client = an_api(tmp_path)
+
+    response = client.post(
+        "/api/v1/registry/instances",
+        json=a_claim(protocol_version="99.0.0"),
+        headers=enrolled(client),
+    )
+
+    assert response.status_code == 409
+    assert "speaks protocol 99.0.0" in response.text
+    assert client.get("/api/v1/registry/instances").json()["items"] == []
+
+
+def test_a_bridge_with_no_declared_protocol_still_registers(tmp_path: Path) -> None:
+    """An older Bridge that predates the protocol_version field is not
+    refused for omitting it — silence is not a claim, matching probes.py's
+    own `if declared and not is_supported_protocol(declared)` precedent.
+    """
+    client = an_api(tmp_path)
+
+    response = client.post(
+        "/api/v1/registry/instances",
+        json=a_claim(protocol_version=""),
+        headers=enrolled(client),
+    )
+
+    assert response.status_code == 201
+
+
 # ── Per-extension-host instances, with no cross-instance leakage ────────────
 
 

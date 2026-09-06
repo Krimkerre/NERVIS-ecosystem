@@ -75,14 +75,15 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="unsupported major protocol version",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
             ("route", "nervis/src/nervis/probes.py:201"),
             ("route", "nervis/src/nervis/negotiation.py:118"),
             ("route", "nervis/tests/test_m2_registry.py:328"),
+            ("route", "nervis/src/nervis/instances.py:174-183"),
+            ("route", "nervis/tests/test_m8a_registration.py:108"),
+            ("route", "nervis/tests/test_m8a_registration.py:127"),
         ],
-        gap="The two peer-to-peer read paths (NERVIS probing RAVIS/SIRVIS, RAVIS reading SIRVIS evidence) genuinely reject an unsupported major and are tested through real code against fake peers, but the Clarvis Bridge path is ungua",
-        closes_with="Add an is_supported_protocol() check to Instances.register() in /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/src/nervis/instances.py so a claim whose protocol_version fails the major compar",
     ),
     Cell(
         condition="crash and restart mid-operation",

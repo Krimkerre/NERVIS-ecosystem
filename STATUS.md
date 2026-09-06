@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2406 tests, no network, no live service
+.venv/bin/pytest                      # part of 2408 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 896 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 898 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2406 passing across the four, conformance `PASS`.
+Expected: all clean, 2408 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14644,6 +14644,39 @@ rather than nothing. `RAVIS.md`'s embeddings line, `README.md`'s "does not
 start" line, and `nervis/knowledge/ravis.md` and `nervis/knowledge/nervis.md`
 updated to match, per the standing instruction to keep this current with
 real changes as they land rather than after the fact.
+
+## A third `COVERED` cell — this one a real code gap, not only a missing test, 2026-09-06
+
+§10's "unsupported major protocol version" condition already guarded both
+peer-to-peer read paths — NERVIS probing RAVIS/SIRVIS, RAVIS reading SIRVIS's
+evidence — but not the third path into the same rule: a Clarvis Bridge's own
+registration claim. `Instances.register()`
+([nervis/src/nervis/instances.py](nervis/src/nervis/instances.py)) stored
+whatever `protocol_version` a registrant sent with no check against it at
+all — a Bridge speaking a protocol major NERVIS does not implement would
+register successfully and appear as a normal, live instance. Fixed by
+calling the same `is_supported_protocol()` the other two paths already use,
+refusing the claim outright (§4.5, `409`) rather than registering it and
+marking it incompatible after the fact — registration is the Bridge pushing
+a claim, not NERVIS pulling one, so there is no later moment to say no.
+
+Two new route-level tests
+(`nervis/tests/test_m8a_registration.py::test_a_bridge_speaking_an_unsupported_major_protocol_is_refused`
+and its sibling proving an older Bridge that omits the field entirely is
+still accepted, matching the same-file precedent for the two configured-peer
+paths). Verified adversarially: reverting the guard turned the refusal test's
+expected `409` into a real `201`, then the guard was restored. Full suite
+reran clean at 898 (up from 896), `ruff` and `mypy` clean.
+`tools/check_degradation.py`'s tally moves to 3 `COVERED` / 16 `PARTIAL`.
+
+**Found in passing, while reading the tool's own source to write the fix
+above:** every `gap`/`closes_with` string in `tools/check_degradation.py`
+for the remaining 16 `PARTIAL` cells is truncated mid-sentence at roughly
+200-230 characters — valid Python, so nothing ever caught it, but it means
+`OPERATOR_RUNBOOK.md`'s degradation table, built from these same fields, has
+been showing an operator incomplete, cut-off guidance for all 16 conditions.
+Not fixed here — rewriting 16 fields honestly needs the same per-condition
+investigation a real closure does — flagged rather than patched over.
 
 ## Starting the thing
 

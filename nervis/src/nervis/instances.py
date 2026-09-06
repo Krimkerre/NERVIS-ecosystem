@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from hmac import compare_digest
 from typing import Any, Callable, Mapping
 
+from ecosystem_protocol import PROTOCOL_VERSION, is_supported_protocol
+
 from nervis.compatibility import supported
 
 from .registry import EndpointRefusedError, allowed_endpoint
@@ -177,6 +179,17 @@ class Instances:
         instance_id = str(accepted.get("instance_id") or "")
         if not instance_id:
             raise RegistrationRefusedError("instance_id is required and identifies the process")
+
+        declared_protocol = str(accepted.get("protocol_version") or "")
+        if declared_protocol and not is_supported_protocol(declared_protocol):
+            # Mirrors probes.py's peer-to-peer check (§5.2): an unsupported
+            # major is refused outright here, rather than accepted and marked
+            # incompatible, because registration is the Bridge pushing a claim
+            # NERVIS can answer synchronously — unlike a configured peer NERVIS
+            # only probes, there is no other moment to say no.
+            raise RegistrationRefusedError(
+                f"speaks protocol {declared_protocol}; this NERVIS implements {PROTOCOL_VERSION}"
+            )
 
         base_url = self._endpoint_for(accepted.get("port"))
         existing = self._instances.get((service, instance_id))

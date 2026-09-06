@@ -1331,14 +1331,40 @@ may only add product-specific detail beside the required state.
       falling through — real, deliberate, previously-undocumented-in-a-test
       behavior, not assumed. Also verified adversarially: narrowing the
       exception type each path catches made the corresponding test fail,
-      then was reverted. Tally is now 2 `COVERED` / 17 `PARTIAL`.
-      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 17 conditions have
+      then was reverted.
+      A third closed 6 September 2026, and unlike the first two this one was
+      a real gap in the code, not only in the tests: "unsupported major
+      protocol version" was enforced on both peer-to-peer read paths (NERVIS
+      probing RAVIS/SIRVIS, RAVIS reading SIRVIS evidence) but not on the
+      third path — a Clarvis Bridge's own registration claim
+      (`nervis/src/nervis/instances.py::Instances.register`), which stored
+      whatever `protocol_version` a registrant sent with no check against it
+      at all. Fixed by calling the same `is_supported_protocol()` the other
+      two paths already use, refusing the claim outright rather than
+      registering it — registration is a push, not a probe, so there is no
+      later moment to mark it incompatible instead. Two new route-level
+      tests
+      (`nervis/tests/test_m8a_registration.py::test_a_bridge_speaking_an_unsupported_major_protocol_is_refused`
+      and its no-declared-version sibling proving an older Bridge that omits
+      the field is still accepted). Verified adversarially: reverting the
+      guard made the refusal test fail with `201` instead of `409`, then was
+      restored. Tally is now 3 `COVERED` / 16 `PARTIAL`.
+      Also found the same day, incidentally, while reading this file's own
+      source to write the fix above: every `gap`/`closes_with` string in
+      `tools/check_degradation.py` for the remaining 16 `PARTIAL` cells is
+      truncated mid-sentence at roughly 200-230 characters — a pre-existing
+      authoring defect in the tool itself (the strings are valid Python, so
+      nothing ever caught it), which means `OPERATOR_RUNBOOK.md`'s
+      degradation table, built from these same fields, has been showing an
+      operator incomplete, cut-off guidance for all 16. Not fixed in this
+      pass — rewriting 16 fields honestly needs the same per-condition
+      investigation a real closure does, not a mechanical un-truncation —
+      and flagged separately rather than patched over quickly.
+      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 16 conditions have
       real evidence and most are handled thoroughly; none is `COVERED` yet in
-      §10's fuller sense of all six required outcomes proven. No remaining
-      cell's own gap sentence describes actually-unsafe behavior in
-      production — each names a specific missing route-level test. So "no
-      unsafe failover" reads true on what exists; "the matrix passes" does
-      not — 17 dedicated tests away now.*
+      §10's fuller sense of all six required outcomes proven. So "no unsafe
+      failover" reads true on what exists; "the matrix passes" does not — 16
+      dedicated tests away now.*
 - [x] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
       *Reverified 6 September 2026: `nervis/tests/test_m7_traces.py` (correlated),
       `nervis/tests/test_m6_events.py` (bounded — the quarantine cap, the

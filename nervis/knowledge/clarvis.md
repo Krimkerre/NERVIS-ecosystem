@@ -50,6 +50,13 @@ events, and `/v1/status`. What it does **not** accept is any instruction from
 NERVIS. Registration lets NERVIS *see* an editor; there is no path by which
 NERVIS can drive one, and adding remote control is explicitly out of bounds.
 
+Registration also checks the Bridge's declared major protocol version (added
+6 September 2026, closing a real gap — the two peer-to-peer read paths
+already checked this, registration did not): a claim naming an unsupported
+major is refused outright rather than accepted, since registering is the one
+moment NERVIS can answer synchronously. An older Bridge that sends no
+`protocol_version` at all is still accepted — silence isn't a claim.
+
 ## Voice
 
 Off unless configured. A daily request cap, a chosen voice and engine, and a
