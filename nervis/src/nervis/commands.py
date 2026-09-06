@@ -922,7 +922,13 @@ def told(proposal: Proposal | None) -> str:
             "Do not say there is one, do not refer to a button from an earlier "
             "reply as though it were still on this one, and do not describe "
             "where to click. If they are asking for something you can offer, "
-            "ask them to name the target and it will appear on the next reply."
+            "ask them to name the target and it will appear on the next reply. "
+            "**Never say a save, write, export or any other operation already "
+            "happened** — not this turn, not an earlier one — unless NERVIS's "
+            "own reading says so. You have no way to know one occurred beyond "
+            "that reading, and 'it must have gone through' is a guess wearing "
+            "the words of a fact. If you are not sure whether something "
+            "happened, say exactly that."
         )
     if proposal.ready:
         # **The prohibition comes first, and names the words.** Told to mention
