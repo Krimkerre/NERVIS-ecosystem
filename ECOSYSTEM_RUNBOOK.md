@@ -1197,8 +1197,21 @@ may only add product-specific detail beside the required state.
       instead of quietly shrinking the gate. `test_clarvis_preflight.py` covers
       `ravis preflight clarvis`'s diagnosis of `clarvis-agent`'s own silent failure modes.
       All 32 tests pass.*
-- [ ] Clarvis lifecycle, workspace containment, approval gates, provider abstraction and
-      SecretStorage are unchanged.
+- [x] Clarvis lifecycle, workspace containment, approval gates, provider abstraction and
+      SecretStorage are unchanged. *Reverified by rerunning Clarvis's own suites in full
+      — `npm test` (1322/1322) and `npm run test:host` (16/16, the real-extension-host
+      half `npm test` cannot reach) — rather than assuming the ecosystem work left them
+      alone. Each named property has its own dedicated coverage inside that total:
+      lifecycle in `src/test/activation.spec.ts` (real extension host — activates without
+      throwing, every declared command registers); workspace containment in
+      `src/test/containment.spec.ts` (a real workspace folder — a climbing relative path
+      and a symlink pointing outside are both refused) and `src/agent/tools/
+      workspacePaths.ts`; approval gates across eleven files under `src/agent/gate/` plus
+      `gateDecision.test.ts` (148 tests — branch handling, dirty-tree detection, injection,
+      test-command gating, review, registry); provider abstraction across nine files
+      under `src/model/` (112 tests — model resolution, reasoning, tool probing, stream
+      assembly, treated uniformly across LM Studio, OpenRouter and the rest); SecretStorage
+      in `secretStoreLabel.test.ts`. Nothing here changed to make it pass.*
 - [ ] Multiple Clarvis instances remain isolated.
 - [ ] NERVIS negotiates actual capabilities; no UI assumes a missing API.
 - [x] NERVIS cannot bypass a Clarvis or RAVIS safety gate. *Reverified against the

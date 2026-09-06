@@ -13948,6 +13948,31 @@ tools. Reverified rather than trusted:
 
 32 tests across the four files run, all passing. No code changed.
 
+## §15's five-Clarvis-properties-unchanged item: reran the whole suite, not a sample, 2026-09-06
+
+"Unchanged" is a regression claim, so this closed by rerunning Clarvis's own
+full suite — `npm test` (1322/1322) and `npm run test:host` (16/16, the real
+extension-host half `npm test` cannot reach) — rather than assuming the
+ecosystem integration work left these five properties alone. Each has its own
+dedicated coverage inside that total:
+
+- **Lifecycle** — `src/test/activation.spec.ts` (real extension host):
+  activates without throwing, every command declared in `package.json`
+  registers.
+- **Workspace containment** — `src/test/containment.spec.ts` (a real
+  workspace folder): a relative path climbing out and a symlink pointing
+  outside the workspace are both refused. `src/agent/tools/workspacePaths.ts`
+  is the boundary check itself.
+- **Approval gates** — eleven files under `src/agent/gate/` plus
+  `gateDecision.test.ts`, 148 tests: branch handling, dirty-tree detection,
+  prompt injection, test-command gating, review, the gate registry.
+- **Provider abstraction** — nine files under `src/model/`, 112 tests: model
+  resolution, reasoning, tool probing, stream assembly, all treated uniformly
+  across LM Studio, OpenRouter and the rest.
+- **SecretStorage** — `secretStoreLabel.test.ts`.
+
+Nothing here changed to make any of it pass.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
