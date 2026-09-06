@@ -13973,6 +13973,32 @@ dedicated coverage inside that total:
 
 Nothing here changed to make any of it pass.
 
+## §15's multi-instance-isolation item: enforced from both directions, tested on both, 2026-09-06
+
+**NERVIS's receiving side.** `nervis/tests/test_m8a_registration.py`'s own
+"Per-extension-host instances, with no cross-instance leakage" section:
+`test_two_extension_hosts_appear_as_two_instances`,
+`test_one_instances_token_does_not_work_on_another`,
+`test_a_live_instance_id_is_not_taken_over`,
+`test_deregistration_needs_the_instances_own_token`. 16/16, reconfirmed.
+
+**Clarvis's sending side.** `identity.test.ts` — "two installations get
+different identities" and "different paths under one salt are different
+IDs" (`workspace_id` from path and salt, `instance_id` unique per
+extension-host lifetime), with "nothing here is derived from the machine"
+closing the path where shared machine-level state could otherwise leak
+across instances by accident.
+
+**The fold that reads both.** `nervis/src/nervis/clarvis.py` (M9) filters
+events by `source.instance_id` rather than by convention — a window with no
+events gets an empty list, never another window's recent traffic.
+
+**Already live-verified.** 29 August, `clarvis/plan.md` M14: two real
+Bridges against a real NERVIS took distinct instance and workspace IDs on
+distinct OS-assigned ports, and closing one removed only its own
+registration. Part of the full suites already reconfirmed for the prior
+item — 1322/1322 Clarvis. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
