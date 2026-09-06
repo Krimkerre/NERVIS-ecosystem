@@ -13999,6 +13999,28 @@ distinct OS-assigned ports, and closing one removed only its own
 registration. Part of the full suites already reconfirmed for the prior
 item — 1322/1322 Clarvis. No code changed.
 
+## §15's capability-negotiation item: the gate that quotes it directly, and the rules under it, 2026-09-06
+
+`nervis/tools/capability_check.js`'s own comment quotes this checklist line
+verbatim, built after `capable()` was found defined-and-never-called — "a
+fault this repository has now made twice." Reran rather than trusted: the
+gate renders every screen against services that are up and advertise
+nothing, and asserts three things together so none can pass by accident —
+no screen throws, a screen needing a capability renders the withheld block
+with every acting control disabled and a reason, and the same screens with
+capabilities advertised render neither. Current run: *"36 screens survive
+every surface being withdrawn, 24 say so, and none says so when the 15
+declared capabilities are advertised."*
+
+`nervis/src/nervis/negotiation.py`'s §5.2 rules each have a named test in
+`nervis/tests/test_m2_registry.py`:
+`test_an_unadvertised_capability_is_unknown_rather_than_assumed_fine`,
+`test_a_capability_this_build_never_heard_of_is_ignored` (an unrecognised
+*optional* capability from a newer peer is not treated as a fault),
+`test_an_unsupported_major_is_incompatible_not_unreachable` (marks the
+feature, not the whole dashboard), `test_removing_one_capability_disables_
+only_its_operation`. 54 tests, all passing. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

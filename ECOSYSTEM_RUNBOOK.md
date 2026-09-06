@@ -1231,7 +1231,24 @@ may only add product-specific detail beside the required state.
       distinct OS-assigned ports, and closing one removed only its own registration. Part
       of the full suites already reconfirmed for the prior item: 1322/1322 Clarvis,
       16/16 `test_m8a_registration.py`.*
-- [ ] NERVIS negotiates actual capabilities; no UI assumes a missing API.
+- [x] NERVIS negotiates actual capabilities; no UI assumes a missing API.
+      *`nervis/tools/capability_check.js`'s own comment quotes this line verbatim — built
+      after `capable()` was found defined-and-never-called, "a fault this repository has
+      now made twice." Reverified rather than trusted: the gate renders every screen
+      against services that are up and advertise nothing, and asserts three things
+      together — no screen throws, screens needing a capability render the withheld
+      block with every acting control disabled and a reason, and the same screens with
+      capabilities advertised render neither, so a gate that reported "withheld"
+      unconditionally couldn't pass all three. Current run: 36 screens survive, 24 say
+      so, none says so when advertised. `nervis/src/nervis/negotiation.py`'s §5.2 rules
+      (unknown capabilities are unavailable, an unrecognised *optional* capability is
+      ignored rather than a fault, an unsupported major marks the feature incompatible
+      without disabling the whole dashboard) each have a named test in
+      `nervis/tests/test_m2_registry.py` —
+      `test_an_unadvertised_capability_is_unknown_rather_than_assumed_fine`,
+      `test_a_capability_this_build_never_heard_of_is_ignored`,
+      `test_an_unsupported_major_is_incompatible_not_unreachable`,
+      `test_removing_one_capability_disables_only_its_operation`. 54 tests, all passing.*
 - [x] NERVIS cannot bypass a Clarvis or RAVIS safety gate. *Reverified against the
       current code and its own tests, not just read. The Clarvis half is structural
       two ways over: the Bridge refuses every non-GET method before path matching
