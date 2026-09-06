@@ -1306,6 +1306,18 @@ may only add product-specific detail beside the required state.
       Not closeable until the fourth pairwise gate exists (M14) and the two
       person-dependent scenarios are reproved against current code.*
 - [ ] The failure/degradation matrix passes with no unsafe failover.
+      *Reverified 6 September 2026: `tools/check_degradation.py` still reads 19
+      of 19 §10 conditions `PARTIAL`, unchanged from the 5 September audit —
+      zero `COVERED`, and `WITHOUT_LIVE_EVIDENCE` still zero, which is the
+      ratchet that stops a cell being called handled on a unit test alone.
+      Every condition has real evidence and most are handled thoroughly; none
+      is `COVERED` in §10's sense, which asks that its six required outcomes
+      be *proven*, not that the condition merely be coped with. No cell's own
+      gap sentence describes actually-unsafe behavior in production — each
+      names a specific missing route-level test, with the exact file, line and
+      smallest change that would close it, not a known misbehavior. So "no
+      unsafe failover" reads true on what exists; "the matrix passes" does
+      not — 19 dedicated tests away, not a reverification.*
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
 - [x] Security, threat-model and privacy gates pass — the stabilization track of
       3–5 September 2026, twelve items closed against an independent audit, each with

@@ -14151,6 +14151,31 @@ proxy is exactly the M14 work this ecosystem has not built. §15's pairwise/E2E
 checklist item stays unchecked for that reason and the two stale attended
 scenarios. No product code changed; the edit is to `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's degradation-matrix item: reran, found it exactly where 5 September left it, 2026-09-06
+
+`tools/check_degradation.py` was run for real rather than cited from memory:
+19 of 19 §10 conditions still read `PARTIAL`, `WITHOUT_LIVE_EVIDENCE` still
+zero. No drift in either direction since the 5 September audit that first
+turned §10's one running sentence into scored cells — the same nineteen
+conditions, the same evidence, the same named gap on each.
+
+**The distinction this item's own wording draws is worth stating plainly.**
+"The matrix passes" and "no unsafe failover" are two different claims, and
+only one of them holds. Every cell has real evidence and most conditions are
+handled thoroughly — SIRVIS's tombstone semantics, RAVIS's fallback and
+circuit logic, NERVIS's `unreachable`-vs-`stopped` distinction all cited with
+file and line — and nothing any cell's gap sentence says amounts to a
+production system doing something unsafe. What is missing is proof: each of
+the 19 asks that §10's six outcomes (truthful readiness, no failover crossing
+a constraint, bounded retries, bounded queues, idempotent recovery, standalone
+behavior preserved) hold under that specific condition, driven through a real
+route rather than a unit test calling the handler directly, and none does yet
+— each gap sentence names the exact file, line and smallest test that would
+close it. Nineteen dedicated route-level tests is real engineering work, not
+a reverification, so the checklist item stays unchecked with that distinction
+recorded rather than the item being either fabricated as done or left
+unexplained. No code changed; the edit is to `ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
