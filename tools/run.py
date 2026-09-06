@@ -735,7 +735,22 @@ def _alive(pid: int, marker: str) -> bool:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True, text=True, check=False,
         )
-        return str(pid) in found.stdout
+        if str(pid) not in found.stdout:
+            return False
+        try:
+            listed = subprocess.run(
+                ["powershell", "-Command",
+                 f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                capture_output=True, text=True, check=False,
+            )
+        except OSError:
+            # powershell.exe missing, not on PATH, or blocked (AppLocker and
+            # similar locked-down installs do this). We cannot positively
+            # confirm the PID is ours, so fail closed the same way a PID that
+            # no longer exists does: treat it as not-alive rather than either
+            # killing an unrelated process or crashing `stop` mid-loop.
+            return False
+        return marker in listed.stdout
     try:
         os.kill(pid, 0)
     except OSError:

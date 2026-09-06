@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from sirvis.errors import InvalidConfigurationError
 from sirvis.runtimes.base import (
     GenerationChunk,
     LoadedModel,
@@ -101,6 +102,29 @@ def add_unpublished(published: list[dict[str, Any]],
         and (build.family, build.runtime_format, build.quantization) not in described
     ]
     return published + added
+
+
+def _as_lms_argument(value: Any, field: str) -> str:
+    """One caller-supplied value, as the argv token it will become — or a
+    refusal when `lms` would read it as one of its own options.
+
+    `model_key`, `context_length` and `gpu_offload` all originate in a
+    caller's JSON body (`POST /api/v1/runtime/sessions`,
+    `POST /api/v1/runtime-sets`) and are placed into `lms`'s argv unquoted.
+    Every CLI parser, `lms` included, decides "option or value" by looking at
+    the leading character rather than at the position SIRVIS meant the token
+    to fill, so a value shaped like `--verbose` or `-y` would be read as a
+    flag rather than as data (CWE-88, a Claude Security scan). Refusing it
+    here, before it is ever placed in `arguments`, is what keeps a caller from
+    reaching `lms` options that were never meant to be reachable from the API.
+    """
+    text = str(value)
+    if text.startswith("-"):
+        raise InvalidConfigurationError(
+            f"{field} may not begin with '-': {text!r} would be read by the "
+            "lms CLI as an option rather than as the value it names"
+        )
+    return text
 
 
 # Loopback only. A hostname that merely resolves to this machine is not the
@@ -333,11 +357,14 @@ class LMStudioAdapter:
         configuration that was quietly discarded is evidence about nothing.
         """
         requested = dict(config or {})
-        arguments = ["load", model_key, "--yes"]
+        arguments = ["load", _as_lms_argument(model_key, "model_key"), "--yes"]
         if "context_length" in requested:
-            arguments += ["--context-length", str(requested["context_length"])]
+            arguments += [
+                "--context-length",
+                _as_lms_argument(requested["context_length"], "context_length"),
+            ]
         if "gpu_offload" in requested:
-            arguments += ["--gpu", str(requested["gpu_offload"])]
+            arguments += ["--gpu", _as_lms_argument(requested["gpu_offload"], "gpu_offload")]
         honoured = {"context_length", "gpu_offload"}
 
         # A non-zero exit here is the runtime answering and failing to load
@@ -364,7 +391,9 @@ class LMStudioAdapter:
         manager will drive, and it is why the method takes a model rather than
         deciding for itself what ought to go.
         """
-        self._run_lms(["unload", model_key], timeout=PROBE_TIMEOUT_SECONDS)
+        self._run_lms(
+            ["unload", _as_lms_argument(model_key, "model_key")], timeout=PROBE_TIMEOUT_SECONDS
+        )
 
     async def unload_all(self) -> None:
         """Unload everything. Only ever an operator's explicit choice."""

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2385 tests, no network, no live service
+.venv/bin/pytest                      # part of 2392 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 463 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2385 passing across the four, conformance `PASS`.
+Expected: all clean, 2392 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -13582,6 +13582,37 @@ time: the 28 tests written for this fix, the full 969-test `ravis` suite,
 it; the answer to "did it apply correctly" was checked rather than assumed.
 
 RAVIS 0.21.5.
+
+## F4, F8 and F9 applied — the rest of the scan's twice-verified patches, 2026-09-06
+
+The remaining three patches sitting in `CLAUDE-SECURITY-20260905-142106/patches/`
+were applied the same way F3 was: `git apply`, then re-verified from scratch in
+the real working tree rather than trusting the earlier review a third time.
+
+**F4** (`ravis/src/ravis/api/management/credentials.py` — the unauthenticated
+credential listing naming `client.*`/`admin.*` identity credentials): 18
+targeted tests plus the full 969-test `ravis` suite pass, `ruff`/`mypy` clean.
+
+**F8** (`sirvis/src/sirvis/runtimes/lmstudio.py` — argument injection into the
+`lms` CLI via `model_key`/`context_length`/`gpu_offload`): 23 targeted tests
+plus the full 469-test `sirvis` suite pass, `ruff`/`mypy` clean.
+
+**F9** (`tools/run.py` — the Windows PID-reuse gap in `_alive()`): this
+repository has no test suite for `tools/run.py` at all, and this session has
+no Windows host, so nothing here can be confirmed by running the real
+`tasklist`/`powershell` commands. What was checked: the file compiles, `ruff`
+and `mypy` report the same three pre-existing findings as the pre-patch file
+(nothing new, confirmed by mypy against both versions directly rather than
+assumed from memory), `tools/check_dead_code.py`/`tools/check_imports.py` are unaffected,
+and a logic harness — forcing `WINDOWS = True` and stubbing `subprocess.run`
+against the actual applied module — reproduces all six cases the patch's own
+verification rounds established: PID absent, a reused PID with no marker
+match, a real match, an empty command line, and both PowerShell-unavailable
+failure modes now failing closed instead of crashing `stop()`. Recorded as
+verified-by-reasoning, not verified-by-execution, exactly as the patch's own
+note already said.
+
+RAVIS 0.21.6. SIRVIS 0.15.8. NERVIS 0.23.12.
 
 ## Starting the thing
 

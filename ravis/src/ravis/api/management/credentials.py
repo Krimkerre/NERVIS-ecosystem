@@ -34,6 +34,7 @@ from pydantic import BaseModel
 from ravis.api.management import audit
 from ravis.credentials import CredentialStore
 from ravis.errors import ForbiddenError, to_response
+from ravis.identity import ADMIN_PREFIX, CLIENT_PREFIX
 from ravis.model_filter import ModelFilter, ModelFilters
 from ravis.provider_state import ProviderState
 from ravis.reliability.failures import FailureClass, HealthScope
@@ -181,9 +182,23 @@ async def list_credentials(request: Request) -> dict[str, Any]:
     Never a value, and never part of one. The screen needs exactly this to show
     "configured / not configured" and to warn when the file's permissions have
     drifted.
+
+    **Provider keys only, never identity credentials.** The same file also
+    holds the `client.*` / `admin.*` bearer credentials `identity.py` uses to
+    authenticate callers, and this endpoint has no authorization guard of its
+    own — it is reachable by an anonymous caller. Reporting a `client.` or
+    `admin.` *name* discloses nothing about its value, but it does disclose
+    which application ids exist and, worse, which one holds the `admin.`
+    credential that grants `may_write_credentials`/`may_write_configuration` —
+    reconnaissance an anonymous caller must not get for free. So those
+    namespaces are excluded before anything is merged with `KNOWN_PROVIDERS`.
     """
     store = _store(request)
-    known = set(store.known()) | set(KNOWN_PROVIDERS)
+    provider_names = {
+        name for name in store.known()
+        if not name.startswith(CLIENT_PREFIX) and not name.startswith(ADMIN_PREFIX)
+    }
+    known = provider_names | set(KNOWN_PROVIDERS)
     routable = _routable(request)
     return {
         "items": [

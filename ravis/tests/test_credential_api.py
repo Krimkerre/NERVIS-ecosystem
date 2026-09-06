@@ -51,6 +51,25 @@ def test_every_known_provider_has_a_row_before_anything_is_set(client: Any) -> N
     assert {"anthropic", "google", "openrouter"} <= set(names)
 
 
+def test_the_listing_never_names_a_client_or_admin_identity_credential(client: Any) -> None:
+    """§9.6.0's identity credentials share the same file and namespace as
+    provider keys, but they answer a different question and this endpoint has
+    no authorization guard — any anonymous caller can reach it. The fixture
+    already seeded `admin.tests` for authentication, so this also proves the
+    admin credential that authenticated the very request making this call is
+    never echoed back in its own response.
+    """
+    inner = client.app
+    while not hasattr(inner, "state"):
+        inner = inner.app
+    inner.state.credentials.store("client.clarvis", "an-ordinary-client-secret")
+
+    names = [item["name"] for item in client.get("/api/v1/providers/credentials").json()["items"]]
+
+    assert "admin.tests" not in names
+    assert "client.clarvis" not in names
+
+
 def test_a_stored_credential_is_reported_configured(client: Any) -> None:
     client.put("/api/v1/providers/credentials/google", json={"secret": SECRET})
 

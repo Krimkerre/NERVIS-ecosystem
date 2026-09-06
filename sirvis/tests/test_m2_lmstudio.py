@@ -21,6 +21,7 @@ import httpx
 import pytest
 from tests.conftest_lmstudio import INSTALLED, transport, unreachable
 
+from sirvis.errors import InvalidConfigurationError
 from sirvis.runtimes import LMStudioAdapter, RuntimeState, RuntimeUnavailableError
 from sirvis.runtimes.lmstudio import parse_lms_json
 
@@ -173,6 +174,95 @@ async def test_unload_all_drives_the_cli_and_is_reachable_nowhere_else() -> None
     await adapter.unload_all()
 
     assert ran == [["unload", "--all"]]
+
+
+# ── Argument injection (CWE-88, a Claude Security scan) ──────────────────────
+#
+# `model_key`, `context_length` and `gpu_offload` all originate in a caller's
+# JSON body and land in `lms`'s argv unquoted. Every case below asserts on
+# `ran` — the list `_run_lms` would have appended to — staying empty, which is
+# the difference between "the value never reached `subprocess.run`" and "the
+# eventual result was an error". A value that merely raised late could still
+# have shelled out first.
+
+
+def _recording_adapter() -> tuple[LMStudioAdapter, list[list[str]]]:
+    ran: list[list[str]] = []
+    adapter = LMStudioAdapter("http://runtime.invalid", client=httpx.AsyncClient(
+        transport=transport()
+    ))
+    adapter._resolve_lms = lambda: "/fake/lms"  # type: ignore[method-assign]
+
+    def record(arguments: list[str], timeout: float, **rest: object) -> str:
+        del timeout, rest
+        ran.append(arguments)
+        return ""
+
+    adapter._run_lms = record  # type: ignore[method-assign]
+    return adapter, ran
+
+
+async def test_a_flag_shaped_model_key_never_reaches_lms_load() -> None:
+    """The exploit scenario itself: an installed-looking key that is actually
+    an `lms` option (`--verbose`) must be refused before `subprocess.run`
+    ever gets a chance to run, not merely produce an eventual failure."""
+    adapter, ran = _recording_adapter()
+
+    with pytest.raises(InvalidConfigurationError, match="model_key"):
+        await adapter.load("--verbose", {"context_length": 8192})
+
+    assert ran == []
+
+
+async def test_a_flag_shaped_context_length_never_reaches_lms_load() -> None:
+    adapter, ran = _recording_adapter()
+
+    with pytest.raises(InvalidConfigurationError, match="context_length"):
+        await adapter.load("qwen2.5-coder-7b-instruct", {"context_length": "--some-flag"})
+
+    assert ran == []
+
+
+async def test_a_flag_shaped_gpu_offload_never_reaches_lms_load() -> None:
+    adapter, ran = _recording_adapter()
+
+    with pytest.raises(InvalidConfigurationError, match="gpu_offload"):
+        await adapter.load("qwen2.5-coder-7b-instruct", {"gpu_offload": "--gpu-flag"})
+
+    assert ran == []
+
+
+async def test_a_flag_shaped_model_key_never_reaches_lms_unload() -> None:
+    adapter, ran = _recording_adapter()
+
+    with pytest.raises(InvalidConfigurationError, match="model_key"):
+        await adapter.unload("--all")
+
+    assert ran == []
+
+
+async def test_ordinary_load_values_still_reach_lms_unchanged() -> None:
+    """The fix must not turn away a legitimate request. `gpu_offload: max` is
+    §7.1's own example configuration (SIRVIS.md §7.1), and a plain qualified
+    key and context length are what every other test in this module sends."""
+    adapter, ran = _recording_adapter()
+
+    await adapter.load(
+        "qwen2.5-coder-7b-instruct", {"context_length": 32768, "gpu_offload": "max"}
+    )
+
+    assert ran == [[
+        "load", "qwen2.5-coder-7b-instruct", "--yes",
+        "--context-length", "32768", "--gpu", "max",
+    ]]
+
+
+async def test_ordinary_unload_still_reaches_lms_unchanged() -> None:
+    adapter, ran = _recording_adapter()
+
+    await adapter.unload("qwen2.5-coder-7b-instruct")
+
+    assert ran == [["unload", "qwen2.5-coder-7b-instruct"]]
 
 
 # ── The builds the catalogue does not publish ────────────────────────────────

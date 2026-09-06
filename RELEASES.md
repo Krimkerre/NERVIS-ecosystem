@@ -91,7 +91,26 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.11
+## NERVIS — 0.23.12
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **F9: `tools/run.py stop` on Windows now checks the same process marker POSIX always
+  has.** `_alive()`'s Windows branch confirmed only that a recorded PID still existed via
+  `tasklist`, never that it was still *this launcher's* process — so a PID reused by an
+  unrelated process after a crash, reboot, or wraparound would be force-killed by
+  `taskkill` believing it was one of NERVIS/RAVIS/SIRVIS/code-server (CWE-367, a Claude
+  Security scan). Applied from the same patch pipeline as F3/F4/F8, two rounds: the first
+  added a real marker check via PowerShell's `Get-CimInstance Win32_Process` but crashed
+  `stop()` outright if `powershell.exe` was missing or blocked (AppLocker-style locked-down
+  installs) — caught before shipping and fixed with a `try/except OSError` that fails
+  closed instead, matching the function's existing behaviour for a PID that no longer
+  exists. **Verification note:** this session has no Windows host; the fix is verified by
+  reading, by independently confirmed `ruff`/`mypy`-clean status, and by a logic harness
+  reproducing the exact PID-reuse scenario and both PowerShell-unavailable failure modes
+  against the real applied file — not by an execution on real Windows.
+
+### 0.23.11
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -299,7 +318,24 @@ every entry.
 
 ---
 
-## RAVIS — 0.21.5
+## RAVIS — 0.21.6
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **F4: the credential listing no longer names identity credentials.** `GET
+  /api/v1/providers/credentials` has no authorization guard by design (it needs to answer
+  before anyone has exchanged a token), and it merged every stored credential name —
+  including the `client.*`/`admin.*` bearer credentials `identity.py` uses to grant
+  `may_write_credentials`/`may_write_configuration` — into its response with no filtering.
+  Any unauthenticated caller could enumerate which application identities exist, and which
+  one held admin rights: reconnaissance a Claude Security scan flagged as CWE-200. Applied
+  from the same twice-verified patch pipeline as F3 and re-verified in this working tree:
+  `list_credentials` now excludes `CLIENT_PREFIX`/`ADMIN_PREFIX` names (the real constants
+  `identity.py`'s own authentication logic uses, not redeclared) before merging with
+  `KNOWN_PROVIDERS`. Every legitimate provider row is unaffected; 18 targeted tests plus the
+  full 969-test suite pass, `ruff`/`mypy` clean.
+
+### 0.21.5
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -353,7 +389,23 @@ every entry.
 
 ---
 
-## SIRVIS — 0.15.7
+## SIRVIS — 0.15.8
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
+
+- **F8: a caller-supplied model name or configuration value could no longer smuggle a flag
+  into the `lms` CLI.** `LMStudioAdapter.load()`/`unload()` built `lms`'s argv straight from
+  caller-controlled `model_key`, `context_length` and `gpu_offload` — JSON body fields from
+  `POST /api/v1/runtime/sessions`/`POST /api/v1/runtime-sets` — with no check that any of
+  them couldn't be read as one of `lms`'s own options rather than the value it named
+  (CWE-88, a Claude Security scan). Applied from the same twice-verified patch pipeline as
+  F5/F6 and re-verified in this working tree: a new `_as_lms_argument()` helper refuses any
+  value beginning with `-` with `InvalidConfigurationError` (mapped to a 422) before it ever
+  reaches `subprocess.run`, applied at every dynamic argv slot in both methods. Ordinary
+  values reach `lms` exactly as before; 23 targeted tests plus the full 469-test suite pass,
+  `ruff`/`mypy` clean.
+
+### 0.15.7
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
 
