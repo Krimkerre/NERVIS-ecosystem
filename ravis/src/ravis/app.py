@@ -44,7 +44,7 @@ from ravis.admission import (
 from ravis.api.management import management_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
-from ravis.api.openai import chat_router, models_router
+from ravis.api.openai import chat_router, embeddings_router, models_router
 from ravis.config import Settings, resolved_capabilities
 from ravis.cost import PriceBook, UsageLedger, budget_from, load_prices
 from ravis.credentials import CredentialStore, credential_for
@@ -98,6 +98,7 @@ def create_app(settings: Settings) -> Any:
     api.include_router(ecosystem_router)
     api.include_router(models_router)
     api.include_router(chat_router)
+    api.include_router(embeddings_router)
     api.include_router(management_router)
     api.include_router(credentials_router)
     # Wrapping last means this ends up outermost, which is the entire point.

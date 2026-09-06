@@ -112,6 +112,17 @@ class Settings(BaseSettings):
     # back to "generic" rather than refusing to start: the cost of a typo here
     # should be capabilities RAVIS does not know about, not an outage.
     upstream_kind: str = "generic"
+
+    # ── Embeddings (RAVIS.md §4.2, pulled forward from "later") ─────────────
+    # A single configured target rather than routing: embeddings have no pool,
+    # no cost tradeoff and no fallback chain to choose between today, so this
+    # is the boring path M1 proved for chat, applied to the one operation that
+    # needs it. Defaults match the launcher's own Ollama exception — a local,
+    # already-pulled model matched to a background lookup rather than a chat
+    # model. Empty base URL means the capability answers DEGRADED with a
+    # stated reason rather than guessing at an address nobody configured.
+    embedding_base_url: str = "http://127.0.0.1:11434"
+    embedding_model: str = "nomic-embed-text"
     # **How long a local model stays resident after its last request.**
     #
     # A local runtime keeps a model loaded until something evicts it, so a

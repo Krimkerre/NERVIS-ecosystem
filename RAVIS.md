@@ -139,8 +139,14 @@ temperature, max-token normalization, stop sequences where supported, tools and 
 tool choice, structured output where feasible, usage metadata, provider-independent errors,
 and client disconnect/cancellation propagation.
 
-Shortly after MVP: `POST /v1/responses`. Later: `POST /v1/embeddings`. **Do not delay core
-routing for secondary APIs.**
+Shortly after MVP: `POST /v1/responses`. **`POST /v1/embeddings` was pulled forward and
+built on 6 September 2026**, ahead of "later" — NERVIS chat's own knowledge lookup needed a
+real embedding path rather than a workaround that reached into a local runtime directly,
+which would have crossed the one product boundary this ecosystem enforces everywhere else.
+Scoped to what that needed and no further: one configured local runtime (`RAVIS_EMBEDDING_BASE_URL`,
+default Ollama's `nomic-embed-text`), no routing between candidates, no fallback chain, no
+conformance suite yet — declared `ravis.embeddings@1`, `DEGRADED`, honestly. **Do not delay
+core routing for secondary APIs** remains the rule for everything this did not need to touch.
 
 OpenAI-compatible endpoints return **OpenAI-compatible error shapes**, not the MEP error
 envelope — clients parse them. The MEP envelope applies to the management API. Correlation IDs

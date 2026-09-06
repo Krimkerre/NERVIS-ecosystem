@@ -158,6 +158,17 @@ DECLARED: dict[str, Capability] = {
         reason="route selected, refused and completed, published to NERVIS's hub "
         "under the request's trace_id (M18b)",
     ),
+    # Degraded rather than available: real and working, but scoped to one
+    # configured local model with no routing, no fallback and no conformance
+    # suite yet — §4.1's bar for AVAILABLE. Pulled forward from RAVIS.md's own
+    # "later" note because NERVIS chat's knowledge lookup needs it now.
+    "ravis.embeddings@1": Capability(
+        version="1.0.0",
+        state=DEGRADED,
+        reason="POST /v1/embeddings forwards to one configured local runtime "
+        "(default: Ollama's all-minilm) — no multi-provider routing, no "
+        "fallback chain and no conformance suite yet, unlike the chat path",
+    ),
 }
 
 

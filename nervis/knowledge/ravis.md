@@ -103,6 +103,13 @@ provider-configuration writes exist, but authorization on a loopback bind is not
 finished. Cost figures are estimates from published prices unless the provider
 reported them; a record says which.
 
+**Embeddings are also degraded, and narrowly so on purpose.** `POST
+/v1/embeddings` forwards to one configured local runtime — Ollama's
+`nomic-embed-text` by default — with no routing between candidates and no
+fallback chain, unlike chat. Built for NERVIS chat's own knowledge lookup
+rather than a general-purpose embeddings API; a machine with no local
+embedding model configured gets a stated refusal, not a guess.
+
 ## The free pool
 
 `ravis/free-api` holds models that cost nothing **and** run on somebody else's
