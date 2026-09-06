@@ -1289,6 +1289,22 @@ may only add product-specific detail beside the required state.
       `live: false` rather than vanishing or lingering true) — moving the tally to
       39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`.*
 - [ ] Pairwise and full E2E suites pass against real services.
+      *Reverified 6 September 2026, and one real gap found. Of §8's four named
+      pairwise gates, three have live evidence against the current (patched)
+      code: SIRVIS→RAVIS (`tools/pairwise_check.py`, 13/13 real), RAVIS→Clarvis
+      and all-services→NERVIS (`tools/acceptance_run.py --unattended`, run
+      twice against the running stack — see below). The fourth,
+      NERVIS→code-server→Clarvis, has no implementation at all: NERVIS's own
+      `nervis.code_server_proxy` capability reports itself `unavailable`
+      because §13.3's proxy is unbuilt, the same M14 gap the code-server item
+      above names. Of §8's 16 required E2E scenarios, `tools/acceptance_run.py`
+      proved every one an unattended run can reach — twice, after real
+      routing/session security patches (F2–F9) landed since the last full pass
+      — but the two needing a person at an editor (Clarvis's contained task
+      through the route; the Bridge-disabled path) were last proved attended
+      on 5 September, before those patches, and were not reattended today.
+      Not closeable until the fourth pairwise gate exists (M14) and the two
+      person-dependent scenarios are reproved against current code.*
 - [ ] The failure/degradation matrix passes with no unsafe failover.
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
 - [x] Security, threat-model and privacy gates pass — the stabilization track of

@@ -14107,6 +14107,50 @@ code-server is what remains. §15's code-server checklist item stays unchecked:
 one matrix cell and all of M14 remain. No code changed; edits are to
 `clarvis/docs/code-server-matrix.md` and `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's pairwise/E2E item: reran against patched code, found one gap that's real and one that's noise, 2026-09-06
+
+Real routing and session code changed since the last full golden-path pass
+(5 September): F2's reply-markup parser fix, F5/F6's runtime-session ownership
+check, F3's Gemini allow-list, and the cross-origin mutation refusal, among
+others. That stale pass could not honestly stand as today's evidence, so it
+was rerun — twice — with `tools/pairwise_check.py` and
+`tools/acceptance_run.py --unattended` against the currently-running stack,
+not cited from memory.
+
+`tools/pairwise_check.py`: 13 of 13 real, unchanged from its usual shape —
+every §13.4 state filed through SIRVIS's own run path and read back by RAVIS's
+own store.
+
+**The first `acceptance_run.py --unattended` pass found a real failure, and it
+was not a regression.** *"the trial ended timeout: still running after 900s"*
+on the 24-attempt tool-call trial — a hard `FAIL`, not waved away. Checked
+against SIRVIS's own job record rather than trusted: `bj_44fba591fe2b`
+succeeded server-side at 932 seconds, twelve seconds past the script's
+client-side poll ceiling. Prior clean runs of the same suite took 320s and
+487s; this machine was, at that moment, running the full ecosystem stack, a
+desktop VS Code window, and two live code-server tabs at once — the multiple-Clarvis-instance
+test two sections above was performed on this same machine minutes earlier.
+Concurrent load, not a code defect. Rerun to confirm rather than assumed:
+second pass, same trial, 533 seconds — comfortably inside the ceiling — and
+every clause that could run in unattended mode `PROVED`, including the one
+that failed the first time: RAVIS selected the measured model and explained
+578 considered candidates.
+
+**What is now current and what still is not.** SIRVIS→RAVIS, RAVIS→Clarvis and
+all-services→NERVIS — three of §8's four named pairwise gates — have live
+evidence against the current, patched code as of today, not five-day-old
+evidence. `tools/acceptance_run.py` proved every one of §8's 16 scenarios an
+unattended run can reach. Two scenarios need a person at an editor — Clarvis's
+contained task through the route, and the Bridge-disabled path — and stayed at
+their 5 September attended evidence; the operator was not asked to rerun the
+editor half today, so those two are not reproved against the patched code,
+only against what shipped five days ago. The fourth pairwise gate,
+NERVIS→code-server→Clarvis, remains unimplemented — `nervis.code_server_proxy`
+reports itself `unavailable` in NERVIS's own capability list, because §13.3's
+proxy is exactly the M14 work this ecosystem has not built. §15's pairwise/E2E
+checklist item stays unchecked for that reason and the two stale attended
+scenarios. No product code changed; the edit is to `ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
