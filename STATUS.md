@@ -14208,6 +14208,43 @@ clause's evidence dated. §15's logs/events/traces item stays unchecked for
 that one clause; the other three now have same-day proof. No code changed;
 the edit is to `ECOSYSTEM_RUNBOOK.md`.
 
+## §15's rollback/recovery item: three services' backup story reverified, two real gaps named, 2026-09-06
+
+Extends today's earlier Clarvis rollback entry rather than duplicating it.
+NERVIS, RAVIS and SIRVIS each carry a real `storage/database.py`: SQLite's own
+online backup API rather than a file copy, a `.v{N}.bak` written beside the
+database before every migration, `restore_backup()` to put one back (latest
+by default, or a named version), and a build that refuses a database from a
+newer schema rather than risk it. This is not aspirational — NERVIS's own
+`nervis.db.v6.bak` through `.v10.bak` sit on disk from ordinary use across the
+last week. Reran rather than cited: `nervis/tests/test_storage_backup.py` (20),
+`ravis/tests/test_storage.py` (23) and `sirvis/tests/test_storage_backup.py`
+(16) plus each product's own CLI suite — 59 tests, all passing — covering
+§13's "back up before migration" and "never downgrade across an incompatible
+migration without a restore" for all three, not carried forward from memory.
+SIRVIS's immutable-provenance claim is the same tombstone evidence
+`tools/pairwise_check.py` already proved under the pairwise/E2E item earlier
+today (13/13).
+
+**Two clauses have nothing behind them, and they are different kinds of gap.**
+§13 says *"RAVIS never reroutes queued requests during recovery unless policy
+permits and idempotency is proven"* — but RAVIS holds no such queue to reroute.
+Its fallback chain (`ravis/src/ravis/reliability/attempts.py`) is
+per-request and in-memory, gone the moment the request finishes or the
+process restarts; nothing persists across a restart that recovery could
+reroute. The clause describes a feature that does not exist rather than one
+that exists untested, which makes it architecturally moot rather than a gap
+in evidence — worth recording as such rather than silently treating "nothing
+found" as "nothing to find." The second gap is real and open: §13's full
+failed-rollout sequence — stop new work, preserve logs and traces, disable
+new capability flags, drain or mark jobs, restore compatible versions, verify
+health and data integrity, then resume — has never been rehearsed as one
+drill. Every individual piece has been exercised somewhere (backup/restore
+above, health checks in `tools/acceptance_run.py`'s restart clause) but never
+strung together as the sequence §13 actually describes. §15's rollback item
+stays unchecked for that reason. No code changed; the edit is to
+`ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

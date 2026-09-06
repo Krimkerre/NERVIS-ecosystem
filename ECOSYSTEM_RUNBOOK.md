@@ -1356,6 +1356,28 @@ may only add product-specific detail beside the required state.
       folder-level backup, confirmed byte-identical. This is one product's rollback
       story, not NERVIS/RAVIS/SIRVIS's or a recovery-from-backup rehearsal, so the
       item stays open.*
+      *Extended, same day: NERVIS, RAVIS and SIRVIS each have a real
+      `storage/database.py` backup/restore mechanism — SQLite's own online
+      backup API, a `.v{N}.bak` beside the database before every migration
+      (NERVIS's own `nervis.db.v6.bak` through `.v10.bak` sit on disk from real
+      use), `restore_backup()` to put one back, and a build refusing a
+      database from a newer schema rather than using it. 59 tests rerun clean
+      across the three (`nervis/tests/test_storage_backup.py`,
+      `ravis/tests/test_storage.py`, `sirvis/tests/test_storage_backup.py`,
+      plus each product's CLI tests), covering exactly §13's "back up before
+      migration" and "never downgrade across an incompatible migration without
+      a restore." SIRVIS's immutable-provenance claim is what
+      `tools/pairwise_check.py`'s tombstone cells already prove (13/13,
+      reran under the pairwise/E2E item). Two clauses have no such evidence:
+      §13's "RAVIS never reroutes queued requests during recovery" describes a
+      persisted request queue RAVIS does not have — it holds a per-request,
+      in-memory fallback chain (`ravis/src/ravis/reliability/attempts.py`),
+      nothing that survives a restart to reroute — so the clause is
+      architecturally moot rather than tested; and the full failed-rollout
+      sequence (stop new work, preserve logs, disable flags, drain jobs,
+      restore, verify, resume) has never been rehearsed as one drill, only in
+      separately-tested pieces. Not closeable until that drill is run or the
+      RAVIS clause is either dropped or given something to actually test.*
 - [ ] Compatibility matrix, operator runbook, release notes and known limitations are
       published. *Release notes are `RELEASES.md`, enforced by `tools/check_releases.py`:
       each component's version is read from its own manifest, so a bump with no note fails
