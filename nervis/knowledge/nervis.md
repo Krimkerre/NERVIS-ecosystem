@@ -67,6 +67,18 @@ warming its embedding model at boot rather than paying that cost on first
 use; and a silent truncation bug that was cutting every multi-section
 background reading down to about 400 characters was fixed at its root.
 
+Also that day, found from a real failed save: asked to save its own last
+reply, chat had claimed a save succeeded when nothing had run, then — once
+that was fixed — offered a real button but with no filename and no ability
+to say so honestly. Both closed: a save or export with no name given now
+gets one derived from the attachment fed to chat, the reply's own opening
+line, or the conversation's title, never one invented mid-request; and
+**pressing Save writes the current reply's own text, verbatim, nothing
+assembled from earlier turns** — across a long back-and-forth revising one
+document, the full up-to-date version has to actually be written out in
+that same reply before offering the button, or what gets saved is whatever
+short remark was said instead.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

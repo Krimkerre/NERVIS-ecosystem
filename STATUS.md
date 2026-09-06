@@ -14713,6 +14713,48 @@ else. Rescored: it now ranks first (0.60, was not in the top 15). Reverified
 live: the exact motivating question now retrieves and correctly cites the
 real changes.
 
+## A save that lied, then a save with nowhere to put the file, then a save with the wrong content, 2026-09-06
+
+One real user report — chat claimed it had saved a markdown file, and it had
+not — turned into three separate, real fixes once actually traced.
+
+**The claim was a fabrication.** Full trace confirmed it directly: no
+`nervis.command.attempted` write event, no file anywhere on disk, and when
+asked "where did you save this" the model answered "I don't have a reading
+on that... but the save happened" — contradicting itself in one breath.
+`told()` (`nervis/src/nervis/commands.py`) now says explicitly: never claim
+a save, write or export already happened unless NERVIS's own reading
+confirms it.
+
+**Then a real save had nowhere to land.** `nervis.document.write` and
+`nervis.conversation.export` both require an explicit filename before
+`propose()` offers a button at all — deliberate, so NERVIS never invents a
+target — but the model, faced with "save it" or "let me download it," had
+no instruction covering that case and fabricated a flat "I can't create a
+download link" instead of asking for a name. Fixed properly: a save or
+export with no name given now falls back to one NERVIS derives itself — the
+attachment fed to chat plus "-annotated", failing that the reply's own
+opening line, failing that the conversation's title — the same "derived,
+not invented" boundary the export offer already drew for its own default,
+extended to the plain save. A real button now appears every time, with a
+real name, `.md` by default rather than `.pdf` for a single reply.
+
+**Then the save would have written the wrong thing anyway.** The deepest of
+the three, and the one that actually explains the original report: the user
+had fed chat a PDF, asked for changes across a long back-and-forth, and
+wanted the original text plus the proposed changes saved together.
+`nervis.document.write` saves the conversation's own last assistant
+message, verbatim — correct and unchanged — but nothing ever told the model
+that pressing Save writes *this reply's own text and nothing assembled from
+earlier turns*. Across a long revision session, "save it" naturally lands
+on whatever short reply is current at that moment, not the fuller version
+written several turns earlier. `told()` now says so for this operation
+specifically: if the full document is not already written out above, write
+it out in full before mentioning the button.
+
+Full suite reran clean after each of the three (898 tests), `ruff` and
+`mypy` clean throughout.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
