@@ -1280,12 +1280,14 @@ may only add product-specific detail beside the required state.
       M14 (the code tab: code-server management, reverse proxy, workspace launcher,
       Clarvis install) carries no status tag in `NERVIS.md` and has not been built.
       The matrix itself is graded against Clarvis 0.0.1 while the product ships
-      0.12.8, and of its 55 cells (51 original + 4 added by a coverage check) 2
-      remain `NOT_TESTED`: multiple windows on one server, and Bridge teardown under
-      code-server. A third, rollback to a prior `.vsix`, was closed for real on
-      6 September 2026 — see the "Upgrade, downgrade, backup, rollback" item below —
-      moving the tally to 38 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 2
-      `NOT_TESTED`.*
+      0.12.8, and of its 55 cells (51 original + 4 added by a coverage check) 1
+      remains `NOT_TESTED`: Bridge teardown under code-server. The other two were
+      closed for real on 6 September 2026 — rollback to a prior `.vsix` (see the
+      "Upgrade, downgrade, backup, rollback" item below) and multiple windows
+      against one server (two live code-server tabs, two distinct `instance_id`s
+      on two ports in NERVIS's own registry, and the closed tab correctly showing
+      `live: false` rather than vanishing or lingering true) — moving the tally to
+      39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`.*
 - [ ] Pairwise and full E2E suites pass against real services.
 - [ ] The failure/degradation matrix passes with no unsafe failover.
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.

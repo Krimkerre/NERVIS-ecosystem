@@ -14062,15 +14062,50 @@ cleanly (operator-confirmed).
 desktop-vs-code-server caveat stated in the doc itself: the storage format is
 identical either way, but a remote extension host's lifecycle differs, so this
 settles "does data survive a version swap," not "does it survive one under
-code-server specifically." Matrix tally moves to 38 `PASS` / 16
-`PASS_WITH_LIMITATION` / 0 `FAIL` / 2 `NOT_TESTED` (multiple windows on one
-server; Bridge teardown under code-server — both still name the instrument
-that would settle them). §15's code-server checklist item stays unchecked:
-two matrix cells and all of M14 remain. This also stands as partial evidence
-for §15's "Upgrade, downgrade, backup, rollback and recovery rehearsals pass"
-— one product's rollback story, not the whole ecosystem's, so that item stays
-open too. No code changed; both edits are to `clarvis/docs/code-server-matrix.md`
-and `ECOSYSTEM_RUNBOOK.md`.
+code-server specifically." Matrix tally moved to 38 `PASS` / 16
+`PASS_WITH_LIMITATION` / 0 `FAIL` / 2 `NOT_TESTED` at the time (a second cell
+closed later the same day — see below). §15's code-server checklist item
+stays unchecked either way: matrix cells and all of M14 remain. This also
+stands as partial evidence for §15's "Upgrade, downgrade, backup, rollback and
+recovery rehearsals pass" — one product's rollback story, not the whole
+ecosystem's, so that item stays open too. No code changed; both edits are to
+`clarvis/docs/code-server-matrix.md` and `ECOSYSTEM_RUNBOOK.md`.
+
+## §15's code-server item: a second `NOT_TESTED` cell closed live, same day
+
+The operator had two code-server browser tabs open at the same time as this
+was being written, which is exactly the untested configuration
+`clarvis/docs/code-server-matrix.md` named: *"one server with several windows."* Rather than
+let the moment pass, it was used. NERVIS's `/api/v1/registry/instances` (the
+Clarvis instance registry — distinct from `/api/v1/services`, which lists
+services rather than Clarvis windows) showed two live entries with distinct
+`instance_id`s on distinct ports (`52561`, `53774`), both `krimkerre.clarvis@0.12.6`.
+One tab was then closed and the registry re-queried: the closed instance's row
+did not vanish and did not linger as falsely live — it stayed present, marked
+`live: false`, while the untouched tab's row stayed `live: true` throughout.
+Both halves of the matrix's own settling criterion — distinct `instance_id`s on
+distinct ports, and closing one leaving the other registered — were observed
+directly rather than inferred.
+
+A third instance also appeared in the same registry query: a desktop VS Code
+window on the same machine, same NERVIS, its own distinct `instance_id` and
+port. Incidental rather than sought, and consistent with the M8a/M9 isolation
+evidence already in this repository — three windows across two different
+Clarvis hosts (code-server ×2, desktop ×1), no cross-talk, correlated purely by
+`instance_id`.
+
+Note on what this is not: closing a code-server *tab* is a client-side
+disconnect, not the process-teardown `Bridge.dispose()` case — the separate
+`NOT_TESTED` cell "Bridge teardown under code-server" is about whether the
+remote extension host itself runs `deactivate` promptly when its process ends,
+which this observation does not touch.
+
+`clarvis/docs/code-server-matrix.md`'s "multiple windows against one server"
+cell is now `PASS`. Matrix tally moves to 39 `PASS` / 16
+`PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED` — Bridge teardown under
+code-server is what remains. §15's code-server checklist item stays unchecked:
+one matrix cell and all of M14 remain. No code changed; edits are to
+`clarvis/docs/code-server-matrix.md` and `ECOSYSTEM_RUNBOOK.md`.
 
 ## Starting the thing
 
