@@ -49,6 +49,24 @@ measurement paraphrases it: one local build turned "4 of 6 services reachable"
 into "efficiently manages four key services", which is not a number anybody
 measured. So figures are rendered by NERVIS beside the reply.
 
+## What changed recently
+
+Asked directly and answered here on purpose, rather than only in `STATUS.md`
+(which chat never reads) — this section exists so a question like "what have
+you fixed lately" or "are you aware of the latest updates" has a real, dense
+answer to find, not a sentence diluted inside an unrelated section.
+
+As of 6 September 2026: chat's own background retrieval, described above,
+went live the same day — before it, a paraphrase sharing no vocabulary with
+these notes found nothing at all, which is the bug that made this section
+worth adding. Also that day: a Clarvis Bridge registering with an
+unsupported major protocol version is now refused outright, closing a real
+gap where the two peer-to-peer checks existed but the Bridge's own claim was
+never checked; Ollama now starts and stops with the rest of the stack,
+warming its embedding model at boot rather than paying that cost on first
+use; and a silent truncation bug that was cutting every multi-section
+background reading down to about 400 characters was fixed at its root.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

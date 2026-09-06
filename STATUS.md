@@ -14678,6 +14678,41 @@ been showing an operator incomplete, cut-off guidance for all 16 conditions.
 Not fixed here — rewriting 16 fields honestly needs the same per-condition
 investigation a real closure does — flagged rather than patched over.
 
+## Two real bugs found by just asking chat the motivating question again, 2026-09-06
+
+Asked chat the exact question that started the embeddings work — "any
+thoughts about the latest updates and bugfixes" — against the live stack,
+hours after that work shipped and was live-verified. It still answered "I
+have no reading on that." Two separate, real causes, neither of them the
+embeddings mechanism itself:
+
+**`build_version` had been silently wrong for a while.** NERVIS reported
+`0.23.0` after a full stack restart, while `nervis/pyproject.toml` says
+`0.23.14` — 14 version bumps with no drop in behavior, because
+`importlib.metadata.version("nervis")` reads the *installed* package's
+metadata, frozen at the last `pip install -e`, not a live read of
+`pyproject.toml`. An editable install serves live source for the actual
+code — restarting genuinely does pick up new behavior — but the version
+*string* only updates on reinstall. Fixed by reinstalling `ravis`, `nervis`
+and `protocol` editable in the one shared venv; both peers now report their
+real current version (`nervis` 0.23.14, `ravis` 0.21.6). Worth remembering
+generally: a version mismatch does not prove stale code, and matching
+versions do not prove fresh code either — check both independently.
+
+**The retrieval mechanism worked; the content lost the ranking.** With the
+version fixed, the same question still failed. Scored every real corpus
+section by cosine similarity directly: the sentences describing "what
+changed" had been added as single lines tacked onto unrelated sections —
+`clarvis.md`'s "The Bridge", `ravis.md`'s "Known limits" — so each one's
+embedding represented mostly the surrounding unrelated text, diluted below
+several generic sections that happened to share more surface vocabulary with
+"latest" and "current." Fixed by giving `nervis.md` a dedicated "What
+changed recently" section instead of more scattered addenda — the same
+"real fix, not another patch" standard this session has held to everywhere
+else. Rescored: it now ranks first (0.60, was not in the top 15). Reverified
+live: the exact motivating question now retrieves and correctly cites the
+real changes.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
