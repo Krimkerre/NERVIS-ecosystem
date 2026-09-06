@@ -988,7 +988,20 @@ def told(proposal: Proposal | None) -> str:
                 " Pressing it starts the benchmark straight away unless another "
                 "is already running, in which case it waits for that one. It is "
                 "not put in a queue to run later."
-                if proposal.operation == "sirvis.benchmark.submit" else ""
+                if proposal.operation == "sirvis.benchmark.submit" else
+                # **Pressing it saves this reply's own text, verbatim — nothing
+                # else.** Reported from use: asked to save "the annotated
+                # document" after a long back-and-forth revising one, this
+                # reply was a short remark about being ready, and that is what
+                # got offered to save. If the person wants the full, up-to-date
+                # document and this reply does not already contain it in full,
+                # write it out completely in this same reply before mentioning
+                # the button — a short reply plus a button saves the short reply.
+                " It saves the text of this reply exactly as written, nothing "
+                "assembled from earlier turns. If what they want saved is not "
+                "already written out in full above, write it out in full here "
+                "first — the button saves whatever this reply actually says."
+                if proposal.operation == "nervis.document.write" else ""
             )
         )
     return (
