@@ -16,6 +16,13 @@ reachable, what does it say about its own health, and which capabilities does it
 declare. "Healthy" on the dashboard means the service claimed healthy *and*
 answered — never a successful connection alone.
 
+**"Unreachable" and "stopped" are different findings.** A peer that stopped
+answering on its own — a crash, a network problem — is unreachable. "Stopped"
+is reserved for a peer NERVIS itself shut down. Confirmed live rather than
+just designed: killing SIRVIS by hand and watching NERVIS's own reading
+produces unreachable, never stopped, until SIRVIS comes back and reports
+itself healthy again.
+
 ## Chat, and what it is allowed to do
 
 Chat is an ordinary RAVIS client with one addition: before the model sees
@@ -157,6 +164,15 @@ would look exactly like the truth until it was wrong.
 A window whose editor closed stops renewing its registration, and the screen
 says the lease lapsed rather than quietly showing its last known state as
 current.
+
+**Two windows on one code-server, confirmed live rather than assumed.** On 6
+September 2026, two browser tabs open against the same running code-server
+each registered their own distinct instance — different ids, different
+ports, `GET /api/v1/registry/instances` showing both. Closing one left it in
+the list marked as lapsed rather than vanishing or lingering as live, while
+the untouched tab stayed live throughout. A third window (desktop VS Code, on
+the same NERVIS) showed up in the same reading with its own identity — three
+windows, two different kinds of editor, no cross-talk.
 
 ## Looking inside one request
 

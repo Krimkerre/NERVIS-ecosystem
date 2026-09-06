@@ -14417,6 +14417,61 @@ match. New test in `ravis/tests/test_m18b_events.py`; edit to
 production behavior changed, only the proof that existing behavior is
 correct.
 
+## `nervis/knowledge/` updated with what changed, on the operator's own instruction
+
+Prompted by a direct question: does NERVIS chat know about any of the last
+few days' work? It does not, and `nervis/src/nervis/knowledge.py`'s own docstring
+explains why on purpose — chat never reads `STATUS.md` or git history, only
+the short, hand-curated files in `nervis/knowledge/`, because a chronological
+record surfaces decisions that were true in August and reverted in September.
+Nothing in those files mentioned any of it. The operator's instruction was
+direct: keep this current going forward, every time something real lands —
+saved as a standing note for future sessions, not just done once here.
+
+**A real gate gap surfaced while trying to cite the new instance-registry
+endpoint honestly.** `tools/knowledge_check.py` verifies every pool, endpoint
+and setting a knowledge file names against the code that defines it — and
+correctly refused `/api/v1/registry/instances`, reporting it as served by
+nothing. The endpoint is real (used live twice already today); the gate's
+endpoint scanner just could not see it, because `nervis/src/nervis/api/instances.py`
+bakes its whole path into `APIRouter(prefix=...)` with routes declared
+against `""`, and the scanner only ever looked for a route decorator's own
+string. Fixed at the source rather than worked around: the scanner now reads
+each file's own `APIRouter(prefix=...)` (if any) and prepends it to that
+file's route suffixes — 95 endpoints known before, 112 after, all from
+router prefixes that were always real and simply invisible to this gate.
+`nervis/tests/test_knowledge.py`'s 12 tests still pass unmodified.
+
+Five files updated, each with only what changed and is now current, not
+restated wholesale: `nervis/knowledge/ecosystem.md`'s existing "What they
+share" section gained the three services' real `restore-database` command
+(confirmed working, not just read from the code) and Clarvis's tested
+rollback, plus a pointer to `OPERATOR_RUNBOOK.md`; `nervis/knowledge/nervis.md`
+gained the unreachable-vs-stopped distinction and today's live two-tabs
+multiple-windows evidence, both with their concrete citations; `nervis/knowledge/ravis.md`
+gained the dead-collector-readiness guarantee, now backed by a real test
+rather than only a comment; `nervis/knowledge/clarvis.md`'s version (0.11.2 → 0.12.8) and
+milestone summary were stale independent of this week — M15's real grade and
+tally are now current, and the rollback proof is named. `nervis/knowledge/sirvis.md`
+untouched: nothing this week changed a SIRVIS mechanism.
+
+**The corpus's own falsifier test caught a real, if tiny, regression.**
+`nervis/tests/test_knowledge.py::test_a_question_squarely_about_state_gets_no_background`
+asserts that four state-only questions ("how much have i spent today" among
+them) retrieve nothing — retrieval here is term-overlap scored by
+`nervis/src/nervis/knowledge.py`'s `_weight()`, an inverse-document-frequency
+figure computed across every section in every file, so adding a section
+anywhere reweights every term everywhere by a little. A first draft of this
+edit added `nervis/knowledge/ecosystem.md` a new `## Backup, rollback and recovery` heading,
+one more section in the denominator, which nudged the common word "much" —
+already sitting right at `MIN_SCORE`'s edge in an unrelated Clarvis-settings
+section — just over it. Diagnosed by computing the actual term weights rather
+than guessed at; fixed by folding the new content into the existing "What
+they share" section instead of adding a heading, which changes nothing about
+what is said and everything about whether the section count moves.
+`tools/knowledge_check.py` and all 891 of `nervis`'s own tests, including the
+falsifier, pass clean after the fix.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

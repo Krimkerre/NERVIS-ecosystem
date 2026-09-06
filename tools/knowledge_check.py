@@ -83,11 +83,23 @@ def _endpoints_that_exist() -> set[str]:
     routers reported `/v1/status` as served by nothing — which is exactly the
     kind of confident wrongness this gate exists to prevent, produced by the
     gate itself. Clarvis's Bridge serves it from a `switch` in TypeScript.
+
+    **A second gap, same shape.** A router whose whole path lives in its own
+    `prefix=` — `APIRouter(prefix="/api/v1/registry/instances")` with routes
+    declared against `""` — reported `/api/v1/registry/instances` as served by
+    nothing too, because a bare `@router.get("")` carries no path of its own to
+    find. Read per file rather than globally: two routers in one file could
+    otherwise have their prefixes and suffixes cross-multiplied into paths
+    nothing serves.
     """
     found: set[str] = set()
     for package in ("nervis", "ravis", "sirvis"):
         for source in (ROOT / package / "src").rglob("*.py"):
-            found.update(re.findall(r'@router\.\w+\(\s*"([^"]+)"', _read(source)))
+            text = _read(source)
+            prefix_match = re.search(r'APIRouter\(\s*prefix="([^"]*)"', text)
+            prefix = prefix_match.group(1) if prefix_match else ""
+            for suffix in re.findall(r'@router\.\w+\(\s*"([^"]*)"', text):
+                found.add(prefix + suffix)
     bridge = ROOT.parent / "clarvis" / "src" / "bridge"
     if bridge.is_dir():
         for source in bridge.glob("*.ts"):

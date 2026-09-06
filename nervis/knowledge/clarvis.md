@@ -65,14 +65,25 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.11.2**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.12.8**, 29 commands, 23 settings, VS Code ^1.93.
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
-the NERVIS Bridge — was signed off on 29 Aug**; the recent releases are its
-follow-through: 0.10.0 sends the session and trace RAVIS joins on, 0.10.1 gives
-chat and the agent their own sessions, 0.11.0 publishes events to NERVIS with
-the trace on them, 0.11.2 makes one chat turn name a single trace start to
-finish.
+the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its
+follow-through: sending the session and trace RAVIS joins on, giving chat and
+the agent their own sessions, and publishing events to NERVIS with the trace
+on them. **M15 — browser (code-server) compatibility — is graded
+`PASS_WITH_LIMITATION`**: the existing `.vsix` still works there, desktop
+regression holds, and the matrix stands at 39 `PASS` / 16
+`PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED` (Bridge teardown under
+code-server — the rest of the matrix's gaps closed 6 September). What M15
+does not yet cover is code-server *management* — that is M14's sibling
+milestone in NERVIS's own plan, not Clarvis's, and has no status tag because
+it has not been built.
+
+Rollback — reinstalling a prior `.vsix` over the current one — was proven
+safe for real on 6 September 2026: both the stored provider key and the
+conversation history survived a version downgrade byte-for-byte on a live
+workspace, not a fixture.
 
 Designed and **not built**: M9g (project notes the user writes), M10 (voice
 input), M12 (Tutor Mode). M11 is the release gate rather than a future

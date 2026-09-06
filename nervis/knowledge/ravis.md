@@ -77,6 +77,15 @@ it.
 can declare a request as background — a conversation title, say — and RAVIS
 excludes paid providers unless told otherwise.
 
+**A dead NERVIS never makes RAVIS report itself unready.** This regressed
+once for real: a readiness check that read the event publisher's own
+dropped-event count made a dead collector look like a RAVIS problem, which
+broke the rule that a collector outage leaves every product healthy. The fix
+was to stop checking it — a dropped event is logged, not turned into an
+opinion about RAVIS's own health — and it is now a route-level regression
+test rather than only a code comment: overflow the publisher's buffer against
+a collector that refuses every request, and readiness still reads true.
+
 ## What an operator can ask it for
 
 Live: which providers are reachable, which models are routable, what a specific
