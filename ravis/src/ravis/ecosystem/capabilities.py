@@ -166,7 +166,7 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=DEGRADED,
         reason="POST /v1/embeddings forwards to one configured local runtime "
-        "(default: Ollama's all-minilm) — no multi-provider routing, no "
+        "(default: Ollama's nomic-embed-text) — no multi-provider routing, no "
         "fallback chain and no conformance suite yet, unlike the chat path",
     ),
 }
