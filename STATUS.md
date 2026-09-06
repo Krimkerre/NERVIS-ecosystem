@@ -13898,6 +13898,33 @@ than a log line only RAVIS itself ever reads.
 47 tests across `ravis/tests/test_hard_constraints_route.py` (6) and
 `ravis/tests/test_routing.py` (41), all passing. No code changed.
 
+## §15's OpenAI-contract item: five files, five distinct claims, all reverified, 2026-09-06
+
+No single file is named for "streaming, cancellation, tools, errors and usage
+pass contract tests" — the coverage is spread across five, each stating a
+distinct piece of the contract in its own docstring. Reran all five rather
+than trusting a past pass:
+
+- **`ravis/tests/test_translated_wire.py`** (M3b, §6) — constructed stream
+  frames (tool-call indexes and ids, fragmented JSON arguments, reasoning
+  fields, finish reasons, usage chunks, `[DONE]`) asserted against fixtures
+  *recorded from a real OpenAI-compatible server*, not against a reading of
+  documentation — "the point of the suite is to notice when RAVIS smooths
+  something away."
+- **`ravis/tests/test_translated_path.py`** (M3b end to end) — proves cancellation
+  actually reaches the provider, not merely that the client's own connection
+  closes.
+- **`ravis/tests/test_transparent_proxy.py`** (M1) — the untranslated path forwards
+  bytes byte for byte, unchanged.
+- **`ravis/tests/test_fallback.py`** (M12 end to end) — states its own acceptance
+  criterion outright: "none of it can corrupt a stream or turn a
+  cancellation into a second request."
+- **`ravis/tests/test_malformed_requests.py`** — errors, found originally by sending
+  deliberately bad payloads at a running RAVIS rather than by reading the
+  code (two families of 5xx, both fixed at the time).
+
+70 tests total (9 + 10 + 15 + 29 + 7), all passing. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

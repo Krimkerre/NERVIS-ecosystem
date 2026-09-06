@@ -1167,7 +1167,21 @@ may only add product-specific detail beside the required state.
       `RouteDecision`/`ExcludedCandidate` carry that explanation as a stored, redacted
       object rather than a log line, reaching NERVIS and traces. 47 tests across
       `ravis/tests/test_hard_constraints_route.py` and `test_routing.py`, all passing.*
-- [ ] OpenAI-compatible streaming, cancellation, tools, errors and usage pass contract tests.
+- [x] OpenAI-compatible streaming, cancellation, tools, errors and usage pass contract
+      tests. *No single file is named for this line; the coverage is spread across five,
+      each stating a distinct piece of the contract in its own docstring, reverified by
+      rerunning all five rather than trusting a past pass. `test_translated_wire.py`
+      (M3b, §6) asserts constructed stream frames — tool-call indexes, tool-call ids,
+      fragmented JSON arguments, reasoning fields, finish reasons, usage chunks, `[DONE]`
+      — against fixtures recorded from a real OpenAI-compatible server, "the point of the
+      suite is to notice when RAVIS smooths something away." `test_translated_path.py`
+      (M3b end to end) proves cancellation actually reaches the provider, not just the
+      client's own connection. `test_transparent_proxy.py` (M1) proves the untranslated
+      path forwards bytes unchanged, byte for byte. `test_fallback.py` (M12 end to end)
+      states its own acceptance criterion outright: "none of it can corrupt a stream or
+      turn a cancellation into a second request." `test_malformed_requests.py` covers
+      errors, found originally by sending deliberately bad payloads at a running RAVIS
+      rather than by reading the code. 70 tests total, all passing.*
 - [ ] `clarvis-chat` and `clarvis-agent` are independently configurable and tested.
 - [ ] Clarvis lifecycle, workspace containment, approval gates, provider abstraction and
       SecretStorage are unchanged.
