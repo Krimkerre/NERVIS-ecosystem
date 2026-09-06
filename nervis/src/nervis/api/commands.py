@@ -32,7 +32,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, handoff, learned, pdf, transcript
+from nervis import chat, commands, documents, handoff, learned, pdf, style, transcript
 from nervis.api.chat_calls import _forwarded
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -424,7 +424,28 @@ def _write_document(request: Request, named: str, conversation_id: str) -> dict[
     ]
     if not written:
         raise InvalidConfigurationError("this conversation has no reply to save yet")
-    return _write_into_workspace(request, root, named, written[-1].content)
+    return _write_into_workspace(
+        request, root, named, written[-1].content,
+        template_style=_template_style(root, conversation_id),
+    )
+
+
+def _template_style(root: str, conversation_id: str) -> style.StyleProfile | None:
+    """This conversation's newest attachment's own look, if it is a PDF.
+
+    Mirrors `chat_titles._attachment_title`'s lookup exactly (`attachment_dir`
+    then `list_files`, newest first) — the newest attachment is what "the
+    template" means, the same way it is what "annotated" already means there.
+    A newer, unrelated file ahead of an older PDF means there is no template,
+    not that NERVIS should reach past it for one.
+    """
+    place = documents.attachment_dir(Path(root), conversation_id) if root else None
+    if place is None:
+        return None
+    found = documents.list_files(place)
+    if not found or Path(found[0].name).suffix.lower() != ".pdf":
+        return None
+    return style.extract_style(place / found[0].name)
 
 
 def _workspace(request: Request) -> str:
@@ -441,6 +462,7 @@ def _workspace(request: Request) -> str:
 def _write_into_workspace(
     request: Request, root: str, named: str, text: str, turns: int = 0,
     conversation: tuple[str, str, list[Any]] | None = None,
+    template_style: style.StyleProfile | None = None,
 ) -> dict[str, Any]:
     """One text, one filename, one boundary.
 
@@ -448,6 +470,12 @@ def _write_into_workspace(
     conversation differ only in what they assemble; the path comparison, the
     renderer, the audit line and the shape of the answer are the same act. Two
     copies of a boundary disagree eventually, and this is the boundary.
+
+    **`template_style` reaches only the plain-reply path.** `_export_conversation`
+    never passes one, so `pdf.render_conversation` — a picture of the chat
+    window, not a document with a look of its own to borrow — is untouched by
+    this parameter existing at all, structurally rather than by a condition
+    either caller has to remember to check.
     """
     try:
         resolved = resolve_in_workspace(Path(root), named)
@@ -457,7 +485,7 @@ def _write_into_workspace(
     if resolved.path.suffix.lower() == ".pdf":
         rendered = (
             pdf.render_conversation(*conversation) if conversation
-            else pdf.render(resolved.shown, text)
+            else pdf.render(resolved.shown, text, template_style)
         )
         payload, detail = rendered.data, f"{rendered.pages} page(s)"
         if rendered.unsupported:

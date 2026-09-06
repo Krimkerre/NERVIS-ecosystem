@@ -1,8 +1,11 @@
 """A conversation, turned into something a page can be made of."""
 from __future__ import annotations
 
+import io
 from datetime import datetime
 from types import SimpleNamespace
+
+from pypdf import PdfReader
 
 from nervis.pdf import render
 from nervis.transcript import as_markdown, suggested_name
@@ -72,12 +75,15 @@ def test_a_very_long_title_is_bounded() -> None:
 def test_the_markdown_renders_as_a_pdf() -> None:
     """The round trip. `transcript` decides what it reads like and `pdf` decides
     where the glyphs go; a transcript that produced markdown the renderer choked
-    on would pass every test above."""
+    on would pass every test above. Read back through `pypdf` rather than
+    matched against raw bytes — a reader's own view of the file, and the same
+    way `pdf.py`'s own tests verify `render`'s reportlab-based output."""
     out = render("Q3", as_markdown("Q3 review", [
         _turn("user", "why is ravis slow?"),
         _turn("assistant", "It was going through OpenRouter, sir."),
     ], WHEN))
 
-    assert out.data.startswith(b"%PDF-1.4")
-    assert b"(why is ravis slow?)" in out.data
-    assert b"(Q3 review)" in out.data
+    assert out.data.startswith(b"%PDF-1.")
+    text = PdfReader(io.BytesIO(out.data)).pages[0].extract_text()
+    assert "why is ravis slow?" in text
+    assert "Q3 review" in text

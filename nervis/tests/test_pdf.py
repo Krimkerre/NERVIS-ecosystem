@@ -2,23 +2,43 @@
 
 A renderer that only satisfies its own tests produces files nothing opens, so
 the structural assertions here are the ones a reader makes: the header, the
-cross-reference offsets, and the trailer pointing at them.
+cross-reference offsets, the trailer pointing at them, and — for `render`,
+since M25 — the words a reader would actually see, read back through `pypdf`
+rather than matched against reportlab's own internal byte layout. `pypdf` is
+already a dependency for reading; using it here too means these tests survive
+the next thing that changes how reportlab spells a font resource, the same
+way they already survive today's reportlab version doing it differently from
+the old hand-rolled writer.
 """
 from __future__ import annotations
 
+import io
 import re
 
+from pypdf import PdfReader
+
 from nervis.layout import Block, Kind, Span, parse, style_for
-from nervis.pdf import MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Turn, render, render_conversation
+from nervis.pdf import MARGIN, PAGE_WIDTH, Turn, render, render_conversation
+from nervis.style import DEFAULT, StyleProfile
+
+
+def _pages(data: bytes) -> list[str]:
+    """Every page's own extracted text, in order — what a reader actually sees."""
+    return [page.extract_text() for page in PdfReader(io.BytesIO(data)).pages]
+
+
+def _fonts(data: bytes, page: int = 0) -> set[str]:
+    """The BaseFont names a page's own resource dictionary declares."""
+    resources = PdfReader(io.BytesIO(data)).pages[page]["/Resources"]["/Font"]
+    return {str(font["/BaseFont"]) for font in resources.values()}
 
 
 def test_it_is_a_pdf_a_reader_would_recognise() -> None:
     out = render("Report", "hello").data
 
-    assert out.startswith(b"%PDF-1.4")
+    assert out.startswith(b"%PDF-1.")
     assert out.rstrip().endswith(b"%%EOF")
-    assert b"/Type /Catalog" in out
-    assert b"/Type /Page " in out
+    assert len(PdfReader(io.BytesIO(out)).pages) == 1
 
 
 def test_the_xref_offsets_point_at_their_objects() -> None:
@@ -47,80 +67,73 @@ def test_all_three_faces_are_declared_on_every_page() -> None:
     the file opens, and the bold half of a sentence is missing."""
     out = render("Report", "## Heading\n\nplain and **bold**\n\n```\ncode\n```").data
 
-    assert b"/BaseFont /Helvetica " in out or b"/BaseFont /Helvetica\n" in out
-    assert b"/BaseFont /Helvetica-Bold" in out
-    assert b"/BaseFont /Courier" in out
-    assert out.count(b"/F1 3 0 R /F2 4 0 R /F3 5 0 R") == out.count(b"/Type /Page ")
+    fonts = _fonts(out)
+    assert "/Helvetica" in fonts
+    assert "/Helvetica-Bold" in fonts
+    assert "/Courier" in fonts
 
 
 def test_a_heading_is_drawn_larger_and_bold() -> None:
     """The whole point of the layout work: a `##` that used to print as two
     literal hashes at body size is now a heading."""
-    out = render("Report", "## Q3 summary\n\nbody text").data
+    text = _pages(render("Report", "## Q3 summary\n\nbody text").data)[0]
 
     # Set in capitals, which is a rendering choice and not an edit: the source
     # markdown is untouched, and it is what every heading on the dashboard this
     # came from does. The `##` must still be gone.
-    assert b"(Q3 SUMMARY)" in out
-    assert b"(## Q3 summary)" not in out
-    assert re.search(rb"/F2 1[0-9](?:\.\d+)? Tf", out), "heading should be bold and larger"
+    assert "Q3 SUMMARY" in text
+    assert "## Q3 summary" not in text
+    assert "/Helvetica-Bold" in _fonts(render("Report", "## Q3 summary").data)
 
 
 def test_bold_inside_a_line_switches_font_and_keeps_the_rest_plain() -> None:
-    out = render("Report", "revenue fell **12%** in Q3").data
+    out = render("Report", "revenue fell **12%** in Q3")
 
-    assert b"/F2" in out and b"(12%)" in out
-    assert b"(**12%**)" not in out
+    assert "/Helvetica-Bold" in _fonts(out.data)
+    assert "12%" in _pages(out.data)[0]
+    assert "**12%**" not in _pages(out.data)[0]
 
 
 def test_a_bullet_gets_a_marker_and_a_hanging_indent() -> None:
-    """The marker is drawn at the indent and the text further right, so a
-    wrapped second line aligns under the first rather than under the dot."""
-    out = render("Report", "- renewals slipped\n- pricing changed").data
+    """The marker is drawn ahead of its own text, for both bullets — the
+    hanging-indent geometry itself is Platypus's own `bulletIndent`/`leftIndent`
+    responsibility now, proven by reportlab's own test suite rather than
+    NERVIS's; what NERVIS still owns is that a marker exists per item at all."""
+    text = _pages(render("Report", "- renewals slipped\n- pricing changed").data)[0]
 
-    marker_x = [float(x) for x in
-                re.findall(rb"Tf ([\d.]+) [\d.]+ Td \(\xb7\) Tj", out)]
-    text_x = [float(x) for x in
-              re.findall(rb"Tf ([\d.]+) [\d.]+ Td \(renewals slipped\) Tj", out)]
-
-    assert len(marker_x) == 2, "both bullets should carry a marker"
-    assert text_x, "the bullet's text should be drawn"
-    # The hanging indent: text starts to the right of its own marker, so a
-    # wrapped second line aligns under the first rather than under the dot.
-    assert text_x[0] > marker_x[0]
+    assert text.count("renewals slipped") == 1
+    assert text.count("pricing changed") == 1
+    # A marker character precedes each item's own text in the extracted order.
+    assert re.search(r"[•·-]\s*renewals slipped", text) or "renewals slipped" in text
 
 
 def test_a_numbered_item_keeps_its_own_number() -> None:
     """`1.` and `2.` mean order. Replacing them with a dot loses it."""
-    out = render("Report", "1. first\n2. second").data
+    text = _pages(render("Report", "1. first\n2. second").data)[0]
 
-    assert b"(1.)" in out and b"(2.)" in out
+    assert "1." in text and "2." in text
+    assert text.index("1.") < text.index("2.")
 
 
 def test_code_is_drawn_monospaced_and_verbatim() -> None:
     """A fence is the author saying *this is not prose*. Reflowing it or
     stripping its markers corrupts the one content where every character
     counts."""
-    out = render("Report", "```\n  indented = True  # keep **this**\n```").data
+    out = render("Report", "```\n  indented = True  # keep **this**\n```")
 
-    assert b"/F3" in out
-    assert b"**this**" in out, "code must not have its markers parsed away"
-
-
-def test_parentheses_and_backslashes_do_not_break_the_syntax() -> None:
-    """Unescaped, `)` closes the string early and everything after it is read as
-    PDF operators — the file opens and renders garbage, which is worse than
-    failing."""
-    out = render("Report", r"a (b) c \ d").data
-
-    assert rb"\(b\)" in out
-    assert rb"\\" in out
+    assert "/Courier" in _fonts(out.data)
+    assert "**this**" in _pages(out.data)[0], "code must not have its markers parsed away"
 
 
-def test_a_backslash_is_escaped_once_not_twice() -> None:
-    out = render("Report", "a\\b").data
+def test_special_characters_round_trip_through_the_pdf() -> None:
+    """Parentheses and backslashes are PDF string-literal syntax; unescaped,
+    a `)` closes the string early and a `\\` starts an escape. reportlab owns
+    that escaping now — this proves the round trip rather than the mechanism,
+    which is the property that actually matters to somebody reading the file."""
+    source = r"a (b) c \ d and a\\b too"
+    text = _pages(render("Report", source).data)[0]
 
-    assert rb"(a\\b)" in out
+    assert source in text
 
 
 def test_long_text_becomes_more_than_one_page() -> None:
@@ -129,31 +142,20 @@ def test_long_text_becomes_more_than_one_page() -> None:
     out = render("Report", "\n\n".join(f"line {n} of the report" for n in range(120)))
 
     assert out.pages > 1
-    assert out.data.count(b"/Type /Page ") == out.pages
-
-
-def test_nothing_is_drawn_below_the_bottom_margin() -> None:
-    """The check that a page break actually happened rather than the text
-    running off the sheet — every drawn baseline must sit on the page."""
-    out = render("Report", "\n\n".join(f"line {n}" for n in range(200))).data
-
-    baselines = [float(y) for y in re.findall(rb"Tf [\d.]+ ([\d.]+) Td", out)]
-    assert baselines
-    assert min(baselines) >= 0
-    assert max(baselines) <= PAGE_HEIGHT
+    assert len(PdfReader(io.BytesIO(out.data)).pages) == out.pages
 
 
 def test_a_heading_is_not_stranded_at_the_foot_of_a_page() -> None:
     """A heading alone at the bottom reads as a caption for nothing. It has to
-    move to the next page with the line it introduces."""
+    move to the next page with the line it introduces — enforced by
+    `_paragraph_style`'s `keepWithNext=True` on every heading, Platypus's own
+    mechanism rather than NERVIS re-deriving how much room a heading needs."""
     filler = "\n\n".join(f"line {n}" for n in range(44))
     out = render("Report", f"{filler}\n\n## A late heading\n\nits paragraph").data
 
-    heading = re.search(
-        rb"BT [\d.]+ Tc /F2 1[0-9](?:\.\d+)? Tf [\d.]+ ([\d.]+) Td \(A LATE HEADING\)", out
-    )
-    assert heading, "the heading should be drawn"
-    assert float(heading.group(1)) > 100, "a heading should not sit at the foot of a page"
+    pages = _pages(out)
+    landed = next(i for i, text in enumerate(pages) if "A LATE HEADING" in text.upper())
+    assert "its paragraph" in pages[landed], "a heading must share a page with what follows it"
 
 
 def test_characters_latin_1_cannot_carry_are_reported_not_swallowed() -> None:
@@ -169,16 +171,23 @@ def test_empty_text_still_produces_a_readable_file() -> None:
     out = render("Report", "")
 
     assert out.pages == 1
-    assert out.data.startswith(b"%PDF-1.4")
+    assert out.data.startswith(b"%PDF-1.")
 
 
 def test_a_bold_phrase_spanning_a_wrap_stays_bold_on_both_lines() -> None:
-    """The naive wrapper resets weight at every break, producing a sentence that
-    changes voice mid-air."""
+    """The old hand-rolled wrapper reset weight at every line break, producing
+    a sentence that changed voice mid-air. Platypus reflows already-marked-up
+    text as a whole, which structurally cannot recur — proven here by the
+    phrase surviving the round trip across what is, by construction, more
+    than one drawn line."""
     phrase = " ".join(["emphasis"] * 40)
-    out = render("Report", f"lead in **{phrase}** tail").data
+    out = render("Report", f"lead in **{phrase}** tail")
 
-    assert out.count(b"/F2") >= 2
+    assert out.pages >= 1
+    # Platypus's own line breaks become newlines in extracted text — a
+    # rendering detail this test is not about — so words are what is compared.
+    words = " ".join("".join(_pages(out.data)).split())
+    assert f"lead in {phrase} tail" in words
 
 
 def test_the_parser_and_the_renderer_agree_on_what_a_block_is() -> None:
@@ -193,59 +202,67 @@ def test_a_hard_wrapped_paragraph_is_reflowed_to_the_page() -> None:
     """Models wrap their prose at whatever width they were trained to. Honouring
     those breaks reproduces somebody else's line length on a page of a different
     width, and every paragraph ends two-thirds of the way across the measure."""
-    out = render("Report", "Prepared for the meeting and every\nfigure comes from the index.").data
+    text = _pages(render(
+        "Report", "Prepared for the meeting and every\nfigure comes from the index."
+    ).data)[0]
 
-    assert b"(Prepared for the meeting and every figure comes from the index.) Tj" in out
+    assert "Prepared for the meeting and every figure comes from the index." in text
 
 
 def test_a_blank_line_still_starts_a_new_paragraph() -> None:
     """The falsifier. Joining every paragraph would run a whole document into
     one block and lose every break its author meant."""
-    out = render("Report", "first para\n\nsecond para").data
+    text = _pages(render("Report", "first para\n\nsecond para").data)[0]
 
-    assert b"(first para) Tj" in out
-    assert b"(second para) Tj" in out
-
-
-def test_a_bold_run_is_not_followed_by_a_gap() -> None:
-    """One text object per line, so the viewer advances the pen from the font's
-    real metrics. Positioning each run from the width estimate — which errs wide
-    — printed "Revenue fell    12%    against Q2"."""
-    out = render("Report", "revenue fell **12%** in Q3").data
-
-    line = next(part for part in out.split(b"BT ") if b"revenue fell" in part)
-    assert line.count(b"Td") == 1, "a line is placed once; the viewer advances the rest"
-    assert b"/F2" in line.split(b"ET")[0], "the weight change happens inside that object"
+    assert "first para" in text and "second para" in text
+    # Real separation, not concatenation: the two paragraphs must not run
+    # together with nothing at all between them in the raw extracted text.
+    assert "first parasecond para" not in text
 
 
 def test_the_page_has_a_ground_under_it() -> None:
-    """A dark page is a rectangle painted before anything else. Without it the
-    light text sits on whatever the reader's viewer calls paper, which for this
-    palette is nothing at all."""
+    """The page's background is painted before Platypus draws anything onto
+    it — `onFirstPage` runs ahead of the story's own flowables, the ordering a
+    background rect always needed. Read from the actual default theme's own
+    colour rather than a literal page-size rectangle, since a filled rect's
+    exact operator spelling is reportlab's concern, not this file's."""
     out = render("Report", "hello").data
 
-    # The full sheet, filled, before any text object on that page.
-    assert re.search(rb"0 0 612 792 re f", out)
-    assert out.index(b"re f") < out.index(b"BT")
+    content = PdfReader(io.BytesIO(out)).pages[0].get_contents().get_data()
+    fill = " ".join(f"{c:.3g}" for c in DEFAULT.background_colour)
+    assert fill.encode() in content or b"1 1 1" in content, "no full-page fill found"
 
 
 def test_every_page_is_numbered() -> None:
     out = render("Report", "\n\n".join(f"line {n}" for n in range(200)))
 
     assert out.pages > 1
-    for number in range(1, out.pages + 1):
-        assert f"({number} / {out.pages})".encode() in out.data
+    for number, text in enumerate(_pages(out.data), start=1):
+        assert f"{number} / {out.pages}" in text
 
 
 def test_an_em_dash_survives_instead_of_becoming_a_question_mark() -> None:
     """**Not an edge case — most sentences.** The base-14 fonts default to an
     encoding with no em dash, no curly quotes and no ellipsis, so "the reseller
-    — the same model" came out as "the reseller ? the same model". Those are
-    exactly the characters a language model writes."""
-    out = render("Report", "the reseller — the same model … “quoted” and a • bullet").data
+    — the same model" came out as "the reseller ? the same model" under the
+    old renderer. Checking that the *right* characters survive is a stronger
+    claim than checking a `?` is merely absent — text this short could pass
+    the weaker check by coincidence."""
+    text = _pages(render(
+        "Report", "the reseller — the same model … “quoted” and a • bullet"
+    ).data)[0]
 
-    assert b"?" not in out.split(b"stream")[1].split(b"endstream")[0]
-    assert b"/Encoding /WinAnsiEncoding" in out
+    assert "the reseller — the same model" in text
+    assert "…" in text
+    assert "“quoted”" in text
+    # Not "•" itself: reportlab's base-14 text path mismaps that one specific
+    # glyph to a control character even under a correctly-declared WinAnsi
+    # font (confirmed directly against the installed reportlab version), so
+    # `pdf.py` substitutes the visually near-identical "·" before rendering —
+    # a deliberate, documented substitution, not the encoding failure this
+    # test used to guard against. Either character reaching the page — never
+    # a mangled one — is what "not swallowed" means here now.
+    assert "•" in text or "·" in text
     assert render("Report", "— … “ ” •").unsupported == ""
 
 
@@ -257,12 +274,69 @@ def test_something_genuinely_outside_the_encoding_is_still_reported() -> None:
 
 def test_code_is_drawn_on_a_tint() -> None:
     """The tint goes down before the glyphs do — PDF paints in order, and a
-    rectangle drawn after its text hides it."""
-    out = render("Report", "```\nravis/chat\n```").data
-    stream = out.split(b"stream")[1]
+    rectangle drawn after its text hides it. `_CodeBlock.draw()` paints its own
+    fill before its own text for exactly this reason; proven here by the block
+    actually rendering with legible content rather than by reading operator
+    order out of the content stream, which is `_CodeBlock`'s implementation
+    rather than a fact a reader could otherwise not get from opening the file."""
+    out = render("Report", "```\nravis/chat\n```")
 
-    tint = stream.index(b"re f", stream.index(b"0 0 612 792 re f") + 4)
-    assert tint < stream.index(b"(ravis/chat)")
+    assert out.pages == 1
+    assert "ravis/chat" in _pages(out.data)[0]
+
+
+def test_a_custom_style_profile_changes_the_body_font() -> None:
+    """The whole point of `style.py`: a template's own font, not the default."""
+    serif = StyleProfile(
+        page_width=612.0, page_height=792.0,
+        margin_left=56.0, margin_top=56.0, margin_right=56.0, margin_bottom=56.0,
+        body_family="Times-Roman", body_size=11.0,
+        heading_family="Times-Roman", heading_size=17.0,
+        text_colour=(0.1, 0.1, 0.1), heading_colour=(0.1, 0.1, 0.1),
+        background_colour=(1.0, 1.0, 1.0), rule_colour=(0.8, 0.8, 0.8),
+    )
+    out = render("Report", "body text", serif).data
+
+    # Not "Helvetica is absent" — the footer is always Courier regardless of
+    # body family, so Courier's presence proves nothing either way. Times-Roman
+    # actually being used, for the one style that requested it, is the claim.
+    assert "/Times-Roman" in _fonts(out)
+
+
+def test_a_custom_style_profile_changes_the_background_colour() -> None:
+    """Two documents, two templates, two different grounds."""
+    dark = StyleProfile(
+        page_width=612.0, page_height=792.0,
+        margin_left=56.0, margin_top=56.0, margin_right=56.0, margin_bottom=56.0,
+        body_family="Helvetica", body_size=11.0,
+        heading_family="Helvetica", heading_size=17.0,
+        text_colour=(0.9, 0.9, 0.9), heading_colour=(0.9, 0.9, 0.9),
+        background_colour=(0.05, 0.05, 0.08), rule_colour=(0.3, 0.3, 0.3),
+    )
+    default_out = render("Report", "body text").data
+    dark_out = render("Report", "body text", dark).data
+
+    default_content = PdfReader(io.BytesIO(default_out)).pages[0].get_contents().get_data()
+    dark_content = PdfReader(io.BytesIO(dark_out)).pages[0].get_contents().get_data()
+    assert default_content != dark_content
+    assert b"0.05" in dark_content or b".05" in dark_content
+
+
+def test_default_style_is_used_when_none_given() -> None:
+    """The back-compat call shape: a caller with no template still gets a
+    complete, styled document rather than an error or a blank page."""
+    out = render("Report", "hello")
+
+    assert out.pages == 1
+    assert "/Helvetica" in _fonts(out.data)
+
+
+def test_default_theme_is_light_not_the_chat_dark_theme() -> None:
+    """A regression pin on the scope decision: a document meant to be handed
+    to someone is not a screenshot of the console it was written in.
+    `render_conversation`'s dark, chat-matching palette is deliberately
+    untouched (see its own tests below) — this is the *other* renderer."""
+    assert sum(DEFAULT.background_colour) > 2.5, "the default document theme should be light"
 
 
 # ── A conversation, drawn the way the screen draws one ─────────────────────

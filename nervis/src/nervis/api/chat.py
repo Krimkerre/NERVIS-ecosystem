@@ -36,7 +36,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
-from nervis import commands, knowledge, proposals, situation, transcript
+from nervis import commands, documents, knowledge, proposals, situation, transcript
 from nervis import recall as memory
 from nervis.api.chat_calls import (
     _forwarded,
@@ -217,6 +217,22 @@ async def send(request: Request) -> Any:
     conversation_id, prior, keep = _placement(
         database, body, profile, content, greeting, nudge > 0
     )
+    # **Reconciled here, before anything downstream reads either id.** The
+    # browser mints its own id and files an attachment under it from the very
+    # first turn — before a real `conversation_id` exists at all — and is
+    # never told to switch once one does, so `attachment_id` and
+    # `conversation_id` are two permanently different keys for the same
+    # conversation. Done this early rather than inside `_document` (which
+    # only reads by `attachment_id` and would never need the other one
+    # itself): the save/export filename offer below also depends on finding
+    # the attachment under `conversation_id`, and runs before `_document`
+    # does on exactly the turn that just attached it — "save it" in the same
+    # breath as "here's the file" is the ordinary order, not an edge case.
+    root_for_attachments = str(getattr(request.app.state.settings, "workspace_path", "") or "")
+    if root_for_attachments:
+        documents.reconcile_attachments(
+            Path(root_for_attachments), str(body.get("attachment_id") or ""), conversation_id,
+        )
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
     asked = content

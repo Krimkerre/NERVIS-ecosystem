@@ -1,29 +1,58 @@
-"""A PDF with a layout, written without a dependency.
+"""Two documents, two renderers, on purpose.
 
-**Why not a library.** The ladder says never add one for what a few lines can
-do. The base-14 fonts need no embedding, so Helvetica, its bold, and Courier for
-code are available by name — which is most of what a typeset summary needs. What
-this does not attempt is everything else about PDF: images, colour spaces,
-embedded fonts, transparency.
+**`render_conversation` is unchanged, and still without a dependency.** A
+transcript is bubbles of bounded width, one side each — the ladder still says
+never add a library for what these few hundred lines already do, and nothing
+about styling a document changes what a chat window looks like exported.
 
-**What it can do**, driven by `layout.py`: headings at three sizes, bold runs
-inside a line, bullets and numbered items with hanging indents, code in a
-monospace face, and page breaks that do not strand a heading at the foot of a
-page.
+**`render` was the hand-rolled one, and no longer is.** It stopped clearing its
+own rung of the ladder the moment a document needed to look like something
+other than itself: real typography, a colour a template supplied, a table or
+an image. Base-14 fonts placed by an estimated advance is a few lines; a layout
+engine that wraps, paginates and colours to an arbitrary `style.StyleProfile`
+is not — the same reasoning that already justified `pypdf` for reading a PDF's
+words justifies reportlab for writing one that looks like something.
+`layout.py` still decides what the text *means* (headings, bullets, bold runs);
+only what draws that meaning changed.
 
-**What it cannot**, stated here rather than discovered: no tables, no images, no
-links, no nested lists, and WinAnsi only — a single-byte encoding cannot express
-the rest, and characters it cannot carry are reported rather than replaced with
-a `?` nobody can see.
+**What `render` can do now**, beyond the old renderer: real typeface families
+(serif/sans/mono, substituted from a template's own — see `style.py` — never
+embedded), template colours, and page geometry matched to the source. **What it
+still cannot**: the template's *exact* font (a substitution, named as one),
+tables and images in the model's own markdown (`layout.py` has no syntax for
+either yet, so nothing produces one to render).
+
+**`render_conversation` cannot do any of that**, unchanged: no tables, no
+images, no links, no nested lists, WinAnsi only, and headings/labels declared
+in this file's own fixed dark palette (`layout.PAPER`/`ACCENT`/etc.) — a
+transcript is a picture of the chat window, not a document with a look of its
+own to borrow or lend.
 """
 from __future__ import annotations
 
+import functools
+import io
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
+from xml.sax.saxutils import escape as _xml_escape
+
+from pypdf import PdfReader
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.platypus import (
+    Flowable,
+    HRFlowable,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+)
 
 from nervis import layout
 from nervis.layout import Block, Kind, Span, Style, parse, style_for
+from nervis.style import DEFAULT as DEFAULT_STYLE
+from nervis.style import StyleProfile
 
 #: US Letter at 72 dpi, the format's own unit.
 PAGE_WIDTH, PAGE_HEIGHT = 612, 792
@@ -34,7 +63,6 @@ MARGIN = 56
 #: Helvetica; looser wastes a page on a two-page summary.
 LEADING = 1.36
 
-TOP = PAGE_HEIGHT - MARGIN
 #: Where the text stops. Above the footer rather than at the margin, or the last
 #: line of a page lands on the page number.
 BOTTOM = MARGIN + 18
@@ -372,89 +400,299 @@ def _draw(spans: tuple[Span, ...], x: float, y: float, size: float, mono: bool,
     return [b" ".join(out)]
 
 
-def _block(
-    lines: list[tuple[Span, ...]], block: Block, style: Any, top: float, marker_width: float
-) -> list[bytes]:
-    """One block's tint, marker and text, in painting order.
-
-    Split out of `render` for the complexity gate, and it reads better for it:
-    the loop above is now about *where a block goes* and this is about *what a
-    block looks like*, which were two jobs in one function.
-    """
-    out: list[bytes] = []
-    leading = style.size * LEADING
-    y = top
-    for line_number, line in enumerate(lines):
-        x = MARGIN + style.indent + (marker_width if block.marker else 0)
-        # The tint goes down before the glyphs do — PDF paints in order, and a
-        # rectangle drawn after its text hides it.
-        if style.tint:
-            out.append(_rect(MARGIN, y - leading * 0.28, USABLE, leading, style.tint))
-        if block.marker and line_number == 0:
-            out.extend(_draw((Span(block.marker),), MARGIN + style.indent, y,
-                             style.size, False, rgb=style.colour))
-        out.extend(_draw(line, x, y, style.size, style.monospace, style.bold,
-                         rgb=style.colour, tracking=style.tracking))
-        y -= leading
-    return out
-
-
 def _unsupported(text: str) -> str:
     return "".join(sorted({c for c in text if c.encode(ENCODING, "ignore") == b""}))
 
 
-def render(title: str, text: str) -> Rendered:
-    """`text`, laid out, as a PDF.
+#: Exact PostScript names of reportlab's base-14 set. Not a naming convention —
+#: Helvetica and Courier spell their bold cut "<family>-Bold", but Times spells
+#: its "Times-Bold" rather than "Times-Roman-Bold". Wrong for the one family
+#: most templates with a serif body will actually pick.
+_BASE14: dict[str, dict[str, str]] = {
+    "Helvetica": {"regular": "Helvetica", "bold": "Helvetica-Bold",
+                  "italic": "Helvetica-Oblique", "bold_italic": "Helvetica-BoldOblique"},
+    "Times-Roman": {"regular": "Times-Roman", "bold": "Times-Bold",
+                    "italic": "Times-Italic", "bold_italic": "Times-BoldItalic"},
+    "Courier": {"regular": "Courier", "bold": "Courier-Bold",
+                "italic": "Courier-Oblique", "bold_italic": "Courier-BoldOblique"},
+}
 
-    Two passes by construction: blocks are placed into pages first, then the
-    pages are turned into objects. The cross-reference table needs each object's
-    byte offset, and those are only knowable once the bytes before them exist.
+
+def _base14_face(family: str, bold: bool, italic: bool) -> str:
+    """The PostScript name reportlab actually registers, for `family`'s cut.
+
+    Named apart from `_face` above deliberately — that one resolves an *old
+    renderer resource name* ("F1".."F5") that `render_conversation` still
+    uses, and reusing it here would silently return the wrong kind of string.
     """
-    blocks = parse(text)
-    pages: list[list[bytes]] = []
-    current: list[bytes] = []
-    y: float = TOP
+    key = ("bold_italic" if bold and italic
+           else "bold" if bold else "italic" if italic else "regular")
+    return _BASE14[family][key]
 
-    for index, block in enumerate(blocks):
-        style = style_for(block)
-        leading = style.size * LEADING
 
-        if block.kind is Kind.BLANK:
-            y -= leading * 0.55
+#: Characters WinAnsi carries that reportlab's base-14 text path still draws
+#: wrong — confirmed directly, not assumed: `•` (U+2022) is declared under
+#: `/WinAnsiEncoding` like every other glyph here, but reportlab writes byte
+#: `0x7F` for it rather than WinAnsi's own `0x95`, and a reader extracts that
+#: byte back as a control character. `layout.py` never draws one — its own
+#: bullet marker is already `·` — this exists only for the character
+#: appearing in a model's own prose. One substitution rather than a general
+#: workaround, because it is the one glyph this was ever seen to mishandle.
+_MISMAPPED = {"•": "·"}
+
+
+def _sanitised(text: str) -> str:
+    """`text`, with anything WinAnsi cannot carry turned into a literal `?`,
+    and the handful of characters reportlab itself mismaps substituted first.
+
+    Computed before `layout.parse` ever sees it, so reportlab is never handed a
+    character outside the base-14 fonts' encoding — whatever it would do with
+    one is not worth depending on. `Rendered.unsupported` is computed
+    separately, from the original text, so what was lost is still reported even
+    though it never reaches the page.
+    """
+    for bad, good in _MISMAPPED.items():
+        text = text.replace(bad, good)
+    return text.encode(ENCODING, errors="replace").decode(ENCODING)
+
+
+def _markup(spans: tuple[Span, ...]) -> str:
+    """A block's spans as the inline markup reportlab's `Paragraph` parses.
+
+    Escaped first, tagged second: escaping after tagging would turn the `<b>`
+    this adds into text the moment a span's own content held a `&` or `<`.
+    """
+    out = []
+    for span in spans:
+        piece = _xml_escape(span.text)
+        if span.code:
+            piece = f'<font face="Courier">{piece}</font>'
+        if span.bold:
+            piece = f"<b>{piece}</b>"
+        if span.italic:
+            piece = f"<i>{piece}</i>"
+        out.append(piece)
+    return "".join(out)
+
+
+def _paragraph_style(block: Block, profile: StyleProfile) -> ParagraphStyle:
+    """A block's structural role (from `layout.style_for`, unchanged) mapped
+    onto `profile`'s concrete fonts, sizes and colours.
+
+    Structure and appearance stay separate on purpose: `style_for` decides
+    *that* a heading is bold, letterspaced, uppercase, ruled above — facts
+    about what a heading *is*, true of every theme — and this function alone
+    decides what colour and how large, the one part a template may override.
+    """
+    style = style_for(block)
+    heading = block.kind is Kind.HEADING
+    scale = (profile.heading_size / DEFAULT_STYLE.heading_size) if heading \
+        else (profile.body_size / DEFAULT_STYLE.body_size)
+    family = ("Courier" if style.monospace
+              else profile.heading_family if heading else profile.body_family)
+    colour = profile.heading_colour if heading else profile.text_colour
+    size = style.size * scale
+    return ParagraphStyle(
+        name=f"nervis-{block.kind.value}-{block.level}",
+        fontName=_base14_face(family, style.bold, False),
+        fontSize=size, leading=size * LEADING,
+        textColor=colors.Color(*colour),
+        leftIndent=style.indent * scale,
+        bulletIndent=max(0.0, (style.indent - 12) * scale),
+        spaceBefore=style.space_above * scale,
+        letterSpacing=style.tracking,
+        keepWithNext=heading,
+    )
+
+
+def _paragraph(block: Block, profile: StyleProfile) -> list[Flowable]:
+    """One non-code block, as the flowables it becomes.
+
+    A list rather than one `Flowable`, because a heading's rule is its own
+    element ahead of the paragraph it introduces — Platypus flows each of a
+    list's items in order, so returning both keeps them together without a
+    container `Flowable` neither needs.
+    """
+    style = style_for(block)
+    para_style = _paragraph_style(block, profile)
+    spans = (tuple(replace(s, text=s.text.upper()) for s in block.spans)
+             if style.upper else block.spans)
+    out: list[Flowable] = []
+    if style.rule_above:
+        out.append(HRFlowable(width="100%", thickness=0.6,
+                               color=colors.Color(*profile.rule_colour),
+                               spaceBefore=0, spaceAfter=style.rule_above))
+    out.append(Paragraph(_markup(spans), para_style, bulletText=block.marker or None))
+    return out
+
+
+class _CodeBlock(Flowable):
+    """A fenced code block: verbatim lines, monospaced, on a tint.
+
+    Its own `Flowable` rather than a styled `Table` — a code block is the one
+    place the old renderer already drew a background by hand rather than
+    asking a layout engine for one, and `Table`'s cell-padding/border model
+    solves a harder problem than "a rectangle behind left-aligned text."
+    """
+
+    def __init__(self, lines: list[str], profile: StyleProfile) -> None:
+        super().__init__()
+        self._lines, self._profile = lines, profile
+        self._size = 9.5
+        self._leading = self._size * LEADING
+        self._pad = 6.0
+        self.height = self._leading * len(lines) + 2 * self._pad
+        self.width = 0.0
+
+    def wrap(self, available_width: float, _available_height: float) -> tuple[float, float]:
+        self.width = available_width
+        return self.width, self.height
+
+    def draw(self) -> None:
+        profile = self._profile
+        # Darker on a light page, lighter on a dark one — the same "tint,
+        # not a fixed colour" idea `layout.py`'s own `PANEL` already is.
+        light = sum(profile.background_colour) > 1.5
+        tint = tuple(max(0.0, c - 0.06) if light else min(1.0, c + 0.08)
+                     for c in profile.background_colour)
+        self.canv.setFillColor(colors.Color(*tint))
+        self.canv.rect(0, 0, self.width, self.height, fill=1, stroke=0)
+        self.canv.setFont("Courier", self._size)
+        self.canv.setFillColor(colors.Color(*profile.text_colour))
+        y = self.height - self._pad - self._size * 0.82
+        for line in self._lines:
+            self.canv.drawString(self._pad, y, line)
+            y -= self._leading
+
+
+def _story(blocks: list[Block], profile: StyleProfile) -> list[Flowable]:
+    """`layout.parse()`'s blocks, as a reportlab Platypus story.
+
+    Consecutive fenced-code blocks are grouped here, not in `layout.py`:
+    `layout`'s own `_collapse` only joins paragraphs, because a renderer that
+    draws prose needs them joined and a renderer that counts lines does not.
+    Grouping code into one tinted region is a drawing concern, so it lives here.
+    """
+    story: list[Flowable] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        if block.kind is Kind.CODE:
+            run: list[str] = []
+            while index < len(blocks) and blocks[index].kind is Kind.CODE:
+                run.append(blocks[index].spans[0].text if blocks[index].spans else "")
+                index += 1
+            story.append(_CodeBlock(run, profile))
             continue
+        if block.kind is Kind.BLANK:
+            story.append(Spacer(1, style_for(block).size * LEADING * 0.55))
+            index += 1
+            continue
+        story.extend(_paragraph(block, profile))
+        index += 1
+    return story
 
-        marker_width = 0.0
-        if block.marker:
-            marker_width = max(style.indent, len(block.marker) * style.size * 0.62)
 
-        spans = block.spans
-        if style.upper:
-            spans = tuple(replace(span, text=span.text.upper()) for span in spans)
+def _paint_background(profile: StyleProfile, canvas_: rl_canvas.Canvas, _doc: Any) -> None:
+    """The page's ground, painted before Platypus draws anything onto it.
 
-        width = USABLE - style.indent - (marker_width if block.marker else 0)
-        lines = _wrap_spans(spans, style.size, width, style.monospace, style.bold,
-                            style.tracking)
+    `onFirstPage`/`onLaterPages` run before that page's flowables — the
+    ordering a background rect always needed, and reportlab's own hook for it.
+    """
+    canvas_.saveState()
+    canvas_.setFillColor(colors.Color(*profile.background_colour))
+    canvas_.rect(0, 0, profile.page_width, profile.page_height, fill=1, stroke=0)
+    canvas_.restoreState()
 
-        # A heading alone at the foot of a page reads as a caption for nothing.
-        # It moves with the first line of what follows it.
-        needed = leading * (len(lines) + (1 if block.kind is Kind.HEADING else 0))
-        if y - style.space_above - needed < BOTTOM and current:
-            pages.append(current)
-            current, y = [], float(TOP)
 
-        y -= style.space_above
-        # A hairline across the measure, above the space rather than in it, so a
-        # heading sits under its own rule rather than on top of one.
-        if style.rule_above and current:
-            current.append(_rect(MARGIN, y + style.rule_above, USABLE, 0.6, layout.RULE))
-        current.extend(_block(lines, block, style, y, marker_width))
-        y -= leading * len(lines)
-        del index
+class _FooterCanvas(rl_canvas.Canvas):
+    """Defers the footer until every page exists, so it can say "N of TOTAL".
 
-    if current or not pages:
-        pages.append(current)
+    reportlab draws forward, one page at a time — nothing drawn during a page
+    can know how many more are coming. The standard answer: hold each finished
+    page back instead of emitting it, and only at `save()`, once the total is
+    known, paint the footer onto each and let it go.
+    """
 
-    return _assemble(pages, _unsupported(text + title))
+    def __init__(self, *args: Any, profile: StyleProfile, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._profile = profile
+        self._held: list[dict[str, Any]] = []
+
+    def showPage(self) -> None:  # noqa: N802 - overrides reportlab.Canvas's own name
+        self._held.append(dict(self.__dict__))
+        # Real at runtime (confirmed directly against the installed
+        # reportlab), just absent from the third-party stub package.
+        self._startPage()  # type: ignore[attr-defined]
+
+    def save(self) -> None:
+        total = len(self._held)
+        for number, state in enumerate(self._held, start=1):
+            self.__dict__.update(state)
+            _paint_footer(self, self._profile, number, total)
+            super().showPage()
+        super().save()
+
+
+def _paint_footer(
+    canvas_: rl_canvas.Canvas, profile: StyleProfile, number: int, total: int,
+) -> None:
+    """A hairline and a page number, the same voice `render_conversation`'s
+    `_footer` speaks in — monospaced, letterspaced, naming the machine."""
+    y = MARGIN * 0.55
+    canvas_.saveState()
+    canvas_.setStrokeColor(colors.Color(*profile.rule_colour))
+    canvas_.line(profile.margin_left, y + 13, profile.page_width - profile.margin_right, y + 13)
+    canvas_.setFont("Courier", 7.5)
+    canvas_.setFillColor(colors.Color(*profile.rule_colour))
+    canvas_.drawString(profile.margin_left, y, "NERVIS")
+    canvas_.drawRightString(profile.page_width - profile.margin_right, y, f"{number} / {total}")
+    canvas_.restoreState()
+
+
+def render(title: str, text: str, style: StyleProfile | None = None) -> Rendered:
+    """`text`, laid out in `style`'s look, as a PDF.
+
+    Delegates measurement, wrapping and page-breaking to reportlab's Platypus
+    — the one part of the old hand-rolled writer that could not be extended to
+    a template's own fonts and colours without becoming a second reportlab.
+    `layout.parse()` still decides what the text means; this only decides how
+    what it means is drawn. `render_conversation` is untouched: this function
+    and it no longer share an implementation, only a handful of constants.
+    """
+    profile = style or DEFAULT_STYLE
+    unsupported = _unsupported(text + title)
+    blocks = parse(_sanitised(text))
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=(profile.page_width, profile.page_height),
+        leftMargin=profile.margin_left, rightMargin=profile.margin_right,
+        topMargin=profile.margin_top, bottomMargin=profile.margin_bottom,
+        title=_sanitised(title),
+    )
+    paint_background = functools.partial(_paint_background, profile)
+    # **A story with nothing in it is still one page, not zero.** Platypus
+    # emits a page only for a flowable that actually occupies one — an empty
+    # `text` parses to no blocks at all, and `doc.build([])` produces a
+    # correctly-structured, entirely blank PDF with a page count of zero.
+    # "a summary of nothing found" is a legitimate reply; a file no reader can
+    # open is not, so an empty story gets a single empty paragraph to anchor
+    # the one page it should still be.
+    story = _story(blocks, profile) or [Paragraph("", _paragraph_style(
+        Block(Kind.PARAGRAPH), profile))]
+    doc.build(
+        story,
+        onFirstPage=paint_background, onLaterPages=paint_background,
+        canvasmaker=functools.partial(_FooterCanvas, profile=profile),
+    )
+    data = buffer.getvalue()
+    # Counted by reading the file back rather than trusting reportlab's own
+    # page counter's exact semantics — `pypdf` is already a dependency, and a
+    # count that can only be wrong if the PDF itself is malformed is a count
+    # worth having regardless of which library wrote the bytes.
+    pages = len(PdfReader(io.BytesIO(data)).pages)
+    return Rendered(data=data, pages=pages, unsupported=unsupported)
 
 
 def _footer(number: int, total: int) -> list[bytes]:

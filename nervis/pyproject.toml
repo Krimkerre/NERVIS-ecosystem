@@ -32,15 +32,31 @@ dependencies = [
   # exact failure this module is built to avoid, so the parsing is somebody
   # else's. Pure Python, no C extension, and no transitive dependencies.
   "pypdf>=5.1",
+  # Generating a genuinely styled PDF from scratch — real typography, colour
+  # and page layout rather than hand-placed Helvetica runs. `pdf.py`'s own
+  # module docstring names what the hand-rolled writer could not do: "no
+  # tables, no images... embedded fonts, transparency." Platypus's flowable
+  # layout is the few-lines-can't-do-it rung above that, the same reasoning
+  # that already justified `pypdf` two lines up.
+  "reportlab>=4.2",
+  # Reading a template PDF's *appearance* rather than its words: the font,
+  # size and colour behind each character, addressed through the same
+  # subset-encoded-font indirection `pypdf` exists to read text through.
+  # `pypdf` answers "what does it say"; nothing already here answers "what
+  # does it look like," and getting that wrong silently is a style nobody
+  # asked for.
+  "pdfplumber>=0.11",
 ]
 
 [project.optional-dependencies]
-# `types-psutil` rather than a mypy override. SIRVIS waives the check for PyYAML
-# because its stubs return `Any` for the one call in use, so nothing is lost;
-# psutil's are genuinely typed, and the fields this reads — `virtual_memory`,
-# `swap_memory`, `process_iter` — are exactly the kind that get renamed between
-# major versions.
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "mypy>=1.13", "types-psutil>=6.0"]
+# `types-psutil`/`types-reportlab` rather than a mypy override. SIRVIS waives
+# the check for PyYAML because its stubs return `Any` for the one call in
+# use, so nothing is lost; both of these are genuinely typed, and the fields
+# they cover are exactly the kind that get renamed between major versions.
+dev = [
+  "pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8", "mypy>=1.13",
+  "types-psutil>=6.0", "types-reportlab>=4.2",
+]
 
 [project.scripts]
 nervis = "nervis.cli:main"

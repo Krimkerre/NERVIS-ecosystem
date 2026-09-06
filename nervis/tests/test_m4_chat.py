@@ -3142,6 +3142,26 @@ def test_a_named_file_produces_an_offer_with_a_button(tmp_path: Path) -> None:
     assert fallback["ready"] is True
 
 
+def test_the_fallback_name_prefers_a_real_attachment_over_the_reply(tmp_path: Path) -> None:
+    """Never actually exercised until now: every other test of this fallback
+    attached nothing, so it only ever proved the reply-derived name, not the
+    attachment-derived one — the one case that needed `_document`'s
+    attachment-id-to-conversation-id reconciliation to work at all, since the
+    browser's own attachment key and NERVIS's real conversation id are
+    guaranteed to differ on exactly this turn (clip, then question)."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_browser_minted", "quarterly-plan.pdf", b"%PDF-1.4 fake but readable\n%%EOF")
+
+    vague = turn(client, "save that somewhere", system="Be someone.",
+                 attachment_id="cv_browser_minted")
+
+    fallback = json.loads(vague.headers["x-command-offer"])
+    assert fallback["target"].startswith("quarterly-plan-annotated-")
+    assert fallback["target"].endswith(".md")
+
+
 # ── Putting a file there in the first place ────────────────────────────────
 
 def test_an_uploaded_file_is_then_readable_by_chat(tmp_path: Path) -> None:

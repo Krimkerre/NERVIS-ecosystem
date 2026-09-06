@@ -226,6 +226,48 @@ def attachment_dir(root: Path, conversation_id: str) -> Path | None:
     return place
 
 
+def reconcile_attachments(root: Path, source_id: str, target_id: str) -> int:
+    """Copy a source directory's files into a conversation's own, once both
+    ids are known. Returns how many files were copied.
+
+    **The gap this closes.** The browser mints its own id before a
+    conversation exists and files an attachment under it from the very first
+    turn (`chat_documents.py`'s own note on why) — but NERVIS mints a
+    *separate* id once the turn is stored, and the browser is never told to
+    reconcile the two: every later request still sends the original id as
+    `attachment_id`, never as `conversation_id`. Reading an attachment during
+    the live turn already works because that path is keyed on `attachment_id`
+    directly. Anything that only learns a conversation's id afterwards — a
+    save, an export, a later turn's own read — was keyed on the wrong
+    directory and found nothing, silently, for the entire life of a
+    conversation rather than only its first turn.
+
+    **A copy, not a move.** The source id keeps working as its own key for
+    the rest of that same turn's processing, which already reads it before
+    this runs; nothing here may invalidate a lookup already in flight.
+
+    **Idempotent and cheap.** Every later turn in the same conversation calls
+    this again with the same two ids — overwriting a handful of small files
+    each time costs nothing next to the request already in progress, and
+    skipping "already reconciled" would need a second piece of state to
+    track exactly the thing this makes unnecessary.
+    """
+    if not source_id or not target_id or source_id == target_id:
+        return 0
+    source = attachment_dir(root, source_id)
+    if source is None:
+        return 0
+    target = attachment_dir(root, target_id)
+    if target is None:
+        return 0
+    copied = 0
+    for entry in source.iterdir():
+        if entry.is_file():
+            (target / entry.name).write_bytes(entry.read_bytes())
+            copied += 1
+    return copied
+
+
 def forget_attachments(root: Path, conversation_id: str) -> int:
     """Delete a conversation's attachments. Returns how many files went.
 
