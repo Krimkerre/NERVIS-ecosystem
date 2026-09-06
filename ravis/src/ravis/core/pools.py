@@ -936,6 +936,20 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         requirements=PoolRequirements(required=frozenset({Capability.REASONING})),
     ),
     VirtualModelPool(
+        pool_id="ravis/vision",
+        label="Vision",
+        description="Models that accept image input",
+        # No curated family list, on purpose — unlike `ravis/coding`'s
+        # `CODE_FAMILIES`, there is no name pattern for "built to see" worth
+        # trusting yet, and a guessed one would just be `ravis/coding`'s own
+        # exclusion list ("-vl-", "vision", "-image") pointed the other way,
+        # which is a name heuristic doing a capability check's job. The
+        # requirement below is real evidence — advertised or measured per
+        # §9.5 — and stays the only gate until a caller's actual usage
+        # justifies narrowing further, the same restraint `ravis/agent` shows.
+        requirements=PoolRequirements(required=frozenset({Capability.VISION})),
+    ),
+    VirtualModelPool(
         pool_id="ravis/long-context",
         # A long context is what this pool promises; it says nothing about
         # answering with a code completion model, and the exclusions keep the

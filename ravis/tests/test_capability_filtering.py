@@ -242,3 +242,14 @@ def test_a_local_candidate_is_still_routed_under_local_only() -> None:
     )
 
     assert decision.selected == "on-this-machine"
+
+
+def test_the_vision_pool_requires_the_capability_on_its_own() -> None:
+    """Not a request-derived constraint like the table above — `ravis/vision`
+    declares this requirement itself, so it has to bite with no image in the
+    request at all. `aaa` sorts first and would win on every other basis."""
+    candidates = {"aaa": _capable("aaa"), "zzz": _capable("zzz", Capability.VISION)}
+
+    decision = RoutingEngine().select("ravis/vision", candidates)
+
+    assert decision.selected == "zzz"

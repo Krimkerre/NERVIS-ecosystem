@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2408 tests, no network, no live service
+.venv/bin/pytest                      # part of 2409 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 898 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2408 passing across the four, conformance `PASS`.
+Expected: all clean, 2409 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14754,6 +14754,37 @@ it out in full before mentioning the button.
 
 Full suite reran clean after each of the three (898 tests), `ruff` and
 `mypy` clean throughout.
+
+## `ravis/vision`, built ahead of the feature that will need it, 2026-09-07
+
+Chasing the save-content bug into "the saved document should actually look
+like the source PDF" surfaced that RAVIS already has real, tested,
+end-to-end vision/multimodal plumbing — `Capability.VISION`, SSRF-guarded
+image-content admission (`ravis/src/ravis/content.py`), routing requirement
+gating, real provider wire translation for Anthropic and Google — with
+nothing on NERVIS's side ever using it, and no pool that admits a
+vision-capable model without excluding it (`ravis/coding` and
+`ravis/clarvis-agent` both explicitly exclude `-vl-`/`vision`/`-image`
+variants).
+
+Added `ravis/vision`: image input required, no curated family list —
+unlike `ravis/coding`'s `CODE_FAMILIES`, there is no trustworthy name
+pattern for "built to see" yet, and guessing one would just be
+`ravis/coding`'s own exclusion list pointed the other way. The capability
+requirement is real evidence (advertised or measured, §9.5); a name
+heuristic would be a guess wearing the words of one. New test proves the
+requirement is the pool's own, not request-derived: `aaa` sorts first and
+wins on every other basis, `zzz` has vision, `zzz` wins — same shape as
+§9.2's existing hard-constraint table, applied to a pool's own declaration
+instead of a request's. Verified adversarially: reverting the pool
+definition made the new test fail with `selected=None` ("ravis/vision is
+not a pool"), confirming the gate is real. Full suite 980 (was 979), `ruff`
+and `mypy` clean.
+
+Built ahead of any consumer, named as exactly that in `RAVIS.md` and
+`nervis/knowledge/ravis.md` — the same pattern `ravis/chat`/`ravis/agent`
+already set for landing before the spec's own required-defaults list caught
+up to them.
 
 ## Starting the thing
 

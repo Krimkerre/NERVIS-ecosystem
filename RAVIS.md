@@ -253,13 +253,18 @@ Required defaults:
 ```text
 ravis/auto      ravis/balanced   ravis/local    ravis/coding        ravis/long-context
 ravis/fast      ravis/cheap      ravis/api      ravis/reasoning     ravis/chat
-ravis/performance                ravis/private  ravis/agent
+ravis/performance                ravis/private  ravis/agent         ravis/vision
 ```
 
 `ravis/chat` and `ravis/agent` were implemented and missing from this list.
 `ravis/chat` is what a conversation with no stated profile resolves to;
 `ravis/agent` is the general "a model that can call a tool" pool, distinct from
-`ravis/clarvis-agent` (§5.1).
+`ravis/clarvis-agent` (§5.1). `ravis/vision` is the same kind of addition,
+built 7 September 2026 ahead of the feature that needed it — image-input
+capability required, no curated family list, deliberately: a guessed name
+pattern for "built to see" is the same heuristic `ravis/coding`'s own
+exclusion list already applies in the other direction, and the capability
+requirement is real evidence where a name pattern would be a guess.
 
 Clarvis-specific pools — these IDs must be **stable**:
 

@@ -62,6 +62,7 @@ rather than picking a model.
 - `ravis/private` — strictest privacy; cloud excluded
 - `ravis/coding`, `ravis/reasoning`, `ravis/long-context` — capability-shaped
 - `ravis/agent` — tools required
+- `ravis/vision` — image input required, ahead of the feature that needs it
 - `ravis/clarvis-chat`, `ravis/clarvis-agent` — Clarvis's two roles
 
 ## What it will not do
