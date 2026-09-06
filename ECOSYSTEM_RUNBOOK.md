@@ -1151,7 +1151,22 @@ may only add product-specific detail beside the required state.
       status tag in `SIRVIS.md` — genuinely unbuilt — and its absence is itself represented
       honestly, refused with `UNSUPPORTED_PARAMETER` rather than answered with an invented
       ranking, which is this item's own rule applied to the gap.*
-- [ ] RAVIS enforces hard constraints before preferences, and explains routes and rejections.
+- [x] RAVIS enforces hard constraints before preferences, and explains routes and
+      rejections. *`ravis/src/ravis/routing/engine.py`'s own docstring states the design
+      this item asks for: "eligibility is a hard filter... this runs first and
+      separately, and a candidate removed here is never reconsidered by scoring."
+      Reverified rather than trusted: `test_a_direct_address_does_not_bypass_the_constraint`
+      confirms even a direct-addressed request cannot route around a hard constraint;
+      `test_the_upstream_is_never_contacted_for_a_refused_request` confirms the check
+      happens before any network call, not merely before scoring in theory;
+      `test_the_model_that_would_have_won_is_excluded_by_name_and_reason` and
+      `test_every_exclusion_carries_a_reason` cover the rejection half. The winner's own
+      explanation (`_selection_reason`) is designed the same way — "usually 'it sorted
+      first'. Saying so is the point... claiming a quality judgement RAVIS has no
+      evidence for would be the opaque magic §9.4 forbids" — and `routing/explain.py`'s
+      `RouteDecision`/`ExcludedCandidate` carry that explanation as a stored, redacted
+      object rather than a log line, reaching NERVIS and traces. 47 tests across
+      `ravis/tests/test_hard_constraints_route.py` and `test_routing.py`, all passing.*
 - [ ] OpenAI-compatible streaming, cancellation, tools, errors and usage pass contract tests.
 - [ ] `clarvis-chat` and `clarvis-agent` are independently configurable and tested.
 - [ ] Clarvis lifecycle, workspace containment, approval gates, provider abstraction and

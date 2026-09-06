@@ -13867,6 +13867,37 @@ rather than left to look like an oversight.
 
 No code changed.
 
+## §15's hard-constraints/explains-routes item: the design already states it, tests already prove it, 2026-09-06
+
+`ravis/src/ravis/routing/engine.py`'s own module docstring already states the
+exact rule this checklist line asks for: eligibility is a hard filter that
+"runs first and separately, and a candidate removed here is never
+reconsidered by scoring" — §9.1's rule that no preference outweighs a failed
+hard constraint. Closed by reverifying the tests that hold that design to
+account, not by reading the docstring and trusting it.
+
+**Before, not merely first in the code.** `test_the_upstream_is_never_
+contacted_for_a_refused_request` (`ravis/tests/test_hard_constraints_route.py`)
+confirms the constraint check happens before any network call — the
+difference between "checked before scoring" and "checked before *anything*
+that would spend a real request on a candidate already ruled out."
+`test_a_direct_address_does_not_bypass_the_constraint` confirms a
+direct-addressed request cannot route around the same check pool routing
+gets.
+
+**Rejections and the winner, both explained honestly.**
+`test_the_model_that_would_have_won_is_excluded_by_name_and_reason` and
+`test_every_exclusion_carries_a_reason` cover the rejection half. The
+winner's own explanation, `_selection_reason`, is built the same way: *"usually
+'it sorted first'. Saying so is the point... claiming a quality judgement
+RAVIS has no evidence for would be the opaque magic §9.4 forbids."*
+`routing/explain.py`'s `RouteDecision`/`ExcludedCandidate` hold that
+explanation as a stored, redacted object — reaching NERVIS and traces rather
+than a log line only RAVIS itself ever reads.
+
+47 tests across `ravis/tests/test_hard_constraints_route.py` (6) and
+`ravis/tests/test_routing.py` (41), all passing. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
