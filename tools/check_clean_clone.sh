@@ -48,6 +48,24 @@ step() {  # step <label> <dir> <command...>
   fi
 }
 
+# macOS ships no `timeout` binary, and the header above already names the cost
+# of a gate with no bound at all: 31 minutes, once, on a socket that never
+# opened. Anything that can hang — a download, a process that never exits on
+# its own — gets wrapped in this rather than trusted to fail on its own.
+run_with_timeout() {  # run_with_timeout <seconds> <command...>
+  local seconds="$1"
+  shift
+  "$@" &
+  local pid=$!
+  ( sleep "$seconds" && kill -TERM "$pid" ) >/dev/null 2>&1 &
+  local watcher=$!
+  wait "$pid" 2>/dev/null
+  local exit_status=$?
+  kill "$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+  return "$exit_status"
+}
+
 echo "=== cloning ==="
 git clone -q "$NERVIS_REMOTE" nervis-eco || exit 1
 git clone -q "$CLARVIS_REMOTE" clarvis || exit 1
@@ -265,6 +283,37 @@ fi
 step "clarvis types" clarvis npx tsc --noEmit -p .
 step "clarvis lint"  clarvis npm run lint
 step "clarvis tests" clarvis npm test
+
+# `npm test` (node's own runner, no VS Code) never ran `bridgeDisabled.spec.ts`
+# and the rest of `src/test/*.spec.ts` — those need a real extension host,
+# which is exactly what `npm run test:host` (`@vscode/test-cli`) starts, and
+# §15 item 1 named this gap by name rather than assuming `npm test` covered it.
+#
+# **Why this wasn't simply added as another `step` line.** `test:host`
+# downloads a real VS Code build the first time it runs, and by default caches
+# it inside the project directory itself (`.vscode-test/`) — which is exactly
+# nowhere, since this script clones into a fresh directory every run. Without
+# sharing that cache, every single invocation would re-download a full VS Code
+# build from the network before running four milliseconds of actual test —
+# the download is the risk this header already names, not the test.
+#
+# The fix is a symlink, not a config change to the extension's own tracked
+# `.vscode-test.mjs`: `.vscode-test` inside the fresh clone points at one
+# persistent, shared cache on this machine, so the download happens once ever
+# rather than once per run. `run_with_timeout` bounds the worst case at a
+# generous but finite five minutes rather than the unbounded hang this file's
+# own header already paid for once.
+CLARVIS_VSCODE_CACHE="${CLARVIS_VSCODE_CACHE:-$HOME/.cache/clarvis-vscode-test}"
+mkdir -p "$CLARVIS_VSCODE_CACHE"
+ln -sfn "$CLARVIS_VSCODE_CACHE" clarvis/.vscode-test
+# `test:host` loads the extension the real way — `main` in package.json,
+# `dist/extension.js` — not `out/`, which only holds the compiled test files
+# `tsc` produces. Nothing else in this section builds that bundle: a
+# contributor's own checkout normally already has one from an earlier
+# `npm run build`, which a fresh clone never does, and activation failed with
+# exactly that missing-module error before this line existed.
+step "clarvis build"     clarvis npm run build
+step "clarvis test:host" clarvis run_with_timeout 300 npm run test:host
 
 echo
 echo "=== $pass passed, $fail failed ==="

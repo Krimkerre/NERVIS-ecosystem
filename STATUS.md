@@ -13614,6 +13614,57 @@ note already said.
 
 RAVIS 0.21.6. SIRVIS 0.15.8. NERVIS 0.23.12.
 
+## §15 item 1's last gap closed: Clarvis's host proof now runs in the clean-clone gate, 2026-09-06
+
+The gap named back on 5 September ("What §15 item 1 still does not have")
+stood as recorded: `clarvis/src/test/bridgeDisabled.spec.ts` passed under
+`npm run test:host`, but `tools/check_clean_clone.sh`'s Clarvis block ran
+`npm test` — node's own runner, no VS Code — which cannot see a `.spec.ts`
+file at all. Everything in `src/test/*.spec.ts` (four files: activation,
+containment, the NERVIS handoff file, and the Bridge-disabled proof) sat
+outside every automated gate this repository has.
+
+**Why it wasn't simply another `step` line.** `npm run test:host` downloads a
+real VS Code build the first time it runs anywhere, cached by default inside
+the project directory itself — which is nowhere, since `check_clean_clone.sh`
+clones into a fresh directory every run. Wired in naively, every single gate
+run would re-download a full VS Code build before running four milliseconds
+of actual test — exactly the kind of unbounded network dependency this
+script's own header already paid for once, at thirty-one minutes, from a
+different gate. `tools/check_clean_clone.sh` now symlinks the fresh clone's
+`.vscode-test` at one persistent, shared cache on the machine
+(`~/.cache/clarvis-vscode-test` by default, override with
+`CLARVIS_VSCODE_CACHE`) rather than changing the extension's own tracked
+`.vscode-test.mjs` — the download happens once ever on a given machine, not
+once per run — and a new `run_with_timeout` helper bounds the worst case at
+five minutes rather than leaving it open-ended.
+
+**A second, unrelated gap surfaced getting there and is closed too.** A fresh
+clone has no `dist/extension.js` — nothing in `npm ci` builds it, and every
+contributor's own checkout already has one from an earlier manual
+`npm run build`, which a truly clean clone never does. Activation failed with
+a `Cannot find module '.../dist/extension.js'` error until `npm run build`
+was added as its own step ahead of `test:host`.
+
+**A real bug in the timeout wrapper's first draft, caught before it shipped
+this time rather than after.** The watcher subshell's `sleep &lt;n&gt; && kill`
+redirected only its stderr, not its stdout — so when the underlying command
+finished quickly and the watcher was killed, the orphaned `sleep` kept the
+file descriptor `step()`'s own output capture reads from open until it
+finally expired on its own, turning a three-second real test run into a
+five-minute wait with the correct exit code hiding it. Found by timing the
+run, not by trusting a passing result on its own; fixed by redirecting both
+streams, and reverified: the true positive now completes in about three
+seconds, a deliberately hung command under the wrapper fails in the number of
+seconds it was given rather than its ceiling, and a deliberately broken
+assertion in the spec reports the real Mocha failure output rather than a
+false pass.
+
+Full `tools/check_clean_clone.sh` run against the pushed tip: 56 of 56, two
+more than before this closed.
+
+NERVIS 0.23.13.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

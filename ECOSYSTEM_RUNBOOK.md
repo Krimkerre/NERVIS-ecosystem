@@ -1067,16 +1067,23 @@ may only add product-specific detail beside the required state.
 
 ## 15. Whole-ecosystem acceptance checklist
 
-- [ ] All four products build and run independently — §3 makes that "independent
+- [x] All four products build and run independently — §3 makes that "independent
       buildability, not repository count", and there are two repositories, not four.
       *Reverified: NERVIS, RAVIS and SIRVIS each now bind a real socket and answer a
       real HTTP request with every peer absent — `uvicorn.Server` on port 0, driven
       by a real client, not the ASGI transport every other test in each suite uses,
       which was never going to fail to bind anything. RAVIS's M0 moved from
-      IMPLEMENTED to AUTOMATED VERIFIED on exactly this gap closing. Still open:
-      Clarvis's own standalone proof (`bridgeDisabled.spec.ts`) sits outside
-      `tools/check_clean_clone.sh`, which cannot run a `.spec.ts` file — recorded
-      separately in `STATUS.md`.*
+      IMPLEMENTED to AUTOMATED VERIFIED on exactly this gap closing. Clarvis's own
+      standalone proof (`bridgeDisabled.spec.ts`) sat outside `tools/check_clean_clone.sh`
+      because `npm test` (node's own runner) never ran it — it needs a real extension
+      host, which only `npm run test:host` (`@vscode/test-cli`) starts. Closed: the
+      gate now runs `npm run build` (nothing else built the `dist/extension.js` a fresh
+      clone needs to activate at all) then `npm run test:host` under a bounded timeout,
+      sharing one persistent VS Code test-binary cache across runs so a fresh clone
+      doesn't re-download it every time. Fail-proved directly: a deliberately broken
+      assertion in the spec reports FAIL with the real Mocha failure output; a
+      deliberately hung command under the new timeout wrapper reports FAIL in seconds,
+      not the wrapper's own multi-minute ceiling.*
 - [ ] The non-invention rule appears in every app document and in agent working instructions.
 - [ ] MEP schemas, fixtures and versions are released and pinned.
 - [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error

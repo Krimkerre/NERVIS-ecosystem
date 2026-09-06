@@ -91,7 +91,31 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.12
+## NERVIS — 0.23.13
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **§15 item 1's last gap closed: `tools/check_clean_clone.sh` now runs Clarvis's real
+  extension-host tests.** `src/test/*.spec.ts` — activation, workspace containment, the
+  NERVIS handoff file, and Stage 8's Bridge-disabled proof — needs a real VS Code host,
+  which only `npm run test:host` starts; the gate's Clarvis block ran `npm test` (node's
+  own runner), which cannot see a `.spec.ts` file at all, so none of it was gated. Wiring
+  it in naively would have re-downloaded a full VS Code build on every run (nothing
+  shares that cache across a script that clones into a fresh directory each time) and
+  needed a build step nothing else in the section provides (a fresh clone has no
+  `dist/extension.js` — every contributor's own checkout already does, from an earlier
+  manual build, which a truly clean clone never ran). Both fixed: one shared, persistent
+  VS Code test-binary cache across runs (`~/.cache/clarvis-vscode-test`, override with
+  `CLARVIS_VSCODE_CACHE`), a `run_with_timeout` helper bounding the worst case at five
+  minutes instead of open-ended, and `npm run build` added ahead of `test:host`. A real
+  bug in the timeout wrapper's own first draft — an unredirected stdout on the watcher
+  subshell turned a 3-second real test run into a 5-minute wait, caught by timing the
+  run rather than trusting a passing exit code — was found and fixed before this shipped.
+  Fail-proved in both directions: a deliberately broken assertion reports the real
+  failure, a deliberately hung command under the timeout fails in seconds. 56 of 56 on
+  the full gate, two more than before.
+
+### 0.23.12
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
