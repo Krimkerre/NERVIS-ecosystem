@@ -474,7 +474,7 @@ def _warm_ollama() -> bool:
     )
     try:
         with urllib.request.urlopen(request, timeout=30.0) as response:
-            return response.status == 200
+            return bool(response.status == 200)
     except Exception:  # noqa: BLE001 - see responds(): every failure means "not warmed"
         return False
 
@@ -1012,7 +1012,12 @@ def status(quiet: bool = False) -> dict[str, bool]:
     return answers
 
 
-COMMANDS = {"start": start, "stop": stop, "status": lambda: (status(), 0)[1]}
+def _run_status() -> int:
+    status()
+    return 0
+
+
+COMMANDS = {"start": start, "stop": stop, "status": _run_status}
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
