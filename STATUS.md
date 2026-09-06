@@ -13786,6 +13786,30 @@ NERVIS 0.23.14 unchanged — no NERVIS-ecosystem package's code or version
 needed to move for this one, only the release notes an earlier commit today
 should have carried and didn't.
 
+## §15's conformance item closed on mixed evidence — reran what's fast, cited what isn't, 2026-09-06
+
+Health, identity, capabilities and version were reconfirmed the same way as
+the schemas item just above: `tools/schema_check.py` reran clean. Error
+envelopes, with `request_id`/`trace_id` as required fields, likewise via
+`tools/conformance_check.py`. Both are in-process — nothing started, nothing
+waited on.
+
+Events, live trace propagation and request/session-id correlation are a
+different shape of evidence: only `tools/acceptance_run.py`'s live
+golden-path run checks them, and it needs the actual ecosystem running, a
+real model for SIRVIS to measure, and a person at the editor for two clauses
+Clarvis has no scriptable entry point for. Asked directly rather than
+assumed: re-run it live tonight, or close on the run already on record. The
+answer was to close on the record — "The golden path, run against the
+running thing" (5 September, above), where every clause reads `PROVED`
+attended, including the live event stream read to its `ecosystem.stream.live`
+boundary before any work starts (frames, not a replay a buffering hub could
+produce after the fact) and a trace joining spans from all three services
+with `partial=False`. That evidence is real and reproducible, just not
+re-executed in this sitting.
+
+No code changed. NERVIS 0.23.14 unchanged.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

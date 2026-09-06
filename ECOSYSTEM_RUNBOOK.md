@@ -1103,8 +1103,21 @@ may only add product-specific detail beside the required state.
       this session, closing a different §15 item) had no `## Clarvis — 0.12.8` release
       note, so `tools/check_releases.py` was failing. Added; all of `schema_check.py`,
       `conformance_check.py`, `check_releases.py` and `check_compatibility.py` pass.*
-- [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error
-      envelopes conform.
+- [x] Health, identity, capabilities, version, events, traces, request/session IDs and error
+      envelopes conform. *Health/identity/capabilities/version reconfirmed by rerunning
+      `tools/schema_check.py` — 6 released schemas match the live models, 23 fixtures
+      behave, all three services' metadata routes satisfy them. Error envelopes (with
+      `request_id`/`trace_id` as required fields) reconfirmed by rerunning
+      `tools/conformance_check.py`. Events, live trace propagation across a real
+      three-service chain, and request/session-id correlation are what
+      `tools/acceptance_run.py`'s live golden-path run checks — it needs the ecosystem
+      actually running, a real model for SIRVIS to measure, and two clauses (Clarvis's
+      agent task, undo) need a person at the editor, so this closes on the already-recorded
+      evidence rather than a fresh run tonight: `STATUS.md`'s "The golden path, run against
+      the running thing" (5 Sept) — every clause `PROVED` attended, including the live
+      event stream read to its boundary before work starts (frames, not a replay), a trace
+      joining spans from all three services with `partial=False`, and request/decision
+      correlation by id.*
 - [ ] SIRVIS provenance distinguishes `MEASURED`, `ESTIMATED` and `UNKNOWN` end to end.
 - [ ] Runtime Sets and multi-model evidence are represented without invented semantics.
 - [ ] RAVIS enforces hard constraints before preferences, and explains routes and rejections.
