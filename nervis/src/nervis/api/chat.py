@@ -83,6 +83,8 @@ from nervis.api.chat_reads import (
     _wants_results,
 )
 from nervis.api.chat_titles import (
+    _attachment_title,
+    _reply_title,
     _stored_title,
     _title_later,
     opening_title,
@@ -163,6 +165,10 @@ async def delete_conversation(conversation_id: str, request: Request) -> dict[st
     return {"conversation_id": conversation_id, "deleted": True}
 
 
+def _workspace_root(request: Request) -> str:
+    return str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+
+
 @router.post("")
 async def send(request: Request) -> Any:
     """One turn: store the question, ask RAVIS, stream the answer, store it.
@@ -236,12 +242,14 @@ async def send(request: Request) -> Any:
             await _catalogue(request),
             await _jobs(request, content),
             await _pools(request, content),
-            # So "export this conversation" can name a file without the person
-            # supplying one. Derived from the conversation's own stored title —
-            # NERVIS's record, not a model's suggestion — which is what keeps
-            # §12's rule about invented targets intact.
+            # So a save or export can name a file without the person supplying
+            # one: the attachment they fed chat, the reply's own opening line,
+            # the conversation's title, or the question itself — NERVIS's own
+            # records throughout, never a model asked mid-request to pick one.
             default_name=transcript.suggested_name(
-                _stored_title(database, conversation_id) or content,
+                _attachment_title(_workspace_root(request), conversation_id)
+                or _reply_title(database, conversation_id)
+                or _stored_title(database, conversation_id) or content,
                 datetime.now().astimezone(),
             ),
             # What NERVIS knows about the editor, for the handoff offer. Read
@@ -267,7 +275,9 @@ async def send(request: Request) -> Any:
                 await _jobs(request, content),
                 await _pools(request, content),
                 default_name=transcript.suggested_name(
-                    _stored_title(database, conversation_id) or content,
+                    _attachment_title(_workspace_root(request), conversation_id)
+                    or _reply_title(database, conversation_id)
+                    or _stored_title(database, conversation_id) or content,
                     datetime.now().astimezone(),
                 ),
             ),

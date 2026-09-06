@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -24,6 +25,7 @@ from ecosystem_protocol import new_request_id
 from fastapi import Request
 
 from nervis import chat as store
+from nervis import documents
 from nervis.api.chat_calls import _forwarded
 from nervis.registry import RegistryEntry
 
@@ -74,6 +76,38 @@ def _stored_title(database: Any, conversation_id: str) -> str:
          if row["conversation_id"] == conversation_id),
         "",
     )
+
+
+def _attachment_title(root: str, conversation_id: str) -> str:
+    """The newest attachment's own name, for a save offer with nothing typed.
+
+    A person who fed chat a file and asked for changes to it has already named
+    the thing better than a conversation title ever will — "annotated" says
+    what happened to it without inventing a word for what it is.
+    """
+    place = documents.attachment_dir(Path(root), conversation_id) if root else None
+    if place is None:
+        return ""
+    found = documents.list_files(place)
+    return f"{Path(found[0].name).stem}-annotated" if found else ""
+
+
+def _reply_title(database: Any, conversation_id: str) -> str:
+    """The last reply's own opening line, for a document made from nothing.
+
+    Still NERVIS's own record, not a model asked mid-request to name a file:
+    the reply already exists, already reviewed by the person before they said
+    save it, and its first line is usually the heading it gave the thing anyway.
+    """
+    written = [
+        m for m in store.messages(database, conversation_id)
+        if m.role in ("clarvis", "assistant")
+    ]
+    if not written:
+        return ""
+    opening = next((line.strip() for line in written[-1].content.splitlines() if line.strip()), "")
+    return opening.lstrip("#").strip()
+
 
 def _first_user_message(database: Any, conversation_id: str) -> str:
     """The message a title should describe, or empty when there is nothing to do.

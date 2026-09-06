@@ -185,16 +185,21 @@ CANCEL = re.compile(
 # name appears.
 BENCHMARK = re.compile(r"\b(?:bench|benchmark|benchmarks|benchmarking)\b", re.IGNORECASE)
 
-# Saving the last reply to a file. The verb and the *name* are both required:
-# "save that" names no file, and a proposal whose target NERVIS invented is the
-# thing §12 exists to prevent — the person supplies the filename or there is no
-# offer.
+# Saving the last reply to a file. A name written here is used verbatim;
+# "save that" names none, and `_saving_proposal` falls back to a name derived
+# from the conversation's own title and date — never one a model invented,
+# which is the distinction §12 actually draws.
 WRITE = re.compile(
     r"\b(?:save|write|export|put)\b[^.?!]{0,60}?"
     r"(?:\bas\b|\bto\b|\binto\b)?\s*"
     r"[\"'`]?(?P<file>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?",
     re.IGNORECASE,
 )
+
+#: The same intent with no filename at all — "save it", "could you ... download
+#: it" — where WRITE has nothing to capture. Enough to reach the fallback
+#: default name; still no filename this pattern itself supplies.
+SAVE_VERB = re.compile(r"\b(?:save|write|export|put|download)\b", re.IGNORECASE)
 
 # Exporting the conversation itself.
 #
@@ -666,7 +671,21 @@ def _saving_proposal(question: str, default_name: str) -> Proposal | None:
     if EXPORT_CONVERSATION.search(question):
         named = writing.group("file") if writing else default_name
         return _export_proposal(named) if named else None
-    return _write_proposal(writing.group("file")) if writing else None
+    if not (writing or SAVE_VERB.search(question)):
+        return None
+    named = writing.group("file") if writing else _as_text_default(default_name)
+    return _write_proposal(named) if named else None
+
+
+def _as_text_default(default_name: str) -> str:
+    """The export offer's own derived name, saved as text instead of PDF.
+
+    Still derived, not invented — the same title-and-date string `propose`
+    was already handed, unchanged apart from its suffix. A single reply is
+    prose NERVIS already holds as text; rendering it to PDF is the export
+    offer's own choice, not the default this one reaches for.
+    """
+    return re.sub(r"\.pdf$", ".md", default_name, flags=re.IGNORECASE) if default_name else ""
 
 
 def _export_proposal(named: str) -> Proposal:
@@ -922,7 +941,12 @@ def told(proposal: Proposal | None) -> str:
             "Do not say there is one, do not refer to a button from an earlier "
             "reply as though it were still on this one, and do not describe "
             "where to click. If they are asking for something you can offer, "
-            "ask them to name the target and it will appear on the next reply. "
+            "ask them to name the target and it will appear on the next reply — "
+            "**this is a missing filename, never a missing ability.** NERVIS can "
+            "save a reply or export a conversation to a file; asked to do either "
+            "with no name given, say so and ask for one (\"blueprint.md\", say) "
+            "rather than saying you cannot create a file, a download link, or "
+            "similar — that is the standing capabilities line above, contradicted. "
             "**Never say a save, write, export or any other operation already "
             "happened** — not this turn, not an earlier one — unless NERVIS's "
             "own reading says so. You have no way to know one occurred beyond "

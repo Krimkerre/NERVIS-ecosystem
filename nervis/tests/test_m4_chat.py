@@ -3121,8 +3121,9 @@ def test_writing_is_refused_when_no_workspace_is_configured() -> None:
 
 
 def test_a_named_file_produces_an_offer_with_a_button(tmp_path: Path) -> None:
-    """The proposal half. "save that" names no file and must not offer: a target
-    NERVIS invented is the thing §12 exists to prevent."""
+    """A named file is used verbatim. "save that somewhere" names none, and
+    still offers — with a name derived from NERVIS's own records (here, the
+    last reply), never one invented by the model mid-request."""
     sent: list[dict[str, Any]] = []
     client = an_api(workspace_path=str(tmp_path))
     _with_models(client, sent, ["qwen/qwen3-4b-2507"])
@@ -3134,7 +3135,11 @@ def test_a_named_file_produces_an_offer_with_a_button(tmp_path: Path) -> None:
     assert offer["operation"] == "nervis.document.write"
     assert offer["target"] == "summary.pdf"
     assert offer["ready"] is True
-    assert vague.headers.get("x-command-offer", "") == ""
+
+    fallback = json.loads(vague.headers["x-command-offer"])
+    assert fallback["operation"] == "nervis.document.write"
+    assert fallback["target"].endswith(".md")
+    assert fallback["ready"] is True
 
 
 # ── Putting a file there in the first place ────────────────────────────────
