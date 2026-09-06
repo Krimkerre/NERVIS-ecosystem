@@ -1092,7 +1092,17 @@ may only add product-specific detail beside the required state.
       checklist actually live, cross-referenced from `clarvis/AGENTS.md` but never
       quoting the rule itself — did not. Added the same statement `AGENTS.md` already
       carries (Clarvis 0.12.8).*
-- [ ] MEP schemas, fixtures and versions are released and pinned.
+- [x] MEP schemas, fixtures and versions are released and pinned. *`tools/schema_check.py`
+      exists specifically for this item — its own docstring quotes it — and reverifying
+      rather than trusting that found all three parts current: 6 released schemas
+      (`protocol/schemas/*.json`, each `$id` pinned to `.../mep/1.0.0/...`) generated from
+      and matching the live models, 23 fixtures behaving against them, and all three
+      services' metadata routes satisfying what's released. `conformance_check.py`
+      confirms the shared error envelope separately. Reverifying this item's own gates
+      found one real, live drift it exists to catch: Clarvis's 0.12.8 (shipped earlier
+      this session, closing a different §15 item) had no `## Clarvis — 0.12.8` release
+      note, so `tools/check_releases.py` was failing. Added; all of `schema_check.py`,
+      `conformance_check.py`, `check_releases.py` and `check_compatibility.py` pass.*
 - [ ] Health, identity, capabilities, version, events, traces, request/session IDs and error
       envelopes conform.
 - [ ] SIRVIS provenance distinguishes `MEASURED`, `ESTIMATED` and `UNKNOWN` end to end.

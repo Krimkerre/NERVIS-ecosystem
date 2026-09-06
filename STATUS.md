@@ -13764,6 +13764,28 @@ catching up to code that had already shipped.
 
 NERVIS 0.23.14.
 
+## §15's schemas/fixtures/versions item: already built for this, one real drift found reverifying, 2026-09-06
+
+`tools/schema_check.py` exists specifically for this checklist line — its own
+docstring quotes it verbatim — so closing this item was reverifying its three
+parts are still current rather than writing anything new. Ran it directly
+rather than trusting the last time it passed: 6 released schemas
+(`protocol/schemas/*.json`) still match the live models, each `$id` pinned to
+`.../mep/1.0.0/...`; 23 fixtures still behave against them; all three
+services' metadata routes still satisfy what's released.
+`tools/conformance_check.py` confirms the shared error envelope separately.
+
+**Reverifying the item found a real, live gap — introduced by this session,
+not inherited.** `tools/check_releases.py` failed: Clarvis's 0.12.8, shipped
+earlier today closing the non-invention-rule item, had no
+`## Clarvis — 0.12.8` note in this repository's `RELEASES.md` — the exact
+"a version number nothing explains" drift this gate exists to catch. Added.
+`tools/check_releases.py` and `tools/check_compatibility.py` both pass now.
+
+NERVIS 0.23.14 unchanged — no NERVIS-ecosystem package's code or version
+needed to move for this one, only the release notes an earlier commit today
+should have carried and didn't.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

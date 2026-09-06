@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.12.7
+## Clarvis — 0.12.8
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **The non-invention rule now appears in `plan.md`, not only `AGENTS.md`.** §15's
+  "the rule appears in every app document and in agent working instructions" item found
+  this repository's own build plan — where Clarvis's actual milestone work and checklist
+  live — never quoted `ECOSYSTEM_RUNBOOK.md` §1's rule, though `AGENTS.md` already did.
+  Added as its own subsection alongside Plan Mode/Code Mode in `plan.md`'s Working
+  Process section, the same statement `AGENTS.md` carries. Full suite reverified after:
+  1322 of 1322, unaffected by a documentation-only addition.
+
+### 0.12.7
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
