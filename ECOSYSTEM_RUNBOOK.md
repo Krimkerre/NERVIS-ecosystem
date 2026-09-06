@@ -1311,36 +1311,41 @@ may only add product-specific detail beside the required state.
       Not closeable until the fourth pairwise gate exists (M14) and the two
       person-dependent scenarios are reproved against current code.*
 - [ ] The failure/degradation matrix passes with no unsafe failover.
-      *Reverified 6 September 2026: `tools/check_degradation.py` still reads 19
-      of 19 §10 conditions `PARTIAL`, unchanged from the 5 September audit —
-      zero `COVERED`, and `WITHOUT_LIVE_EVIDENCE` still zero, which is the
-      ratchet that stops a cell being called handled on a unit test alone.
-      Every condition has real evidence and most are handled thoroughly; none
-      is `COVERED` in §10's sense, which asks that its six required outcomes
-      be *proven*, not that the condition merely be coped with. No cell's own
-      gap sentence describes actually-unsafe behavior in production — each
-      names a specific missing route-level test, with the exact file, line and
-      smallest change that would close it, not a known misbehavior. So "no
+      *Reverified 6 September 2026: `tools/check_degradation.py` read 19 of
+      19 `PARTIAL` earlier the same day, unchanged from the 5 September
+      audit. Later the same day, "trace collector loss" closed for real: a
+      new route-level regression test
+      (`ravis/tests/test_m18b_events.py::test_a_dead_collector_never_becomes_the_service_s_own_unreadiness`)
+      overflows the event publisher's bounded queue against a refusing
+      collector and asserts `GET /ecosystem/health` still reports `ready:
+      true` — verified adversarially, not just written: a failing check
+      temporarily reintroduced into `ravis_surface`'s `checks` mapping made
+      this exact test fail, then was reverted. First `COVERED` cell this gate
+      has ever recorded; tally is now 1 `COVERED` / 18 `PARTIAL`.
+      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 18 conditions have
+      real evidence and most are handled thoroughly; none is `COVERED` yet in
+      §10's fuller sense of all six required outcomes proven. No remaining
+      cell's own gap sentence describes actually-unsafe behavior in
+      production — each names a specific missing route-level test. So "no
       unsafe failover" reads true on what exists; "the matrix passes" does
-      not — 19 dedicated tests away, not a reverification.*
-- [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
-      *Reverified 6 September 2026: three of the four hold on fresh automated
-      evidence. `nervis/tests/test_m7_traces.py` (correlated),
+      not — 18 dedicated tests away now, one fewer than this morning.*
+- [x] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
+      *Reverified 6 September 2026: `nervis/tests/test_m7_traces.py` (correlated),
       `nervis/tests/test_m6_events.py` (bounded — the quarantine cap, the
       dropped-subscriber frame) and `nervis/tests/test_m10_logs.py` plus
       `protocol/tests/test_log_correlation.py` (redacted) — 105 tests rerun,
       all passing, alongside the broader redaction coverage already spread
-      across all three services' own suites. "Optional to core operation" is
-      the one that doesn't have fresh proof: its evidence is Stage 7's live
-      collector-kill (`STATUS.md:5392`, pre-29 August) — twelve requests at
-      baseline latency with NERVIS's event hub dead, queued events delivered
-      cleanly on reconnect — real and substantial, but a one-off manual
-      exercise, not a repeatable test, and `nervis/src/nervis/events.py` has
-      had several commits since. This is the same gap `tools/check_degradation.py`
-      already names under "trace collector loss" — not reattempted live today
-      because redoing it means killing NERVIS on a machine with two live
-      code-server tabs and a desktop VS Code window registered against it.
-      Not closeable until that clause has an automated regression test.*
+      across all three services' own suites. "Optional to core operation" was
+      the one clause without fresh, automated proof earlier the same day —
+      real Stage 7 evidence existed (`STATUS.md:5392`, pre-29 August) but only
+      as a one-off manual exercise. Closed the same day: a new route-level
+      test, `ravis/tests/test_m18b_events.py::test_a_dead_collector_never_becomes_the_service_s_own_unreadiness`,
+      overflows RAVIS's event-publisher buffer against a refusing collector
+      and asserts `GET /ecosystem/health` still reports readiness truthfully
+      — verified adversarially by temporarily reintroducing the exact
+      regression this guards against (a readiness check reading the
+      publisher's dropped count) and confirming the test catches it, then
+      reverting. All four clauses now hold on current, automated evidence.*
 - [x] Security, threat-model and privacy gates pass — the stabilization track of
       3–5 September 2026, twelve items closed against an independent audit, each with
       its evidence in `STATUS.md` and its regression test in the owning product. The

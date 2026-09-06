@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import deque
 from typing import Any
 
 import httpx
@@ -245,6 +246,41 @@ def test_a_collector_that_refuses_does_not_reach_the_caller() -> None:
         assert ask(client).status_code == 200
         assert sink.snapshot()["failures"] >= 1
         assert sink.snapshot()["queued"] >= 1, "the events are kept, not lost"
+
+
+def test_a_dead_collector_never_becomes_the_service_s_own_unreadiness() -> None:
+    """Stage 7's clause, proven rather than left to a comment.
+
+    This regressed once for real: a check that read the publisher's dropped
+    count made `ready` false the moment a collector died, which is exactly
+    the coupling *"collector outage leaves every product healthy"* forbids.
+    The fix removed the check (`ravis_surface`'s own comment records why)
+    rather than softening it — but nothing drove the failure end-to-end and
+    read `/ecosystem/health` afterward. This does: overflow the buffer for
+    real, fail to reach the collector for real, and confirm the service's
+    own readiness never saw either.
+    """
+
+    class Refusing:
+        async def post(self, url: str, *, json: Any, timeout: float) -> Any:
+            del url, json, timeout
+            raise ConnectionError("no hub here")
+
+    with a_client() as client:
+        sink = publisher(client)
+        sink._pending = deque(maxlen=3)  # small on purpose: overflow in a few requests
+
+        for _ in range(5):
+            assert ask(client).status_code == 200
+        asyncio.run(sink.flush(Refusing()))
+
+        snapshot = sink.snapshot()
+        assert snapshot["dropped"] > 0, "the buffer never actually overflowed"
+        assert snapshot["failures"] >= 1, "the collector was never actually unreachable"
+
+        health = client.get("/ecosystem/health").json()
+        assert health["ready"] is True, "a dead collector must not fail the service's own readiness"
+        assert health["status"] == "healthy"
 
 
 def test_publishing_state_is_reportable() -> None:

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2392 tests, no network, no live service
+.venv/bin/pytest                      # part of 2393 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 891 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2392 passing across the four, conformance `PASS`.
+Expected: all clean, 2393 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14373,6 +14373,49 @@ pass, and the operator runbook is real and current rather than a stub.
 what" table. `tools/check_status.py` and `tools/check_plans.py` both run
 clean. No product code changed; new file `OPERATOR_RUNBOOK.md`, edits to
 `README.md` and `ECOSYSTEM_RUNBOOK.md`.
+
+## The first `COVERED` cell this gate has ever recorded, 2026-09-06
+
+Every other §15 item closed today was reverification: rerun what exists, cite
+it honestly, leave the box unchecked where a real gap remained. This one is
+different — actual new code, because "trace collector loss" had a gap with an
+exact recipe already written by `tools/check_degradation.py` itself: *add a
+route-level regression test to `ravis/tests/test_m18b_events.py` that
+overflows the publisher's buffer against the existing Refusing collector and
+asserts what an operator can't get from a comment alone.*
+
+**The regression this closes is a real one, not a hypothetical.** It
+happened once: a readiness check read the event publisher's dropped-event
+count, which meant a dead NERVIS made RAVIS report `ready: false` — the exact
+coupling Stage 7's *"collector outage leaves every product healthy"* forbids.
+The fix removed the check (`ravis_surface`'s own comment records why,
+`ravis/src/ravis/ecosystem/capabilities.py`), but nothing drove the failure
+end-to-end and read `/ecosystem/health` afterward to prove the fix holds.
+
+The new test (`ravis/tests/test_m18b_events.py::test_a_dead_collector_never_becomes_the_service_s_own_unreadiness`)
+shrinks the publisher's buffer to 3, sends 5 requests so it genuinely
+overflows, flushes against a `Refusing` collector so it genuinely fails, then
+asserts `snapshot()["dropped"] > 0`, `snapshot()["failures"] >= 1`, and
+`GET /ecosystem/health` still returns `ready: true` and `status: "healthy"`.
+**Verified adversarially before being trusted:** a failing `"events"` check
+was temporarily added to `ravis_surface`'s `checks` mapping — the exact shape
+of the original regression — and the new test failed exactly as it should,
+with the warning log lines confirming real drops (1, 2, 4) rather than a
+vacuous pass. The probe was then reverted; `git diff` confirmed byte-identical
+to before. 971 of 971 RAVIS tests pass with the real test in place; `ruff` and
+`mypy` clean.
+
+`tools/check_degradation.py`'s "trace collector loss" cell is now `verdict="COVERED"`
+— the first `COVERED` cell in this file's history, 1 of 19, tally moved from
+19 `PARTIAL` to 1 `COVERED` / 18 `PARTIAL`. This closes two §15 lines at once:
+"logs, events and traces are... optional to core operation" (now `[x]` — all
+four of its clauses hold on current automated evidence) and one cell's worth
+of progress on "the failure/degradation matrix passes" (stays open — 18
+conditions remain). `ECOSYSTEM_RUNBOOK.md`'s notes on both items updated to
+match. New test in `ravis/tests/test_m18b_events.py`; edit to
+`tools/check_degradation.py`'s evidence and verdict for one cell; no
+production behavior changed, only the proof that existing behavior is
+correct.
 
 ## Starting the thing
 

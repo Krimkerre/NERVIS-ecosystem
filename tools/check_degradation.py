@@ -174,14 +174,13 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="trace collector loss (NERVIS event hub unreachable, refusing, hanging, or never configured, from the point of view of every producer that publishes events to it)",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
             ("live", "STATUS.md:5392"),
+            ("route", "ravis/tests/test_m18b_events.py:251"),
             ("route", "ravis/tests/test_m18b_events.py:223,232"),
             ("static-gate", "tools/acceptance_run.py:89,743,795,806"),
         ],
-        gap="The one \u00a710 outcome that actually regressed once here \u2014 a dead collector must not make a product advertise itself as unready \u2014 is protected only by a code comment and a one-off manual kill recorded in STATUS.md prose: no",
-        closes_with="Add a route-level regression test to /Users/mathias/Documents/coding/NERVIS-ecosystem/ravis/tests/test_m18b_events.py that flushes the publisher against the existing Refusing collector until the bound",
     ),
     Cell(
         condition="read-only data directory",
