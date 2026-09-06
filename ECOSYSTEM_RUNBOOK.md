@@ -1383,7 +1383,7 @@ may only add product-specific detail beside the required state.
       restore, verify, resume) has never been rehearsed as one drill, only in
       separately-tested pieces. Not closeable until that drill is run or the
       RAVIS clause is either dropped or given something to actually test.*
-- [ ] Compatibility matrix, operator runbook, release notes and known limitations are
+- [x] Compatibility matrix, operator runbook, release notes and known limitations are
       published. *Release notes are `RELEASES.md`, enforced by `tools/check_releases.py`:
       each component's version is read from its own manifest, so a bump with no note fails
       the gate. Known limitations are published as gates rather than as a list — §10's
@@ -1400,18 +1400,19 @@ may only add product-specific detail beside the required state.
       states) were each independently reverified earlier in this same pass
       through §15. "Operator runbook" is the one clause of the four that had
       never actually been examined until now, and it does not have one
-      dedicated document: `README.md`'s "Running it" section (start/stop per
-      platform, the `status` subcommand, `.run/`'s log files, what each minted
-      credential is for) and `ECOSYSTEM_RUNBOOK.md` itself (whose own header
-      names "release operators" as an audience) between them cover getting the
-      ecosystem running and reading its published state, but neither is
-      labeled as the operator runbook, and there is no troubleshooting or
-      incident-response guide anywhere — confirmed by grep, not assumed: zero
-      hits for what to do when a service won't start, a job is stuck, or a
-      dashboard reads degraded. The degradation matrix's gap sentences are
-      written for the engineer closing a test, not the operator watching a
-      live incident. Not closeable until real content exists for that, and
-      something is actually named the operator runbook.*
+      dedicated document at the time: `README.md`'s "Running it" section and
+      `ECOSYSTEM_RUNBOOK.md` itself covered getting the ecosystem running and
+      reading its published state, but neither was named the operator
+      runbook, and there was no troubleshooting or incident-response content
+      anywhere — confirmed by grep, not assumed.
+      Closed the same day: `OPERATOR_RUNBOOK.md` is now that document —
+      health vocabulary and the Clarvis instance registry, the real
+      `restore-database` CLI commands (verified working on all three Python
+      services) plus the tested Clarvis rollback procedure, and a table
+      covering all 19 of `tools/check_degradation.py`'s conditions with what
+      an operator should actually do for each, honestly marked where the
+      underlying evidence is designed-but-not-yet-proven-live rather than
+      overstating it.*
 - [x] §14's gates pass for every product before every push: complexity, lint, types and tests.
       *Reworded 6 September 2026 to match §14.1's own updated wording — these gates run
       locally, not in CI, because GitHub Actions is deliberately disabled on both

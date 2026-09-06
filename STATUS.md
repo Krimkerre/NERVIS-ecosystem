@@ -14334,6 +14334,46 @@ degradation matrix, logs/events/traces, rollback/recovery, publication), each
 for a real, separately-named reason. No code changed; the edit is to
 `ECOSYSTEM_RUNBOOK.md`.
 
+## `OPERATOR_RUNBOOK.md` written; §15's publication item closes for real, 2026-09-06
+
+Scoped as a task and planned before writing anything, on the operator's own
+instruction, once "operator runbook" was confirmed a real gap rather than a
+paperwork one: real content existed (`README.md`'s "Running it",
+`ECOSYSTEM_RUNBOOK.md`'s own "release operators" audience line) but nothing
+was *named* the operator runbook, and there was no troubleshooting content
+anywhere.
+
+`OPERATOR_RUNBOOK.md` is now that document, at repository root beside
+`README.md` and `ECOSYSTEM_RUNBOOK.md` rather than a new `docs/` convention.
+It covers: the health vocabulary (`unreachable` vs `stopped`, confirmed live
+via `tools/acceptance_run.py`'s restart clause) and the Clarvis instance
+registry (`GET /api/v1/registry/instances`, distinct from `/api/v1/services`,
+used live earlier today to settle the multiple-windows matrix cell); the real
+`restore-database` CLI subcommand each of `nervis`, `ravis` and `sirvis`
+ships — verified working (`--help` printed real usage on all three, not an
+error) rather than assumed from reading `cli.py` — plus the Clarvis rollback
+procedure, citing today's real test; and a table covering all 19 of
+`tools/check_degradation.py`'s conditions, each with what an operator should
+see, what the system is designed to do, and what to actually do.
+
+**The playbook table carries this session's honesty rule forward rather than
+resetting it at a new document boundary.** Every condition in
+`tools/check_degradation.py` grades `PARTIAL`, not `COVERED` — so each playbook row
+says which half is proven live and which is designed-but-not-yet-exercised,
+most visibly on trace collector loss (the one condition with a real
+regression history, but evidence from before 29 August) and Bridge
+collision/stale registry lease (a live row cannot yet be reliably
+distinguished from a stale one on every read path). Nothing here claims more
+confidence than `tools/check_degradation.py` itself would grant.
+
+§15's publication item is now `[x]`: release notes, the compatibility
+matrix and known-limitations gates were already reverified earlier in this
+pass, and the operator runbook is real and current rather than a stub.
+`README.md` gained one row pointing to it in its existing "which document for
+what" table. `tools/check_status.py` and `tools/check_plans.py` both run
+clean. No product code changed; new file `OPERATOR_RUNBOOK.md`, edits to
+`README.md` and `ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
