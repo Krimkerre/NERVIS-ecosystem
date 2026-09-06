@@ -13834,6 +13834,39 @@ choosing. Reran rather than trusted:
 All three passed independently; no seam between them was assumed from a
 prior pass. No code changed.
 
+## §15's Runtime-Sets/multi-model item: no dedicated gate, so read the logic itself, 2026-09-06
+
+Unlike the last three items, nothing in `tools/` was written specifically for
+this line — no script's own docstring quotes it. Closed by reading the
+representation logic directly rather than rerunning something that already
+existed for the purpose.
+
+**What was checked, and what it found real:** `sirvis/src/sirvis/core/
+runtime_sets.py`'s `estimate_fit` refuses to total a Runtime Set's weight the
+moment any member's installed size is unrecorded — *"a sum missing a term is
+not a sum"* — rather than guessing at the missing figure. §10.1's rule that
+two models each fitting alone proves nothing about running together has its
+own test, `test_the_joint_term_is_zero_until_a_pair_has_been_measured`
+(`sirvis/tests/test_m15_recommendations.py`) — zero, not an optimistic
+default. Swap is sampled from real `vm.swapusage` reads at baseline, after
+load, post-run and post-unload (`benchmarks/engine.py`'s `_swap_warnings`),
+never estimated. Multi-model evidence still passes through the same
+`combine()` lattice reverified for the provenance item above, which can only
+weaken. 67 tests across `sirvis/tests/test_m9_runtime_sets.py` (30),
+`sirvis/tests/test_m15_recommendations.py` (32) and `sirvis/tests/test_m6_benchmark.py` (5), all
+passing.
+
+**The one real gap found, and it turned out to already be handled correctly.**
+`SIRVIS.md`'s M15b row — Runtime Set recommendation as its own named output,
+rather than M15's model-only ranking — carries no status tag at all, meaning
+it is genuinely unbuilt. But the row itself already says what happens instead:
+refused with `UNSUPPORTED_PARAMETER` rather than answered with an invented
+ranking. An unbuilt feature that refuses honestly is this checklist item's own
+rule working correctly on the gap, not a violation of it — recorded here
+rather than left to look like an oversight.
+
+No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

@@ -1133,7 +1133,24 @@ may only add product-specific detail beside the required state.
       SIRVIS can send to 5 badges, every one styled in the dashboard's own CSS, checked
       against the enums that produce them rather than a second hand-kept list. All three
       layers reran clean.*
-- [ ] Runtime Sets and multi-model evidence are represented without invented semantics.
+- [x] Runtime Sets and multi-model evidence are represented without invented semantics.
+      *No single gate exists for this line the way `schema_check.py`/`provenance_check.js`
+      do for their own items, so this closed on reading the actual representation logic
+      rather than rerunning one script. Found the discipline real at every point checked:
+      `core/runtime_sets.py`'s `estimate_fit` refuses to total a set's weight when any
+      member's installed size is unrecorded — "a sum missing a term is not a sum" —
+      rather than guessing; §10.1's rule that two independently-fitting models prove
+      nothing about running together is a named test,
+      `test_the_joint_term_is_zero_until_a_pair_has_been_measured`; swap is sampled from
+      real `vm.swapusage` reads at baseline/load/run/unload, never estimated
+      (`benchmarks/engine.py`'s `_swap_warnings`); and multi-model evidence still passes
+      through `core/evidence.py`'s `combine()` lattice, which can only weaken. 67 tests
+      across `sirvis/tests/test_m9_runtime_sets.py`, `test_m15_recommendations.py` and
+      `test_m6_benchmark.py`, all passing. **Named, not hidden:** M15b (Runtime Set
+      recommendation as a named output rather than M15's model-only ranking) has no
+      status tag in `SIRVIS.md` — genuinely unbuilt — and its absence is itself represented
+      honestly, refused with `UNSUPPORTED_PARAMETER` rather than answered with an invented
+      ranking, which is this item's own rule applied to the gap.*
 - [ ] RAVIS enforces hard constraints before preferences, and explains routes and rejections.
 - [ ] OpenAI-compatible streaming, cancellation, tools, errors and usage pass contract tests.
 - [ ] `clarvis-chat` and `clarvis-agent` are independently configurable and tested.
