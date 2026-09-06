@@ -13810,6 +13810,30 @@ re-executed in this sitting.
 
 No code changed. NERVIS 0.23.14 unchanged.
 
+## §15's provenance item: the three-layer chain reverified, not re-argued, 2026-09-06
+
+`nervis/tools/provenance_check.js` exists specifically for this checklist
+line, the same shape as the schemas item: built after an external audit found
+RAVIS's own rolling observation over real traffic wearing a SIRVIS benchmark's
+`MEASURED` badge on 5 September, because eighteen dashboard gates ran against
+the file and not one had ever called `prov()` with a value of its own
+choosing. Reran rather than trusted:
+
+- **SIRVIS** — `core/evidence.py`'s `EvidenceKind` lattice and `combine()`,
+  which can only weaken and answers `UNKNOWN` for an empty input rather than a
+  vacuous `MEASURED`. 58 tests across `sirvis/tests/test_m16_evidence_api.py`,
+  `sirvis/tests/test_m7_evidence.py`, `sirvis/tests/test_validity_scope.py`.
+- **RAVIS** — `evidence/sirvis.py`'s `EvidenceProvenance` still separates
+  `MEASURED_BY_SIRVIS` from `OBSERVED_BY_RAVIS`, the exact distinction that was
+  missing. 47 tests across `ravis/tests/test_sirvis_evidence.py`,
+  `ravis/tests/test_evidence_validity.py`.
+- **NERVIS** — `node tools/provenance_check.js`: *"prov() maps 7 known
+  provenance kinds to 5 badges, every one styled, and a benchmark never wears
+  RAVIS's own observation badge."*
+
+All three passed independently; no seam between them was assumed from a
+prior pass. No code changed.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

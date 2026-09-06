@@ -1118,7 +1118,21 @@ may only add product-specific detail beside the required state.
       event stream read to its boundary before work starts (frames, not a replay), a trace
       joining spans from all three services with `partial=False`, and request/decision
       correlation by id.*
-- [ ] SIRVIS provenance distinguishes `MEASURED`, `ESTIMATED` and `UNKNOWN` end to end.
+- [x] SIRVIS provenance distinguishes `MEASURED`, `ESTIMATED` and `UNKNOWN` end to end.
+      *`nervis/tools/provenance_check.js` exists specifically for this item — its own
+      comment quotes it — and reverifying rather than trusting found the full chain
+      intact at all three layers. SIRVIS: `core/evidence.py`'s `EvidenceKind` lattice
+      (`MEASURED`/`PARTIALLY_MEASURED`/`ESTIMATED`/`UNKNOWN`) and its `combine()`, which
+      can only weaken and treats an empty input as `UNKNOWN` rather than a vacuous
+      `MEASURED` — 58 tests across `test_m16_evidence_api.py`, `test_m7_evidence.py`,
+      `test_validity_scope.py`. RAVIS: `evidence/sirvis.py`'s `EvidenceProvenance`
+      distinguishes `MEASURED_BY_SIRVIS` from `OBSERVED_BY_RAVIS` — the exact conflation
+      an external audit found live on 5 Sept, RAVIS's own rolling observation over real
+      traffic wearing a benchmark's badge — 47 tests across `test_sirvis_evidence.py`,
+      `test_evidence_validity.py`. NERVIS: `prov()` maps all 7 provenance kinds RAVIS or
+      SIRVIS can send to 5 badges, every one styled in the dashboard's own CSS, checked
+      against the enums that produce them rather than a second hand-kept list. All three
+      layers reran clean.*
 - [ ] Runtime Sets and multi-model evidence are represented without invented semantics.
 - [ ] RAVIS enforces hard constraints before preferences, and explains routes and rejections.
 - [ ] OpenAI-compatible streaming, cancellation, tools, errors and usage pass contract tests.
