@@ -167,6 +167,24 @@ def _workbench_state(version: str) -> tuple[str, str]:
     )
 
 
+def ollama(version: Any) -> dict[str, Any]:
+    """Ollama's own version, from its native `/api/version` — no MEP surface.
+
+    **No capability to derive, and that is an honest answer rather than a
+    gap.** Unlike LM Studio's model listing or code-server's workbench grade,
+    a bare version number implies nothing about what Ollama can serve —
+    reporting one is not the same claim as reporting a capability, so this
+    adapter contributes `build_version` alone rather than inventing one to
+    satisfy a filter built for services that have both.
+    """
+    if not isinstance(version, Mapping):
+        return {"detail": "answering; publishes no MEP surface, so no capabilities are known"}
+    found = str(version.get("version") or "")
+    if not found:
+        return {"detail": "answering; publishes no MEP surface, so no capabilities are known"}
+    return {"detail": f"Ollama {found}", "build_version": found}
+
+
 def _code_server_version(page: Any) -> str:
     """code-server's own version, from the settings blob it puts in its login page.
 
@@ -250,5 +268,9 @@ ADAPTERS: dict[str, dict[str, Any]] = {
     "codeserver": {
         "paths": (("/healthz", "json"), ("/manifest.json", "json"), ("/login", "text")),
         "translate": codeserver,
+    },
+    "ollama": {
+        "paths": (("/api/version", "json"),),
+        "translate": ollama,
     },
 }

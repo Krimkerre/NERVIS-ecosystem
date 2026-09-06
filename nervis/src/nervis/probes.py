@@ -146,7 +146,10 @@ async def _adapted(
         for path, kind in adapter["paths"]
     ]
     translated: dict[str, Any] = adapter["translate"](*bodies)
-    if not translated.get("capabilities"):
+    # Capabilities and a version are independent claims — Ollama's adapter has
+    # only the second, and discarding it here because the first is empty would
+    # throw away the one real fact it established.
+    if not translated.get("capabilities") and not translated.get("build_version"):
         return {"detail": str(translated.get("detail") or "answering")}
     return translated
 

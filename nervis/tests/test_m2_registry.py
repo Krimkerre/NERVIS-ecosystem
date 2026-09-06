@@ -289,9 +289,21 @@ def test_an_adapted_capability_says_it_was_derived() -> None:
 
 
 def test_a_service_with_no_adapter_still_says_only_what_is_known() -> None:
-    """Two adapters exist. Everything else keeps the honest empty answer."""
-    assert "ollama" not in adapters.ADAPTERS
-    assert set(adapters.ADAPTERS) == {"lmstudio", "codeserver"}
+    """Three adapters exist. Everything else keeps the honest empty answer."""
+    assert "nervis" not in adapters.ADAPTERS
+    assert set(adapters.ADAPTERS) == {"lmstudio", "codeserver", "ollama"}
+
+
+def test_ollama_s_adapter_reports_a_version_and_no_invented_capability() -> None:
+    """A bare version implies no capability, and claiming one would be the
+    exact invention §5.2 forbids — this adapter has one fact and reports only it."""
+    silent = adapters.ollama({})
+    spoken = adapters.ollama({"version": "0.33.3"})
+
+    assert "build_version" not in silent
+    assert spoken["build_version"] == "0.33.3"
+    assert "capabilities" not in spoken
+    assert "0.33.3" in spoken["detail"]
 
 
 def test_an_optional_peer_that_never_answered_is_not_a_warning() -> None:
@@ -882,6 +894,23 @@ def test_an_optional_peer_that_answered_once_is_a_real_outage_after() -> None:
     assert entry is not None
     assert entry.state is RegistryState.UNREACHABLE
     assert entry.awaiting_first_contact is False
+
+
+def test_ollama_s_version_reaches_the_registry_entry() -> None:
+    """End to end through `probe()`, not just the adapter function in isolation
+    — proving the version actually survives `_adapted`'s capability filter
+    rather than being discarded because Ollama has no capability to derive."""
+    ollama = ServiceDeclaration(
+        "ollama", "Ollama", "http://127.0.0.1:11434", mep=False,
+        probe_path="/api/tags", optional=True,
+    )
+    observed = observe(
+        peer({"/api/tags": {"models": []}, "/api/version": {"version": "0.33.3"}}),
+        ollama,
+    )
+
+    assert observed["build_version"] == "0.33.3"
+    assert observed["state"] is RegistryState.HEALTHY
 
 
 def test_a_required_peer_is_never_quietly_absent() -> None:
