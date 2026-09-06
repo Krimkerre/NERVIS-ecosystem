@@ -70,11 +70,18 @@ six launchers are three lines calling `tools/run.py`, which also takes
 python3 tools/run.py status
 ```
 
-**It does not start LM Studio, Ollama or Clarvis.** Those are separate
-applications with their own lifecycles, and §9 puts model loading behind
-SIRVIS's Resource Manager rather than a launcher. Their state is reported
-instead, because "nothing is routing" and "no runtime is running" look identical
-from the dashboard and have very different fixes.
+**It does not start LM Studio or Clarvis.** Those are separate applications
+with their own lifecycles, and §9 puts model loading behind SIRVIS's Resource
+Manager rather than a launcher. Their state is reported instead, because
+"nothing is routing" and "no runtime is running" look identical from the
+dashboard and have very different fixes.
+
+**Ollama is the one exception**, started and stopped alongside the other four
+services. RAVIS's `/v1/embeddings` route needs a local embedding model to
+answer NERVIS chat's own knowledge lookups, which makes it load-bearing for
+chat rather than an optional runtime choice — `nomic-embed-text` is warmed
+once at startup if Ollama is installed, and the launcher says plainly when it
+is not (`brew install ollama && ollama pull nomic-embed-text`).
 
 Logs are in `.run/`, one file per service, and so are the credentials the
 launcher mints so that nothing has to be pasted anywhere:

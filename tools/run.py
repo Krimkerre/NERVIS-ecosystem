@@ -16,11 +16,20 @@ services' own defaults *and* the addresses hard-coded in `nervis/index.html`. A
 launcher picking different ones would produce a dashboard reporting every
 service as offline.
 
-**What it does not start.** LM Studio, Ollama and Clarvis are separate
-applications with their own lifecycles, and §9 puts model loading behind
-SIRVIS's Resource Manager. Their state is *reported* instead, because "nothing
-is routing" and "no runtime is running" are the same symptom with very different
-fixes.
+**What it does not start.** LM Studio and Clarvis are separate applications
+with their own lifecycles, and §9 puts model loading behind SIRVIS's
+Resource Manager. Their state is *reported* instead, because "nothing is
+routing" and "no runtime is running" are the same symptom with very
+different fixes.
+
+**Ollama is the one named exception**, started here rather than merely
+reported. RAVIS's `/v1/embeddings` route needs a local embedding model to
+answer NERVIS chat's own knowledge lookups, which makes it load-bearing for
+chat rather than an optional runtime choice like every other model this
+launcher stays out of — the same argument that keeps LM Studio and Clarvis
+untouched cuts the other way here. `nomic-embed-text` is warmed once at startup
+(already pulled locally; no download) so the first real question does not
+pay that latency.
 
 **code-server is started only if it is installed**, and its absence is a line of
 output rather than a failure. It is part of this ecosystem's delivery — the
@@ -56,6 +65,13 @@ PIDFILE = RUN / "services.json"
 SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
+OLLAMA_PORT = 11434
+
+# What RAVIS's /v1/embeddings warms on startup — small, already pulled on the
+# machines this has been run on, and matched to a background lookup rather
+# than a chat model. Not configurable yet; becomes an operator setting the
+# day a second embedding model is worth choosing between.
+EMBEDDING_MODEL = "nomic-embed-text"
 
 # **code-server's own default, not a number this file invented.** The runbook's
 # port table declines to assign one — "pinned by its own deployment, proxied,
@@ -78,7 +94,6 @@ LM_STUDIO = "http://127.0.0.1:1234"
 
 EXTERNAL = [
     ("LM Studio", f"{LM_STUDIO}/v1/models"),
-    ("Ollama", "http://127.0.0.1:11434/api/tags"),
     ("Clarvis", "http://127.0.0.1:7071/"),
 ]
 
@@ -91,6 +106,16 @@ def code_server_binary() -> str:
     three put it on PATH. An empty answer is a normal outcome, not an error.
     """
     return shutil.which("code-server") or ""
+
+
+def ollama_binary() -> str:
+    """Where `ollama` is, or an empty string — same lookup as code-server's.
+
+    An empty answer means this launcher starts four services instead of five
+    and RAVIS's `/v1/embeddings` has nothing to forward to; that is a
+    degraded state with a stated reason, not a launcher failure.
+    """
+    return shutil.which("ollama") or ""
 
 
 USER_CONFIG = Path.home() / ".config" / "code-server" / "config.yaml"
@@ -373,7 +398,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         ("NERVIS", [str(venv_bin("nervis")), "serve"], "nervis",
          env_for("NERVIS", NERVIS_PORT),
          f"http://127.0.0.1:{NERVIS_PORT}/api/v1/health"),
-    ] + _code_server()
+    ] + _ollama() + _code_server()
 
 
 def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
@@ -407,6 +432,51 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         dict(os.environ),
         f"http://127.0.0.1:{port}/healthz",
     )]
+
+
+def _ollama() -> list[tuple[str, list[str], str, dict[str, str], str]]:
+    """Ollama, if this machine has it. An empty list if it does not.
+
+    Same shape and the same reason as `_code_server()`: appended so `start`,
+    `stop` and `status` all gain it without being told it is conditional.
+    Unlike code-server this one is load-bearing for chat's own knowledge
+    lookups (see the module docstring), but the machine still might not have
+    it installed, and a launcher that crashed over an optional embedding
+    model would make the whole ecosystem depend on the one runtime this file
+    otherwise stays out of.
+    """
+    binary = ollama_binary()
+    if not binary:
+        return []
+    return [(
+        "Ollama",
+        [binary, "serve"],
+        "ollama",
+        dict(os.environ),
+        f"http://127.0.0.1:{OLLAMA_PORT}/",
+    )]
+
+
+def _warm_ollama() -> bool:
+    """One embeddings call, so the model is loaded before chat's first real one.
+
+    Best-effort: `nomic-embed-text` missing is a real, expected state on a machine
+    that has not pulled it, and a launcher that failed the whole start over an
+    optional model would be worse than the cold-start latency this avoids.
+    RAVIS's `/v1/embeddings` makes the same call again on demand either way.
+    """
+    body = json.dumps({"model": EMBEDDING_MODEL, "prompt": "warm"}).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{OLLAMA_PORT}/api/embeddings",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30.0) as response:
+            return response.status == 200
+    except Exception:  # noqa: BLE001 - see responds(): every failure means "not warmed"
+        return False
 
 
 def _default_upstreams() -> dict[str, str]:
@@ -708,7 +778,12 @@ def _spawn_detached(command: list[str], env: dict[str, str], log: Path) -> int:
     RUN.mkdir(parents=True, exist_ok=True)
     handle = log.open("ab")
     if WINDOWS:
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        # These flags exist on `subprocess` only at runtime on Windows; typeshed
+        # only exposes them under a literal `sys.platform == "win32"` check, which
+        # `WINDOWS = platform.system() == "Windows"` does not give mypy to narrow
+        # on. Real and guarded, not a workaround for a real bug.
+        flags = (subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                 | subprocess.DETACHED_PROCESS)  # type: ignore[attr-defined]
         process = subprocess.Popen(
             command, cwd=str(ROOT), env=env, stdout=handle, stderr=handle,
             stdin=subprocess.DEVNULL, creationflags=flags,
@@ -813,6 +888,18 @@ def start() -> int:
     print(f"\nRAVIS admin credential (§15.1): {planted}")
     print(f"NERVIS is a named caller to RAVIS: {teach_ravis_the_credential()}")
 
+    if ollama_binary():
+        if responds(f"http://127.0.0.1:{OLLAMA_PORT}/"):
+            print(f"\nOllama: warming {EMBEDDING_MODEL} for RAVIS's /v1/embeddings…")
+            if _warm_ollama():
+                print("  warmed")
+            else:
+                print(f"  not warmed — {EMBEDDING_MODEL} may not be pulled;"
+                      f" run: ollama pull {EMBEDDING_MODEL}")
+    else:
+        print("\nOllama is not installed, so RAVIS's /v1/embeddings has nothing to use.")
+        print("  brew install ollama && ollama pull nomic-embed-text   (then run this again)")
+
     if code_server_binary():
         extra, port, source = code_server_settings()
         print(f"\ncode-server: http://127.0.0.1:{port}")
@@ -859,7 +946,8 @@ def stop() -> int:
         return 0
     print("Stopping…")
     for name, record in sorted(recorded.items()):
-        pid = int(record.get("pid", 0) or 0)
+        raw_pid = record.get("pid", 0)
+        pid = raw_pid if isinstance(raw_pid, int) else 0
         marker = str(record.get("marker", ""))
         if not pid or not _alive(pid, marker):
             print(f"  {name} was not running")
