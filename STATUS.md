@@ -14021,6 +14021,57 @@ declared capabilities are advertised."*
 feature, not the whole dashboard), `test_removing_one_capability_disables_
 only_its_operation`. 54 tests, all passing. No code changed.
 
+## §15's code-server item: one real `NOT_TESTED` cell closed by actually running it, 2026-09-06
+
+The prior §15 pass on this item found genuine open gaps rather than missing
+paperwork, and correctly left the checkbox unchecked: M14 (the code tab) has
+no status tag in `NERVIS.md` and has not been built, and `clarvis/docs/code-server-matrix.md`
+is graded against Clarvis 0.0.1 while the product ships 0.12.8. Both remain
+true. What changed today is that one of the matrix's three `NOT_TESTED` cells
+— rollback to a prior `.vsix`, `CLARVIS.md`'s E-C7 — was actually run rather
+than reasoned about, closing the gap the matrix itself named as the way to
+settle it: *"Install the previous `.vsix` over the current one, reopen the
+workspace, and confirm the conversation store and the stored provider key both
+survive."*
+
+Run against a live daily-driver VS Code workspace (this repository) with real
+conversation history and real provider keys already in it — not seeded data,
+per the operator's own instruction after the safer VSCodium-only scope was
+explicitly reconsidered and reauthorized for VS Code ("yes, vscode, go ahead").
+`krimkerre.clarvis@0.12.6` was force-downgraded with `code --install-extension
+clarvis-0.12.3.vsix --force` (no `.vsix` exists for the true previous version,
+0.12.5, so this is a three-patch rollback), the workspace was reopened, and the
+operator confirmed the panel rendered normally with history visible.
+
+Both stores were hashed and diffed before and after, not eyeballed.
+`context.secrets` — stored as `secret://{"extensionId":"krimkerre.clarvis","key":...}`
+rows in globalStorage's `state.vscdb`, covering `clarvis.model.key.anthropic`,
+`.openai`, `.openrouter` and `clarvis.fishAudio.key` — came back byte-for-byte
+identical before and after: the install step never touches them, and 0.12.3
+read them back successfully. `context.workspaceState` (`clarvis.chat.current`
+and `clarvis.chat.history` in the workspace's own `state.vscdb`) also
+survived: all 3 pre-existing history sessions came through unchanged, and the
+pre-test current session was correctly archived into history by
+`history.ts`'s `archiveSession()` on the fresh activation — the normal
+behavior on reopen, not data loss. The extension was restored to 0.12.6
+afterward from a folder-level backup taken before the downgrade, confirmed
+byte-identical to the pre-test install; a VS Code reload picked it back up
+cleanly (operator-confirmed).
+
+`clarvis/docs/code-server-matrix.md`'s rollback cell is now `PASS`, with the
+desktop-vs-code-server caveat stated in the doc itself: the storage format is
+identical either way, but a remote extension host's lifecycle differs, so this
+settles "does data survive a version swap," not "does it survive one under
+code-server specifically." Matrix tally moves to 38 `PASS` / 16
+`PASS_WITH_LIMITATION` / 0 `FAIL` / 2 `NOT_TESTED` (multiple windows on one
+server; Bridge teardown under code-server — both still name the instrument
+that would settle them). §15's code-server checklist item stays unchecked:
+two matrix cells and all of M14 remain. This also stands as partial evidence
+for §15's "Upgrade, downgrade, backup, rollback and recovery rehearsals pass"
+— one product's rollback story, not the whole ecosystem's, so that item stays
+open too. No code changed; both edits are to `clarvis/docs/code-server-matrix.md`
+and `ECOSYSTEM_RUNBOOK.md`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

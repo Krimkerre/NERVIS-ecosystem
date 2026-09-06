@@ -1276,6 +1276,16 @@ may only add product-specific detail beside the required state.
       stated rather than assumed — see `nervis/src/nervis/api/control.py`'s own
       docstring.*
 - [ ] code-server compatibility is evidenced for every supported matrix cell.
+      *Not closeable yet — `clarvis/docs/code-server-matrix.md` is honest about why.
+      M14 (the code tab: code-server management, reverse proxy, workspace launcher,
+      Clarvis install) carries no status tag in `NERVIS.md` and has not been built.
+      The matrix itself is graded against Clarvis 0.0.1 while the product ships
+      0.12.8, and of its 55 cells (51 original + 4 added by a coverage check) 2
+      remain `NOT_TESTED`: multiple windows on one server, and Bridge teardown under
+      code-server. A third, rollback to a prior `.vsix`, was closed for real on
+      6 September 2026 — see the "Upgrade, downgrade, backup, rollback" item below —
+      moving the tally to 38 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 2
+      `NOT_TESTED`.*
 - [ ] Pairwise and full E2E suites pass against real services.
 - [ ] The failure/degradation matrix passes with no unsafe failover.
 - [ ] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
@@ -1284,6 +1294,21 @@ may only add product-specific detail beside the required state.
       its evidence in `STATUS.md` and its regression test in the owning product. The
       last of them is a live golden-path run: `tools/acceptance_run.py`.
 - [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
+      *Partial: Clarvis's rollback rehearsal passed for real on 6 September 2026,
+      against a live daily-driver VS Code workspace with real conversation history
+      and real provider keys already in it. `krimkerre.clarvis@0.12.6` was
+      force-downgraded to 0.12.3, the workspace reopened, and both stores were
+      hashed and diffed rather than eyeballed: `context.secrets`
+      (`clarvis.model.key.anthropic`/`.openai`/`.openrouter`,
+      `clarvis.fishAudio.key`) came back byte-for-byte identical, and
+      `context.workspaceState` (`clarvis.chat.current`/`clarvis.chat.history`) kept
+      all 3 pre-existing history sessions intact with the pre-test current session
+      correctly archived, not lost. Full detail and the desktop-vs-code-server
+      caveat are in `clarvis/docs/code-server-matrix.md`'s rollback section, now
+      graded `PASS`. The extension was restored to 0.12.6 afterward from a
+      folder-level backup, confirmed byte-identical. This is one product's rollback
+      story, not NERVIS/RAVIS/SIRVIS's or a recovery-from-backup rehearsal, so the
+      item stays open.*
 - [ ] Compatibility matrix, operator runbook, release notes and known limitations are
       published. *Release notes are `RELEASES.md`, enforced by `tools/check_releases.py`:
       each component's version is read from its own manifest, so a bump with no note fails
