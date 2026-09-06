@@ -4534,7 +4534,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    <div class="table-row head"><span>Selected</span><span>Pool</span><span>Path</span><span>Excluded</span></div>
    <div class="table-row"><span class="mono">${escapeHtml(d.selected||'no route')}</span><span class="mono" style="opacity:.8">${escapeHtml(dash(d.pool))}</span><span class="mono">${escapeHtml(dash(d.execution_path))}</span><span>${escapeHtml((d.excluded||[]).length)} of ${escapeHtml((d.considered||[]).length)}</span></div>
    <small class="mono dim">${escapeHtml(d.reason||'')}${(d.excluded||[]).length?'<br>excluded — '+(d.excluded||[]).slice(0,3).map(n=>escapeHtml(n.model)+': '+escapeHtml((n.reasons||[])[0]||'')).join(' · ')+((d.excluded||[]).length>3?` · and ${escapeHtml((d.excluded||[]).length-3)} more`:''):''}<br>cost and time-to-first-token are not carried on a decision record — the cost engine is M15, and a zero here would read as measured.</small></div>`;
- $('#content').innerHTML=`<div class="card full chat">
+ $('#content').innerHTML=`<div class="card full chat live">
   <div class="chat-tools">
    <button class="chat-tool" id="chatModelBtn" title="Which model answers — a RAVIS pool, or one provider's model pinned"
      onclick="chatDrawer('model')">Model</button>
