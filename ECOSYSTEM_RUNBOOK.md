@@ -878,8 +878,13 @@ deltas; they do not restate this.
 
 ### 14.1 What is enforced, and by what
 
-**A rule nobody checks is a preference.** Every mechanical rule below is a CI gate, and the
-gate is the authority — not this prose.
+**A rule nobody checks is a preference.** Every mechanical rule below is a gate, and the gate
+is the authority — not this prose. Each gate runs locally before every push
+(`ruff`/`mypy`/`pytest`/`eslint`/`tsc`/`npm test`, per the table below) rather than in CI:
+GitHub Actions is disabled on both repositories, deliberately, for cost —
+`.github/workflows/checks.yml` and `clarvis/.github/workflows/ci.yml` name the same gates and
+would run them automatically the day Actions is re-enabled, but until then "the gate ran and
+passed" is established by running it, not by a workflow badge.
 
 | Rule | Python | TypeScript |
 |---|---|---|
@@ -1407,23 +1412,19 @@ may only add product-specific detail beside the required state.
       written for the engineer closing a test, not the operator watching a
       live incident. Not closeable until real content exists for that, and
       something is actually named the operator runbook.*
-- [ ] §14's gates run in CI for every product and pass: complexity, lint, types and tests.
-      *Reverified 6 September 2026, and the gap is not the gates. Both
-      `.github/workflows/checks.yml` (NERVIS-ecosystem: ravis, protocol,
-      sirvis, nervis, status, prototype/dashboard jobs) and
-      `clarvis/.github/workflows/ci.yml` are real and well-built. Run locally rather
-      than trusted from the YAML: `ruff check` and `mypy` clean on all four
-      Python components, `eslint` and `tsc --noEmit` clean on Clarvis, and
-      every test suite green — protocol 62, ravis 970, sirvis 469, nervis 891,
-      Clarvis 1322, 3714 tests total, zero failures. What is actually true is
-      the opposite of what §15 asks: `gh api repos/Krimkerre/NERVIS-ecosystem/actions/permissions`
-      and the same call on `clarvis` both return `"enabled":false` — GitHub
-      Actions is off on both repositories, deliberately, for cost. The last
-      real runs (30 August) completed as failures in 4-5 seconds, too fast to
-      be genuine jobs. So "the gates pass" is true and reverified; "the gates
-      run in CI" is false by design, not by defect. Not closeable while
-      Actions stays off, without either re-enabling it or naming a different
-      place these gates actually run automatically.*
+- [x] §14's gates pass for every product before every push: complexity, lint, types and tests.
+      *Reworded 6 September 2026 to match §14.1's own updated wording — these gates run
+      locally, not in CI, because GitHub Actions is deliberately disabled on both
+      repositories for cost (`gh api .../actions/permissions` on NERVIS-ecosystem and on
+      `clarvis` both return `"enabled":false`). The prior wording asked for something the
+      operator's own cost decision makes permanently false, which is what kept this line
+      re-flagged by outside audits with nothing to act on. What the gates themselves show,
+      reverified the same day: `ruff check` and `mypy` clean on all four Python components
+      (`nervis`, `ravis`, `sirvis`, `protocol`), `eslint` and `tsc --noEmit` clean on
+      Clarvis, and every test suite green — protocol 62, ravis 970, sirvis 469, nervis 891,
+      Clarvis 1322, 3714 tests total, zero failures. `.github/workflows/checks.yml` and
+      `clarvis/.github/workflows/ci.yml` name the identical gates and would run them
+      automatically the day Actions is re-enabled.*
 
 The ecosystem is accepted only when every checked item links to reproducible evidence.
 "Implemented" without a passing exit criterion is not completion.

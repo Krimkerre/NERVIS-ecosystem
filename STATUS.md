@@ -14299,9 +14299,39 @@ midway. This is recorded in memory now so a future session checks the live
 state with `gh` before citing the workflow files as evidence, rather than
 reading their presence as proof CI runs.
 
-§15's final item stays unchecked precisely because the two halves of its own
-sentence point opposite ways: "and pass" is true and freshly reverified,
-"run in CI" is false by design. No code changed; the edit is to
+§15's final item stayed unchecked precisely because the two halves of its own
+sentence pointed opposite ways: "and pass" was true and freshly reverified,
+"run in CI" was false by design. That was the correct read at the time, but
+the operator flagged that the same finding kept resurfacing — from this
+project's own outside GPT audits as well as from later Claude Code sessions
+— because a memory note only tells a future *me*; it does neither the
+repository's own spec nor an independent auditor any good. A requirement the
+operator's own cost decision makes permanently false is a requirement that
+will keep getting re-flagged by anyone reading the spec at face value,
+regardless of how many times it is explained in a STATUS.md paragraph.
+
+## §14.1 and §15 reworded to match the operator's actual policy, 2026-09-06
+
+The operator's instruction was direct: *"reword §14.1 and §15 to match
+reality."* §14.1's authority sentence now says gates run locally before every
+push rather than in CI, names GitHub Actions as deliberately disabled on both
+repositories for cost, and says the workflow files would take over
+automatically the day Actions is re-enabled — stating the actual, intended
+policy instead of one the operator had already overridden. §15's item
+dropped "run in CI" for "pass for every product before every push," which is
+the thing the gates are actually asked to do now.
+
+**That reword is what makes the item closeable, on evidence already gathered
+minutes earlier in this same pass.** `ruff`/`mypy` clean across `nervis`,
+`ravis`, `sirvis` and `protocol`; `eslint`/`tsc --noEmit` clean on Clarvis;
+3714 tests passing across all five components, zero failures — the same
+numbers cited when the item was still being held open by wording. Checked,
+not fabricated: the reword didn't manufacture a pass, it removed a clause the
+gates were never going to satisfy by policy. This is one line of §15's
+whole-ecosystem acceptance checklist, not the whole of it — six others stay
+open from earlier in this same session (code-server, pairwise/E2E, the
+degradation matrix, logs/events/traces, rollback/recovery, publication), each
+for a real, separately-named reason. No code changed; the edit is to
 `ECOSYSTEM_RUNBOOK.md`.
 
 ## Starting the thing
