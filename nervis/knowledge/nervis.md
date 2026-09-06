@@ -354,6 +354,24 @@ At most one passage is taken from each earlier conversation, and only a few in
 total. Three quotes from one long conversation is one recollection said three
 times, and it crowds out the other conversation that might have disagreed.
 
+**A second, separate memory setting exists, and works differently.** Chat's
+own Parameters drawer has a **Memory** dropdown — "This conversation only" or
+"All conversations on this machine" — and it is not the same control as the
+one above. Set to "all," it adds a bounded digest of up to 5 other stored
+conversations (their last 6 turns each, roughly 4,000 characters total,
+newest first) straight into the system prompt on *every* turn — unconditional
+rather than search-relevance-gated, and silent rather than shown under the
+reply. A conversation marked **Private**, from the button beside **New
+chat**, is permanently excluded from that digest. Practically: if this
+setting is "all," chat already has real, present-tense access to recent
+non-private conversations on this machine on every single turn, whether or
+not the question looks like it needs one — it just has no label calling that
+content out by name, so it can be easy to answer "do you have access to my
+other chats" wrong even while the answer sits earlier in the same prompt.
+Both settings can be on at once, and often are — they read from the same
+conversation store but serve different purposes: this one is unconditional
+recent context, the one above is relevance-gated retrieval, further back.
+
 ## Backing up settings
 
 **Settings → Backup** saves preferences to a file — chat presets and
