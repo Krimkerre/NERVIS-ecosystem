@@ -83,6 +83,7 @@ from nervis.api.chat_reads import (
     _wants_results,
 )
 from nervis.api.chat_titles import (
+    _attachment_name,
     _attachment_title,
     _reply_title,
     _stored_title,
@@ -268,6 +269,10 @@ async def send(request: Request) -> Any:
                 or _stored_title(database, conversation_id) or content,
                 datetime.now().astimezone(),
             ),
+            # Whether there is a document to annotate at all. The offer to
+            # place comments in a copy of it needs the file to exist first,
+            # and `propose` has no filesystem — so its name travels in.
+            attachment=_attachment_name(_workspace_root(request), conversation_id),
             # What NERVIS knows about the editor, for the handoff offer. Read
             # here rather than inside `propose`, which stays a pure function of
             # the person's words.
@@ -296,6 +301,7 @@ async def send(request: Request) -> Any:
                     or _stored_title(database, conversation_id) or content,
                     datetime.now().astimezone(),
                 ),
+                attachment=_attachment_name(_workspace_root(request), conversation_id),
             ),
         )
         if not greeting

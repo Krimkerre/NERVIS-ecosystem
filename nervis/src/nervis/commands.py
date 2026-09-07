@@ -93,6 +93,19 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the last reply to {target}",
         action="Save",
     ),
+    # **The attached document with this reply's comments placed in it**, and its
+    # own operation for the same reason export is: a different act. Save keeps
+    # what the model wrote; this keeps what the *person* attached — every page
+    # of it, untouched — and puts the model's comments beside the passages they
+    # quote. The model is asked for comments only, never to retype the document
+    # (`annotate.py` says why), so what it writes is content placed by NERVIS
+    # against the person's own file, exactly as a save's text is.
+    Operation(
+        id="nervis.document.annotate",
+        service="nervis",
+        summary="a copy of the attachment with this reply's comments placed in it, as {target}",
+        action="Annotate",
+    ),
     # The whole conversation rather than the last reply, and its own operation
     # because it is its own act: one saves an answer somebody liked, the other
     # keeps a record of an exchange. Sharing an id would make the confirm button
@@ -380,6 +393,7 @@ def plan(
     jobs: Sequence[Mapping[str, Any]] = (),
     pools: Sequence[Mapping[str, Any]] = (),
     default_name: str = "",
+    attachment: str = "",
 ) -> Plan | None:
     """Several offers from one sentence, or `None` if it is not a sequence.
 
@@ -394,7 +408,10 @@ def plan(
         return None
     if len(clauses) > MAX_STEPS:
         return None
-    steps = [propose(clause, models, jobs, pools, default_name) for clause in clauses]
+    steps = [
+        propose(clause, models, jobs, pools, default_name, attachment=attachment)
+        for clause in clauses
+    ]
     # **All or nothing.** A sentence where only some clauses name an operation is
     # not a plan with gaps, it is a sentence that was not a plan — and running
     # the half NERVIS understood is the failure this whole design exists to
@@ -411,6 +428,7 @@ def propose(
     pools: Sequence[Mapping[str, Any]] = (),
     default_name: str = "",
     clarvis: Mapping[str, Any] | None = None,
+    attachment: str = "",
 ) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
@@ -447,7 +465,7 @@ def propose(
     attempts: tuple[Callable[[], Proposal | None], ...] = (
         lambda: _switch_proposal(question, pools) if SWITCH.search(question) and pools else None,
         lambda: _cancel_from(question, jobs),
-        lambda: _saving_proposal(question, default_name),
+        lambda: _saving_proposal(question, default_name, attachment),
         # Before learning, because "get clarvis to remember the port" is a
         # handoff whose task happens to contain the word `remember`.
         lambda: _handoff_proposal(question, clarvis),
@@ -677,24 +695,84 @@ def _write_proposal(named: str) -> Proposal:
     )
 
 
-def _saving_proposal(question: str, default_name: str) -> Proposal | None:
-    """Writing a file: the whole conversation, or the last reply.
+#: Wanting the attached document back *with* the comments in it, rather than
+#: the comments on their own. The words that say so, and nothing looser:
+#: "notes", "review" and "feedback" were left out because "save your review"
+#: with a document attached is at least as often a request for the review by
+#: itself, and the plain save is what that has always produced.
+ANNOTATING = re.compile(
+    r"\b(?:comments?|annotat\w*|findings|remarks|original)\b"
+    r"|\b(?:into|in)\s+(?:the|my|this|that)\s+(?:document|file|pdf|attachment)\b",
+    re.IGNORECASE,
+)
+
+#: "Insert your findings into the document" names no save at all. These are the
+#: verbs that request placing one thing inside another, and they only count
+#: beside `ANNOTATING` with a file actually attached.
+MERGING = re.compile(
+    r"\b(?:merge|insert|add|place|incorporate|weave|thread|apply)\b", re.IGNORECASE
+)
+
+
+def _saving_proposal(
+    question: str, default_name: str, attachment: str = ""
+) -> Proposal | None:
+    """Writing a file: the whole conversation, the attachment with this reply's
+    comments placed in it, or the last reply on its own.
 
     **The conversation is checked first**, because "export this conversation as
     notes.pdf" matches both patterns and only one of them is what was asked for.
+    **Annotating is checked before a plain save** for the same reason: "save
+    the original with your comments" is a save request too, and read as one it
+    would write the comments alone — which is what happened, and what produced
+    a file of `[Original intact]` placeholders where the document should be.
 
     Split out of `propose` for the complexity gate, which is doing its job here:
-    the two branches share a filename and differ in what they write, and reading
+    the branches share a filename and differ in what they write, and reading
     them side by side is how the precedence stays visible.
     """
     writing = WRITE.search(question)
     if EXPORT_CONVERSATION.search(question):
         named = _named_by(writing) if writing else default_name
         return _export_proposal(named) if named else None
-    if not (writing or SAVE_VERB.search(question)):
+    wants_to_write = bool(writing or SAVE_VERB.search(question))
+    if attachment and ANNOTATING.search(question) and (
+        wants_to_write or MERGING.search(question)
+    ):
+        named = _named_by(writing) if writing else _annotated_default(attachment, default_name)
+        return _annotate_proposal(named) if named else None
+    if not wants_to_write:
         return None
     named = _named_by(writing) if writing else _as_text_default(default_name, question)
     return _write_proposal(named) if named else None
+
+
+def _annotated_default(attachment: str, default_name: str) -> str:
+    """The derived name for an annotated copy, in the original's own format.
+
+    `default_name` already carries the attachment's stem, "-annotated" and the
+    date, ending `.pdf`. A PDF original keeps that: its pages are copied, so
+    the copy is a PDF whatever else is true. A text original is merged as
+    text, so the copy takes the original's suffix rather than being rendered
+    into a format the person never had it in.
+    """
+    if not default_name:
+        return ""
+    found = re.search(r"\.\w{1,8}$", attachment or "")
+    suffix = found.group(0) if found else ""
+    if not suffix or suffix.lower() == ".pdf":
+        return default_name
+    return re.sub(r"\.pdf$", suffix, default_name, flags=re.IGNORECASE)
+
+
+def _annotate_proposal(named: str) -> Proposal:
+    """The attached document, every page kept, with this reply's comments in it."""
+    operation = BY_ID["nervis.document.annotate"]
+    return Proposal(
+        operation=operation.id, service=operation.service, target=named,
+        summary=operation.summary.format(target=named), ready=True,
+        action=operation.action,
+    )
 
 
 def _named_by(writing: re.Match[str]) -> str:
@@ -947,9 +1025,10 @@ def capabilities_line() -> str:
     )
     return (
         "NERVIS can offer these, as buttons under your reply, when the person names "
-        "a specific target: " + "; ".join(offerable) + ". Saving a reply and "
-        "exporting a conversation are the two exceptions — no name is required, "
-        "NERVIS fills one in on its own. You never perform any of these and "
+        "a specific target: " + "; ".join(offerable) + ". Saving a reply, "
+        "exporting a conversation and annotating an attached document are the "
+        "exceptions — no name is required, NERVIS fills one in on its own. You "
+        "never perform any of these and "
         "there is no endpoint for the person to call instead. If you cannot see an "
         "offer, the request did not resolve to one thing — say that you need the "
         "exact model or job named (or, for the two exceptions, that the phrasing "
@@ -1043,6 +1122,31 @@ def _ready_addendum(proposal: Proposal) -> str:
             " Pressing it starts the benchmark straight away unless another "
             "is already running, in which case it waits for that one. It is "
             "not put in a queue to run later."
+        )
+    if proposal.operation == "nervis.document.annotate":
+        # **The model is asked for comments, never for the document.** The
+        # saved file that started this was placeholders — `[Original intact]`
+        # — because a reply cannot hold ninety-seven thousand characters and
+        # a model asked to retype them writes a stand-in instead. NERVIS holds
+        # the document; the reply only has to say *where* each comment goes,
+        # and a quoted line is something a model reproduces exactly where a
+        # whole page is something it does not.
+        return (
+            " It copies the attached document — every page of it, untouched —"
+            " and places comments beside the passages they quote. **The"
+            " comments it places are the ones written in a reply, in this"
+            " exact shape: a line beginning with `> ` that quotes a short"
+            " phrase copied exactly from the document — a heading, or the"
+            " opening words of the passage — then the comment on the lines"
+            " below it. One `>` line per comment.** If your comments already"
+            " exist in an earlier reply in that shape, say the button will"
+            " place them. If they exist but are not in that shape, or exist"
+            " only in your head, write them out here now, in that shape, in"
+            " full — a reply that only describes what the button will do"
+            " gives it nothing to place. Never retype or summarise the document"
+            " itself; NERVIS holds it. Anything written without a quote still"
+            " lands in the copy, at the end under its own heading. Nothing has"
+            " been placed until the button is pressed."
         )
     if proposal.operation != "nervis.document.write":
         return ""

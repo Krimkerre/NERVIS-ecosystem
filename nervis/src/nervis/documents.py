@@ -38,7 +38,22 @@ from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
 #: rest of what chat knows — the registry, the queue, the evidence. Truncation
 #: is *said* rather than done quietly: a summary of the first half of a document,
 #: presented as a summary of the document, is a wrong answer nobody can see.
-MAX_CHARACTERS = 40_000
+#:
+#: **Sized to the document, not to a model.** This was 40,000, and a 42-page
+#: blueprint the operator attached for review is 97,000 characters of text —
+#: so the model read under half, said its findings were about the document,
+#: and every one of them was useless. "Only the first 40,000 are below" was
+#: said, as designed; it is also not something a person reads before trusting
+#: an opinion about their own file. Four hundred thousand covers a document
+#: roughly four times that one, which is anything somebody hands over to be
+#: read rather than searched, and leaves truncation the exception the note
+#: above describes rather than the ordinary case it had quietly become.
+#:
+#: The bound is not what protects a small local model: RAVIS estimates the
+#: tokens a request needs and excludes any candidate whose context window is
+#: smaller (`ravis/src/ravis/routing/requirements.py`), so a document too large for a
+#: given model is routed away from it, not fed to it truncated.
+MAX_CHARACTERS = 400_000
 
 #: Suffixes read as text. Everything else is refused by name rather than
 #: sniffed, so the refusal is predictable and a person can see why.
@@ -96,6 +111,19 @@ class Document:
                 " tables arrive as loose runs of numbers and columns may"
                 " interleave. Do not read column alignment as meaningful."
             )
+        # **Comments are anchored from the moment they are written**, not only
+        # when a button appears. Asked to put its findings into a copy of the
+        # document, a model whose findings sat in an earlier reply described
+        # the button instead of rewriting thirty thousand characters of them —
+        # and nothing was placed. A comment that quoted its passage when it was
+        # first made needs no rewriting later; `annotate.py` places it as it is.
+        head += (
+            " If you comment on particular passages, start each comment with a"
+            " line beginning `> ` that quotes a short phrase copied exactly from"
+            " the file — a heading, or the opening words of the passage — so the"
+            " comment can later be placed back into a copy of the file beside"
+            " what it is about."
+        )
         if self.truncated:
             head += (
                 f" Only the first {MAX_CHARACTERS:,} are below — say so if the answer"

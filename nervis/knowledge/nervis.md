@@ -106,6 +106,27 @@ there is nothing this glance could catch there. Offering to save a reply as
 a PDF now says this outright, unprompted, in that same offer — not only when
 asked about it afterward.
 
+**Annotating an attached document — the thing all of the above was for.**
+Somebody attaches a PDF, chat reads it and has opinions, and they want a new
+file with the original *and* the opinions in it. That used to produce a file
+of `[Original intact]` placeholders, because "save the reply" asked the
+model to retype a forty-page document and no model does that. Now there is
+an **Annotate** button, offered when the person asks for comments, findings
+or annotations put into the document or the original. It copies the
+attachment page for page — every page exactly as it was, nothing re-rendered
+— and inserts a comment page after each page a comment quotes from, styled
+to match the document. Chat writes only the comments, each one starting
+with a `>` line quoting a short phrase from the document so NERVIS knows
+which page it belongs to; anything without a quote goes at the end under
+"Further comments". A `.md` or `.txt` original is merged as text instead,
+each comment straight under the paragraph it quotes. The saved copy then
+gets the same visual glance any saved PDF gets.
+
+Also fixed for this: chat now reads a whole document. The reading was capped
+at 40,000 characters — the blueprint that started this was 97,000 — so every
+opinion chat had about it was about less than half of it. The cap is now
+400,000, which covers a document several times that size.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

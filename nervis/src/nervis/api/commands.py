@@ -32,7 +32,18 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, documents, handoff, learned, pdf, style, transcript, visual_check
+from nervis import (
+    annotate,
+    chat,
+    commands,
+    documents,
+    handoff,
+    learned,
+    pdf,
+    style,
+    transcript,
+    visual_check,
+)
 from nervis.api.chat_calls import _forwarded
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -123,6 +134,7 @@ async def run(request: Request) -> dict[str, Any]:
     conversation = str(body.get("conversation_id") or "")
     own = {
         "nervis.document.write": lambda: _write_document(request, target, conversation),
+        "nervis.document.annotate": lambda: _annotate_document(request, target, conversation),
         "nervis.conversation.export": lambda: _export_conversation(request, target, conversation),
         "nervis.clarvis.task": lambda: _hand_over(request, target, conversation),
         "nervis.knowledge.learn":
@@ -454,6 +466,57 @@ async def _write_document(request: Request, named: str, conversation_id: str) ->
     )
 
 
+async def _annotate_document(
+    request: Request, named: str, conversation_id: str
+) -> dict[str, Any]:
+    """A copy of the newest attachment with this reply's comments placed in it.
+
+    **The document is the person's own file, from the attachments directory;
+    the comments are the reply, from NERVIS's store.** Neither comes from the
+    request body, for the reason `_write_document` gives. And nothing was
+    retyped: the model wrote comments anchored by quotes, and `annotate` did
+    the placing — its module docstring says why that is the only shape that
+    survives a forty-page document.
+
+    A PDF original produces a PDF, whatever the target was called: its pages
+    are copied, not re-rendered, and there is no text form of that to write.
+    """
+    root = _workspace(request)
+    place = documents.attachment_dir(Path(root), conversation_id)
+    found = documents.list_files(place) if place is not None else []
+    if place is None or not found:
+        raise InvalidConfigurationError("nothing is attached to this conversation to annotate")
+    written = [
+        message for message in chat.messages(request.app.state.database, conversation_id)
+        if message.role == "clarvis" or message.role == "assistant"
+    ]
+    if not written:
+        raise InvalidConfigurationError("this conversation has no reply to place as comments yet")
+    # **The newest reply that actually carries anchored comments**, not the
+    # newest reply. "Here are my findings" with quotes, then "put them in the
+    # document", then "press Annotate" — the third reply is the newest and
+    # places nothing; the first is what the person meant. Only when no reply
+    # has a quote at all does the newest one stand, so what it says still
+    # lands at the end rather than being dropped.
+    anchored = [message for message in written if annotate.has_anchors(message.content)]
+    comments = annotate.parse_comments((anchored or written)[-1].content)
+    original = place / found[0].name
+    if original.suffix.lower() == ".pdf":
+        if not named.lower().endswith(".pdf"):
+            raise InvalidConfigurationError(
+                f"an annotated copy of {found[0].name} keeps its pages, so it is a PDF —"
+                f" name it with .pdf"
+            )
+        copied = annotate.annotate_pdf(
+            original.read_bytes(), comments, style.extract_style(original)
+        )
+        return await _write_into_workspace(request, root, named, "", rendered=copied)
+    merged = annotate.annotate_text(
+        documents.read_document(place, found[0].name).text, comments
+    )
+    return await _write_into_workspace(request, root, named, merged)
+
+
 def _template_style(root: str, conversation_id: str) -> style.StyleProfile | None:
     """This conversation's newest attachment's own look, if it is a PDF.
 
@@ -487,6 +550,7 @@ async def _write_into_workspace(
     request: Request, root: str, named: str, text: str, turns: int = 0,
     conversation: tuple[str, str, list[Any]] | None = None,
     template_style: style.StyleProfile | None = None,
+    rendered: pdf.Rendered | None = None,
 ) -> dict[str, Any]:
     """One text, one filename, one boundary.
 
@@ -515,10 +579,14 @@ async def _write_into_workspace(
         raise InvalidConfigurationError(str(refusal)) from refusal
 
     if resolved.path.suffix.lower() == ".pdf":
-        rendered = (
-            pdf.render_conversation(*conversation) if conversation
-            else pdf.render(resolved.shown, text, template_style)
-        )
+        # `rendered` arrives already built when the bytes are not a rendering
+        # of `text` at all — an annotated copy is the person's own PDF with
+        # pages added, and there is no markdown it could be re-rendered from.
+        if rendered is None:
+            rendered = (
+                pdf.render_conversation(*conversation) if conversation
+                else pdf.render(resolved.shown, text, template_style)
+            )
         payload, detail = rendered.data, f"{rendered.pages} page(s)"
         if rendered.unsupported:
             # Said rather than silently substituted: a `?` where a character

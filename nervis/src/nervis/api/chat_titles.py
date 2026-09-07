@@ -85,11 +85,18 @@ def _attachment_title(root: str, conversation_id: str) -> str:
     the thing better than a conversation title ever will — "annotated" says
     what happened to it without inventing a word for what it is.
     """
+    name = _attachment_name(root, conversation_id)
+    return f"{Path(name).stem}-annotated" if name else ""
+
+
+def _attachment_name(root: str, conversation_id: str) -> str:
+    """The newest attachment's filename, or nothing — what an annotate offer
+    needs to know exists before it can be made at all."""
     place = documents.attachment_dir(Path(root), conversation_id) if root else None
     if place is None:
         return ""
     found = documents.list_files(place)
-    return f"{Path(found[0].name).stem}-annotated" if found else ""
+    return found[0].name if found else ""
 
 
 def _reply_title(database: Any, conversation_id: str) -> str:

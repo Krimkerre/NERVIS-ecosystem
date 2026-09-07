@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2457 tests, no network, no live service
+.venv/bin/pytest                      # part of 2484 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 946 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 973 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2457 passing across the four, conformance `PASS`.
+Expected: all clean, 2484 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15041,6 +15041,68 @@ Every fix falsified before it was trusted — each one reverted in turn, the
 matching test confirmed failing, then restored. 946 tests (was 940), `ruff`
 and `mypy` clean, and the whole scenario re-run live afterwards on the exact
 two sentences that had failed.
+
+## Annotating an attached document — the thing everything above was for, 2026-09-07
+
+Read from the stored conversation this was built for, not remembered: a
+forty-two-page blueprint attached, opinions given, *"save it now"* —
+**"Saved."** — and nothing had run. A later attempt wrote a file of
+`[Original intact]` placeholders. Two causes, neither of them the ones the
+day had been spent on.
+
+**The model had read less than half the document.** `documents.MAX_CHARACTERS`
+was 40,000 and the blueprint's text is 97,000, so every finding was about the
+first forty percent, presented as findings about the whole. Now 400,000 —
+sized to the document, not to a model, since RAVIS already excludes any
+candidate whose context window cannot hold a request
+(`ravis/src/ravis/routing/requirements.py`), so a document too large for a small local
+model is routed away from it rather than fed to it cut short.
+
+**"Save the reply" asked the model to retype the document.** A reply cannot
+hold ninety-seven thousand characters, and a model asked to reproduce them
+writes a stand-in — which is exactly what the placeholders were. So the shape
+is now the one Claude itself uses to edit a PDF: keep the original pages
+byte for byte with `pypdf`, generate the new pages with `reportlab`, and
+never ask a model to reproduce content the system already holds.
+`nervis/src/nervis/annotate.py` does the placing; a new `nervis.document.annotate`
+operation offers it when the person asks for comments, findings or
+annotations *in* the document or the original, with the pages copied
+untouched and a comment page inserted after each page a comment quotes,
+rendered in the original's own extracted style. `told()` asks the model for
+comments only, each anchored by a `>` line quoting a short phrase from the
+document — a model quotes exactly where it does not retype — and anything
+without a quote lands at the end under its own heading rather than being
+placed by guesswork. A text original is merged as text, each comment under
+the paragraph it quotes. The saved copy goes through `_write_into_workspace`
+like every other save, so the boundary, the audit line and the visual glance
+all apply unchanged.
+
+Every load-bearing piece falsified before it was trusted — the annotate
+precedence over a plain save, the anchor matching, the original pages being
+copied at all — each reverted in turn, the matching test confirmed failing,
+then restored.
+
+**Live, on the real forty-two-page blueprint, and two more things it broke
+on.** First press: the model *described* the button — "each comment quotes a
+key phrase…" — and wrote no comments, so the copy carried one meta-paragraph
+at the end. The same failure as "Saved.": narrating instead of doing. Three
+fixes, each tested: the reading of any attached document now asks for
+anchored comments from the moment they are first written (so "put them in"
+later needs no rewriting); the annotate offer tells the model plainly that a
+reply describing the button places nothing, and to write the comments here
+in full if they are not already in that shape; and `_annotate_document`
+takes the newest reply that *carries* anchored comments, not the newest
+reply. Second press, forty-four anchored comments: they landed after page
+two — the contents page, where every heading appears before it appears at
+its section. `find_in` now takes a quote's last passage rather than its
+first, which for a heading is the section itself. Third press: twenty-four
+comment sections, each one following the page whose heading it quotes —
+"01 Executive brief" on page 4, "04 Target architecture" on page 7, "18
+Recommended build sequence" on page 22 — sixty-eight pages, all forty-two
+originals intact, and the person's own copy saved into their workspace.
+
+973 tests (was 946): seventeen for placing, ten for the offer, the button,
+and which reply's comments it takes. `ruff` and `mypy` clean.
 
 ## Starting the thing
 
