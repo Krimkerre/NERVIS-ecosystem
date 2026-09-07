@@ -32,7 +32,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Request
 
-from nervis import chat, commands, documents, handoff, learned, pdf, style, transcript
+from nervis import chat, commands, documents, handoff, learned, pdf, style, transcript, visual_check
 from nervis.api.chat_calls import _forwarded
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
@@ -75,6 +75,18 @@ BENCHMARK_SPECIFICATION: dict[str, Any] = {
 
 JOBS_CAPABILITY = "sirvis.benchmarks.jobs"
 
+# The pool `ravis/vision` (RAVIS.md) exists for exactly this: a request that
+# requires a model able to see, with no curated family list because "built to
+# see" has no trustworthy name pattern the way a code model's family does.
+#
+# Marked `background` for the same reason a title generation is (§9.6.1): this
+# is an aside the person did not directly ask a hosted model to run, not the
+# primary reply, and RAVIS refuses to spend a non-free provider's money on a
+# call that declares itself one.
+VISUAL_CHECK_POOL = "ravis/vision"
+VISUAL_CHECK_TIMEOUT_SECONDS = 30.0
+VISUAL_CHECK_MAX_TOKENS = 60
+
 
 @router.post("/run")
 async def run(request: Request) -> dict[str, Any]:
@@ -107,7 +119,7 @@ async def run(request: Request) -> dict[str, Any]:
             lambda: _learn(request, target, str(body.get("prompted_by") or "")),
     }
     if operation in own:
-        return own[operation]()
+        return await own[operation]()
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
@@ -115,7 +127,7 @@ async def run(request: Request) -> dict[str, Any]:
     return await _submit_benchmark(request, target)
 
 
-def _hand_over(request: Request, task: str, conversation_id: str) -> dict[str, Any]:
+async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[str, Any]:
     """Write a coding task where Clarvis will find it (M27).
 
     **This writes a file and nothing else.** It does not start a run, resolve a
@@ -137,7 +149,7 @@ def _hand_over(request: Request, task: str, conversation_id: str) -> dict[str, A
     }
 
 
-def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any]:
+async def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any]:
     """Write down something NERVIS was told (M23).
 
     **The person's own sentence, and nothing derived from it.** The heading is
@@ -364,7 +376,9 @@ async def _json_body(request: Request) -> dict[str, Any]:
     return found
 
 
-def _export_conversation(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
+async def _export_conversation(
+    request: Request, named: str, conversation_id: str
+) -> dict[str, Any]:
     """Write the whole conversation to a file, rather than its last reply.
 
     Same boundary, same store, same renderer — only the content differs, and it
@@ -387,7 +401,7 @@ def _export_conversation(request: Request, named: str, conversation_id: str) -> 
         "",
     )
     when = datetime.now().astimezone()
-    return _write_into_workspace(
+    return await _write_into_workspace(
         request, root, named,
         transcript.as_markdown(title, stored, when),
         turns=len(stored),
@@ -402,7 +416,7 @@ def _export_conversation(request: Request, named: str, conversation_id: str) -> 
     )
 
 
-def _write_document(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
+async def _write_document(request: Request, named: str, conversation_id: str) -> dict[str, Any]:
     """Save the last reply of a conversation to a file the person named.
 
     **The boundary is enforced here, once.** `_write_proposal` deliberately does
@@ -424,7 +438,7 @@ def _write_document(request: Request, named: str, conversation_id: str) -> dict[
     ]
     if not written:
         raise InvalidConfigurationError("this conversation has no reply to save yet")
-    return _write_into_workspace(
+    return await _write_into_workspace(
         request, root, named, written[-1].content,
         template_style=_template_style(root, conversation_id),
     )
@@ -459,7 +473,7 @@ def _workspace(request: Request) -> str:
     return root
 
 
-def _write_into_workspace(
+async def _write_into_workspace(
     request: Request, root: str, named: str, text: str, turns: int = 0,
     conversation: tuple[str, str, list[Any]] | None = None,
     template_style: style.StyleProfile | None = None,
@@ -476,6 +490,14 @@ def _write_into_workspace(
     window, not a document with a look of its own to borrow — is untouched by
     this parameter existing at all, structurally rather than by a condition
     either caller has to remember to check.
+
+    **The visual glance reaches the same path, and for the same reason.**
+    `render_conversation` lays out a fixed chat bubble from bounded, already
+    heavily tested drawing code; `pdf.render` lays out whatever markdown a
+    model wrote, of any length and shape, which is where a stray code block
+    or a deep list actually can misrender. Checking the export path too would
+    mean double-checking a renderer that cannot produce the defects this looks
+    for, on every export, for nothing.
     """
     try:
         resolved = resolve_in_workspace(Path(root), named)
@@ -492,6 +514,10 @@ def _write_into_workspace(
             # Said rather than silently substituted: a `?` where a character
             # should be is a defect the reader cannot see and the writer can.
             detail += f"; {len(rendered.unsupported)} character(s) Latin-1 could not carry"
+        if not conversation:
+            defect = await _visual_defect(request, payload)
+            if defect:
+                detail += f"; looked over, and: {defect}"
     else:
         payload, detail = text.encode("utf-8"), f"{len(text):,} characters"
     if turns:
@@ -501,3 +527,60 @@ def _write_into_workspace(
     resolved.path.write_bytes(payload)
     _audit(request, resolved.shown, "written", detail)
     return {"file": {"name": resolved.shown, "bytes": len(payload), "detail": detail}}
+
+
+async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
+    """What a vision-capable model sees wrong on the first rendered page —
+    or `None`, both when nothing is wrong and when there was no way to ask.
+
+    **Mirrors `chat_titles._generate_title` exactly, on purpose.** Same gate
+    (no credential, no registered RAVIS, RAVIS marked unusable — skip), same
+    `background` marker (§9.6.1: an aside the person did not directly ask a
+    hosted model to run must not spend a non-free provider's money), same
+    broad `except` on the call itself. A save's success never depends on
+    this: every failure mode here — RAVIS unreachable, no model satisfies
+    `ravis/vision`, a malformed reply — is silence, not a refusal, because
+    telling someone their file did not save when it did would be worse than
+    the missed glance.
+    """
+    settings = request.app.state.settings
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+        return None
+    snapshot = visual_check.first_page(pdf_bytes)
+    if snapshot is None:
+        return None
+    client: httpx.AsyncClient = request.app.state.probe_client
+    payload = {
+        "model": VISUAL_CHECK_POOL,
+        "max_tokens": VISUAL_CHECK_MAX_TOKENS,
+        "metadata": {"background": True},
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": visual_check.PROMPT},
+                {"type": "image_url", "image_url": {"url": snapshot.data_url}},
+            ],
+        }],
+    }
+    try:
+        response = await client.post(
+            entry.declaration.base_url + "/v1/chat/completions",
+            json=payload,
+            headers=_forwarded(
+                getattr(request.state, "request_id", ""),
+                getattr(request.state, "trace_id", ""),
+                settings.ravis_client_credential,
+            ),
+            timeout=VISUAL_CHECK_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            return None
+        body = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    choices = body.get("choices") or []
+    if not choices:
+        return None
+    message = choices[0].get("message") or {}
+    return visual_check.verdict_of(str(message.get("content") or ""))

@@ -90,6 +90,18 @@ and the "annotated" filename fallback from the day before — found nothing
 against a real attachment, silently, since the day it shipped. Both now
 correctly find it.
 
+Also that day: a saved PDF now gets a second glance before anything is
+called finished. Its first page is rendered to an image and shown to a
+vision-capable model (`ravis/vision`), asked only whether the *layout* came
+out broken — text or a code block cut off at the edge, lines overlapping, a
+heading crowded against the paragraph under it — never whether the writing
+itself is any good. Only a real defect gets mentioned in the save
+confirmation; a clean page adds nothing, and a save always completes whether
+or not a vision-capable model happens to be available to ask, since this is
+an extra glance, not a gate. A conversation export is never checked this way
+— its layout is a fixed chat window, not a model's arbitrary markdown, so
+there is nothing this glance could catch there.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

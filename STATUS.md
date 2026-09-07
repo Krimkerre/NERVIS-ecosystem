@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2429 tests, no network, no live service
+.venv/bin/pytest                      # part of 2447 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 918 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 936 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2429 passing across the four, conformance `PASS`.
+Expected: all clean, 2447 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14843,6 +14843,45 @@ extraction tests, the chat-level wiring tests, one retroactive regression
 test for the filename fallback), `ruff` and `mypy` clean, `reportlab` and
 `pdfplumber` added as real dependencies with the same "not a few lines"
 justification `pypdf` already carried.
+
+## Save-time visual check, using the vision pool it built the same morning, 2026-09-07
+
+The operator's own question: NERVIS proactively built `ravis/vision` "since
+we'll be bolting on vision capabilities later on" — and then shipped a whole
+PDF-generation feature the same day without using it. Asked directly why,
+and asked to build the actual feature that question was really about: "is it
+capable of checking everything still looks okay visually?", raised earlier
+the same day and left unbuilt while the style-matching work took priority.
+
+`nervis/src/nervis/visual_check.py` rasterises a saved PDF's first page with
+`pdfplumber` (`page.to_image()` — already a transitive dependency of the
+style-extraction feature above, so no new one needed) and hands it to
+`ravis/vision` with one question: is the *layout* broken, not whether the
+writing is good. `api/commands.py._write_into_workspace` asks it on every
+`nervis.document.write` PDF save, never on `nervis.conversation.export` —
+`render_conversation`'s fixed chat-bubble layout cannot produce the defects
+this looks for, so checking it would only add latency for nothing. A real
+defect is named in the save confirmation's own `detail` line; a clean page
+adds nothing to it.
+
+Mirrors `chat_titles._generate_title`'s own shape deliberately: same
+credential/registry gate, same `background` marker so a hosted, non-free
+model is never spent on an aside the person did not directly ask for
+(§9.6.1), same fail-open philosophy — no credential, no usable RAVIS, no
+model satisfying the pool, a malformed reply, all come back as "say
+nothing" rather than a refusal, because a save's success must never depend
+on whether a vision model happened to be available to glance at it.
+`verdict_of()` reads only the reply's first word (yes/no) rather than
+requiring an exact phrase — `commands.told()` already exists because models
+do not reliably send back an exact string asked for, and this is the same
+lesson applied a second time.
+
+Verified adversarially, same standard as the rest of this log: reverting the
+`not conversation` guard made the conversation-export test fail (a defect
+that should never be checked was suddenly checked); neutering `verdict_of`
+made every defect-detection test fail. Full suite reran clean throughout
+(936, was 918 — 18 new: `visual_check.py`'s own rasterise/verdict tests, the
+chat-level wiring tests), `ruff` and `mypy` clean.
 
 ## Starting the thing
 
