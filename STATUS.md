@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2518 tests, no network, no live service
+.venv/bin/pytest                      # part of 2522 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1007 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2518 passing across the four, conformance `PASS`.
+Expected: all clean, 2522 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15330,6 +15330,50 @@ local-pinned, and is not affected.
 twenty-five for the offer, the three buttons, the soft default, the vision
 gate, the glance and the page-image switch, six for tables. `ruff` and
 `mypy` clean.
+
+## RAVIS believed a context window Ollama never served, 2026-09-07
+
+Asked to run the document scenario pinned to the local vision model, it was
+refused outright: *"request (25443 tokens) exceeds the available context size
+(4096 tokens)"*. Chasing that number found a routing defect with a much
+larger blast radius than one refused request.
+
+**RAVIS reported `qwen2.5vl:3b` as a 128,000-token model. Ollama serves it at
+4,096.** The adapter read `qwen25vl.context_length` from `/api/show`, which is
+what the *architecture* supports; what a model actually gets is Ollama's own
+default unless a Modelfile or `OLLAMA_CONTEXT_LENGTH` raises it, and nothing
+in the API reports that. So the figure §9's context check routes on was wrong
+by a factor of thirty, for every Ollama model.
+
+Measured directly, because the consequence is worse than a refusal. A
+fifteen-thousand-token prompt to that model came back having evaluated 2,050
+of them — a `200`, a confident answer, and no indication that five sixths of
+the prompt was discarded. The OpenAI-compatible path refuses a request
+carrying images and *silently truncates* one that does not, which is the same
+failure the 40,000-character reading cap produced at the other end of this
+same day: a model answering about a document it read a fraction of.
+
+The fix could not be to ask for a bigger window: Ollama's `/v1` endpoint
+ignores `num_ctx` in every shape it was offered — in `options`, at the top
+level — and truncates anyway, all three measured. So the correction is to
+stop reporting a window that does not exist. `/api/ps` publishes
+`context_length` per resident model and that figure is authoritative, so it
+is what the adapter reports, capped by the architecture; a model not yet
+loaded is reported at `RAVIS_OLLAMA_DEFAULT_CONTEXT` (4,096) rather than at
+its maximum, because guessing high is precisely what broke.
+
+**The existing tests caught an error in the fix**, which is the part worth
+recording. The first version answered `4,096` even where the architecture was
+unknown — inventing a number for an upstream that may not be Ollama at all —
+and two tests that had asserted `None` there since before this method existed
+failed immediately. Unknown stays unknown; only a window RAVIS actually knows
+is narrowed.
+
+Verified live afterwards: `ravis/local` now excludes `qwen2.5vl:3b` and
+`llama3.2:3b` with *"context window 4096 < estimated 25000 tokens needed"*
+and the embedding models at 2,048 and 512, where before it would have
+selected one and had the prompt quietly cut. RAVIS 106 -> 110 tests, `ruff`
+and `mypy` clean.
 
 ## Starting the thing
 

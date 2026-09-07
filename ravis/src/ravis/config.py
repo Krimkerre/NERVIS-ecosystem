@@ -145,6 +145,20 @@ class Settings(BaseSettings):
     # TTL in LM Studio's own settings wants — RAVIS then sends nothing and does
     # not overrule them.
     local_model_idle_ttl_seconds: int = 600
+    # **What Ollama serves a model with, when it is not already loaded.**
+    #
+    # Ollama reports the *architecture's* context length at `/api/show` —
+    # 128,000 for `qwen2.5vl` — and serves the model at its own default,
+    # which is far smaller and which nothing in its API reports. Routing that
+    # believed the first number handed a 25,000-token request to a model
+    # holding 4,096, and the runtime silently evaluated the first 2,050 and
+    # answered as though it had read the whole thing.
+    #
+    # `/api/ps` gives the true figure for a model already resident, so this is
+    # only consulted for a cold one. Raise it to match `OLLAMA_CONTEXT_LENGTH`
+    # if that was raised; leaving it low costs a local model a long-context
+    # pool, and raising it wrongly costs somebody their document.
+    ollama_default_context: int = 4096
     # More than one transparent upstream, as a JSON list (M8):
     #
     #   [{"name": "lmstudio", "base_url": "http://127.0.0.1:1234", "kind": "lmstudio"},

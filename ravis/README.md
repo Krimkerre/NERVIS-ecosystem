@@ -68,6 +68,18 @@ MLX build passing 3. The catalogue is wrong about one of them, and `MEASURED` be
 A generic endpoint that publishes nothing still reads `UNKNOWN`, and a pool requiring that
 capability still fails closed — §5.2 working as written.
 
+**A context window is read the same way, and Ollama needed a correction.** `/api/show`
+reports what the *architecture* supports — 128,000 for `qwen2.5vl` — while Ollama serves
+the model at whatever it actually loaded, which is 4,096 unless a Modelfile or
+`OLLAMA_CONTEXT_LENGTH` says otherwise. Routing believed the larger number, so a
+25,000-token request was handed to a model holding 4,096 and the runtime evaluated the
+first 2,050 of them and answered as though it had read the whole thing. `/api/ps` reports
+the true window for a resident model and is now what RAVIS trusts; a model that is not
+resident is reported at `RAVIS_OLLAMA_DEFAULT_CONTEXT` (4,096), because nothing in the API
+says what a cold model will get on load. Raise that setting if you raised Ollama's own
+default — leaving it low costs a local model a long-context pool, and raising it wrongly
+costs somebody their document.
+
 [`measured-capabilities.json`](measured-capabilities.json) is that somebody, for this
 machine. It is derived from `clarvis/docs/benchmarks.md` — executed tool-call trials from
 `clarvis-firstrun/tools/suite2.py`, not a vendor flag.

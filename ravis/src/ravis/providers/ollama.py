@@ -49,6 +49,29 @@ from ravis.providers.generic_openai import PROTOCOL_DEFAULTS, GenericOpenAiAdapt
 # reads for discovery, because it takes the model as a body parameter.
 SHOW_PATH = "/api/show"
 
+# What Ollama currently holds in memory, and — the part that matters here —
+# the context window it actually loaded each model with.
+PS_PATH = "/api/ps"
+
+#: The window Ollama gives a model when nothing says otherwise.
+#:
+#: **Not the architecture's maximum, which is the bug this constant exists
+#: for.** `/api/show` reports `qwen25vl.context_length` as 128,000 — what the
+#: architecture supports — and RAVIS believed it. Ollama serves that model at
+#: 4,096 unless a Modelfile or `OLLAMA_CONTEXT_LENGTH` says otherwise, so the
+#: number routing trusted was wrong by a factor of thirty. Measured directly:
+#: a fifteen-thousand-token prompt came back having evaluated 2,050 of them,
+#: with a 200 and a confident answer — silent truncation, which is the failure
+#: this whole file's closed-world reading exists to avoid in the other
+#: direction.
+#:
+#: An operator who raised Ollama's default can say so with
+#: `RAVIS_OLLAMA_DEFAULT_CONTEXT`; nothing in Ollama's API reports it, and
+#: guessing high is what broke. Under-reporting costs a local model a
+#: long-context pool it might have served; over-reporting costs a person their
+#: document, read a third of the way and answered as though whole.
+DEFAULT_CONTEXT = 4096
+
 # Ollama's capability vocabulary, mapped onto §9.5's lattice. Tokens it reports
 # that are not listed here are ignored rather than guessed at — and, just as
 # importantly, this is exactly the set the closed-world reading in `_absorb`
@@ -79,14 +102,17 @@ class OllamaAdapter(GenericOpenAiAdapter):
         self,
         *args: Any,
         detail_ttl_seconds: float = DETAIL_TTL_SECONDS,
+        default_context: int = DEFAULT_CONTEXT,
         clock: Any = time.monotonic,
         **kwargs: Any,
     ) -> None:
         kwargs.setdefault("name", "ollama")
         super().__init__(*args, **kwargs)
         self._ttl = detail_ttl_seconds
+        self._default_context = default_context
         self._clock = clock
         self._details: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._loaded: tuple[float, dict[str, int]] | None = None
 
     async def capabilities(self, model: str) -> ModelCapabilities:
         """Protocol defaults, then Ollama's own metadata, then configuration."""
@@ -103,6 +129,7 @@ class OllamaAdapter(GenericOpenAiAdapter):
         detail = await self._show(model)
         if detail is not None:
             _absorb(known, detail)
+        known.context_window = await self._window(model, known.context_window)
         # Nothing per token. Not an estimate and not a default — a model
         # running on hardware the operator already owns bills nothing for a
         # token, and it is the strongest argument a router has for reaching
@@ -153,6 +180,71 @@ class OllamaAdapter(GenericOpenAiAdapter):
             return None
         self._details[model] = (now, payload)
         return payload
+
+
+    async def _window(self, model: str, architectural: int | None) -> int | None:
+        """The context this model will actually be served with.
+
+        **What Ollama loaded, not what the architecture allows.** `/api/ps`
+        reports `context_length` per resident model and that figure is
+        authoritative — it is the window in memory right now. A model that is
+        not resident has no such figure, and the one it will get on load is
+        Ollama's default rather than its architectural maximum, so that is
+        what is reported for it.
+
+        The architectural number still caps both: a default larger than the
+        model can address is not a window, and `min` keeps the answer inside
+        what is true either way.
+        """
+        if architectural is None:
+            # **Unknown stays unknown.** Narrowing a window RAVIS knows is a
+            # correction; announcing one it does not is a claim, and this
+            # adapter answers for upstreams that turn out not to be Ollama at
+            # all — where the generic adapter's honest ignorance is the whole
+            # of what should survive. Caught by the two tests that already
+            # asserted `None` here before this method existed.
+            return None
+        served = (await self._resident()).get(model, self._default_context)
+        return min(architectural, served)
+
+    async def _resident(self) -> dict[str, int]:
+        """What Ollama currently holds, cached for the same window as details.
+
+        Failures are an empty answer rather than an exception, and are not
+        cached: an upstream that is not Ollama 404s here, and a blip must not
+        hold every model at its default for the whole window.
+        """
+        now = self._clock()
+        if self._loaded is not None and now - self._loaded[0] < self._ttl:
+            return self._loaded[1]
+        if not self._upstream.is_configured:
+            return {}
+        try:
+            response = await self._client.get(
+                self._upstream.url_for(PS_PATH), headers=self._headers()
+            )
+            response.raise_for_status()
+            windows = _served_windows(response.json())
+        except (httpx.HTTPError, ValueError):
+            return {}
+        self._loaded = (now, windows)
+        return windows
+
+
+def _served_windows(payload: Any) -> dict[str, int]:
+    """What `/api/ps` says each resident model was loaded with."""
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return {}
+    windows: dict[str, int] = {}
+    for entry in models:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("model") or entry.get("name")
+        length = entry.get("context_length")
+        if isinstance(name, str) and isinstance(length, int) and length > 0:
+            windows[name] = length
+    return windows
 
 
 def _absorb(known: ModelCapabilities, detail: dict[str, Any]) -> None:

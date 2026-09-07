@@ -862,6 +862,13 @@ Measure `normalization_ms`, `capability_ms`, `policy_ms`, `scoring_ms`, `total_r
 Background refresh keeps provider models, pricing, health, SIRVIS evidence and local host state
 current. **Routing reads cached snapshots**, never live lookups.
 
+**A context window is what the runtime serves, not what the architecture allows.** Ollama
+publishes the architecture's maximum at `/api/show` and loads the model at its own default;
+believing the first number routed a 25,000-token request to a model holding 4,096, which
+evaluated 2,050 of them and answered confidently. `/api/ps` reports the window a resident
+model actually has, and that is what the adapter reports — capped by the architecture, and
+falling back to Ollama's default for a model not yet loaded rather than to its maximum.
+
 ---
 
 # 10. Reliability

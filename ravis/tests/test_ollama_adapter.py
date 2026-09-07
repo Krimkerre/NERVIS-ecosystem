@@ -18,7 +18,7 @@ import httpx
 
 from ravis.core.capabilities import Capability, CapabilityState, Provenance
 from ravis.providers.base import ProviderAdapter
-from ravis.providers.ollama import OllamaAdapter
+from ravis.providers.ollama import OllamaAdapter, _context_length
 from ravis.upstream import Upstream
 
 # Real `/api/show` responses, trimmed to what the adapter reads. Kept faithful to
@@ -41,12 +41,21 @@ def _adapter(
     *,
     show_status: int = 200,
     configured: dict[str, dict[str, str]] | None = None,
+    resident: dict[str, int] | None = None,
+    ps_status: int = 200,
 ) -> OllamaAdapter:
     def handle(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/show":
             if show_status != 200:
                 return httpx.Response(show_status, json={"error": "model not found"})
             return httpx.Response(200, json=detail or {})
+        if request.url.path == "/api/ps":
+            if ps_status != 200:
+                return httpx.Response(ps_status, json={"error": "no"})
+            return httpx.Response(200, json={"models": [
+                {"model": name, "context_length": window}
+                for name, window in (resident or {}).items()
+            ]})
         return httpx.Response(200, json={"object": "list", "data": [{"id": "llama3.2:latest"}]})
 
     return OllamaAdapter(
@@ -72,10 +81,52 @@ async def test_advertised_tools_are_recorded_as_advertised() -> None:
 
 
 async def test_the_architecture_namespaced_context_length_is_read() -> None:
-    """`llama.context_length`, not a scan for anything ending in context_length."""
-    known = await _adapter(LLAMA_DETAIL).capabilities("llama3.2:latest")
+    """`llama.context_length`, not a scan for anything ending in context_length.
 
-    assert known.context_window == 131072
+    Read at its own level, because what the architecture allows is the ceiling
+    on what Ollama can be asked to serve — the window actually reported is that
+    ceiling capped by what Ollama loaded, which the tests below cover.
+    """
+    assert _context_length(LLAMA_DETAIL["model_info"]) == 131072
+
+
+async def test_the_window_reported_is_the_one_ollama_actually_loaded() -> None:
+    """**The bug this exists for.** `/api/show` reports the architecture's
+    maximum — 131,072 here — and Ollama serves the model at whatever it loaded
+    it with. Routing believed the first number, handed a 25,000-token request
+    to a model holding 4,096, and the runtime evaluated the first 2,050 and
+    answered as though it had read everything."""
+    adapter = _adapter(LLAMA_DETAIL, resident={"llama3.2:latest": 8192})
+
+    known = await adapter.capabilities("llama3.2:latest")
+
+    assert known.context_window == 8192
+
+
+async def test_a_cold_model_is_reported_at_ollama_s_default_not_its_maximum() -> None:
+    """Nothing in Ollama's API says what a model *will* get on load, so the
+    honest answer is its default. Guessing high is what broke; guessing low
+    costs a local model a long-context pool, which is the cheaper mistake."""
+    known = await _adapter(LLAMA_DETAIL, resident={}).capabilities("llama3.2:latest")
+
+    assert known.context_window == 4096
+
+
+async def test_a_window_larger_than_the_architecture_cannot_be_reported() -> None:
+    """A default bigger than the model can address is not a window."""
+    detail = {"capabilities": ["completion"],
+              "model_info": {"general.architecture": "tiny", "tiny.context_length": 2048}}
+
+    known = await _adapter(detail, resident={"tiny:latest": 32768}).capabilities("tiny:latest")
+
+    assert known.context_window == 2048
+
+
+async def test_an_unreadable_ps_leaves_the_default_rather_than_the_maximum() -> None:
+    """A blip must not restore the number that caused the bug."""
+    known = await _adapter(LLAMA_DETAIL, ps_status=500).capabilities("llama3.2:latest")
+
+    assert known.context_window == 4096
 
 
 async def test_a_context_length_for_another_architecture_is_not_borrowed() -> None:

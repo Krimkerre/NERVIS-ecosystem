@@ -25,7 +25,7 @@ from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.model_filter import ModelFilter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
 from ravis.providers.lmstudio import LmStudioAdapter
-from ravis.providers.ollama import OllamaAdapter
+from ravis.providers.ollama import DEFAULT_CONTEXT, OllamaAdapter
 from ravis.providers.openrouter import OpenRouterAdapter
 from ravis.registry import ModelRegistry
 from ravis.runtime.residency import Residency, ResidencySnapshot
@@ -151,11 +151,20 @@ def adapter_for(
     that one leaves RAVIS not knowing where to send anything.
     """
     adapter = KINDS.get(spec.kind.strip().lower(), GenericOpenAiAdapter)
+    extra: dict[str, Any] = {}
+    if adapter is OllamaAdapter:
+        # Ollama serves a model at its own default window, not the
+        # architecture's maximum, and nothing in its API reports what that
+        # default is — so an operator who raised it says so here.
+        extra["default_context"] = int(
+            getattr(settings, "ollama_default_context", 0) or DEFAULT_CONTEXT
+        )
     return adapter(
         upstream=upstream,
         client=client,
         name=spec.name,
         configured_capabilities=resolved_capabilities(settings),
+        **extra,
     )
 
 
