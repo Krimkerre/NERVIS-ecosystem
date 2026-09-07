@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2447 tests, no network, no live service
+.venv/bin/pytest                      # part of 2449 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 936 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 938 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2447 passing across the four, conformance `PASS`.
+Expected: all clean, 2449 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14879,9 +14879,36 @@ lesson applied a second time.
 Verified adversarially, same standard as the rest of this log: reverting the
 `not conversation` guard made the conversation-export test fail (a defect
 that should never be checked was suddenly checked); neutering `verdict_of`
-made every defect-detection test fail. Full suite reran clean throughout
-(936, was 918 — 18 new: `visual_check.py`'s own rasterise/verdict tests, the
-chat-level wiring tests), `ruff` and `mypy` clean.
+made every defect-detection test fail.
+
+Live-verified against the real running stack, not only against fakes: a
+deliberately broken page (a headline overlapping itself) sent through the
+real `ravis/vision` route got a real free model
+(`minimax/minimax-m3:free`) that named the exact overlap — read, not
+guessed — and `verdict_of()` parsed it correctly. The fail-open design also
+met a real failure in the same sitting rather than staying theoretical: the
+pool's first-chosen candidate answered with `content: None` (whatever it
+produced sat in a field this code does not read), which the existing
+`str(x or "")` guard already turned into "say nothing" rather than a crash.
+
+**Chat's own account of the feature was checked directly, and asked to fix
+what it got wrong.** Asked "if I save a PDF, can you actually check it
+looks visually right", chat already answered correctly — that route runs
+through `nervis/knowledge/nervis.md`'s background reading, which does not
+need the offer to be on screen. But nothing said this at the one moment
+"can you check this" is asked *most* often: while a save is actually being
+offered. `commands.told()`'s `nervis.document.write` clause now adds, only
+when the target ends `.pdf`, the same honest shape this file uses
+everywhere else a capability is stated with its real limits attached — it
+happens automatically, is not guaranteed to find anything, the save
+completes regardless — with the explicit instruction `capabilities_line()`
+already gives against denying a power NERVIS has. Confirmed live: asked to
+save a reply as `lighthouse.pdf`, chat's own offer now mentions the glance
+unprompted, before anyone asked about it.
+
+Full suite reran clean throughout (938, was 918 — 20 new: `visual_check.py`'s
+own rasterise/verdict tests, the chat-level wiring tests, two for the
+`told()` addendum), `ruff` and `mypy` clean.
 
 ## Starting the thing
 

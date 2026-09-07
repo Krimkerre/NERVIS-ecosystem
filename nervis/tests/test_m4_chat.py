@@ -3781,6 +3781,30 @@ def test_a_real_offer_still_says_the_button_is_there() -> None:
     assert "no button" not in commands.told(offer)
 
 
+def test_a_pdf_save_offer_is_told_about_the_visual_check() -> None:
+    """"Can you check it looks right" is a question this exact offer invites
+    (the operator asked it directly), and the model must be able to say yes
+    — never that it has no way to see the result, which would deny a power
+    NERVIS actually has (`capabilities_line`'s own reasoning, applied here)."""
+    offer = commands.propose("save that as notes.pdf", [], default_name="x.pdf")
+
+    assert offer is not None
+    said = commands.told(offer)
+    assert "automatic glance" in said
+    assert "say yes" in said
+    assert "vision-capable model" in said
+
+
+def test_a_non_pdf_save_offer_says_nothing_about_a_visual_check() -> None:
+    """The falsifier. `.md`/`.txt` saves are never rasterised or looked at, so
+    telling the model about the glance there would be describing a check that
+    cannot run."""
+    offer = commands.propose("save that as notes.md", [], default_name="x.pdf")
+
+    assert offer is not None
+    assert "automatic glance" not in commands.told(offer)
+
+
 def test_export_is_recognised_without_repeating_the_noun() -> None:
     """"Lets try the export again" is a follow-up, and a follow-up is exactly
     when somebody is least likely to repeat the word they used a moment ago."""

@@ -979,33 +979,63 @@ def told(proposal: Proposal | None) -> str:
             "only, and never point at a button under a previous reply: buttons do "
             "not persist, and sending somebody back up the page to look for one is "
             "the same as describing a control that is not there."
-            + (
-                # **What pressing actually does, because "queued" was read as a
-                # waiting line.** SIRVIS runs one benchmark at a time: with
-                # nothing else running it starts immediately and loads the
-                # model, and only otherwise does it wait. Somebody who expects a
-                # queue and gets a busy machine has been misled by one word.
-                " Pressing it starts the benchmark straight away unless another "
-                "is already running, in which case it waits for that one. It is "
-                "not put in a queue to run later."
-                if proposal.operation == "sirvis.benchmark.submit" else
-                # **Pressing it saves this reply's own text, verbatim — nothing
-                # else.** Reported from use: asked to save "the annotated
-                # document" after a long back-and-forth revising one, this
-                # reply was a short remark about being ready, and that is what
-                # got offered to save. If the person wants the full, up-to-date
-                # document and this reply does not already contain it in full,
-                # write it out completely in this same reply before mentioning
-                # the button — a short reply plus a button saves the short reply.
-                " It saves the text of this reply exactly as written, nothing "
-                "assembled from earlier turns. If what they want saved is not "
-                "already written out in full above, write it out in full here "
-                "first — the button saves whatever this reply actually says."
-                if proposal.operation == "nervis.document.write" else ""
-            )
+            + _ready_addendum(proposal)
         )
     return (
         f"The person asked for something NERVIS can offer — {proposal.summary} — but "
         f"it cannot be prepared: {proposal.detail}. No button has been offered. "
         "Tell them why, and name the alternatives if any are listed in the reading."
     )
+
+
+def _ready_addendum(proposal: Proposal) -> str:
+    """What pressing a ready button actually does, beyond "it is ready" —
+    one clause per operation whose mechanics would otherwise surprise
+    someone, each one added because a real reply got it wrong, not guessed
+    in advance.
+    """
+    if proposal.operation == "sirvis.benchmark.submit":
+        # **Because "queued" was read as a waiting line.** SIRVIS runs one
+        # benchmark at a time: with nothing else running it starts
+        # immediately and loads the model, and only otherwise does it wait.
+        # Somebody who expects a queue and gets a busy machine has been
+        # misled by one word.
+        return (
+            " Pressing it starts the benchmark straight away unless another "
+            "is already running, in which case it waits for that one. It is "
+            "not put in a queue to run later."
+        )
+    if proposal.operation != "nervis.document.write":
+        return ""
+    # **Pressing it saves this reply's own text, verbatim — nothing else.**
+    # Reported from use: asked to save "the annotated document" after a long
+    # back-and-forth revising one, this reply was a short remark about being
+    # ready, and that is what got offered to save. If the person wants the
+    # full, up-to-date document and this reply does not already contain it
+    # in full, write it out completely in this same reply before mentioning
+    # the button — a short reply plus a button saves the short reply.
+    addendum = (
+        " It saves the text of this reply exactly as written, nothing "
+        "assembled from earlier turns. If what they want saved is not "
+        "already written out in full above, write it out in full here "
+        "first — the button saves whatever this reply actually says."
+    )
+    if proposal.target.lower().endswith(".pdf"):
+        # **Said here because "can you check it looks right" is a question
+        # this exact offer invites**, and the honest answer is yes — a
+        # PDF save already gets an automatic glance, and a model with no way
+        # to know that either denies a power NERVIS has (`capabilities_line`'s
+        # own reasoning) or promises a guarantee this cannot make, since it
+        # depends on a vision-capable model being reachable at the moment.
+        addendum += (
+            " Saving it as a PDF also gets the result a quick automatic "
+            "glance afterward — whether the page actually rendered "
+            "correctly, never whether the writing is good — and a real "
+            "defect would be named in the confirmation once it is saved. "
+            "This is not guaranteed to find anything: it depends on a "
+            "vision-capable model being available right now, and the save "
+            "completes either way regardless. If asked whether you can "
+            "check a saved PDF looks right, say yes, this already happens "
+            "automatically — never say you have no way to see the result."
+        )
+    return addendum

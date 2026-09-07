@@ -100,7 +100,9 @@ confirmation; a clean page adds nothing, and a save always completes whether
 or not a vision-capable model happens to be available to ask, since this is
 an extra glance, not a gate. A conversation export is never checked this way
 — its layout is a fixed chat window, not a model's arbitrary markdown, so
-there is nothing this glance could catch there.
+there is nothing this glance could catch there. Offering to save a reply as
+a PDF now says this outright, unprompted, in that same offer — not only when
+asked about it afterward.
 
 ## Attachments
 
