@@ -693,3 +693,10 @@ def test_an_unpriced_hosted_model_does_not_win_by_saying_nothing() -> None:
     )
 
     assert decision.selected == "vendor/priced"
+
+
+def test_the_drawing_pool_is_not_named_for_the_thing_it_makes() -> None:
+    """The invariant above, pinned from the other side: the pool that emits
+    images exists, and is deliberately not called `ravis/image`."""
+    assert "ravis/draw" in POOLS_BY_ID
+    assert "ravis/image" not in POOLS_BY_ID

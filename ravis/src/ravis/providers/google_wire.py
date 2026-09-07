@@ -285,10 +285,11 @@ def read_response(payload: dict[str, Any], *, provider: str, model: str) -> Norm
     """One non-streamed Gemini response as a normalized one."""
     candidates = payload.get("candidates") or []
     candidate = candidates[0] if candidates else {}
-    text, reasoning, calls = _collect(candidate.get("content") or {})
+    text, reasoning, calls, images = _collect(candidate.get("content") or {})
     return NormalizedResponse(
         text=text,
         reasoning=reasoning,
+        images=images,
         tool_calls=calls,
         finish_reason=finish_reason(candidate.get("finishReason"), bool(calls)),
         usage=read_usage(payload.get("usageMetadata")),
@@ -298,13 +299,16 @@ def read_response(payload: dict[str, Any], *, provider: str, model: str) -> Norm
     )
 
 
-def _collect(content: dict[str, Any]) -> tuple[str, str, list[ToolCall]]:
+def _collect(content: dict[str, Any]) -> tuple[str, str, list[ToolCall], list[str]]:
     text, reasoning = "", ""
     calls: list[ToolCall] = []
+    images: list[str] = []
     for part in content.get("parts") or []:
         if not isinstance(part, dict):
             continue
-        if "functionCall" in part:
+        if url := _emitted_image(part):
+            images.append(url)
+        elif "functionCall" in part:
             call = part["functionCall"] or {}
             calls.append(ToolCall(
                 index=len(calls),
@@ -316,7 +320,25 @@ def _collect(content: dict[str, Any]) -> tuple[str, str, list[ToolCall]]:
             reasoning += str(part.get("text") or "")
         elif "text" in part:
             text += str(part.get("text") or "")
-    return text, reasoning, calls
+    return text, reasoning, calls, images
+
+
+def _emitted_image(part: dict[str, Any]) -> str:
+    """An image part as a `data:` URL, or "" for a part that is not one.
+
+    Gemini answers an image request with an `inlineData` part beside the text
+    rather than with a separate field, and it spells the key `inlineData` on the
+    REST wire while accepting `inline_data` on the way in — both are read here
+    so a response recorded through either spelling survives.
+    """
+    blob = part.get("inlineData") or part.get("inline_data")
+    if not isinstance(blob, dict):
+        return ""
+    payload = str(blob.get("data") or "")
+    mime = str(blob.get("mimeType") or blob.get("mime_type") or "image/png")
+    if not payload or not mime.startswith("image/"):
+        return ""
+    return f"data:{mime};base64,{payload}"
 
 
 def tool_call_id(index: int, name: str) -> str:
@@ -430,6 +452,10 @@ class StreamReader:
         """One part of a candidate, or None for one this path does not carry."""
         if not isinstance(part, dict):
             return None
+        if url := _emitted_image(part):
+            return NormalizedStreamEvent(
+                type=StreamEventType.IMAGE, image_url=url, raw=frame
+            )
         if "functionCall" in part:
             return self._call(part["functionCall"] or {})
         if part.get("thought"):

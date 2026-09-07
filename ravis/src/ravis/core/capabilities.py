@@ -41,7 +41,13 @@ class Capability(str, Enum):
     """
 
     TEXT = "text"
+    # **Reading an image, not making one.** These are two capabilities and not
+    # one mode of the same: `qwen2.5vl` reads a page and can never draw
+    # anything, and the six hundred vision-capable models in a catalogue
+    # include eleven that emit an image. Conflating them would put a model
+    # that cannot draw into a pool that asks for a drawing.
     VISION = "vision"
+    IMAGE_OUT = "image_out"
     AUDIO_IN = "audio_in"
     AUDIO_OUT = "audio_out"
     TOOLS = "tools"

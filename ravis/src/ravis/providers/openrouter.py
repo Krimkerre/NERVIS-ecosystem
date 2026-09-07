@@ -67,6 +67,15 @@ MODALITY_EVIDENCE: dict[str, Capability] = {
     "audio": Capability.AUDIO_IN,
 }
 
+# And in `architecture.output_modalities`, which is the other half of the same
+# field and answers a different question: what the model *emits*. Eleven of
+# OpenRouter's models declare an image output where six hundred declare an
+# image input, which is the whole reason these are separate capabilities.
+OUTPUT_MODALITY_EVIDENCE: dict[str, Capability] = {
+    "image": Capability.IMAGE_OUT,
+    "audio": Capability.AUDIO_OUT,
+}
+
 
 class OpenRouterAdapter(GenericOpenAiAdapter):
     """Reads OpenRouter's own capability metadata.
@@ -246,18 +255,22 @@ def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
                 )
             )
     architecture = entry.get("architecture")
-    modalities = (architecture or {}).get("input_modalities")
-    for modality in modalities if isinstance(modalities, list) else []:
-        capability = MODALITY_EVIDENCE.get(str(modality))
-        if capability is not None:
-            known.record(
-                CapabilityClaim(
-                    capability=capability,
-                    state=CapabilityState.SUPPORTED,
-                    provenance=Provenance.ADVERTISED,
-                    detail=f"OpenRouter lists {modality!r} among input modalities",
+    for field, evidence, side in (
+        ("input_modalities", MODALITY_EVIDENCE, "input"),
+        ("output_modalities", OUTPUT_MODALITY_EVIDENCE, "output"),
+    ):
+        modalities = (architecture or {}).get(field)
+        for modality in modalities if isinstance(modalities, list) else []:
+            capability = evidence.get(str(modality))
+            if capability is not None:
+                known.record(
+                    CapabilityClaim(
+                        capability=capability,
+                        state=CapabilityState.SUPPORTED,
+                        provenance=Provenance.ADVERTISED,
+                        detail=f"OpenRouter lists {modality!r} among {side} modalities",
+                    )
                 )
-            )
     _absorb_price(known, entry.get("pricing"))
     context = entry.get("context_length")
     # A context window is a *number*, not a claim, so it does not go through the

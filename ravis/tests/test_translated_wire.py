@@ -159,3 +159,35 @@ def test_a_non_streamed_response_carries_whole_tool_calls() -> None:
     )
     assert body["choices"][0]["finish_reason"] == "tool_calls"
     assert body["usage"]["total_tokens"] == 11
+
+
+def test_an_emitted_image_takes_the_shape_the_transparent_path_already_sends() -> None:
+    """Measured against OpenRouter through RAVIS's own transparent path on
+    7 September 2026: `google/gemini-2.5-flash-image` and `openai/gpt-5-image-mini`
+    both arrived as one delta carrying
+    `images: [{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}]`.
+
+    A translated provider that invented a second spelling would make the same
+    picture reach a caller differently depending on which route RAVIS chose,
+    which is the one thing a gateway exists to prevent.
+    """
+    url = "data:image/png;base64,AAAA"
+
+    streamed = _deltas(_render(
+        NormalizedStreamEvent(type=StreamEventType.IMAGE, image_url=url),
+    ))
+    whole = completion(NormalizedResponse(text="Here you go: ", images=[url]),
+                       model="m", completion_id="c")
+
+    part = {"type": "image_url", "image_url": {"url": url}}
+    assert streamed[1] == {"images": [part]}
+    assert whole["choices"][0]["message"]["images"] == [part]
+    assert whole["choices"][0]["message"]["content"] == "Here you go: "
+
+
+def test_a_reply_with_no_image_says_nothing_about_images() -> None:
+    """An always-present empty array would tell every caller that every model
+    can draw, which is exactly the claim the capability is meant to carry."""
+    body = completion(NormalizedResponse(text="hi"), model="m", completion_id="c")
+
+    assert "images" not in body["choices"][0]["message"]

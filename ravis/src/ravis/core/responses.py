@@ -88,6 +88,11 @@ class NormalizedResponse:
 
     text: str = ""
     reasoning: str = ""
+    # Images the model *emitted*, as `data:` URLs — not images it was shown.
+    # A generation model answers with pixels, and text-only normalization
+    # discards them silently: a 200 with an empty answer, which reads as the
+    # model refusing rather than as the gateway dropping the payload.
+    images: list[str] = field(default_factory=list)
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: FinishReason = FinishReason.UNKNOWN
     usage: Usage = field(default_factory=Usage)
@@ -102,6 +107,7 @@ class StreamEventType(str, Enum):
 
     TEXT = "text"
     REASONING = "reasoning"
+    IMAGE = "image"
     TOOL_CALL_FRAGMENT = "tool_call_fragment"
     FINISH = "finish"
     USAGE = "usage"
@@ -122,6 +128,9 @@ class NormalizedStreamEvent:
 
     type: StreamEventType
     text: str = ""
+    # A whole `data:` URL, never a slice. Images arrive as one part rather than
+    # fragmented, so there is nothing here for a consumer to reassemble.
+    image_url: str = ""
     tool_index: int | None = None
     tool_id: str = ""
     tool_name: str = ""

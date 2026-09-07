@@ -393,3 +393,52 @@ def test_a_path_traversing_model_never_reaches_the_wire_streaming() -> None:
 
     with pytest.raises(TranslationError):
         asyncio.run(drive())
+
+
+# ── An image the model emitted, rather than one it was shown ─────────────────
+
+
+def test_an_emitted_image_is_not_dropped_on_the_way_back() -> None:
+    """Measured 7 September 2026, and the reason this code exists.
+
+    `models/gemini-2.5-flash-image` answered a drawing request with 200 OK and
+    the content `"Here you go: "` — the picture was in an `inlineData` part
+    beside that text, and translation kept only the parts it recognised. The
+    same model through OpenRouter's transparent path returned a 104 KB PNG, so
+    the route decided whether the caller got an image.
+    """
+    answer = read_response(
+        a_response([
+            {"text": "Here you go: "},
+            {"inlineData": {"mimeType": "image/png", "data": "AAAA"}},
+        ]),
+        provider="google",
+        model="gemini-2.5-flash-image",
+    )
+
+    assert answer.text == "Here you go: "
+    assert answer.images == ["data:image/png;base64,AAAA"]
+
+
+def test_an_emitted_image_arrives_whole_on_a_stream() -> None:
+    events = list(StreamReader().events({"candidates": [{"content": {"parts": [
+        {"inlineData": {"mimeType": "image/jpeg", "data": "BBBB"}},
+    ]}}]}))
+
+    assert [event.type for event in events] == [StreamEventType.IMAGE]
+    assert events[0].image_url == "data:image/jpeg;base64,BBBB"
+
+
+def test_an_inline_part_that_is_not_an_image_is_left_alone() -> None:
+    """`inlineData` is Gemini's envelope for any blob, audio and PDFs included.
+
+    Claiming one of those as an image would put a `data:application/pdf` URL in
+    a field callers render with an `<img>`.
+    """
+    answer = read_response(
+        a_response([{"inlineData": {"mimeType": "application/pdf", "data": "AAAA"}}]),
+        provider="google",
+        model="gemini-2.5-flash",
+    )
+
+    assert answer.images == []

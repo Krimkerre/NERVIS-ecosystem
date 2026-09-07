@@ -96,6 +96,8 @@ def _delta_for(event: NormalizedStreamEvent, started: set[int]) -> Any:
         # §8.5: thinking stays out of `content`. Merging them would put a
         # model's private deliberation in front of the user as the answer.
         return lambda i, m: _frame(i, m, {"reasoning_content": event.text})
+    if event.type is StreamEventType.IMAGE:
+        return lambda i, m: _frame(i, m, {"images": [_image_part(event.image_url)]})
     if event.type is StreamEventType.TOOL_CALL_FRAGMENT:
         return lambda i, m: _frame(i, m, {"tool_calls": [_tool_fragment(event, started)]})
     if event.type is StreamEventType.FINISH:
@@ -109,6 +111,19 @@ def _delta_for(event: NormalizedStreamEvent, started: set[int]) -> Any:
     # relay's business — it decides between a fallback and a terminated stream —
     # and a chunk that looked like content would hide that decision.
     return None
+
+
+def _image_part(url: str) -> dict[str, Any]:
+    """One emitted image in the shape callers already parse.
+
+    Not an OpenAI field: OpenAI's chat completions never answer with an image,
+    so there is no official spelling to follow. This is OpenRouter's — an
+    `images` array of `image_url` parts on the message or delta — chosen
+    because RAVIS's transparent path already hands callers exactly that from
+    OpenRouter, and a translated provider that invented a second spelling would
+    make the same picture arrive differently depending on the route.
+    """
+    return {"type": "image_url", "image_url": {"url": url}}
 
 
 def _tool_fragment(event: NormalizedStreamEvent, started: set[int]) -> dict[str, Any]:
@@ -178,6 +193,8 @@ def completion(response: NormalizedResponse, *, model: str, completion_id: str) 
     message: dict[str, Any] = {"role": "assistant", "content": response.text or None}
     if response.reasoning:
         message["reasoning_content"] = response.reasoning
+    if response.images:
+        message["images"] = [_image_part(url) for url in response.images]
     if response.tool_calls:
         message["tool_calls"] = [
             {"index": call.index, "id": call.id, "type": "function",

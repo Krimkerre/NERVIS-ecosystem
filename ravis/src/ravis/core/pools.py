@@ -935,6 +935,29 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         description="Models that reason before answering",
         requirements=PoolRequirements(required=frozenset({Capability.REASONING})),
     ),
+    # **Emitting an image, which is not the same request as reading one.**
+    # `ravis/vision` asks for a model that can look at a page; this asks for one
+    # that can draw. Eleven of OpenRouter's six hundred models declare an image
+    # among their output modalities where most declare one among their inputs,
+    # so a pool that shared a capability with vision would offer `qwen2.5vl` as
+    # an illustrator.
+    #
+    # No curated family list, for `ravis/vision`'s own reason and more sharply:
+    # `gpt-image-1` and `gemini-3-pro-image` share no naming convention worth
+    # trusting, and the vendors publish the fact outright — an advertised
+    # output modality is evidence where a name pattern is a guess.
+    # **Named `draw`, not `image`, and that is not a style choice.** §5.0.1:
+    # Clarvis filters catalogues by unanchored substring, so a pool whose id
+    # contains `image` disappears from its picker entirely. The invariant is a
+    # test in `test_routing.py` whose docstring names this exact pool as the
+    # example — written before this pool existed, and it caught it on the first
+    # run.
+    VirtualModelPool(
+        pool_id="ravis/draw",
+        label="Image generation",
+        description="Models that emit an image",
+        requirements=PoolRequirements(required=frozenset({Capability.IMAGE_OUT})),
+    ),
     VirtualModelPool(
         pool_id="ravis/vision",
         label="Vision",

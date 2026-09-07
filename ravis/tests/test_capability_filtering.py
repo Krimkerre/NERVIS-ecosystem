@@ -253,3 +253,23 @@ def test_the_vision_pool_requires_the_capability_on_its_own() -> None:
     decision = RoutingEngine().select("ravis/vision", candidates)
 
     assert decision.selected == "zzz"
+
+
+def test_the_image_pool_asks_for_emitting_not_reading() -> None:
+    """A model that reads a page is not a model that draws one — the mistake a
+    shared capability would make."""
+    candidates = {
+        "reader": _capable("reader", Capability.VISION),
+        "drawer": _capable("drawer", Capability.IMAGE_OUT),
+    }
+
+    decision = RoutingEngine().select("ravis/draw", candidates)
+
+    assert decision.selected == "drawer"
+
+
+def test_the_vision_pool_does_not_admit_a_generator_that_cannot_read() -> None:
+    """The falsifier in the other direction."""
+    candidates = {"drawer": _capable("drawer", Capability.IMAGE_OUT)}
+
+    assert RoutingEngine().select("ravis/vision", candidates).selected is None
