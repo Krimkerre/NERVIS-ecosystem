@@ -76,8 +76,73 @@ def test_a_clean_page_returns_no_defect(tmp_path: Path) -> None:
     result = _run(_visual_defect(_request(client.app), _a_pdf_bytes(tmp_path)))
 
     assert result is None
-    assert posted[0]["model"] == "ravis/vision"
+    assert posted[0]["model"] == "ravis/ollama/qwen2.5vl:3b"
     assert posted[0]["metadata"] == {"background": True}
+    assert len(posted) == 1, "a clean answer is an answer — the fallback must not also run"
+
+
+def test_the_pool_is_asked_when_the_named_model_is_not_there(tmp_path: Path) -> None:
+    """The machine that never pulled `qwen2.5vl:3b` — or has Ollama stopped —
+    still gets a glance from whatever else can see, rather than none at all."""
+    posted: list[dict[str, Any]] = []
+
+    class _Missing:
+        status_code = 422
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"error": {"message": "not offered by the configured upstream"}}
+
+    class _Reply:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"choices": [{"message": {"content": "Yes: the footer overlaps the text."}}]}
+
+    class _Client:
+        @staticmethod
+        async def post(url: str, **kwargs: Any) -> Any:
+            del url
+            posted.append(kwargs["json"])
+            return _Missing() if len(posted) == 1 else _Reply()
+
+    client = an_api()
+    client.app.state.settings.ravis_client_credential = "secret"
+    client.app.state.probe_client = _Client()
+
+    result = _run(_visual_defect(_request(client.app), _a_pdf_bytes(tmp_path)))
+
+    assert result == "the footer overlaps the text."
+    assert [one["model"] for one in posted] == ["ravis/ollama/qwen2.5vl:3b", "ravis/vision"]
+
+
+def test_nothing_is_reported_when_neither_the_model_nor_the_pool_answers(
+    tmp_path: Path,
+) -> None:
+    """Both gone is still silence, not a refusal — the save already happened."""
+    posted: list[dict[str, Any]] = []
+
+    class _Missing:
+        status_code = 422
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        @staticmethod
+        async def post(url: str, **kwargs: Any) -> Any:
+            del url
+            posted.append(kwargs["json"])
+            return _Missing()
+
+    client = an_api()
+    client.app.state.settings.ravis_client_credential = "secret"
+    client.app.state.probe_client = _Client()
+
+    assert _run(_visual_defect(_request(client.app), _a_pdf_bytes(tmp_path))) is None
+    assert len(posted) == 2, "both the named model and the pool should have been tried"
 
 
 def test_a_defect_is_surfaced_with_the_page_attached_as_an_image(tmp_path: Path) -> None:

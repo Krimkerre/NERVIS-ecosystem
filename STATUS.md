@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2449 tests, no network, no live service
+.venv/bin/pytest                      # part of 2451 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 938 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 940 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2449 passing across the four, conformance `PASS`.
+Expected: all clean, 2451 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14965,6 +14965,36 @@ model this stack now actually keeps for the local vision path.
 No automated test covers this: `tools/run.py` is a launcher script with no
 test file of its own, verified here the only way it can be — against the
 real, restarted stack. `ruff` run against it directly stays clean.
+
+## The PDF glance names its own model, and keeps the pool behind it, 2026-09-07
+
+`ravis/vision` admits anything that can see, which is right for a pool and
+wrong for this one caller. Measured against the same deliberately broken page
+on this machine: `moondream` answered with a paragraph about a page it was
+not shown, `qwen2.5vl:3b` followed the "Yes:"/"No" shape exactly, and RAVIS's
+own tiebreak — cost, then stable order — had no way to know the difference,
+so it kept reaching past both for whichever hosted free-tier model sorted
+first. So `_visual_defect` now asks `ravis/ollama/qwen2.5vl:3b` by name.
+
+**The pool stays, as the fallback rather than the default.** A machine that
+never pulled that model, or has Ollama stopped, still gets a glance from
+whatever else can see. The operator asked for this scoping explicitly, and it
+is the reason `prefer_local` on the pool itself was the wrong answer: that
+would have biased every future caller of `ravis/vision` to satisfy one.
+
+**One bug, caught while writing it and worth recording.** The first version
+had a single `str | None` return, so "the page is clean" and "that model
+could not be reached" were the same value — which meant every *ordinary*
+save, the clean ones, fell through to the fallback and made a second call to
+a hosted model, exactly the thing the named local model exists to avoid.
+`_looked_over` now returns whether it answered separately from what it saw,
+and a test pins the call count rather than only the verdict. Verified
+adversarially: relaxing the short-circuit to fire only on a defect makes that
+test fail on the count.
+
+Live-verified on the restarted stack: a real save's route decision reads
+`requested: ravis/ollama/qwen2.5vl:3b → selected: qwen2.5vl:3b`, one call,
+no fallback behind it. 940 tests (was 938), `ruff` and `mypy` clean.
 
 ## Starting the thing
 

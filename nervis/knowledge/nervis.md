@@ -92,8 +92,10 @@ correctly find it.
 
 Also that day: a saved PDF now gets a second glance before anything is
 called finished. Its first page is rendered to an image and shown to a
-vision-capable model (`ravis/vision`), asked only whether the *layout* came
-out broken — text or a code block cut off at the edge, lines overlapping, a
+vision-capable model — `qwen2.5vl:3b` on this machine's own Ollama, with the
+`ravis/vision` pool as the fallback where that is not installed — asked only
+whether the *layout* came out broken: text or a code block cut off at the
+edge, lines overlapping, a
 heading crowded against the paragraph under it — never whether the writing
 itself is any good. Only a real defect gets mentioned in the save
 confirmation; a clean page adds nothing, and a save always completes whether

@@ -75,15 +75,25 @@ BENCHMARK_SPECIFICATION: dict[str, Any] = {
 
 JOBS_CAPABILITY = "sirvis.benchmarks.jobs"
 
-# The pool `ravis/vision` (RAVIS.md) exists for exactly this: a request that
-# requires a model able to see, with no curated family list because "built to
-# see" has no trustworthy name pattern the way a code model's family does.
+# **This one model first, the pool only if it cannot be reached.** The pool
+# `ravis/vision` admits anything that can see, which is right for the pool and
+# wrong for this caller: asked to name a layout defect in one word followed by
+# a sentence, a small captioning model answered with a paragraph about a page
+# it was not shown, while `qwen2.5vl:3b` followed the format exactly — both
+# measured here, against the same deliberately broken page. So the operator's
+# own choice is named rather than left to a tiebreak that ranks on cost and
+# stable order, neither of which knows which model can follow an instruction.
+#
+# The pool stays as the fallback, unchanged for every other caller of it: a
+# machine without this model pulled still gets a glance from whatever can see,
+# rather than none at all.
 #
 # Marked `background` for the same reason a title generation is (§9.6.1): this
 # is an aside the person did not directly ask a hosted model to run, not the
 # primary reply, and RAVIS refuses to spend a non-free provider's money on a
 # call that declares itself one.
-VISUAL_CHECK_POOL = "ravis/vision"
+VISUAL_CHECK_MODEL = "ravis/ollama/qwen2.5vl:3b"
+VISUAL_CHECK_FALLBACK_POOL = "ravis/vision"
 VISUAL_CHECK_TIMEOUT_SECONDS = 30.0
 VISUAL_CHECK_MAX_TOKENS = 60
 
@@ -538,10 +548,14 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
     `background` marker (§9.6.1: an aside the person did not directly ask a
     hosted model to run must not spend a non-free provider's money), same
     broad `except` on the call itself. A save's success never depends on
-    this: every failure mode here — RAVIS unreachable, no model satisfies
-    `ravis/vision`, a malformed reply — is silence, not a refusal, because
-    telling someone their file did not save when it did would be worse than
-    the missed glance.
+    this: every failure mode here — RAVIS unreachable, no model this machine
+    can see, a malformed reply — is silence, not a refusal, because telling
+    someone their file did not save when it did would be worse than the
+    missed glance.
+
+    The named model is asked first and the pool only if that came back with
+    nothing, which covers the machine that never pulled it as well as the one
+    where Ollama is simply not up.
     """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
@@ -550,9 +564,28 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
     snapshot = visual_check.first_page(pdf_bytes)
     if snapshot is None:
         return None
+    for model in (VISUAL_CHECK_MODEL, VISUAL_CHECK_FALLBACK_POOL):
+        answered, defect = await _looked_over(request, entry, snapshot, model)
+        if answered:
+            return defect
+    return None
+
+
+async def _looked_over(
+    request: Request, entry: RegistryEntry, snapshot: visual_check.Snapshot, model: str
+) -> tuple[bool, str | None]:
+    """One glance, by one model: whether it answered at all, and what it saw.
+
+    **The two are separate returns because conflating them costs a call on
+    every save.** "Nothing is wrong" and "this model could not be reached"
+    both have no defect to report, but only the second is a reason to ask
+    somebody else — and a clean page is the ordinary case, so folding them
+    together would send every ordinary save on to the fallback pool, which is
+    the hosted model this deliberately avoids reaching for.
+    """
     client: httpx.AsyncClient = request.app.state.probe_client
     payload = {
-        "model": VISUAL_CHECK_POOL,
+        "model": model,
         "max_tokens": VISUAL_CHECK_MAX_TOKENS,
         "metadata": {"background": True},
         "messages": [{
@@ -570,17 +603,17 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
             headers=_forwarded(
                 getattr(request.state, "request_id", ""),
                 getattr(request.state, "trace_id", ""),
-                settings.ravis_client_credential,
+                request.app.state.settings.ravis_client_credential,
             ),
             timeout=VISUAL_CHECK_TIMEOUT_SECONDS,
         )
         if response.status_code >= 400:
-            return None
+            return False, None
         body = response.json()
     except (httpx.HTTPError, ValueError):
-        return None
+        return False, None
     choices = body.get("choices") or []
     if not choices:
-        return None
+        return False, None
     message = choices[0].get("message") or {}
-    return visual_check.verdict_of(str(message.get("content") or ""))
+    return True, visual_check.verdict_of(str(message.get("content") or ""))
