@@ -108,6 +108,24 @@ is hosted models only, and asking a vision model to draw does not work,
 because reading an image and emitting one are different capabilities that
 happen to share a word.
 
+**The two directions are one conversation, and the drawing profile does
+both.** Every model in that pool reads images as well as emitting them, so
+there is no switching back and forth: on `ravis/draw`, an attached picture
+was described correctly as a blue triangle and the next question in the
+same conversation returned a drawn orange circle. Asked in one turn to
+take that attached triangle and redraw it in red, the same model returned
+the same shape at the same size and position, recoloured — the picture
+attached to the question and the picture that came back are one request.
+
+Changing the profile between turns does change the model: the same
+conversation went to `amazon/nova-2-lite-v1` for the reading and to
+`google/gemini-2.5-flash-image` for the drawing. A conversation prefers to
+stay on one model for consistency and prompt caching, and that preference
+does not survive being asked for something the model cannot do.
+
+A drawn picture is capped at 420 pixels tall where it renders, so the
+reply and the conversation around it stay on screen.
+
 Also as of 7 September 2026: a saved or exported PDF can now look genuinely
 different, not just plain text on a page — real typography and colour,
 matched to a template PDF attached to the conversation when there is one

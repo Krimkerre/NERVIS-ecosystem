@@ -111,6 +111,18 @@ so `ravis/draw` is hosted-only in practice — and asking a vision model to draw
 does not work, because reading an image and emitting one are separate
 capabilities that happen to share a word.
 
+The reverse does hold, and it is why one profile serves both directions: every
+model in this pool reads images as well as emitting them, so a picture sent
+*to* `ravis/draw` is understood and a picture asked *of* it comes back. Measured
+in one conversation on that profile — an attached triangle described, a circle
+drawn, and then the attached triangle redrawn in a different colour from the
+picture itself.
+
+**Session affinity is a preference, not a pin.** A conversation stays on one
+model for consistency and prompt caching, and a turn that names a different
+profile is routed afresh: the same conversation went to `amazon/nova-2-lite-v1`
+for a reading and to `google/gemini-2.5-flash-image` for a drawing.
+
 ## What the local models on this machine are actually good for
 
 Measured on 7 September 2026 rather than assumed, because "use local" and "use
