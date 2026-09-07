@@ -15375,6 +15375,19 @@ and the embedding models at 2,048 and 512, where before it would have
 selected one and had the prompt quietly cut. RAVIS 106 -> 110 tests, `ruff`
 and `mypy` clean.
 
+**And then the window was raised rather than merely reported honestly.**
+Reporting the truth makes a local model *correctly unusable* for a document
+it cannot hold, which is right and is not the same as useful, so the
+launcher now starts Ollama with `OLLAMA_CONTEXT_LENGTH=32768` — enough for
+the documents chat is actually handed, at roughly a gigabyte of key-value
+cache on a 3B model — and passes the same figure to RAVIS as
+`RAVIS_OLLAMA_DEFAULT_CONTEXT`. **The same number on both sides, from one
+constant**, because the defect above was precisely a router believing a
+window the runtime did not serve; `OLLAMA_CONTEXT_LENGTH` in the environment
+moves both and they cannot drift apart. Confirmed after a restart: RAVIS
+reports 32,768 for both local models, which is now what Ollama actually
+loads them with.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

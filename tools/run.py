@@ -67,6 +67,22 @@ RAVIS_PORT = 8731
 NERVIS_PORT = 8790
 OLLAMA_PORT = 11434
 
+# **What Ollama loads a model with, and what RAVIS is told about it.**
+#
+# Ollama's own default is 4,096 and it does not honour `num_ctx` on the
+# OpenAI-compatible path, so a document larger than that is either refused or
+# — for a request carrying no image — silently truncated: measured at 2,050
+# tokens evaluated out of fifteen thousand, answered confidently. 32,768 is
+# enough for the documents chat is actually handed (the blueprint that found
+# this is ~25,000 tokens) and costs roughly a gigabyte of key-value cache on a
+# 3B model, on top of the model itself.
+#
+# **The same number reaches RAVIS**, because a router that believes a window
+# the runtime does not serve is the defect this pair exists to prevent
+# (`ravis/src/ravis/providers/ollama.py`). Set `OLLAMA_CONTEXT_LENGTH` in the
+# environment to change it and both follow; they cannot drift apart.
+OLLAMA_CONTEXT = int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 32768)
+
 # What RAVIS's /v1/embeddings warms on startup — small, already pulled on the
 # machines this has been run on, and matched to a background lookup rather
 # than a chat model. Not configurable yet; becomes an operator setting the
@@ -343,6 +359,13 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             if not env.get("RAVIS_UPSTREAM_BASE_URL") and not env.get("RAVIS_UPSTREAMS"):
                 env.update(_default_upstreams())
                 env["RAVIS_DEFAULTED_UPSTREAM"] = "1"
+            # **The window Ollama is being started with, told to the router that
+            # decides on it.** RAVIS reads a resident model's true context from
+            # `/api/ps` and needs a number for a cold one; left to its own
+            # default it would report 4,096 for models this launcher is about to
+            # give 32,768, and route long documents away from a runtime that
+            # could hold them. Set only as a default, like everything else here.
+            env.setdefault("RAVIS_OLLAMA_DEFAULT_CONTEXT", str(OLLAMA_CONTEXT))
         if package == "sirvis":
             # The same wiring for the second producer. A benchmark mints its own
             # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
@@ -452,7 +475,7 @@ def _ollama() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         "Ollama",
         [binary, "serve"],
         "ollama",
-        dict(os.environ),
+        {**os.environ, "OLLAMA_CONTEXT_LENGTH": str(OLLAMA_CONTEXT)},
         f"http://127.0.0.1:{OLLAMA_PORT}/",
     )]
 
