@@ -8956,7 +8956,7 @@ const asMap=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
 const asFlag=(v,fallback)=>v===undefined?fallback:v!==false;
 
 const USER={
- name:'', system:'', brief:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false,
+ name:'', system:'', brief:true, pages:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false,
  excluded:[], memory:'session',
  async load(){
   try{
@@ -8971,6 +8971,7 @@ const USER={
    this.system=asText(items['chat.system']);
    PRESETS.items=asList(items['chat.presets']);
    this.brief=asFlag(items['chat.brief'],true);
+   this.pages=asFlag(items['chat.page_images'],true);
    this.mode=asText(items['chat.mode']);
    /* NERVIS unless something else was chosen. The seeded settings already hold
       that preset's values, so naming it is a readout rather than a claim. */
@@ -8987,6 +8988,7 @@ const USER={
  },
  setName(value){this.name=value;this.write('user.display_name',value)},
  setBrief(on){this.brief=on;this.write('chat.brief',on)},
+ setPages(on){this.pages=on;this.write('chat.page_images',on)},
  /* Presentation only: the avatar and the accent. Sends nothing, routes
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
@@ -9772,6 +9774,9 @@ function paramsPane(){
     <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.brief?' checked':''}
       onchange="USER.setBrief(this.checked)"> Keep replies short — about two or three sentences
       <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">a switch rather than a silent rule: a question that needs a list, a walkthrough or code still gets one.</small></label>
+    <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.pages?' checked':''}
+      onchange="USER.setPages(this.checked)"> Show the model a PDF's pages, not only its text
+      <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">extraction returns prose intact and destroys the rest — a table arrives as loose runs of numbers, a diagram as nothing — so up to six pages carrying a table or a figure travel as pictures beside the full text, densest first, and the reading names which ones. <b>The pictures ride on your question</b>, so whatever answers it has to be able to see: on this machine that usually means a hosted model, which is a cost and an egress decision rather than a detail. Turn it off and a PDF is read exactly as it was before — all of the text, none of the pictures, routing untouched. To keep it local instead, pin a local vision model under <b>Model</b>; the layout glance on a saved PDF is already local and is not affected by this switch.</small></label>
     <label>System prompt
      <textarea id="cpSystem" rows="3" placeholder="empty — no system message is sent"
        oninput="CHAT_SESSION.system=this.value"
@@ -9913,6 +9918,11 @@ function chatRequestBody(conversationId){
  const last=[...c.messages].reverse().find(m=>m.role==='user'&&!m.pending&&!m.kind);
  const system=String(c.system).trim();
  const body={content:last?last.text:'',profile:c.profile,brief:USER.brief,
+   /* Whether a PDF's pages travel as pictures beside its text. Sent every
+      turn rather than remembered server-side per conversation, for the same
+      reason `brief` is: it is a preference about how to ask, and the person
+      may change it between two questions about the same document. */
+   page_images:USER.pages,
    /* **The browser's id, and it has to be on every chat request** — this is the
       one the attachments are filed under. NERVIS only mints a conversation id
       once a turn is stored, and clip-then-question is the ordinary order, so a

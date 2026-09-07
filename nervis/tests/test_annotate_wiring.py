@@ -415,3 +415,32 @@ def test_a_saved_reply_is_still_visually_checked(tmp_path: Path) -> None:
     })
 
     assert "text runs off the page." in ran.json()["file"]["detail"]
+
+
+def test_page_images_can_be_switched_off(tmp_path: Path) -> None:
+    """The pictures ride on the question, so whatever answers it has to be
+    able to see — a cost and an egress decision nobody made by attaching a
+    PDF. Off leaves the reading exactly as it was before pages travelled."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen2.5vl-3b"], vision=True)
+    _attach(client, "cv_off", "spec.pdf", _tabled())
+
+    turn(client, "read this pdf and tell me about the table", system="Be someone.",
+         attachment_id="cv_off", page_images=False)
+
+    assert isinstance(_sent_content(sent)["content"], str), "the question alone"
+
+
+def test_page_images_are_on_when_nothing_says_otherwise(tmp_path: Path) -> None:
+    """The falsifier for the switch: absent means on, so a client that never
+    heard of it behaves as it did."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen2.5vl-3b"], vision=True)
+    _attach(client, "cv_on", "spec.pdf", _tabled())
+
+    turn(client, "read this pdf and tell me about the table",
+         system="Be someone.", attachment_id="cv_on")
+
+    assert isinstance(_sent_content(sent)["content"], list)

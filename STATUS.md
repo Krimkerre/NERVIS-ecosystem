@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2516 tests, no network, no live service
+.venv/bin/pytest                      # part of 2518 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1005 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1007 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2516 passing across the four, conformance `PASS`.
+Expected: all clean, 2518 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15302,9 +15302,34 @@ reply with no quotes anywhere is a model that ignored the format and still
 said what was asked for. Re-pressed live: forty-two pages exactly, no extra
 page, fourteen comments, no glance.
 
-1005 tests (was 946): thirty-four for placing, page selection and the icon,
-twenty-three for the offer, the three buttons, the soft default, the vision
-gate and the glance, six for tables. `ruff` and `mypy` clean.
+**Then: "did you do it using the local model, or did RAVIS pick an API
+model?"** Read from the stored turns rather than guessed: both were served
+by `claude-haiku-4-5-20251001`. `ravis/chat` prefers a hosted model by its
+own design, and attaching page images narrowed it further, because RAVIS
+reads an image as a hard requirement. Nobody chose that — it followed from
+attaching a PDF, which is a cost and an egress decision arriving as a side
+effect.
+
+So there is a switch: *Show the model a PDF's pages, not only its text*,
+under **Parameters** in chat, on by default, stored the way `brief` is and
+sent on every turn as `page_images`. Off reads a PDF exactly as it read one
+before pages travelled at all — the whole text, no pictures, no vision
+requirement, routing untouched. Confirmed live on the same question against
+the same document: with it off RAVIS recorded no vision requirement, with it
+on it recorded one.
+
+The switch is deliberately not a local/hosted choice, because that is not what
+the mechanism offers: **the pictures ride on the question**, so the model
+that reads them is the model that answers. Keeping the pictures *and* the
+work local means pinning a local vision model under **Model**, which the
+picker already does — the note under the switch says so rather than
+implying a third state exists. The save-time glance is separate and already
+local-pinned, and is not affected.
+
+1007 tests (was 946): thirty-four for placing, page selection and the icon,
+twenty-five for the offer, the three buttons, the soft default, the vision
+gate, the glance and the page-image switch, six for tables. `ruff` and
+`mypy` clean.
 
 ## Starting the thing
 

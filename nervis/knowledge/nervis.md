@@ -113,9 +113,17 @@ attached PDF now travels with up to six of its pages rendered as images
 alongside the full text: the pages carrying a real table or a figure,
 ranked by how much table is on them, sent in page order. The reading names
 which pages they are, so an answer can say what it saw and what it did not.
-Only when a model that accepts images is actually reachable — RAVIS treats
-an image in a request as a hard requirement, so sending one where nothing
-can see would turn an ordinary question into a refusal to route. Confirmed
+**The person decides, and there is a switch for it** — *Show the model a
+PDF's pages, not only its text*, under **Parameters** in chat, on by
+default. The pictures ride on the question, so whatever answers it has to be
+able to see, and on a machine whose local models are small that usually
+means a hosted one: a cost and an egress decision, not a detail, so it is
+not made by attaching a PDF. Off reads a PDF exactly as before — all of the
+text, none of the pictures, routing untouched. To keep it local instead, pin
+a local vision model under **Model**; the layout glance on a saved PDF is
+already local and that switch does not affect it. Beyond the person's
+choice, RAVIS treats an image in a request as a hard requirement, so pages
+are withheld anyway when nothing reachable can see. Confirmed
 live on a 42-page blueprint: asked to list a nine-row table exactly as
 given, chat returned every row correctly, and the routing decision recorded
 "vision REQUIRED (the request contains an image)".

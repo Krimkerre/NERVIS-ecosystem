@@ -322,13 +322,24 @@ async def send(request: Request) -> Any:
     # that is what attachments are filed under, from the very first turn.
     opened, pages = _document(request, content, str(body.get("attachment_id") or ""))
     awareness = "\n\n".join(part for part in (awareness, opened) if part)
-    # **Only if something on this machine can actually see them.** RAVIS reads
-    # an image in a request as a hard requirement — its own route decision says
-    # "vision REQUIRED (the request contains an image)" — so attaching pages
-    # where no candidate has the capability turns an ordinary question about a
-    # document into a refusal to route. The catalogue that answers this is the
-    # one already cached for the reading, so it costs no call.
-    pages = pages if _can_see(await _catalogue(request)) else ()
+    # **Two gates, and they answer different questions.**
+    #
+    # The person's, first: the pictures ride on this turn, so whatever answers
+    # it has to be able to see — which on a machine whose local models are
+    # small usually means a hosted one, and that is a cost and an egress
+    # decision nobody made by attaching a PDF. `page_images` is the switch,
+    # default on, and turning it off leaves the reading exactly as it was
+    # before pages travelled at all: the whole text, no pictures, no vision
+    # requirement, and routing unchanged.
+    #
+    # Then the machine's: RAVIS reads an image in a request as a hard
+    # requirement — its own decision says "vision REQUIRED (the request
+    # contains an image)" — so attaching pages where no candidate has the
+    # capability turns an ordinary question about a document into a refusal to
+    # route. The catalogue that answers this is the one already cached for the
+    # reading, so it costs no call.
+    wanted = body.get("page_images", True) is not False
+    pages = pages if wanted and _can_see(await _catalogue(request)) else ()
 
     # How the ecosystem works, when the question is about that rather than about
     # what it is doing right now.
