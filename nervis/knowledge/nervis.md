@@ -112,10 +112,17 @@ file with the original *and* the opinions in it. That used to produce a file
 of `[Original intact]` placeholders, because "save the reply" asked the
 model to retype a forty-page document and no model does that. Now there is
 an **Annotate** button, offered when the person asks for comments, findings
-or annotations put into the document or the original. It copies the
-attachment page for page — every page exactly as it was, nothing re-rendered
-— and inserts a comment page after each page a comment quotes from, styled
-to match the document. Chat writes only the comments, each one starting
+or annotations put into the document or the original. It produces a
+reviewer's copy: every page exactly as it was, nothing re-rendered — a page
+with comments on it is scaled to two-thirds width and set left, and the
+comments sit in a column beside it, each one level with the passage it
+quotes and joined to it by a hairline, styled to match the document. Each
+comment is also a real PDF sticky note at that passage, so Preview or
+Acrobat show it as a comment too. A comment too long for the column
+continues on a page inserted straight after, headed with the page it
+belongs to. A PDF cannot be reflowed — nothing can insert a paragraph into
+a fixed page — which is why the comments go beside the text rather than
+into it. Chat writes only the comments, each one starting
 with a `>` line quoting a short phrase from the document so NERVIS knows
 which page it belongs to; anything without a quote goes at the end under
 "Further comments". A `.md` or `.txt` original is merged as text instead,

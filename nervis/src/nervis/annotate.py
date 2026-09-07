@@ -9,30 +9,45 @@ model quotes reliably where it does not retype reliably, so the reply carries
 comments only, each one anchored by a short line quoted verbatim from the
 document, and NERVIS — which holds the original — does the placing.
 
-**Two shapes of original, two ways of placing.** A PDF is kept page for page,
-byte for byte, the way an annotated copy actually is: the pages are the
-person's own, and a comment becomes a page inserted after the one it quotes,
-rendered in the original's own extracted style so it reads as part of the
-same document. Re-rendering the original's extracted text would have flattened
-whatever design it had, and a PDF is not reflowable in a way that lets a
-paragraph be inserted under a section anyway. A text original — `.md`,
-`.txt` — *is* reflowable, so there the comment goes straight under the
-paragraph it quotes.
+**A PDF cannot be reflowed, so the comments go beside the text, not into
+it.** Nothing inserts a paragraph into a fixed-layout page. The first version
+of this put each comment on its own page after the page it quoted, which
+kept the original intact and read as an appendix; the operator wanted the
+comments *with* the text. So each commented page is now a reviewer's copy:
+the original page scaled to two-thirds width and set left, byte for byte,
+and the comments in a column to its right, each one drawn level with the
+passage it quotes and joined to it by a hairline. Every comment is also a
+real PDF comment — a sticky note at the quoted passage — so a viewer that
+shows those (Preview, Acrobat) shows them too. A comment the column has no
+room for continues on a page inserted straight after, under a heading that
+says so, rather than being shrunk until it fits or dropped.
 
-Anything the model wrote without a quote is not lost: it lands at the end,
-under its own heading, rather than being placed by guesswork.
+A text original — `.md`, `.txt` — *is* reflowable, so there the comment goes
+straight under the paragraph it quotes. Anything the model wrote without a
+quote is not lost either way: it lands at the end, under its own heading,
+rather than being placed by guesswork.
 """
 
 from __future__ import annotations
 
 import io
 import re
+from bisect import bisect_right
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any
+from xml.sax.saxutils import escape
 
-from pypdf import PdfReader, PdfWriter
+import pdfplumber
+from pypdf import PageObject, PdfReader, PdfWriter, Transformation
+from pypdf.annotations import Text as StickyNote
+from reportlab.lib.colors import Color
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
 
 from nervis import pdf
-from nervis.style import StyleProfile
+from nervis.style import DEFAULT, StyleProfile
 
 
 #: One comment, as the model is asked to write it: a quoted line, then the
@@ -43,12 +58,46 @@ class Comment:
     text: str
 
 
+#: Where a comment's quote was found on a page: `(top, x0)` in the page's own
+#: y-down points, or nothing when the words could not be found even though the
+#: page's text matched.
+Located = tuple[Comment, tuple[float, float] | None]
+
+#: A sticky note to attach: its rectangle in the composed page's coordinates,
+#: and its text.
+Pin = tuple[tuple[float, float, float, float], str]
+
 #: How far a quoted anchor is trusted before it is shortened. A model quoting a
 #: heading gets it exactly; one quoting a sentence sometimes paraphrases the
 #: tail, and the first thirty characters are usually still verbatim.
 _ANCHOR_PREFIX = 30
 
+#: The shortest thing worth searching a document for. "the" is on every page.
+_ANCHOR_FLOOR = 8
+
 _QUOTE_LINE = re.compile(r"^\s*>\s?(.*)$")
+
+#: A model naming a heading and then a topic under it — "Adjacent product
+#: expansions: Inbox and Reusable Recipes" — where only the heading is in the
+#: document. Measured on the blueprint: twenty-one of forty-four anchors were
+#: this shape, and every one of them fell to the end.
+_TOPIC_SEPARATOR = re.compile(r"\s*(?::|—|–|\s-\s)\s*")
+
+# The reviewer's-copy geometry, in points. Two-thirds keeps a letter or A4
+# page legible and leaves a column about a third of the width — forty-odd
+# characters a line at this size, which is a margin note rather than an essay.
+# Anything longer than the column can hold continues on its own page.
+SCALE = 0.66
+GUTTER = 10.0
+EDGE = 18.0
+PAD = 5.0
+GAP = 7.0
+RULE = 2.0
+RULE_INSET = 8.0
+NOTE_SIZE = 8.5
+NOTE_LEADING = 10.5
+LABEL_SIZE = 7.5
+LABEL_LEADING = 9.0
 
 
 def parse_comments(reply: str) -> list[Comment]:
@@ -98,14 +147,33 @@ def _normalised(text: str) -> str:
     return re.sub(r"\s+", " ", text).casefold().strip()
 
 
+def _attempts(anchor: str) -> Iterator[str]:
+    """What to search for, most exact first, nothing shorter than the floor.
+
+    The quote as written; then its opening characters, for a tail the model
+    paraphrased; then the part before a colon or dash, for a heading the model
+    extended with a topic of its own. Each is a weaker claim than the last,
+    which is why the order matters and why nothing looser follows.
+    """
+    wanted = _normalised(anchor)
+    seen: set[str] = set()
+    head = _TOPIC_SEPARATOR.split(wanted, maxsplit=1)[0]
+    for attempt in (wanted, wanted[:_ANCHOR_PREFIX], head, head[:_ANCHOR_PREFIX]):
+        attempt = attempt.strip()
+        if len(attempt) >= _ANCHOR_FLOOR and attempt not in seen:
+            seen.add(attempt)
+            yield attempt
+
+
 def find_in(anchor: str, passages: list[str]) -> int | None:
     """Which passage the anchor was quoted from, or `None`.
 
     Whitespace and case are ignored on both sides because a PDF's extracted
     text breaks lines where the page did, not where the sentence did. Tried
-    exactly first, then by its opening characters, and never by anything
-    looser: a comment placed on the wrong page is worse than one placed at the
-    end with an honest heading over it.
+    exactly first, then by its opening characters, then by the heading before
+    a topic separator — and never by anything looser: a comment placed on the
+    wrong page is worse than one placed at the end with an honest heading over
+    it.
 
     **The last passage it appears in, not the first.** Measured on the
     blueprint this was built for: forty-four comments anchored on section
@@ -116,17 +184,27 @@ def find_in(anchor: str, passages: list[str]) -> int | None:
     means. A quoted sentence from a passage appears once, so for it the two
     rules agree.
     """
-    wanted = _normalised(anchor)
-    if not wanted:
-        return None
-    for attempt in (wanted, wanted[:_ANCHOR_PREFIX]):
-        if len(attempt) < 8:
-            break
+    for attempt in _attempts(anchor):
         found = [index for index, passage in enumerate(passages)
                  if attempt in _normalised(passage)]
         if found:
             return found[-1]
     return None
+
+
+def _placed_by(
+    comments: list[Comment], passages: list[str]
+) -> tuple[dict[int, list[Comment]], list[Comment]]:
+    """Each comment under the passage it quotes, and the ones with no home."""
+    placed: dict[int, list[Comment]] = {}
+    loose: list[Comment] = []
+    for comment in comments:
+        where = find_in(comment.anchor, passages) if comment.anchor else None
+        if where is None:
+            loose.append(comment)
+        else:
+            placed.setdefault(where, []).append(comment)
+    return placed, loose
 
 
 def _as_markdown(comments: list[Comment]) -> str:
@@ -138,42 +216,152 @@ def _as_markdown(comments: list[Comment]) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+def _located(page: Any, comments: list[Comment]) -> list[Located]:
+    """Where on this page each comment's quote sits.
+
+    Matched over the page's words rather than its text so a quote that the
+    extraction broke across a line still finds its first word, which is the
+    one whose height the note is drawn level with.
+    """
+    words = page.extract_words()
+    texts = [_normalised(word["text"]) for word in words]
+    starts: list[int] = []
+    offset = 0
+    for text in texts:
+        starts.append(offset)
+        offset += len(text) + 1
+    joined = " ".join(texts)
+
+    placed: list[Located] = []
+    for comment in comments:
+        hit: tuple[float, float] | None = None
+        for attempt in _attempts(comment.anchor):
+            at = joined.rfind(attempt)
+            if at >= 0:
+                word = words[bisect_right(starts, at) - 1]
+                hit = (float(word["top"]), float(word["x0"]))
+                break
+        placed.append((comment, hit))
+    return placed
+
+
+def _paragraph(text: str, style: ParagraphStyle) -> Paragraph:
+    return Paragraph(escape(pdf._sanitised(text)).replace("\n", "<br/>"), style)
+
+
+def _margin_page(
+    page: PageObject, located: list[Located], profile: StyleProfile
+) -> tuple[PageObject, list[Comment], list[Pin], str]:
+    """One reviewer's page: the original scaled left, the comments beside it.
+
+    Returns the composed page, the comments the column had no room for, the
+    sticky notes to attach, and the characters Latin-1 could not carry.
+    """
+    width = float(page.mediabox.width)
+    height = float(page.mediabox.height)
+    column_x = width * SCALE + GUTTER
+    column_w = width - column_x - EDGE
+    accent = Color(*profile.heading_colour)
+    ink = Color(*profile.text_colour)
+    note_style = ParagraphStyle(
+        "note", fontName=pdf._base14_face(profile.body_family, False, False),
+        fontSize=NOTE_SIZE, leading=NOTE_LEADING, textColor=ink,
+    )
+    label_style = ParagraphStyle(
+        "label", fontName=pdf._base14_face(profile.body_family, True, False),
+        fontSize=LABEL_SIZE, leading=LABEL_LEADING, textColor=accent,
+    )
+
+    overlay = io.BytesIO()
+    c = canvas.Canvas(overlay, pagesize=(width, height))
+    c.setStrokeColor(accent)
+    c.setFillColor(accent)
+    cursor = EDGE
+    overflow: list[Comment] = []
+    pins: list[Pin] = []
+    unsupported = ""
+
+    # Top to bottom by where the quote sits; a comment with no found position
+    # goes at the top, above anything positioned.
+    ordered = sorted(located, key=lambda item: item[1][0] if item[1] else -1.0)
+    for comment, where in ordered:
+        wanted_top = where[0] * SCALE if where else EDGE
+        top = max(wanted_top, cursor)
+        label = _paragraph(f"On “{comment.anchor}”", label_style) if comment.anchor else None
+        body = _paragraph(comment.text, note_style)
+        label_h = label.wrap(column_w - RULE_INSET, height)[1] if label else 0.0
+        body_h = body.wrap(column_w - RULE_INSET, height)[1]
+        block = PAD + label_h + (2.0 if label else 0.0) + body_h + PAD
+        if top + block > height - EDGE:
+            overflow.append(comment)
+            continue
+
+        unsupported += pdf._unsupported(comment.anchor + comment.text)
+        c.rect(column_x, height - (top + block), RULE, block, stroke=0, fill=1)
+        y = top + PAD
+        if label:
+            label.drawOn(c, column_x + RULE_INSET, height - (y + label_h))
+            y += label_h + 2.0
+        body.drawOn(c, column_x + RULE_INSET, height - (y + body_h))
+        if where:
+            anchor_y = height - where[0] * SCALE
+            c.setLineWidth(0.5)
+            c.line(width * SCALE + 1.0, anchor_y, column_x - 1.0, height - (top + PAD + 4.0))
+            pins.append(((width * SCALE - 12.0, anchor_y - 10.0, width * SCALE, anchor_y + 2.0),
+                         f"On “{comment.anchor}”\n\n{comment.text}"))
+        else:
+            pins.append(((width * SCALE - 12.0, height - top - 12.0, width * SCALE, height - top),
+                         comment.text))
+        cursor = top + block + GAP
+    c.save()
+
+    composed = PageObject.create_blank_page(width=width, height=height)
+    composed.merge_transformed_page(
+        page, Transformation().scale(SCALE, SCALE).translate(0.0, height - height * SCALE)
+    )
+    composed.merge_page(PdfReader(io.BytesIO(overlay.getvalue())).pages[0])
+    return composed, overflow, pins, unsupported
+
+
+def _appended(writer: PdfWriter, title: str, markdown: str, profile: StyleProfile) -> str:
+    """Pages rendered from markdown, added to the writer; what Latin-1 lost."""
+    note = pdf.render(title, f"# {title}\n\n{markdown}", profile)
+    for extra in PdfReader(io.BytesIO(note.data)).pages:
+        writer.add_page(extra)
+    return note.unsupported
+
+
 def annotate_pdf(
     original: bytes, comments: list[Comment], style: StyleProfile | None
 ) -> pdf.Rendered:
-    """The original PDF, every page kept, with comment pages placed after the
-    pages they quote and the rest at the end."""
+    """The original PDF as a reviewer's copy: every page kept, each commented
+    page scaled left with its comments beside it, the rest at the end."""
+    profile = style or DEFAULT
     reader = PdfReader(io.BytesIO(original))
-    passages = [page.extract_text() or "" for page in reader.pages]
-    placed: dict[int, list[Comment]] = {}
-    loose: list[Comment] = []
-    for comment in comments:
-        where = find_in(comment.anchor, passages) if comment.anchor else None
-        if where is None:
-            loose.append(comment)
-        else:
-            placed.setdefault(where, []).append(comment)
-
     writer = PdfWriter()
     unsupported = ""
-    for index, page in enumerate(reader.pages):
-        writer.add_page(page)
-        if index in placed:
-            note = pdf.render(
-                f"Comments on page {index + 1}",
-                f"# Comments on page {index + 1}\n\n{_as_markdown(placed[index])}",
-                style,
+    with pdfplumber.open(io.BytesIO(original)) as plumbed:
+        placed, loose = _placed_by(comments, [page.extract_text() or "" for page in plumbed.pages])
+        for index, page in enumerate(reader.pages):
+            if index not in placed:
+                writer.add_page(page)
+                continue
+            composed, overflow, pins, lost = _margin_page(
+                page, _located(plumbed.pages[index], placed[index]), profile
             )
-            unsupported += note.unsupported
-            for extra in PdfReader(io.BytesIO(note.data)).pages:
-                writer.add_page(extra)
+            unsupported += lost
+            writer.add_page(composed)
+            for rect, text in pins:
+                writer.add_annotation(
+                    len(writer.pages) - 1, StickyNote(rect=rect, text=text, open=False)
+                )
+            if overflow:
+                unsupported += _appended(
+                    writer, f"Comments on page {index + 1}, continued",
+                    _as_markdown(overflow), profile,
+                )
     if loose:
-        note = pdf.render(
-            "Further comments", f"# Further comments\n\n{_as_markdown(loose)}", style
-        )
-        unsupported += note.unsupported
-        for extra in PdfReader(io.BytesIO(note.data)).pages:
-            writer.add_page(extra)
+        unsupported += _appended(writer, "Further comments", _as_markdown(loose), profile)
 
     out = io.BytesIO()
     writer.write(out)
@@ -183,14 +371,7 @@ def annotate_pdf(
 def annotate_text(original: str, comments: list[Comment]) -> str:
     """A text original with each comment under the paragraph it quotes."""
     paragraphs = re.split(r"\n\s*\n", original.strip()) if original.strip() else []
-    placed: dict[int, list[Comment]] = {}
-    loose: list[Comment] = []
-    for comment in comments:
-        where = find_in(comment.anchor, paragraphs) if comment.anchor else None
-        if where is None:
-            loose.append(comment)
-        else:
-            placed.setdefault(where, []).append(comment)
+    placed, loose = _placed_by(comments, paragraphs)
 
     parts: list[str] = []
     for index, paragraph in enumerate(paragraphs):

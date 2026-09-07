@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2484 tests, no network, no live service
+.venv/bin/pytest                      # part of 2488 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 973 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 977 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2484 passing across the four, conformance `PASS`.
+Expected: all clean, 2488 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15101,7 +15101,38 @@ comment sections, each one following the page whose heading it quotes —
 Recommended build sequence" on page 22 — sixty-eight pages, all forty-two
 originals intact, and the person's own copy saved into their workspace.
 
-973 tests (was 946): seventeen for placing, ten for the offer, the button,
+**Then the operator looked at it: "the comments are separate pages? I'd
+hoped they'd be integrated into the text."** Fair, and it should have been
+said up front: a PDF cannot be reflowed, nothing inserts a paragraph into a
+fixed page, and the choice between an appendix and the alternatives was
+made without asking. The alternatives, laid out and chosen: margin notes
+plus native annotations. Each commented page is now a reviewer's copy — the
+original page scaled to two-thirds width and set left, byte for byte, the
+comments in a column beside it, each drawn level with the passage it quotes
+and joined to it by a hairline in the document's own accent colour
+(`_margin_page`, pypdf's `merge_transformed_page` for the scaled original
+and a reportlab overlay for the column). Every comment is also a real PDF
+sticky note at the quoted passage (`pypdf.annotations.Text`), so Preview
+and Acrobat show them as comments too. A comment the column cannot hold
+continues on a page inserted straight after, headed with the page it
+belongs to — tested with a 6,000-character one, which takes two.
+
+One more placement finding from the same live file: twenty-one of the
+forty-four anchors were a heading the model *extended* with a topic of its
+own — "Adjacent product expansions: Inbox and Reusable Recipes" — and the
+topic is not in the document, so the thirty-character prefix (colon
+included) missed. `_attempts` now also tries the text before a colon or
+dash, still never below the eight-character floor: that rescued the
+extended headings and correctly left "Overall: Rate-limit handling" —
+"Overall" is seven characters and is not a heading — at the end. Final
+live result on the blueprint: twenty-seven comments beside their text
+across twenty-four pages, the seventeen "Overall:" remarks under "Further
+comments" where they belong, forty-five pages, all forty-two originals
+intact. The visual glance on the saved copy remarked "the code block is
+cut off at the page edge" about a page carrying no comments — noted, not
+chased; it is the small local model's reading of a designed cover page.
+
+977 tests (was 946): twenty-one for placing, ten for the offer, the button,
 and which reply's comments it takes. `ruff` and `mypy` clean.
 
 ## Starting the thing

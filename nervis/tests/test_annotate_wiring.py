@@ -88,7 +88,7 @@ def test_the_model_is_told_to_quote_and_never_retype() -> None:
 # ── Pressing it ───────────────────────────────────────────────────────────────
 
 
-def test_pressing_annotate_writes_the_original_pages_plus_the_comment_page(
+def test_pressing_annotate_writes_the_original_pages_with_the_comment_beside_its_text(
     tmp_path: Path,
 ) -> None:
     client = an_api(frames("> harbours and tides\nNeeds a tide table."),
@@ -107,10 +107,9 @@ def test_pressing_annotate_writes_the_original_pages_plus_the_comment_page(
     assert ran.status_code == 200, ran.text
     pages = [p.extract_text() or "" for p in
              PdfReader(io.BytesIO((tmp_path / "blueprint-annotated.pdf").read_bytes())).pages]
-    assert len(pages) == 3
+    assert len(pages) == 2, "the comment is in the margin, not on a page of its own"
     assert "Alpha section" in pages[0]
-    assert "Bravo section" in pages[1]
-    assert "Needs a tide table." in pages[2]
+    assert "Bravo section" in pages[1] and "Needs a tide table." in pages[1]
 
 
 def test_an_annotated_pdf_refuses_a_non_pdf_name(tmp_path: Path) -> None:
@@ -164,7 +163,7 @@ def test_the_newest_anchored_reply_wins_over_a_newer_reply_that_only_describes_t
     assert ran.status_code == 200, ran.text
     pages = [p.extract_text() or "" for p in
              PdfReader(io.BytesIO((tmp_path / "blueprint-annotated.pdf").read_bytes())).pages]
-    assert "Needs a tide table." in pages[2]
+    assert "Needs a tide table." in pages[1]
     assert not any("Press the Annotate button" in p for p in pages)
 
 

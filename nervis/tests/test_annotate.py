@@ -108,6 +108,21 @@ def test_a_heading_listed_in_the_contents_is_placed_at_its_section_not_the_conte
     assert find_in("Executive brief", passages) == 2
 
 
+def test_a_heading_the_model_extended_with_a_topic_still_finds_the_heading() -> None:
+    """Measured on the real blueprint: twenty-one of forty-four anchors were
+    "<heading>: <topic the model chose>", and the topic is not in the
+    document. The heading before the colon is."""
+    passages = ["Alpha", "Adjacent product expansions\nThe four candidates below…"]
+
+    assert find_in("Adjacent product expansions: Inbox and Reusable Recipes", passages) == 1
+
+
+def test_a_topic_after_a_short_heading_is_still_not_placed_by_guesswork() -> None:
+    """"Overall" is seven characters — under the floor — so this stays loose
+    rather than landing wherever "overall" happens to appear."""
+    assert find_in("Overall: Rate-limit handling", ["overall we think", "Bravo"]) is None
+
+
 def test_an_anchor_that_is_nowhere_is_none_not_a_guess() -> None:
     assert find_in("nothing like this appears", ["Alpha", "Bravo"]) is None
 
@@ -121,7 +136,9 @@ def test_a_tiny_anchor_is_not_trusted() -> None:
 # ── annotate_pdf ──────────────────────────────────────────────────────────────
 
 
-def test_a_comment_page_lands_right_after_the_page_it_quotes() -> None:
+def test_a_comment_sits_in_the_margin_of_the_page_it_quotes() -> None:
+    """Beside the text, not on a page of its own: the page count does not
+    change, and the comment shares the page with the sentence it quotes."""
     copied = annotate_pdf(
         _three_pages(),
         [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
@@ -129,11 +146,43 @@ def test_a_comment_page_lands_right_after_the_page_it_quotes() -> None:
     )
 
     texts = _page_texts(copied.data)
-    assert copied.pages == 4
+    assert copied.pages == 3
+    assert "Bravo section" in texts[1] and "Needs a tide table." in texts[1]
+    assert "Needs a tide table." not in texts[0]
+    assert "Needs a tide table." not in texts[2]
+
+
+def test_a_native_sticky_note_is_attached_at_the_quoted_passage() -> None:
+    """So a viewer that shows PDF comments — Preview, Acrobat — shows these."""
+    copied = annotate_pdf(
+        _three_pages(),
+        [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
+        None,
+    )
+
+    page = PdfReader(io.BytesIO(copied.data)).pages[1]
+    notes = [a.get_object() for a in page.get("/Annots", [])]
+    assert len(notes) == 1
+    assert notes[0]["/Subtype"] == "/Text"
+    assert "Needs a tide table." in str(notes[0]["/Contents"])
+    assert not PdfReader(io.BytesIO(copied.data)).pages[0].get("/Annots")
+
+
+def test_a_comment_the_margin_cannot_hold_continues_on_an_inserted_page() -> None:
+    """Continued, not shrunk until it fits and not dropped — under a heading
+    that says which page it belongs to."""
+    copied = annotate_pdf(
+        _three_pages(),
+        [Comment(anchor="entirely about harbours and tides", text="Long thoughts. " * 400)],
+        None,
+    )
+
+    texts = _page_texts(copied.data)
+    assert copied.pages >= 4, "the continuation takes as many pages as it needs"
     assert "Bravo section" in texts[1]
-    assert "Comments on page 2" in texts[2]
-    assert "Needs a tide table." in texts[2]
-    assert "Charlie section" in texts[3]
+    assert "Comments on page 2, continued" in texts[2]
+    assert "Long thoughts." in texts[2]
+    assert "Charlie section" in texts[-1], "the original's last page is still last"
 
 
 def test_every_original_page_survives_in_order() -> None:
