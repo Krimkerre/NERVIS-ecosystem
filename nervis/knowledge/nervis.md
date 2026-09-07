@@ -116,13 +116,12 @@ the original, a button is offered for one of three copies — and every page
 of the original is kept exactly as it was in the first two:
 
 - **Sticky notes** (the button says *Add notes*): the pages untouched, each
-  comment a real PDF comment stamped in the page margin level with the
-  passage it quotes — never over the text — with the comment in its popup,
-  clickable in Preview, Acrobat or a browser. The icon is NERVIS's own mark
-  — the tilted square with the cyan core — inside a small speech bubble on
-  the dashboard's own dark background. This is the soft default: it is what
-  gets offered when no style was named, and the other two are shown as chips
-  beside the button.
+  comment a standard PDF sticky note in the page margin, level with the
+  passage it quotes and never over the text, clickable in Preview, Acrobat
+  or a browser. Standard on purpose — a custom icon drew differently in
+  every viewer tried, and a plain note is the one thing they all draw the
+  same. This is the soft default: it is what gets offered when no style was
+  named, and the other two are shown as chips beside the button.
 - **Margin notes** (*Annotate*): a reviewer's copy — a page with comments on
   it is scaled to two-thirds width and set left, and the comments sit in a
   column beside it, each level with the passage it quotes and joined to it

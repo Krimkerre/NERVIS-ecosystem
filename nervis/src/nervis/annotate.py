@@ -40,23 +40,14 @@ from xml.sax.saxutils import escape
 
 import pdfplumber
 from pypdf import PageObject, PdfReader, PdfWriter, Transformation
-from pypdf.annotations import Popup
-from pypdf.generic import (
-    ArrayObject,
-    DictionaryObject,
-    FloatObject,
-    IndirectObject,
-    NameObject,
-    NumberObject,
-    StreamObject,
-    TextStringObject,
-)
+from pypdf.annotations import Text as StickyNote
+from pypdf.generic import NameObject
 from reportlab.lib.colors import Color
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
-from nervis import layout, pdf
+from nervis import pdf
 from nervis.style import DEFAULT, StyleProfile
 
 
@@ -109,9 +100,8 @@ NOTE_LEADING = 10.5
 LABEL_SIZE = 7.5
 LABEL_LEADING = 9.0
 
-#: The comment icon's box, in points. Every sticky note is this size so one
-#: appearance can serve all of them.
-BUBBLE = 20.0
+#: A sticky note's box, in points — the size viewers draw one at.
+NOTE = 20.0
 
 
 def parse_comments(reply: str) -> list[Comment]:
@@ -259,80 +249,21 @@ def _located(page: Any, comments: list[Comment]) -> list[Located]:
     return placed
 
 
-def _bubble_ops() -> bytes:
-    """The comment icon: NERVIS's own mark inside a speech bubble.
+def _pinned(writer: PdfWriter, page_index: int, pins: list[Pin]) -> None:
+    """Attach each comment to the page as a standard sticky note.
 
-    **The letterhead, not a viewer's yellow note.** The mark is drawn by the
-    same code the transcript export draws it with — `pdf._mark`, the diamond
-    with the cyan core — so it is the logo and not a drawing of one. It sits
-    in a rounded bubble with a tail at the lower left, which is what says
-    "somebody said something here" the way a note icon does. Raw page
-    operators rather than reportlab calls, because the same bytes serve twice:
-    as the annotation's own appearance, which a viewer draws in place of its
-    icon, and as ink on the margin copy's overlay, which every viewer shows.
+    **Standard, on purpose, after two rounds of not being.** A note wearing
+    NERVIS's own mark as its appearance drew differently in every viewer the
+    operator tried: Preview substitutes its own icon for a text note and
+    rewrites the note on its own terms when clicked; a stamp annotation did
+    draw the mark, and then each reader placed it and popped it up its own
+    way. A plain sticky note is the one thing every viewer has drawn the same
+    way for twenty years, so that is what a comment is. The icon, the stamp
+    and the popup are gone rather than switched off.
     """
-    b = BUBBLE
-    # Filled with the dashboard's own page colour (`layout.PAPER`), so the
-    # bubble reads as a piece of NERVIS on somebody else's page rather than a
-    # white sticker; the edge and the mark are the letterhead's cyan.
-    bubble = [
-        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, layout.PAPER),
-        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, layout.LOGO_EDGE, stroke=0.8),
-        pdf._poly([(5.0, 5.4), (9.0, 5.4), (4.2, 1.2)], layout.PAPER),
-        pdf._poly([(4.6, 5.0), (9.4, 5.0), (4.2, 1.2), (4.6, 5.0)], layout.LOGO_EDGE, stroke=0.8),
-    ]
-    # Joined by newlines, not concatenated: each helper's bytes end on an
-    # operator with nothing after it, and `f` followed straight by `0.333`
-    # reads as one token, `f0.333`, which is not an operator — the whole
-    # stream then draws nothing. Found by rendering the ops alone.
-    return b"\n".join(bubble + pdf._mark(b / 2.0, 12.0, 4.4, glow=False))
-
-
-def _appearance(writer: PdfWriter) -> IndirectObject:
-    """One form XObject drawing the bubble, shared by every note in the file."""
-    stream = StreamObject()
-    stream[NameObject("/Type")] = NameObject("/XObject")
-    stream[NameObject("/Subtype")] = NameObject("/Form")
-    stream[NameObject("/BBox")] = ArrayObject(
-        [FloatObject(0.0), FloatObject(0.0), FloatObject(BUBBLE), FloatObject(BUBBLE)]
-    )
-    stream.set_data(_bubble_ops())
-    return writer._add_object(stream)
-
-
-def _pinned(
-    writer: PdfWriter, page_index: int, pins: list[Pin], appearance: IndirectObject
-) -> None:
-    """Attach each comment to the page as a stamp wearing the bubble, with a
-    popup carrying the text.
-
-    **A stamp, not a sticky note.** The first version used `/Text` — the PDF
-    sticky note — with the bubble as its appearance. Apple's Preview draws
-    its own icon for a `/Text` note and ignores the appearance entirely,
-    which is what the operator saw: a faint grey box where the logo should
-    be, and Preview then rewrote the note on its own terms when it was
-    clicked. Every viewer draws a `/Stamp` from its appearance, because a
-    stamp *is* its appearance; the comment rides in `/Contents` and in a
-    `/Popup` child, which is how Acrobat, Preview and the browsers show a
-    stamp's note when it is clicked.
-    """
-    for (x0, y0, x1, y1), text in pins:
-        stamp = writer.add_annotation(page_index, DictionaryObject({
-            NameObject("/Type"): NameObject("/Annot"),
-            NameObject("/Subtype"): NameObject("/Stamp"),
-            NameObject("/Name"): NameObject("/NervisComment"),
-            NameObject("/Rect"): ArrayObject(
-                [FloatObject(x0), FloatObject(y0), FloatObject(x1), FloatObject(y1)]
-            ),
-            NameObject("/Contents"): TextStringObject(text),
-            NameObject("/T"): TextStringObject("NERVIS"),
-            NameObject("/F"): NumberObject(4),
-            NameObject("/AP"): DictionaryObject({NameObject("/N"): appearance}),
-        }))
-        popup = writer.add_annotation(page_index, Popup(
-            rect=(x1 + 4.0, y0 - 110.0, x1 + 4.0 + 220.0, y1), parent=stamp, open=False,
-        ))
-        stamp[NameObject("/Popup")] = popup.indirect_reference
+    for rect, text in pins:
+        note = writer.add_annotation(page_index, StickyNote(rect=rect, text=text, open=False))
+        note[NameObject("/Name")] = NameObject("/Comment")
 
 
 def _paragraph(text: str, style: ParagraphStyle) -> Paragraph:
@@ -397,18 +328,12 @@ def _margin_page(
             anchor_y = height - where[0] * SCALE
             c.setLineWidth(0.5)
             c.line(width * SCALE + 1.0, anchor_y, column_x - 1.0, height - (top + PAD + 4.0))
-            box = (width * SCALE - BUBBLE - 2.0, anchor_y - BUBBLE / 2.0)
-            pins.append(((box[0], box[1], box[0] + BUBBLE, box[1] + BUBBLE),
+            box = (width * SCALE - NOTE - 2.0, anchor_y - NOTE / 2.0)
+            pins.append(((box[0], box[1], box[0] + NOTE, box[1] + NOTE),
                          f"On “{comment.anchor}”\n\n{comment.text}"))
         else:
-            box = (width * SCALE - BUBBLE - 2.0, height - top - BUBBLE)
-            pins.append(((box[0], box[1], box[0] + BUBBLE, box[1] + BUBBLE), comment.text))
-        # The bubble is drawn on the page too, so the mark is there in a viewer
-        # that ignores an annotation's own appearance and draws its own icon.
-        c.saveState()
-        c.addLiteral(f"1 0 0 1 {box[0]:g} {box[1]:g} cm")
-        c.addLiteral(_bubble_ops().decode("latin-1"))
-        c.restoreState()
+            box = (width * SCALE - NOTE - 2.0, height - top - NOTE)
+            pins.append(((box[0], box[1], box[0] + NOTE, box[1] + NOTE), comment.text))
         cursor = top + block + GAP
     c.save()
 
@@ -429,17 +354,17 @@ def _text_edges(page: Any) -> tuple[float, float]:
 
 
 def _margin_x(width: float, edges: tuple[float, float]) -> float:
-    """The bubble's left edge, in the page's own margin, never over text.
+    """The note's left edge, in the page's own margin, never over text.
 
     The left margin if it is wide enough, centred; the right margin if only
     that is; and only when neither is — a page printed to its edges — the
     left edge of the page, where it covers the least.
     """
     left, right = edges
-    if left >= BUBBLE + 4.0:
-        return (left - BUBBLE) / 2.0
-    if width - right >= BUBBLE + 4.0:
-        return right + (width - right - BUBBLE) / 2.0
+    if left >= NOTE + 4.0:
+        return (left - NOTE) / 2.0
+    if width - right >= NOTE + 4.0:
+        return right + (width - right - NOTE) / 2.0
     return 2.0
 
 
@@ -448,7 +373,7 @@ def _note_pins(page: PageObject, located: list[Located], edges: tuple[float, flo
 
     The page itself is not changed at all — this is the copy for somebody who
     wants their document exactly as it was and the comments where a viewer
-    shows comments. The bubble sits in the margin beside the line it belongs
+    shows comments. The note sits in the margin beside the line it belongs
     to, never over the text; a comment whose words could not be found sits at
     the top of that margin rather than nowhere.
     """
@@ -458,10 +383,10 @@ def _note_pins(page: PageObject, located: list[Located], edges: tuple[float, flo
     for comment, where in located:
         if where:
             top = where[0]
-            pins.append(((x, height - top - BUBBLE + 4.0, x + BUBBLE, height - top + 4.0),
+            pins.append(((x, height - top - NOTE + 4.0, x + NOTE, height - top + 4.0),
                          f"On “{comment.anchor}”\n\n{comment.text}"))
         else:
-            pins.append(((x, height - EDGE - BUBBLE, x + BUBBLE, height - EDGE), comment.text))
+            pins.append(((x, height - EDGE - NOTE, x + NOTE, height - EDGE), comment.text))
     return pins
 
 
@@ -491,7 +416,6 @@ def annotate_pdf(
     profile = style or DEFAULT
     reader = PdfReader(io.BytesIO(original))
     writer = PdfWriter()
-    appearance = _appearance(writer)
     unsupported = ""
     with pdfplumber.open(io.BytesIO(original)) as plumbed:
         placed, loose = _placed_by(comments, [page.extract_text() or "" for page in plumbed.pages])
@@ -508,7 +432,7 @@ def annotate_pdf(
                 composed, overflow, pins, lost = _margin_page(page, located, profile)
             unsupported += lost
             writer.add_page(composed)
-            _pinned(writer, len(writer.pages) - 1, pins, appearance)
+            _pinned(writer, len(writer.pages) - 1, pins)
             if overflow:
                 unsupported += _appended(
                     writer, f"Comments on page {index + 1}, continued",

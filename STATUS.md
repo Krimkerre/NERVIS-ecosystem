@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2500 tests, no network, no live service
+.venv/bin/pytest                      # part of 2498 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 989 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 987 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2500 passing across the four, conformance `PASS`.
+Expected: all clean, 2498 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15194,9 +15194,21 @@ PyObjC in a scratch environment the script's own docstring describes — and
 page ten of the real blueprint comes back with the dark bubble in the left
 margin beside "07 Tool system", clear of the number.
 
-989 tests (was 946): twenty-five for placing and the icon, eighteen for the
-offer, the three buttons, the soft default and which reply's comments they
-take. `ruff` and `mypy` clean.
+**And then: "forget the logo on the post-its — every reader I try renders
+them differently."** Right call, and the measurement above had already
+half-said it: a sticky note's icon belongs to the viewer, a stamp's
+placement and popup belong to the viewer, and a custom appearance is a
+promise each of them keeps its own way. A comment is now a plain `/Text`
+note — nothing custom on it at all — which is the one thing every viewer
+has drawn the same way for twenty years. The icon code, the stamp and the
+popup are gone rather than switched off; the margin placement stays,
+because a standard note over the text is no better than a custom one.
+`tools/pdfkit_render.py` stays too: it is how anyone finds this out about
+the next viewer before the operator does.
+
+987 tests (was 946): twenty-three for placing, eighteen for the offer, the
+three buttons, the soft default and which reply's comments they take. `ruff`
+and `mypy` clean.
 
 ## Starting the thing
 
