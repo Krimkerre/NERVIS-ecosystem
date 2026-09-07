@@ -116,11 +116,13 @@ the original, a button is offered for one of three copies — and every page
 of the original is kept exactly as it was in the first two:
 
 - **Sticky notes** (the button says *Add notes*): the pages untouched, each
-  comment a real PDF comment at the passage it quotes, clickable in Preview
-  or Acrobat. The icon is NERVIS's own mark — the tilted square with the
-  cyan core — inside a small speech bubble. This is the soft default: it is
-  what gets offered when no style was named, and chat says the other two are
-  a word away.
+  comment a real PDF comment stamped in the page margin level with the
+  passage it quotes — never over the text — with the comment in its popup,
+  clickable in Preview, Acrobat or a browser. The icon is NERVIS's own mark
+  — the tilted square with the cyan core — inside a small speech bubble on
+  the dashboard's own dark background. This is the soft default: it is what
+  gets offered when no style was named, and the other two are shown as chips
+  beside the button.
 - **Margin notes** (*Annotate*): a reviewer's copy — a page with comments on
   it is scaled to two-thirds width and set left, and the comments sit in a
   column beside it, each level with the passage it quotes and joined to it

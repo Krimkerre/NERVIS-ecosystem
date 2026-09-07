@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2498 tests, no network, no live service
+.venv/bin/pytest                      # part of 2500 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 987 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 989 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2498 passing across the four, conformance `PASS`.
+Expected: all clean, 2500 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15174,7 +15174,27 @@ bubble appearance, page four beginning with the original's own header —
 untouched; the margin copy has the bubble beside each note; the default
 offer with nothing named came back as *Add notes* with both alternatives.
 
-987 tests (was 946): twenty-three for placing and the icon, eighteen for the
+**Then the operator opened it in Preview: a faint grey box, not the logo,
+and in the wrong place.** Two causes. Apple's PDFKit draws a `/Text` sticky
+note with its own icon and ignores the appearance stream outright — the
+bubble was never going to show there — and it rewrites the note on its own
+terms when clicked, which is why the file on disk had a 24-point rect at the
+page number that no version of this code produces. And the bubble had been
+placed just left of the quoted word, which on a numbered heading put it
+over the number. Three changes, each with a test: every comment is now a
+`/Stamp` — a stamp *is* its appearance, so every viewer draws the bubble —
+with the text in `/Contents` and a linked `/Popup` child, which is how
+Acrobat, Preview and the browsers show a stamp's note on click; the bubble
+is filled with the dashboard's own page colour (`layout.PAPER`) rather than
+white; and on the untouched copy it sits in the page's own margin, centred
+in whichever margin is wide enough, level with the line it belongs to and
+never over text. Verified the way it had to be: `tools/pdfkit_render.py` renders a
+page through PDFKit itself — the engine Preview uses, reached through
+PyObjC in a scratch environment the script's own docstring describes — and
+page ten of the real blueprint comes back with the dark bubble in the left
+margin beside "07 Tool system", clear of the number.
+
+989 tests (was 946): twenty-five for placing and the icon, eighteen for the
 offer, the three buttons, the soft default and which reply's comments they
 take. `ruff` and `mypy` clean.
 

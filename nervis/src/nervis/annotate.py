@@ -40,14 +40,16 @@ from xml.sax.saxutils import escape
 
 import pdfplumber
 from pypdf import PageObject, PdfReader, PdfWriter, Transformation
-from pypdf.annotations import Text as StickyNote
+from pypdf.annotations import Popup
 from pypdf.generic import (
     ArrayObject,
     DictionaryObject,
     FloatObject,
     IndirectObject,
     NameObject,
+    NumberObject,
     StreamObject,
+    TextStringObject,
 )
 from reportlab.lib.colors import Color
 from reportlab.lib.styles import ParagraphStyle
@@ -270,10 +272,13 @@ def _bubble_ops() -> bytes:
     icon, and as ink on the margin copy's overlay, which every viewer shows.
     """
     b = BUBBLE
+    # Filled with the dashboard's own page colour (`layout.PAPER`), so the
+    # bubble reads as a piece of NERVIS on somebody else's page rather than a
+    # white sticker; the edge and the mark are the letterhead's cyan.
     bubble = [
-        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, (1.0, 1.0, 1.0)),
+        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, layout.PAPER),
         pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, layout.LOGO_EDGE, stroke=0.8),
-        pdf._poly([(5.0, 5.4), (9.0, 5.4), (4.2, 1.2)], (1.0, 1.0, 1.0)),
+        pdf._poly([(5.0, 5.4), (9.0, 5.4), (4.2, 1.2)], layout.PAPER),
         pdf._poly([(4.6, 5.0), (9.4, 5.0), (4.2, 1.2), (4.6, 5.0)], layout.LOGO_EDGE, stroke=0.8),
     ]
     # Joined by newlines, not concatenated: each helper's bytes end on an
@@ -298,11 +303,36 @@ def _appearance(writer: PdfWriter) -> IndirectObject:
 def _pinned(
     writer: PdfWriter, page_index: int, pins: list[Pin], appearance: IndirectObject
 ) -> None:
-    """Attach each sticky note to the page, wearing the bubble."""
-    for rect, text in pins:
-        note = writer.add_annotation(page_index, StickyNote(rect=rect, text=text, open=False))
-        note[NameObject("/Name")] = NameObject("/Comment")
-        note[NameObject("/AP")] = DictionaryObject({NameObject("/N"): appearance})
+    """Attach each comment to the page as a stamp wearing the bubble, with a
+    popup carrying the text.
+
+    **A stamp, not a sticky note.** The first version used `/Text` — the PDF
+    sticky note — with the bubble as its appearance. Apple's Preview draws
+    its own icon for a `/Text` note and ignores the appearance entirely,
+    which is what the operator saw: a faint grey box where the logo should
+    be, and Preview then rewrote the note on its own terms when it was
+    clicked. Every viewer draws a `/Stamp` from its appearance, because a
+    stamp *is* its appearance; the comment rides in `/Contents` and in a
+    `/Popup` child, which is how Acrobat, Preview and the browsers show a
+    stamp's note when it is clicked.
+    """
+    for (x0, y0, x1, y1), text in pins:
+        stamp = writer.add_annotation(page_index, DictionaryObject({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Stamp"),
+            NameObject("/Name"): NameObject("/NervisComment"),
+            NameObject("/Rect"): ArrayObject(
+                [FloatObject(x0), FloatObject(y0), FloatObject(x1), FloatObject(y1)]
+            ),
+            NameObject("/Contents"): TextStringObject(text),
+            NameObject("/T"): TextStringObject("NERVIS"),
+            NameObject("/F"): NumberObject(4),
+            NameObject("/AP"): DictionaryObject({NameObject("/N"): appearance}),
+        }))
+        popup = writer.add_annotation(page_index, Popup(
+            rect=(x1 + 4.0, y0 - 110.0, x1 + 4.0 + 220.0, y1), parent=stamp, open=False,
+        ))
+        stamp[NameObject("/Popup")] = popup.indirect_reference
 
 
 def _paragraph(text: str, style: ParagraphStyle) -> Paragraph:
@@ -390,24 +420,48 @@ def _margin_page(
     return composed, overflow, pins, unsupported
 
 
-def _note_pins(page: PageObject, located: list[Located]) -> list[Pin]:
-    """Sticky notes on an untouched page, each at its quoted passage.
+def _text_edges(page: Any) -> tuple[float, float]:
+    """Where the page's text starts and stops, left to right, in points."""
+    words = page.extract_words()
+    if not words:
+        return 0.0, 0.0
+    return min(float(w["x0"]) for w in words), max(float(w["x1"]) for w in words)
+
+
+def _margin_x(width: float, edges: tuple[float, float]) -> float:
+    """The bubble's left edge, in the page's own margin, never over text.
+
+    The left margin if it is wide enough, centred; the right margin if only
+    that is; and only when neither is — a page printed to its edges — the
+    left edge of the page, where it covers the least.
+    """
+    left, right = edges
+    if left >= BUBBLE + 4.0:
+        return (left - BUBBLE) / 2.0
+    if width - right >= BUBBLE + 4.0:
+        return right + (width - right - BUBBLE) / 2.0
+    return 2.0
+
+
+def _note_pins(page: PageObject, located: list[Located], edges: tuple[float, float]) -> list[Pin]:
+    """Comments on an untouched page, each level with its quoted passage.
 
     The page itself is not changed at all — this is the copy for somebody who
     wants their document exactly as it was and the comments where a viewer
-    shows comments. A note whose words could not be found sits at the top
-    left rather than nowhere.
+    shows comments. The bubble sits in the margin beside the line it belongs
+    to, never over the text; a comment whose words could not be found sits at
+    the top of that margin rather than nowhere.
     """
     height = float(page.mediabox.height)
+    x = _margin_x(float(page.mediabox.width), edges)
     pins: list[Pin] = []
     for comment, where in located:
         if where:
-            top, x0 = where
-            x = max(2.0, x0 - BUBBLE - 2.0)
+            top = where[0]
             pins.append(((x, height - top - BUBBLE + 4.0, x + BUBBLE, height - top + 4.0),
                          f"On “{comment.anchor}”\n\n{comment.text}"))
         else:
-            pins.append(((2.0, height - EDGE - BUBBLE, 2.0 + BUBBLE, height - EDGE), comment.text))
+            pins.append(((x, height - EDGE - BUBBLE, x + BUBBLE, height - EDGE), comment.text))
     return pins
 
 
@@ -448,7 +502,8 @@ def annotate_pdf(
             located = _located(plumbed.pages[index], placed[index])
             overflow: list[Comment] = []
             if mode == "notes":
-                composed, pins, lost = page, _note_pins(page, located), ""
+                edges = _text_edges(plumbed.pages[index])
+                composed, pins, lost = page, _note_pins(page, located, edges), ""
             else:
                 composed, overflow, pins, lost = _margin_page(page, located, profile)
             unsupported += lost

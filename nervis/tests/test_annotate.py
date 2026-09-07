@@ -152,8 +152,10 @@ def test_a_comment_sits_in_the_margin_of_the_page_it_quotes() -> None:
     assert "Needs a tide table." not in texts[2]
 
 
-def test_a_native_sticky_note_is_attached_at_the_quoted_passage() -> None:
-    """So a viewer that shows PDF comments — Preview, Acrobat — shows these."""
+def test_a_stamp_with_a_popup_is_attached_at_the_quoted_passage() -> None:
+    """A stamp, because Preview draws a `/Text` note with its own icon and
+    ignores the appearance — a stamp *is* its appearance. The comment rides
+    in the stamp's contents and in a popup child linked both ways."""
     copied = annotate_pdf(
         _three_pages(),
         [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
@@ -161,11 +163,40 @@ def test_a_native_sticky_note_is_attached_at_the_quoted_passage() -> None:
     )
 
     page = PdfReader(io.BytesIO(copied.data)).pages[1]
-    notes = [a.get_object() for a in page.get("/Annots", [])]
-    assert len(notes) == 1
-    assert notes[0]["/Subtype"] == "/Text"
-    assert "Needs a tide table." in str(notes[0]["/Contents"])
+    annots = [a.get_object() for a in page.get("/Annots", [])]
+    kinds = [str(a["/Subtype"]) for a in annots]
+    assert kinds == ["/Stamp", "/Popup"]
+    stamp, popup = annots
+    assert "Needs a tide table." in str(stamp["/Contents"])
+    assert stamp["/Popup"].get_object() is popup or stamp["/Popup"].get_object() == popup
+    assert popup["/Parent"].get_object() == stamp
     assert not PdfReader(io.BytesIO(copied.data)).pages[0].get("/Annots")
+
+
+def test_the_bubble_is_filled_with_the_dashboards_own_dark_page_colour() -> None:
+    from nervis import layout
+    from nervis.annotate import _bubble_ops
+
+    ops = _bubble_ops().decode("latin-1")
+    dark = " ".join(f"{channel:g}" for channel in layout.PAPER) + " rg"
+    assert dark in ops
+    assert "1 1 1 rg" not in ops
+
+
+def test_the_notes_copy_keeps_the_bubble_out_of_the_text() -> None:
+    """Never over the words: the page's text starts at 72pt, so the bubble
+    must end before it."""
+    copied = annotate_pdf(
+        _three_pages(),
+        [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
+        None, mode="notes",
+    )
+
+    page = PdfReader(io.BytesIO(copied.data)).pages[1]
+    stamp = page["/Annots"][0].get_object()
+    x0, _, x1, _ = (float(v) for v in stamp["/Rect"])
+    assert x1 < 72.0, (x0, x1)
+    assert x0 > 0.0
 
 
 def test_a_comment_the_margin_cannot_hold_continues_on_an_inserted_page() -> None:
@@ -227,8 +258,9 @@ def test_the_notes_copy_leaves_the_page_untouched_and_pins_the_bubble() -> None:
     assert copied.pages == 3
     assert "Needs a tide table." not in texts[1], "the page itself is not drawn on"
     notes = [a.get_object() for a in reader.pages[1].get("/Annots", [])]
-    assert len(notes) == 1 and "Needs a tide table." in str(notes[0]["/Contents"])
-    assert notes[0]["/Name"] == "/Comment"
+    assert len(notes) == 2, "the stamp and its popup"
+    assert "Needs a tide table." in str(notes[0]["/Contents"])
+    assert notes[0]["/Subtype"] == "/Stamp"
     appearance = notes[0]["/AP"]["/N"].get_object()
     assert appearance["/Subtype"] == "/Form"
     assert b" re " in appearance.get_data() or b" c " in appearance.get_data()
