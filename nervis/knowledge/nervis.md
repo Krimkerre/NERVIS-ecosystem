@@ -95,7 +95,10 @@ truncated, because half a picture is a corrupt file rather than a smaller
 one.
 
 **Chat can be asked for a picture.** Pick the **Image generation**
-profile — `ravis/draw` — and ask for one. What comes back is written into
+profile — `ravis/draw` — and ask for one. Asked for one on any other
+profile, chat says which profile draws rather than claiming it cannot: a
+system that denies a power it has is worse than one that misses a
+phrasing, because the person stops asking. What comes back is written into
 the workspace as a real file and linked in the reply, so it renders in the
 conversation, survives a reload, and has a Download beside it. Measured
 end to end on this machine: a red circle asked for through NERVIS came

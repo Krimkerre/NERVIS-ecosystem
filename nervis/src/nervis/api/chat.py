@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 import uuid
 from dataclasses import replace
@@ -368,6 +369,12 @@ async def send(request: Request) -> Any:
             content, request.app.state.probe_client, request.app.state.settings.ravis_base_url,
             request.app.state.settings.ravis_client_credential,
         )) if part
+    )
+
+    # Where a picture was asked for and this turn cannot make one, the way to
+    # get one is stated. Nothing happens on any other turn.
+    awareness = "\n\n".join(
+        part for part in (awareness, _drawing_note(content, profile)) if part
     )
 
     # The standing statement first, then the specific offer if there is one.
@@ -972,6 +979,58 @@ def _delta(line: str) -> tuple[str, bool]:
     if not choices:
         return "", False
     return str((choices[0].get("delta") or {}).get("content") or ""), False
+
+
+#: Asking for a picture, as distinct from asking about one.
+#:
+#: Two shapes, because the ways people ask do not share a grammar: a drawing
+#: verb on its own, and a making verb that needs a picture noun beside it —
+#: "generate" and "create" mean nothing on their own, and "make me a summary"
+#: must not read as a request for art.
+#:
+#: The lookahead is the one judgement here. **"What conclusion would you draw
+#: from that" is the everyday non-drawing use of the word**, and a note telling
+#: a model that somebody asked for a picture when they asked for an inference is
+#: a confident wrong steer. Two groups of them: the objects the idiom takes
+#: (a conclusion, a comparison, attention) and the prepositions it takes instead
+#: of an object (draw *from*, draw *on*). The lists are short on purpose; a
+#: phrase they miss costs one unnecessary sentence in a system prompt.
+_ASKS_FOR_A_PICTURE = re.compile(
+    r"\b(?:draw|sketch|illustrate|paint)\b"
+    r"(?!\s+(?:an?\s+|the\s+)?(?:conclusion|comparison|distinction|parallel|line"
+    r"|attention|criticism|inspiration|breath|blood|fire"
+    r"|from|on|upon|out|down|up|near|level|even|closer)\b)"
+    r"|\b(?:generate|create|make|render|design)\b[^.?!]{0,24}"
+    r"\b(?:image|picture|photo|logo|icon|illustration|drawing)\b",
+    re.IGNORECASE,
+)
+
+#: The profile that can actually answer with a picture.
+DRAWING_POOL = "ravis/draw"
+
+
+def _drawing_note(question: str, profile: str) -> str:
+    """What to say when somebody asks a text profile for a picture.
+
+    **A system that denies a power it has is worse than one that misses a
+    phrasing**, which is the argument `commands.capabilities_line` already
+    makes about buttons. Measured the day drawing went in: asked to draw a cat
+    on the default profile, chat said *"I can't draw images myself"* and then
+    offered to route the request to a hosted model, which it cannot do. Both
+    halves are wrong — NERVIS draws, and it draws by the person changing one
+    control, not by the model doing anything.
+    """
+    if profile == DRAWING_POOL or not _ASKS_FOR_A_PICTURE.search(question or ""):
+        return ""
+    return (
+        "The person asked for a picture and this turn is routed through"
+        f" {profile}, which answers in words. NERVIS can make one: the Model"
+        " picker beside the message box has an Image generation profile"
+        f" ({DRAWING_POOL}), and the same question asked with that selected"
+        " comes back as a real image, saved into the workspace with a download"
+        " beside it. Say that, in one line. Do not offer to route it yourself —"
+        " you cannot — and do not say NERVIS is unable to make images."
+    )
 
 
 def _pictures_for(

@@ -202,6 +202,48 @@ def test_a_drawn_picture_keeps_the_format_it_was_drawn_in(tmp_path: Path) -> Non
     assert [item.suffix for item in tmp_path.iterdir() if item.is_file()] == [".webp"]
 
 
+def test_asking_a_text_profile_to_draw_is_told_where_drawing_lives(
+    tmp_path: Path,
+) -> None:
+    """Measured the day this went in: asked to draw a cat on the default
+    profile, chat said "I can't draw images myself" and then offered to route
+    the request to a hosted model, which it cannot do. Both halves are wrong —
+    NERVIS draws, and it draws by the person changing one control."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "draw me a picture of a cat", system="Be someone.")
+
+    assert "Image generation profile (ravis/draw)" in _prompt(sent)
+
+
+def test_the_drawing_profile_is_not_told_to_switch_to_itself(tmp_path: Path) -> None:
+    """The falsifier for the note: on the profile that draws, the sentence is
+    an instruction to change nothing, which is noise in the one place a model
+    is already short of room."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "draw me a picture of a cat", system="Be someone.",
+         profile="ravis/draw")
+
+    assert "Image generation profile" not in _prompt(sent)
+
+
+def test_drawing_a_conclusion_is_not_asking_for_a_picture(tmp_path: Path) -> None:
+    """The other falsifier. Telling a model that somebody asked for a picture
+    when they asked for an inference is a confident wrong steer."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+
+    turn(client, "what conclusion would you draw from that?", system="Be someone.")
+
+    assert "Image generation profile" not in _prompt(sent)
+
+
 def test_a_reply_with_no_picture_gains_no_link(tmp_path: Path) -> None:
     """The falsifier for the saving path: an ordinary answer must reach the
     workspace no differently than it did before any of this existed."""
