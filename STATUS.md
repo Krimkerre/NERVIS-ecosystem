@@ -14910,6 +14910,54 @@ Full suite reran clean throughout (938, was 918 — 20 new: `visual_check.py`'s
 own rasterise/verdict tests, the chat-level wiring tests, two for the
 `told()` addendum), `ruff` and `mypy` clean.
 
+## Ollama joins RAVIS as a real upstream, not just an embeddings backend, 2026-09-07
+
+The operator's own correction: told to stop after unilaterally reaching for
+LM Studio instead of making Ollama itself work, then asked directly why
+Ollama — already started by the launcher, already running whenever the
+stack is — couldn't serve the vision check the same way. It should, and
+nothing stopped it except configuration: `ravis/src/ravis/providers/ollama.py`
+already extends the same generic OpenAI-compatible adapter `local`,
+`openrouter` and `openai` use, and already reads Ollama's own `/api/show` to
+tell a vision-capable model from one that only embeds — none of that needed
+building. The actual gap was `tools/run.py`'s `_default_upstreams()`, which
+declared only the local runtime pointed at LM Studio's port and whatever
+hosted providers had a stored credential; Ollama was never in that list
+regardless of anything pulled into it.
+
+Fixed by declaring both local runtimes unconditionally instead of one:
+`lmstudio` (port 1234, exactly as before, just renamed — `local` stopped
+saying which one the moment there were two) and `ollama` (port 11434, always
+declared because the launcher starts it as part of this same stack, unlike
+LM Studio's "maybe running" the function already had to allow for). The
+`len(upstreams) == 1` singular-env-var fallback this replaced is gone
+outright rather than left in place unreachable — with Ollama always in the
+list, that branch could never fire again, and a branch that reads as live
+but cannot run is exactly what a dead-code gate elsewhere in this repository
+exists to catch.
+
+**Live-verified, and the finding is more interesting than "it works."**
+Restarted the stack: `RAVIS upstreams defaulted to: lmstudio, ollama,
+openrouter, openai`, and `/api/v1/providers` correctly shows `lmstudio`
+unreachable (LM Studio was not running) and `ollama` reachable with its real
+catalogue — `moondream`, pulled earlier the same session, genuinely appears
+in `ravis/vision`'s membership now. Addressed directly
+(`ravis/ollama/moondream:latest`) with the same deliberately-broken test
+page from the visual-check work above, it answered — a real 200, real
+content — but did not follow the yes/no format at all, describing something
+that was not on the page. `verdict_of()` handled exactly this the way it was
+built to: a reply that does not lead with "yes" is read as "nothing to
+report" rather than guessed at, so a weak model's confusion came back as
+silence, not a false alarm. The infrastructure this was meant to fix is
+confirmed working end to end; whether `moondream` specifically is a good
+match for this task is a separate, open question — a small captioning model
+may simply be the wrong size for careful yes/no instruction-following, where
+the free hosted models tried earlier the same day already succeeded.
+
+No automated test covers this: `tools/run.py` is a launcher script with no
+test file of its own, verified here the only way it can be — against the
+real, restarted stack. `ruff` run against it directly stays clean.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

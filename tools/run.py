@@ -480,7 +480,7 @@ def _warm_ollama() -> bool:
 
 
 def _default_upstreams() -> dict[str, str]:
-    """The local runtime, plus every hosted provider this machine has a key for.
+    """Both local runtimes, plus every hosted provider this machine has a key for.
 
     **Declared, not merely warned about.** RAVIS persists two things per provider
     — the credential and whether it is enabled — and does *not* persist which
@@ -502,14 +502,21 @@ def _default_upstreams() -> dict[str, str]:
     **No credential is read, only the name of each provider that has one.** The
     file is opened to list its keys and never its values.
     """
-    # **`local`, not `default`.** It was named `default` because it is the one
-    # declared unconditionally, which is a fact about this function rather than
-    # about the provider — and the screen showed it beside `openai` and
-    # `anthropic`, where "default" reads as "the one requests go to unless you
-    # say otherwise". It is not that: routing picks per pool on evidence. What
-    # is actually true of it is that the model runs on this machine.
+    # **Named for the runtime, now that there are two.** One local runtime
+    # could be called `local` without ambiguity — this function's own history
+    # is why not `default` — but once Ollama joined it, `local` stopped saying
+    # which one, the same way `ravis/local/<model>` would have to guess.
+    #
+    # Both declared unconditionally, though for different reasons. LM Studio
+    # always was: whether it happens to be running is exactly what "declared,
+    # not discovered" leaves to be found out at request time, same as before.
+    # Ollama is declared unconditionally too, but that reflects something
+    # actually true rather than a guess — this launcher starts it as part of
+    # this same stack, so unlike LM Studio, "is it running" is not an open
+    # question by the time this function runs.
     upstreams: list[dict[str, str]] = [
-        {"name": "local", "base_url": LM_STUDIO, "kind": "lmstudio"}
+        {"name": "lmstudio", "base_url": LM_STUDIO, "kind": "lmstudio"},
+        {"name": "ollama", "base_url": f"http://127.0.0.1:{OLLAMA_PORT}", "kind": "ollama"},
     ]
     try:
         stored = json.loads(
@@ -520,10 +527,6 @@ def _default_upstreams() -> dict[str, str]:
     for kind in TRANSPARENT_KINDS:
         if kind in stored:
             upstreams.append({"name": kind, "kind": kind})
-    if len(upstreams) == 1:
-        # One upstream and no hosted keys: keep the simpler pair of variables,
-        # which is what every existing message and doc about this refers to.
-        return {"RAVIS_UPSTREAM_BASE_URL": LM_STUDIO, "RAVIS_UPSTREAM_KIND": "lmstudio"}
     return {"RAVIS_UPSTREAMS": json.dumps(upstreams)}
 
 
@@ -925,11 +928,11 @@ def start() -> int:
 
     if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
         declared = _default_upstreams()
-        named = [one["name"] for one in json.loads(declared["RAVIS_UPSTREAMS"])] \
-            if "RAVIS_UPSTREAMS" in declared else ["local"]
+        named = [one["name"] for one in json.loads(declared["RAVIS_UPSTREAMS"])]
         print(f"\nRAVIS upstreams defaulted to: {', '.join(named)}.")
-        print(f"  Local runtime at {LM_STUDIO}; hosted ones are the providers this")
-        print("  machine already holds a key for. Set RAVIS_UPSTREAMS to override.")
+        print(f"  LM Studio at {LM_STUDIO}, Ollama at http://127.0.0.1:{OLLAMA_PORT};")
+        print("  hosted ones are the providers this machine already holds a key for.")
+        print("  Set RAVIS_UPSTREAMS to override.")
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
     if ready:
