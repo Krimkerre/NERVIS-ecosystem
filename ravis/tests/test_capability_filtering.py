@@ -273,3 +273,72 @@ def test_the_vision_pool_does_not_admit_a_generator_that_cannot_read() -> None:
     candidates = {"drawer": _capable("drawer", Capability.IMAGE_OUT)}
 
     assert RoutingEngine().select("ravis/vision", candidates).selected is None
+
+
+def test_the_drawing_pool_admits_the_models_whose_names_say_image() -> None:
+    """Measured against the live catalogue on 7 September 2026, and the reason
+    this pool did nothing on its first run.
+
+    `image` sits in `NOT_CHAT` because an embedding endpoint and a diffusion
+    endpoint cannot answer a chat completion, and that argument does not reach
+    `google/gemini-2.5-flash-image`, which answers one with a picture beside
+    its text. Every model that actually draws was filtered out by its own name,
+    leaving the pool holding nothing but OpenRouter's auto-routers.
+    """
+    candidates = {
+        "anthropic/claude-haiku-4.5": _capable(
+            "anthropic/claude-haiku-4.5", Capability.IMAGE_OUT
+        ),
+        "google/gemini-2.5-flash-image": _capable(
+            "google/gemini-2.5-flash-image", Capability.IMAGE_OUT
+        ),
+    }
+
+    decision = RoutingEngine().select("ravis/draw", candidates)
+
+    assert "google/gemini-2.5-flash-image" in (
+        [decision.selected] + list(decision.fallbacks or [])
+    )
+
+
+def test_a_model_named_for_images_stays_out_of_every_other_pool() -> None:
+    """The falsifier for that exception: it is one pool's, not a repeal.
+
+    `ravis/chat` asking for a conversation must not be handed a drawing model
+    because the drawing pool needed the word `image` back. Two candidates
+    rather than one, because a filter that empties a pool deliberately falls
+    back to the whole catalogue — a pool with nothing in it refuses every
+    request — so a single-candidate set would prove the opposite of what it
+    looks like it proves.
+    """
+    candidates = {
+        "anthropic/claude-haiku-4.5": _capable("anthropic/claude-haiku-4.5"),
+        "google/gemini-2.5-flash-image": _capable(
+            "google/gemini-2.5-flash-image", Capability.IMAGE_OUT
+        ),
+    }
+
+    decision = RoutingEngine().select("ravis/chat", candidates)
+
+    assert decision.selected == "anthropic/claude-haiku-4.5"
+    assert "google/gemini-2.5-flash-image" not in (decision.fallbacks or [])
+
+
+def test_a_router_that_advertises_drawing_is_not_a_drawing_model() -> None:
+    """Measured: `openrouter/auto` publishes `image` among its output
+    modalities because something behind it can draw, then picks the model
+    itself — asked for a red circle it chose `z-ai/glm-5.2` and answered in
+    words. Its capability is a claim about somebody else's routing decision,
+    which is the one thing this pool can neither verify nor fall back from."""
+    candidates = {
+        "openrouter/auto": _capable("openrouter/auto", Capability.IMAGE_OUT),
+        "openrouter/auto-beta": _capable("openrouter/auto-beta", Capability.IMAGE_OUT),
+        "google/gemini-3.1-flash-image": _capable(
+            "google/gemini-3.1-flash-image", Capability.IMAGE_OUT
+        ),
+    }
+
+    decision = RoutingEngine().select("ravis/draw", candidates)
+
+    assert decision.selected == "google/gemini-3.1-flash-image"
+    assert "openrouter/auto" not in (decision.fallbacks or [])

@@ -388,25 +388,37 @@ class VirtualModelPool:
                 return tuple(matched)
         return tuple(matched) or tuple(candidates)
 
-    @staticmethod
-    def _is_routable(model: str) -> bool:
+    def _is_routable(self, model: str) -> bool:
         """Whether this model can answer a chat completion at all.
 
         Not a matter of taste and not per pool: an embedding model, a reranker,
-        a moderation classifier, a speech or image model and a batch endpoint
-        are all things that cannot serve the request RAVIS routes. `NOT_CHAT`
-        already named most of them for `size_tier`, which meant the knowledge
-        existed and membership did not consult it.
+        a moderation classifier, a speech model and a batch endpoint are all
+        things that cannot serve the request RAVIS routes. `NOT_CHAT` already
+        named most of them for `size_tier`, which meant the knowledge existed
+        and membership did not consult it.
 
         `:batch` is here rather than in a pool's own list for the same reason:
         `anthropic/claude-opus-4:batch` is the same weights on an asynchronous
         queue measured in hours, which cannot answer anybody waiting on a
         reply — in any pool.
+
+        **The one word that is per pool is `image`, and it had to become so.**
+        The baseline's argument is "no pool wants these", and that stopped being
+        true the day a pool required image *output*: `google/gemini-2.5-flash-image`
+        answers an ordinary chat completion with a picture beside its text, so
+        it is chat-shaped in the only sense this predicate is about. Measured
+        7 September 2026 — the drawing pool held nothing but OpenRouter's two
+        auto-routers, because every model that actually draws had the word
+        `image` in its name. `dall-e` stays in the list unconditionally: it is
+        a different endpoint, not a chat model that draws.
         """
         lowered = model.lower()
         if lowered.endswith(":batch"):
             return False
-        return not any(_has_word(lowered, word) for word in NOT_CHAT)
+        words: tuple[str, ...] = NOT_CHAT
+        if Capability.IMAGE_OUT in self.requirements.required:
+            words = tuple(word for word in NOT_CHAT if word != "image")
+        return not any(_has_word(lowered, word) for word in words)
 
     def _admits(self, model: str, measured: Mapping[str, str]) -> bool:
         """Whether this pool takes this build, measurement first.
@@ -957,6 +969,14 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         label="Image generation",
         description="Models that emit an image",
         requirements=PoolRequirements(required=frozenset({Capability.IMAGE_OUT})),
+        # **A router that advertises drawing does not draw.** OpenRouter's
+        # `auto` publishes `image` among its output modalities because some
+        # model behind it can, and then picks the model itself: asked for a red
+        # circle on 7 September 2026 it chose `z-ai/glm-5.2` and answered in
+        # words. It is the one candidate here whose capability is a claim about
+        # somebody else's routing decision, which is exactly the claim this
+        # pool cannot verify or fall back from.
+        excluded=("openrouter/auto",),
     ),
     VirtualModelPool(
         pool_id="ravis/vision",
