@@ -177,6 +177,43 @@ def _means_the_attachment(question: str) -> re.Match[str] | None:
     return _A_DOCUMENT.search(question or "") or _WANTS_A_READING.search(question or "")
 
 
+#: The shortest word from a filename allowed to stand in for the file itself.
+#:
+#: "policy", "invoice", "budget", "contract", "notes" identify a document.
+#: "work", "plan", "spec" are just as often about anything else, and a file
+#: called `remote-work-policy.pdf` must not open because somebody asked whether
+#: something works. Five is where those two groups separate.
+#:
+#: **A length rather than a list**, deliberately. This module's own history is a
+#: vocabulary of document words that kept missing the next phrasing; a list of
+#: nouns that count as documents would go stale the same way. A length has
+#: nothing to keep current.
+_MEANINGFUL_NAME_WORD = 5
+
+
+def _names_an_attached_file(place: Path, question: str) -> bool:
+    """Whether the question uses a word out of an attached file's own name.
+
+    **The third signal, and the one that needed no vocabulary.** Somebody
+    attached `remote-work-policy.pdf` and asked to "read this policy": the
+    file was there, reconciled and readable, and the answer came back asking
+    what the policy was about. Neither pattern above can see it — "policy" is
+    not a document word, and `read` alone is deliberately not enough — but the
+    person did name the file. They used the word its own filename carries.
+
+    Derived from NERVIS's own records rather than from a list somebody has to
+    keep current: the evidence is the name the person's file already has.
+    """
+    asked = {word.lower() for word in re.findall(r"[\w']+", question or "")}
+    if not asked:
+        return False
+    for item in documents.list_files(place):
+        for word in re.split(r"[\W_]+", Path(item.name).stem):
+            if len(word) >= _MEANINGFUL_NAME_WORD and word.lower() in asked:
+                return True
+    return False
+
+
 def _attachment(place: Path, question: str) -> str:
     """The file *"this pdf"* refers to, or an empty string.
 
@@ -185,7 +222,7 @@ def _attachment(place: Path, question: str) -> str:
     happens to be newer — and a reference with no type takes whatever was put
     there last, which is what "this" means after an upload.
     """
-    if not _means_the_attachment(question):
+    if not (_means_the_attachment(question) or _names_an_attached_file(place, question)):
         return ""
     # A type word narrows the choice — "the pdf" should not open a newer `.md`.
     # Read from the document pattern specifically, because a question that only

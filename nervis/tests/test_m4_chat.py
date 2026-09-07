@@ -3288,6 +3288,49 @@ def _attach(client: TestClient, conversation: str, name: str, body: bytes) -> An
     )
 
 
+def test_the_attachments_own_name_is_enough_to_mean_it(tmp_path: Path) -> None:
+    """The sentence that failed, live, on the scenario this whole feature was
+    built for: a `remote-work-policy.pdf` attached, "read this policy" typed,
+    and the answer came back asking what the policy was about. "policy" is not
+    a document word and `read` alone is deliberately not enough — but the file
+    itself is called that, which is the person naming it."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_named", "remote-work-policy.pdf",
+            render("Policy", "Core hours are 09:00 to 17:00.").data)
+
+    turn(client, "read this policy and tell me what you would change",
+         system="Be someone.", attachment_id="cv_named")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "Core hours are 09:00 to 17:00." in prompt
+
+
+def test_a_short_word_from_a_filename_does_not_open_it(tmp_path: Path) -> None:
+    """The falsifier. `remote-work-policy.pdf` must not open because somebody
+    asked whether something works — which is why the rule is a word length and
+    not "any word in the name"."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"])
+    _attach(client, "cv_short", "remote-work-policy.pdf",
+            render("Policy", "Core hours are 09:00 to 17:00.").data)
+
+    turn(client, "does that work for you", system="Be someone.", attachment_id="cv_short")
+
+    prompt = " ".join(
+        str(message.get("content", ""))
+        for body in sent
+        for message in body.get("messages", [])
+    )
+    assert "Core hours are 09:00 to 17:00." not in prompt
+
+
 def test_read_this_pdf_opens_the_file_that_was_just_attached(tmp_path: Path) -> None:
     """The sentence that failed. Somebody attached a document and said "read
     this pdf and give me a tldr"; the matcher wanted a literal filename, found
@@ -3779,6 +3822,47 @@ def test_a_real_offer_still_says_the_button_is_there() -> None:
 
     assert offer is not None
     assert "no button" not in commands.told(offer)
+
+
+def test_a_filename_far_from_the_verb_is_still_the_filename() -> None:
+    """The sentence that lost a filename, live. Seventy-eight characters
+    between "save" and the name the person gave, against a sixty-character
+    cap — so the offer quietly derived its own name instead, and the reply
+    described saving a PDF while the button would have written markdown."""
+    asked = (
+        "now save me a new file that has the original policy text with your "
+        "changes applied to it, call it revised-policy.pdf"
+    )
+    offer = commands.propose(asked, [], default_name="derived.pdf")
+
+    assert offer is not None
+    assert offer.target == "revised-policy.pdf"
+    assert offer.operation == "nervis.document.write"
+
+
+def test_naming_a_file_without_asking_for_one_proposes_nothing() -> None:
+    """The falsifier for the longer reach: "call it" only names a file when
+    something is actually being written. Asking *about* a name is not a save."""
+    assert commands.propose("why did you call it revised-policy.pdf", [],
+                            default_name="derived.pdf") is None
+
+
+def test_asking_for_a_pdf_with_no_filename_keeps_the_pdf_suffix() -> None:
+    """Saying "pdf" and getting `.md` was the offer contradicting the sentence
+    that produced it — silently, in the direction nobody checks."""
+    offer = commands.propose("save this as a pdf", [], default_name="a-title-2026-09-07.pdf")
+
+    assert offer is not None
+    assert offer.target.endswith(".pdf"), offer.target
+
+
+def test_a_save_with_no_format_named_still_defaults_to_text() -> None:
+    """The falsifier: only the word "pdf" changes it. Everything else is prose
+    NERVIS already holds as text."""
+    offer = commands.propose("save this somewhere", [], default_name="a-title-2026-09-07.pdf")
+
+    assert offer is not None
+    assert offer.target.endswith(".md"), offer.target
 
 
 def test_a_pdf_save_offer_is_told_about_the_visual_check() -> None:

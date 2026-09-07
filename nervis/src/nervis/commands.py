@@ -192,9 +192,29 @@ BENCHMARK = re.compile(r"\b(?:bench|benchmark|benchmarks|benchmarking)\b", re.IG
 WRITE = re.compile(
     r"\b(?:save|write|export|put)\b[^.?!]{0,60}?"
     r"(?:\bas\b|\bto\b|\binto\b)?\s*"
-    r"[\"'`]?(?P<file>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?",
+    r"[\"'`]?(?P<file>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?"
+    # **"call it X" earns a longer reach than sixty characters.** Observed:
+    # "save me a new file that has the original policy text with your changes
+    # applied to it, call it revised-policy.pdf" — seventy-eight characters
+    # between the verb and the name, so the offer above fell back to a derived
+    # one and the person's own filename was dropped without a word.
+    #
+    # The cap exists to stop a filename being lifted out of an unrelated
+    # clause, and "call it" removes exactly that ambiguity: it is a phrase
+    # whose only job is to name the thing being made. The verb is still
+    # required, so a sentence merely *mentioning* what something was called
+    # proposes nothing.
+    r"|\b(?:save|write|export|put|download)\b[^.?!]{0,200}?"
+    r"\b(?:call|name)\s+(?:it|them|this|the\s+file)\s+"
+    r"[\"'`]?(?P<called>[\w./\-]{1,120}\.(?:pdf|txt|md))[\"'`]?",
     re.IGNORECASE,
 )
+
+#: Whether the person asked for a PDF specifically, when they named no file.
+#: `_as_text_default` reads it: "save this as a pdf" with no filename used to
+#: derive a `.md` name and say nothing about the mismatch, so the reply
+#: promised a PDF while the button would have written markdown.
+WANTS_PDF = re.compile(r"\bpdfs?\b", re.IGNORECASE)
 
 #: The same intent with no filename at all — "save it", "could you ... download
 #: it" — where WRITE has nothing to capture. Enough to reach the fallback
@@ -669,23 +689,42 @@ def _saving_proposal(question: str, default_name: str) -> Proposal | None:
     """
     writing = WRITE.search(question)
     if EXPORT_CONVERSATION.search(question):
-        named = writing.group("file") if writing else default_name
+        named = _named_by(writing) if writing else default_name
         return _export_proposal(named) if named else None
     if not (writing or SAVE_VERB.search(question)):
         return None
-    named = writing.group("file") if writing else _as_text_default(default_name)
+    named = _named_by(writing) if writing else _as_text_default(default_name, question)
     return _write_proposal(named) if named else None
 
 
-def _as_text_default(default_name: str) -> str:
-    """The export offer's own derived name, saved as text instead of PDF.
+def _named_by(writing: re.Match[str]) -> str:
+    """The filename `WRITE` captured, from whichever of its shapes matched.
+
+    Two groups rather than one because `re` will not let both alternatives
+    share a name, and one `or` here is cheaper than a second pattern to keep
+    in step with the first.
+    """
+    return writing.group("file") or writing.group("called") or ""
+
+
+def _as_text_default(default_name: str, question: str) -> str:
+    """The export offer's own derived name, as text unless a PDF was asked for.
 
     Still derived, not invented — the same title-and-date string `propose`
-    was already handed, unchanged apart from its suffix. A single reply is
-    prose NERVIS already holds as text; rendering it to PDF is the export
-    offer's own choice, not the default this one reaches for.
+    was already handed, changed only in its suffix. A single reply is prose
+    NERVIS already holds as text, so text is the default this reaches for.
+
+    **Except when the person said "pdf" and named no file.** That sentence
+    used to derive a `.md` name anyway, which made the reply promise a PDF
+    while the button would have written markdown — the offer contradicting
+    the sentence that produced it, silently, in the one direction nobody
+    checks.
     """
-    return re.sub(r"\.pdf$", ".md", default_name, flags=re.IGNORECASE) if default_name else ""
+    if not default_name:
+        return ""
+    if WANTS_PDF.search(question or ""):
+        return default_name
+    return re.sub(r"\.pdf$", ".md", default_name, flags=re.IGNORECASE)
 
 
 def _export_proposal(named: str) -> Proposal:

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2451 tests, no network, no live service
+.venv/bin/pytest                      # part of 2457 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 940 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 946 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2451 passing across the four, conformance `PASS`.
+Expected: all clean, 2457 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -14995,6 +14995,52 @@ test fail on the count.
 Live-verified on the restarted stack: a real save's route decision reads
 `requested: ravis/ollama/qwen2.5vl:3b → selected: qwen2.5vl:3b`, one call,
 no fallback behind it. 940 tests (was 938), `ruff` and `mypy` clean.
+
+## Running the whole original scenario end to end, and the two things it broke on, 2026-09-07
+
+Everything above was built for one sentence the operator said days ago: *"I
+uploaded a pdf, it had opinions about it, and I wanted a new file with both
+the original content and the opinions in it."* Nobody had ever run that
+whole path in one go. Run here, live, against a real four-clause policy PDF:
+it works — chat read the attachment, gave real opinions on the actual
+clauses, wrote the merged document out in full, and the save produced a PDF
+carrying original structure and every change. Two real defects surfaced on
+the way, both on the first attempt, both now fixed.
+
+**"read this policy" did not open the policy.** `remote-work-policy.pdf`
+attached, and the answer came back asking what the policy was about. Not a
+pipeline failure — the attachment was reconciled and readable — but a
+matcher one: `_A_DOCUMENT` knows document *words* (pdf, file, doc), and
+`read` alone is deliberately not enough, so the sentence hit the "a file is
+attached but this turn did not ask about it" floor. The fix is the third
+signal, and it needed no new vocabulary: **the attached file's own name.**
+Somebody who attaches `remote-work-policy.pdf` and says "read this policy"
+has named the file, with the word its own filename carries.
+`_names_an_attached_file` matches question words against the attachment's
+stem, at five characters or longer — a length rather than a list, because
+this module's own history is a vocabulary of document words that kept
+missing the next phrasing. Five is where "policy", "invoice", "contract"
+separate from "work", "plan", "spec"; the falsifier is that
+`remote-work-policy.pdf` must not open because somebody asked whether
+something works.
+
+**"call it revised-policy.pdf" dropped the filename.** The offer came back
+targeting a derived name instead — the attachment's stem, "-annotated", the
+date, and an `.md` suffix — so wrong name and wrong format, while the reply
+said it would save a PDF. The cause
+was not the phrasing but the distance: `WRITE` allows sixty characters
+between the verb and the name, and that sentence had seventy-eight. `WRITE`
+now carries a second shape with a longer reach, anchored on "call it" /
+"name it", which is a phrase whose only job is to name the thing being made
+— the verb is still required, so asking *about* a name proposes nothing.
+Separately, `_as_text_default` now keeps a `.pdf` suffix when the request
+said "pdf" and named no file: deriving `.md` there had the offer
+contradicting the sentence that produced it, silently.
+
+Every fix falsified before it was trusted — each one reverted in turn, the
+matching test confirmed failing, then restored. 946 tests (was 940), `ruff`
+and `mypy` clean, and the whole scenario re-run live afterwards on the exact
+two sentences that had failed.
 
 ## Starting the thing
 
