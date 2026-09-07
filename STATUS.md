@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2498 tests, no network, no live service
+.venv/bin/pytest                      # part of 2508 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 987 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 997 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2498 passing across the four, conformance `PASS`.
+Expected: all clean, 2508 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15206,9 +15206,44 @@ because a standard note over the text is no better than a custom one.
 `tools/pdfkit_render.py` stays too: it is how anyone finds this out about
 the next viewer before the operator does.
 
-987 tests (was 946): twenty-three for placing, eighteen for the offer, the
-three buttons, the soft default and which reply's comments they take. `ruff`
-and `mypy` clean.
+**Then the last piece of the original plan: the model can see the pages, not
+only read the text.** Extraction returns prose intact and destroys the rest —
+this module's own docstring already said tables "arrive as loose runs of
+numbers" — so an attached PDF now travels with up to six rendered pages
+beside the full text, and the reading names which pages they are so an answer
+can say what it saw. Three decisions, each measured rather than guessed:
+
+*Which pages.* Not the first six: `find_tables()` alone matched forty-one of
+the blueprint's forty-two pages, because the document rules a line under
+every heading. A table is a grid of at least two rows and two columns with at
+least four cells holding text, and the falsifier is a callout box split down
+the middle — which pdfplumber does offer as a one-row two-column table, and
+which the shape rule rejects. Twenty-one of the blueprint's pages qualify and
+six may travel, so they are ranked by filled cells: the six where extraction
+destroyed the most, sent in page order.
+
+*Whether to send them at all.* RAVIS reads an image in a request as a hard
+requirement — its own decision says "vision REQUIRED (the request contains an
+image)" — so attaching pages where no candidate can see would turn an
+ordinary question about a document into a refusal to route. The gate reads
+`capabilities.vision` out of the catalogue NERVIS already caches for the
+reading, `SUPPORTED` only, so it costs no call and never guesses on
+`UNKNOWN`.
+
+*Where they ride.* On the asking turn as image parts beside the question,
+because that is the only place an image part means anything, with the text
+part first.
+
+Live on the real blueprint: asked to list the nine-row tool-profile table
+exactly as given, chat returned every row correctly; the pages chosen were
+9, 10, 14, 28, 29 and 41 — page 10 being that table — and RAVIS's own
+decision recorded "vision REQUIRED (the request contains an image)" against
+a vision-capable model it selected for that reason. One second to scan
+forty-two pages, eighty milliseconds to render six.
+
+997 tests (was 946): thirty-two for placing, page selection and the icon,
+twenty-one for the offer, the three buttons, the soft default, the vision
+gate and which reply's comments they take. `ruff` and `mypy` clean.
 
 ## Starting the thing
 

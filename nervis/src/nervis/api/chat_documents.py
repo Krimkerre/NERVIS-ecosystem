@@ -241,8 +241,16 @@ def _attachment(place: Path, question: str) -> str:
     )
 
 
-def _document(request: Request, question: str, conversation_id: str = "") -> str:
-    """The file this question names, read and fenced, or nothing.
+def _document(
+    request: Request, question: str, conversation_id: str = ""
+) -> tuple[str, tuple[str, ...]]:
+    """The file this question names — read and fenced — and its rendered pages.
+
+    **Two products from one read**, returned together because they come from
+    one file and must not disagree: the fenced text says which pages are
+    attached as pictures, and the pictures are those pages. Splitting the two
+    into separate calls would read and rasterise the document twice, and would
+    let the sentence and the images drift apart.
 
     **Off unless configured.** `workspace_path` is empty by default, because an
     install that was never asked to read a person's files should not do it, and
@@ -255,18 +263,18 @@ def _document(request: Request, question: str, conversation_id: str = "") -> str
     """
     root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
     if not root:
-        return ""
+        return "", ()
 
     target = _target(Path(root), question, conversation_id)
     if target is None:
-        return ""
+        return "", ()
     if isinstance(target, str):
-        return target
+        return target, ()
     where, name, chosen = target
     return _reading(where, name, chosen)
 
 
-def _reading(where: Path, name: str, chosen: bool) -> str:
+def _reading(where: Path, name: str, chosen: bool) -> tuple[str, tuple[str, ...]]:
     """One file, read and fenced, or the refusal that says which kind it is.
 
     Every failure is answered rather than swallowed: outside the workspace, not
@@ -277,16 +285,25 @@ def _reading(where: Path, name: str, chosen: bool) -> str:
     try:
         document = documents.read_document(where, name)
     except OutsideWorkspaceError as refusal:
-        return f"The person named a file and it was refused: {refusal}. Say so plainly."
+        return f"The person named a file and it was refused: {refusal}. Say so plainly.", ()
     except FileNotFoundError as absent:
-        return f"The person named a file that is not there: {absent}. Say so rather than guessing."
+        return (
+            f"The person named a file that is not there: {absent}."
+            " Say so rather than guessing."
+        ), ()
     except ValueError as unreadable:
-        return f"The person named a file chat cannot read: {unreadable}. Say which kinds it can."
+        return (
+            f"The person named a file chat cannot read: {unreadable}."
+            " Say which kinds it can."
+        ), ()
     except OSError as failure:
-        return f"The file could not be read ({type(failure).__name__}). Say so; do not invent it."
+        return (
+            f"The file could not be read ({type(failure).__name__})."
+            " Say so; do not invent it."
+        ), ()
 
     if not chosen:
-        return document.as_reading()
+        return document.as_reading(), document.images
     # Said out loud, because NERVIS picked this file and the person did not. A
     # silently wrong pick is a confident answer about the wrong document, which
     # is the worst outcome available here.
@@ -295,4 +312,4 @@ def _reading(where: Path, name: str, chosen: bool) -> str:
         f" most recently attached readable file in this conversation is"
         f" {document.shown}, so that is what is below. Name it in the answer, so"
         f" they can tell if it is the one they meant.\n\n{document.as_reading()}"
-    )
+    ), document.images

@@ -106,6 +106,20 @@ there is nothing this glance could catch there. Offering to save a reply as
 a PDF now says this outright, unprompted, in that same offer — not only when
 asked about it afterward.
 
+Also that day: **chat can now see a document's pages, not only read its
+text.** Extraction gives prose back intact and destroys everything else — a
+table arrives as loose runs of numbers, a diagram as nothing at all. So an
+attached PDF now travels with up to six of its pages rendered as images
+alongside the full text: the pages carrying a real table or a figure,
+ranked by how much table is on them, sent in page order. The reading names
+which pages they are, so an answer can say what it saw and what it did not.
+Only when a model that accepts images is actually reachable — RAVIS treats
+an image in a request as a hard requirement, so sending one where nothing
+can see would turn an ordinary question into a refusal to route. Confirmed
+live on a 42-page blueprint: asked to list a nine-row table exactly as
+given, chat returned every row correctly, and the routing decision recorded
+"vision REQUIRED (the request contains an image)".
+
 **Annotating an attached document — the thing all of the above was for.**
 Somebody attaches a PDF, chat reads it and has opinions, and they want a new
 file with the original *and* the opinions in it. That used to produce a file

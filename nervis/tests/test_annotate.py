@@ -6,10 +6,12 @@ from, and building the copy. What offers it and what runs it live in
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
+from nervis import documents
 from nervis.annotate import (
     Comment,
     annotate_pdf,
@@ -271,3 +273,114 @@ def test_text_comments_with_no_home_go_under_further_comments() -> None:
     merged = annotate_text("One paragraph.", [Comment(anchor="", text="Overall fine.")])
 
     assert merged.endswith("## Further comments\n\nOverall fine.")
+
+
+# ── page images ───────────────────────────────────────────────────────────────
+
+
+def test_only_pages_with_a_real_table_are_rendered(tmp_path: Path) -> None:
+    """Prose survives extraction; a table does not. The rule selects for
+    exactly what the text loses, so a page of sentences gets no picture."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
+
+    path = tmp_path / "mixed.pdf"
+    styles = getSampleStyleSheet()
+    grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+    SimpleDocTemplate(str(path), pagesize=letter).build([
+        Paragraph("Page one is only prose about mornings and harbours.", styles["BodyText"]),
+        PageBreak(),
+        Table([["Tool", "Effect"], ["logs.query", "Read-only"], ["ravis.routes", "Read-only"]],
+              style=grid),
+    ])
+
+    document = documents.read_document(tmp_path, "mixed.pdf")
+
+    assert document.image_pages == (2,), "the table page, not the prose page"
+    assert len(document.images) == 1
+    assert document.images[0].startswith("data:image/png;base64,")
+
+
+def test_a_two_panel_callout_box_is_not_a_table(tmp_path: Path) -> None:
+    """The falsifier for the shape rule, and it had to be measured to find:
+    a rule under a heading produces no table candidate at all, so it proves
+    nothing. A box split down the middle *does* — pdfplumber offers it as a
+    one-row, two-column table — and the shape rule is what rejects it, on
+    having one row and two filled cells where a table needs two and four.
+    That rule exists because bare candidate-detection matched forty-one of
+    the real blueprint's forty-two pages."""
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    path = tmp_path / "callout.pdf"
+    c = rl_canvas.Canvas(str(path), pagesize=(612, 792))
+    c.rect(72, 500, 468, 200)
+    c.line(306, 500, 306, 700)
+    c.drawString(90, 650, "Left half")
+    c.drawString(320, 650, "Right half")
+    c.save()
+
+    assert documents.read_document(tmp_path, "callout.pdf").image_pages == ()
+
+
+def test_the_densest_table_pages_win_when_there_are_more_than_fit(tmp_path: Path) -> None:
+    """Six is fewer than most documents need, so *which* six is a decision:
+    the pages where extraction destroyed the most, not the first ones."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import PageBreak, SimpleDocTemplate, Table, TableStyle
+
+    path = tmp_path / "many.pdf"
+    grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+    story: list[object] = []
+    for rows in (2, 3, 4, 5, 6, 7, 8, 9):
+        story.append(Table([[f"r{r}", f"c{r}"] for r in range(rows)], style=grid))
+        story.append(PageBreak())
+    SimpleDocTemplate(str(path), pagesize=letter).build(story[:-1])
+
+    document = documents.read_document(tmp_path, "many.pdf")
+
+    assert len(document.image_pages) == documents.MAX_PAGE_IMAGES
+    assert document.image_pages == (3, 4, 5, 6, 7, 8), "the six biggest, in page order"
+
+
+def test_a_document_with_no_tables_or_figures_sends_no_pictures(tmp_path: Path) -> None:
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    path = tmp_path / "prose.pdf"
+    c = rl_canvas.Canvas(str(path), pagesize=(612, 792))
+    c.drawString(72, 700, "Nothing here but a sentence.")
+    c.save()
+
+    document = documents.read_document(tmp_path, "prose.pdf")
+
+    assert document.images == () and document.image_pages == ()
+
+
+def test_a_text_file_is_never_rasterised(tmp_path: Path) -> None:
+    (tmp_path / "notes.md").write_text("# Notes\n\nA table | of | sorts\n", encoding="utf-8")
+
+    assert documents.read_document(tmp_path, "notes.md").images == ()
+
+
+def test_the_reading_names_which_pages_are_attached() -> None:
+    """A model shown six pictures of forty-two pages and told nothing answers
+    as though it saw all of them."""
+    document = documents.Document(
+        shown="blueprint.pdf", text="…", characters=97_000, truncated=False,
+        extracted=True, images=("data:image/png;base64,x",), image_pages=(10,),
+    )
+
+    reading = document.as_reading()
+
+    assert "Page(s) 10 carry a table or a figure" in reading
+    assert "No other page is attached." in reading
+
+
+def test_no_pages_no_sentence_about_pages() -> None:
+    document = documents.Document(
+        shown="prose.pdf", text="…", characters=10, truncated=False, extracted=True,
+    )
+
+    assert "attached to this message as images" not in document.as_reading()

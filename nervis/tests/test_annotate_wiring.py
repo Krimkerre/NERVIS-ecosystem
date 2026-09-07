@@ -292,3 +292,69 @@ def test_a_chosen_style_carries_no_alternatives() -> None:
                              default_name="doc-annotated-2026-09-07.pdf", attachment="doc.pdf")
 
     assert offer is not None and offer.as_dict()["alternatives"] == []
+
+
+# ── page images on the turn ───────────────────────────────────────────────────
+
+
+def _tabled() -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+
+    buffer = io.BytesIO()
+    grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+    SimpleDocTemplate(buffer, pagesize=letter).build([
+        Table([["Tool", "Effect"], ["logs.query", "Read-only"], ["ravis.routes", "Read"]],
+              style=grid),
+    ])
+    return buffer.getvalue()
+
+
+def _sent_content(sent: list[dict[str, Any]]) -> Any:
+    return [m for body in sent for m in body.get("messages", []) if m["role"] == "user"][-1]
+
+
+def test_a_tables_page_rides_on_the_asking_turn_as_an_image(tmp_path: Path) -> None:
+    """The picture belongs to the turn that asked about the document, as an
+    image part beside the question — which is the only place an image part
+    means anything."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen2.5vl-3b"], vision=True)
+    _attach(client, "cv_pages", "spec.pdf", _tabled())
+
+    turn(client, "read this pdf and tell me about the table",
+         system="Be someone.", attachment_id="cv_pages")
+
+    content = _sent_content(sent)["content"]
+    assert isinstance(content, list), "a text part and an image part, not a bare string"
+    assert content[0]["type"] == "text" and "read this pdf" in content[0]["text"]
+    images = [part for part in content if part["type"] == "image_url"]
+    assert len(images) == 1
+    assert images[0]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_no_vision_capable_model_means_no_images_are_sent(tmp_path: Path) -> None:
+    """RAVIS reads an image as a hard requirement, so attaching one where
+    nothing can see would turn an ordinary question into a refusal to route."""
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen3-4b-2507"], vision=False)
+    _attach(client, "cv_blind", "spec.pdf", _tabled())
+
+    turn(client, "read this pdf and tell me about the table",
+         system="Be someone.", attachment_id="cv_blind")
+
+    content = _sent_content(sent)["content"]
+    assert isinstance(content, str), "the question alone, exactly as before"
+
+
+def test_a_turn_that_opens_no_document_sends_no_images(tmp_path: Path) -> None:
+    sent: list[dict[str, Any]] = []
+    client = an_api(workspace_path=str(tmp_path))
+    _with_models(client, sent, ["qwen/qwen2.5vl-3b"], vision=True)
+
+    turn(client, "how are the services doing", system="Be someone.")
+
+    assert isinstance(_sent_content(sent)["content"], str)

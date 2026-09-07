@@ -320,11 +320,15 @@ async def send(request: Request) -> Any:
     # before typing anything is the ordinary order of events — clip, then
     # question. The dashboard mints a stable id when the conversation opens, so
     # that is what attachments are filed under, from the very first turn.
-    awareness = "\n\n".join(
-        part for part in
-        (awareness, _document(request, content, str(body.get("attachment_id") or "")))
-        if part
-    )
+    opened, pages = _document(request, content, str(body.get("attachment_id") or ""))
+    awareness = "\n\n".join(part for part in (awareness, opened) if part)
+    # **Only if something on this machine can actually see them.** RAVIS reads
+    # an image in a request as a hard requirement — its own route decision says
+    # "vision REQUIRED (the request contains an image)" — so attaching pages
+    # where no candidate has the capability turns an ordinary question about a
+    # document into a refusal to route. The catalogue that answers this is the
+    # one already cached for the reading, so it costs no call.
+    pages = pages if _can_see(await _catalogue(request)) else ()
 
     # How the ecosystem works, when the question is about that rather than about
     # what it is doing right now.
@@ -384,7 +388,7 @@ async def send(request: Request) -> Any:
         system = "\n\n".join(part for part in (system, directive, recall) if part)
         asked = NUDGE_OPENER
     body = {**body, "system": system}
-    payload = _completion_payload(body, profile, prior, asked)
+    payload = _completion_payload(body, profile, prior, asked, pages)
     # Assembled here and sent as a header, so the browser prints it verbatim.
     #
     # **A model is never asked to restate a measurement.** The first draft put
@@ -1065,8 +1069,23 @@ FORWARDED = (
 )
 
 
+def _can_see(catalogue: list[dict[str, Any]]) -> bool:
+    """Whether any model this machine can route to accepts an image.
+
+    Read from the catalogue RAVIS already publishes — `capabilities.vision`
+    per model — rather than asked as its own question, and `SUPPORTED` only:
+    `UNKNOWN` is most of a six-hundred-model catalogue, and attaching pages on
+    the strength of one would be guessing with somebody's whole turn.
+    """
+    return any(
+        ((item.get("capabilities") or {}).get("vision") or {}).get("state") == "SUPPORTED"
+        for item in catalogue
+    )
+
+
 def _completion_payload(
-    body: dict[str, Any], profile: str, prior: list[dict[str, str]], content: str
+    body: dict[str, Any], profile: str, prior: list[dict[str, str]], content: str,
+    pages: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """The body RAVIS receives, assembled from what the caller actually set.
 
@@ -1078,7 +1097,16 @@ def _completion_payload(
     than defaulted here, because the model and the runtime own their own
     defaults and filling one in would be NERVIS inventing a choice nobody made.
     """
-    messages = [*prior, {"role": "user", "content": content}]
+    # **The pages ride on the question, not in the system prompt.** An image
+    # part is only meaningful inside a message's content list, and the turn the
+    # person asked about the document is the one the pictures belong to. The
+    # text part stays first so a model reading in order meets the question
+    # before the pictures of what it is about.
+    spoken: Any = content if not pages else [
+        {"type": "text", "text": content},
+        *({"type": "image_url", "image_url": {"url": page}} for page in pages),
+    ]
+    messages: list[dict[str, Any]] = [*prior, {"role": "user", "content": spoken}]
     if body.get("system"):
         messages.insert(0, {"role": "system", "content": str(body["system"])})
     return {

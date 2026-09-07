@@ -24,12 +24,32 @@ reading says so rather than letting a model read a mangled table as a tidy one.
 """
 from __future__ import annotations
 
+import base64
+import io
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+import pdfplumber
 
 from nervis.diagnostics import fenced
 from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
+
+#: How many rendered pages may travel with a reading.
+#:
+#: RAVIS refuses a request carrying more than eight inline images
+#: (`ravis/src/ravis/content.py`), and this stays under that rather than
+#: discovering it as a refusal. It is also about as many pictures as is worth
+#: sending: the *text* of the whole document is already in the reading, and
+#: these exist to restore what extraction destroys.
+MAX_PAGE_IMAGES = 6
+
+#: What a rendered page is drawn at. 110dpi keeps a table's rules and a
+#: figure's labels legible without spending a megabyte a page — measured on
+#: the blueprint's own table pages, where 72 loses the thin rules and 150 buys
+#: nothing a reader can see.
+PAGE_IMAGE_RESOLUTION = 110
 
 #: How much of one file reaches the prompt.
 #:
@@ -89,6 +109,11 @@ class Document:
     #: layout does not survive extraction, and a model told nothing about that
     #: reads a mangled table as a tidy one.
     extracted: bool = False
+    #: Rendered pages, as inline PNG data URLs, and which pages they are —
+    #: only the ones carrying a table or a figure, because those are the ones
+    #: extraction ruins. Empty for everything else.
+    images: tuple[str, ...] = ()
+    image_pages: tuple[int, ...] = ()
 
     def as_reading(self) -> str:
         """The document, fenced, with what was left out said where it was left out.
@@ -110,6 +135,18 @@ class Document:
                 " The text was extracted from a PDF, so its layout is gone —"
                 " tables arrive as loose runs of numbers and columns may"
                 " interleave. Do not read column alignment as meaningful."
+            )
+        if self.image_pages:
+            # **Which pages, said out loud.** A model shown six pictures of a
+            # forty-two-page document and told nothing will answer about the
+            # document as though it had seen all of it. Naming them makes the
+            # subset a fact it can report rather than one it can be wrong about.
+            shown = ", ".join(str(page) for page in self.image_pages)
+            head += (
+                f" Page(s) {shown} carry a table or a figure and are attached to"
+                " this message as images, rendered from the file itself — read"
+                " those from the picture rather than from the mangled text"
+                " above. No other page is attached."
             )
         # **Comments are anchored from the moment they are written**, not only
         # when a button appears. Asked to put its findings into a copy of the
@@ -134,6 +171,88 @@ class Document:
             fenced("the contents of that file", self.text, provenance=self.shown,
                    max_chars=MAX_CHARACTERS),
         ])
+
+
+def page_image(page: Any, resolution: int = PAGE_IMAGE_RESOLUTION) -> str | None:
+    """One `pdfplumber` page as an inline PNG data URL, or `None`.
+
+    `None` for every way a render can fail — a corrupt page, a missing
+    raster backend — because a picture is an addition to a reading that
+    already has the text, and no picture is a worse reading rather than a
+    failed one.
+    """
+    try:
+        image = page.to_image(resolution=resolution).original
+    except Exception:  # noqa: BLE001 — any failure here means "no picture"
+        return None
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _table_weight(page: Any) -> int:
+    """How much of this page is a table, as filled cells — 0 for none.
+
+    **Shape, not the presence of ruled lines.** `find_tables()` alone matched
+    forty-one of the blueprint's forty-two pages, because the document rules a
+    line under every heading and above every footer; as a signal for "this page
+    has a table" it was worthless. A grid of at least two rows and two columns
+    with at least four cells that actually hold text is a table; a rule under a
+    heading is not.
+    """
+    weight = 0
+    for table in page.find_tables():
+        rows = table.extract()
+        columns = max((len(row) for row in rows), default=0)
+        filled = sum(1 for row in rows for cell in row if (cell or "").strip())
+        if len(rows) >= 2 and columns >= 2 and filled >= 4:
+            weight = max(weight, filled)
+    return weight
+
+
+def _illustrated(path: Path) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    """The pages worth showing a model, rendered, and their page numbers.
+
+    **Only pages carrying a table or a figure.** Prose survives extraction
+    intact and a picture of it teaches a model nothing it cannot already
+    read; a table arrives as "loose runs of numbers" — this module's own
+    words — and a diagram arrives as nothing at all. So the rule selects for
+    exactly what the text loses.
+
+    **The densest first, because six is fewer than most documents need.**
+    The blueprint this was built against has twenty-one pages carrying a real
+    table and a request may carry six pictures, so *which* six is a decision
+    somebody makes either way — and taking the first six would mean the cover
+    and the contents. Ranked by how many filled cells a page's largest table
+    has, the six that arrive are the six where extraction destroyed the most.
+    They are then sent in page order, because a model reading them in
+    document order is reading them the way the document is written.
+
+    Everything is best-effort: a file that cannot be opened for rendering
+    still has its text, which is the reading it always had.
+    """
+    try:
+        with pdfplumber.open(path) as opened:
+            scored: list[tuple[int, int]] = []
+            for number, page in enumerate(opened.pages, start=1):
+                # A figure carries no cells to count; it earns a place, at the
+                # bottom of the ranking, because extraction loses it entirely.
+                weight = _table_weight(page) or (1 if page.images else 0)
+                if weight:
+                    scored.append((weight, number))
+            scored.sort(key=lambda pair: (-pair[0], pair[1]))
+            wanted = sorted(number for _, number in scored[:MAX_PAGE_IMAGES])
+
+            chosen: list[str] = []
+            numbers: list[int] = []
+            for number in wanted:
+                rendered = page_image(opened.pages[number - 1])
+                if rendered:
+                    chosen.append(rendered)
+                    numbers.append(number)
+            return tuple(chosen), tuple(numbers)
+    except Exception:  # noqa: BLE001 — no pictures is a fine reading
+        return (), ()
 
 
 def _read_pdf(path: Path, shown: str) -> str:
@@ -209,12 +328,16 @@ def read_document(root: Path, named: str) -> Document:
         # avoid.
         raw = resolved.path.read_text(encoding="utf-8", errors="replace")
 
+    extracted = resolved.path.suffix.lower() in PDF_SUFFIXES
+    images, pages = _illustrated(resolved.path) if extracted else ((), ())
     return Document(
         shown=resolved.shown,
         text=raw[:MAX_CHARACTERS],
         characters=len(raw),
         truncated=len(raw) > MAX_CHARACTERS,
-        extracted=resolved.path.suffix.lower() in PDF_SUFFIXES,
+        extracted=extracted,
+        images=images,
+        image_pages=pages,
     )
 
 

@@ -803,14 +803,21 @@ def test_the_name_it_is_addressed_by_is_not_the_subject() -> None:
 # ── Commands: what NERVIS offers to do, and what it refuses to decide ───────
 
 
-def _with_models(client: TestClient, sent: list[dict[str, Any]], names: list[str]) -> None:
-    """A RAVIS whose catalogue holds these local models."""
+def _with_models(client: TestClient, sent: list[dict[str, Any]], names: list[str],
+                 vision: bool = False) -> None:
+    """A RAVIS whose catalogue holds these local models.
+
+    `vision` says whether they accept an image, in the shape RAVIS publishes
+    it — `capabilities.vision.state` — because whether NERVIS attaches a
+    rendered page to a turn is decided from exactly that field.
+    """
+    seeing = {"vision": {"state": "SUPPORTED" if vision else "UNKNOWN"}}
 
     def capture(request: httpx.Request) -> httpx.Response:
         if "/api/v1/models" in str(request.url):
-            return httpx.Response(
-                200, json={"items": [{"model_id": n, "local": True} for n in names]}
-            )
+            return httpx.Response(200, json={"items": [
+                {"model_id": n, "local": True, "capabilities": seeing} for n in names
+            ]})
         if "/v1/embeddings" in str(request.url):
             return httpx.Response(200, json={"object": "list", "data": [], "model": "none"})
         sent.append(json.loads(request.content))
