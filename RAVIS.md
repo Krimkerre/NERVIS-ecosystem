@@ -254,6 +254,7 @@ Required defaults:
 ravis/auto      ravis/balanced   ravis/local    ravis/coding        ravis/long-context
 ravis/fast      ravis/cheap      ravis/api      ravis/reasoning     ravis/chat
 ravis/performance                ravis/private  ravis/agent         ravis/vision
+ravis/free-api                                                      ravis/draw
 ```
 
 `ravis/chat` and `ravis/agent` were implemented and missing from this list.
@@ -267,6 +268,21 @@ curated family list, deliberately: a guessed name pattern for "built to see"
 is the same heuristic `ravis/coding`'s own exclusion list already applies in
 the other direction, and the capability requirement is real evidence where a
 name pattern would be a guess.
+
+`ravis/draw` is the other half of that pair and shares no member with it:
+reading an image and emitting one are separate capabilities that happen to
+share a word, so it requires `image_out` rather than `vision`. Two exclusions
+are deliberate and both were measured. **OpenRouter's auto-routers are excluded
+by name** — they advertise `image` among their output modalities because
+something behind them can draw and then choose the model themselves; asked for
+a red circle, `openrouter/auto` chose `z-ai/glm-5.2` and answered in words,
+which is a claim about somebody else's routing decision that this pool can
+neither verify nor fall back from. **The native Google models fail closed**,
+because that catalogue publishes no output modalities at all and an UNKNOWN
+capability is not a yes; naming one of those models directly still works, as it
+does everywhere else. Its label is `Image generation`, which §9.3 lists as a
+display name that does not hyphenate mechanically — deriving `ravis/image-…`
+from it would produce exactly the substring constraint 2 below forbids.
 
 Clarvis-specific pools — these IDs must be **stable**:
 
@@ -300,7 +316,10 @@ enforcement.
 2. **Avoid these substrings in pool IDs**, now and later: `embed`, `tts` (leading), `whisper`,
    `transcribe`, `dall-e` (leading), `image`, `moderation`, `audio`, `realtime`, `rerank`,
    `guard`. Clarvis's filter patterns are unanchored substring matches, so `ravis/image` would
-   silently disappear from the list. The current pool set is clean.
+   silently disappear from the list. The current pool set is clean — and this rule earned its
+   keep on 7 September 2026: the image-generation pool was first written as `ravis/image` and
+   a routing test whose docstring names this exact hazard failed on the first run. It is
+   called `ravis/draw` for that reason and no other.
 3. **Set `created` on every model entry, or on none.** Clarvis sorts by timestamp only when
    *all* entries carry `created`, otherwise it falls back to alphabetical. A mixed list scrambles
    any intended ordering.
@@ -486,7 +505,10 @@ An OpenAI-compatible route retains access to the **original request envelope** f
 forwarding after route selection.
 
 Normalized response (for translated providers and observability): text, tool calls, finish
-reason, usage, provider, model, latency, provider request ID, reasoning metadata, cache usage.
+reason, usage, provider, model, latency, provider request ID, reasoning metadata, cache usage,
+and **images the model emitted**. That last one is not decoration: a translated path that
+carries every field but the picture answers a drawing request with a 200 and almost no text,
+which is what Gemini's native path did until 7 September 2026.
 
 ```python
 class ProviderAdapter:
@@ -730,12 +752,16 @@ candidate, and the route explanation names the exclusion without leaking secrets
 
 ## 9.3 Routing profiles
 
-`Auto`, `Balanced`, `Speed`, `Performance`, `Cheap`, `Local Only`, `API Only`, `Private`,
-`Coding`, `Reasoning`, `Long Context`, `Clarvis Chat`, `Clarvis Agent`.
+`Auto`, `Balanced`, `Speed`, `Performance`, `Cheap`, `Free API`, `Local Only`, `API Only`,
+`Private`, `Coding`, `Reasoning`, `Long Context`, `Vision`, `Image generation`, `Clarvis Chat`,
+`Clarvis Agent`.
 
 **These are display names for the §5 pools, one-to-one — not a second set of objects.**
-`Speed` is `ravis/fast`, `Local Only` is `ravis/local`, `API Only` is `ravis/api`; the rest
-lowercase and hyphenate directly. **The pool ID is the only form that appears on the wire, in
+`Speed` is `ravis/fast`, `Local Only` is `ravis/local`, `API Only` is `ravis/api`,
+`Image generation` is `ravis/draw`; the rest lowercase and hyphenate directly. **That last
+exception is load-bearing rather than cosmetic**: hyphenating its label mechanically yields
+`ravis/image-generation`, and §5.0.1's second constraint forbids the substring `image` in a
+pool ID because Clarvis's unanchored filter would make it disappear. **The pool ID is the only form that appears on the wire, in
 storage, in a route explanation or in another product's UI.** A consumer that renders its own
 spelling — a mode selector, a settings picker, a test fixture — renders the pool ID or a label
 resolved from this mapping, never a third spelling of its own.
@@ -748,11 +774,13 @@ difficulty. A classifier may later contribute signals; it must never become an o
 
 ## 9.5 Capability and request analysis
 
-Capabilities tracked: text, vision, audio in, audio out, tools, parallel tools, structured
-output, reasoning, streaming, embeddings, context size, max output, prompt caching. States:
+Capabilities tracked: text, vision, image out, audio in, audio out, tools, parallel tools,
+structured output, reasoning, streaming, embeddings, context size, max output, prompt caching.
+**Vision and image out are separate and share no evidence**: one is reading an image and the
+other is emitting one, and a model that does either does not thereby do the other. States:
 `SUPPORTED`, `UNSUPPORTED`, `PARTIAL`, `UNKNOWN`.
 
-Before scoring, analyse the request for images, tools, response schema, context requirement,
+Before scoring, analyse the request for images *it carries*, tools, response schema, context requirement,
 reasoning and streaming, producing `RequestRequirements`.
 
 ## 9.6 Application identities and policy
@@ -905,7 +933,9 @@ Translated:   provider-native events → normalized events → OpenAI SSE
 ```
 
 Every provider change must re-test: text fragments, tool fragments, finish reason, usage,
-reasoning metadata, disconnect, upstream error mid-stream, and `[DONE]`.
+reasoning metadata, **an emitted image**, disconnect, upstream error mid-stream, and `[DONE]`.
+The image is on this list because its absence from it is exactly how the Gemini regression
+survived: a re-test list that never named images is a list nobody used to re-test images.
 
 **Structured output** normalizes JSON mode, JSON Schema and provider-native structured
 generation, with capability filtering applied. **Reasoning** is represented separately; do not
@@ -1560,9 +1590,16 @@ unmodified Clarvis + Custom OpenAI-compatible provider + RAVIS
 
 ## 20.4 Non-goals for MVP
 
-Shadow routing, automatic self-learning, audio, image generation, complex orchestration, a
-distributed gateway, cloud sync, accounts, AI-generated policies, automatic summarization, the
-Clarvis Bridge, and NERVIS code-server integration.
+Shadow routing, automatic self-learning, audio, complex orchestration, a distributed gateway,
+cloud sync, accounts, AI-generated policies, automatic summarization, the Clarvis Bridge, and
+NERVIS code-server integration.
+
+**Image generation left this list on 7 September 2026, and only half of it did.** What shipped
+is *routing to* a model that answers a chat completion with a picture beside its text — a
+capability, a pool and a normalized field, all of which fit the gateway RAVIS already is.
+What remains a non-goal is RAVIS operating an image endpoint of its own: a `dall-e`-shaped
+`/v1/images/generations` is a different protocol with a different request, and `dall-e` stays
+unconditionally in the not-chat list that §5's membership filter consults.
 
 ---
 

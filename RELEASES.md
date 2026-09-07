@@ -103,9 +103,61 @@ every entry.
 
 ---
 
-## NERVIS — 0.23.14
+## NERVIS — 0.24.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Pictures, both directions.** A `.png`, `.jpg`, `.gif` or `.webp` attached to a
+  conversation now travels on the question as the image itself, capped at five
+  megabytes and refused above that with "resize it" rather than truncated — half a
+  picture is a corrupt file, not a smaller one. It is the whole reading rather than
+  an addition to one, so the *Show the model a PDF's pages* switch does not apply to
+  it: that switch exists so a document can be read without paying for vision, and a
+  document keeps its text when the pictures are dropped. Where nothing available can
+  see, the picture is withheld and the model is told so, rather than left to describe
+  an image it never received.
+- **A drawn picture becomes a file.** A model that draws answers with a megabyte of
+  base64 in one stream frame, and the reply a conversation stores is text. So the
+  image is written into the workspace and linked from the reply, which gives one
+  answer three things at once: something to show now, the same thing after a reload,
+  and a file to download. The link is emitted *before* `[DONE]` — the first version
+  put it behind the terminator, where no client reading a stream would ever see it.
+  `/api/v1/documents` serves image types alongside `.pdf` and `.md`, and serves them
+  `inline` rather than `attachment`, because a download prompt in place of the
+  picture a conversation is showing is the browser being helpful in the one way
+  nobody asked for.
+- **One exception to "no links and no images" in the chat renderer, cut as narrowly
+  as it goes.** Only NERVIS's own documents endpoint, a bare filename, an image
+  suffix, and nothing else on the line. `tools/picture_check.js` proves the saved
+  link renders and that eight other shapes — another host, a traversal, a query
+  string, a `javascript:` destination — stay text.
+- **Asked to draw on a profile that answers in words, chat says where drawing
+  lives.** Measured: on the default profile it said "I can't draw images myself" and
+  then offered to route the request itself, which it cannot do. Both halves were
+  wrong. "Draw" is the hard word — "what conclusion would you draw from that" is the
+  everyday non-drawing use — so both idiom shapes are excluded and each has its own
+  falsifier.
+- Verified end to end against the running stack rather than in tests alone: a picture
+  attached and described, an image generated, saved, rendered and downloaded, and the
+  attached picture redrawn in another colour from the picture itself — all in one
+  conversation on `ravis/draw`, whose models read images as well as emitting them.
+
+### 0.23.15 – 0.23.26
+
+Twelve versions shipped across 6-7 September 2026 without notes, while this file's
+head stood at 0.23.14. Summarised together rather than reconstructed one by one,
+and marked as assembled after the fact: what each number contains is in the git
+history, and inventing per-version boundaries now would read like a record and be a
+guess. They are, in order of the work: chat's save-time visual check of a written
+PDF; the annotate feature — an attached document copied with its comments placed
+beside the passages they quote, as margin notes, sticky notes or inline text; the
+reading cap raised from forty thousand characters to four hundred thousand, after a
+97,000-character document was read half-way and answered about as a whole; a
+document's table and figure pages rendered and sent as images beside its extracted
+text; tables drawn as real grids in the PDF renderer; and the switch that decides
+whether those pages travel.
+
+### 0.23.14
 
 - **M8b's own row said "blocked" while its status tag said LIVE VERIFIED — corrected to
   match the code, which was already done.** Found while closing an unrelated §15 item:
@@ -374,9 +426,47 @@ every entry.
 
 ---
 
-## RAVIS — 0.21.6
+## RAVIS — 0.22.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A generated image survives the translated path.** A model that answers with
+  pixels was answered as though it had said almost nothing:
+  `models/gemini-2.5-flash-image` returned 200 with the content "Here you go: " and
+  the picture beside it in an `inlineData` part that translation did not recognise,
+  while the same model through OpenRouter's transparent path returned a 104 KB PNG.
+  Which route RAVIS chose decided whether the caller got an image at all.
+  `NormalizedResponse.images`, a stream event, and an `images` array of `image_url`
+  parts on the OpenAI-shaped output now carry it — in OpenRouter's spelling, because
+  that is what callers already parse off the transparent path and a second spelling
+  would make one picture arrive two ways.
+- **`Capability.IMAGE_OUT` and the `ravis/draw` pool.** Emitting an image and reading
+  one are separate capabilities that happen to share a word, so the vision pool and
+  the drawing pool share no members. Evidence comes from OpenRouter's
+  `architecture.output_modalities`, which is ADVERTISED rather than measured.
+- **The pool shipped holding nothing that draws, and both reasons were measured.**
+  `image` sits in `NOT_CHAT` because an embedding endpoint and a diffusion endpoint
+  cannot answer a chat completion — an argument that does not reach
+  `google/gemini-2.5-flash-image`, which answers one with a picture beside its text.
+  The word is now lifted for a pool that requires image output and for no other pool.
+  What was left was OpenRouter's auto-routers, which advertise `image` because
+  something behind them can draw and then pick the model themselves: asked for a red
+  circle, `openrouter/auto` chose `z-ai/glm-5.2` and answered in words, so it is
+  excluded by name. The native Google models stay out on purpose — that catalogue
+  publishes no output modalities at all, so the capability is UNKNOWN and fails
+  closed, while naming one of those models directly still works.
+
+### 0.21.7
+
+Shipped without notes on 7 September 2026, summarised here from the commit: RAVIS
+reported a context window Ollama never served. Ollama publishes the architecture's
+maximum — 128,000 for `qwen2.5vl` — while loading the model at its own default, so a
+25,000-token request was handed to a model holding 4,096 and answered as though it
+had read everything. `/api/ps` reports the window a resident model actually has, and
+a cold model is reported at the default it will be loaded with rather than at its
+ceiling.
+
+### 0.21.6
 
 - **F4: the credential listing no longer names identity credentials.** `GET
   /api/v1/providers/credentials` has no authorization guard by design (it needs to answer

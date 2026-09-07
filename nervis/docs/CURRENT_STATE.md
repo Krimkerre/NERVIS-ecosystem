@@ -30,7 +30,7 @@ frontend, and the data layer below is a client of NERVIS rather than of every
 service at once. `../STATUS.md` says what is actually finished.
 
 **The one rule that has not changed**: it must still render with nothing running.
-`tools/render_check.js` enforces that in CI now, across all 35 screens.
+`tools/render_check.js` enforces that in CI now, across all 36 screens.
 
 ## Architecture, in one pass
 

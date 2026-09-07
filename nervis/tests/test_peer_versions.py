@@ -34,7 +34,7 @@ def test_a_peer_one_minor_behind_is_supported() -> None:
     time is never told the ecosystem is broken because they started with the
     wrong one.
     """
-    assert supported("ravis", "0.20.0").supported
+    assert supported("ravis", "0.21.0").supported
 
 
 def test_a_peer_far_behind_is_reported_and_still_used() -> None:

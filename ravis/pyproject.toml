@@ -1,6 +1,6 @@
 [project]
 name = "ravis"
-version = "0.21.7"
+version = "0.22.0"
 description = "Local-first AI routing gateway with an OpenAI-compatible API"
 requires-python = ">=3.11"
 dependencies = [

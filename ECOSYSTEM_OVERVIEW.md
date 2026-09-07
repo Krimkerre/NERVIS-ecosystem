@@ -210,7 +210,8 @@ Instead of naming one physical model, a client asks for a policy:
 ```text
 ravis/auto  ravis/fast  ravis/performance  ravis/balanced  ravis/cheap  ravis/chat
 ravis/local  ravis/api  ravis/private  ravis/coding  ravis/reasoning  ravis/long-context
-ravis/agent
+ravis/agent  ravis/free-api  ravis/vision  ravis/draw  ravis/clarvis-chat
+ravis/clarvis-agent
 ```
 
 Each pool declares what it is for. That is a statement about what a model is *for*, never
@@ -227,7 +228,10 @@ asking.
 ## Hard constraints versus preferences
 
 This distinction is the heart of the design. `privacy = LOCAL_ONLY` **eliminates** every cloud
-provider — they do not merely lose points. `vision required` makes a text-only model ineligible.
+provider — they do not merely lose points. `vision required` makes a text-only model
+ineligible, and `image output required` excludes a *vision* model rather than merely a
+text-only one: reading an image and emitting one are separate capabilities that happen to
+share a word, so the pool that sees and the pool that draws have no member in common.
 
 Preferences — prefer local, prefer cheap, prefer already loaded, prefer SIRVIS-tested — affect
 scoring but can never override a hard requirement.

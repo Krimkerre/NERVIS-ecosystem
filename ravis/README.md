@@ -13,14 +13,17 @@ This section says only what a newcomer needs before reading it: RAVIS routes, an
 §6's execution paths work.
 
 - **`/v1/models` and `/v1/chat/completions`** — the OpenAI-compatible surface, streaming and
-  cancellation included. `ravis conformance clarvis` runs sixteen wire-level checks and is
-  the §8.9 release gate.
-- **Routing (§5, §9)** — 13 virtual pools, hard-constraint filtering before scoring, and a
+  cancellation included. `ravis conformance clarvis` runs twenty-three wire-level checks and
+  is the §8.9 release gate.
+- **Routing (§5, §9)** — 18 virtual pools, hard-constraint filtering before scoring, and a
   route explanation on every decision naming what was considered and why each candidate was
   excluded.
-- **Providers** — a translated adapter for Anthropic (§6 Path B), transparent adapters for
-  LM Studio, Ollama and any generic OpenAI-compatible endpoint, and more than one upstream
-  at a time addressed as `ravis/<name>/<model>`.
+- **Providers** — translated adapters for Anthropic and Google Gemini (§6 Path B),
+  transparent adapters for LM Studio, Ollama, OpenAI, OpenRouter and any generic
+  OpenAI-compatible endpoint, and more than one upstream at a time addressed as
+  `ravis/<name>/<model>`. A translated adapter is the one that can silently lose something
+  the wire carried, which is why the Gemini path dropped a generated image until
+  7 September 2026.
 - **Evidence (§13)** — SIRVIS measurements consumed and applied at `MEASURED` provenance,
   which outranks a catalogue's advertisement and has already excluded a build the catalogue
   claimed was tool-capable.

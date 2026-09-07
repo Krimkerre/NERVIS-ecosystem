@@ -298,9 +298,9 @@ measured*, and a comparison view needs the second one.
 
 NERVIS chat is a **normal client of RAVIS's published OpenAI-compatible API**, addressing the
 pools RAVIS already publishes. Default **`ravis/chat`**; the mode selector offers
-`ravis/balanced`, `ravis/fast`, `ravis/performance`, `ravis/cheap`, `ravis/local`, `ravis/api`
-and `ravis/private`, labelled from RAVIS §9.3's display names rather than spelled a third way
-here; optional explicit model selection.
+`ravis/balanced`, `ravis/fast`, `ravis/performance`, `ravis/cheap`, `ravis/local`, `ravis/api`,
+`ravis/private`, `ravis/vision` and `ravis/draw`, labelled from RAVIS §9.3's display names
+rather than spelled a third way here; optional explicit model selection.
 
 > **The default was `ravis/auto` and that was wrong for this surface.** Auto declares no
 > constraint by design — "let RAVIS decide, with no constraint beyond what the request needs" —
@@ -319,7 +319,24 @@ session or agent role. It is general purpose, not workspace-bound, not a coding 
 implicitly allowed to modify files.
 
 **MVP capabilities:** text, streaming, markdown, code blocks, conversation history, routing
-details, model selection. **Later:** images, files, voice, search, artifacts.
+details, model selection, voice, files, and images **in both directions** — a picture attached
+to a conversation and a picture the model drew. **Later:** search, artifacts.
+
+Three things about images that a profile list does not imply:
+
+- **A picture attached is the whole reading, not an addition to one.** There is no text version
+  of a photograph, so the *Show the model a PDF's pages* switch — which exists so a document can
+  be read without paying for vision — does not apply to it: a document keeps its text when its
+  pictures are dropped and a photograph keeps nothing. Where nothing available can see, the
+  picture is withheld and the model is told so rather than left to describe it. Five megabytes
+  is the ceiling, and above it the refusal says *resize it* rather than truncating.
+- **A picture the model drew becomes a file.** It arrives as a megabyte of base64 in one stream
+  frame and the reply a conversation stores is text, so it is written into the workspace and
+  linked from the reply — which is what makes it survive a reload and what makes §14's document
+  endpoint the download.
+- **Asked for a picture on a profile that answers in words, chat says which profile draws.**
+  It does not claim it cannot, and it does not offer to reroute the request itself, which it has
+  no power to do.
 
 **Also required:** stop/cancel, model and profile disclosure, a route-explanation link,
 usage/cost display, session history per configured retention, error and fallback presentation,
@@ -839,7 +856,14 @@ recursion. **Not required for MVP.**
 ```text
 /api/v1/health   /api/v1/events   /api/v1/chat      /api/v1/diagnostics
 /api/v1/system   /api/v1/traces   /api/v1/settings  /api/v1/services
+/api/v1/documents
 ```
+
+`/api/v1/documents` hands back a file NERVIS wrote, from the workspace and nowhere else, on an
+extension allowlist rather than a denylist — a workspace is a directory a person chose, and the
+interesting files in one are the ones nobody thought to forbid. PDFs and markdown are served as
+downloads; images are served `inline`, because a download prompt in place of the picture a
+conversation is showing is the browser being helpful in the one way nobody asked for.
 
 Plus the MEP `/ecosystem/*` surface. **Most specialized data stays fetched from the
 authoritative service.**
@@ -847,7 +871,7 @@ authoritative service.**
 ```text
 Service · ServiceInstance · HealthSnapshot
 Event · Trace · TraceSpan
-ChatConversation · ChatMessage
+ChatConversation · ChatMessage · ChatAttachment
 WorkspaceReference · DiagnosticAnalysis
 Setting
 ```

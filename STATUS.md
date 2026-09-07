@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2522 tests, no network, no live service
+.venv/bin/pytest                      # part of 2545 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1007 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1019 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2522 passing across the four, conformance `PASS`.
+Expected: all clean, 2545 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -86,7 +86,7 @@ into the order work actually happens.
 |---|---|---|
 | 1 | **M0** | Package, config, SQLite + migrations, structured logging, CLI, `/ecosystem/*` MEP surface, §4.4 admission control, §9.6.0 identity |
 | 2 | **M1** | Transparent `/v1/models` and `/v1/chat/completions`, streaming, cancellation |
-| 3 | **M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 Stage 2 checks (16 today; M12 added §8.8's Stage 3 four) |
+| 3 | **M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 Stage 2 checks (23 today; M12 added §8.8's Stage 3 four) |
 | 4 | **M3a** | `ProviderAdapter` protocols, normalized request/response/stream shapes, capability discovery |
 | 5 | **M5** | The 13 virtual pools, route resolution, route explanations |
 | 6 | **M14** *(observation half)* | Residency preference, memory-pressure route change |
@@ -15387,6 +15387,108 @@ window the runtime did not serve; `OLLAMA_CONTEXT_LENGTH` in the environment
 moves both and they cannot drift apart. Confirmed after a restart: RAVIS
 reports 32,768 for both local models, which is now what Ollama actually
 loads them with.
+
+## Pictures, both directions — and three defects between the ask and the picture, 2026-09-07
+
+*"Since we have vision enabled now in NERVIS, can we enable uploading pictures
+into chat, and generating images in there that we can download?"* Answered in
+full, and the interesting part is what stood between the question and a picture.
+
+**Emitting an image is not vision.** A model that reads a page and a model that
+draws one share a word and nothing else, so RAVIS gained `Capability.IMAGE_OUT`
+beside `VISION`, read from OpenRouter's `architecture.output_modalities`, and a
+pool that requires it. Eleven models in the live catalogue advertise it — six
+Gemini, three GPT, and OpenRouter's two auto-routers.
+
+**Defect one: the translated path threw the picture away.** Measured before any
+of this was built — `models/gemini-2.5-flash-image` answered a drawing request
+with `200` and the content *"Here you go: "*. The picture was in an `inlineData`
+part beside that text and `ravis/src/ravis/providers/google_wire.py` kept only
+the parts it recognised,
+while the same model through OpenRouter's transparent path returned a 104 KB
+PNG. **Which route RAVIS chose decided whether the caller got an image**, which
+is the one difference a gateway exists to remove. `NormalizedResponse.images`, a
+stream event and an `images` array on the OpenAI-shaped output now carry it, in
+OpenRouter's spelling because that is what callers already parse.
+
+**Defect two: the new pool held nothing that draws.** Shipped, then asked for a
+red circle, and it answered in words. `image` sits in `NOT_CHAT` because an
+embedding endpoint cannot serve a chat completion — an argument that does not
+reach a model which answers one with a picture beside its text, so every model
+that actually draws was filtered out by its own name. The word is now lifted for
+a pool requiring image output and no other.
+
+**Defect three: what was left was a router, not a drawer.** `openrouter/auto`
+advertises `image` because something behind it can draw, then picks the model
+itself: asked for the same red circle it chose `z-ai/glm-5.2` and answered in
+words. Its capability is a claim about somebody else's routing decision, which
+is the one thing a pool can neither verify nor fall back from. Excluded by name.
+
+The native Google models stay out on purpose. That catalogue publishes no
+output modalities at all — `models/gemini-2.5-flash-image` lists only
+`generateContent` — so the capability is UNKNOWN and fails closed. Naming one
+directly still works, which is what the translation fix is for.
+
+**On the NERVIS side the recurring shape was "an image is not text".** A picture
+attached to a conversation has no text version, so it is the whole reading
+rather than an addition to one — which is why the *Show the model a PDF's pages*
+switch does not apply to it. That switch exists so a document can be read
+without paying for vision, and a document keeps its text when the pictures are
+dropped; applying it to a photograph would answer *"what is in this photo"* from
+a prompt containing no photo. Five megabytes is the ceiling, and above it the
+refusal says *resize it* rather than truncating, because half a picture is a
+corrupt file rather than a smaller one.
+
+**A drawn picture had to become a file.** It arrives as a megabyte of base64 in
+one stream frame and the reply a conversation stores is text, so it is written
+into the workspace and linked from the reply — which gives one answer three
+things at once: something to show now, the same thing after a reload, and a
+file to download. `/api/v1/documents` serves image types now, and serves them
+`inline`: `attachment` on the picture a conversation is showing replaces it
+with a download prompt.
+
+**The link went out behind `[DONE]` the first time**, where no client reading a
+stream would ever see it. The file was written, the reply stored it, and the
+browser showed nothing. Emitted before the terminator now, with a test that
+fails on the ordering alone.
+
+**One exception to the renderer's "no links and no images" rule**, cut as
+narrowly as it goes: NERVIS's own documents endpoint, a bare filename, an image
+suffix, nothing else on the line. `tools/picture_check.js` proves the saved link
+renders *and* that eight other shapes stay text — another host, a
+protocol-relative host, a traversal, a query string, a `javascript:`
+destination. Nothing else in the repository would have noticed that widening.
+
+**Then chat denied it could do any of it.** Asked to draw a cat on the default
+profile: *"I can't draw images myself"*, followed by an offer to route the
+request to a hosted model, which it cannot do. Both halves wrong, and the same
+failure `capabilities_line` already exists to prevent for buttons. A turn that
+asks for a picture through a profile answering in words now carries one sentence
+naming the Image generation profile. *Draw* is the hard word — *"what conclusion
+would you draw from that"* — so both idiom shapes are excluded, objects and
+prepositions, each with its own falsifier.
+
+**Verified against the running stack rather than in tests alone**, twice. First
+end to end: a red circle asked for through chat came back from
+`google/gemini-2.5-flash-image` as a 1024×1024 PNG, saved and downloaded, and
+the same file attached back was described correctly. Then both directions in one
+conversation on `ravis/draw` — an attached triangle described, an orange circle
+drawn, and the attached triangle redrawn in red *from the picture itself*. Every
+model in that pool reads images as well as emitting them, so one profile serves
+both. Changing profile between turns does change the model: the same
+conversation went to `amazon/nova-2-lite-v1` for the reading and to
+`google/gemini-2.5-flash-image` for the drawing, so session affinity is a
+preference rather than a pin.
+
+**A last one found by watching it rather than by testing it.** A 1024-pixel
+image filled the bubble and pushed the reply off screen. The first cap used
+`min(46vh, 420px)` and rendered the picture two pixels square: `vh` resolves
+against a viewport, the pane being driven reported none, and `object-fit:
+contain` obligingly fitted the image into zero. A fixed pixel cap has no such
+dependency.
+
+RAVIS 992 -> 995 tests, NERVIS 1007 -> 1019, `ruff` and `mypy` clean in both.
+NERVIS 0.24.0, RAVIS 0.22.0.
 
 ## Starting the thing
 

@@ -357,9 +357,9 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, eight of them became automated:
+Since this list was written, twelve of them became automated:
 
-- **`node tools/render_check.js`** renders all 35 screens with nothing running
+- **`node tools/render_check.js`** renders all 36 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
   render. **Runs in CI.**
 - **`python3 ../tools/check_dead_code.py`** finds definitions and dataclass
@@ -375,13 +375,23 @@ Since this list was written, eight of them became automated:
   was written here before it was true, and is a small instance of the last
   paragraph of this section.
 - **`node tools/injection_check.js`** wraps every `API` method so its answer
-  carries a hostile payload in every string, renders all 35 screens, and fails
+  carries a hostile payload in every string, renders all 36 screens, and fails
   if a tag the page did not write reaches the markup. It fails the other way
   too, on markup the page escaped into text — which is the half that makes
   fixing the first half safe to attempt, and the half no security check looks
   for. A one-sided ratchet: 28 sites when it was written, and it may only fall.
   **Runs in CI.**
-- **`node tools/empty_world_check.js`** renders all 35 screens against services
+- **`node tools/picture_check.js`** holds the renderer's one exception to *no
+  links and no images*. A picture a model drew is saved into the workspace and
+  linked from the reply, and that link has to render as the image or the whole
+  feature is a filename — so the check proves it does, and proves eight other
+  shapes stay text: another host, a protocol-relative host, a traversal, a query
+  string, a `javascript:` destination, a non-image suffix, an ordinary markdown
+  link. The sibling of `injection_check.js`: both are about markup the page did
+  not write, and this is the half that would otherwise be nobody's job, because
+  a renderer that quietly widened would hand any model an `<img src>` pointing
+  wherever it liked. **Runs in CI.**
+- **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
 - **`node tools/recovery_check.js`** renders every screen with the services down,
@@ -390,13 +400,13 @@ Since this list was written, eight of them became automated:
   at 60 requests a minute, so a screen it flags may simply have been refused.
   Confirm a finding in a browser before believing it; all three it flagged on
   its first useful run recovered correctly when driven by hand.
-- **`node tools/honesty_check.js`** renders all 35 screens twice — once with
+- **`node tools/honesty_check.js`** renders all 36 screens twice — once with
   nothing running, once against whatever is up — and compares the badges. A card
   whose body changes between the passes was fed by a service; if it is not
   badged live, it is understating. A card badged live in the *dark* pass claims
   a live read with nothing to read from. **Not in CI**, because which services
   happen to be up changes the answer.
-- **`node tools/routing_check.js`** builds each of the 35 screens' addresses,
+- **`node tools/routing_check.js`** builds each of the 36 screens' addresses,
   parses them back, and requires the same screen out — then checks that an
   address naming no screen resolves to one that exists *and says so*. The view
   it exists for is `Run & debug`: an unencoded `&` ends the fragment and the
@@ -455,11 +465,12 @@ wolf trains you to ignore it. It was replaced with a real per-namespace check in
 
 ```bash
 python3 tools/check.py                              # parse · braces · duplicate API methods
-node tools/render_check.js                          # all 35 screens render with nothing up
+node tools/render_check.js                          # all 36 screens render with nothing up
 node tools/complexity_check.js                      # every function under 13
 node tools/liveness_check.js                        # the hardcoded-card ratchet
 node tools/shaping_check.js                         # adapters shape payloads as before
 node tools/injection_check.js                       # provider data cannot write markup
+node tools/picture_check.js                         # a drawn picture renders; nothing else does
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly
