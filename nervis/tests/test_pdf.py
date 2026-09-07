@@ -438,3 +438,95 @@ def test_an_empty_conversation_still_makes_a_readable_file() -> None:
 
     assert out.pages == 1
     assert out.data.startswith(b"%PDF-1.4")
+
+
+# ── tables ────────────────────────────────────────────────────────────────────
+
+
+TABLE = """| Tool | Purpose | Effect |
+|------|---------|--------|
+| logs.query | Read bounded, redacted log windows by service and severity. | Read-only |
+| ravis.routes | Read route decisions and provider health. | Read-only |
+"""
+
+
+def _tables_in(data: bytes) -> list[list[list[str | None]]]:
+    import pdfplumber
+    with pdfplumber.open(io.BytesIO(data)) as opened:
+        return [table.extract() for table in opened.pages[0].find_tables()]
+
+
+def test_a_markdown_table_is_drawn_as_a_real_grid() -> None:
+    """Not text with pipes in it: a grid another reader can find and extract,
+    which is the whole difference between a table and a picture of one."""
+    found = _tables_in(render("Report", TABLE).data)
+
+    assert len(found) == 1
+    assert found[0][0] == ["Tool", "Purpose", "Effect"]
+    assert found[0][1][0] == "logs.query"
+    assert len(found[0]) == 3
+
+
+def test_the_separator_row_is_never_drawn() -> None:
+    text = PdfReader(io.BytesIO(render("Report", TABLE).data)).pages[0].extract_text()
+
+    assert "---" not in text and "|---" not in text
+
+
+def test_prose_containing_a_pipe_is_not_a_table() -> None:
+    """The falsifier. `a | b` is an ordinary sentence about alternatives, and
+    a renderer that drew every line with a pipe as a grid would turn prose
+    into furniture. A separator row is what makes a table."""
+    body = "Choose a | b when it matters.\n\nAnother line | with a pipe.\n"
+
+    rendered = render("Report", body)
+
+    assert _tables_in(rendered.data) == []
+    assert "Choose a | b when it matters." in (
+        PdfReader(io.BytesIO(rendered.data)).pages[0].extract_text()
+    )
+
+
+def test_a_column_keeps_its_longest_word_whole() -> None:
+    """The bug the column floor exists for, in the shape that actually
+    reproduces it: a column holding one long identifier but little total text,
+    beside a column of sentences. Weighting alone gives it a sliver and breaks
+    the identifier — measured, `diagnostics.buil` / `d_packet`."""
+    body = (
+        "| Endpoint | What it does |\n|---|---|\n"
+        "| diagnostics.build_packet | Builds it. |\n"
+        "| x | Read bounded, redacted log windows by service, severity, time and"
+        " correlation id, then hand them on to whoever asked. |\n"
+    )
+
+    cells = _tables_in(render("Report", body).data)[0]
+
+    assert cells[1][0] == "diagnostics.build_packet", "the identifier is not broken in half"
+    assert "\n" in (cells[2][1] or ""), "the long sentence still wraps between words"
+
+
+def test_a_short_row_still_draws_a_full_grid() -> None:
+    """People leave the last cell off. Padding it here turned out to be
+    unnecessary — reportlab fills a short row itself, measured rather than
+    assumed — but the outcome is what matters and is worth pinning."""
+    body = "| A | B | C |\n|---|---|---|\n| one | two |\n"
+
+    found = _tables_in(render("Report", body).data)
+
+    assert len(found) == 1
+    assert found[0][1] == ["one", "two", ""]
+
+
+def test_a_table_carries_the_documents_own_heading_colour_in_its_header() -> None:
+    profile = StyleProfile(
+        page_width=612, page_height=792, margin_left=54, margin_top=54,
+        margin_right=54, margin_bottom=54, body_family="Times-Roman", body_size=11,
+        heading_family="Times-Roman", heading_size=17, text_colour=(0.1, 0.1, 0.1),
+        heading_colour=(0.8, 0.1, 0.1), background_colour=(1, 1, 1),
+        rule_colour=(0.5, 0.5, 0.5),
+    )
+
+    rendered = render("Report", TABLE, profile)
+
+    assert "/Times-Bold" in _fonts(rendered.data), "the header row is set bold"
+    assert _tables_in(rendered.data)[0][0][0] == "Tool"

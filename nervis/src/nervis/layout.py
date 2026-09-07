@@ -33,6 +33,7 @@ class Kind(str, Enum):
     PARAGRAPH = "paragraph"
     BLANK = "blank"
     CODE = "code"
+    TABLE_ROW = "table_row"
 
 
 @dataclass(frozen=True)
@@ -75,14 +76,33 @@ class Block:
     spans: tuple[Span, ...] = ()
     #: Heading level, 1 the largest. Zero for everything else.
     level: int = 0
-    #: The marker a list item is drawn with — a number keeps its own.
+    #: The marker a list item is drawn with — a number keeps its own. A table
+    #: row uses it for `header`, which is the only thing a row is or is not.
     marker: str = ""
+    #: A table row's cells. Empty for everything else.
+    #:
+    #: **A row is one block, and `spans` still holds it as text.** A renderer
+    #: that draws a real grid reads `cells`; every other consumer — the
+    #: transcript exporter measuring lines, anything counting words — reads
+    #: `spans` and gets the row as `a | b | c`, which is what it always got
+    #: from a markdown table before this existed. Adding structure did not
+    #: take the old reading away.
+    cells: tuple[tuple[Span, ...], ...] = ()
 
 
 _HEADING = re.compile(r"^(#{1,4})\s+(.*)$")
 _BULLET = re.compile(r"^\s*[-*+•]\s+(.*)$")
 _NUMBERED = re.compile(r"^\s*(\d{1,3})[.)]\s+(.*)$")
 _FENCE = re.compile(r"^\s*```")
+
+#: A markdown table row: at least one pipe, with content between the outer
+#: ones. The leading and trailing pipes are optional, which is how people
+#: actually write them.
+_TABLE_ROW = re.compile(r"^\s*\|?(?:[^|\n]*\|)+[^|\n]*\|?\s*$")
+
+#: The `|---|:--:|` line under a header. Its presence is what makes the rows
+#: around it a table at all — a sentence containing a pipe is not one.
+_TABLE_RULE = re.compile(r"^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$")
 
 # `**bold**`. Non-greedy and requiring content, so `**` alone is not a marker
 # and a line of asterisks stays a line of asterisks.
@@ -283,36 +303,94 @@ def parse(text: str) -> list[Block]:
         if fenced:
             blocks.append(Block(Kind.CODE, (Span(line),)))
             continue
-
-        if not line.strip():
-            blocks.append(Block(Kind.BLANK))
+        if _TABLE_RULE.match(line):
+            # The rule itself is never drawn: it says the row above was a
+            # header, which is the one thing a table row is or is not.
+            if blocks and blocks[-1].kind is Kind.TABLE_ROW:
+                blocks[-1] = replace(blocks[-1], marker="header")
             continue
+        blocks.append(_block_of(line))
 
-        heading = _HEADING.match(line)
-        if heading:
-            blocks.append(Block(
-                Kind.HEADING, _spans(heading.group(2).strip()), level=len(heading.group(1))
-            ))
+    return _collapse(_settled(blocks))
+
+
+def _block_of(line: str) -> Block:
+    """One line of prose as the block it is.
+
+    Split from `parse` at the complexity gate, which was pointing at exactly
+    what it usually points at: a loop doing two jobs. `parse` now owns the
+    things that need the lines *around* them — a fence being open, a rule
+    naming the row above it — and this owns the ones a line answers alone.
+    """
+    if not line.strip():
+        return Block(Kind.BLANK)
+
+    heading = _HEADING.match(line)
+    if heading:
+        return Block(
+            Kind.HEADING, _spans(heading.group(2).strip()), level=len(heading.group(1))
+        )
+
+    numbered = _NUMBERED.match(line)
+    if numbered:
+        return Block(
+            Kind.NUMBERED, _spans(numbered.group(2).strip()), marker=f"{numbered.group(1)}."
+        )
+
+    bullet = _BULLET.match(line)
+    if bullet:
+        # A middle dot rather than a bullet: Latin-1 carries `·` and not
+        # `•`, and the base-14 encoding is what the PDF writer can express.
+        # A visible dot beats a substituted question mark.
+        return Block(Kind.BULLET, _spans(bullet.group(1).strip()), marker="·")
+
+    if "|" in line and _TABLE_ROW.match(line):
+        cells = _row_cells(line)
+        return Block(
+            Kind.TABLE_ROW,
+            _spans(" | ".join(cell.strip() for cell in cells)),
+            cells=tuple(_spans(cell.strip()) for cell in cells),
+        )
+
+    return Block(Kind.PARAGRAPH, _spans(line.strip()))
+
+
+def _row_cells(line: str) -> list[str]:
+    """One table line's cells, outer pipes dropped."""
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return stripped.split("|")
+
+
+def _settled(blocks: list[Block]) -> list[Block]:
+    """Rows that turned out not to be a table become paragraphs again.
+
+    **A separator line is what makes a table.** Markdown says so, and it is
+    also the only defensible rule here: `a | b` is a perfectly ordinary
+    sentence about alternatives, and a renderer that drew every line
+    containing a pipe as a grid would turn prose into furniture. So rows are
+    collected optimistically while parsing and a run without a header is put
+    back, unchanged — the `spans` they carry are the line's own text.
+    """
+    out: list[Block] = []
+    index = 0
+    while index < len(blocks):
+        if blocks[index].kind is not Kind.TABLE_ROW:
+            out.append(blocks[index])
+            index += 1
             continue
-
-        numbered = _NUMBERED.match(line)
-        if numbered:
-            blocks.append(Block(
-                Kind.NUMBERED, _spans(numbered.group(2).strip()), marker=f"{numbered.group(1)}."
-            ))
-            continue
-
-        bullet = _BULLET.match(line)
-        if bullet:
-            # A middle dot rather than a bullet: Latin-1 carries `·` and not
-            # `•`, and the base-14 encoding is what the PDF writer can express.
-            # A visible dot beats a substituted question mark.
-            blocks.append(Block(Kind.BULLET, _spans(bullet.group(1).strip()), marker="·"))
-            continue
-
-        blocks.append(Block(Kind.PARAGRAPH, _spans(line.strip())))
-
-    return _collapse(blocks)
+        start = index
+        while index < len(blocks) and blocks[index].kind is Kind.TABLE_ROW:
+            index += 1
+        run = blocks[start:index]
+        if any(block.marker == "header" for block in run):
+            out.extend(run)
+        else:
+            out.extend(replace(block, kind=Kind.PARAGRAPH, cells=()) for block in run)
+    return out
 
 
 def _collapse(blocks: list[Block]) -> list[Block]:
@@ -427,6 +505,10 @@ STYLES: dict[Kind, Style] = {
     Kind.NUMBERED: Style(size=11, indent=16),
     Kind.CODE: Style(size=9.5, monospace=True, indent=12, colour=CYAN, tint=PANEL),
     Kind.BLANK: Style(size=11),
+    # A shade smaller than prose: a table is read by scanning columns, and a
+    # size that fits more of one across the measure is worth more than one
+    # that matches the paragraph beside it.
+    Kind.TABLE_ROW: Style(size=10),
 }
 
 HEADING_SIZES: dict[int, float] = {1: 17, 2: 15, 3: 12, 4: 11}

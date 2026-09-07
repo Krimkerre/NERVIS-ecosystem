@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2508 tests, no network, no live service
+.venv/bin/pytest                      # part of 2514 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 997 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1003 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2508 passing across the four, conformance `PASS`.
+Expected: all clean, 2514 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15241,9 +15241,46 @@ decision recorded "vision REQUIRED (the request contains an image)" against
 a vision-capable model it selected for that reason. One second to scan
 forty-two pages, eighty milliseconds to render six.
 
-997 tests (was 946): thirty-two for placing, page selection and the icon,
-twenty-one for the offer, the three buttons, the soft default, the vision
-gate and which reply's comments they take. `ruff` and `mypy` clean.
+**And the last piece of the plan: tables in the renderer.** `pdf.py`'s own
+docstring had listed "no tables" among what the hand-rolled writer could not
+do since it was written, and the reportlab rewrite never closed it — a
+markdown table saved to PDF came out as lines of text with pipes in them.
+`layout.parse` now reads table rows into their own `Kind`, one block a row,
+with the cells beside the text: a renderer drawing a grid reads `cells`,
+and every other consumer — the transcript exporter measuring lines — reads
+`spans` and gets `a | b | c`, exactly what it got before. `pdf._story`
+groups consecutive rows into a reportlab `Table`, which is the same idiom it
+already used for fenced code.
+
+Three rules, and two of them had to be corrected by measurement:
+
+*A separator row is what makes a table.* `a | b` is an ordinary sentence
+about alternatives, so rows are collected optimistically and a run with no
+`|---|` header is put back as paragraphs. Falsified: removing the check
+turns prose into furniture.
+
+*No column narrower than its own longest word.* The first version floored
+every column at twelve percent of the measure, which wrapped `ravis.routes`
+to `ravis.route` / `s`. The floor is now what the column's longest word
+actually measures in the font it is drawn in — and the falsifier had to be
+found by measurement too, because the three-column case that first showed
+the bug stopped reproducing once the weighting changed. The case that does
+prove it is a column holding one long identifier beside a column of
+sentences: without the floor, `diagnostics.buil` / `d_packet`.
+
+*Ragged rows.* A padding helper was written on the stated grounds that
+"reportlab refuses a ragged table outright". It does not — checked directly,
+padded and unpadded produce byte-identical structure — so the helper is
+deleted and the test now pins the outcome rather than the mechanism. A
+justification nobody verified is worse than none, because it reads as
+evidence.
+
+Live: asked chat for a table of the four services and pressed Save; the
+saved PDF holds a grid pdfplumber extracts as five rows by three columns.
+
+1003 tests (was 946): thirty-two for placing, page selection and the icon,
+twenty-one for the offer, the three buttons, the soft default and the vision
+gate, six for tables. `ruff` and `mypy` clean.
 
 ## Starting the thing
 

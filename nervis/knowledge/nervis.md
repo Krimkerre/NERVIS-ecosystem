@@ -120,6 +120,14 @@ live on a 42-page blueprint: asked to list a nine-row table exactly as
 given, chat returned every row correctly, and the routing decision recorded
 "vision REQUIRED (the request contains an image)".
 
+Also that day: **a markdown table in a reply is drawn as a real table** in a
+saved PDF — a grid with ruled cells another reader can extract, not a line of
+text with pipes in it. Columns are weighted by how much text each holds, so a
+column of sentences gets the room and a column of one-word answers does not
+take it, and no column is ever narrower than its own longest word. A
+separator row (`|---|---|`) is what makes a table: a sentence that happens to
+contain a pipe stays a sentence.
+
 **Annotating an attached document — the thing all of the above was for.**
 Somebody attaches a PDF, chat reads it and has opinions, and they want a new
 file with the original *and* the opinions in it. That used to produce a file

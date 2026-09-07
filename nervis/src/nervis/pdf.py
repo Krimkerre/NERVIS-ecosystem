@@ -40,6 +40,7 @@ from xml.sax.saxutils import escape as _xml_escape
 from pypdf import PdfReader
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (
     Flowable,
@@ -47,6 +48,8 @@ from reportlab.platypus import (
     Paragraph,
     SimpleDocTemplate,
     Spacer,
+    Table,
+    TableStyle,
 )
 
 from nervis import layout
@@ -565,6 +568,105 @@ class _CodeBlock(Flowable):
             y -= self._leading
 
 
+#: The padding inside a table cell, in points, and the rule between them.
+CELL_PAD = 4.0
+CELL_RULE = 0.4
+
+
+def _widest_word(cells: list[tuple[Span, ...]], profile: StyleProfile, size: float) -> float:
+    """The narrowest this column can be without breaking a word in half.
+
+    **Measured, not guessed at as a share.** The first version floored every
+    column at twelve percent of the measure, which on a three-column table
+    put `ravis.routes` in fifty-five points and wrapped it to `ravis.route` /
+    `s` — a share is a guess about content, and the actual constraint is that
+    a cell wraps between words and never inside one. So the floor is what the
+    column's longest word actually measures in the font it is drawn in.
+    """
+    widest = 0.0
+    for cell in cells:
+        for span in cell:
+            for word in span.text.split():
+                face = _base14_face(profile.body_family, span.bold, span.italic)
+                widest = max(widest, stringWidth(word, face, size))
+    return widest + 2 * CELL_PAD
+
+
+def _column_widths(
+    rows: list[Block], columns: int, profile: StyleProfile, width: float, size: float
+) -> list[float]:
+    """How wide each column is drawn.
+
+    Weighted by how much text a column holds, so a `Purpose` of sentences
+    earns more room than a `Read-only` of two words — an even split is a
+    stack of wrapped fragments beside acres of white, and the whole reason to
+    draw a grid is that the eye can run down it. Every column keeps at least
+    its longest word, and the weighting shares out what is left.
+
+    A table whose words alone overflow the page gets proportional columns and
+    wraps mid-word, which is the honest outcome: the alternative is drawing
+    past the margin, and reportlab would do that silently.
+    """
+    per_column = [
+        [row.cells[index] for row in rows if index < len(row.cells)]
+        for index in range(columns)
+    ]
+    floors = [_widest_word(cells, profile, size) for cells in per_column]
+    if sum(floors) >= width:
+        total = sum(floors) or 1.0
+        return [width * floor / total for floor in floors]
+
+    weights = [
+        max(float(sum(len(span.text) for span in cell)) for cell in cells) if cells else 1.0
+        for cells in per_column
+    ]
+    spare = width - sum(floors)
+    total = sum(weights) or 1.0
+    return [floor + spare * weight / total for floor, weight in zip(floors, weights)]
+
+
+def _table(rows: list[Block], profile: StyleProfile, width: float) -> Table:
+    """One run of table rows as a drawn grid.
+
+    **Cells are paragraphs, so they wrap.** A table of strings sized to fit
+    its longest cell is a table that runs off the page the first time
+    somebody writes a sentence in one, which is most tables — and reportlab
+    only wraps what it is given as a flowable.
+
+    `_column_widths` decides how wide each one is drawn.
+    """
+    body = _paragraph_style(Block(Kind.TABLE_ROW), profile)
+    head = ParagraphStyle("cell-head", parent=body, fontName=_base14_face(
+        profile.body_family, True, False), textColor=colors.Color(*profile.heading_colour))
+
+    columns = max(len(row.cells) for row in rows)
+    # The size cells are actually drawn at, asked of the style that draws
+    # them rather than recomputed — two answers to that question would
+    # disagree the first time a template changed its body size.
+    widths = _column_widths(rows, columns, profile, width, body.fontSize)
+
+    drawn = [
+        [Paragraph(_markup(cell), head if row.marker == "header" else body)
+         # Ragged rows need no padding here: reportlab fills a short row
+         # itself, measured rather than assumed — an earlier version padded
+         # them on the stated grounds that it "refuses a ragged table
+         # outright", which it does not.
+         for cell in row.cells]
+        for row in rows
+    ]
+    table = Table(drawn, colWidths=widths, repeatRows=1 if rows[0].marker == "header" else 0)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), CELL_RULE, colors.Color(*profile.rule_colour)),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), CELL_PAD),
+        ("RIGHTPADDING", (0, 0), (-1, -1), CELL_PAD),
+        ("TOPPADDING", (0, 0), (-1, -1), CELL_PAD * 0.7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), CELL_PAD * 0.7),
+    ]))
+    return table
+
+
+
 def _story(blocks: list[Block], profile: StyleProfile) -> list[Flowable]:
     """`layout.parse()`'s blocks, as a reportlab Platypus story.
 
@@ -584,6 +686,13 @@ def _story(blocks: list[Block], profile: StyleProfile) -> list[Flowable]:
                 index += 1
             story.append(_CodeBlock(run, profile))
             continue
+        if block.kind is Kind.TABLE_ROW:
+            rows: list[Block] = []
+            while index < len(blocks) and blocks[index].kind is Kind.TABLE_ROW:
+                rows.append(blocks[index])
+                index += 1
+            story.append(_table(rows, profile, _measure_width(profile)))
+            continue
         if block.kind is Kind.BLANK:
             story.append(Spacer(1, style_for(block).size * LEADING * 0.55))
             index += 1
@@ -591,6 +700,11 @@ def _story(blocks: list[Block], profile: StyleProfile) -> list[Flowable]:
         story.extend(_paragraph(block, profile))
         index += 1
     return story
+
+
+def _measure_width(profile: StyleProfile) -> float:
+    """The width a flowable actually has, which is the page less its margins."""
+    return profile.page_width - profile.margin_left - profile.margin_right
 
 
 def _paint_background(profile: StyleProfile, canvas_: rl_canvas.Canvas, _doc: Any) -> None:
