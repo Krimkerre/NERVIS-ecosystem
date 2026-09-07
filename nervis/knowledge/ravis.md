@@ -39,6 +39,18 @@ asked to be fast. Between two free models the one that costs no network wins.
 Hosted models are ranked on published price per million tokens; local models on
 size, because size is the only cost a local model has.
 
+**A context window is what the runtime serves, not what the model could hold.**
+Ollama publishes the *architecture's* maximum — 128,000 for `qwen2.5vl` — while
+loading the model at its own default, and RAVIS believed the larger number until
+7 September 2026. A 25,000-token request was handed to a model holding 4,096,
+and the runtime evaluated the first 2,050 of them and answered as though it had
+read everything. RAVIS now reads `/api/ps`, which reports the window a resident
+model actually has, and reports a cold model at the default it will be loaded
+with rather than at its maximum. This machine starts Ollama with 32,768, and
+RAVIS is told the same number by the launcher so the two cannot disagree. A
+document larger than that is now refused with *"context window 32768 < estimated
+N tokens needed"* rather than quietly truncated.
+
 **Never a reseller when the maker is reachable.** An aggregator like OpenRouter
 sells other companies' models with a margin on top. When the vendor's own
 provider is configured and usable, its models rank ahead of the aggregator's
@@ -64,6 +76,31 @@ rather than picking a model.
 - `ravis/agent` — tools required
 - `ravis/vision` — image input required; chat's save-time visual check uses it
 - `ravis/clarvis-chat`, `ravis/clarvis-agent` — Clarvis's two roles
+
+## What the local models on this machine are actually good for
+
+Measured on 7 September 2026 rather than assumed, because "use local" and "use
+the cloud" are usually argued rather than tested. This machine runs
+`qwen2.5vl:3b` (vision), `llama3.2:3b` and two embedding models — all small.
+
+**Bounded jobs: local, and it works.** The save-time layout glance on a PDF runs
+on `qwen2.5vl:3b` and correctly named a real defect in a deliberately broken
+page. Embeddings for chat's own background retrieval run on `nomic-embed-text`.
+Both are single-purpose, small-input tasks, and they are free, private and fast
+enough.
+
+**Long documents needing synthesis: not local, on this hardware.** Asked for its
+thoughts on a 42-page blueprint — about 25,000 tokens plus six rendered pages —
+`qwen2.5vl:3b` took four and a half minutes and returned twenty-six characters
+of nothing. The same question routed to a hosted model returned four thousand
+characters citing the document's actual concurrency model and offline profile. A
+3B model given that much dense material spreads its attention too thin; the
+context window was not the limit, capability was.
+
+So the honest split is by *size of job*, not by principle: bounded work stays on
+this machine, long synthesis goes wherever the request's requirements lead. That
+is also the argument for naming a **pool** rather than pinning a model — the
+right choice depends on what the request carries, which changes every turn.
 
 ## What it will not do
 

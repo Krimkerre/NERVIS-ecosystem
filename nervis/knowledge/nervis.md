@@ -136,6 +136,19 @@ take it, and no column is ever narrower than its own longest word. A
 separator row (`|---|---|`) is what makes a table: a sentence that happens to
 contain a pipe stays a sentence.
 
+Also that day, from asking which model had actually done the work: **naming a
+pool beats pinning a model, and the switch above is the lever that matters.**
+Pinning `qwen2.5vl:3b` — the only local model that can see — put a 42-page
+blueprint through a 3B model, which took four and a half minutes and returned
+twenty-six characters of nothing; the pool routed the same question to a
+hosted model that answered in detail. What the local models on this machine
+*are* good for was measured rather than argued, and lives in the RAVIS notes
+beside this one. Chasing that comparison also found a real routing defect —
+RAVIS believed every Ollama model held 128,000 tokens while Ollama served
+4,096 — which would have quietly truncated documents no matter which model
+was chosen. Fixed, and the launcher now starts Ollama at 32,768 and tells
+RAVIS the same number.
+
 **Annotating an attached document — the thing all of the above was for.**
 Somebody attaches a PDF, chat reads it and has opinions, and they want a new
 file with the original *and* the opinions in it. That used to produce a file
