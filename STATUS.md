@@ -14936,23 +14936,31 @@ list, that branch could never fire again, and a branch that reads as live
 but cannot run is exactly what a dead-code gate elsewhere in this repository
 exists to catch.
 
-**Live-verified, and the finding is more interesting than "it works."**
-Restarted the stack: `RAVIS upstreams defaulted to: lmstudio, ollama,
-openrouter, openai`, and `/api/v1/providers` correctly shows `lmstudio`
-unreachable (LM Studio was not running) and `ollama` reachable with its real
-catalogue — `moondream`, pulled earlier the same session, genuinely appears
-in `ravis/vision`'s membership now. Addressed directly
+**Live-verified, and the first finding was more interesting than "it
+works."** Restarted the stack: `RAVIS upstreams defaulted to: lmstudio,
+ollama, openrouter, openai`, and `/api/v1/providers` correctly shows
+`lmstudio` unreachable (LM Studio was not running) and `ollama` reachable
+with its real catalogue — `moondream`, pulled earlier the same session,
+genuinely appeared in `ravis/vision`'s membership. Addressed directly
 (`ravis/ollama/moondream:latest`) with the same deliberately-broken test
 page from the visual-check work above, it answered — a real 200, real
 content — but did not follow the yes/no format at all, describing something
 that was not on the page. `verdict_of()` handled exactly this the way it was
 built to: a reply that does not lead with "yes" is read as "nothing to
 report" rather than guessed at, so a weak model's confusion came back as
-silence, not a false alarm. The infrastructure this was meant to fix is
-confirmed working end to end; whether `moondream` specifically is a good
-match for this task is a separate, open question — a small captioning model
-may simply be the wrong size for careful yes/no instruction-following, where
-the free hosted models tried earlier the same day already succeeded.
+silence, not a false alarm. The infrastructure was confirmed working; a
+1.7GB captioning model was simply the wrong tool for careful yes/no
+instruction-following, where the free hosted models tried earlier the same
+day had already succeeded.
+
+Sized up to `qwen2.5vl:3b` (3.2GB) and it closed the loop for real: the same
+broken page got back `"Yes: The text wraps to the edge of the page on the
+right side, causing part of the message to be cut off"` — the specific
+defect it named is not quite the one actually planted (two lines drawn on
+top of each other, not a right-edge overrun), but the format is followed
+exactly and a real problem is correctly flagged, and a clean page separately
+got a clean `"No"`. `moondream` was then deleted — `qwen2.5vl:3b` is the
+model this stack now actually keeps for the local vision path.
 
 No automated test covers this: `tools/run.py` is a launcher script with no
 test file of its own, verified here the only way it can be — against the
