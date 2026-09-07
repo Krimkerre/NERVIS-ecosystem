@@ -111,7 +111,8 @@ def _holding(root: Path, attachments: Path | None, named: str) -> Path:
 #: what missed *"i supplied **a** pdf here"* — and "a" was never going to be the
 #: last article anybody used.
 _A_DOCUMENT = re.compile(
-    r"\b(?:(pdf|csv|markdown|spreadsheet|log)|document|file|attachment|doc|docs)\b",
+    r"\b(?:(pdf|csv|markdown|spreadsheet|log|image|picture|photo|screenshot)"
+    r"|document|file|attachment|doc|docs)\b",
     re.IGNORECASE,
 )
 
@@ -243,8 +244,15 @@ def _attachment(place: Path, question: str) -> str:
 
 def _document(
     request: Request, question: str, conversation_id: str = ""
-) -> tuple[str, tuple[str, ...]]:
-    """The file this question names — read and fenced — and its rendered pages.
+) -> tuple[str, tuple[str, ...], bool]:
+    """The file this question names — read and fenced — its images, and their standing.
+
+    **Three products, because the images have two different standings.** Pages
+    rendered out of a PDF are an enrichment: the text is already in the reading
+    and dropping the pictures leaves a worse reading. A picture somebody
+    attached is the reading, and dropping it leaves nothing to answer from. The
+    third value says which, so the person's "don't send page images" switch can
+    apply to the first without silently emptying the second.
 
     **Two products from one read**, returned together because they come from
     one file and must not disagree: the fenced text says which pages are
@@ -263,18 +271,18 @@ def _document(
     """
     root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
     if not root:
-        return "", ()
+        return "", (), True
 
     target = _target(Path(root), question, conversation_id)
     if target is None:
-        return "", ()
+        return "", (), True
     if isinstance(target, str):
-        return target, ()
+        return target, (), True
     where, name, chosen = target
     return _reading(where, name, chosen)
 
 
-def _reading(where: Path, name: str, chosen: bool) -> tuple[str, tuple[str, ...]]:
+def _reading(where: Path, name: str, chosen: bool) -> tuple[str, tuple[str, ...], bool]:
     """One file, read and fenced, or the refusal that says which kind it is.
 
     Every failure is answered rather than swallowed: outside the workspace, not
@@ -285,25 +293,27 @@ def _reading(where: Path, name: str, chosen: bool) -> tuple[str, tuple[str, ...]
     try:
         document = documents.read_document(where, name)
     except OutsideWorkspaceError as refusal:
-        return f"The person named a file and it was refused: {refusal}. Say so plainly.", ()
+        return (
+            f"The person named a file and it was refused: {refusal}. Say so plainly.", (), True
+        )
     except FileNotFoundError as absent:
         return (
             f"The person named a file that is not there: {absent}."
             " Say so rather than guessing."
-        ), ()
+        ), (), True
     except ValueError as unreadable:
         return (
             f"The person named a file chat cannot read: {unreadable}."
             " Say which kinds it can."
-        ), ()
+        ), (), True
     except OSError as failure:
         return (
             f"The file could not be read ({type(failure).__name__})."
             " Say so; do not invent it."
-        ), ()
+        ), (), True
 
     if not chosen:
-        return document.as_reading(), document.images
+        return document.as_reading(), document.images, not document.picture
     # Said out loud, because NERVIS picked this file and the person did not. A
     # silently wrong pick is a confident answer about the wrong document, which
     # is the worst outcome available here.
@@ -312,4 +322,4 @@ def _reading(where: Path, name: str, chosen: bool) -> tuple[str, tuple[str, ...]
         f" most recently attached readable file in this conversation is"
         f" {document.shown}, so that is what is below. Name it in the answer, so"
         f" they can tell if it is the one they meant.\n\n{document.as_reading()}"
-    ), document.images
+    ), document.images, not document.picture

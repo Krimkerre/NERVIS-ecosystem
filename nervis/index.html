@@ -109,7 +109,7 @@
    the transcript needlessly short — which the routing popover made obvious, as
    it had less room than the panel needed. `--chat-h` is set on render from the
    card's own top offset; the fallback matters only for the first paint. */
-.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}
+.chat{display:flex;flex-direction:column;height:var(--chat-h,min(560px,72vh))}.messages{flex:1 1 auto;min-height:0;overflow-y:auto}.bubble{max-width:78%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin:7px 0;background:#121b24}.bubble p.md{margin:6px 0}.bubble p.md:first-of-type{margin-top:4px}.bubble p.md:last-child{margin-bottom:0}.bubble h3.md,.bubble h4.md,.bubble h5.md,.bubble h6.md{margin:10px 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8fa2b4}.bubble ul.md,.bubble ol.md{margin:6px 0;padding-left:18px}.bubble li{margin:2px 0}.bubble code{font:11.5px/1.5 "SFMono-Regular",monospace;background:rgba(255,255,255,.06);border-radius:3px;padding:1px 4px}.bubble pre.md{margin:7px 0;padding:9px 11px;background:#0a1118;border:1px solid var(--line);border-radius:6px;overflow-x:auto}.bubble pre.md code{background:0 0;padding:0}.bubble hr.md{border:0;border-top:1px solid rgba(255,255,255,.1);margin:9px 0}.bubble table.md{border-collapse:collapse;margin:7px 0;font-size:12px;display:block;overflow-x:auto;max-width:100%}.bubble table.md th,.bubble table.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;font-variant-numeric:tabular-nums}.bubble table.md th{color:#8fa2b4;font-weight:600}.bubble figure.md{margin:8px 0}.bubble figure.md img{display:block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:#0a1118}.bubble figure.md figcaption{margin-top:5px;font-size:11px;color:#8fa2b4;display:flex;gap:8px;align-items:center}.bubble figure.md a{color:#7fb3e8}.bubble.user{margin-left:auto;background:#173a61;border-color:#27598a}
 .chat-hint{max-width:520px;margin:14px auto;padding:14px 16px;border:1px dashed var(--line);border-radius:9px;color:var(--muted);font-size:12px;line-height:1.55}.chat-hint p{margin:0 0 8px}.chat-hint p:last-child{margin-bottom:0}/* The attach control. A label wrapping a hidden input rather than a button that
    clicks one: the label *is* the trigger, so there is no second element whose
    only job is to forward a click, and the keyboard reaches it for free. */
@@ -11990,17 +11990,42 @@ function mdHeading(lines,at){
 /* Consecutive non-empty lines are one paragraph, joined with breaks rather than
    spaces: a model that wrapped a caveat over two lines meant two lines. */
 function mdParagraph(lines,at){
- const opener=/^\s*(?:```|#{1,4}\s|[-*+]\s|\d+[.)]\s)/;
+ const opener=/^\s*(?:```|#{1,4}\s|[-*+]\s|\d+[.)]\s|!\[)/;
  const taken=[];let i=at;
  do{taken.push(lines[i]);i++}
  while(i<lines.length&&lines[i].trim()&&!opener.test(lines[i])&&!mdTable(lines,i));
  return {consumed:i-at,html:`<p class="md">${mdInline(taken.join('<br>'))}</p>`};
 }
 
+/* A picture NERVIS saved, and the one exception to "no links and no images".
+
+   A model that answers with an image sends a megabyte of base64 in a stream
+   frame; the reply a conversation stores is text, so NERVIS writes the picture
+   into the workspace and puts a link to it in the reply. That link has to
+   render as the picture or the whole feature is a filename.
+
+   **The destination is not the model's to choose**, which is what keeps the
+   rule above intact. Only one shape matches: NERVIS's own documents endpoint,
+   a bare filename of ordinary characters, an image suffix, and the whole line
+   being nothing else. Anything else — a different host, a path, a query, a
+   name with a slash in it — falls through to the paragraph renderer and is
+   shown as the text it is. So the worst a model can do by writing this exact
+   string is make the browser show an image already sitting in the workspace,
+   same-origin and read-only, which is a thing the person can see in the files
+   list anyway. */
+const MD_PICTURE=/^!\[([\w.\-]{0,120})\]\(\/api\/v1\/documents\/([\w.\-]{1,120}\.(?:png|jpe?g|gif|webp))\)$/i;
+function mdPicture(lines,at){
+ const found=MD_PICTURE.exec((lines[at]||'').trim());
+ if(!found)return null;
+ const src='/api/v1/documents/'+found[2];
+ return {consumed:1,html:`<figure class="md"><img src="${src}" alt="${found[1]||found[2]}">`
+   +`<figcaption>${found[2]}<a href="${src}" download="${found[2]}">Download</a></figcaption></figure>`};
+}
+
 /* Whichever block starts here. Ordered by how specific the opener is, and
    `mdParagraph` last because it accepts anything. */
 function mdBlock(lines,at){
- return mdFence(lines,at)||mdRule(lines,at)||mdHeading(lines,at)
+ return mdFence(lines,at)||mdRule(lines,at)||mdHeading(lines,at)||mdPicture(lines,at)
    ||mdTable(lines,at)||mdList(lines,at)||mdParagraph(lines,at);
 }
 

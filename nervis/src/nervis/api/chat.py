@@ -320,7 +320,9 @@ async def send(request: Request) -> Any:
     # before typing anything is the ordinary order of events — clip, then
     # question. The dashboard mints a stable id when the conversation opens, so
     # that is what attachments are filed under, from the very first turn.
-    opened, pages = _document(request, content, str(body.get("attachment_id") or ""))
+    opened, pages, optional = _document(
+        request, content, str(body.get("attachment_id") or "")
+    )
     awareness = "\n\n".join(part for part in (awareness, opened) if part)
     # **Two gates, and they answer different questions.**
     #
@@ -338,8 +340,13 @@ async def send(request: Request) -> Any:
     # capability turns an ordinary question about a document into a refusal to
     # route. The catalogue that answers this is the one already cached for the
     # reading, so it costs no call.
-    wanted = body.get("page_images", True) is not False
-    pages = pages if wanted and _can_see(await _catalogue(request)) else ()
+    #
+    # Both, and the third case an attached picture makes, live in
+    # `_pictures_for`.
+    pages, unseen = _pictures_for(
+        body, pages, optional=optional, sighted=_can_see(await _catalogue(request))
+    )
+    awareness += unseen
 
     # How the ecosystem works, when the question is about that rather than about
     # what it is doing right now.
@@ -863,6 +870,7 @@ async def _relay(
     database = request.app.state.database
     client: httpx.AsyncClient = request.app.state.probe_client
     collected: list[str] = []
+    drawn: list[str] = []
     model = ""
     interrupted = True
     # Whether RAVIS answered at all. Distinguishes "the model produced no text"
@@ -895,10 +903,23 @@ async def _relay(
                 # Appended unconditionally: `"".join` treats an empty string as
                 # nothing, so the guard bought a branch and no behaviour.
                 collected.append(text)
+                drawn.extend(_drawn(line))
                 model = model or _model_of(line)
+                # **Before `[DONE]`, not after it.** A client stops reading at
+                # the terminator, which is exactly what the first version got
+                # wrong: the link frame went out behind it and no browser ever
+                # saw the picture it had just waited for.
+                if done and drawn:
+                    yield _kept(request, drawn, collected, model)
+                    drawn = []
                 yield f"{line}\n\n".encode() if line else b"\n"
                 if done:
                     interrupted = False
+            if drawn:
+                # A stream that ended without a terminator — cancelled, or an
+                # upstream that simply stopped. The picture still arrived and
+                # is still worth keeping.
+                yield _kept(request, drawn, collected, model)
     except httpx.HTTPError as failure:
         yield _error_frame(f"RAVIS stopped answering: {type(failure).__name__}")
     finally:
@@ -951,6 +972,118 @@ def _delta(line: str) -> tuple[str, bool]:
     if not choices:
         return "", False
     return str((choices[0].get("delta") or {}).get("content") or ""), False
+
+
+def _pictures_for(
+    body: dict[str, Any], pages: tuple[str, ...], *, optional: bool, sighted: bool
+) -> tuple[tuple[str, ...], str]:
+    """Which images ride on this turn, and what to say when none can.
+
+    **The switch is about pages, not about pictures.** A picture somebody
+    attached *is* the reading — `documents.py` builds no text for one — so
+    applying the page switch to it would answer "what is in this photo" from a
+    prompt containing no photo, which is the confident wrong answer this whole
+    path exists to avoid. `optional` is false for exactly that case.
+
+    And when nothing available can see, that is said rather than done silently:
+    a model not told the picture was withheld simply answers anyway.
+    """
+    wanted = body.get("page_images", True) is not False or not optional
+    if pages and not sighted and not optional:
+        return (), (
+            "\n\nNo model available to this request can see images, so the"
+            " picture is not attached. Say that plainly — do not describe it."
+        )
+    return (pages if wanted and sighted else ()), ""
+
+
+def _drawn(line: str) -> list[str]:
+    """Every image a frame carries, as `data:` URLs.
+
+    **Not an OpenAI field.** Chat completions has no way to answer with a
+    picture, so there is no official spelling — this is OpenRouter's, an
+    `images` array of `image_url` parts, and it is the shape RAVIS emits on
+    both of its paths for exactly that reason. Measured through RAVIS on
+    7 September 2026 against `google/gemini-2.5-flash-image`,
+    `google/gemini-3.1-flash-image` and `openai/gpt-5-image-mini`: one delta,
+    one part, a megabyte of PNG.
+    """
+    if not line.startswith("data:"):
+        return []
+    body = line[5:].strip()
+    if body == "[DONE]":
+        return []
+    try:
+        frame = json.loads(body)
+    except ValueError:
+        return []
+    choices = frame.get("choices") or []
+    if not choices:
+        return []
+    found = []
+    for part in (choices[0].get("delta") or {}).get("images") or []:
+        url = ((part or {}).get("image_url") or {}).get("url") or ""
+        if isinstance(url, str) and url.startswith("data:image/"):
+            found.append(url)
+    return found
+
+
+def _kept(
+    request: Request, drawn: list[str], collected: list[str], model: str
+) -> bytes:
+    """Save the pictures this stream carried, and say where in one more frame.
+
+    **A picture has to become a file to survive the stream.** It arrives as a
+    megabyte of base64 in one frame; the reply NERVIS stores is text, and the
+    browser rebuilds its history from that text. Writing it into the workspace
+    gives one answer three things at once — something to show now, the same
+    thing after a reload, and a file the person can download, which is what
+    asking for a picture was for.
+    """
+    note = _saved_pictures(request, drawn)
+    collected.append(note)
+    return _text_frame(note, model)
+
+
+def _text_frame(text: str, model: str) -> bytes:
+    """One more content delta, from NERVIS rather than from the model.
+
+    The relay forwards RAVIS's frames untouched, and this is the one exception:
+    where the picture was saved is a fact only NERVIS knows, and a browser that
+    learned it any other way would need a second request to find out what it
+    had just watched arrive.
+    """
+    body = {
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
+    }
+    return b"data: " + json.dumps(body).encode() + b"\n\n"
+
+
+def _saved_pictures(request: Request, urls: list[str]) -> str:
+    """Write each generated image into the workspace; say where, or why not.
+
+    Markdown links rather than a sentence, because the same text is what the
+    browser renders now and what it renders after a reload — the reply NERVIS
+    stores is the only record either has, so the link has to live in it.
+    """
+    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not root:
+        return (
+            "\n\n_The model returned an image and NERVIS has no workspace"
+            " configured, so there was nowhere to save it._"
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    lines = []
+    for index, url in enumerate(urls, start=1):
+        try:
+            name = documents.store_picture(Path(root), f"image-{stamp}-{index}", url)
+        except (ValueError, OSError) as failure:
+            lines.append(f"_An image could not be saved ({failure})._")
+            continue
+        lines.append(f"![{name}](/api/v1/documents/{quote(name)})")
+    return "\n\n" + "\n\n".join(lines)
 
 
 def _model_of(line: str) -> str:

@@ -34,7 +34,25 @@ router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 #: writer produce and nothing else — an allowlist rather than a denylist,
 #: because the interesting files in somebody's workspace are the ones nobody
 #: thought to forbid.
-SERVED = {".pdf": "application/pdf", ".md": "text/markdown; charset=utf-8"}
+SERVED = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+#: Suffixes handed back to be *looked at* rather than saved.
+#:
+#: A generated image is shown in the conversation that produced it, and
+#: `Content-Disposition: attachment` on the `<img>` it is shown in is the
+#: browser being helpful in the one way nobody asked for — the picture is
+#: replaced by a download prompt. The download is still one click away, on the
+#: link beside it, because a same-origin `<a download>` does not need the
+#: header to say so.
+INLINE = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 
 @router.get("/{name:path}")
@@ -66,5 +84,7 @@ async def read_document(name: str, request: Request) -> FileResponse:
         found.path,
         media_type=SERVED[found.path.suffix.lower()],
         filename=found.path.name,
-        content_disposition_type="attachment",
+        content_disposition_type=(
+            "inline" if found.path.suffix.lower() in INLINE else "attachment"
+        ),
     )

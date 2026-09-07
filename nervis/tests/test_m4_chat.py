@@ -3251,21 +3251,23 @@ def test_an_empty_upload_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_listing_says_which_files_chat_can_actually_read(tmp_path: Path) -> None:
-    """A different question from which are there. A screenshot sits in the
-    workspace perfectly well and cannot be summarised, and a screen that does
-    not say so invites the attempt and then refuses somebody looking right at
-    the name. PDFs are on the readable side now — that took a parser."""
+    """A different question from which are there. A file chat can do nothing
+    with sits in the workspace perfectly well, and a screen that does not say so
+    invites the attempt and then refuses somebody looking right at the name.
+    PDFs took a parser to get onto the readable side; pictures took vision."""
     client = an_api(workspace_path=str(tmp_path))
     client.put("/api/v1/workspace/files/notes.md?conversation_id=cv_abcd", content=b"text")
     client.put("/api/v1/workspace/files/report.pdf?conversation_id=cv_abcd", content=b"pretend")
     client.put("/api/v1/workspace/files/photo.png?conversation_id=cv_abcd", content=b"\x89PNG")
+    client.put("/api/v1/workspace/files/bundle.zip?conversation_id=cv_abcd", content=b"PK")
 
     answered = client.get("/api/v1/workspace/files?conversation_id=cv_abcd").json()
     listed = {item["name"]: item for item in answered["items"]}
 
     assert listed["notes.md"]["readable"] is True
     assert listed["report.pdf"]["readable"] is True
-    assert listed["photo.png"]["readable"] is False
+    assert listed["photo.png"]["readable"] is True
+    assert listed["bundle.zip"]["readable"] is False
     assert listed["notes.md"]["bytes"] == 4
 
 
@@ -3577,13 +3579,17 @@ def test_an_unmatched_question_is_still_told_the_file_is_there() -> None:
 
 
 def test_the_presence_note_says_which_files_cannot_be_read() -> None:
-    """A screenshot sits in a conversation perfectly well and cannot be
-    summarised. Announcing it without that is an invitation to a refusal."""
+    """A file chat can do nothing with sits in a conversation perfectly well.
+    Announcing it without that is an invitation to a refusal.
+
+    An archive rather than the screenshot this once used: a picture is
+    something chat can answer about now, so it is no longer the example of a
+    file it cannot."""
     sent: list[dict[str, Any]] = []
     with TemporaryDirectory() as folder:
         client = an_api(workspace_path=folder)
         _with_models(client, sent, ["qwen/qwen3-4b-2507"])
-        _attach(client, "cv_abcd", "shot.png", b"\x89PNG")
+        _attach(client, "cv_abcd", "shot.zip", b"PK\x03\x04")
 
         turn(client, "anything happening", system="Be someone.", attachment_id="cv_abcd")
 
@@ -3591,7 +3597,7 @@ def test_the_presence_note_says_which_files_cannot_be_read() -> None:
         str(message.get("content", ""))
         for body in sent for message in body.get("messages", [])
     )
-    assert "shot.png (not readable as text)" in prompt
+    assert "shot.zip (not readable as text)" in prompt
 
 
 def test_a_conversation_with_no_attachment_gets_no_note() -> None:

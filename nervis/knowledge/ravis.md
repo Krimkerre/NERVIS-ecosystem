@@ -75,7 +75,41 @@ rather than picking a model.
 - `ravis/coding`, `ravis/reasoning`, `ravis/long-context` — capability-shaped
 - `ravis/agent` — tools required
 - `ravis/vision` — image input required; chat's save-time visual check uses it
+- `ravis/draw` — models that *emit* an image, which is a different capability
+  from reading one and shares no members with the pool above
 - `ravis/clarvis-chat`, `ravis/clarvis-agent` — Clarvis's two roles
+
+## Asking for a picture rather than for words
+
+A model that answers with an image is a model answering an ordinary chat
+completion — the picture rides beside the text, and OpenAI's wire format has no
+field for it. OpenRouter invented one: an `images` array of `image_url` parts on
+the message or the delta. RAVIS emits that same shape on both of its paths,
+because a picture that arrived one way through the transparent path and another
+way through a translated provider would be the gateway creating the difference
+it exists to remove.
+
+That mattered immediately. Gemini's native API returns the picture as an
+`inlineData` part beside the text, and RAVIS's translation kept only the parts
+it recognised: `models/gemini-2.5-flash-image` answered *"Here you go: "* with
+200 OK and no image, while the same model through OpenRouter returned a real
+PNG. Which route was chosen decided whether the caller got a picture. Fixed
+7 September 2026; the same day, `ravis/draw` was measured end to end and
+returned a 1024×1024 PNG from `google/gemini-2.5-flash-image`.
+
+Two things about that pool are deliberate. **A router that advertises drawing is
+not a drawing model** — `openrouter/auto` publishes `image` among its output
+modalities because something behind it can draw, then picks the model itself;
+asked for a red circle it chose `z-ai/glm-5.2` and answered in words, so it is
+excluded by name. And **the native Google models stay out**, because Google's
+catalogue publishes no output modalities at all: `image_out` is UNKNOWN there
+and an unknown fails closed. Naming one of those models directly still works,
+which is the rule everywhere else too.
+
+Nothing local draws. This machine's runtimes serve no image-generating model,
+so `ravis/draw` is hosted-only in practice — and asking a vision model to draw
+does not work, because reading an image and emitting one are separate
+capabilities that happen to share a word.
 
 ## What the local models on this machine are actually good for
 

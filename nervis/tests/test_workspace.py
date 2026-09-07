@@ -161,8 +161,12 @@ def test_truncation_is_said_rather_than_done_quietly(tmp_path: Path) -> None:
 def test_three_failures_stay_distinct(tmp_path: Path) -> None:
     """Outside, absent, and not-text send a person to three different places.
     Collapsing them into "cannot read that" is how a refusal gets reported as a
-    typo and a typo gets reported as a security boundary."""
-    (tmp_path / "picture.png").write_bytes(b"\x89PNG")
+    typo and a typo gets reported as a security boundary.
+
+    The unreadable one is an archive rather than a picture: a picture is now a
+    third kind of reading — it is looked at rather than read — and the file
+    chat can do nothing at all with is one it can neither decode nor see."""
+    (tmp_path / "bundle.zip").write_bytes(b"PK\x03\x04")
     (tmp_path / "folder").mkdir()
 
     with pytest.raises(OutsideWorkspaceError):
@@ -170,7 +174,7 @@ def test_three_failures_stay_distinct(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         read_document(tmp_path, "missing.txt")
     with pytest.raises(ValueError):
-        read_document(tmp_path, "picture.png")
+        read_document(tmp_path, "bundle.zip")
     with pytest.raises(OutsideWorkspaceError):
         read_document(tmp_path, "folder")
 
@@ -315,15 +319,17 @@ def test_a_file_that_is_not_really_a_pdf_is_refused_not_raised_through(
 
 def test_a_pdf_counts_as_readable_in_the_listing(tmp_path: Path) -> None:
     """The screen's ○ marks what chat cannot read. Leaving it on PDFs after
-    teaching chat to read them tells people not to try."""
+    teaching chat to read them tells people not to try — and the same is now
+    true of a picture, which a model with vision answers about directly."""
     root = tmp_path / "workspace"
     root.mkdir()
     (root / "report.pdf").write_bytes(render("Report", "text").data)
     (root / "photo.png").write_bytes(b"\x89PNG")
+    (root / "bundle.zip").write_bytes(b"PK\x03\x04")
 
     marked = {item.name: item.readable for item in list_files(root)}
 
-    assert marked == {"report.pdf": True, "photo.png": False}
+    assert marked == {"report.pdf": True, "photo.png": True, "bundle.zip": False}
 
 
 # ── Attachments belong to a conversation, not to the machine ───────────────
@@ -395,7 +401,7 @@ def test_the_newest_readable_file_is_what_this_pdf_means(tmp_path: Path) -> None
     assert place is not None
     store_upload(place, "report.pdf", render("Report", "text").data)
     store_upload(place, "later.md", b"newer")
-    store_upload(place, "photo.png", b"\x89PNG")
+    store_upload(place, "bundle.zip", b"PK\x03\x04")
     os.utime(place / "later.md", (2_000_000_000, 2_000_000_000))
 
     assert newest_readable(place) == "later.md"
@@ -407,10 +413,11 @@ def test_nothing_readable_is_none_rather_than_a_file_chat_cannot_open(
     tmp_path: Path,
 ) -> None:
     """The falsifier. Returning the newest file regardless would hand "read this"
-    a PNG and produce a refusal about a file the person never named."""
+    a file nothing can open and produce a refusal about one the person never
+    named. An archive, since a picture is readable now."""
     place = attachment_dir(tmp_path, "cv_aaaa")
     assert place is not None
-    store_upload(place, "photo.png", b"\x89PNG")
+    store_upload(place, "bundle.zip", b"PK\x03\x04")
 
     assert newest_readable(place) is None
 

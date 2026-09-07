@@ -25,6 +25,7 @@ reading says so rather than letting a model read a mangled table as a tidy one.
 from __future__ import annotations
 
 import base64
+import binascii
 import io
 import re
 from dataclasses import dataclass
@@ -92,9 +93,41 @@ TEXT_SUFFIXES = frozenset({
 PDF_SUFFIXES = frozenset({".pdf"})
 
 
+#: Read by *looking at them*, which is the third way and unlike the other two.
+#:
+#: A picture has no text to extract and never will — OCR is a different feature
+#: — so it reaches a model as the picture itself and reaches nothing at all when
+#: the model cannot see. That difference is why it is a third set rather than an
+#: entry in either of the others: the failure it has is "nothing here can look
+#: at this", which neither of the other two can produce.
+IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+#: What each picture suffix says it is on the wire. `.jpg` and `.jpeg` are one
+#: format with two spellings, and a data URL has to carry the format rather than
+#: the spelling.
+IMAGE_MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp",
+}
+
+#: The largest picture that travels in a prompt, before base64.
+#:
+#: RAVIS refuses a request body over ten megabytes (`ravis/src/ravis/config.py`),
+#: and base64 costs a third on top of the bytes — so five megabytes of picture
+#: is about six and three-quarters on the wire, leaving room for the
+#: conversation around it. A photo straight off a phone can exceed this, which
+#: is why the refusal says to resize rather than saying the file is broken.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
 def _readable(suffix: str) -> bool:
-    """Whether chat can get text out of a file with this suffix."""
-    return suffix.lower() in TEXT_SUFFIXES or suffix.lower() in PDF_SUFFIXES
+    """Whether chat can make anything of a file with this suffix.
+
+    Includes pictures, which are not read at all — they are looked at. The name
+    stayed because what this answers is the question the screen asks: can chat
+    do anything with this file, or is attaching it pointless.
+    """
+    return suffix.lower() in TEXT_SUFFIXES | PDF_SUFFIXES | IMAGE_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -114,6 +147,11 @@ class Document:
     #: extraction ruins. Empty for everything else.
     images: tuple[str, ...] = ()
     image_pages: tuple[int, ...] = ()
+    #: Whether the file *is* a picture, rather than a document some of whose
+    #: pages were rendered. The images are the whole reading in that case, so
+    #: dropping them leaves nothing — which is why the person's own
+    #: "don't send page images" switch does not apply to one.
+    picture: bool = False
 
     def as_reading(self) -> str:
         """The document, fenced, with what was left out said where it was left out.
@@ -129,6 +167,16 @@ class Document:
         sits *outside* the fence: it is NERVIS speaking about the document, not
         the document speaking.
         """
+        if self.picture:
+            # No fence, because there is no text to fence. The picture rides on
+            # the message itself and this sentence says so — a model given an
+            # empty code block would have to decide whether the file was blank.
+            return (
+                f"The person attached {self.shown}, a picture, and it is on this"
+                " message as an image. Look at it and answer about what is in"
+                " it. There is no text version of it: if you cannot see images,"
+                " say that plainly rather than guessing at the contents."
+            )
         head = f"The person opened {self.shown} ({self.characters:,} characters)."
         if self.extracted:
             head += (
@@ -319,6 +367,9 @@ def read_document(root: Path, named: str) -> Document:
             f" ({resolved.path.suffix or 'no suffix'})"
         )
 
+    if resolved.path.suffix.lower() in IMAGE_SUFFIXES:
+        return _picture(resolved.path, resolved.shown)
+
     if resolved.path.suffix.lower() in PDF_SUFFIXES:
         raw = _read_pdf(resolved.path, resolved.shown)
     else:
@@ -338,6 +389,33 @@ def read_document(root: Path, named: str) -> Document:
         extracted=extracted,
         images=images,
         image_pages=pages,
+    )
+
+
+def _picture(path: Path, shown: str) -> Document:
+    """One image file as a reading that is entirely the image.
+
+    Refused rather than truncated when it is too big, because half a picture is
+    not a smaller picture — it is a corrupt file, and a model handed one answers
+    about nothing.
+    """
+    payload = path.read_bytes()
+    if len(payload) > MAX_IMAGE_BYTES:
+        raise ValueError(
+            f"{shown} is {len(payload):,} bytes and the limit for a picture in a"
+            f" prompt is {MAX_IMAGE_BYTES:,} — resize it and attach it again"
+        )
+    if not payload:
+        raise ValueError(f"{shown} is empty")
+    media = IMAGE_MEDIA_TYPES[path.suffix.lower()]
+    url = f"data:{media};base64," + base64.b64encode(payload).decode("ascii")
+    return Document(
+        shown=shown,
+        text="",
+        characters=0,
+        truncated=False,
+        images=(url,),
+        picture=True,
     )
 
 
@@ -522,6 +600,27 @@ def store_upload(root: Path, named: str, payload: bytes) -> Stored:
     return Stored(shown=resolved.shown, written=len(payload))
 
 
+def store_picture(root: Path, stem: str, url: str) -> str:
+    """Write one `data:image/...;base64,` URL into the workspace; return its name.
+
+    **The suffix comes from the payload, not from the caller.** A model may
+    answer with a PNG, a JPEG or a WebP, and a file named `.png` holding JPEG
+    bytes is one the browser refuses to show and the person cannot open — so the
+    media type in the URL picks the extension, and a media type NERVIS does not
+    serve is refused here rather than written and found unopenable later.
+    """
+    head, _, payload = url.partition(",")
+    media = head[len("data:"):].split(";")[0].strip().lower()
+    suffix = next((end for end, kind in IMAGE_MEDIA_TYPES.items() if kind == media), "")
+    if not payload or not suffix:
+        raise ValueError(f"not an image NERVIS can save ({media or 'no media type'})")
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (ValueError, binascii.Error) as broken:
+        raise ValueError(f"the image was not valid base64 ({broken})") from broken
+    return store_upload(root, f"{Path(stem).name}{suffix}", raw).shown
+
+
 @dataclass(frozen=True)
 class Listed:
     """One file in the workspace, as the screen shows it.
@@ -551,6 +650,10 @@ TYPE_WORDS: dict[str, frozenset[str]] = {
     "markdown": frozenset({".md", ".markdown"}),
     "spreadsheet": frozenset({".csv", ".tsv"}),
     "log": frozenset({".log"}),
+    "image": IMAGE_SUFFIXES,
+    "picture": IMAGE_SUFFIXES,
+    "photo": IMAGE_SUFFIXES,
+    "screenshot": IMAGE_SUFFIXES,
 }
 
 

@@ -257,6 +257,7 @@ python3 nervis/tools/check.py
 node nervis/tools/render_check.js
 node nervis/tools/complexity_check.js
 node nervis/tools/shaping_check.js
+node nervis/tools/picture_check.js
 ```
 
 **One rule outranks every screen on this page: it must render with nothing
@@ -285,6 +286,13 @@ most is the sparse one: every `||` in a reader is a claim about a field the
 service might not send, and the sparse payload is the only thing that proves
 those defaults do what their author believed. It found a live bug on its first
 run — an unrecorded co-residency field rendering as "FAILED — undefined".
+
+`picture_check.js` covers the one place the renderer is allowed to build a
+destination: a picture a model drew, saved into the workspace and linked from
+the reply. It asserts that link renders as the image *and* that eight other
+shapes a model might write — another host, a traversal, a query string, a
+`javascript:` destination — stay text, which is the half nothing else in the
+repository would notice going wrong.
 
 `complexity_check.js` holds the file at a **ratchet of 13**, lowered whenever
 the worst survivor comes down; the target is 10. The Python packages hold 8 and

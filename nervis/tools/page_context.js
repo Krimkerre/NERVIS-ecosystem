@@ -283,7 +283,7 @@ function loadPage({ fetchImpl } = {}) {
   }
   const exported = vm.runInContext(
     "({ APP_CONFIG, state, nervis, ravis, sirvis, clarvis, API, SOURCE, " +
-    "absorbFrame, replyMessage, transportFailure, BUILD, " +
+    "absorbFrame, replyMessage, transportFailure, BUILD, renderMarkdown, " +
     "stopPolling: typeof stopPolling === 'function' ? stopPolling : null })",
     context,
   );

@@ -79,7 +79,33 @@ document, the full up-to-date version has to actually be written out in
 that same reply before offering the button, or what gets saved is whatever
 short remark was said instead.
 
-As of 7 September 2026: a saved or exported PDF can now look genuinely
+As of 7 September 2026, pictures work in both directions.
+
+**Chat can be shown a picture.** Attach a `.png`, `.jpg`, `.gif` or
+`.webp` and it travels on the question as the image itself — there is no
+text version of a photograph, so it is the whole reading rather than an
+addition to one. Two consequences follow from that and are worth knowing.
+The *Show the model a PDF's pages* switch does not apply: it exists so a
+document can be read without paying for vision, and a picture has nothing
+left behind when its image is dropped. And where nothing available can
+see, the picture is withheld and chat is told so — it says it cannot see
+the image rather than describing one it never received. Five megabytes is
+the ceiling, and a larger file is refused with "resize it" rather than
+truncated, because half a picture is a corrupt file rather than a smaller
+one.
+
+**Chat can be asked for a picture.** Pick the **Image generation**
+profile — `ravis/draw` — and ask for one. What comes back is written into
+the workspace as a real file and linked in the reply, so it renders in the
+conversation, survives a reload, and has a Download beside it. Measured
+end to end on this machine: a red circle asked for through NERVIS came
+back from `google/gemini-2.5-flash-image` as a 1024×1024 PNG of about two
+hundred kilobytes, saved and downloadable. Nothing local draws — that pool
+is hosted models only, and asking a vision model to draw does not work,
+because reading an image and emitting one are different capabilities that
+happen to share a word.
+
+Also as of 7 September 2026: a saved or exported PDF can now look genuinely
 different, not just plain text on a page — real typography and colour,
 matched to a template PDF attached to the conversation when there is one
 (its fonts, sizes and palette, read directly, never invented), or a clean
@@ -201,6 +227,11 @@ whose conversation was abandoned expire after a fortnight.
 Text files and PDFs can be read. A PDF's text is extracted, so its layout is
 gone — tables arrive as loose runs of numbers. A scanned PDF has no text at all
 and says so rather than answering as though the document were empty.
+
+Pictures can be attached too — `.png`, `.jpg`, `.gif`, `.webp` — and are
+looked at rather than read, so they need a model that can see and are
+capped at five megabytes. An archive or anything else chat can neither
+decode nor see is listed with the reason, not silently.
 
 ## Voice
 
