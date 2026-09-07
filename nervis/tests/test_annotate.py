@@ -213,6 +213,38 @@ def test_a_quote_nowhere_in_the_document_is_not_placed_by_guesswork() -> None:
     assert not any("Comments on page" in t for t in texts)
 
 
+def test_the_notes_copy_leaves_the_page_untouched_and_pins_the_bubble() -> None:
+    """Sticky notes only: no ink on the page, the note at the passage, and the
+    note wearing NERVIS's own bubble as its appearance."""
+    copied = annotate_pdf(
+        _three_pages(),
+        [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
+        None, mode="notes",
+    )
+
+    reader = PdfReader(io.BytesIO(copied.data))
+    texts = _page_texts(copied.data)
+    assert copied.pages == 3
+    assert "Needs a tide table." not in texts[1], "the page itself is not drawn on"
+    notes = [a.get_object() for a in reader.pages[1].get("/Annots", [])]
+    assert len(notes) == 1 and "Needs a tide table." in str(notes[0]["/Contents"])
+    assert notes[0]["/Name"] == "/Comment"
+    appearance = notes[0]["/AP"]["/N"].get_object()
+    assert appearance["/Subtype"] == "/Form"
+    assert b" re " in appearance.get_data() or b" c " in appearance.get_data()
+
+
+def test_the_margin_copy_wears_the_same_bubble() -> None:
+    copied = annotate_pdf(
+        _three_pages(),
+        [Comment(anchor="entirely about harbours and tides", text="Needs a tide table.")],
+        None, mode="margin",
+    )
+
+    note = PdfReader(io.BytesIO(copied.data)).pages[1]["/Annots"][0].get_object()
+    assert note["/AP"]["/N"].get_object()["/Subtype"] == "/Form"
+
+
 def test_no_comments_at_all_is_just_the_original() -> None:
     copied = annotate_pdf(_three_pages(), [], None)
 

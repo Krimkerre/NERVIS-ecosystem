@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2488 tests, no network, no live service
+.venv/bin/pytest                      # part of 2498 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 977 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 987 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2488 passing across the four, conformance `PASS`.
+Expected: all clean, 2498 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15132,8 +15132,51 @@ intact. The visual glance on the saved copy remarked "the code block is
 cut off at the page edge" about a page carrying no comments — noted, not
 chased; it is the small local model's reading of a designed cover page.
 
-977 tests (was 946): twenty-one for placing, ten for the offer, the button,
-and which reply's comments it takes. `ruff` and `mypy` clean.
+**Then: "have chat ask me which option I want — with sticky notes as a soft
+default", and "put the NERVIS logo in the sticky note icon, like a text
+bubble".** Three operations now, one per copy, each its own button:
+`nervis.document.annotate.notes` (*Add notes* — pages untouched, comments as
+real PDF sticky notes), `.margin` (*Annotate* — the reviewer's copy above,
+which carries the notes too) and `.inline` (*Annotate inline* — the
+extracted text re-rendered with each comment under its passage, the only
+copy where the comments are truly in the text and the only one that gives
+the design up). A named style — in the request, or on its own afterwards
+("margin notes", "inline please") — picks its copy; nothing named picks
+sticky notes and the offer travels with the other two as `alternatives`.
+
+**The soft default is stated by the screen, not by the model.** `told()` was
+first extended with a closing sentence asking the model to name the other
+two; live, the reply described the button at length and named neither. The
+sentence was moved to the front and marked required; live again, still
+neither. Twice in two placements is a pattern, and the house rule already
+covers it — a fact the person is owed is printed by NERVIS, not restated by
+a model — so the dashboard now draws the alternatives as chips beside the
+button ("or · Annotate · Annotate inline"), and pressing one files the
+offer as `edited`, the way a chosen candidate is, and runs it under that
+operation. The instruction to the model stays, as a courtesy that costs
+nothing.
+
+**The icon is the letterhead.** Every sticky note now wears its own
+appearance stream: NERVIS's mark — the diamond with the cyan core, drawn by
+the same `pdf._mark` the transcript export uses, so it is the logo and not a
+drawing of one — inside a rounded speech bubble with a tail, `/Name
+/Comment` beneath it for a viewer that ignores appearances. The margin copy
+draws the same bubble on the page at each quoted passage, so the mark is
+there in any viewer at all. One real bug on the way, found by rendering the
+operators alone: the drawing helpers return bytes that end on an operator,
+and concatenating them turned `f` and `0.333` into the single token
+`f0.333`, which is not an operator — the stream drew nothing. Joined by
+newlines, as the transcript renderer joins them, it draws.
+
+Live on the blueprint, all three: the sticky-notes copy is forty-five pages
+with twenty-seven notes across twenty-four pages, every note carrying the
+bubble appearance, page four beginning with the original's own header —
+untouched; the margin copy has the bubble beside each note; the default
+offer with nothing named came back as *Add notes* with both alternatives.
+
+987 tests (was 946): twenty-three for placing and the icon, eighteen for the
+offer, the three buttons, the soft default and which reply's comments they
+take. `ruff` and `mypy` clean.
 
 ## Starting the thing
 

@@ -10049,12 +10049,38 @@ function offerRow(offer,index){
     not decline — so the only way "no" becomes a fact is for there to be a
     button that says it. Without this, the record would only ever contain
     agreement, which is a preference NERVIS learned about itself. */
+ /* **The other things this offer could be**, as chips beside the button.
+    An annotated copy with no style named defaults to sticky notes, softly:
+    the button is there, and the margin and inline copies are one press away.
+    Drawn here rather than asked of the model, which was told twice — in two
+    placements — to name them in its reply and did not either time. */
+ const alternatives=(offer.alternatives||[]).length
+   ?`<span class="mono dim" style="font-size:11px">or</span>${(offer.alternatives||[])
+       .map(alt=>`<button class="mode-chip" onclick="switchOffer(${index},'${jsAttr(alt.operation)}','${jsAttr(alt.action)}')">${escapeHtml(alt.action)}</button>`)
+       .join('')}`:'';
  return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
    <button class="btn primary" onclick="runOffer(${index})">${escapeHtml(offer.action||'Run')}</button>
+   ${alternatives}
    <button class="mode-chip" onclick="declineOffer(${index})">No thanks</button>
    <span class="mono dim" style="font-size:11px">not run yet · ${escapeHtml(offer.summary)}</span>
    ${past}
   </div>`;
+}
+
+/* One of the offer's alternatives, pressed: the same file, a different copy.
+   Filed as `edited` the way a chosen candidate is — the person changed what
+   the offer was before saying yes to it — then run under the operation they
+   picked. */
+function switchOffer(index,operation,action){
+ const message=CHAT_SESSION.messages[index];
+ const offer=message&&message.offer;
+ if(!offer||offer.done)return;
+ noteOutcome(offer,'edited',action);
+ offer.operation=operation;
+ offer.action=action;
+ offer.alternatives=[];
+ offer.proposal_id='';
+ return runOffer(index);
 }
 
 /* A file NERVIS wrote, offered as a download.
@@ -10202,8 +10228,10 @@ function declinePlan(index){
    token and pasting it is the manual step the launcher exists to remove. NERVIS
    holds the narrow credential now, checks the operation against its own closed
    set, and publishes every attempt to the hub. */
-/* The two operations that answer with a file rather than a job. */
-const WRITES_A_FILE=['nervis.document.write','nervis.conversation.export'];
+/* The operations that answer with a file rather than a job: a saved reply, an
+   exported conversation, and the three annotated copies of an attachment. */
+const WRITES_A_FILE=['nervis.document.write','nervis.conversation.export',
+ 'nervis.document.annotate.notes','nervis.document.annotate.margin','nervis.document.annotate.inline'];
 
 /* Saving a reply, or exporting the whole conversation.
 
@@ -10213,7 +10241,8 @@ const WRITES_A_FILE=['nervis.document.write','nervis.conversation.export'];
    with the SIRVIS queue they never touch. */
 async function runFileOffer(offer){
  const exporting=offer.operation==='nervis.conversation.export';
- offer.done=exporting?'exporting…':'writing…';
+ const annotating=offer.operation.startsWith('nervis.document.annotate.');
+ offer.done=exporting?'exporting…':annotating?'annotating…':'writing…';
  render();
  /* **The server's conversation id, not the browser's.** Both of these read
     their content out of NERVIS's own store, and the store is keyed on the id
@@ -10228,7 +10257,7 @@ async function runFileOffer(offer){
     the right thing to have done and the wrong place to stop. */
  offer.file=saved.file||null;
  offer.done=saved.file
-   ?`${exporting?'exported':'saved'} ${saved.file.name} · ${saved.file.detail}`
+   ?`${exporting?'exported':annotating?'annotated':'saved'} ${saved.file.name} · ${saved.file.detail}`
    :`nothing was written — ${saved.error}`;
  render();
 }

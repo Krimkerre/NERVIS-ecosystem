@@ -110,19 +110,30 @@ asked about it afterward.
 Somebody attaches a PDF, chat reads it and has opinions, and they want a new
 file with the original *and* the opinions in it. That used to produce a file
 of `[Original intact]` placeholders, because "save the reply" asked the
-model to retype a forty-page document and no model does that. Now there is
-an **Annotate** button, offered when the person asks for comments, findings
-or annotations put into the document or the original. It produces a
-reviewer's copy: every page exactly as it was, nothing re-rendered — a page
-with comments on it is scaled to two-thirds width and set left, and the
-comments sit in a column beside it, each one level with the passage it
-quotes and joined to it by a hairline, styled to match the document. Each
-comment is also a real PDF sticky note at that passage, so Preview or
-Acrobat show it as a comment too. A comment too long for the column
-continues on a page inserted straight after, headed with the page it
-belongs to. A PDF cannot be reflowed — nothing can insert a paragraph into
-a fixed page — which is why the comments go beside the text rather than
-into it. Chat writes only the comments, each one starting
+model to retype a forty-page document and no model does that. Now, when the
+person asks for comments, findings or annotations put into the document or
+the original, a button is offered for one of three copies — and every page
+of the original is kept exactly as it was in the first two:
+
+- **Sticky notes** (the button says *Add notes*): the pages untouched, each
+  comment a real PDF comment at the passage it quotes, clickable in Preview
+  or Acrobat. The icon is NERVIS's own mark — the tilted square with the
+  cyan core — inside a small speech bubble. This is the soft default: it is
+  what gets offered when no style was named, and chat says the other two are
+  a word away.
+- **Margin notes** (*Annotate*): a reviewer's copy — a page with comments on
+  it is scaled to two-thirds width and set left, and the comments sit in a
+  column beside it, each level with the passage it quotes and joined to it
+  by a hairline, styled to match the document. The same sticky notes are on
+  it too. A comment too long for the column continues on a page inserted
+  straight after.
+- **Inline** (*Annotate inline*): the document re-rendered as plain text
+  with each comment under its passage. The only one where the comments are
+  truly in the text — and the only one where the document's own design is
+  lost, because a PDF cannot be reflowed and this re-renders it.
+
+Saying "margin notes", "sticky notes only" or "inline" — in the request, or
+on its own afterwards — puts that button on the reply instead. Chat writes only the comments, each one starting
 with a `>` line quoting a short phrase from the document so NERVIS knows
 which page it belongs to; anything without a quote goes at the end under
 "Further comments". A `.md` or `.txt` original is merged as text instead,

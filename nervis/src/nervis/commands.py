@@ -100,11 +100,31 @@ OPERATIONS: tuple[Operation, ...] = (
     # quote. The model is asked for comments only, never to retype the document
     # (`annotate.py` says why), so what it writes is content placed by NERVIS
     # against the person's own file, exactly as a save's text is.
+    #
+    # **Three ways, each its own operation**, because each is its own act with
+    # its own button — and because the choice belongs to the person, not to a
+    # flag a model might set. Sticky notes are the soft default: offered when no
+    # style was named, with the other two a word away. A PDF cannot be
+    # reflowed, so "in the text" is never literally possible — the margin copy
+    # is the closest a fixed page allows, and the inline copy is a re-rendering
+    # that gives the design up.
     Operation(
-        id="nervis.document.annotate",
+        id="nervis.document.annotate.notes",
         service="nervis",
-        summary="a copy of the attachment with this reply's comments placed in it, as {target}",
+        summary="a copy of the attachment with this reply's comments as sticky notes, as {target}",
+        action="Add notes",
+    ),
+    Operation(
+        id="nervis.document.annotate.margin",
+        service="nervis",
+        summary="a reviewer's copy of the attachment, comments beside the text, as {target}",
         action="Annotate",
+    ),
+    Operation(
+        id="nervis.document.annotate.inline",
+        service="nervis",
+        summary="the attachment re-rendered, this reply's comments under each passage, as {target}",
+        action="Annotate inline",
     ),
     # The whole conversation rather than the last reply, and its own operation
     # because it is its own act: one saves an answer somebody liked, the other
@@ -325,6 +345,13 @@ class Proposal:
     # history only ever decorates an offer, never builds one, which is what
     # makes clearing the record restore the unlearned proposal exactly.
     history: Mapping[str, Any] | None = None
+    #: **Other operations this same offer could have been**, as (operation,
+    #: button) pairs — the two annotated copies not chosen when no style was
+    #: named. Shown as chips beside the button by NERVIS's own screen, because
+    #: the model was asked twice, in two placements, to name them in its reply
+    #: and did not either time. A choice the person is owed is stated by the
+    #: system that owes it, not left to a sentence a model may drop.
+    alternatives: tuple[tuple[str, str], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -338,6 +365,10 @@ class Proposal:
             "detail": self.detail,
             "candidates": list(self.candidates),
             "action": self.action,
+            "alternatives": [
+                {"operation": operation, "action": action}
+                for operation, action in self.alternatives
+            ],
         }
 
 
@@ -713,6 +744,40 @@ MERGING = re.compile(
     r"\b(?:merge|insert|add|place|incorporate|weave|thread|apply)\b", re.IGNORECASE
 )
 
+#: Which of the three annotated copies was asked for, if the person said.
+STYLE_MARGIN = re.compile(r"\bmargin", re.IGNORECASE)
+STYLE_INLINE = re.compile(
+    r"\b(?:inline|in-line|re-?render\w*|plain\s+text|under\s+each)\b", re.IGNORECASE
+)
+STYLE_NOTES = re.compile(r"\b(?:sticky|post-?its?|notes?\s+only|as\s+notes)\b", re.IGNORECASE)
+
+#: A message that is nothing but the choice — "margin notes", "sticky notes
+#: only", "inline please". With a document attached, that is the answer to the
+#: question the previous offer invited, and not something anybody types for
+#: any other reason.
+STYLE_ONLY = re.compile(
+    r"^\W*(?:the\s+|go\s+with\s+(?:the\s+)?|do\s+(?:the\s+)?|make\s+it\s+|use\s+)?"
+    r"(?:margin(?:\s+notes)?|sticky(?:\s+notes)?(?:\s+only)?|notes\s+only|inline|in-line)"
+    r"(?:\s+(?:one|version|please|then|copy|notes))*\W*$",
+    re.IGNORECASE,
+)
+
+
+def _style_of(question: str) -> str:
+    """"margin", "inline", "notes" — or "" when no style was named.
+
+    Margin first: "sticky notes in the margin" is the margin copy, which
+    carries sticky notes anyway. Inline before notes for the same reason a
+    person saying "inline notes" means inline.
+    """
+    if STYLE_MARGIN.search(question):
+        return "margin"
+    if STYLE_INLINE.search(question):
+        return "inline"
+    if STYLE_NOTES.search(question):
+        return "notes"
+    return ""
+
 
 def _saving_proposal(
     question: str, default_name: str, attachment: str = ""
@@ -736,11 +801,18 @@ def _saving_proposal(
         named = _named_by(writing) if writing else default_name
         return _export_proposal(named) if named else None
     wants_to_write = bool(writing or SAVE_VERB.search(question))
+    chosen = _style_of(question)
+    style = chosen or "notes"
+    if attachment and STYLE_ONLY.match(question):
+        named = _annotated_default(attachment, default_name)
+        return _annotate_proposal(named, style, bool(chosen)) if named else None
+    # A named style is intent enough on its own: "re-render the document with
+    # your comments inline" names no save and no merge, and means one thing.
     if attachment and ANNOTATING.search(question) and (
-        wants_to_write or MERGING.search(question)
+        wants_to_write or MERGING.search(question) or _style_of(question)
     ):
         named = _named_by(writing) if writing else _annotated_default(attachment, default_name)
-        return _annotate_proposal(named) if named else None
+        return _annotate_proposal(named, style, bool(chosen)) if named else None
     if not wants_to_write:
         return None
     named = _named_by(writing) if writing else _as_text_default(default_name, question)
@@ -765,13 +837,22 @@ def _annotated_default(attachment: str, default_name: str) -> str:
     return re.sub(r"\.pdf$", suffix, default_name, flags=re.IGNORECASE)
 
 
-def _annotate_proposal(named: str) -> Proposal:
-    """The attached document, every page kept, with this reply's comments in it."""
-    operation = BY_ID["nervis.document.annotate"]
+def _annotate_proposal(named: str, style: str, chosen: bool) -> Proposal:
+    """The attached document with this reply's comments in it, one of three ways.
+
+    When the style was not the person's choice, the other two travel with the
+    offer as alternatives, so the default is soft on the screen and not only
+    in a sentence.
+    """
+    operation = BY_ID[f"nervis.document.annotate.{style}"]
+    others = tuple(
+        (other.id, other.action) for other in OPERATIONS
+        if other.id.startswith("nervis.document.annotate.") and other.id != operation.id
+    )
     return Proposal(
         operation=operation.id, service=operation.service, target=named,
         summary=operation.summary.format(target=named), ready=True,
-        action=operation.action,
+        action=operation.action, alternatives=() if chosen else others,
     )
 
 
@@ -1123,7 +1204,7 @@ def _ready_addendum(proposal: Proposal) -> str:
             "is already running, in which case it waits for that one. It is "
             "not put in a queue to run later."
         )
-    if proposal.operation == "nervis.document.annotate":
+    if proposal.operation.startswith("nervis.document.annotate."):
         # **The model is asked for comments, never for the document.** The
         # saved file that started this was placeholders — `[Original intact]`
         # — because a reply cannot hold ninety-seven thousand characters and
@@ -1132,7 +1213,23 @@ def _ready_addendum(proposal: Proposal) -> str:
         # and a quoted line is something a model reproduces exactly where a
         # whole page is something it does not.
         return (
-            " It copies the attached document — every page of it, untouched —"
+            # **The choice comes first, because a sentence at the end of a
+            # long instruction is the sentence a model drops.** Observed live:
+            # the soft-default paragraph sat last, and the reply described
+            # the button at length and never named the other two copies.
+            (
+                " **Open with the choice, in one sentence, before anything"
+                " else:** this button adds the comments as sticky notes — pages"
+                " untouched, each note clickable at its passage — and they can"
+                " say **margin notes** for a reviewer's copy with the comments"
+                " drawn beside the text, or **inline** for a plain re-rendering"
+                " with each comment under its passage (the document's own"
+                " design is lost that way). Naming one puts that button on the"
+                " next reply instead. This sentence is required whenever they"
+                " did not name a style themselves."
+                if proposal.operation.endswith(".notes") else ""
+            )
+            + " It copies the attached document — every page of it, untouched —"
             " and places comments beside the passages they quote. **The"
             " comments it places are the ones written in a reply, in this"
             " exact shape: a line beginning with `> ` that quotes a short"
@@ -1147,6 +1244,22 @@ def _ready_addendum(proposal: Proposal) -> str:
             " itself; NERVIS holds it. Anything written without a quote still"
             " lands in the copy, at the end under its own heading. Nothing has"
             " been placed until the button is pressed."
+            # **The choice is the person's, and the default is soft.** With no
+            # style named, the sticky-notes button is offered straight away
+            # rather than a question asked first — the operator wanted to be
+            # asked, and wanted not to be blocked, and this is both: the button
+            # is there, and the other two are one word away.
+            + (
+                " If they did not say which kind of copy they want, say that"
+                " this button adds the comments as sticky notes — the pages"
+                " untouched, each note clickable at the passage it is about —"
+                " and, in one sentence, that they can say **margin notes** for a"
+                " reviewer's copy with the comments drawn beside the text, or"
+                " **inline** for a plain re-rendering with each comment under"
+                " its passage (the document's own design is lost that way)."
+                " Naming one puts that button on the next reply instead."
+                if proposal.operation.endswith(".notes") else ""
+            )
         )
     if proposal.operation != "nervis.document.write":
         return ""

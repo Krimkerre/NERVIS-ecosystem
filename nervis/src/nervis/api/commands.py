@@ -134,7 +134,12 @@ async def run(request: Request) -> dict[str, Any]:
     conversation = str(body.get("conversation_id") or "")
     own = {
         "nervis.document.write": lambda: _write_document(request, target, conversation),
-        "nervis.document.annotate": lambda: _annotate_document(request, target, conversation),
+        "nervis.document.annotate.notes":
+            lambda: _annotate_document(request, target, conversation, "notes"),
+        "nervis.document.annotate.margin":
+            lambda: _annotate_document(request, target, conversation, "margin"),
+        "nervis.document.annotate.inline":
+            lambda: _annotate_document(request, target, conversation, "inline"),
         "nervis.conversation.export": lambda: _export_conversation(request, target, conversation),
         "nervis.clarvis.task": lambda: _hand_over(request, target, conversation),
         "nervis.knowledge.learn":
@@ -467,7 +472,7 @@ async def _write_document(request: Request, named: str, conversation_id: str) ->
 
 
 async def _annotate_document(
-    request: Request, named: str, conversation_id: str
+    request: Request, named: str, conversation_id: str, mode: str
 ) -> dict[str, Any]:
     """A copy of the newest attachment with this reply's comments placed in it.
 
@@ -478,8 +483,10 @@ async def _annotate_document(
     the placing — its module docstring says why that is the only shape that
     survives a forty-page document.
 
-    A PDF original produces a PDF, whatever the target was called: its pages
-    are copied, not re-rendered, and there is no text form of that to write.
+    `mode` is which of the three copies: `notes` and `margin` keep a PDF's
+    pages and so produce a PDF whatever the target was called; `inline`
+    re-renders the extracted text with the comments under their passages,
+    which is text and so may be written as either.
     """
     root = _workspace(request)
     place = documents.attachment_dir(Path(root), conversation_id)
@@ -501,20 +508,25 @@ async def _annotate_document(
     anchored = [message for message in written if annotate.has_anchors(message.content)]
     comments = annotate.parse_comments((anchored or written)[-1].content)
     original = place / found[0].name
-    if original.suffix.lower() == ".pdf":
+    is_pdf = original.suffix.lower() == ".pdf"
+    if is_pdf and mode != "inline":
         if not named.lower().endswith(".pdf"):
             raise InvalidConfigurationError(
                 f"an annotated copy of {found[0].name} keeps its pages, so it is a PDF —"
                 f" name it with .pdf"
             )
         copied = annotate.annotate_pdf(
-            original.read_bytes(), comments, style.extract_style(original)
+            original.read_bytes(), comments, style.extract_style(original), mode
         )
         return await _write_into_workspace(request, root, named, "", rendered=copied)
-    merged = annotate.annotate_text(
-        documents.read_document(place, found[0].name).text, comments
+    text = (
+        annotate.extracted_text(original.read_bytes()) if is_pdf
+        else documents.read_document(place, found[0].name).text
     )
-    return await _write_into_workspace(request, root, named, merged)
+    return await _write_into_workspace(
+        request, root, named, annotate.annotate_text(text, comments),
+        template_style=style.extract_style(original) if is_pdf else None,
+    )
 
 
 def _template_style(root: str, conversation_id: str) -> style.StyleProfile | None:

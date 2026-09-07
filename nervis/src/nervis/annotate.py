@@ -41,12 +41,20 @@ from xml.sax.saxutils import escape
 import pdfplumber
 from pypdf import PageObject, PdfReader, PdfWriter, Transformation
 from pypdf.annotations import Text as StickyNote
+from pypdf.generic import (
+    ArrayObject,
+    DictionaryObject,
+    FloatObject,
+    IndirectObject,
+    NameObject,
+    StreamObject,
+)
 from reportlab.lib.colors import Color
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
-from nervis import pdf
+from nervis import layout, pdf
 from nervis.style import DEFAULT, StyleProfile
 
 
@@ -98,6 +106,10 @@ NOTE_SIZE = 8.5
 NOTE_LEADING = 10.5
 LABEL_SIZE = 7.5
 LABEL_LEADING = 9.0
+
+#: The comment icon's box, in points. Every sticky note is this size so one
+#: appearance can serve all of them.
+BUBBLE = 20.0
 
 
 def parse_comments(reply: str) -> list[Comment]:
@@ -245,6 +257,54 @@ def _located(page: Any, comments: list[Comment]) -> list[Located]:
     return placed
 
 
+def _bubble_ops() -> bytes:
+    """The comment icon: NERVIS's own mark inside a speech bubble.
+
+    **The letterhead, not a viewer's yellow note.** The mark is drawn by the
+    same code the transcript export draws it with — `pdf._mark`, the diamond
+    with the cyan core — so it is the logo and not a drawing of one. It sits
+    in a rounded bubble with a tail at the lower left, which is what says
+    "somebody said something here" the way a note icon does. Raw page
+    operators rather than reportlab calls, because the same bytes serve twice:
+    as the annotation's own appearance, which a viewer draws in place of its
+    icon, and as ink on the margin copy's overlay, which every viewer shows.
+    """
+    b = BUBBLE
+    bubble = [
+        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, (1.0, 1.0, 1.0)),
+        pdf._round_rect(1.0, 5.0, b - 2.0, b - 6.0, 3.5, layout.LOGO_EDGE, stroke=0.8),
+        pdf._poly([(5.0, 5.4), (9.0, 5.4), (4.2, 1.2)], (1.0, 1.0, 1.0)),
+        pdf._poly([(4.6, 5.0), (9.4, 5.0), (4.2, 1.2), (4.6, 5.0)], layout.LOGO_EDGE, stroke=0.8),
+    ]
+    # Joined by newlines, not concatenated: each helper's bytes end on an
+    # operator with nothing after it, and `f` followed straight by `0.333`
+    # reads as one token, `f0.333`, which is not an operator — the whole
+    # stream then draws nothing. Found by rendering the ops alone.
+    return b"\n".join(bubble + pdf._mark(b / 2.0, 12.0, 4.4, glow=False))
+
+
+def _appearance(writer: PdfWriter) -> IndirectObject:
+    """One form XObject drawing the bubble, shared by every note in the file."""
+    stream = StreamObject()
+    stream[NameObject("/Type")] = NameObject("/XObject")
+    stream[NameObject("/Subtype")] = NameObject("/Form")
+    stream[NameObject("/BBox")] = ArrayObject(
+        [FloatObject(0.0), FloatObject(0.0), FloatObject(BUBBLE), FloatObject(BUBBLE)]
+    )
+    stream.set_data(_bubble_ops())
+    return writer._add_object(stream)
+
+
+def _pinned(
+    writer: PdfWriter, page_index: int, pins: list[Pin], appearance: IndirectObject
+) -> None:
+    """Attach each sticky note to the page, wearing the bubble."""
+    for rect, text in pins:
+        note = writer.add_annotation(page_index, StickyNote(rect=rect, text=text, open=False))
+        note[NameObject("/Name")] = NameObject("/Comment")
+        note[NameObject("/AP")] = DictionaryObject({NameObject("/N"): appearance})
+
+
 def _paragraph(text: str, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escape(pdf._sanitised(text)).replace("\n", "<br/>"), style)
 
@@ -307,11 +367,18 @@ def _margin_page(
             anchor_y = height - where[0] * SCALE
             c.setLineWidth(0.5)
             c.line(width * SCALE + 1.0, anchor_y, column_x - 1.0, height - (top + PAD + 4.0))
-            pins.append(((width * SCALE - 12.0, anchor_y - 10.0, width * SCALE, anchor_y + 2.0),
+            box = (width * SCALE - BUBBLE - 2.0, anchor_y - BUBBLE / 2.0)
+            pins.append(((box[0], box[1], box[0] + BUBBLE, box[1] + BUBBLE),
                          f"On “{comment.anchor}”\n\n{comment.text}"))
         else:
-            pins.append(((width * SCALE - 12.0, height - top - 12.0, width * SCALE, height - top),
-                         comment.text))
+            box = (width * SCALE - BUBBLE - 2.0, height - top - BUBBLE)
+            pins.append(((box[0], box[1], box[0] + BUBBLE, box[1] + BUBBLE), comment.text))
+        # The bubble is drawn on the page too, so the mark is there in a viewer
+        # that ignores an annotation's own appearance and draws its own icon.
+        c.saveState()
+        c.addLiteral(f"1 0 0 1 {box[0]:g} {box[1]:g} cm")
+        c.addLiteral(_bubble_ops().decode("latin-1"))
+        c.restoreState()
         cursor = top + block + GAP
     c.save()
 
@@ -323,6 +390,33 @@ def _margin_page(
     return composed, overflow, pins, unsupported
 
 
+def _note_pins(page: PageObject, located: list[Located]) -> list[Pin]:
+    """Sticky notes on an untouched page, each at its quoted passage.
+
+    The page itself is not changed at all — this is the copy for somebody who
+    wants their document exactly as it was and the comments where a viewer
+    shows comments. A note whose words could not be found sits at the top
+    left rather than nowhere.
+    """
+    height = float(page.mediabox.height)
+    pins: list[Pin] = []
+    for comment, where in located:
+        if where:
+            top, x0 = where
+            x = max(2.0, x0 - BUBBLE - 2.0)
+            pins.append(((x, height - top - BUBBLE + 4.0, x + BUBBLE, height - top + 4.0),
+                         f"On “{comment.anchor}”\n\n{comment.text}"))
+        else:
+            pins.append(((2.0, height - EDGE - BUBBLE, 2.0 + BUBBLE, height - EDGE), comment.text))
+    return pins
+
+
+def extracted_text(original: bytes) -> str:
+    """A PDF's text, page after page, for the copy that gives the layout up."""
+    with pdfplumber.open(io.BytesIO(original)) as plumbed:
+        return "\n\n".join(page.extract_text() or "" for page in plumbed.pages)
+
+
 def _appended(writer: PdfWriter, title: str, markdown: str, profile: StyleProfile) -> str:
     """Pages rendered from markdown, added to the writer; what Latin-1 lost."""
     note = pdf.render(title, f"# {title}\n\n{markdown}", profile)
@@ -332,13 +426,18 @@ def _appended(writer: PdfWriter, title: str, markdown: str, profile: StyleProfil
 
 
 def annotate_pdf(
-    original: bytes, comments: list[Comment], style: StyleProfile | None
+    original: bytes, comments: list[Comment], style: StyleProfile | None, mode: str = "margin"
 ) -> pdf.Rendered:
-    """The original PDF as a reviewer's copy: every page kept, each commented
-    page scaled left with its comments beside it, the rest at the end."""
+    """The original PDF with the comments in it: every page kept either way.
+
+    `margin` — each commented page scaled left with its comments drawn beside
+    it, and as sticky notes. `notes` — the pages untouched, the comments as
+    sticky notes only. Comments with no page go at the end in both.
+    """
     profile = style or DEFAULT
     reader = PdfReader(io.BytesIO(original))
     writer = PdfWriter()
+    appearance = _appearance(writer)
     unsupported = ""
     with pdfplumber.open(io.BytesIO(original)) as plumbed:
         placed, loose = _placed_by(comments, [page.extract_text() or "" for page in plumbed.pages])
@@ -346,15 +445,15 @@ def annotate_pdf(
             if index not in placed:
                 writer.add_page(page)
                 continue
-            composed, overflow, pins, lost = _margin_page(
-                page, _located(plumbed.pages[index], placed[index]), profile
-            )
+            located = _located(plumbed.pages[index], placed[index])
+            overflow: list[Comment] = []
+            if mode == "notes":
+                composed, pins, lost = page, _note_pins(page, located), ""
+            else:
+                composed, overflow, pins, lost = _margin_page(page, located, profile)
             unsupported += lost
             writer.add_page(composed)
-            for rect, text in pins:
-                writer.add_annotation(
-                    len(writer.pages) - 1, StickyNote(rect=rect, text=text, open=False)
-                )
+            _pinned(writer, len(writer.pages) - 1, pins, appearance)
             if overflow:
                 unsupported += _appended(
                     writer, f"Comments on page {index + 1}, continued",
