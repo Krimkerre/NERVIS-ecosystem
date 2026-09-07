@@ -594,6 +594,9 @@ async def _write_into_workspace(
         # `rendered` arrives already built when the bytes are not a rendering
         # of `text` at all — an annotated copy is the person's own PDF with
         # pages added, and there is no markdown it could be re-rendered from.
+        # **Whether NERVIS laid this page out is what decides the glance
+        # below**, so it is recorded before `rendered` is filled in.
+        ours = rendered is None
         if rendered is None:
             rendered = (
                 pdf.render_conversation(*conversation) if conversation
@@ -604,7 +607,12 @@ async def _write_into_workspace(
             # Said rather than silently substituted: a `?` where a character
             # should be is a defect the reader cannot see and the writer can.
             detail += f"; {len(rendered.unsupported)} character(s) Latin-1 could not carry"
-        if not conversation:
+        if ours and not conversation:
+            # **Only pages NERVIS laid out.** An annotated copy's first page is
+            # the person's own cover, and the glance duly reported the heading
+            # on it as "crowded against the text below" — a small local model
+            # reviewing somebody's design, on a page NERVIS did not draw and
+            # would not change. Checking a copy is not checking work.
             defect = await _visual_defect(request, payload)
             if defect:
                 detail += f"; looked over, and: {defect}"

@@ -56,11 +56,17 @@ def test_a_quoted_line_starts_a_comment_and_the_lines_below_are_its_text() -> No
     ]
 
 
-def test_text_before_the_first_quote_is_kept_as_an_unanchored_comment() -> None:
-    found = parse_comments("Here is what I think overall.\n\n> Alpha section\nFine.")
+def test_prose_before_the_first_quote_is_dropped_when_quotes_follow() -> None:
+    """Measured on a real reply: it opened by telling the person which copy to
+    press and that the comments were below, and that paragraph landed in the
+    blueprint under "Further comments" — a sentence about a button, filed as a
+    remark about a document."""
+    found = parse_comments(
+        "Here are the comments, placed under the sections they address."
+        "\n\n> Alpha section\nFine."
+    )
 
-    assert found[0] == Comment(anchor="", text="Here is what I think overall.")
-    assert found[1].anchor == "Alpha section"
+    assert found == [Comment(anchor="Alpha section", text="Fine.")]
 
 
 def test_a_reply_with_no_quotes_at_all_is_one_unanchored_comment() -> None:

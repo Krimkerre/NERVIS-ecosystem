@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2514 tests, no network, no live service
+.venv/bin/pytest                      # part of 2516 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1003 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1005 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2514 passing across the four, conformance `PASS`.
+Expected: all clean, 2516 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15278,9 +15278,33 @@ evidence.
 Live: asked chat for a table of the four services and pressed Save; the
 saved PDF holds a grid pdfplumber extracts as five rows by three columns.
 
-1003 tests (was 946): thirty-two for placing, page selection and the icon,
-twenty-one for the offer, the three buttons, the soft default and the vision
-gate, six for tables. `ruff` and `mypy` clean.
+**The whole scenario re-run from scratch afterwards, and two rough edges it
+showed.** A fresh conversation, the real blueprint, nothing preloaded:
+attached, "what are your thoughts on this pdf?" — answered from all 96,899
+characters with six table pages attached — then "put those thoughts into the
+document as comments", which offered *Add notes* with both alternatives and
+wrote fourteen anchored comments, and pressing it kept all forty-two
+original pages byte-identical with the comments on nine of them. The
+sentence naming the other two copies, which the model had dropped twice
+before, opened the reply this time.
+
+Two things were wrong and are fixed. The glance ran on the annotated copy
+and reported the blueprint's own cover heading as "crowded against the text
+below it" — a small local model reviewing the operator's design, on a page
+NERVIS copied rather than drew. It now runs only where NERVIS laid the page
+out, which is a save or an inline re-render, and never on a copy. And the
+reply's opening paragraph — "here are the comments, placed under the
+sections they address", plus the sentence about which button to press —
+became an unanchored comment and landed in the blueprint under "Further
+comments": chat filed as a remark about a document. Prose before the first
+quote is now dropped when quotes follow it, and kept when none do, because a
+reply with no quotes anywhere is a model that ignored the format and still
+said what was asked for. Re-pressed live: forty-two pages exactly, no extra
+page, fourteen comments, no glance.
+
+1005 tests (was 946): thirty-four for placing, page selection and the icon,
+twenty-three for the offer, the three buttons, the soft default, the vision
+gate and the glance, six for tables. `ruff` and `mypy` clean.
 
 ## Starting the thing
 

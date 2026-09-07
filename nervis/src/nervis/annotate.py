@@ -108,10 +108,16 @@ def parse_comments(reply: str) -> list[Comment]:
     """The comments in a reply, in the order they were written.
 
     A comment starts at a `>` line — the quote — and runs until the next one.
-    Consecutive `>` lines are one quote, the way markdown reads them. Text
-    before the first quote, or a reply with no quotes at all, is one comment
-    with no anchor: it will be placed at the end rather than dropped, because
-    a model that ignored the format still said something the person asked for.
+    Consecutive `>` lines are one quote, the way markdown reads them.
+
+    **Prose before the first quote is dropped when quotes follow it, and kept
+    when none do.** Both halves of that were measured. A reply that anchors
+    its comments opens by talking to the *person* — "here are the comments,
+    placed under the sections they address", and the sentence about which
+    copy to press — and that landed in the document under "Further comments",
+    which is chat filed as a remark about a blueprint. A reply with no quotes
+    at all is a model that ignored the format, and everything it said is
+    still what the person asked for, so it is kept and placed at the end.
     """
     comments: list[Comment] = []
     anchor: list[str] = []
@@ -139,6 +145,25 @@ def parse_comments(reply: str) -> list[Comment]:
         body.append(line)
     if started:
         flush()
+    return _placeable(comments)
+
+
+def _placeable(comments: list[Comment]) -> list[Comment]:
+    """The comments worth placing, once the whole reply has been read.
+
+    **Prose before the first quote is chat when quotes follow it.** Measured
+    on a real reply: it opened by telling the person which copy to press and
+    that the comments were below, and that paragraph landed in the blueprint
+    under "Further comments" — a sentence about a button, filed as a remark
+    about a document.
+
+    A reply with no quotes anywhere is the other case entirely, and the
+    reason this is a filter rather than a rule in the loop: a model that
+    ignored the format still said what the person asked for, so all of it is
+    kept and placed at the end.
+    """
+    if any(comment.anchor for comment in comments):
+        return [comment for comment in comments if comment.anchor]
     return comments
 
 

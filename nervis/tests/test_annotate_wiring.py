@@ -358,3 +358,60 @@ def test_a_turn_that_opens_no_document_sends_no_images(tmp_path: Path) -> None:
     turn(client, "how are the services doing", system="Be someone.")
 
     assert isinstance(_sent_content(sent)["content"], str)
+
+
+def test_an_annotated_copy_is_not_visually_checked(tmp_path: Path) -> None:
+    """The glance is for pages NERVIS laid out. An annotated copy's first page
+    is the person's own cover, and the glance duly reported the heading on it
+    as "crowded against the text below" — a model reviewing somebody's design,
+    on a page NERVIS did not draw."""
+    client = an_api(frames("> harbours and tides\nNeeds a tide table."),
+                    workspace_path=str(tmp_path))
+    client.app.state.settings.ravis_client_credential = "secret"
+    _attach(client, "cv_glance", "blueprint.pdf", _two_pages())
+    answered = turn(client, "insert your comments into the document",
+                    system="Be someone.", attachment_id="cv_glance")
+
+    def would_flag(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "Yes: the heading is crowded."}}]
+        })
+
+    client.app.state.probe_client._transport = httpx.MockTransport(  # type: ignore[attr-defined]
+        would_flag
+    )
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.document.annotate.notes",
+        "target": "copy.pdf",
+        "conversation_id": answered.headers["x-conversation-id"],
+    })
+
+    assert ran.status_code == 200, ran.text
+    assert "looked over" not in ran.json()["file"]["detail"]
+
+
+def test_a_saved_reply_is_still_visually_checked(tmp_path: Path) -> None:
+    """The falsifier: NERVIS drew that page, so the glance still applies."""
+    client = an_api(workspace_path=str(tmp_path))
+    client.app.state.settings.ravis_client_credential = "secret"
+    answered = turn(client, "tell me something", system="Be someone.")
+
+    def would_flag(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "Yes: text runs off the page."}}]
+        })
+
+    client.app.state.probe_client._transport = httpx.MockTransport(  # type: ignore[attr-defined]
+        would_flag
+    )
+
+    ran = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.document.write",
+        "target": "plain.pdf",
+        "conversation_id": answered.headers["x-conversation-id"],
+    })
+
+    assert "text runs off the page." in ran.json()["file"]["detail"]

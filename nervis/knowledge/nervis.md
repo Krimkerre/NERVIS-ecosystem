@@ -143,7 +143,10 @@ of the original is kept exactly as it was in the first two:
   or a browser. Standard on purpose — a custom icon drew differently in
   every viewer tried, and a plain note is the one thing they all draw the
   same. This is the soft default: it is what gets offered when no style was
-  named, and the other two are shown as chips beside the button.
+  named, and the other two are shown as chips beside the button. An annotated
+  copy is never put through the save-time visual glance: its pages are the
+  person's own, and reviewing somebody's design on a page NERVIS only copied
+  is not checking work.
 - **Margin notes** (*Annotate*): a reviewer's copy — a page with comments on
   it is scaled to two-thirds width and set left, and the comments sit in a
   column beside it, each level with the passage it quotes and joined to it
