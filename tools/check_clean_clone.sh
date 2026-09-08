@@ -26,6 +26,22 @@ WORK="${1:-$(mktemp -d)}"
 NERVIS_REMOTE="https://github.com/Krimkerre/NERVIS-ecosystem.git"
 CLARVIS_REMOTE="https://github.com/Krimkerre/clarvis.git"
 
+# **A long work directory fails one step for a reason that has nothing to do
+# with the code.** `clarvis test:host` starts a real VS Code, which opens a Unix
+# domain socket under `.vscode-test/user-data/`, and a Unix socket path is
+# capped at 104 bytes on macOS and 108 on Linux — a limit in the kernel struct,
+# not in anything either project controls. Given a work directory a couple of
+# directories deep in a temp path, that socket lands past the cap and `listen`
+# returns `EINVAL: invalid argument`, which reads exactly like a broken
+# extension host. Measured: 166 bytes from a session scratchpad, and it cost an
+# investigation before this check existed.
+SOCKET_PATH="$WORK/clean/clarvis/.vscode-test/user-data/1.13-main.sock"
+if [ "${#SOCKET_PATH}" -gt 100 ]; then
+  printf '  NOTE  work directory is deep: %s bytes of socket path, limit ~104\n' "${#SOCKET_PATH}"
+  printf '        `clarvis test:host` will fail with EINVAL for that reason alone.\n'
+  printf '        Re-run with a short path — tools/check_clean_clone.sh /tmp/ccg — to gate it.\n'
+fi
+
 rm -rf "${WORK:?}/clean"
 mkdir -p "$WORK/clean"
 cd "$WORK/clean" || exit 1

@@ -488,8 +488,6 @@ class Style:
     colour: tuple[float, float, float] = INK
     #: A hairline across the measure above this block, and how far above it.
     rule_above: float = 0
-    #: A tint behind the block, for code.
-    tint: tuple[float, float, float] | None = None
     #: Extra space between characters, in points. What makes a label a label.
     tracking: float = 0
     #: Whether the text is set in capitals.
@@ -503,7 +501,11 @@ STYLES: dict[Kind, Style] = {
     Kind.PARAGRAPH: Style(size=11),
     Kind.BULLET: Style(size=11, indent=16),
     Kind.NUMBERED: Style(size=11, indent=16),
-    Kind.CODE: Style(size=9.5, monospace=True, indent=12, colour=CYAN, tint=PANEL),
+    # No tint here. A code block's background is computed from the page it is
+    # drawn on rather than fixed in this table — `pdf.py`'s `_CodeBlock` darkens
+    # a light page and lightens a dark one — so a colour stated here would be
+    # the one nothing reads, which is what it had become.
+    Kind.CODE: Style(size=9.5, monospace=True, indent=12, colour=CYAN),
     Kind.BLANK: Style(size=11),
     # A shade smaller than prose: a table is read by scanning columns, and a
     # size that fits more of one across the measure is worth more than one
