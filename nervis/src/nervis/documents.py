@@ -120,6 +120,16 @@ IMAGE_MEDIA_TYPES = {
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
+def readable_name(name: str) -> bool:
+    """Whether chat can make anything of a file with this name.
+
+    The public form of `_readable`, for callers holding a filename rather than
+    a suffix — the upload endpoint answers with it so the screen never has to
+    keep a second copy of the list.
+    """
+    return _readable(Path(name).suffix)
+
+
 def _readable(suffix: str) -> bool:
     """Whether chat can make anything of a file with this suffix.
 

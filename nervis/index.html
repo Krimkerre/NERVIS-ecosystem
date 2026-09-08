@@ -4463,16 +4463,15 @@ function fileSize(bytes){
  return (n/(1024*1024)).toFixed(1)+' MB';
 }
 
-/* Which files chat can read, kept in step with `documents.py` by hand.
-   The card states this at the moment of upload, and a card promising a reading
-   NERVIS cannot give would be a lie told in the transcript. */
-const READABLE_SUFFIXES=['.txt','.md','.markdown','.rst','.log','.csv','.tsv','.json',
- '.yaml','.yml','.toml','.ini','.cfg','.conf','.py','.js','.ts','.tsx','.jsx','.html',
- '.css','.sh','.sql','.pdf'];
-function readableName(name){
- const at=String(name||'').lastIndexOf('.');
- return at>0&&READABLE_SUFFIXES.includes(String(name).slice(at).toLowerCase());
-}
+/* Whether chat can read an uploaded file is **NERVIS's answer, not this
+   page's guess.** This held its own copy of `documents.py`'s suffix list,
+   "kept in step by hand" — and the hand slipped the day pictures became
+   readable: a `.png` uploaded, answered about correctly, and still labelled
+   *not readable as text* on its own card, in the transcript, next to the
+   answer that disproved it. The upload response carries `readable` now.
+   `!==false` rather than truthiness, so an older NERVIS that omits the field
+   is read as "yes" — the card said yes for every text file before this
+   existed, and a silent downgrade to "no" would be the same lie inverted. */
 
 function attachmentCard(m){
  const f=m.file||{};
@@ -4588,7 +4587,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
        what the picker offered rather than what was written. */
     const stored=(said.file)||{name:file.name,bytes:file.size};
     CHAT_SESSION.messages.push({role:'user',kind:'attachment',at:new Date().toISOString(),
-      file:{name:stored.name,bytes:stored.bytes,readable:readableName(stored.name)}});
+      file:{name:stored.name,bytes:stored.bytes,readable:stored.readable!==false}});
     CHAT_STORE.save(CHAT_SESSION);
     await render();
     scrollChatToEnd(true);

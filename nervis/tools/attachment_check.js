@@ -108,7 +108,13 @@ for (const [label, sample] of [
   ["a readable file", { role: "user", kind: "attachment", at: "2026-01-01T00:00:00Z",
                         file: { name: "notes.md", bytes: 4096, readable: true } }],
   ["one chat cannot read", { role: "user", kind: "attachment",
-                             file: { name: "shot.png", bytes: 12, readable: false } }],
+                             file: { name: "bundle.zip", bytes: 12, readable: false } }],
+  /* A picture, which chat reads by looking at it. The example above was a
+     `.png` until 8 September 2026, when this page still decided readability
+     from its own hand-kept suffix list and labelled an uploaded picture *not
+     readable as text* on the card beside the answer describing it. */
+  ["a picture", { role: "user", kind: "attachment",
+                  file: { name: "shot.png", bytes: 12, readable: true } }],
   ["a file with nothing known about it", { role: "user", kind: "attachment" }],
 ]) {
   let drawn;
@@ -131,6 +137,14 @@ for (const [label, sample] of [
     failures.push(
       "a file chat cannot read must say so on the card: announcing it without "
       + "that is an invitation to a refusal."
+    );
+  }
+  if (sample.file && sample.file.readable === true
+      && String(drawn).includes("not readable")) {
+    failures.push(
+      `${label} is readable and the card said otherwise. The label sits in the `
+      + "transcript beside the answer that disproves it, which is worse than "
+      + "saying nothing at all."
     );
   }
 }

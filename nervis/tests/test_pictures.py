@@ -102,6 +102,22 @@ def test_a_picture_too_large_for_a_prompt_says_to_resize_it(tmp_path: Path) -> N
         documents.read_document(tmp_path, "huge.png")
 
 
+def test_the_upload_says_whether_chat_can_read_what_it_stored(tmp_path: Path) -> None:
+    """**Readability is answered by the side that owns the reader.** The
+    dashboard kept its own copy of the suffix list, "in step with
+    `documents.py` by hand", and the hand slipped the day pictures became
+    readable: an uploaded `.png` was described correctly by chat and carried
+    the label *not readable as text* on its own card, in the transcript, beside
+    the answer that disproved it."""
+    client = an_api(workspace_path=str(tmp_path))
+
+    picture = _attach(client, "cv_says", "shot.png", PNG).json()
+    archive = _attach(client, "cv_says", "bundle.zip", b"PK\x03\x04").json()
+
+    assert picture["file"]["readable"] is True
+    assert archive["file"]["readable"] is False
+
+
 # ── A picture the model drew ─────────────────────────────────────────────────
 
 

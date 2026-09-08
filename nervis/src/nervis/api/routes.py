@@ -391,7 +391,18 @@ async def upload_to_workspace(name: str, request: Request) -> Any:
         raise InvalidConfigurationError(str(refusal)) from refusal
     except ValueError as refusal:
         raise InvalidConfigurationError(str(refusal)) from refusal
-    return {"file": {"name": stored.shown, "bytes": stored.written}}
+    # **`readable` is answered here rather than guessed at the screen.** The
+    # dashboard kept its own suffix list "in step with `documents.py` by hand",
+    # and the hand slipped the day pictures became readable: a `.png` uploaded
+    # and answered about correctly still carried the label *not readable as
+    # text* on its own card. One list, on the side that owns the reader.
+    return {
+        "file": {
+            "name": stored.shown,
+            "bytes": stored.written,
+            "readable": documents.readable_name(stored.shown),
+        }
+    }
 
 
 @router.put("/ravis/credentials/{name}", dependencies=[Depends(require_control)])

@@ -3184,7 +3184,7 @@ def test_an_uploaded_file_is_then_readable_by_chat(tmp_path: Path) -> None:
         content=b"Revenue fell in Q3.",
     )
     assert put.status_code == 200, put.text
-    assert put.json()["file"] == {"name": "notes.md", "bytes": 19}
+    assert put.json()["file"] == {"name": "notes.md", "bytes": 19, "readable": True}
 
     turn(client, 'summarise "notes.md" for me', system="Be someone.", attachment_id="cv_abcd")
 

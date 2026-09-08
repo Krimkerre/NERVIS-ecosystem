@@ -252,7 +252,10 @@ and says so rather than answering as though the document were empty.
 Pictures can be attached too — `.png`, `.jpg`, `.gif`, `.webp` — and are
 looked at rather than read, so they need a model that can see and are
 capped at five megabytes. An archive or anything else chat can neither
-decode nor see is listed with the reason, not silently.
+decode nor see is listed with the reason, not silently. Whether a file
+can be read is NERVIS's answer rather than the screen's guess: the card
+under an upload said *not readable as text* about a picture chat had just
+described, because the page kept its own copy of the list.
 
 ## Voice
 
