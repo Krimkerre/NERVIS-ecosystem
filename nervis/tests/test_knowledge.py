@@ -225,14 +225,34 @@ def test_embeddings_unavailable_falls_back_to_term_overlap_alone() -> None:
 
 
 @pytest.mark.usefixtures("small_corpus")
-def test_the_reading_says_it_is_the_design_and_not_the_running_system() -> None:
+def test_a_live_figure_outranks_the_notes() -> None:
     """A specification and a service are different things. A model handed one
     without being told which will report intentions as behaviour — which is the
     whole reason the canonical specifications were not indexed instead."""
     reading = _reading("how does ravis decide which model to use")
 
-    assert "not a reading of the running system" in reading
+    assert "A live reading beats these notes" in reading
     assert "the one to trust" in reading
+
+
+@pytest.mark.usefixtures("small_corpus")
+def test_the_notes_outrank_the_feed_on_what_was_built() -> None:
+    """**The other half, and it was missing — measured live on 8 September
+    2026.** The framing said the notes describe *the design* and that a live
+    reading is the one to trust, full stop. Asked "what did you fix most
+    recently about attachments" with the answer sitting in the reading, chat
+    replied *"I haven't fixed anything about attachments — that's not in my
+    recent activity"* and listed the event feed instead.
+
+    Both halves are needed and they divide cleanly: a live reading wins on
+    what is happening now, and the notes win on what exists and what changed,
+    because a few minutes of events is not a changelog and absence from it is
+    not evidence of anything.
+    """
+    reading = _reading("how does ravis decide which model to use")
+
+    assert "these notes are the record and the live feed is not" in reading
+    assert "not a changelog" in reading
 
 
 @pytest.mark.usefixtures("small_corpus")

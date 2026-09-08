@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2546 tests, no network, no live service
+.venv/bin/pytest                      # part of 2547 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1020 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1021 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2546 passing across the four, conformance `PASS`.
+Expected: all clean, 2547 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15487,6 +15487,23 @@ against a viewport, the pane being driven reported none, and `object-fit:
 contain` obligingly fitted the image into zero. A fixed pixel cap has no such
 dependency.
 
+**And one still open, found while checking chat could report that fix.** The
+notes reach the model and are used correctly — asked how large a picture
+attachment may be, it answers five megabytes and what happens above it, which
+exists nowhere but these files. Asked *what did you fix most recently about
+attachments*, with the answer in the same reading, it says *"I haven't fixed
+anything about attachments — that's not in my recent activity"* and lists the
+event feed instead. Two different models, one small and one 70B, produced
+nearly the same sentence, which is the prompt talking rather than the model.
+
+The reading's framing said the notes *describe the design* and that a live
+figure is the one to trust, full stop — so a question about what changed
+resolved to the live feed, where fifteen minutes of events is not a changelog.
+That half is now stated: a live reading still wins on what is happening now,
+and the notes win on what exists and what was built or fixed. It did not
+change the answer to that question, so this is recorded as measured rather
+than as fixed.
+
 **A last one, found by uploading a picture through the dashboard rather than
 through the API.** The attachment card said *not readable as text* under a
 `.png` — in the transcript, directly beside the answer describing what was in
@@ -15498,7 +15515,7 @@ this instance of it; `attachment_check.js` gained the falsifier it was missing,
 since it only ever checked that an unreadable file *says so* and never that a
 readable one stays quiet.
 
-RAVIS 992 -> 995 tests, NERVIS 1007 -> 1020, `ruff` and `mypy` clean in both.
+RAVIS 992 -> 995 tests, NERVIS 1007 -> 1021, `ruff` and `mypy` clean in both.
 NERVIS 0.24.0, RAVIS 0.22.0.
 
 ## Starting the thing

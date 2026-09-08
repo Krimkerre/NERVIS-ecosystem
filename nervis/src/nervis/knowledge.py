@@ -586,10 +586,16 @@ async def reading(
     # The framing sentence stays outside the fence: it is NERVIS describing the
     # notes, not the notes describing themselves.
     return "\n\n".join([
-        "Background on how this ecosystem works, from its own notes. This"
-        " describes the design and is not a reading of the running system —"
-        " where a live figure is available it is elsewhere in this prompt and it"
-        " is the one to trust.",
+        "Background on how this ecosystem works, from its own notes. A live"
+        " reading beats these notes on anything happening *now* — a count, a"
+        " state, a service's health — and where one is available it is"
+        " elsewhere in this prompt and it is the one to trust. **On what NERVIS"
+        " can do and what was built or fixed, these notes are the record and"
+        " the live feed is not.** The event stream shows the last few minutes"
+        " of activity; it is not a changelog, and finding nothing in it about a"
+        " capability is not evidence the capability is absent. Do not answer"
+        " \"what did you fix\" or \"can you do X\" from the feed while these"
+        " notes say otherwise.",
         fenced("those notes", body, provenance="the ecosystem's own documentation",
                max_chars=MAX_CHARACTERS),
     ])
