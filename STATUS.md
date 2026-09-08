@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2599 tests, no network, no live service
+.venv/bin/pytest                      # part of 2610 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 477 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1042 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1045 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2599 passing across the four, conformance `PASS`.
+Expected: all clean, 2610 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15773,6 +15773,65 @@ that fails. Fixed and re-run: the clause still proves what it proved, and the
 four adapters are there afterwards.
 
 The liveness ratchet fell from 52 to 49 with the two cards gone.
+
+## The matrix said no unsafe failover. Verifying that claim found four,
+2026-09-08
+
+Asked to tick §16's *"the failure/degradation matrix passes with no unsafe
+failover"* now that the matrix reads 19 of 19 covered. Ticking it asserts two
+things, and only the first had been checked — so nineteen agents each read one
+cell's cited tests and asked separately whether that failure could route around
+a constraint. Three code defects and one gate weakness came back, each
+reproduced by hand before being believed.
+
+**A request that had already been sent could be sent again.** The policy table
+grants exactly one same-target retry, to `CONNECTION`, justified in its own
+comment: *"a connection that was never established cannot have delivered the
+request, so a second attempt is provably not a duplicate."* That reasoning
+covers `ConnectError` and nothing else, and `classify_exception` was mapping
+every `httpx.TransportError` to it — `ReadError`, `WriteError`,
+`RemoteProtocolError`, `CloseError`, all of which happen *after* the bytes went
+out. Measured against the installed httpx, all four retried the same target. A
+retry there re-runs a completion the provider may already have billed, which is
+§10's "no duplicated jobs, charges, agent actions or approvals". They are
+`INVALID_UPSTREAM_RESPONSE` now, whose policy already describes them exactly:
+no same-target retry, because the request plainly arrived, and a fallback to
+the next candidate, because nothing about the request has been shown wrong.
+
+**An authentication failure could be talked out of by the body.** Body markers
+are read before the status, which is right nearly everywhere — a status is
+coarse and the upstream's own words usually say more. Not here. Measured on the
+real classifier: a 403 reading *"Your project does not have access: model is
+not available"* matched the model-unavailable markers, classified as
+`MODEL_UNAVAILABLE`, and that class may fall back. So a rejected credential was
+shopped to the next provider, which §10 forbids in those words. 401 and 403 are
+now final; every other status still lets the body speak, which its own
+falsifier holds.
+
+**And an event could name a window it was not.** `/api/v1/events` has no
+credential and stored a claimed `source.instance_id` exactly as sent, so
+anything that could reach the port could post an event naming somebody else's
+editor window — and it came back under that window's diagnostics. CLARVIS.md
+§6.6 promises the opposite: events and status from one never appear under
+another. Now a claim on a *registered* instance must present that instance's
+own token. Narrower than it sounds, and deliberately: every service puts an
+`instance_id` in its envelope, and an id nobody registered cannot be mistaken
+for a window because every read of one 404s.
+
+**The gate could not have caught any of this, and could not catch a stale
+citation either.** It validated `where.split(":")[0]` — the file — and never
+read the anchor after it, so a cell kept passing after its test was renamed or
+deleted. Verifying by hand found one citation that had drifted onto an
+unrelated test and another onto a blank line. `_anchor_missing` now resolves a
+named test or function for real, and bounds a bare line number by the file's
+length.
+
+**The item stays unticked.** Three of the four are fixed and tested; what the
+verification also showed is that most cells assert all six of §10's outcomes
+where their evidence shows one or two, so "covered" is broader than what is
+proved. Re-scoping those is the work left before that sentence can be signed.
+
+RAVIS 1018 -> 1026, NERVIS 1042 -> 1045.
 
 ## Starting the thing
 

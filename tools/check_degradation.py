@@ -42,6 +42,36 @@ CLARVIS = ROOT.parent / "clarvis"
 #: What a cell may say about itself.
 VERDICTS = ("COVERED", "PARTIAL", "NOT_COVERED", "NOT_APPLICABLE")
 
+
+def _anchor_missing(path: pathlib.Path, anchor: str) -> str:
+    """Why a citation's `:anchor` does not hold, or an empty string.
+
+    **The file existing was the whole check, and it is the weaker half.** A
+    citation names a test or a function after the colon, and nothing read it —
+    so a cell kept passing after its test was renamed, moved or deleted. Found
+    by verifying the matrix by hand on 8 September 2026: one cell cited a line
+    number that had drifted onto an unrelated test, and another onto a blank
+    line between two.
+
+    A bare line number is still accepted and still weak — it is checked only
+    for being inside the file — because several cells legitimately point at a
+    line of source rather than at a named test. A name is checked for real.
+    """
+    if not anchor:
+        return ""
+    if anchor.split(",")[0].split("-")[0].isdigit():
+        lines = len(path.read_text(encoding="utf-8", errors="ignore").splitlines())
+        first = int(anchor.split(",")[0].split("-")[0])
+        if 1 <= first <= lines:
+            return ""
+        return f"whose line {first} is past the end of a {lines}-line file"
+    body = path.read_text(encoding="utf-8", errors="ignore")
+    for form in (f"def {anchor}(", f"def {anchor} (", f"function {anchor}(", f"{anchor} =",
+                 f"'{anchor}'", f'"{anchor}"'):
+        if form in body:
+            return ""
+    return f"which names nothing in it — {anchor!r} is not defined there"
+
 #: How the evidence was obtained, weakest first. `unit` proves a helper; `route`
 #: proves the application answered; `live` proves a running service did.
 KINDS = ("unit", "static-gate", "manual", "route", "live")
@@ -288,11 +318,16 @@ def main() -> int:
         for kind, where in cell.evidence:
             if kind not in KINDS:
                 failures.append(f"{cell.condition!r} cites evidence of kind {kind!r}")
-            path = where.split(":")[0]
+            path, _, anchor = where.partition(":")
             here = ROOT / path
             there = CLARVIS / path.removeprefix("clarvis/")
-            if not here.exists() and not there.exists():
+            found = here if here.exists() else there
+            if not found.exists():
                 failures.append(f"{cell.condition!r} cites {where}, which does not exist")
+                continue
+            missing = _anchor_missing(found, anchor)
+            if missing:
+                failures.append(f"{cell.condition!r} cites {where}, {missing}")
         if cell.verdict == "PARTIAL" and not cell.gap:
             failures.append(f"{cell.condition!r} is PARTIAL and names no gap")
         if cell.verdict != "COVERED" and not cell.closes_with:

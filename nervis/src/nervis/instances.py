@@ -280,6 +280,22 @@ class Instances:
             raise RegistrationRefusedError("no such instance, or the token does not match it")
         return instance
 
+    def holds(self, service: str, instance_id: str, token: str) -> bool:
+        """Whether the caller holds this instance's own token.
+
+        A question rather than a lookup, because the one caller that needs it —
+        the event hub, checking a claimed `source.instance_id` — wants a yes or
+        no and has no use for the record. It answers no where `_authenticated`
+        would raise, for the same reason that method gives one message for two
+        cases: an ingest path that told a producer *which* half was wrong would
+        be an instance-id oracle open to anything that can reach the port.
+        """
+        try:
+            self._authenticated(service, instance_id, token)
+        except RegistrationRefusedError:
+            return False
+        return True
+
     def find(self, service: str, instance_id: str) -> Instance | None:
         """One instance by name, for NERVIS's own use.
 

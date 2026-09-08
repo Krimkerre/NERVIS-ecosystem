@@ -328,3 +328,83 @@ def test_a_renewed_lease_brings_the_window_back(api: TestClient) -> None:
         assert api.get(f"{base}/status").status_code == 200
     finally:
         bridge.shutdown()
+
+
+# ── §6.6: one window's events never appear under another ────────────────────
+
+
+def test_an_event_claiming_a_registered_window_must_prove_it(api: TestClient) -> None:
+    """**Verified against a running app before it was fixed.** `/api/v1/events`
+    has no credential of its own and stored a claimed `source.instance_id`
+    exactly as sent, so anything that could reach the port could post an event
+    naming somebody else's editor window — and it came back under that window's
+    diagnostics. §6.6 promises the opposite in those words: events and status
+    from one window never appear under another.
+    """
+    bridge = a_bridge(lambda _: (200, "{}"))
+    try:
+        instance_id, _ = register(api, bridge.server_address[1])
+
+        forged = api.post("/api/v1/events", json=[{
+            "event_id": "forged-1",
+            "event_type": "clarvis.agent.finished",
+            "event_version": "1.0.0",
+            "occurred_at": "2026-09-08T10:00:00.000Z",
+            "source": {"service_type": "clarvis", "instance_id": instance_id},
+            "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "severity": "info",
+            "data": {},
+        }])
+
+        body = forged.json()
+        assert body["accepted"] == 0
+        assert body["rejected"][0]["reason"] == "unproven_instance"
+        seen = api.get(
+            f"/api/v1/registry/instances/clarvis/{instance_id}/diagnostics"
+        ).json()
+        assert not [e for e in seen.get("events", []) if e.get("event_id") == "forged-1"]
+    finally:
+        bridge.shutdown()
+
+
+def test_the_window_itself_is_still_believed(api: TestClient) -> None:
+    """The falsifier, and the whole point of checking a token rather than
+    refusing the field: the window that owns the id publishes exactly as it
+    did, presenting the token NERVIS issued it at registration."""
+    bridge = a_bridge(lambda _: (200, "{}"))
+    try:
+        instance_id, token = register(api, bridge.server_address[1])
+
+        posted = api.post("/api/v1/events", headers={"Authorization": f"Bearer {token}"},
+                          json=[{
+                              "event_id": "genuine-1",
+                              "event_type": "clarvis.agent.finished",
+                              "event_version": "1.0.0",
+                              "occurred_at": "2026-09-08T10:00:00.000Z",
+                              "source": {"service_type": "clarvis", "instance_id": instance_id},
+                              "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+                              "severity": "info",
+                              "data": {},
+                          }])
+
+        assert posted.json()["accepted"] == 1
+    finally:
+        bridge.shutdown()
+
+
+def test_a_service_that_registers_no_instance_publishes_untouched(api: TestClient) -> None:
+    """The other falsifier, and the reason the rule is scoped to *registered*
+    ids. Every service puts an `instance_id` in its envelope; demanding a token
+    for all of them would close the hub to the producers it exists for."""
+    posted = api.post("/api/v1/events", json=[{
+        "event_id": "ravis-1",
+        "event_type": "ravis.route.decided",
+        "event_version": "1.0.0",
+        "occurred_at": "2026-09-08T10:00:00.000Z",
+        "source": {"service_type": "ravis", "service_id": "r1", "instance_id": "i1"},
+        "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "severity": "info",
+        "data": {},
+    }])
+
+    assert posted.json()["accepted"] == 1

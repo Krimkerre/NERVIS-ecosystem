@@ -146,6 +146,11 @@ _POLICIES: dict[FailureClass, FailurePolicy] = {
 }
 
 # Status codes whose meaning is unambiguous without reading the body.
+#: Statuses whose meaning the body may not override. Both say the provider
+#: read the request and refused the caller, which is a fact about the
+#: credential rather than about the model, the prompt or the moment.
+_CREDENTIAL_STATUSES = frozenset({401, 403})
+
 _STATUS_CLASSES: dict[int, FailureClass] = {
     401: FailureClass.AUTHENTICATION,
     403: FailureClass.AUTHENTICATION,
@@ -206,11 +211,31 @@ def classify_exception(failure: Exception) -> FailureClass:
     error, and it is the *timeout* reading that is useful — the connection was
     attempted rather than refused, so the target may well be alive and merely
     slow, and retrying the same one would wait all over again.
+
+    **`CONNECTION` means the request never left, and only `ConnectError` proves
+    that.** The policy table gives this class the one same-target retry in the
+    system, justified as "a connection that was never established cannot have
+    delivered the request, so a second attempt is provably not a duplicate."
+    That reasoning is sound and it was being applied to failures it does not
+    cover: every `httpx.TransportError` landed here, including `ReadError`,
+    `WriteError`, `RemoteProtocolError` and `CloseError` — all of which happen
+    *after* the request went out. Retrying those re-sends a completion the
+    provider may have already run and billed, which is the duplicated charge
+    §10 forbids.
+
+    They become `INVALID_UPSTREAM_RESPONSE`, whose policy already says exactly
+    what is true of them — no same-target retry because "the request plainly
+    arrived, since something came back", but a fallback to the next candidate,
+    because nothing about the *request* has been shown to be wrong. A stream
+    that dies mid-flight is that class's own description of itself, arriving as
+    an exception rather than as a body.
     """
     if isinstance(failure, httpx.TimeoutException):
         return FailureClass.TIMEOUT
-    if isinstance(failure, httpx.TransportError):
+    if isinstance(failure, httpx.ConnectError):
         return FailureClass.CONNECTION
+    if isinstance(failure, httpx.TransportError):
+        return FailureClass.INVALID_UPSTREAM_RESPONSE
     return FailureClass.UNKNOWN
 
 
@@ -224,6 +249,16 @@ def classify_response(status: int, body: bytes) -> FailureClass | None:
     """
     if status < 400:
         return None
+    # **A credential failure is not up for reinterpretation by the body.**
+    # Body markers run first because a status is coarse and an upstream's own
+    # words usually say more — but not here: a 401 or 403 means the provider
+    # read the request and refused the caller, and no phrasing changes that.
+    # Measured: a real 403 reading "Your project does not have access: model is
+    # not available" matched the model-unavailable markers and classified as
+    # `MODEL_UNAVAILABLE`, which *may fall back* — so an authentication failure
+    # was shopped to the next provider, which §10 forbids in those words.
+    if status in _CREDENTIAL_STATUSES:
+        return FailureClass.AUTHENTICATION
     marked = _from_body(body)
     if marked is not None:
         return marked

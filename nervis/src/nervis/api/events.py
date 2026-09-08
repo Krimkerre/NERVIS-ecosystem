@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from nervis.enrollment import presented_secret
 from nervis.errors import InvalidConfigurationError
 from nervis.events import Rejected, ends_stream, heartbeat, sse_frame
+from nervis.instances import Instances
 
 # How far back a resuming subscriber is replayed in one connection. Named rather
 # than a literal in the call, because it is a *policy*: past this the client is
@@ -38,6 +41,48 @@ HEARTBEAT_SECONDS = 12.0
 # far short of the retained history — which is what an unbounded replay handed
 # to anyone who connected without a cursor.
 FRESH_TAIL = 25
+
+
+def _unproven_instance(
+    payload: Any, instances: Instances, presented: str
+) -> dict[str, str] | None:
+    """Refuse an event that claims a window it cannot prove it is.
+
+    **`source.instance_id` is what §6.6's isolation is keyed on**, and until now
+    nothing checked it: this route has no credential of its own, and a claimed
+    id was stored exactly as sent. So anything that could reach the port could
+    post an event naming somebody else's editor window, and it appeared under
+    that window's diagnostics — which is the one thing "events and status from
+    one never appear under another" promises will not happen.
+
+    **Only a claim on a *registered* instance is checked**, which is narrower
+    than it first looks and deliberately so. Every service publishes an
+    `instance_id` of its own — RAVIS and SIRVIS put one in every envelope — and
+    demanding a token for those would close the hub to the producers it exists
+    for. What matters is misattribution: an id nobody registered cannot be
+    mistaken for somebody's window, because every read of one 404s. An id the
+    registry *does* hold is a window a person is looking at, and the registry
+    already issued that window a token for exactly this kind of proof.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    source = payload.get("source")
+    claimed = str((source or {}).get("instance_id") or "") if isinstance(source, Mapping) else ""
+    if not claimed:
+        return None
+    service = str(source.get("service_type") or "") if isinstance(source, Mapping) else ""
+    if instances.find(service, claimed) is None:
+        return None
+    if instances.holds(service, claimed, presented):
+        return None
+    return {
+        "reason": "unproven_instance",
+        # Deliberately not saying which half failed. The alternative is an
+        # oracle for which instance ids exist, answerable by anything that can
+        # reach the port.
+        "detail": f"an event claiming {service or 'an'} instance must present that "
+                  "instance's own token",
+    }
 
 
 @router.post("", status_code=202)
@@ -68,8 +113,13 @@ async def ingest(request: Request) -> dict[str, Any]:
         raise InvalidConfigurationError(f"body is not valid JSON: {failure}") from failure
 
     payloads = body if isinstance(body, list) else [body]
+    presented = presented_secret(request.headers.get("authorization"))
     accepted, rejected = 0, []
     for payload in payloads:
+        unproven = _unproven_instance(payload, request.app.state.instances, presented)
+        if unproven is not None:
+            rejected.append(unproven)
+            continue
         outcome = hub.ingest(payload)
         if isinstance(outcome, Rejected):
             rejected.append({"reason": outcome.reason, "detail": outcome.detail})

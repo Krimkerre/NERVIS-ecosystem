@@ -624,3 +624,76 @@ def test_the_attempt_record_holds_no_prompt_and_no_completion() -> None:
 
     fields = set(chain.summary()["attempts"][0])
     assert fields == {"model", "outcome", "detail", "provider", "elapsed_ms", "ttft_ms"}
+
+
+# ── §10: no failover that crosses a constraint ──────────────────────────────
+#
+# Both of these were found by adversarially verifying the degradation matrix's
+# own claim that no failover is unsafe. Neither was caught by a test, and both
+# were reproduced against the real classifier before being fixed.
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [httpx.ReadError("connection reset"),
+     httpx.WriteError("broken pipe"),
+     httpx.RemoteProtocolError("server disconnected"),
+     httpx.CloseError("closed")],
+    ids=["read", "write", "protocol", "close"],
+)
+def test_a_transport_failure_after_the_request_left_is_never_re_sent(
+    failure: Exception,
+) -> None:
+    """**The one same-target retry in the system is justified by a sentence
+    that only covers `ConnectError`**: "a connection that was never established
+    cannot have delivered the request, so a second attempt is provably not a
+    duplicate." Every `httpx.TransportError` was landing on it, and these four
+    all happen *after* the bytes went out — so a retry re-sends a completion the
+    provider may already have run and billed, which is the duplicated charge
+    §10 forbids in those words.
+    """
+    policy = classify_exception(failure).policy
+
+    assert policy.retry_same_target is False
+    # Falling back is still right: nothing about the *request* has been shown
+    # to be wrong, and the next candidate is a different target.
+    assert policy.may_fall_back is True
+
+
+def test_a_connection_that_never_opened_still_gets_its_one_retry() -> None:
+    """The falsifier for the fix. Narrowing the class must not cost the retry
+    the reasoning actually supports — a refused connection provably delivered
+    nothing, and asking the same target again is free of duplicate risk."""
+    policy = classify_exception(httpx.ConnectError("refused")).policy
+
+    assert policy.retry_same_target is True
+
+
+@pytest.mark.parametrize("status", [401, 403], ids=["unauthenticated", "forbidden"])
+def test_a_credential_failure_cannot_be_talked_out_of_by_the_body(status: int) -> None:
+    """**Measured against the real classifier, and it was routing around an
+    auth failure.** Body markers are read before the status because an
+    upstream's own words usually say more than a status code — but a real 403
+    reading "Your project does not have access: model is not available" matched
+    the model-unavailable markers, classified as `MODEL_UNAVAILABLE`, and that
+    class *may fall back*. So a rejected credential was shopped to the next
+    provider, which §10 forbids: do not route around a refusal to find a more
+    permissive one.
+    """
+    body = json.dumps({"error": {
+        "message": "Your project does not have access: model is not available",
+    }}).encode()
+
+    failure = classify_response(status, body)
+
+    assert failure is FailureClass.AUTHENTICATION
+    assert failure.policy.may_fall_back is False
+
+
+def test_the_body_still_speaks_where_the_status_is_coarse() -> None:
+    """The falsifier for that one. Making a credential status final must not
+    make every status final — a 400 says only "your request", and the body is
+    what distinguishes a safety refusal from a malformed field."""
+    refusal = json.dumps({"error": {"message": "content_filter triggered"}}).encode()
+
+    assert classify_response(400, refusal) is FailureClass.CONTENT_REFUSAL
