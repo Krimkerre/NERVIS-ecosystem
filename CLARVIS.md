@@ -144,7 +144,7 @@ one. This is the rule working, not a defect.
 
 Milestone status belongs to `plan.md` §7 in the Clarvis repository and is not
 restated here beyond this: M0–M9 are built and shipped, plus M9d2, M9d3, M9h and
-M13; M9g, M10 and M12 are designed and not built; M11 is the release gate rather
+M13; M9g and M10 are designed and not built; M11 is the release gate rather
 than a future milestone. **Where this section and `plan.md` §7 disagree, §7 is
 right and this is stale.**
 

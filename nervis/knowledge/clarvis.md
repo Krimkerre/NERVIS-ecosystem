@@ -92,9 +92,8 @@ safe for real on 6 September 2026: both the stored provider key and the
 conversation history survived a version downgrade byte-for-byte on a live
 workspace, not a fixture.
 
-Designed and **not built**: M9g (project notes the user writes), M10 (voice
-input), M12 (Tutor Mode). M11 is the release gate rather than a future
-milestone.
+Designed and **not built**: M9g (project notes the user writes) and M10 (voice
+input). M11 is the release gate rather than a future milestone.
 
 Clarvis's own build plan is the authority on milestone status, and anything here
 that disagrees with it is stale. That is a note for whoever maintains this file,
