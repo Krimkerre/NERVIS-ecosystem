@@ -86,14 +86,12 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="crash and restart mid-operation",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:792"),
-            ("live", "tools/acceptance_run.py:851"),
-            ("static-gate", "nervis/tools/supervision_check.js:1"),
+            ("live", "tools/acceptance_run.py:crash_clause"),
+            ("live", "tools/acceptance_run.py:_reconciled"),
+            ("route", "sirvis/tests/test_m6_storage.py:test_a_run_starts_recorded_so_a_crash_leaves_evidence_of_it"),
         ],
-        gap="Nothing anywhere kills a service while an operation is genuinely in flight: every crash-recovery assertion is a unit test calling `reconcile_interrupted` / `sweep` / `still_running` directly, the SIRVIS startup wiring th",
-        closes_with="Extend `restart_clause` in /Users/mathias/Documents/coding/NERVIS-ecosystem/tools/acceptance_run.py to submit a benchmark job, wait until it reads `running`, `kill -9` SIRVIS instead of `kill -15`, re",
     ),
     Cell(
         condition="corrupt response",
@@ -116,14 +114,11 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="each service absent at startup",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:792"),
-            ("route", "nervis/tests/test_m2_registry.py:704"),
-            ("route", "nervis/tests/test_m0_foundation.py:107"),
+            ("live", "tools/acceptance_run.py:cold_start_clause"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
         ],
-        gap="No live-process evidence exists for any service starting while a peer is absent \u2014 tools/acceptance_run.py always brings the whole stack up first and only then kills SIRVIS \u2014 and outside NERVIS (which has genuine route-le",
-        closes_with="Add a cold-start clause to /Users/mathias/Documents/coding/NERVIS-ecosystem/tools/acceptance_run.py \u2014 a new entry in CLAUSES (line 85) and a function invoked before restart_clause that starts the stac",
     ),
     Cell(
         condition="timeout",
@@ -224,36 +219,29 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="code-server loss \u2014 the browser VS Code that hosts Clarvis and that NERVIS embeds in its Clarvis/Code tab stops answering after having answered (crash, stopped, port taken)",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("route", "nervis/tests/test_m2_registry.py:704"),
-            ("route", "nervis/src/nervis/ecosystem.py:354-364;"),
-            ("static-gate", "nervis/src/nervis/registry.py:401"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stops_answering_says_so_in_its_state"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stopped_is_not_reported_as_stopped"),
+            ("static-gate", "nervis/tools/editor_check.js"),
         ],
-        gap="No test, gate or recorded live run anywhere names code-server going down after it had answered: the loss semantics are proven only through generic registry unit tests written against ollama/ravis, the tab's absent-editor",
-        closes_with="Add one route-level test to /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/tests/test_m2_registry.py that records `codeserver` as healthy with the adapted `codeserver.workbench: available` ca",
     ),
     Cell(
         condition="Bridge collision \u2014 two or more Clarvis Bridge instances (one per editor window/extension host) colliding on a listening endpoint, on an `instance_id`, on a NERVIS registry row, or on published state (\u00a710 \"Bridge collision\"; contract in CLARVIS.md \u00a76.6 \"Ports and sockets avoid collisions through OS-assigned endpoints or a documented broker. No instance overwrites another's registration.\")",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("route", "nervis/src/nervis/instances.py:11"),
-            ("route", "nervis/tests/test_m8a_registration.py:111"),
-            ("route", "nervis/tests/test_m8b_status.py:105-134;"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_window_whose_lease_lapsed_is_gone_rather_than_probed"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_lapsed_window_is_gone_from_diagnostics_and_config_too"),
         ],
-        gap="The live-Bridge collision is covered at three levels, but the *dead*-Bridge collision is not: `read_status` looks the instance up with `find()` and never checks `is_live()`, while a lapsed row stays in the registry for E",
-        closes_with="In /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/src/nervis/api/instances.py:115-119, gate `read_status` (and `read_diagnostics` below it) on `instance.is_live(request.app.state.instances_cl",
     ),
     Cell(
         condition="stale registry lease",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("route", "nervis/tests/test_m8b_status.py:137"),
-            ("route", "nervis/tests/test_m8a_registration.py:53"),
-            ("route", "clarvis/src/bridge/Bridge.test.ts:289"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_window_whose_lease_lapsed_is_gone_rather_than_probed"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_lease_still_inside_its_window_is_read_normally"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_renewed_lease_brings_the_window_back"),
         ],
-        gap="Lease expiry is proven only inside the Instances/ResourceManager containers with injected clocks and on the Clarvis registrant side \u2014 no test in either repo lets a lease lapse and then asks a NERVIS route what it says, s",
-        closes_with="Add one route test to /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/tests/test_m8b_status.py that registers a Bridge against a fake that is still listening, then overrides app.state.instance",
     ),
 ]
 

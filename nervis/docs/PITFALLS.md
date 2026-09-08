@@ -357,7 +357,7 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, twelve of them became automated:
+Since this list was written, thirteen of them became automated:
 
 - **`node tools/render_check.js`** renders all 36 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
@@ -391,6 +391,13 @@ Since this list was written, twelve of them became automated:
   not write, and this is the half that would otherwise be nobody's job, because
   a renderer that quietly widened would hand any model an `<img src>` pointing
   wherever it liked. **Runs in CI.**
+- **`node tools/editor_check.js`** renders the editor tab against a code-server
+  in each registry state and fails if a frame is drawn for one that is not
+  answering. An `<iframe>` on a dead port renders the browser's own error page
+  *inside* the dashboard, which reads as NERVIS being broken and sends the
+  reader to restart the wrong process. It also asserts the healthy case draws a
+  frame, because a check that never sees one would pass against a tab that
+  stopped working entirely. **Runs in CI.**
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -471,6 +478,7 @@ node tools/liveness_check.js                        # the hardcoded-card ratchet
 node tools/shaping_check.js                         # adapters shape payloads as before
 node tools/injection_check.js                       # provider data cannot write markup
 node tools/picture_check.js                         # a drawn picture renders; nothing else does
+node tools/editor_check.js                          # no frame for an editor that is not there
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly

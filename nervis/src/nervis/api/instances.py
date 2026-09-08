@@ -29,7 +29,7 @@ from nervis.bridges import read_config as read_bridge_config
 from nervis.bridges import read_status as read_bridge_status
 from nervis.enrollment import matches, presented_secret
 from nervis.errors import NotFoundError, RefusedError, UnauthorizedError
-from nervis.instances import LEASE_SECONDS, Instances, RegistrationRefusedError
+from nervis.instances import LEASE_SECONDS, Instance, Instances, RegistrationRefusedError
 
 router = APIRouter(prefix="/api/v1/registry/instances", tags=["registry"])
 
@@ -91,6 +91,27 @@ async def register(request: Request) -> dict[str, Any]:
     }
 
 
+def _live(request: Request, service: str, instance_id: str) -> Instance:
+    """One registered instance that is still holding its lease, or a 404.
+
+    **`read_diagnostics` has said "a dead window is a 404 the same as an
+    unknown one" since it was written, and nothing implemented it.** `find()`
+    returns whatever is in the registry, and a lapsed row stays there until the
+    sweep collects it — so a window that closed an hour ago was still answered
+    for, and NERVIS went to its port and asked. On a laptop that port is very
+    often somebody else's process by then.
+
+    Both facts are the same 404 on purpose: an id that never existed and a
+    lease that expired are both "NERVIS does not have this", and telling a
+    caller which one it is says something about a window that is gone.
+    """
+    instances: Instances = request.app.state.instances
+    found = instances.find(service, instance_id)
+    if found is None or not found.is_live(request.app.state.instances_clock()):
+        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    return found
+
+
 @router.get("/{service}/{instance_id}/status")
 async def read_status(service: str, instance_id: str, request: Request) -> dict[str, Any]:
     """One Bridge's own `/v1/status`, read by NERVIS and passed through an allowlist.
@@ -111,10 +132,7 @@ async def read_status(service: str, instance_id: str, request: Request) -> dict[
     mean the browser had to hold the one credential that grants registration,
     which is the trade `list_instances` already refused for the same reason.
     """
-    instances: Instances = request.app.state.instances
-    instance = instances.find(service, instance_id)
-    if instance is None:
-        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    instance = _live(request, service, instance_id)
     return await read_bridge_status(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
     )
@@ -140,10 +158,7 @@ async def read_diagnostics(service: str, instance_id: str, request: Request) -> 
     A dead window is a 404 the same as an unknown one, because a lease that
     expired and an id that never existed are both "NERVIS does not have this".
     """
-    instances: Instances = request.app.state.instances
-    instance = instances.find(service, instance_id)
-    if instance is None:
-        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    instance = _live(request, service, instance_id)
     status = await read_bridge_status(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
     )
@@ -170,10 +185,7 @@ async def read_config(service: str, instance_id: str, request: Request) -> dict[
     *configured to do* changes when somebody edits a setting, and a poll should
     not carry both.
     """
-    instances: Instances = request.app.state.instances
-    instance = instances.find(service, instance_id)
-    if instance is None:
-        raise NotFoundError(f"no registered {service} instance {instance_id}")
+    instance = _live(request, service, instance_id)
     return await read_bridge_config(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
     )

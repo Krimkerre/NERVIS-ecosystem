@@ -262,6 +262,7 @@ node nervis/tools/render_check.js
 node nervis/tools/complexity_check.js
 node nervis/tools/shaping_check.js
 node nervis/tools/picture_check.js
+node nervis/tools/editor_check.js
 ```
 
 **One rule outranks every screen on this page: it must render with nothing

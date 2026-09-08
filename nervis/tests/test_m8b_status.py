@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from nervis.app import create_app
 from nervis.bridges import interpret
 from nervis.config import Settings
+from nervis.instances import LEASE_SECONDS
 
 BRIDGE_TOKEN_HEADER = "Authorization"
 
@@ -234,3 +235,96 @@ def test_the_activity_id_is_bounded() -> None:
     assert len(interpret({"state": "idle", "activity_id": long_id})["activity_id"]) == 64
     assert "activity_id" not in interpret({"state": "idle", "activity_id": ""})
     assert "activity_id" not in interpret({"state": "idle", "activity_id": 42})
+
+
+# ── §10: a lease that lapsed, and the window behind it ──────────────────────
+
+
+def _age_the_registry(api: TestClient, seconds: float) -> None:
+    """Move every clock that decides whether a lease is still held.
+
+    A lease expires by time passing, and a test that slept forty-five seconds
+    to prove it would be a test nobody runs. Two clocks have to move together:
+    the route reads `instances_clock` to judge liveness, and the registry keeps
+    its own for stamping a renewal — shifting only the first makes a heartbeat
+    land in the past and never revive anything, which is a fact about the test
+    rather than about the code.
+    """
+    import time as _time
+
+    shifted = lambda: _time.time() + seconds  # noqa: E731 - one expression, named for the seam
+    api.app.state.instances_clock = shifted
+    api.app.state.instances._now = shifted
+
+
+def test_a_window_whose_lease_lapsed_is_gone_rather_than_probed(api: TestClient) -> None:
+    """**`read_diagnostics` has claimed since it was written that "a dead window
+    is a 404 the same as an unknown one", and nothing implemented it.** The
+    lookup returned whatever was in the registry, and a lapsed row stays there
+    until the sweep collects it — so NERVIS went to the port of a window that
+    closed an hour ago and asked it for status. On a laptop that port is very
+    often somebody else's process by then.
+    """
+    answered: list[str] = []
+    bridge = a_bridge(lambda token: (answered.append(token), (200, "{}"))[1])
+    try:
+        instance_id, _ = register(api, bridge.server_address[1])
+        _age_the_registry(api, LEASE_SECONDS + 1)
+
+        response = api.get(f"/api/v1/registry/instances/clarvis/{instance_id}/status")
+
+        assert response.status_code == 404
+        assert answered == [], "a lapsed window was still asked for its status"
+    finally:
+        bridge.shutdown()
+
+
+def test_a_lapsed_window_is_gone_from_diagnostics_and_config_too(api: TestClient) -> None:
+    """Three routes take the same lookup, and a fix applied to one of them
+    would look done. The diagnostics route is the one whose docstring made the
+    promise; the config route makes the same outward call."""
+    bridge = a_bridge(lambda _: (200, "{}"))
+    try:
+        instance_id, _ = register(api, bridge.server_address[1])
+        _age_the_registry(api, LEASE_SECONDS + 1)
+
+        base = f"/api/v1/registry/instances/clarvis/{instance_id}"
+        assert api.get(f"{base}/diagnostics").status_code == 404
+        assert api.get(f"{base}/config").status_code == 404
+    finally:
+        bridge.shutdown()
+
+
+def test_a_lease_still_inside_its_window_is_read_normally(api: TestClient) -> None:
+    """The falsifier. A liveness check that refused everything would pass every
+    assertion above and take the feature with it."""
+    bridge = a_bridge(lambda _: (200, json.dumps({"state": "idle"})))
+    try:
+        instance_id, _ = register(api, bridge.server_address[1])
+        _age_the_registry(api, LEASE_SECONDS - 5)
+
+        response = api.get(f"/api/v1/registry/instances/clarvis/{instance_id}/status")
+
+        assert response.status_code == 200
+        assert response.json()["state"] == "idle"
+    finally:
+        bridge.shutdown()
+
+
+def test_a_renewed_lease_brings_the_window_back(api: TestClient) -> None:
+    """A heartbeat is what a live window sends, and the registry's own answer
+    has to change with it — otherwise the 404 above is a one-way door and a
+    window that reconnected stays invisible."""
+    bridge = a_bridge(lambda _: (200, json.dumps({"state": "idle"})))
+    try:
+        instance_id, token = register(api, bridge.server_address[1])
+        _age_the_registry(api, LEASE_SECONDS + 1)
+        base = f"/api/v1/registry/instances/clarvis/{instance_id}"
+        assert api.get(f"{base}/status").status_code == 404
+
+        beat = api.post(f"{base}/heartbeat", headers={"Authorization": f"Bearer {token}"})
+
+        assert beat.status_code == 200
+        assert api.get(f"{base}/status").status_code == 200
+    finally:
+        bridge.shutdown()

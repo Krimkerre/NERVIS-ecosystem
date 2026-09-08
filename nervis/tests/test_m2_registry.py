@@ -26,6 +26,7 @@ from nervis import adapters
 from nervis.negotiation import Availability, Operation, negotiate
 from nervis.probes import PROBE_TIMEOUT_SECONDS, probe
 from nervis.registry import (
+    USABLE_STATES,
     EndpointRefusedError,
     Registry,
     RegistryState,
@@ -1108,3 +1109,82 @@ def test_a_runtime_without_a_mep_surface_is_bounded_the_same_way() -> None:
 
     assert deadlines[0]["read"] == PROBE_TIMEOUT_SECONDS
     assert observed["state"] is RegistryState.UNREACHABLE
+
+
+# ── §10: code-server going down after it had answered ───────────────────────
+#
+# The matrix scored this PARTIAL because the loss semantics were proven only
+# through registry tests written against ollama and RAVIS. Code-server is a
+# different shape from both — its capability is *adapted* rather than
+# published, and NERVIS embeds it in a tab — so what happens to a derived
+# capability when the thing it was derived from stops answering is its own
+# question.
+
+
+CODESERVER = ServiceDeclaration(
+    "codeserver", "code-server", "http://127.0.0.1:8080", mep=False, probe_path="/healthz"
+)
+
+#: What `probes._unreachable` writes for a refused connection. Spelled out here
+#: rather than imported: a test reaching into another module's private helper
+#: passes when that helper changes shape, which is the one thing this must not
+#: do — the observation *is* the contract between the probe and the registry.
+GONE = {"state": RegistryState.UNREACHABLE, "detail": "no response: ConnectError"}
+
+
+def test_a_code_server_that_stops_answering_says_so_in_its_state() -> None:
+    """**The state is the field a consumer must gate on, and this pins why.**
+    The last derived capability survives the loss — deliberately: it is what
+    NERVIS last established, and clearing it would make a service that blinked
+    look like one that never had the capability at all. What must change is the
+    state, because that is what the Code tab reads before it decides whether to
+    embed anything."""
+    registry = registry_of(CODESERVER)
+    registry.record("codeserver", {
+        "state": RegistryState.HEALTHY,
+        "detail": "serving the workbench; a browser session is connected",
+        "capabilities": {"codeserver.workbench": "available"},
+        "capability_source": "adapted",
+    })
+
+    registry.record("codeserver", dict(GONE))
+    entry = registry.get("codeserver")
+
+    assert entry is not None
+    assert entry.state is RegistryState.UNREACHABLE
+    assert entry.state not in USABLE_STATES, (
+        "the Code tab embeds an editor only for a usable state, and this is the "
+        "check standing between a dead port and an iframe pointed at it"
+    )
+
+
+def test_a_code_server_that_stopped_is_not_reported_as_stopped() -> None:
+    """§5.1 keeps `unreachable` and `stopped` apart and this is the case that
+    tempts a guess: NERVIS did not stop code-server, somebody else did, and
+    reporting it as stopped would claim an action NERVIS never took."""
+    registry = registry_of(CODESERVER)
+    registry.record("codeserver", {"state": RegistryState.HEALTHY})
+
+    registry.record("codeserver", dict(GONE))
+
+    assert registry.get("codeserver").state is RegistryState.UNREACHABLE  # type: ignore[union-attr]
+
+
+def test_a_code_server_that_answers_again_gets_its_capability_back() -> None:
+    """The falsifier, and the reason the loss must not be sticky: somebody
+    restarts code-server and the tab has to come back without restarting
+    NERVIS."""
+    registry = registry_of(CODESERVER)
+    registry.record("codeserver", dict(GONE))
+
+    registry.record("codeserver", {
+        "state": RegistryState.HEALTHY,
+        "detail": "serving the workbench",
+        "capabilities": {"codeserver.workbench": "available"},
+        "capability_source": "adapted",
+    })
+    entry = registry.get("codeserver")
+
+    assert entry is not None
+    assert entry.state is RegistryState.HEALTHY
+    assert entry.capabilities["codeserver.workbench"] == "available"

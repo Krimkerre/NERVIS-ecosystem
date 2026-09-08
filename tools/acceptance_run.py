@@ -91,6 +91,12 @@ CLAUSES = {
     "redaction": "evidence is inspectable without exposing credentials, prompts or private paths",
     "direct": "the direct-provider path still works",
     "bridge": "the Bridge-disabled path still works",
+    # §10's own two conditions, which item 12's sentence does not name and which
+    # need exactly what this procedure has and no test does: real processes.
+    # A `kill -15` is a service being asked to stop and is what `degrade`
+    # already proves; these are the two it cannot reach.
+    "crash": "a service killed mid-operation leaves no run claiming to be running",
+    "cold": "a service starting while a peer is absent comes up and says so",
 }
 
 # RAVIS re-reads SIRVIS's evidence on this timer and exposes no route to force
@@ -1156,6 +1162,171 @@ def git(workspace: Path, *arguments: str) -> str:
 # ------------------------------------------------------------------ verdict
 
 
+# ------------------------------------- 7. §10: a crash, and a cold start
+
+
+def crash_clause(result: Result, baseline: dict[str, Any], model: str) -> None:
+    """`kill -9` SIRVIS with a benchmark genuinely in flight, then look at the row.
+
+    **The difference from `restart_clause` is the whole point.** That one sends
+    `SIGTERM`, which a service handles: it stops accepting, finishes what it can
+    and exits. This sends `SIGKILL` in the middle of a run, which nothing can
+    handle — and what §10 asks is that the *next* process tell the truth about
+    what the last one was doing. Every crash-recovery assertion in either
+    repository calls `reconcile_interrupted` directly; none has ever killed a
+    process holding a real run.
+
+    A run left saying `running` is the failure worth preventing. It is not
+    cosmetic: it is the state an operator waits on, and the state a queue reads
+    before deciding whether the machine is busy.
+    """
+    say(f"\n11. Crash mid-operation (§10: {CLAUSES['crash']})")
+    status, body, _ = call("POST", f"{SIRVIS}/api/v1/benchmark-jobs",
+                           token=token("nervis-benchmark"), trace=result.traceparent,
+                           body={"specification": {
+                               "id": "acceptance-crash",
+                               "suite": "acceptance-crash",
+                               "suite_version": "1",
+                               "target": {"model": model},
+                               "warmups": 0,
+                               "repetitions": 8,
+                               "tests": [{"id": "acceptance-crash", "version": "1",
+                                          "prompt": "Count slowly from one to forty.",
+                                          "generation": {"max_tokens": 512,
+                                                         "temperature": 0.0}}],
+                           }, "model": model})
+    if status != 202 or not isinstance(body, dict):
+        result.skip("crash", f"the crash job would not submit ({status})")
+        return
+    job_id = body.get("job", {}).get("job_id", "")
+    if not wait_for(lambda: _job_state(job_id) == "running", 180.0):
+        result.skip("crash", "the job never reached 'running', so there was nothing to interrupt")
+        return
+    # **Taken from the runs listing rather than from the job**, because a job
+    # learns its `run_id` when the run *finishes* — `attach_run` is called after
+    # the engine returns, which by construction never happens here.
+    run_id = _newest_run()
+    pid = recorded_pid("SIRVIS")
+    if not pid:
+        result.skip("crash", "no recorded SIRVIS pid in .run/services.json")
+        return
+    subprocess.run(["kill", "-9", str(pid)], check=False)
+    if not wait_for(lambda: call("GET", f"{SIRVIS}/ecosystem/health")[0] == 0, 30.0):
+        result.bad("crash", "SIRVIS kept answering after SIGKILL")
+        return
+    result.ok("crash", f"SIRVIS (pid {pid}) killed with a run in flight")
+    # `recover` is the graceful path's helper and asserts outage events under
+    # the `degrade` clause. A killed process publishes nothing on its way out —
+    # that is what `kill -9` means — so borrowing it here would report a missing
+    # event as a defect in a clause this one is not about.
+    del baseline
+    _restore_sirvis(result)
+    _reconciled(result, run_id, job_id)
+
+
+def _job_state(job_id: str) -> str:
+    _, body, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-jobs/{job_id}")
+    job = body.get("job", {}) if isinstance(body, dict) else {}
+    return str(job.get("state") or "")
+
+
+def _newest_run() -> str:
+    _, body, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-runs?limit=1")
+    rows = body.get("items", []) if isinstance(body, dict) else []
+    return str(rows[0].get("run_id") or "") if rows else ""
+
+
+def _reconciled(result: Result, run_id: str, job_id: str) -> None:
+    """What the restarted process says about the run the killed one held."""
+    if not run_id:
+        result.bad("crash", "the job named no run, so nothing can be checked against it")
+        return
+    if not wait_for(lambda: _run_state(run_id) not in {"", "running"}, 60.0):
+        result.bad("crash", f"run {run_id} still reads 'running' after the restart — "
+                            "a crashed process left a row nobody will ever finish")
+        return
+    state = _run_state(run_id)
+    result.ok("crash", f"run {run_id} was reconciled to '{state}' after the crash")
+    _, body, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-runs/{run_id}")
+    detail = str((body if isinstance(body, dict) else {}).get("detail") or "")
+    if "ended before" not in detail:
+        result.bad("crash", f"the row says '{detail}' rather than naming the interruption; "
+                            "a reader cannot tell a crash from an ordinary failure")
+        return
+    result.ok("crash", f"and says why: {detail}")
+    if _job_state(job_id) == "running":
+        result.bad("crash", f"job {job_id} still reads 'running' after its worker was killed")
+        return
+    result.ok("crash", f"job {job_id} ended '{_job_state(job_id)}' rather than hanging")
+
+
+def _run_state(run_id: str) -> str:
+    _, body, _ = call("GET", f"{SIRVIS}/api/v1/benchmark-runs/{run_id}")
+    run = body if isinstance(body, dict) else {}
+    return str(run.get("state") or run.get("run", {}).get("state") or "")
+
+
+def cold_start_clause(result: Result) -> None:
+    """Start NERVIS with SIRVIS already gone, and read what it says about it.
+
+    **Not the same as watching a peer disappear.** Every existing check brings
+    the whole stack up and then kills something, so NERVIS always *saw* the peer
+    once — and a registry that carried a stale entry forward would pass all of
+    them. This starts a service into a world where the peer has never answered,
+    which is the ordinary case on a laptop where somebody starts one thing.
+    """
+    say(f"\n12. Cold start with a peer absent (§10: {CLAUSES['cold']})")
+    sirvis_pid = recorded_pid("SIRVIS")
+    nervis_pid = recorded_pid("NERVIS")
+    if not sirvis_pid or not nervis_pid:
+        result.skip("cold", "no recorded pids in .run/services.json")
+        return
+    subprocess.run(["kill", "-15", str(sirvis_pid)], check=False)
+    if not wait_for(lambda: call("GET", f"{SIRVIS}/ecosystem/health")[0] == 0, 30.0):
+        result.bad("cold", "SIRVIS kept answering after SIGTERM")
+        return
+    subprocess.run(["kill", "-15", str(nervis_pid)], check=False)
+    wait_for(lambda: call("GET", f"{NERVIS}/api/v1/health")[0] == 0, 30.0)
+    started = _start_nervis()
+    if not wait_for(lambda: call("GET", f"{NERVIS}/api/v1/health")[0] == 200, 90.0):
+        result.bad("cold", "NERVIS did not come up with SIRVIS absent")
+        _restore_sirvis(result)
+        return
+    rewrite_pid("NERVIS", started)
+    result.ok("cold", "NERVIS started into a world where SIRVIS had never answered")
+    if wait_for(lambda: peer_state("sirvis") in {"unreachable", "discovering"}, 60.0):
+        result.ok("cold", f"and reports it as '{peer_state('sirvis')}' rather than healthy or absent")
+    else:
+        result.bad("cold", f"NERVIS reports SIRVIS as '{peer_state('sirvis')}' having never "
+                           "reached it")
+    _restore_sirvis(result)
+
+
+def _start_nervis() -> int:
+    environment = dict(os.environ, NERVIS_HOST="127.0.0.1", NERVIS_PORT="8790")
+    with (RUN / "nervis.log").open("a") as log:
+        started = subprocess.Popen([str(ROOT / "ravis" / ".venv" / "bin" / "nervis"), "serve"],
+                                   cwd=ROOT, env=environment, stdout=log, stderr=log,
+                                   start_new_session=True)
+    return started.pid
+
+
+def _restore_sirvis(result: Result) -> None:
+    """Leave the machine as this procedure found it, whatever was proved."""
+    environment = dict(os.environ,
+                       SIRVIS_HOST="127.0.0.1", SIRVIS_PORT="8721",
+                       SIRVIS_DATABASE_PATH=str(ROOT / "sirvis" / "sirvis.db"),
+                       SIRVIS_RESULTS_PATH=str(ROOT / "sirvis" / "results"),
+                       SIRVIS_NERVIS_BASE_URL=NERVIS)
+    with (RUN / "sirvis.log").open("a") as log:
+        started = subprocess.Popen([str(ROOT / "ravis" / ".venv" / "bin" / "sirvis"), "serve"],
+                                   cwd=ROOT, env=environment, stdout=log, stderr=log,
+                                   start_new_session=True)
+    rewrite_pid("SIRVIS", started.pid)
+    if not wait_for(lambda: call("GET", f"{SIRVIS}/ecosystem/health")[0] == 200, 90.0):
+        result.note("SIRVIS did not come back; the stack is left with it down")
+
+
 def report(result: Result) -> int:
     say("\n" + "=" * 72)
     say(f"Golden path, trace {result.trace_id}")
@@ -1215,6 +1386,11 @@ def main() -> int:
     clarvis_clause(result, Path(arguments.workspace or ROOT), model, arguments.unattended)
     bridge_disabled(result, arguments.bridge_port, arguments.unattended)
     restart_clause(result, baseline, model, provider or "local")
+    # After the restart clause, deliberately: both of these kill or restart a
+    # process, and the decision log RAVIS keeps in memory is what the routing
+    # clause rests on.
+    crash_clause(result, baseline, model)
+    cold_start_clause(result)
     return report(result)
 
 

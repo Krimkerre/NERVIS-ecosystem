@@ -183,7 +183,7 @@ step "peer compatibility"      nervis-eco python tools/check_compatibility.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the twenty-two that need no live service) ==="
+echo "=== dashboard gates (the twenty-three that need no live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else
@@ -271,9 +271,9 @@ case "$(uname -s)" in
     NODE_GUARD=(node --permission --allow-fs-read="*")
     ;;
 esac
-for gate in render complexity shaping empty_world liveness injection picture routing outcome \
-            stream preserve attachment background handler learned notification plan proposal \
-            supervision capability provenance; do
+for gate in render complexity shaping empty_world liveness injection picture editor routing \
+            outcome stream preserve attachment background handler learned notification plan \
+            proposal supervision capability provenance; do
   step "dashboard $gate" nervis-eco/nervis "${NODE_GUARD[@]}" "tools/${gate}_check.js"
 done
 # **Held out of the loop above, and for the opposite reason of the two at the

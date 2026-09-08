@@ -1,0 +1,99 @@
+/* Whether the Code tab embeds an editor that is not there.
+ *
+ * §10's code-server condition asks what happens when the browser VS Code that
+ * NERVIS frames stops answering *after having answered*. The failure that
+ * matters is specific and visual: an `<iframe>` pointed at a dead port renders
+ * the browser's own error page inside the dashboard, which reads as NERVIS
+ * being broken rather than as code-server being absent — and the reader's next
+ * move is to restart the wrong thing.
+ *
+ * The page has the right rule already: it draws the frame only for a *usable*
+ * registry state. Nothing exercised it. The registry deliberately keeps the
+ * last derived `codeserver.workbench` capability across the loss — it is what
+ * NERVIS last established — so the capability gate alone would still say
+ * "available" for a process that is gone, and the state check is the whole of
+ * what stands between that and a broken frame.
+ *
+ *   node tools/editor_check.js
+ */
+
+const { loadPage } = require("./page_context.js");
+
+/* One `/api/v1/services` answer holding a code-server row in a given state,
+   with the capability it had when it was last reachable. That pairing is the
+   point: a row whose capability was cleared would pass this check for the
+   wrong reason. */
+const services = (state) => ({
+  items: [{
+    key: "codeserver",
+    label: "code-server",
+    state,
+    endpoint: "http://127.0.0.1:8080",
+    capabilities: { "codeserver.workbench": "available" },
+    capability_reasons: { "codeserver.workbench": "graded PASS at 4.135.0" },
+    capability_source: "adapted",
+    detail: state === "healthy" ? "serving the workbench" : "no response: ConnectError",
+  }],
+});
+
+function pageIn(state) {
+  return loadPage({
+    fetchImpl: async (url) => {
+      const payload = String(url).includes("/api/v1/services")
+        ? services(state)
+        : { items: [] };
+      return { ok: true, status: 200, json: async () => payload,
+               text: async () => JSON.stringify(payload),
+               headers: { get: () => "application/json" }, body: null };
+    },
+  });
+}
+
+async function drawn(state) {
+  const page = pageIn(state);
+  const { exported, elements } = page;
+  exported.state.app = "clarvis";
+  exported.state.view = "Workspace";
+  await exported.clarvis();
+  if (exported.stopPolling) exported.stopPolling();
+  // `#content` alone, and deliberately: the page loads its default screen
+  // before a checker can switch views, so reading every sink would pick up an
+  // iframe another screen drew and report it as this one's.
+  const content = elements.get("sel:#content");
+  return String((content && content.innerHTML) || "");
+}
+
+async function main() {
+const failures = [];
+
+const alive = await drawn("healthy");
+if (!/<iframe/.test(alive)) {
+  failures.push("a reachable code-server was not embedded at all, so the checks "
+    + "below prove nothing: they would pass against a tab that never draws a frame.");
+}
+
+for (const gone of ["unreachable", "stale", "stopped"]) {
+  const html = await drawn(gone);
+  if (/<iframe/.test(html)) {
+    failures.push(`a code-server reported '${gone}' was still framed. An iframe on a `
+      + "dead port renders the browser's error page inside the dashboard, which reads "
+      + "as NERVIS being broken.");
+  }
+  if (!/No editor to embed/.test(html)) {
+    failures.push(`a code-server reported '${gone}' drew no explanation. Saying nothing `
+      + "leaves the reader with an empty tab and no idea which process to start.");
+  }
+}
+
+if (failures.length) {
+  for (const failure of failures) console.error("  • " + failure);
+  console.error(`${failures.length} editor-embedding failure(s)`);
+  process.exit(1);
+}
+console.log("the editor tab frames a reachable code-server and explains an absent one");
+}
+
+main().catch((failure) => {
+  console.error(failure);
+  process.exit(1);
+});

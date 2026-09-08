@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2592 tests, no network, no live service
+.venv/bin/pytest                      # part of 2599 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 477 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1035 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1042 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2592 passing across the four, conformance `PASS`.
+Expected: all clean, 2599 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15677,6 +15677,51 @@ because a page that resolves a credential per provider is where an operator
 would actually meet a Keychain dialog on a screen nobody is looking at.
 
 RAVIS 1011 -> 1018, SIRVIS 475 -> 477, NERVIS unchanged at 1035.
+
+## Nineteen of nineteen: the degradation matrix is covered, 2026-09-08
+
+The last five needed what no unit test has — real processes, or the passage of
+time — and two of them found defects.
+
+**A dead Bridge was still being probed.** `read_diagnostics` has said since it
+was written that "a dead window is a 404 the same as an unknown one", and
+nothing implemented it: the lookup returned whatever the registry held, and a
+lapsed row stays there until the sweep collects it. So NERVIS went to the port
+of a window that closed an hour ago and asked it for status — and on a laptop
+that port is very often somebody else's process by then. All three reads now
+go through one lookup that checks the lease. A renewal brings the window back,
+which is its own test: a 404 that cannot be undone is a different bug.
+
+**Code-server loss turned out to be a question about which field to trust.**
+The registry keeps the last derived `codeserver.workbench` capability across
+the loss, deliberately — clearing it would make a service that blinked look
+like one that never had the capability. What changes is the state, and the
+Code tab already gated on it correctly. That gate had no test, so
+`tools/editor_check.js` now renders the tab against a code-server in each
+state and fails if a frame is drawn for one that is not answering. It asserts
+the healthy case draws a frame too, because a check that never sees one would
+pass against a tab that had stopped working entirely.
+
+**A crash is not a stop, and the acceptance procedure now proves the
+difference.** `restart_clause` sends `SIGTERM`, which a service handles. The
+new `crash_clause` submits a benchmark, waits until it genuinely reads
+`running`, and sends `SIGKILL` — which nothing can handle. Run live: the
+restarted process reconciled the run to `failed` with *"the process running
+this ended before the run finished"*, and the job ended rather than hanging.
+The run id comes from the runs listing rather than the job, because a job
+learns its `run_id` when the run finishes, which by construction never happens
+here. `recover` is deliberately not reused: it asserts outage events under the
+`degrade` clause, and a killed process publishes nothing on its way out.
+
+**And a cold start is not a peer disappearing.** Every existing check brings
+the whole stack up and then kills something, so NERVIS always saw the peer
+once — a registry carrying a stale entry forward would pass all of them.
+`cold_start_clause` stops SIRVIS, restarts NERVIS into a world where it has
+never answered, and reads what NERVIS says: `unreachable`, live, on this
+machine. Both clauses restore the stack whatever they prove.
+
+Nineteen of nineteen, and the ceiling that made this honest is still zero: no
+cell rests on unit tests alone. NERVIS 1035 -> 1042.
 
 ## Starting the thing
 
