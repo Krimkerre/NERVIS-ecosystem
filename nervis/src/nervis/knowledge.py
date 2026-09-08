@@ -66,6 +66,13 @@ MAX_CHARACTERS = 6_000
 #: that took four attempts to get right elsewhere in this file's history.
 MIN_SCORE = 5.0
 
+#: The least room worth giving a section, once earlier ones have been served.
+#:
+#: Below this a section arrives as a heading and a sentence, which reads like a
+#: statement about the subject rather than a fragment of one — the worst of the
+#: two failures available here.
+_WORTH_INCLUDING = 400
+
 #: The cosine-similarity floor for the embedding half of `search()`.
 #:
 #: **Measured against RAVIS's own `/v1/embeddings` (Ollama, `nomic-embed-text`),
@@ -550,6 +557,46 @@ def _about_itself(question: str) -> bool:
     return bool(_SECOND_PERSON.search(lowered))
 
 
+def _pieces(best: list[Section]) -> list[str]:
+    """The matched sections, in order, cut to the budget rather than dropped.
+
+    **A section that does not fit used to take every section after it with
+    it**, and the one it took was the one the question was about. Measured
+    8 September 2026: asked what had been fixed about attachments, the reading
+    carried `Attachments` (951 characters) and `Backing up settings` (945) and
+    not `What changed recently` (12,658) — the section that holds the answer,
+    and the only one that grows without bound, because every shipped change
+    adds to it. Chat answered that its notes carried no record of any such fix,
+    which was true of what it was given and false of what it has.
+
+    So an oversized section is *headed* rather than skipped, and says so inside
+    the reading — the same shape `documents.py` uses for a document too large
+    to send whole. The head is where the newest entries are, which is what a
+    question about recent work needs.
+    """
+    pieces: list[str] = []
+    spent = 0
+    for section in best:
+        opening = f"\n\n--- from {section.subject} ---\n"
+        room = MAX_CHARACTERS - spent - len(opening)
+        if room < _WORTH_INCLUDING:
+            break
+        if len(section.text) <= room:
+            pieces.append(opening + section.text)
+            spent += len(opening) + len(section.text)
+            continue
+        # **Cut at a paragraph**, so the last thing the model reads is a whole
+        # thought rather than half a sentence it may complete for itself.
+        head = section.text[:room].rsplit("\n\n", 1)[0]
+        pieces.append(
+            f"{opening}{head}\n\n[This section continues past what fits here."
+            f" {len(section.text) - len(head):,} more characters of it were not"
+            " included — say so if the answer depends on the rest.]"
+        )
+        spent = MAX_CHARACTERS
+    return pieces
+
+
 async def reading(
     question: str, client: httpx.AsyncClient, ravis_base_url: str, credential: str = ""
 ) -> str:
@@ -568,12 +615,7 @@ async def reading(
     )
     if not best:
         return ""
-    body = ""
-    for section in best:
-        piece = f"\n\n--- from {section.subject} ---\n{section.text}"
-        if len(body) + len(piece) > MAX_CHARACTERS:
-            break
-        body += piece
+    body = "".join(_pieces(best))
     if not body:
         return ""
     # **Fenced, and the docstring above already called it "the fenced

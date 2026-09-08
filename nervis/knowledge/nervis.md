@@ -79,6 +79,18 @@ document, the full up-to-date version has to actually be written out in
 that same reply before offering the button, or what gets saved is whatever
 short remark was said instead.
 
+As of 8 September 2026, later the same day: **chat could not report its
+own changes, and two things in its prompt were why.** The live-reading
+block said it was the only source of ecosystem facts and to say NERVIS
+had not read anything absent from it — true when it was written, false
+once the notes joined the same prompt — so a question about what changed
+was answered from fifteen minutes of events, which is not a changelog.
+And the section holding the answer was being dropped: a matched section
+too large for the reading's budget took every section after it with it,
+and *What changed recently* is both the largest and the one every shipped
+change appends to. It is cut to fit and says so now, rather than
+vanishing.
+
 As of 8 September 2026: **the card under an uploaded picture called it
 unreadable, in the transcript, beside the answer describing what was in
 it.** The dashboard decided whether chat could read a file from its own

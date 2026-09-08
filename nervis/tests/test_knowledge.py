@@ -264,6 +264,58 @@ def test_the_reading_is_bounded() -> None:
     assert len(reading) <= knowledge.MAX_CHARACTERS + 400
 
 
+def test_a_section_too_big_for_the_budget_is_headed_rather_than_dropped() -> None:
+    """**Measured live on 8 September 2026, and it silently removed the
+    answer.** Asked what had been fixed about attachments, retrieval correctly
+    ranked `What changed recently` second of three — and the assembly loop
+    stopped at the first section that did not fit, so the reading carried
+    `Attachments` (951 characters) and `Backing up settings` (945) and not the
+    12,658-character section holding the answer. Chat then said its notes had
+    no record of the fix, which was true of what it was given.
+
+    That section is also the one guaranteed to hit this, because it is the one
+    every shipped change appends to.
+    """
+    huge = knowledge.Section(subject="nervis", heading="What changed recently",
+                             body="x" * (knowledge.MAX_CHARACTERS * 2))
+    small = knowledge.Section(subject="nervis", heading="Attachments", body="y" * 200)
+
+    pieces = knowledge._pieces([small, huge])
+
+    assert len(pieces) == 2, "the oversized section was dropped instead of cut"
+    assert "What changed recently" in pieces[1]
+    assert "were not included" in pieces[1], (
+        "a cut that is not stated is a cut nobody can allow for"
+    )
+    assert sum(len(piece) for piece in pieces) <= knowledge.MAX_CHARACTERS
+
+
+def test_the_head_of_a_cut_section_is_where_the_newest_entries_are() -> None:
+    """The cut keeps the top, which is not an arbitrary end to keep: entries in
+    `What changed recently` are written newest-first, so a question about
+    recent work is answered by exactly the part that survives."""
+    body = "\n\n".join(["As of 8 September: the newest thing.",
+                         *("filler " * 200 for _ in range(20))])
+    section = knowledge.Section(subject="nervis", heading="What changed recently", body=body)
+
+    piece = knowledge._pieces([section])[0]
+
+    assert "As of 8 September: the newest thing." in piece
+
+
+def test_a_section_with_no_room_left_is_left_out_rather_than_stubbed() -> None:
+    """A heading and one sentence reads as a statement about the subject rather
+    than a fragment of one, which is the worse of the two failures here."""
+    filling = knowledge.Section(subject="nervis", heading="First",
+                                body="x" * (knowledge.MAX_CHARACTERS - 200))
+    second = knowledge.Section(subject="nervis", heading="Second", body="y" * 500)
+
+    pieces = knowledge._pieces([filling, second])
+
+    assert len(pieces) == 1
+    assert "Second" not in pieces[0]
+
+
 @pytest.mark.usefixtures("small_corpus")
 def test_the_reading_is_not_silently_cut_to_one_field() -> None:
     """The regression guard for a real bug: `fenced()` clipped every string to

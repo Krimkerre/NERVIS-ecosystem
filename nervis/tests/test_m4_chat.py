@@ -604,6 +604,33 @@ def test_an_ordinary_turn_is_told_what_the_ecosystem_is_doing() -> None:
     assert "NERVIS has not read it" in system
 
 
+def test_the_live_reading_does_not_claim_to_be_the_only_source() -> None:
+    """**Measured live on 8 September 2026.** This block said "these are the
+    only ecosystem facts you have" and told the model to say NERVIS had not
+    read anything absent from it — written when the reading *was* the only
+    source, and left standing after the knowledge notes joined the same
+    prompt. Two blocks then contradicted each other and the imperative one
+    won: asked what had been fixed about attachments, with the answer in the
+    notes below, chat answered "that's not in my recent activity" and listed
+    the event feed. A small model and a 70B one produced nearly the same
+    sentence, which is a prompt talking rather than a model.
+
+    The claim is narrowed to what this block actually owns — what is happening
+    now — and the refusal it licenses now requires *neither* source to carry
+    the answer.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+
+    turn(client, "is sirvis up?", system="Be someone.")
+
+    system = sent[0]["messages"][0]["content"]
+    assert "These are the only ecosystem facts you have" not in system
+    assert "the only *live* source" in system
+    assert "If neither source carries what you were asked for" in system
+
+
 def test_the_reading_is_fenced_and_a_service_detail_cannot_end_the_fence() -> None:
     """A failing service writes the `detail` string, so a crafted build error
     reaches this prompt through an ordinary probe. Runbook §9: retrieved

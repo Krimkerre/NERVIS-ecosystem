@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2547 tests, no network, no live service
+.venv/bin/pytest                      # part of 2551 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1021 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1025 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2547 passing across the four, conformance `PASS`.
+Expected: all clean, 2551 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15487,7 +15487,7 @@ against a viewport, the pane being driven reported none, and `object-fit:
 contain` obligingly fitted the image into zero. A fixed pixel cap has no such
 dependency.
 
-**And one still open, found while checking chat could report that fix.** The
+**And one that was open for an hour, then measured properly and closed.** The
 notes reach the model and are used correctly — asked how large a picture
 attachment may be, it answers five megabytes and what happens above it, which
 exists nowhere but these files. Asked *what did you fix most recently about
@@ -15496,13 +15496,34 @@ anything about attachments — that's not in my recent activity"* and lists the
 event feed instead. Two different models, one small and one 70B, produced
 nearly the same sentence, which is the prompt talking rather than the model.
 
-The reading's framing said the notes *describe the design* and that a live
-figure is the one to trust, full stop — so a question about what changed
-resolved to the live feed, where fifteen minutes of events is not a changelog.
-That half is now stated: a live reading still wins on what is happening now,
-and the notes win on what exists and what was built or fixed. It did not
-change the answer to that question, so this is recorded as measured rather
-than as fixed.
+Guessing at the framing did not fix it, so the prompt was captured instead: a
+pass-through in front of RAVIS, a second NERVIS pointed at it, and the exact
+10,426-character system message written to disk. Two real causes, neither of
+them the one guessed at.
+
+**The live-reading block claimed to be the only source.** *"These are the only
+ecosystem facts you have... if you are asked about something that is not in the
+reading, say NERVIS has not read it"* — written when the reading *was* the only
+source, and left standing after the knowledge notes joined the same prompt.
+Two blocks contradicting each other, and the imperative one won. Its claim is
+now narrowed to what it owns, and the refusal it licenses requires *neither*
+source to carry the answer.
+
+**And the section holding the answer was being dropped.** Retrieval ranked
+`What changed recently` second of three, correctly — and the assembly loop
+stopped at the first section that did not fit, so the reading carried
+`Attachments` (951 characters) and `Backing up settings` (945) and not the
+12,658-character section with the answer in it. That section is also the one
+guaranteed to hit this, because every shipped change appends to it. An
+oversized section is now *headed* rather than skipped, and says inside the
+reading how much was left out — the same shape `documents.py` uses for a
+document too large to send whole. The head is where the newest entries are,
+which is what a question about recent work needs.
+
+Confirmed live after both: asked what was fixed most recently about
+attachments, chat now answers with the card fix, dated, and explains the
+root cause. Asked whether the services are healthy, it still answers from
+the live reading, which is the half that had to keep working.
 
 **A last one, found by uploading a picture through the dashboard rather than
 through the API.** The attachment card said *not readable as text* under a
@@ -15515,7 +15536,7 @@ this instance of it; `attachment_check.js` gained the falsifier it was missing,
 since it only ever checked that an unreadable file *says so* and never that a
 readable one stays quiet.
 
-RAVIS 992 -> 995 tests, NERVIS 1007 -> 1021, `ruff` and `mypy` clean in both.
+RAVIS 992 -> 995 tests, NERVIS 1007 -> 1025, `ruff` and `mypy` clean in both.
 NERVIS 0.24.0, RAVIS 0.22.0.
 
 ## Starting the thing
