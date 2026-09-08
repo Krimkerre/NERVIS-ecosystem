@@ -1303,7 +1303,17 @@ def cold_start_clause(result: Result) -> None:
 
 
 def _start_nervis() -> int:
-    environment = dict(os.environ, NERVIS_HOST="127.0.0.1", NERVIS_PORT="8790")
+    """NERVIS, with the configuration the launcher gives it.
+
+    **`NERVIS_RUN_DIRECTORY` is the one that bites.** Starting it with only a
+    host and a port leaves it unable to find any log file, so every log adapter
+    reads absent and the Diagnostics screen goes quiet — a procedure that leaves
+    the machine reporting less than it did before it ran is worse than one that
+    fails. Found by looking at the dashboard after this clause first ran.
+    """
+    environment = dict(os.environ,
+                       NERVIS_HOST="127.0.0.1", NERVIS_PORT="8790",
+                       NERVIS_RUN_DIRECTORY=str(RUN))
     with (RUN / "nervis.log").open("a") as log:
         started = subprocess.Popen([str(ROOT / "ravis" / ".venv" / "bin" / "nervis"), "serve"],
                                    cwd=ROOT, env=environment, stdout=log, stderr=log,

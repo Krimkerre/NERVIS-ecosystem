@@ -15723,6 +15723,57 @@ machine. Both clauses restore the stack whatever they prove.
 Nineteen of nineteen, and the ceiling that made this honest is still zero: no
 cell rests on unit tests alone. NERVIS 1035 -> 1042.
 
+## The Diagnostics tab's two faded cards, one wired and one deleted, 2026-09-08
+
+Noticed from the screen rather than from a document: two panels on Diagnostics
+were drawn faded and dashed, which is the page's own signal for a card with no
+live reading behind it. Both read `API.nervis.diagnostics()`, whose whole body
+was `return {sources: [], packet: null}` under a comment calling itself "a
+source matrix nobody surveyed".
+
+**Log adapters was wired to nothing while the data already existed.**
+`/api/v1/logs` has served every documented adapter since M10 — present or not,
+its format, its size, how many rotations survive. That is exactly what somebody
+about to read a log needs, and on this machine it reads: nervis 15.4 MB across
+three rotations, ravis and sirvis structured, code-server plain text. The card
+now reads that endpoint and is live.
+
+**Source priority was deleted.** It rendered a four-column matrix of which
+services publish structured events, a management API, a service log and a raw
+log — every cell a near-constant, from a survey nobody ran. What was worth
+keeping was the sentence under it, which is a design rule rather than data, so
+it moved under the adapters it governs. A permanently faded card is a promise
+the dashboard keeps making.
+
+The reader went with them, rather than being left returning empty: a method
+that only ever answers nothing is a surface somebody builds on again by
+mistake. The packet card's branch went too — it read `d.packet` from that same
+reader, so the table never rendered and its banner always did.
+
+**And the capability reason was twenty-four minutes stale.** `nervis.diagnostics@1`
+said the health overlay and log correlation "are not built"; both shipped with
+M17 at 19:06 on 2 September, and the reason was written at 18:42. NERVIS was
+understating itself. Corrected to name what is actually missing — a
+cross-service trace has never been seen whole, because a Clarvis to RAVIS to
+provider trace needs an editor window publishing into it.
+
+**A gate already existed for this and the old text evaded it by one letter.**
+`test_no_capability_reason_names_a_milestone_that_has_shipped` fires when a
+reason defers to a shipped milestone, and it caught the rewrite immediately —
+because the rewrite said `M17`. The stale sentence had said "17's", which the
+check does not match. The reason now describes the gap without naming a
+milestone at all, which is what the gate is really asking for.
+
+**One defect of my own, found the same way.** `cold_start_clause` restarted
+NERVIS with a host and a port where the launcher also passes
+`NERVIS_RUN_DIRECTORY`, so every log adapter read absent afterwards — which is
+why the endpoint answered empty when this was first looked at. A procedure that
+leaves the machine reporting less than it did before it ran is worse than one
+that fails. Fixed and re-run: the clause still proves what it proved, and the
+four adapters are there afterwards.
+
+The liveness ratchet fell from 52 to 49 with the two cards gone.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

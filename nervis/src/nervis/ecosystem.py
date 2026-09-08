@@ -216,9 +216,13 @@ DECLARED: dict[str, Capability] = {
         "both routes call, with a local-only option that is a pool RAVIS "
         "refuses rather than a preference NERVIS asks for. Nothing the model "
         "returns can become an action -- the field is a string and there is no "
-        "parser. Degraded because 17's unified diagnostics across every "
-        "service are not built: a Clarvis to RAVIS to provider trace, the "
-        "health overlay and log correlation",
+        "parser. The health overlay and log correlation are built too -- "
+        "`unified.health_at` reconstructs health at the time from recorded "
+        "transitions, and `unified.correlate_logs` keeps a line carrying the "
+        "trace id apart from one matched only by time. Degraded because the "
+        "cross-service trace has never been seen whole: a chat turn draws "
+        "nervis and ravis, and a Clarvis to RAVIS to provider trace needs an "
+        "editor window publishing into it",
     ),
     # §3.1 attaches a condition to this one rather than a milestone: it is
     # advertised *"only for explicitly configured owned services"*. So it stays
