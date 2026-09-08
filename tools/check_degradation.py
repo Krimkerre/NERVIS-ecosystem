@@ -98,14 +98,13 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="corrupt response",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:202"),
-            ("static-gate", "nervis/tools/outcome_check.js:31"),
-            ("unit", "nervis/tests/test_m2_registry.py:382"),
+            ("route", "ravis/tests/test_transparent_proxy.py:test_an_unparseable_200_is_forwarded_rather_than_rewritten"),
+            ("route", "ravis/tests/test_transparent_proxy.py:test_a_corrupt_answer_does_not_take_the_route_down_with_it"),
+            ("route", "ravis/tests/test_transparent_proxy.py:test_a_corrupt_streamed_frame_is_passed_through_and_the_stream_ends"),
+            ("route", "ravis/tests/test_anthropic_adapter.py:test_a_corrupt_provider_body_is_a_refusal_rather_than_a_crash"),
         ],
-        gap="Nothing tests a corrupt response arriving at RAVIS from an upstream through a RAVIS route: on the transparent path an unparseable 200 is explicitly \"left alone\" (ravis/src/ravis/api/openai/chat.py:1669-1672), forwarded t",
-        closes_with="Add a route test to ravis/tests/test_transparent_proxy.py (mirroring the malformed-request test at line 182) that makes RecordingUpstream answer /v1/chat/completions with a 200 and an unparseable body",
     ),
     Cell(
         condition="duplicate and out-of-order events",
@@ -131,14 +130,12 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="timeout",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:163-199,481-500,796-898"),
-            ("route", "nervis/tests/test_m4_chat.py:1363"),
-            ("route", "nervis/tests/test_m2_registry.py:741-754;"),
+            ("route", "ravis/tests/test_fallback.py:test_a_timeout_moves_on_rather_than_asking_the_same_model_twice"),
+            ("route", "ravis/tests/test_fallback.py:test_a_chain_that_times_out_everywhere_says_so_per_model"),
+            ("route", "ravis/tests/test_fallback.py:test_a_directly_named_model_that_times_out_is_not_replaced"),
         ],
-        gap="Nothing anywhere provokes a real timeout through a Python service's request path or against a running stack: RAVIS's TIMEOUT rule (do not retry the same target, do fall back, open the provider circuit) is asserted only a",
-        closes_with="Add a route-level case to ravis/tests/test_fallback.py that scripts the primary as a timeout \u2014 `ScriptedUpstream(TWO_CODERS, refuse={\"coder-a\": (504, {\"error\": \"timed out\"})})` plus a transport varian",
     ),
     Cell(
         condition="slow response",
@@ -196,14 +193,13 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="cloud provider 401/403/429/5xx",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("route", "ravis/src/ravis/api/openai/chat.py:1414"),
-            ("route", "ravis/tests/test_fallback.py:153"),
-            ("route", "ravis/tests/test_fallback.py:194"),
+            ("route", "ravis/tests/test_fallback.py:test_a_credential_failure_on_a_named_model_reaches_the_client"),
+            ("route", "ravis/tests/test_fallback.py:test_a_pool_treats_one_providers_bad_key_as_evidence_about_that_provider"),
+            ("route", "ravis/tests/test_fallback.py:test_a_bare_500_is_not_chased_across_the_pool"),
+            ("route", "ravis/tests/test_fallback.py:test_an_exhausted_chain_returns_the_last_upstreams_own_status"),
         ],
-        gap="No test drives a cloud 401/403 (or a bare 500) through the app \u2014 the 401 rules are proven only on the AttemptChain object and the classifier, while 429/503 have real route-level tests; a bare 500 classifies as UNKNOWN an",
-        closes_with="Add route-level cases to /Users/mathias/Documents/coding/NERVIS-ecosystem/ravis/tests/test_fallback.py, alongside the existing 503 and 429 tests, that script the upstream to answer 401 (and 403) and a",
     ),
     Cell(
         condition="network loss",

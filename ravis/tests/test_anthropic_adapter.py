@@ -350,3 +350,63 @@ def _frames(body: bytes) -> list[dict[str, Any]]:
         for line in body.split(b"\n\n")
         if line.startswith(b"data: ") and line[6:] != b"[DONE]"
     ]
+
+
+# ── §10: a corrupt response, on the path that has to parse one ───────────────
+
+
+def _corrupt() -> httpx.MockTransport:
+    """An edge device answering 200 with an HTML error page.
+
+    Not imagined: this is what a CDN or a corporate proxy in front of a provider
+    returns when it, rather than the provider, decides to refuse.
+    """
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, content=b"<html><body>502 Bad Gateway</body></html>",
+                              headers={"content-type": "application/json"})
+
+    return httpx.MockTransport(handle)
+
+
+def test_a_corrupt_provider_body_is_a_refusal_rather_than_a_crash() -> None:
+    """**The transparent path forwards what it cannot parse; this one must parse
+    it, and that is the whole difference.** `complete()` calls `response.json()`
+    on a 200 and a `json.JSONDecodeError` from a provider's edge device is not a
+    RAVIS defect the caller should see as one.
+
+    What §10 asks here is that the failure be *truthful*: a structured error
+    naming the upstream, not a traceback and not a 200 with an empty answer.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        upstream_base_url="http://upstream.invalid",
+        anthropic_api_key="sk-test",
+        anthropic_base_url="https://anthropic.invalid",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = create_app(settings)
+    local = httpx.AsyncClient(transport=RecordingUpstream().transport())
+    app.app.state.upstream_client = local
+    app.app.state.model_registry.use_client(local)
+    app.app.state.translating = {
+        "anthropic": AnthropicAdapter(
+            upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-test"),
+            client=httpx.AsyncClient(transport=_corrupt()),
+        ),
+    }
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": ADDRESS, "messages": [{"role": "user", "content": "Hi"}]},
+        )
+
+    # Measured, not assumed: 502 with §4.5's envelope, and the attempt chain
+    # carrying the parse failure as the reason rather than swallowing it.
+    assert response.status_code == 502
+    failure = response.json()["error"]
+    assert failure["type"] == "upstream_error"
+    attempt = failure["route"]["attempts"][0]
+    assert attempt["outcome"] == "unknown", "a body nobody could read is not a known failure"
+    assert "Expecting value" in attempt["detail"], "the parse failure was not reported at all"

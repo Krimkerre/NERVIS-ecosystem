@@ -67,6 +67,7 @@ class ScriptedUpstream:
         catalogue: dict[str, dict[str, str]],
         refuse: dict[str, tuple[int, dict[str, Any]]] | None = None,
         refuse_transport: set[str] | None = None,
+        time_out: set[str] | None = None,
         break_after: dict[str, int] | None = None,
         frames: list[bytes] | None = None,
         answers: dict[str, Any] | None = None,
@@ -78,6 +79,11 @@ class ScriptedUpstream:
         # any status line arrives, which is a different failure from `refuse`
         # and reaches RAVIS as an `httpx.ConnectError` rather than a response.
         self.refuse_transport = refuse_transport or set()
+        # Models that accept the connection and then never answer. A different
+        # failure from `refuse_transport`, which never connects at all — and the
+        # two take different branches of §10's rule, so a fake that cannot tell
+        # them apart cannot test either.
+        self.time_out = time_out or set()
         # model → what it answers with a **200**. A dict is a JSON body where a
         # stream was asked for, which is how LM Studio reports anything it will
         # not serve; a list is a frame sequence, and an empty one is a stream
@@ -101,11 +107,9 @@ class ScriptedUpstream:
         payload = json.loads(request.content or b"{}")
         model = payload.get("model", "")
         self.served.append(model)
-        if model in self.refuse_transport:
-            raise httpx.ConnectError(f"connection refused for {model}", request=request)
-        if model in self.refuse:
-            status, body = self.refuse[model]
-            return httpx.Response(status, json=body)
+        refused = self._refusal(model, request)
+        if refused is not None:
+            return refused
         if model in self.answers:
             scripted = self.answers[model]
             if isinstance(scripted, dict):
@@ -114,6 +118,24 @@ class ScriptedUpstream:
         if not payload.get("stream"):
             return httpx.Response(200, json={"id": "c1", "choices": [], "model": model})
         return httpx.Response(200, stream=_Frames(self._emit(model)))
+
+    def _refusal(self, model: str, request: httpx.Request) -> httpx.Response | None:
+        """How this model fails, or None for one that answers.
+
+        Its own method because `_handle` reached the complexity ceiling when
+        §10's timeout case joined it — and because the three failures here are
+        deliberately distinct: never connected, connected and went silent, and
+        answered with an error. They take different branches of the failure
+        policy, so a fake that blurred them could not test any of the three.
+        """
+        if model in self.refuse_transport:
+            raise httpx.ConnectError(f"connection refused for {model}", request=request)
+        if model in self.time_out:
+            raise httpx.ReadTimeout(f"{model} accepted and never answered", request=request)
+        if model in self.refuse:
+            status, body = self.refuse[model]
+            return httpx.Response(status, json=body)
+        return None
 
     def _emit(self, model: str) -> Iterator[bytes]:
         limit = self.break_after.get(model)
@@ -794,3 +816,103 @@ def test_the_non_streaming_path_explains_an_unlisted_model_too() -> None:
 
     assert answered.status_code == 404
     assert "No upstream lists" in answered.json()["error"]["message"]
+
+
+# ── §10: a timeout, and the cloud statuses that mean different things ─────────
+#
+# The degradation matrix scored both PARTIAL for the same reason: the rules were
+# asserted on the `AttemptChain` object and on the classifier, and nothing drove
+# either through a route. A policy table is a claim about what the application
+# does; only a request proves it.
+
+
+def test_a_timeout_moves_on_rather_than_asking_the_same_model_twice() -> None:
+    """§10's timeout rule, at the route: do not retry the same target, do fall
+    back. `time_out` is a connection that was *accepted* and then never
+    answered, which is a different failure from one that never connected —
+    a retry there could duplicate work the upstream is still doing."""
+    upstream = ScriptedUpstream(TWO_CODERS, time_out={"coder-a"})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+    assert response.status_code == 200
+    assert upstream.served == ["coder-a", "coder-b"], "the timed-out model was asked twice"
+    assert response.json()["model"] == "coder-b"
+
+
+def test_a_chain_that_times_out_everywhere_says_so_per_model() -> None:
+    """The exhausted case, and the reason the detail matters: an operator
+    reading "no upstream attempt succeeded" needs to know *how* each one
+    failed, or a stalled runtime looks the same as a missing one."""
+    upstream = ScriptedUpstream(TWO_CODERS, time_out={"coder-a", "coder-b"})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+    assert response.status_code == 502
+    failure = response.json()["error"]["message"]
+    assert "coder-a (timeout)" in failure and "coder-b (timeout)" in failure
+
+
+def test_a_directly_named_model_that_times_out_is_not_replaced() -> None:
+    """Naming a model is asking for that model. Substituting another one
+    silently is the answer to a question nobody asked."""
+    upstream = ScriptedUpstream(TWO_CODERS, time_out={"coder-a"})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": "coder-a"})
+
+    assert response.status_code == 502
+    assert upstream.served == ["coder-a"]
+
+
+@pytest.mark.parametrize("status", [401, 403], ids=["unauthenticated", "forbidden"])
+def test_a_credential_failure_on_a_named_model_reaches_the_client(status: int) -> None:
+    """**A bad key is the answer, not an obstacle to route around.** `FailureClass
+    .AUTHENTICATION` is `(retry=False, fallback=False, scope=NONE)` and its
+    comment explains the last part: opening the circuit would turn a fixable
+    401, which names the problem, into a no-route, which does not. Proven on the
+    policy table until now; this drives it through a request."""
+    refusal = {"error": "check the key"}
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (status, refusal)})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": "coder-a"})
+
+    assert response.status_code == status
+    assert upstream.served == ["coder-a"], "a credential failure was shopped to another model"
+    assert response.json() == {"error": "check the key"}
+
+
+@pytest.mark.parametrize("status", [401, 403], ids=["unauthenticated", "forbidden"])
+def test_a_pool_treats_one_providers_bad_key_as_evidence_about_that_provider(
+    status: int,
+) -> None:
+    """The other half, and it is deliberate rather than an inconsistency.
+    `AttemptChain.from_pool` says it plainly: a direct address means *use this
+    one*, so a 401 against it is the answer; a pool means *pick something that
+    works*, and refusing every other candidate because the first one's provider
+    had a credential problem is the opposite of what was asked for."""
+    refusal = {"error": "check the key"}
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (status, refusal)})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+    assert response.status_code == 200
+    assert upstream.served == ["coder-a", "coder-b"]
+
+
+def test_a_bare_500_is_not_chased_across_the_pool() -> None:
+    """An unclassifiable failure is UNKNOWN, and UNKNOWN fails closed: nothing
+    has been shown about *why* it failed, so spending another model's time is a
+    guess. The status the upstream chose reaches the client unchanged."""
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (500, {"error": "boom"})})
+
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+    assert response.status_code == 500
+    assert upstream.served == ["coder-a"]
+    assert response.json() == {"error": "boom"}

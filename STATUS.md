@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2551 tests, no network, no live service
+.venv/bin/pytest                      # part of 2563 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1025 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2551 passing across the four, conformance `PASS`.
+Expected: all clean, 2563 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15538,6 +15538,51 @@ readable one stays quiet.
 
 RAVIS 992 -> 995 tests, NERVIS 1007 -> 1025, `ruff` and `mypy` clean in both.
 NERVIS 0.24.0, RAVIS 0.22.0.
+
+## The first three degradation cells to close, and what they measured, 2026-09-08
+
+§10's matrix stood at 3 COVERED of 19 for weeks, and its own note said why
+that was a proof gap rather than an unsafe system: *"each of the 19 asks that
+§10's six outcomes hold under the condition"*, and most were asserted on a
+helper rather than through a request. Each PARTIAL cell also carries a
+`closes_with` sentence naming the file and the assertion, so the design work
+was already done. Three closed here, all route-level, all in RAVIS.
+
+**Corrupt response.** The transparent path's rule — *"anything that does not
+parse is left alone"* — had no test at all. It does the right thing and now
+says so: a gateway's HTML error page arriving with a 200 and a JSON content
+type is forwarded byte for byte rather than rewritten, a garbage SSE frame
+reaches the client with `[DONE]` still arriving after it, and the next request
+is served by the same process. The translated path is the interesting half,
+because it *must* parse: `complete()` calls `response.json()`, and a corrupt
+body raises `JSONDecodeError`. Measured at the route rather than assumed — it
+becomes a 502 in §4.5's envelope with the parse failure as the attempt's own
+detail, which is the honest outcome and was untested.
+
+**Timeout.** A model that accepts the connection and then goes silent is a
+different failure from one that never connects, and the fake could not tell
+them apart, so neither branch of the policy could be tested. `ScriptedUpstream`
+grew a `time_out` knob. A timed-out model is asked once and the chain moves on;
+an exhausted chain names the failure per model, because "no upstream attempt
+succeeded" leaves an operator unable to distinguish a stalled runtime from an
+absent one; and a directly named model that times out is not silently replaced.
+
+**Cloud 401/403/429/5xx.** The rules were proven on the policy table only. Both
+halves of the credential rule are now driven through requests, and they differ
+on purpose: a 401 against a *named* model reaches the client untouched, because
+naming a model means use this one and a bad key is the answer — while the same
+401 inside a *pool* falls back, because a pool means pick something that works
+and refusing every other candidate over one provider's credential is the
+opposite of what was asked. A bare 500 is UNKNOWN and fails closed.
+
+Every one was adversarially checked by flipping the policy it pins — retry on
+authentication, fallback on unknown, retry on timeout — and watching the right
+tests fail. One flip changed nothing, which was worth knowing: `fallback=True`
+on a directly addressed model has no second candidate to reach, so that test
+pins the status passthrough and the single attempt rather than the fallback
+rule, and the pool test is what covers the other half.
+
+Six of nineteen now, RAVIS 995 -> 1007 tests.
 
 ## Starting the thing
 

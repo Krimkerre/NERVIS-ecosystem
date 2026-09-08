@@ -264,3 +264,87 @@ def test_no_model_entry_carries_created() -> None:
     entries = client.get("/v1/models").json()["data"]
 
     assert all("created" not in entry for entry in entries)
+
+
+# ── §10: a corrupt response from an upstream ─────────────────────────────────
+#
+# The degradation matrix scored this PARTIAL because nothing drove a corrupt
+# body through a RAVIS route: the classifier was tested on strings and the
+# transparent path's "anything that does not parse is left alone" rule
+# (`api/openai/chat.py`) had no test at all. What §10 asks of this condition is
+# not that RAVIS repair the body — it cannot, and guessing would abandon a model
+# that was answering fine — but that the service stay truthful and answerable.
+
+
+def _answers(body: bytes, *, media_type: str = "application/json") -> httpx.MockTransport:
+    """An upstream that answers 200 with a body no client can parse."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"object": "list", "data": []})
+        return httpx.Response(200, content=body, headers={"content-type": media_type})
+
+    return httpx.MockTransport(handle)
+
+
+def test_an_unparseable_200_is_forwarded_rather_than_rewritten() -> None:
+    """A gateway's HTML error page, arriving with a 200 and a JSON content type.
+
+    RAVIS is not entitled to invent a shape here. The transparent path's promise
+    is that a client cannot tell an intermediary was inserted, and that promise
+    is worth *more* when the upstream misbehaves, not less: a client that would
+    have seen the gateway's page sees exactly it, and can say so.
+    """
+    corrupt = b"<html><body>502 Bad Gateway</body></html>"
+    client, _ = _app_with(_answers(corrupt))
+
+    response = client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+
+    assert response.status_code == 200
+    assert response.content == corrupt
+
+
+def test_a_corrupt_answer_does_not_take_the_route_down_with_it() -> None:
+    """The outcome §10 actually asks for. One bad body is one bad answer, not a
+    gateway that stops serving — and the next request must be served by the same
+    process that just handled the corrupt one."""
+    answered = {"corrupt": True}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"object": "list", "data": []})
+        if answered["corrupt"]:
+            answered["corrupt"] = False
+            return httpx.Response(200, content=b"\x00\x01 not json at all")
+        return httpx.Response(200, json={
+            "id": "chatcmpl-2", "object": "chat.completion",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "fine"}}],
+        })
+
+    client, _ = _app_with(httpx.MockTransport(handle))
+
+    first = client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+    second = client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+
+    assert first.status_code == 200
+    assert second.json()["choices"][0]["message"]["content"] == "fine"
+
+
+def test_a_corrupt_streamed_frame_is_passed_through_and_the_stream_ends() -> None:
+    """The streaming half, where a hang is the failure worth preventing.
+
+    `_refusal_in` reads each frame looking for an error object and leaves
+    anything unparseable alone. That is the right rule and it had no test: a
+    frame of garbage must reach the client as the bytes it was, and `[DONE]`
+    must still arrive, because a client waiting on a terminator that never comes
+    is worse off than one handed something it can reject.
+    """
+    frames = [b"data: {not json\n\n", b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+              b"data: [DONE]\n\n"]
+    client, _ = _app_with(RecordingUpstream(frames=frames))
+
+    with client.stream("POST", "/v1/chat/completions",
+                       json={"model": "any", "messages": [], "stream": True}) as answer:
+        received = b"".join(answer.iter_raw())
+
+    assert received == b"".join(frames)
