@@ -333,6 +333,13 @@ class LMStudioAdapter:
                 response.raise_for_status()
                 async for chunk in _read_sse(response):
                     yield chunk
+        except httpx.TimeoutException as failure:
+            # The streaming twin of the branch above. A generation that stalls
+            # mid-stream is the same fact as one that stalls before the first
+            # byte: the runtime is working on something, or stuck on it.
+            raise RuntimeTimeoutError(
+                f"POST /v1/chat/completions (stream): {failure}"
+            ) from failure
         except (httpx.HTTPError, ValueError) as failure:
             raise RuntimeUnavailableError(
                 f"POST /v1/chat/completions (stream): {failure}"
@@ -426,6 +433,16 @@ class LMStudioAdapter:
             )
             response.raise_for_status()
             payload = response.json()
+        except httpx.TimeoutException as failure:
+            # **A runtime that accepted the connection and then went quiet is
+            # busy, not absent**, and the CLI path has drawn that distinction
+            # since it was written: "the obvious response to unreachable is to
+            # retry immediately, which is the worst possible response to a load
+            # already underway." The HTTP path collapsed both into
+            # `RuntimeUnavailableError` until 8 September 2026, so a stalled
+            # runtime was reported as one nobody had started — and §4.3 exists
+            # so a caller can branch on the difference.
+            raise RuntimeTimeoutError(f"{method} {path}: {failure}") from failure
         except (httpx.HTTPError, ValueError) as failure:
             raise RuntimeUnavailableError(f"{method} {path}: {failure}") from failure
         finally:

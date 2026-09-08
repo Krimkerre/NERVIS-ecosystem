@@ -528,6 +528,10 @@ async def _probe(
             "reachable": health.reachable,
             "detail": health.detail,
             "latency_ms": health.latency_ms,
+            # Published even when false, so a reader can branch on the field
+            # rather than on the wording of `detail` — which is prose and will
+            # be rewritten by somebody who does not know it is being parsed.
+            "credential_rejected": getattr(health, "credential_rejected", False),
         }
     except Exception as failure:  # noqa: BLE001 - any adapter fault is a health result
         result = {"reachable": False, "detail": str(failure), "latency_ms": None}

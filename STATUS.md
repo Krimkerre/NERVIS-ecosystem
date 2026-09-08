@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2563 tests, no network, no live service
+.venv/bin/pytest                      # part of 2580 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 469 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1025 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 472 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1035 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2563 passing across the four, conformance `PASS`.
+Expected: all clean, 2580 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15583,6 +15583,59 @@ pins the status passthrough and the single attempt rather than the fallback
 rule, and the pool test is what covers the other half.
 
 Six of nineteen now, RAVIS 995 -> 1007 tests.
+
+## The other five stub-upstream degradation cells, and the three real defects
+they found, 2026-09-08
+
+Eleven of nineteen now. Each of these was scored PARTIAL because a rule
+existed and nothing drove it through a request — and in three cases the rule
+turned out not to exist at all in the branch that mattered.
+
+**Clock skew, and a direction that was invisible.** Detection fired only on a
+stamp *ahead* of arrival, so a producer running minutes slow was reported as
+nothing. That is the harder direction, because a stamp earlier than its
+arrival is also what latency looks like — which is why the threshold is two
+minutes rather than two seconds, and why the warning names both readings
+instead of choosing between them. Four route tests, including the falsifier
+that ordinary latency stays quiet: a warning on every trace is a warning
+nobody reads.
+
+**Duplicate and out-of-order arrival.** Ordering was asserted inside the
+publisher queue, which is the producer's side of the wire; the hub is reached
+by three services on one machine with no ordering guarantee at all. The
+assembler turns out to be order-independent by construction — `min`/`max` over
+a span's events rather than first-wins — so the sort above it is not what
+protects the drawing. The test holds that property rather than the sort, which
+is what a falsifier proved: removing the sort changes nothing, and changing
+`min` to "the latest event wins" fails three tests.
+
+**A slow dependency.** The probe's own deadline is what stops one stalled peer
+from freezing a loop that makes twelve requests a pass, and it was handed to
+`httpx` with nothing checking it. Both branches — MEP and the plain runtime
+GET — now assert the deadline reaches the transport.
+
+**A hung runtime was reported as an absent one.** Every HTTP failure in the LM
+Studio adapter raised `RuntimeUnavailableError`, while the CLI path had drawn
+the distinction since it was written, in its own words: *"the obvious response
+to unreachable is to retry immediately, which is the worst possible response
+to a load already underway."* `RuntimeTimeoutError` and its `TIMEOUT` code both
+already existed and the HTTP branch simply never raised them. Two lines, one
+per branch, plus the streaming twin — because a fix applied to one and not the
+other would have looked done.
+
+**And RAVIS could not report an expired credential**, which is the one it holds.
+Every HTTP failure in the health probe became `reachable=False` with the
+exception's class name as the detail, so a 401 and a dead socket produced the
+same row: *not answering*. They send an operator to different afternoons. A
+refused key is now its own state — the provider answered, and it is reachable
+— published as its own field rather than left in prose that will be reworded
+by somebody who does not know it is parsed. The rule was written once in
+`providers/base.py` rather than three times, because all three adapters had
+the same `except` written the same wrong way, and a 503 now keeps its status
+instead of arriving as `HTTPStatusError`.
+
+Every one adversarially checked. RAVIS 1007 -> 1011, NERVIS 1025 -> 1035,
+SIRVIS 469 -> 472.
 
 ## Starting the thing
 

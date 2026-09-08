@@ -410,3 +410,100 @@ def test_a_corrupt_provider_body_is_a_refusal_rather_than_a_crash() -> None:
     attempt = failure["route"]["attempts"][0]
     assert attempt["outcome"] == "unknown", "a body nobody could read is not a known failure"
     assert "Expecting value" in attempt["detail"], "the parse failure was not reported at all"
+
+
+# ── §10: a credential that has stopped working ───────────────────────────────
+
+
+def test_a_refused_key_is_not_reported_as_an_unreachable_provider() -> None:
+    """**RAVIS holds the expiring credentials and could not say one had
+    expired.** Every HTTP failure in the health probe became `reachable=False`
+    with the exception's class name as the detail, so a 401 and a dead socket
+    produced the same row: *not answering*. They are different afternoons —
+    one is "start the service", the other is "the key rotated" — and §10 asks
+    the reading to be truthful, not merely non-crashing.
+    """
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(401, json={"error": {"message": "invalid x-api-key"}})
+
+    adapter = AnthropicAdapter(
+        upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-expired"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+
+    health = asyncio.run(adapter.health())
+
+    assert health.credential_rejected is True
+    assert health.reachable is True, "the provider answered; it was the key that was refused"
+    assert "401" in health.detail
+
+
+def test_a_provider_that_is_actually_down_is_still_reported_down() -> None:
+    """The falsifier. Making a refused key readable must not make every failure
+    read as one — a transport error has no status code and no credential in it."""
+    def handle(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("nothing listening", request=request)
+
+    adapter = AnthropicAdapter(
+        upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-test"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+
+    health = asyncio.run(adapter.health())
+
+    assert health.reachable is False
+    assert health.credential_rejected is False
+
+
+def test_a_server_error_from_a_provider_keeps_its_status() -> None:
+    """The middle case, which the old code also lost: a 503 became
+    `HTTPStatusError`, which tells a reader nothing about whether to wait."""
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(503, json={"error": "overloaded"})
+
+    adapter = AnthropicAdapter(
+        upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-test"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+
+    health = asyncio.run(adapter.health())
+
+    assert health.reachable is False
+    assert health.detail == "HTTP 503"
+
+
+def test_the_providers_listing_publishes_the_refused_credential() -> None:
+    """The state has to reach a screen, or it is a field nobody sees. Published
+    as its own key rather than left in `detail`, because `detail` is prose and
+    will be reworded by somebody who does not know it is being parsed."""
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(401, json={"error": {"message": "invalid x-api-key"}})
+
+    settings = Settings(
+        database_path=":memory:",
+        upstream_base_url="http://upstream.invalid",
+        anthropic_api_key="sk-expired",
+        anthropic_base_url="https://anthropic.invalid",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = create_app(settings)
+    local = httpx.AsyncClient(transport=RecordingUpstream().transport())
+    app.app.state.upstream_client = local
+    app.app.state.model_registry.use_client(local)
+    app.app.state.translating = {
+        "anthropic": AnthropicAdapter(
+            upstream=Upstream(base_url="https://anthropic.invalid", declared_key="sk-expired"),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ),
+    }
+
+    with TestClient(app) as client:
+        rows = client.get("/api/v1/providers").json()["items"]
+
+    refused = [row for row in rows if row.get("credential_rejected")]
+    assert [row["provider"] for row in refused] == ["anthropic"]
+    assert refused[0]["reachable"] is True
+    assert "401" in refused[0]["detail"]

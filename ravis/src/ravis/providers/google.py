@@ -45,6 +45,7 @@ from ravis.providers.base import (
     ProtocolMode,
     ProviderHealth,
     TranslationError,
+    health_after,
 )
 from ravis.providers.google_wire import (
     StreamReader,
@@ -198,7 +199,7 @@ class GoogleAdapter:
             )
             response.raise_for_status()
         except httpx.HTTPError as failure:
-            return ProviderHealth(reachable=False, detail=type(failure).__name__)
+            return health_after(failure, started, (time.monotonic() - started) * 1000)
         return ProviderHealth(reachable=True, latency_ms=(time.monotonic() - started) * 1000)
 
     async def models(self) -> list[str]:

@@ -327,3 +327,143 @@ def test_the_focus_block_names_the_working_capabilities_not_only_the_broken() ->
     assert "2 of 3 available" in lines
     assert "working: a, b" in lines
     assert "c withheld" in lines
+
+
+# ── §10: clock skew, through the route rather than in the assembler ──────────
+
+
+def _stamped(offset_seconds: float, **extra: Any) -> dict[str, Any]:
+    """One event stamped a given distance from now, in the producer's opinion."""
+    when = datetime.now(timezone.utc).timestamp() + offset_seconds
+    moment = datetime.fromtimestamp(when, timezone.utc)
+    return event("ravis", moment.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z", **extra)
+
+
+def test_a_future_stamped_event_reaches_the_trace_api_as_a_warning() -> None:
+    """**The degradation matrix's own closure note for this condition.** Skew
+    was proven by calling `assemble()` directly, which is a fact about a
+    function; §10 asks what a *service* does with a producer whose clock is
+    wrong, and the answer has to survive ingestion, storage and assembly."""
+    with an_api() as client:
+        client.post("/api/v1/events", json=[_stamped(600, event_id="ahead")])
+
+        body = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert any("clock is ahead" in warning for warning in body["warnings"])
+
+
+def test_the_span_is_left_where_the_producer_put_it() -> None:
+    """Reported, never corrected. A waterfall quietly straightened is worse
+    than one that visibly cannot be: the second makes somebody look."""
+    with an_api() as client:
+        client.post("/api/v1/events", json=[_stamped(600, event_id="ahead")])
+
+        body = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    drawn = body["spans"][0]
+    assert drawn["started"] > datetime.now(timezone.utc).timestamp() + 300
+
+
+def test_a_clock_far_behind_is_reported_too() -> None:
+    """**This direction was invisible until 8 September 2026**, and the matrix's
+    gap sentence named it: detection fired only on a stamp *ahead* of arrival,
+    so a producer running minutes slow was reported as nothing at all. It is
+    the harder direction because a stamp earlier than its arrival is also what
+    latency looks like — which is why the threshold is two minutes and why the
+    warning names both readings instead of choosing one."""
+    with an_api() as client:
+        client.post("/api/v1/events", json=[_stamped(-600, event_id="behind")])
+
+        body = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert any("clock is behind" in warning for warning in body["warnings"])
+
+
+def test_ordinary_latency_is_not_reported_as_a_broken_clock() -> None:
+    """The falsifier for that threshold. An event stamped a few seconds before
+    it arrived is a queue doing its job, and calling it skew would put a
+    warning on almost every trace — which is how a warning stops being read."""
+    with an_api() as client:
+        client.post("/api/v1/events", json=[_stamped(-5, event_id="slow")])
+
+        body = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert not any("clock" in warning for warning in body["warnings"])
+
+
+# ── §10: duplicate and out-of-order arrival, through the route ───────────────
+
+
+def test_a_trace_assembles_the_same_way_whatever_order_it_arrived_in() -> None:
+    """**Out-of-order arrival was asserted only inside the publisher queue**,
+    which is the producer's side of the wire. §10 asks about the receiving
+    side: a hub reached by three services on one machine has no ordering
+    guarantee at all, and a waterfall drawn from arrival order rather than from
+    the stamps would show whichever service happened to answer first as the one
+    that started first."""
+    # **Two events from one service**, because that is where arrival order can
+    # actually corrupt the drawing: a span's interval is the range its own
+    # events cover, so a rule of "the latest event I saw wins" would start the
+    # bar wherever the queue happened to drain. Today it is `min`/`max`, which
+    # is order-independent by construction — this holds that property rather
+    # than the sort above it, and breaking either one fails it.
+    ordered = [
+        event("ravis", "2026-08-26T10:00:00.100Z", event_id="r1"),
+        event("ravis", "2026-08-26T10:00:00.900Z", event_id="r2"),
+        event("nervis", "2026-08-26T10:00:00.000Z", event_id="n1"),
+    ]
+
+    with an_api() as forwards:
+        forwards.post("/api/v1/events", json=ordered)
+        expected = forwards.get(f"/api/v1/traces/{TRACE}").json()
+
+    with an_api() as backwards:
+        backwards.post("/api/v1/events", json=list(reversed(ordered)))
+        actual = backwards.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert actual["spans"] == expected["spans"]
+    ravis = next(span for span in actual["spans"] if span["service"] == "ravis")
+    assert ravis["started"] < ravis["ended"], "the bar was drawn from arrival order"
+
+
+def test_the_same_batch_twice_does_not_double_the_trace() -> None:
+    """§4.4 asks consumers to tolerate duplicates, and a producer replaying
+    after a reconnect is doing the right thing rather than making a mistake.
+    Proven at the storage layer; this is the same claim asked of the route,
+    which is where a replaying producer actually arrives."""
+    batch = [
+        event("nervis", "2026-08-26T10:00:00.000Z", event_id="n1"),
+        event("ravis", "2026-08-26T10:00:00.100Z", event_id="r1"),
+    ]
+
+    with an_api() as client:
+        client.post("/api/v1/events", json=batch)
+        once = client.get(f"/api/v1/traces/{TRACE}").json()
+        client.post("/api/v1/events", json=batch)
+        twice = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert twice["spans"] == once["spans"]
+    assert twice["warnings"] == once["warnings"]
+
+
+def test_a_replay_out_of_order_is_still_one_trace() -> None:
+    """Both failures at once, which is what a reconnecting producer actually
+    does: it resends what it has, in whatever order its queue drained."""
+    batch = [
+        event("nervis", "2026-08-26T10:00:00.000Z", event_id="n1"),
+        event("ravis", "2026-08-26T10:00:00.100Z", event_id="r1"),
+        event("sirvis", "2026-08-26T10:00:00.300Z", event_id="s1"),
+    ]
+
+    with an_api() as client:
+        client.post("/api/v1/events", json=batch)
+        clean = client.get(f"/api/v1/traces/{TRACE}").json()
+        client.post("/api/v1/events", json=list(reversed(batch)))
+        after = client.get(f"/api/v1/traces/{TRACE}").json()
+
+    assert after["spans"] == clean["spans"]
+    assert len(client_ids(after)) == 3
+
+
+def client_ids(trace: dict[str, Any]) -> list[str]:
+    return [span["service"] for span in trace["spans"]]

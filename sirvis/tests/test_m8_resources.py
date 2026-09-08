@@ -749,3 +749,105 @@ async def test_force_unload_takes_a_model_held_by_someone_else() -> None:
     assert runtime.unloads == ["coder-7b"]
     # The lease's holding is gone, so releasing it unloads nothing further.
     assert await manager.release(lease.session_id) == []
+
+
+# ── §10: a runtime that accepts the connection and then stalls ───────────────
+
+
+def _hung_api() -> tuple[object, str]:
+    """The real app over a transport that answers nothing, ever."""
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from sirvis.api.security import Scope, mint_token
+    from sirvis.app import create_app
+    from sirvis.config import Settings
+    from sirvis.runtimes import LMStudioAdapter
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("accepted, then silence", request=request)
+
+    settings = Settings(database_path=":memory:", lmstudio_base_url="http://127.0.0.1:9",
+                        _env_file=None)  # type: ignore[call-arg]
+    app = create_app(
+        settings,
+        runtime=LMStudioAdapter(
+            "http://runtime.invalid",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ),
+    )
+    return TestClient(app), mint_token(app.state.database, "t", {Scope.RUNTIME})
+
+
+def test_a_stalled_runtime_is_reported_busy_rather_than_absent() -> None:
+    """**A hung runtime looked exactly like an unstarted one until this.** Every
+    HTTP failure in the adapter raised `RuntimeUnavailableError`, so a runtime
+    that accepted the connection and then went quiet was published as
+    `RUNTIME_UNAVAILABLE` — and the obvious response to "unreachable" is to
+    start it or retry immediately, which is the worst possible response to a
+    load already underway.
+
+    The CLI path has drawn this distinction since it was written, and
+    `RuntimeTimeoutError` and its `TIMEOUT` code both already existed. Only the
+    HTTP branch was missing.
+    """
+    import asyncio as _asyncio
+
+    import httpx
+
+    from sirvis.runtimes import LMStudioAdapter, RuntimeTimeoutError
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("accepted, then silence", request=request)
+
+    adapter = LMStudioAdapter(
+        "http://runtime.invalid",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+
+    # `generate` rather than `load`: loading goes through the `lms` CLI, which
+    # already distinguished a timeout. The HTTP path is the one that did not.
+    with pytest.raises(RuntimeTimeoutError):
+        _asyncio.run(adapter.generate("qwen2.5-coder-7b-instruct",
+                                      [{"role": "user", "content": "hi"}]))
+
+
+def test_a_stalled_stream_is_a_timeout_too() -> None:
+    """The streaming twin. A generation that stalls mid-stream is the same fact
+    as one that stalls before the first byte, and the two branches are written
+    separately, so a fix applied to one and not the other would look done."""
+    import asyncio as _asyncio
+
+    import httpx
+
+    from sirvis.runtimes import LMStudioAdapter, RuntimeTimeoutError
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("stalled mid-stream", request=request)
+
+    adapter = LMStudioAdapter(
+        "http://runtime.invalid",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+
+    async def drain() -> None:
+        async for _ in adapter.stream_generate("qwen2.5-coder-7b-instruct",
+                                               [{"role": "user", "content": "hi"}]):
+            pass
+
+    with pytest.raises(RuntimeTimeoutError):
+        _asyncio.run(drain())
+
+
+def test_a_stalled_runtime_leaves_the_service_answering() -> None:
+    """§15.4's standalone rule, under §10's condition: SIRVIS is not the thing
+    that is stuck, and its own routes must keep saying so. A runtime that never
+    answers is reported as a runtime that is not answering — one row, with a
+    reason — rather than a route that hangs with it."""
+    client, _ = _hung_api()
+
+    answered = client.get("/api/v1/runtimes")  # type: ignore[attr-defined]
+
+    assert answered.status_code == 200
+    row = answered.json()["items"][0]
+    assert row["state"] != "running"

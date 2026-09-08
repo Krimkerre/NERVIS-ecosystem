@@ -24,7 +24,7 @@ from ecosystem_protocol import PROTOCOL_VERSION
 
 from nervis import adapters
 from nervis.negotiation import Availability, Operation, negotiate
-from nervis.probes import probe
+from nervis.probes import PROBE_TIMEOUT_SECONDS, probe
 from nervis.registry import (
     EndpointRefusedError,
     Registry,
@@ -1045,3 +1045,66 @@ def test_version_numbers_compare_by_number_and_not_as_text() -> None:
     assert adapters._as_numbers("") == ()
     assert adapters._as_numbers("nightly") == ()
     assert adapters._workbench_state("4.9.0")[0] == "unavailable"
+
+
+# ── §10: a dependency that answers, slowly ───────────────────────────────────
+#
+# The matrix scored this PARTIAL because the slow path was covered by unit
+# tests on helpers — a deadline object, a cache — and nothing made a dependency
+# slow and then asked whether the *service* stayed answerable and truthful.
+
+
+def test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline() -> None:
+    """**The probe's own deadline is the thing that keeps one slow peer from
+    stalling the loop**, and it was passed to `httpx` with nothing checking it.
+    Three services probed four ways each is twelve requests a pass; if any one
+    of them could block indefinitely, the registry would stop refreshing for
+    every other service on the machine."""
+    deadlines: list[Any] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        deadlines.append(request.extensions.get("timeout"))
+        raise httpx.ReadTimeout("accepted, then silence", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+    observed = observe(client, RAVIS)
+
+    assert deadlines, "the probe never reached the transport"
+    assert deadlines[0]["read"] == PROBE_TIMEOUT_SECONDS
+    assert observed["state"] is RegistryState.UNREACHABLE
+
+
+def test_a_slow_peer_is_reported_as_unreachable_rather_than_healthy() -> None:
+    """The outcome §10 asks for: truthful within the detection interval. A peer
+    that accepts a connection and then goes quiet must not be carried forward as
+    the last thing it said — a stale `healthy` is worse than an honest
+    `unreachable`, because it is acted on."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("still thinking", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+    observed = observe(client, RAVIS)
+
+    assert observed["state"] is RegistryState.UNREACHABLE
+    assert "timeout" in observed["detail"].lower() or "ReadTimeout" in observed["detail"]
+
+
+def test_a_runtime_without_a_mep_surface_is_bounded_the_same_way() -> None:
+    """LM Studio and Ollama are probed down a different branch — no MEP, one
+    GET — and a deadline missing from that branch would be just as effective at
+    stalling the loop, so it is asserted rather than assumed to match."""
+    deadlines: list[Any] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        deadlines.append(request.extensions.get("timeout"))
+        raise httpx.ReadTimeout("slow runtime", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+    observed = observe(client, LMSTUDIO)
+
+    assert deadlines[0]["read"] == PROBE_TIMEOUT_SECONDS
+    assert observed["state"] is RegistryState.UNREACHABLE

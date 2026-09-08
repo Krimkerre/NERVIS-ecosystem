@@ -64,14 +64,13 @@ class Cell:
 CELLS: list[Cell] = [
     Cell(
         condition="clock skew",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:743"),
-            ("route", "nervis/tests/test_m7_traces.py:206"),
-            ("static-gate", "tools/acceptance_run.py:105,1107-1117"),
+            ("route", "nervis/tests/test_m7_traces.py:test_a_future_stamped_event_reaches_the_trace_api_as_a_warning"),
+            ("route", "nervis/tests/test_m7_traces.py:test_the_span_is_left_where_the_producer_put_it"),
+            ("route", "nervis/tests/test_m7_traces.py:test_a_clock_far_behind_is_reported_too"),
+            ("route", "nervis/tests/test_m7_traces.py:test_ordinary_latency_is_not_reported_as_a_broken_clock"),
         ],
-        gap="Skew detection exists in exactly one place and is proven only by an in-process unit test: it is one-directional (only `occurred_at` more than 2.0s AHEAD of `_received_at`; a producer whose clock is behind is indistinguis",
-        closes_with="Add one route-level test to nervis/tests/test_m7_traces.py that POSTs a future-stamped event to /api/v1/events and asserts (a) GET /api/v1/traces/{trace_id} returns a warning containing \"clock is ahea",
     ),
     Cell(
         condition="unsupported major protocol version",
@@ -108,14 +107,12 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="duplicate and out-of-order events",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:743"),
-            ("route", "nervis/tests/test_m6_events.py:644"),
-            ("route", "clarvis/src/bridge/server.test.ts:387"),
+            ("route", "nervis/tests/test_m7_traces.py:test_a_trace_assembles_the_same_way_whatever_order_it_arrived_in"),
+            ("route", "nervis/tests/test_m7_traces.py:test_the_same_batch_twice_does_not_double_the_trace"),
+            ("route", "nervis/tests/test_m7_traces.py:test_a_replay_out_of_order_is_still_one_trace"),
         ],
-        gap="Duplicates are genuinely covered at the storage layer and at producer retry, but out-of-order arrival is asserted only inside the RAVIS/SIRVIS publisher queue \u2014 nothing ingests events out of order through NERVIS's POST r",
-        closes_with="Add one route-level test to /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/tests/test_m7_traces.py that POSTs a trace's events to /api/v1/events reversed and with the batch sent twice, then a",
     ),
     Cell(
         condition="each service absent at startup",
@@ -139,14 +136,12 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="slow response",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:481"),
-            ("route", "ravis/tests/test_translated_path.py:198"),
-            ("static-gate", "nervis/index.html:1274,1295,1563,1068"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_slow_peer_is_reported_as_unreachable_rather_than_healthy"),
+            ("route", "nervis/tests/test_m2_registry.py:test_a_runtime_without_a_mep_surface_is_bounded_the_same_way"),
         ],
-        gap="No test or gate makes a dependency slow and then checks a *service's own routes* stay answerable and truthful: the slow path is covered by unit tests on helpers (Clarvis deadlines, RAVIS probe timeout and cache, SIRVIS r",
-        closes_with="Add a test to /Users/mathias/Documents/coding/NERVIS-ecosystem/nervis/tests/test_m2_registry.py that drives nervis/src/nervis/probes.py:probe() through an httpx.MockTransport handler which records req",
     ),
     Cell(
         condition="full disk",
@@ -213,25 +208,22 @@ CELLS: list[Cell] = [
     ),
     Cell(
         condition="hung local runtime",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:801"),
-            ("static-gate", "sirvis/src/sirvis/runtimes/lmstudio.py:62"),
-            ("static-gate", "sirvis/src/sirvis/runtimes/lmstudio.py:400"),
+            ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_runtime_is_reported_busy_rather_than_absent"),
+            ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_stream_is_a_timeout_too"),
+            ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_runtime_leaves_the_service_answering"),
         ],
-        gap="Nothing anywhere exercises a runtime that accepts a connection and then stalls: SIRVIS's HTTP timeouts collapse into RUNTIME_UNAVAILABLE so a hung runtime is reported as an absent one (only the `lms` CLI can raise TIMEOU",
-        closes_with="Add a route-level test to /Users/mathias/Documents/coding/NERVIS-ecosystem/sirvis/tests/test_m8_resources.py that mounts the app over an httpx.MockTransport whose handler raises httpx.ReadTimeout, dri",
     ),
     Cell(
         condition="expired credential",
-        verdict="PARTIAL",
+        verdict="COVERED",
         evidence=[
-            ("live", "tools/acceptance_run.py:85-93,966-1008"),
-            ("route", "nervis/src/nervis/api/instances.py:189"),
-            ("route", "clarvis/src/bridge/Bridge.ts:268"),
+            ("route", "ravis/tests/test_anthropic_adapter.py:test_a_refused_key_is_not_reported_as_an_unreachable_provider"),
+            ("route", "ravis/tests/test_anthropic_adapter.py:test_a_provider_that_is_actually_down_is_still_reported_down"),
+            ("route", "ravis/tests/test_anthropic_adapter.py:test_a_server_error_from_a_provider_keeps_its_status"),
+            ("route", "ravis/tests/test_anthropic_adapter.py:test_the_providers_listing_publishes_the_refused_credential"),
         ],
-        gap="RAVIS \u2014 the service that actually holds the expiring credentials \u2014 cannot report that one has stopped working: its authenticated health probe turns a 401 into reachable=False (Anthropic's discards the status code entirel",
-        closes_with="In /Users/mathias/Documents/coding/NERVIS-ecosystem/ravis/src/ravis/api/management/routes.py, make `_probe` (line 485) catch httpx.HTTPStatusError of 401/403 from `adapter.health()` and emit a distinc",
     ),
     Cell(
         condition="code-server loss \u2014 the browser VS Code that hosts Clarvis and that NERVIS embeds in its Clarvis/Code tab stops answering after having answered (crash, stopped, port taken)",

@@ -55,7 +55,12 @@ from ravis.providers.anthropic_wire import (
     render_request,
     sse_payloads,
 )
-from ravis.providers.base import HEALTH_TIMEOUT_SECONDS, ProtocolMode, ProviderHealth
+from ravis.providers.base import (
+    HEALTH_TIMEOUT_SECONDS,
+    ProtocolMode,
+    ProviderHealth,
+    health_after,
+)
 from ravis.upstream import Upstream
 
 logger = logging.getLogger(__name__)
@@ -170,7 +175,7 @@ class AnthropicAdapter:
             )
             response.raise_for_status()
         except httpx.HTTPError as failure:
-            return ProviderHealth(reachable=False, detail=type(failure).__name__)
+            return health_after(failure, started, (time.monotonic() - started) * 1000)
         return ProviderHealth(reachable=True, latency_ms=(time.monotonic() - started) * 1000)
 
     async def models(self) -> list[str]:

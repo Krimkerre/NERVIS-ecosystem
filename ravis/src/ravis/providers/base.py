@@ -30,6 +30,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+import httpx
+
 from ravis.core.capabilities import ModelCapabilities
 from ravis.core.requests import NormalizedRequest
 from ravis.core.responses import NormalizedResponse, NormalizedStreamEvent
@@ -77,12 +79,45 @@ class TranslationError(Exception):
 
 
 class ProviderHealth:
-    """Whether an upstream is reachable, and what it said if not."""
+    """Whether an upstream is reachable, and what it said if not.
 
-    def __init__(self, reachable: bool, detail: str = "", latency_ms: float | None = None) -> None:
+    **`credential_rejected` is a third state, not a shade of the first two.** A
+    provider that answers 401 is working perfectly: it is reachable, it read the
+    request, and it refused the key. Reporting that as "not answering" — which
+    is what happened until 8 September 2026, with the status code discarded
+    entirely — sends an operator to check whether a service is up when what
+    expired is a credential, and those are different afternoons.
+    """
+
+    def __init__(self, reachable: bool, detail: str = "", latency_ms: float | None = None,
+                 credential_rejected: bool = False) -> None:
         self.reachable = reachable
         self.detail = detail
         self.latency_ms = latency_ms
+        self.credential_rejected = credential_rejected
+
+
+def health_after(failure: Exception, started_at: float, elapsed: float) -> ProviderHealth:
+    """One failed authenticated probe, as the state it actually describes.
+
+    Shared because three adapters run the same probe and each wrote its own
+    `except`, and the one that mattered was written the same way in all three:
+    every HTTP failure became `reachable=False` with the exception's class name
+    as the detail, so a 401 and a dead socket were the same row. A refused
+    credential is not an unreachable provider — the provider answered — and an
+    operator sent to check whether a service is up when a key expired is
+    looking at the wrong afternoon.
+    """
+    del started_at
+    if isinstance(failure, httpx.HTTPStatusError):
+        status = failure.response.status_code
+        if status in (401, 403):
+            return ProviderHealth(
+                reachable=True, credential_rejected=True,
+                detail=f"HTTP {status}: the credential was refused", latency_ms=elapsed,
+            )
+        return ProviderHealth(reachable=False, detail=f"HTTP {status}")
+    return ProviderHealth(reachable=False, detail=type(failure).__name__)
 
 
 @runtime_checkable

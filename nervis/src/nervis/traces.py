@@ -197,6 +197,27 @@ def _note_gaps(trace: Trace, events: list[Mapping[str, Any]]) -> None:
             break
 
 
+#: How far ahead of NERVIS a producer's stamp may be before it is skew.
+#:
+#: Ahead is unambiguous: an event cannot be created after it arrives, so any
+#: margin here is for the two clocks being read a moment apart.
+AHEAD_SECONDS = 2.0
+
+#: And how far behind, which needs a much larger figure for a reason worth
+#: stating.
+#:
+#: **A stamp earlier than its arrival is what ordinary latency looks like**, so
+#: the two are genuinely indistinguishable at small drifts and this was
+#: one-directional until 8 September 2026 — a producer whose clock was behind
+#: was reported as nothing at all. They stop being indistinguishable at scale:
+#: a queued event is late by seconds, and no delivery on one machine takes two
+#: minutes. Below this the reading is "something was slow", which the waterfall
+#: already draws; above it, a clock is wrong. The warning says both readings
+#: rather than picking one, because §11.2 asks for skew to be *marked* and this
+#: code cannot tell which of the two it is looking at.
+BEHIND_SECONDS = 120.0
+
+
 def _note_skew(trace: Trace) -> None:
     """Report clocks that disagree; never move a span to hide it.
 
@@ -211,10 +232,17 @@ def _note_skew(trace: Trace) -> None:
         if occurred is None or received is None:
             continue
         drift = occurred - received
-        if drift > 2.0:
+        named = event.get("event_type", "an event")
+        if drift > AHEAD_SECONDS:
             trace.warnings.append(
-                f"{event.get('event_type', 'an event')} is stamped {drift:.1f}s after "
+                f"{named} is stamped {drift:.1f}s after "
                 "NERVIS received it — the producer's clock is ahead"
+            )
+            break
+        if drift < -BEHIND_SECONDS:
+            trace.warnings.append(
+                f"{named} is stamped {-drift:.0f}s before NERVIS received it — "
+                "the producer's clock is behind, or the event was delayed that long"
             )
             break
 
