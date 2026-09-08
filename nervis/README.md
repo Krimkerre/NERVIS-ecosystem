@@ -120,10 +120,14 @@ is reshaped on the way through**, which is how §9's rule is kept: preserving
 units and evidence links is easiest when the code is in no position to drop
 them. No benchmark logic lives here.
 
-**M5b is blocked**, and the `jobs` surface is listed so the block is visible
-rather than inferred: launching a benchmark and streaming its progress need
-`sirvis.benchmarks.jobs@1`, which SIRVIS advertises as *unavailable* until its
-M14 queue exists — and §1 forbids inventing the endpoint.
+**M5b was blocked and is not any more.** Launching a benchmark needs
+`sirvis.benchmarks.jobs@1`, and SIRVIS advertised it *unavailable* until its M14
+queue existed — §1 forbids inventing an endpoint, so the surface was listed to
+make the block visible rather than inferred. That queue shipped: the capability
+reads *available* now, and NERVIS submits and cancels through it as §12
+operations. What is still missing is the streaming half — a run is polled, not
+followed — which is why `nervis.sirvis_views@1` publishes itself degraded and
+says so.
 
 **M6** adds `/api/v1/events` — §11.1's hub: §4.4's envelope, HTTP ingestion,
 bounded persistence with retention, §11.2's filters, and an SSE stream with
