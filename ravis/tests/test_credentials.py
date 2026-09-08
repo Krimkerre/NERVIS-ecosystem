@@ -282,3 +282,133 @@ def test_known_lists_names_and_never_values(tmp_path: Path) -> None:
 def test_the_config_directory_follows_the_platform() -> None:
     """Resolved from the environment so a test never touches a real home."""
     assert config_directory({"XDG_CONFIG_HOME": "/xdg"}) == Path("/xdg/ravis")
+
+
+# ── §10: a keychain that is missing, erroring, hung or prompting ─────────────
+#
+# Every test above builds the store with `keychain=False`, which is right for
+# them and left the whole Keychain branch — the fallthrough, the timeout, the
+# non-zero exit — asserted nowhere. The four ways it can fail are one branch
+# each, and each returns `None` so the environment is consulted next.
+#
+# `subprocess.run` is patched rather than a real `security` invoked: the point
+# is what the store does with each outcome, and a test that shelled out would
+# depend on the machine's own Keychain contents and prompt somebody.
+
+
+def _keychain_that(behaviour: object, monkeypatch: pytest.MonkeyPatch) -> CredentialStore:
+    """A store whose Keychain lookup does whatever `behaviour` does."""
+    import subprocess
+
+    from ravis import credentials as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda _: "/usr/bin/security")
+
+    def run(*_: object, **__: object) -> object:
+        if isinstance(behaviour, BaseException):
+            raise behaviour
+        return behaviour
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return _store(keychain=True, environment={"RAVIS_ANTHROPIC_API_KEY": VALUE})
+
+
+class _Completed:
+    """What `subprocess.run` returns, in the two shapes that matter."""
+
+    def __init__(self, returncode: int, stdout: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+
+
+def test_a_keychain_that_holds_nothing_falls_through_to_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ordinary case on a Mac with no item stored: `security` exits
+    non-zero, and an absent credential is absent rather than a fault."""
+    store = _keychain_that(_Completed(44), monkeypatch)
+
+    secret = store.resolve("anthropic")
+
+    assert secret.reveal() == VALUE
+    assert secret.source is CredentialSource.ENVIRONMENT
+
+
+def test_a_keychain_that_never_answers_does_not_hang_the_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**The prompt nobody answers.** `security` can put a dialog on a screen
+    the operator is not looking at, and a lookup that waited for it would hang
+    whatever asked — a routing decision, a health probe, a startup. The five
+    second timeout is what prevents that, and it was code-only until now."""
+    import subprocess
+
+    store = _keychain_that(
+        subprocess.TimeoutExpired(cmd="security", timeout=5.0), monkeypatch
+    )
+
+    secret = store.resolve("anthropic")
+
+    assert secret.reveal() == VALUE
+    assert secret.source is CredentialSource.ENVIRONMENT
+
+
+def test_a_keychain_lookup_asks_for_a_bounded_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """And the bound is real rather than inherited. A `subprocess.run` with no
+    `timeout` waits forever, which is the failure the test above describes and
+    cannot itself detect — it patches the call that would have hung."""
+    import subprocess
+
+    from ravis import credentials as module
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(module.shutil, "which", lambda _: "/usr/bin/security")
+
+    def run(*_: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        return _Completed(44)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    _store(keychain=True).resolve("anthropic")
+
+    assert seen.get("timeout") == module.LOOKUP_TIMEOUT_SECONDS
+
+
+def test_a_host_with_no_security_binary_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Linux, and every container. There is no Keychain to ask, which is a
+    fact about the host rather than a failure of the store."""
+    from ravis import credentials as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda _: None)
+    store = _store(keychain=True, environment={"RAVIS_ANTHROPIC_API_KEY": VALUE})
+
+    secret = store.resolve("anthropic")
+
+    assert secret.source is CredentialSource.ENVIRONMENT
+
+
+def test_a_keychain_that_errors_at_the_operating_system_is_survived(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The binary is there and the call itself fails — a broken install, a
+    sandbox that refuses the exec, a keychain file that will not open."""
+    store = _keychain_that(OSError("cannot execute security"), monkeypatch)
+
+    secret = store.resolve("anthropic")
+
+    assert secret.source is CredentialSource.ENVIRONMENT
+
+
+def test_a_keychain_that_answers_is_still_preferred_over_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The falsifier for all five. A store that always fell through would pass
+    every test above while never reading a Keychain at all."""
+    store = _keychain_that(_Completed(0, "from-the-keychain\n"), monkeypatch)
+
+    secret = store.resolve("anthropic")
+
+    assert secret.reveal() == "from-the-keychain"
+    assert secret.source is CredentialSource.KEYCHAIN

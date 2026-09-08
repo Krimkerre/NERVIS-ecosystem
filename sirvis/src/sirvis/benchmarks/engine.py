@@ -471,12 +471,18 @@ async def run_experiment(
     try:
         await _execute(spec, runtime, resources, sampler, directory, outcome, clock,
                        thermal, should_stop)
-    except (RuntimeUnavailableError, RuntimeUnreachableError) as failure:
+    except (RuntimeUnavailableError, RuntimeUnreachableError, OSError) as failure:
         # A runtime that stopped answering mid-run is the ordinary failure here,
         # and the partial telemetry is worth more than the exception: it says
         # how far the run got and what memory looked like when it stopped.
-        directory.append_log(f"failed: {failure}")
-        directory.write_telemetry([sample.as_dict() for sample in outcome.telemetry])
+        #
+        # **`OSError` joined them when §10's full-disk cell was written**, and
+        # the measurement is why: a disk that filled mid-run raised `ENOSPC`
+        # out of a results write, nothing caught it, and the row stayed
+        # `running / preparing` for a run that had ended. The lease was
+        # released correctly, so the only casualty was the truth — and a run
+        # listed as running is the one state an operator acts on.
+        _say_what_happened(directory, outcome, failure)
         finish_run(database, run_id, state=RunState.FAILED, detail=str(failure))
         outcome.state, outcome.detail = RunState.FAILED, str(failure)
         # The class rather than a pasted message, plus a detail with the
@@ -501,8 +507,32 @@ async def run_experiment(
 
     record = _evidence(spec, build, outcome, machine)
     outcome.record = record
-    directory.write_result(record.as_dict())
-    directory.write_telemetry([sample.as_dict() for sample in outcome.telemetry])
+    try:
+        directory.write_result(record.as_dict())
+        directory.write_telemetry([sample.as_dict() for sample in outcome.telemetry])
+    except OSError as failure:
+        # **A run that measured everything and could not write it down is a
+        # failed run, not a successful one.** The measurements exist only in
+        # this process, and §11.9's raw directory is what a rescoring reads —
+        # calling this `succeeded` would put a row in the database pointing at
+        # evidence that is not there.
+        _say_what_happened(directory, outcome, failure)
+        finish_run(database, run_id, state=RunState.FAILED, detail=str(failure))
+        outcome.state, outcome.detail = RunState.FAILED, str(failure)
+        publisher.emit(
+            "sirvis.benchmark.failed",
+            trace_id=trace,
+            severity="error",
+            data={
+                "run_id": run_id,
+                "experiment_id": experiment_id,
+                "model_key": spec.model_key,
+                "failure": type(failure).__name__,
+                "detail": _without_home(str(failure)),
+            },
+            event_id=stable_event_id(run_id, "sirvis.benchmark.failed"),
+        )
+        return outcome
     outcome.result_ids = finish_run(
         database, run_id, state=RunState.SUCCEEDED, detail="completed",
         results=[StoredResult(
@@ -530,6 +560,29 @@ async def run_experiment(
         event_id=stable_event_id(run_id, "sirvis.benchmark.completed"),
     )
     return outcome
+
+
+def _say_what_happened(
+    directory: ResultDirectory, outcome: Any, failure: Exception
+) -> None:
+    """Write the partial record, and never fail while reporting a failure.
+
+    **The handler writes to the disk that may be the thing that broke.** On a
+    full disk both of these raise `ENOSPC` again, and an exception thrown while
+    recording one would replace a truthful "failed: no space left" with a
+    traceback about the reporting. The database row is what an operator reads,
+    so it is written by the caller after this returns whatever happened here.
+    """
+    for write in (lambda: directory.append_log(f"failed: {failure}"),
+                  lambda: directory.write_telemetry(
+                      [sample.as_dict() for sample in outcome.telemetry])):
+        try:
+            write()
+        except OSError:
+            # Nothing to add: the caller is already recording that the run
+            # failed, and the reason it could not be written here is the same
+            # reason the run failed at all.
+            continue
 
 
 def _without_home(detail: str) -> str:

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -230,3 +232,31 @@ def test_a_failed_run_is_not_called_cancelled() -> None:
 
     states = {r["state"] for r in list_runs(database, limit=10)[0]}
     assert states == {RunState.FAILED.value}
+
+
+# ── §10: a disk with no room left ────────────────────────────────────────────
+#
+# `OSError(ENOSPC)` rather than a real full filesystem: that is the exception
+# the kernel raises, and simulating the exception is honest about what is being
+# tested. What a real disk would add is confidence in the *errno*, which is not
+# where the risk was — nothing caught the error at all.
+
+
+def test_a_write_that_runs_out_of_room_says_so_rather_than_returning() -> None:
+    """The floor: a failed write is a failure. A results directory that
+    swallowed `ENOSPC` would produce a run whose files are silently absent and
+    whose evidence looks complete."""
+    import errno
+
+    directory = ResultDirectory(Path(tempfile.mkdtemp()), "exp_1")
+    directory.prepare()
+
+    def full(*_: object, **__: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    directory._write_json = full  # type: ignore[method-assign]
+
+    with pytest.raises(OSError) as raised:
+        directory.write_experiment({"suite": "perf"})
+
+    assert raised.value.errno == errno.ENOSPC

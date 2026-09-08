@@ -759,3 +759,51 @@ async def test_the_published_share_carries_what_a_consumer_ranks_on(tmp_path) ->
     assert isinstance(published["median"], float)
     assert published["direction"] == "lower"
     assert published["provenance"]["kind"] in ("MEASURED", "ESTIMATED")
+
+
+async def test_a_disk_that_fills_mid_run_ends_the_run_rather_than_leaving_it_running(
+    tmp_path,  # type: ignore[no-untyped-def]
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """**Measured on 8 September 2026 and it was a real defect.** A results
+    write that raised `ENOSPC` was caught by nothing: the exception left the
+    engine, the lease was released correctly, and the row stayed
+    `running / preparing` for a run that had ended. §10 asks for truthful state
+    under the condition, and a run listed as running is the one state an
+    operator acts on — they wait for it.
+    """
+    import errno
+
+    from sirvis.storage.results import ResultDirectory
+
+    def full(*_: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(ResultDirectory, "write_telemetry", full)
+    runtime = FakeRuntime()
+
+    outcome, database = await _run(runtime, results_root=tmp_path)
+
+    assert outcome.state is RunState.FAILED
+    assert "No space left" in outcome.detail
+    rows = database.connection.execute("SELECT state FROM benchmark_run").fetchall()
+    assert [row["state"] for row in rows] == ["failed"]
+
+
+async def test_a_full_disk_still_releases_the_model_it_held(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The lease is the expensive thing to strand — a multi-gigabyte model held
+    by a run nobody is watching — and the disk failing must not skip the
+    release any more than a runtime failure does."""
+    import errno
+
+    from sirvis.storage.results import ResultDirectory
+
+    def full(*_: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(ResultDirectory, "write_telemetry", full)
+    runtime = FakeRuntime()
+
+    await _run(runtime, results_root=tmp_path)
+
+    assert runtime.unloads == [MODEL]

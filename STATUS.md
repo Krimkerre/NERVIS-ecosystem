@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2580 tests, no network, no live service
+.venv/bin/pytest                      # part of 2592 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 472 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 477 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1035 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2580 passing across the four, conformance `PASS`.
+Expected: all clean, 2592 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15636,6 +15636,47 @@ instead of arriving as `HTTPStatusError`.
 
 Every one adversarially checked. RAVIS 1007 -> 1011, NERVIS 1025 -> 1035,
 SIRVIS 469 -> 472.
+
+## The three degradation conditions with caveats, and a fourth real defect,
+2026-09-08
+
+Fourteen of nineteen. These three were left for last because each carried a
+decision rather than only a test, and one of them was hiding a defect as
+serious as the day's earlier ones.
+
+**Full disk, and a run that never ended.** Simulated as `OSError(ENOSPC)`
+rather than a real filesystem — that is the exception the kernel raises, and
+what a genuine full disk would add is confidence in the errno, which was not
+where the risk lay. The risk was that *nothing caught the error at all*:
+measured before writing anything, a results write that failed left the row
+reading `running / preparing` for a run that had ended, while the model lease
+was released correctly. So the only casualty was the truth, and a run listed
+as running is the one state an operator acts on — they wait for it. `OSError`
+now ends a run the way a runtime failure does, on both the failure path and
+the success path, because a run that measured everything and could not write
+it down is a failed run rather than a successful one pointing at absent
+evidence. The handler writes to the disk that may be the thing that broke, so
+its own writes are best-effort: an exception thrown while reporting a failure
+would replace "failed: no space left" with a traceback about the reporting.
+
+**A read-only data directory, and the root problem.** `chmod 0o555` does not
+apply to root, so the same test passes for the wrong reason in a container
+that runs as it. Skipping would be quieter and just as wrong — the condition
+would read as covered while nothing exercised it — so the test *fails loudly*
+as root and says why. `doctor`'s `NOT WRITABLE` string turned out to be
+correct and had never once been executed.
+
+**An unavailable keychain, and the ratchet earning its keep.** Six unit tests
+covered the four ways the lookup can fail — no binary, non-zero exit, an OS
+error, and the prompt nobody answers that the five-second timeout exists for.
+The matrix then refused the cell: `WITHOUT_LIVE_EVIDENCE` is zero and a cell
+resting on unit tests alone is not covered. That is exactly the discipline the
+ceiling was written for, and the fix was the right one rather than a raised
+ceiling — a route test driving the providers listing with `security` hanging,
+because a page that resolves a credential per provider is where an operator
+would actually meet a Keychain dialog on a screen nobody is looking at.
+
+RAVIS 1011 -> 1018, SIRVIS 475 -> 477, NERVIS unchanged at 1035.
 
 ## Starting the thing
 

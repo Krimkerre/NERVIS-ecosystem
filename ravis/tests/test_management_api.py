@@ -6,6 +6,7 @@ here can leak a credential.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from tests.conftest import as_administrator
 from tests.conftest_upstream import RecordingUpstream
@@ -13,6 +14,7 @@ from tests.test_transparent_proxy import _app_with
 
 from ravis.app import create_app
 from ravis.config import Settings
+from ravis.credentials import CredentialStore
 from ravis.policy import ApplicationPolicies, PrivacyLevel, RoutingPolicy
 
 READ_ENDPOINTS = [
@@ -379,3 +381,45 @@ def test_curating_pins_nothing() -> None:
     pinned = [p for p in after if p["pool_id"] == "ravis/chat"][0]
     # Following the default again, not stuck on the single model that was pinned.
     assert pinned["member_count"] != 1
+
+
+# ── §10: a keychain that hangs, through the route that reads one ─────────────
+
+
+def test_a_hanging_keychain_does_not_hang_the_providers_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**The store's own tests prove the fallthrough; this proves the screen.**
+    A Keychain prompt on a display nobody is looking at is the failure mode
+    worth preventing, and the listing is where an operator would hit it: it
+    resolves a credential for every configured provider, so one lookup waiting
+    on a dialog would take the whole page with it.
+
+    `subprocess.run` is patched to raise the timeout `security` would produce
+    after five seconds, and the row must still say where the credential came
+    from instead of never arriving.
+    """
+    import subprocess
+
+    from ravis import credentials as store_module
+
+    monkeypatch.setattr(store_module.shutil, "which", lambda _: "/usr/bin/security")
+
+    def hangs(*_: object, **__: object) -> object:
+        raise subprocess.TimeoutExpired(cmd="security", timeout=5.0)
+
+    monkeypatch.setattr(subprocess, "run", hangs)
+    client, _ = _app_with(RecordingUpstream())
+    # `client.app` is the outer middleware; the state lives on the app it wraps,
+    # which is what every other test here reaches through too.
+    client.app.app.state.credentials = CredentialStore(  # type: ignore[attr-defined]
+        keychain=True,
+        allow_environment=True,
+        environment={"RAVIS_ANTHROPIC_API_KEY": "sk-from-the-environment"},
+    )
+
+    with client:
+        rows = client.get("/api/v1/providers").json()["items"]
+
+    assert rows, "the listing did not answer at all"
+    assert all("credential_source" in row for row in rows)

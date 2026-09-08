@@ -98,3 +98,63 @@ def test_doctor_names_a_metric_it_could_not_read_rather_than_guessing(
 
     assert "unknown" in printed
     assert "apple silicon  no" in printed
+
+
+# ── §10: a data directory nobody can write to ────────────────────────────────
+
+
+def _refuse_to_run_as_root() -> None:
+    """**The caveat this condition carries, made loud rather than tolerated.**
+    `chmod 0o555` does not stop root, so the whole test would pass by writing
+    into a directory it was told it could not write to — a green result proving
+    the opposite of what it claims. A skip would be quieter and just as wrong:
+    the condition would read as covered while nothing exercised it.
+    """
+    import os
+
+    if os.geteuid() == 0:
+        raise AssertionError(
+            "this test cannot mean anything as root: permission bits do not "
+            "apply, so a read-only directory is writable and the check passes "
+            "for the wrong reason. Run the suite as an ordinary user."
+        )
+
+
+def test_doctor_says_a_read_only_results_directory_is_not_writable(
+    capsys: pytest.CaptureFixture[str], tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§10's condition, and §18's own promise about this check. Nothing in
+    either repository had ever made a directory read-only and looked: the
+    `NOT WRITABLE` string was written, reasoned about and never executed."""
+    import pathlib
+
+    _refuse_to_run_as_root()
+    results = pathlib.Path(f"{tmp_path}/locked")
+    results.mkdir()
+    results.chmod(0o555)
+    monkeypatch.setenv("SIRVIS_RESULTS_PATH", str(results))
+    try:
+        code = main(["doctor"])
+        printed = capsys.readouterr().out
+    finally:
+        # Restored so the temporary directory can be cleaned up, whatever the
+        # assertions below do.
+        results.chmod(0o755)
+
+    assert code == 0, "a diagnostic that cannot report a problem is not a diagnostic"
+    assert "NOT WRITABLE" in printed
+
+
+def test_a_writable_directory_is_not_labelled_unusable(
+    capsys: pytest.CaptureFixture[str], tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The falsifier. A check that always says NOT WRITABLE would pass the test
+    above and tell an operator nothing."""
+    import pathlib
+
+    results = pathlib.Path(f"{tmp_path}/open")
+    results.mkdir()
+    monkeypatch.setenv("SIRVIS_RESULTS_PATH", str(results))
+
+    assert main(["doctor"]) == 0
+    assert "NOT WRITABLE" not in capsys.readouterr().out
