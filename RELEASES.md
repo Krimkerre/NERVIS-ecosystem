@@ -103,7 +103,33 @@ every entry.
 
 ---
 
-## NERVIS — 0.24.0
+## NERVIS — 0.25.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **A window whose lease lapsed is gone rather than probed.** `read_diagnostics`
+  has said since it was written that "a dead window is a 404 the same as an
+  unknown one", and nothing implemented it: the lookup returned whatever the
+  registry held, and a lapsed row stays there until the sweep collects it. So
+  NERVIS went to the port of a window that closed an hour ago and asked it for
+  status — and on a laptop that port is very often somebody else's process by
+  then. All three instance reads check the lease now, and a heartbeat brings the
+  window back, because a 404 nothing can undo would be a different bug.
+- **The Diagnostics tab lost its two permanently faded cards.** Both read a
+  reader whose entire body returned an empty source list under a comment calling
+  itself "a source matrix nobody surveyed". Log adapters now reads
+  `/api/v1/logs`, which has served the real thing since M10 — every documented
+  adapter, its format, size and surviving rotations. Source priority was deleted:
+  every cell was a near-constant, and the design rule under it moved to the card
+  it governs. The reader went too, since a method that only ever answers nothing
+  is a surface somebody builds on again by mistake.
+- **`nervis.diagnostics@1` stopped understating itself.** Its reason said the
+  health overlay and log correlation were unbuilt; both shipped twenty-four
+  minutes after that sentence was written. It now names the gap that is real —
+  a cross-service trace has never been seen whole, because a Clarvis to RAVIS to
+  provider trace needs an editor window publishing into it.
+
+### 0.24.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -426,7 +452,22 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.22.0
+## RAVIS — 0.23.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A refused credential is its own state.** Every HTTP failure in a provider
+  health probe became `reachable=False` with the exception's class name as the
+  detail, so a 401 and a dead socket produced the same row: *not answering*.
+  Those send an operator to different afternoons — one means start the service,
+  the other means the key rotated. `ProviderHealth.credential_rejected` says
+  which, the provider stays `reachable` because it answered, and the field is
+  published on the providers listing rather than left in prose somebody will
+  reword without knowing it is parsed. Written once in `providers/base.py`,
+  because all three adapters had the same `except` written the same wrong way —
+  and a 503 now keeps its status instead of arriving as `HTTPStatusError`.
+
+### 0.22.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -535,7 +576,29 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.15.8
+## SIRVIS — 0.16.0
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
+
+- **A hung runtime is reported busy rather than absent.** Every HTTP failure in
+  the LM Studio adapter raised `RuntimeUnavailableError`, while the CLI path had
+  drawn the distinction since it was written, in its own words: "the obvious
+  response to unreachable is to retry immediately, which is the worst possible
+  response to a load already underway." `RuntimeTimeoutError` and its `TIMEOUT`
+  code both already existed; only the HTTP branch never raised them. Fixed on
+  the request and streaming paths alike, since a fix to one would have looked
+  done.
+- **A disk that fills mid-run ends the run.** Measured rather than assumed: a
+  results write raising `ENOSPC` was caught by nothing, so the row stayed
+  `running / preparing` for a run that had ended while the model lease was
+  released correctly. A run listed as running is the state an operator acts on
+  by waiting for it. `OSError` now ends a run the way a runtime failure does, on
+  the success path too — a run that measured everything and could not write it
+  down is a failed run, not a successful one pointing at absent evidence — and
+  the failure handler's own writes are best-effort, because it writes to the
+  disk that may be the broken thing.
+
+### 0.15.8
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
 

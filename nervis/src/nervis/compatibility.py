@@ -58,11 +58,11 @@ class Answer:
 #: month's ecosystem.
 SUPPORTED_PEERS: dict[str, Window] = {
     "ravis": Window(
-        minimum="0.21.0", maximum="0.22.999",
+        minimum="0.22.0", maximum="0.23.999",
         note="the gateway NERVIS routes chat through and proxies configuration to",
     ),
     "sirvis": Window(
-        minimum="0.14.0", maximum="0.15.999",
+        minimum="0.15.0", maximum="0.16.999",
         note="read for evidence and benchmark jobs; its absence degrades rather than stops",
     ),
     "clarvis": Window(
