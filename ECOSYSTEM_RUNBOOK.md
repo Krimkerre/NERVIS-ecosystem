@@ -768,8 +768,10 @@ answer — and a matrix nobody can score is one that gets called done. Each cond
 carries its evidence, the kind of evidence it is (a helper asserted, a route answered, a
 running service observed), what is still missing, and the smallest step that would close it.
 A condition added to this list and not to that file fails the gate; a cell naming a condition
-this list does not is refused. Every cell reads PARTIAL today: the ecosystem handles all
-nineteen, and handling a condition is not the same as holding the six outcomes under it.
+this list does not is refused. **Each cell also names which of the outcomes above its evidence
+establishes**, and says what is handled but unproved — because handling a condition is not the
+same as holding six outcomes under it, and a single verdict cannot tell those apart. The gate
+prints coverage per outcome, which is what the acceptance item below is actually asking about.
 
 ---
 
@@ -1311,81 +1313,29 @@ may only add product-specific detail beside the required state.
       Not closeable until the fourth pairwise gate exists (M14) and the two
       person-dependent scenarios are reproved against current code.*
 - [ ] The failure/degradation matrix passes with no unsafe failover.
-      *Reverified 6 September 2026: `tools/check_degradation.py` read 19 of
-      19 `PARTIAL` earlier the same day, unchanged from the 5 September
-      audit. Later the same day, "trace collector loss" closed for real: a
-      new route-level regression test
-      (`ravis/tests/test_m18b_events.py::test_a_dead_collector_never_becomes_the_service_s_own_unreadiness`)
-      overflows the event publisher's bounded queue against a refusing
-      collector and asserts `GET /ecosystem/health` still reports `ready:
-      true` — verified adversarially, not just written: a failing check
-      temporarily reintroduced into `ravis_surface`'s `checks` mapping made
-      this exact test fail, then was reverted. First `COVERED` cell this gate
-      has ever recorded. A second followed the same day: "network loss" —
-      two route-level tests
-      (`ravis/tests/test_fallback.py::test_a_connection_that_never_completes_still_falls_back`
-      and its streaming twin) drive a real `httpx.ConnectError` through both
-      the non-streaming and streaming request paths and assert the chain
-      falls through to the next candidate, discovering along the way that a
-      `CONNECTION`-class failure gets exactly one same-target retry before
-      falling through — real, deliberate, previously-undocumented-in-a-test
-      behavior, not assumed. Also verified adversarially: narrowing the
-      exception type each path catches made the corresponding test fail,
-      then was reverted.
-      A third closed 6 September 2026, and unlike the first two this one was
-      a real gap in the code, not only in the tests: "unsupported major
-      protocol version" was enforced on both peer-to-peer read paths (NERVIS
-      probing RAVIS/SIRVIS, RAVIS reading SIRVIS evidence) but not on the
-      third path — a Clarvis Bridge's own registration claim
-      (`nervis/src/nervis/instances.py::Instances.register`), which stored
-      whatever `protocol_version` a registrant sent with no check against it
-      at all. Fixed by calling the same `is_supported_protocol()` the other
-      two paths already use, refusing the claim outright rather than
-      registering it — registration is a push, not a probe, so there is no
-      later moment to mark it incompatible instead. Two new route-level
-      tests
-      (`nervis/tests/test_m8a_registration.py::test_a_bridge_speaking_an_unsupported_major_protocol_is_refused`
-      and its no-declared-version sibling proving an older Bridge that omits
-      the field is still accepted). Verified adversarially: reverting the
-      guard made the refusal test fail with `201` instead of `409`, then was
-      restored. Tally is now 3 `COVERED` / 16 `PARTIAL`.
-      Also found the same day, incidentally, while reading this file's own
-      source to write the fix above: every `gap`/`closes_with` string in
-      `tools/check_degradation.py` for the remaining 16 `PARTIAL` cells is
-      truncated mid-sentence at roughly 200-230 characters — a pre-existing
-      authoring defect in the tool itself (the strings are valid Python, so
-      nothing ever caught it), which means `OPERATOR_RUNBOOK.md`'s
-      degradation table, built from these same fields, has been showing an
-      operator incomplete, cut-off guidance for all 16. Not fixed in this
-      pass — rewriting 16 fields honestly needs the same per-condition
-      investigation a real closure does, not a mechanical un-truncation —
-      and flagged separately rather than patched over quickly.
-      `WITHOUT_LIVE_EVIDENCE` still zero. The remaining 16 conditions have
-      real evidence and most are handled thoroughly; none is `COVERED` yet in
-      §10's fuller sense of all six required outcomes proven. So "no unsafe
-      failover" reads true on what exists; "the matrix passes" does not — 16
-      dedicated tests away now.*
-- [x] Logs, events and traces are correlated, bounded, redacted and optional to core operation.
-      *Reverified 6 September 2026: `nervis/tests/test_m7_traces.py` (correlated),
-      `nervis/tests/test_m6_events.py` (bounded — the quarantine cap, the
-      dropped-subscriber frame) and `nervis/tests/test_m10_logs.py` plus
-      `protocol/tests/test_log_correlation.py` (redacted) — 105 tests rerun,
-      all passing, alongside the broader redaction coverage already spread
-      across all three services' own suites. "Optional to core operation" was
-      the one clause without fresh, automated proof earlier the same day —
-      real Stage 7 evidence existed (`STATUS.md:5392`, pre-29 August) but only
-      as a one-off manual exercise. Closed the same day: a new route-level
-      test, `ravis/tests/test_m18b_events.py::test_a_dead_collector_never_becomes_the_service_s_own_unreadiness`,
-      overflows RAVIS's event-publisher buffer against a refusing collector
-      and asserts `GET /ecosystem/health` still reports readiness truthfully
-      — verified adversarially by temporarily reintroducing the exact
-      regression this guards against (a readiness check reading the
-      publisher's dropped count) and confirming the test catches it, then
-      reverting. All four clauses now hold on current, automated evidence.*
-- [x] Security, threat-model and privacy gates pass — the stabilization track of
-      3–5 September 2026, twelve items closed against an independent audit, each with
-      its evidence in `STATUS.md` and its regression test in the owning product. The
-      last of them is a live golden-path run: `tools/acceptance_run.py`.
+      *Re-scoped 8 September 2026, and still open — for a better reason than
+      before. `tools/check_degradation.py` reads 19 of 19 conditions handled
+      with evidence that exists and is anchored to real tests. What it also
+      now reports, per outcome, is how thin that is: truthfulness is
+      established under 13 of 19 conditions, standalone behaviour under 6, no
+      unsafe failover and idempotent recovery under 5 each, bounded retries
+      under 3, and bounded queues under 1. This sentence asks for all six, so
+      it cannot be signed on the strength of a verdict count.*
+
+      *The second half of the sentence stopped being an assumption the same
+      day. Nineteen readers each took one cell, read its cited tests and asked
+      separately whether that failure could route around a constraint; three
+      real ones came back and were fixed: every `httpx.TransportError` was
+      taking `CONNECTION`'s one same-target retry, so a request that had
+      already been sent could be sent again and billed twice; a 401 or 403
+      whose body happened to match a model-unavailable phrase was reclassified
+      into a class that may fall back, shopping a rejected credential to the
+      next provider; and `/api/v1/events` stored a claimed
+      `source.instance_id` unchecked, so an event could be filed under
+      somebody else's editor window. A fourth finding was the gate itself: it
+      validated the file path of a citation and never the test name after it,
+      so a cell kept passing after its test was renamed.*
+
 - [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
       *Partial: Clarvis's rollback rehearsal passed for real on 6 September 2026,
       against a live daily-driver VS Code workspace with real conversation history

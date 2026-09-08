@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2610 tests, no network, no live service
+.venv/bin/pytest                      # part of 2614 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 477 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1045 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 479 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1047 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2610 passing across the four, conformance `PASS`.
+Expected: all clean, 2614 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15832,6 +15832,47 @@ where their evidence shows one or two, so "covered" is broader than what is
 proved. Re-scoping those is the work left before that sentence can be signed.
 
 RAVIS 1018 -> 1026, NERVIS 1042 -> 1045.
+
+## The degradation matrix now says how much it proves, 2026-09-08
+
+A verdict was too coarse and it flattered every cell. COVERED meant "handled,
+and §10's six outcomes hold under it" — a large claim resting on one word, and
+the hand verification found nearly every cell's evidence proving one or two of
+the six. The condition was handled. The claim was bigger than the proof.
+
+**Each cell now names the outcomes it establishes, and what it does not.** A
+new `outcomes` field takes ids parsed from §10's own list, so an outcome added
+there and not here fails the gate the way a condition does; `residual` says
+what is handled and unproved, and is required whenever a cell names fewer than
+six. The summary prints coverage per outcome, which is the first number that
+answers §16's acceptance sentence rather than restating it:
+
+    13/19 truthful · 6/19 standalone · 5/19 no unsafe failover
+     5/19 idempotent recovery · 3/19 bounded retries · 1/19 bounded queues
+
+Bounded queues being covered once is a fact about this matrix that no count of
+verdicts could have surfaced.
+
+**Eight citations claimed to be route evidence and were not.** This file's own
+words are "`unit` proves a helper; `route` proves the application answered",
+and cells were citing source lines and helper-level tests as routes. The gate
+checks the claim now — a route citation must name a file that actually drives a
+client — and the eight are relabelled to what they are.
+
+**Two cells then had no route or live evidence at all**, which is the ceiling
+`WITHOUT_LIVE_EVIDENCE = 0` exists to catch, and it caught them. Rather than
+lower it, both got the route test they were missing: SIRVIS keeps answering
+with a read-only results directory, and keeps answering while every results
+write raises `ENOSPC`. Two more went to NERVIS for the same reason — the
+services listing answers while a peer is quiet, and publishes code-server as
+not healthy — because a tab refusing to frame a dead editor is only as true as
+the state it reads.
+
+The acceptance item stays open, and its note now says why in numbers rather
+than in a claim: the sentence asks for six outcomes and the matrix establishes
+between one and thirteen conditions' worth of each.
+
+SIRVIS 477 -> 479, NERVIS 1045 -> 1047.
 
 ## Starting the thing
 

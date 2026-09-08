@@ -13,14 +13,20 @@ gate, and a cell naming a condition §10 does not is refused. Two lists that mus
 agree are one list and one copy, and the copy is always the stale one — the same
 argument §3 makes about documents in two repositories.
 
-**Every cell is PARTIAL, and that is the honest answer rather than a hedge.**
-Each of the nineteen has real evidence — the ecosystem handles these conditions,
-often thoroughly. None is *complete* in §10's sense, which asks not only that the
-condition be handled but that the six outcomes hold under it: truthful capability
-within the detection interval, no failover crossing a constraint, bounded and
-jittered retries, bounded queues, idempotent recovery, standalone behaviour
-preserved. A cell is COVERED when its own gap sentence is empty and something
-checks the outcome, not when the code merely copes.
+**A verdict alone was too coarse, and every cell was flattered by it.** COVERED
+once meant "the condition is handled and the six outcomes hold under it", which
+is a large claim to rest on a verdict — and a hand verification on 8 September
+2026, one reader per cell reading the cited tests, found nearly every cell's
+evidence proving one or two of the six. The condition was handled; the claim was
+bigger than the proof.
+
+So a cell now names the outcomes it *establishes* and states, in `residual`,
+what is handled and unproved. COVERED means "these outcomes are proved and the
+rest are named", never "nothing is left" — and the summary prints coverage per
+outcome, which is the number that says whether §16's acceptance sentence can be
+signed. Reading it today: truthfulness is well covered and bounded queues are
+covered once, which is a fact about the matrix that no count of verdicts could
+have shown.
 
 **What the ratchet holds.** `WITHOUT_LIVE_EVIDENCE` is the number of cells whose
 evidence is only unit-level — a helper asserted rather than a service observed.
@@ -41,6 +47,29 @@ CLARVIS = ROOT.parent / "clarvis"
 
 #: What a cell may say about itself.
 VERDICTS = ("COVERED", "PARTIAL", "NOT_COVERED", "NOT_APPLICABLE")
+
+#: §10's six required outcomes, as ids a cell can name.
+#:
+#: **A verdict alone was too coarse, and it flattered every cell.** COVERED
+#: asserted that all six hold under the condition, and a hand verification on
+#: 8 September 2026 — one reader per cell, reading the cited tests — found that
+#: nearly every cell's evidence proved one or two of them. The condition was
+#: handled; the claim was broader than the proof. So a cell now names the
+#: outcomes it actually establishes, and `residual` says what is handled but
+#: unproved. COVERED means "these outcomes are proved and the rest are named",
+#: not "nothing is left".
+#:
+#: Ordered as §10 lists them, and read from the runbook rather than trusted
+#: here: `_required_outcomes` parses that list, and an outcome added there and
+#: not here fails the gate the same way a condition does.
+OUTCOMES = (
+    ("truthful", "Capability and readiness become truthful"),
+    ("no_unsafe_failover", "No automatic failover crosses"),
+    ("bounded_retries", "Retriable operations are bounded"),
+    ("bounded_queues", "Queues are bounded and observable"),
+    ("idempotent_recovery", "Recovery is idempotent"),
+    ("standalone", "Standalone product behaviour stays usable"),
+)
 
 
 def _anchor_missing(path: pathlib.Path, anchor: str) -> str:
@@ -87,6 +116,13 @@ class Cell:
     condition: str
     verdict: str
     evidence: list[tuple[str, str]] = field(default_factory=list)
+    #: Which of §10's six outcomes this cell's evidence actually establishes.
+    outcomes: tuple[str, ...] = ()
+    #: What is handled but not proved, in the cell's own words. Required
+    #: whenever `outcomes` is short of all six, because a cell that names two
+    #: outcomes and says nothing about the other four reads as though the other
+    #: four did not apply.
+    residual: str = ""
     gap: str = ""
     closes_with: str = ""
 
@@ -101,18 +137,35 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m7_traces.py:test_a_clock_far_behind_is_reported_too"),
             ("route", "nervis/tests/test_m7_traces.py:test_ordinary_latency_is_not_reported_as_a_broken_clock"),
         ],
+        outcomes=(
+            "truthful",
+        ),
+        residual=
+            "Proved on NERVIS's trace surface only. Nothing exercises NERVIS's own wall clo"
+            "ck stepping — leases and event retention both read it — and nothing exercises "
+            "RAVIS's budget band, which derives its window from `time.time()`; a forward st"
+            "ep there shortens the spend window and can re-admit paid providers the cost co"
+            "nstraint had excluded. The behind-direction deadband is 120s, so a producer 3-"
+            "119s slow is reported as nothing at all.",
     ),
     Cell(
         condition="unsupported major protocol version",
         verdict="COVERED",
         evidence=[
-            ("route", "nervis/src/nervis/probes.py:201"),
-            ("route", "nervis/src/nervis/negotiation.py:118"),
+            ("unit", "nervis/src/nervis/probes.py:201"),
+            ("unit", "nervis/src/nervis/negotiation.py:118"),
             ("route", "nervis/tests/test_m2_registry.py:328"),
-            ("route", "nervis/src/nervis/instances.py:174-183"),
+            ("unit", "nervis/src/nervis/instances.py:174-183"),
             ("route", "nervis/tests/test_m8a_registration.py:108"),
             ("route", "nervis/tests/test_m8a_registration.py:127"),
         ],
+        outcomes=(
+            "truthful",
+        ),
+        residual=
+            "Proved where a version is *presented*: a peer's probe and a Bridge's registrat"
+            "ion claim. Nothing exercises a peer whose major changes mid-session, and nothi"
+            "ng covers RAVIS reading SIRVIS evidence across an unsupported major.",
     ),
     Cell(
         condition="crash and restart mid-operation",
@@ -120,8 +173,17 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:crash_clause"),
             ("live", "tools/acceptance_run.py:_reconciled"),
-            ("route", "sirvis/tests/test_m6_storage.py:test_a_run_starts_recorded_so_a_crash_leaves_evidence_of_it"),
+            ("unit", "sirvis/tests/test_m6_storage.py:test_a_run_starts_recorded_so_a_crash_leaves_evidence_of_it"),
         ],
+        outcomes=(
+            "truthful",
+            "idempotent_recovery",
+        ),
+        residual=
+            "Proved for SIRVIS, live, with a real SIGKILL during a benchmark: the run is re"
+            "conciled and the job ends rather than hanging. RAVIS and NERVIS are never kill"
+            "ed mid-operation by anything, and no test shows retries staying bounded across"
+            " a restart.",
     ),
     Cell(
         condition="corrupt response",
@@ -132,6 +194,15 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_transparent_proxy.py:test_a_corrupt_streamed_frame_is_passed_through_and_the_stream_ends"),
             ("route", "ravis/tests/test_anthropic_adapter.py:test_a_corrupt_provider_body_is_a_refusal_rather_than_a_crash"),
         ],
+        outcomes=(
+            "no_unsafe_failover",
+            "standalone",
+        ),
+        residual=
+            "A corrupt body is forwarded rather than rewritten, and the process serves the "
+            "next request. Capability and readiness are not shown to become truthful under "
+            "it — a provider answering garbage still reads as reachable, which is a reading"
+            " nobody has corrected.",
     ),
     Cell(
         condition="duplicate and out-of-order events",
@@ -141,14 +212,30 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m7_traces.py:test_the_same_batch_twice_does_not_double_the_trace"),
             ("route", "nervis/tests/test_m7_traces.py:test_a_replay_out_of_order_is_still_one_trace"),
         ],
+        outcomes=(
+            "idempotent_recovery",
+        ),
+        residual=
+            "Proved for transport duplicates — the identical envelope re-POSTed, deduped on"
+            " `event_id`. A producer that rebuilds the same logical event with a fresh id i"
+            "s not deduped and nothing tests that, which is the shape a retrying publisher "
+            "actually produces.",
     ),
     Cell(
         condition="each service absent at startup",
         verdict="COVERED",
         evidence=[
             ("live", "tools/acceptance_run.py:cold_start_clause"),
-            ("route", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
         ],
+        outcomes=(
+            "truthful",
+            "standalone",
+        ),
+        residual=
+            "Proved live for one pair — NERVIS started with SIRVIS absent. The other starti"
+            "ng orders are untested, and the probe-deadline evidence beside it exercises a "
+            "hang rather than an absence.",
     ),
     Cell(
         condition="timeout",
@@ -158,24 +245,53 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_chain_that_times_out_everywhere_says_so_per_model"),
             ("route", "ravis/tests/test_fallback.py:test_a_directly_named_model_that_times_out_is_not_replaced"),
         ],
+        outcomes=(
+            "bounded_retries",
+            "idempotent_recovery",
+        ),
+        residual=
+            "A timed-out target is asked once and the chain moves on, per model. Nothing sh"
+            "ows queues staying bounded under a timeout, and nothing shows a service's own "
+            "routes staying usable while one is in flight.",
     ),
     Cell(
         condition="slow response",
         verdict="COVERED",
         evidence=[
-            ("route", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
-            ("route", "nervis/tests/test_m2_registry.py:test_a_slow_peer_is_reported_as_unreachable_rather_than_healthy"),
-            ("route", "nervis/tests/test_m2_registry.py:test_a_runtime_without_a_mep_surface_is_bounded_the_same_way"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_slow_peer_is_reported_as_unreachable_rather_than_healthy"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_runtime_without_a_mep_surface_is_bounded_the_same_way"),
+            ("route", "nervis/tests/test_m2_registry.py:test_the_services_route_still_answers_while_a_peer_is_slow"),
         ],
+        outcomes=(
+            "truthful",
+            "bounded_retries",
+        ),
+        residual=
+            "The probe's deadline is asserted on both branches and the services listing ans"
+            "wers while every peer is quiet. What is not shown is a *partially* slow world "
+            "— one peer slow, the rest healthy — or that a slow peer cannot delay another p"
+            "eer's row.",
     ),
     Cell(
         condition="full disk",
         verdict="COVERED",
         evidence=[
-            ("route", "sirvis/tests/test_m6_benchmark.py:test_a_disk_that_fills_mid_run_ends_the_run_rather_than_leaving_it_running"),
-            ("route", "sirvis/tests/test_m6_benchmark.py:test_a_full_disk_still_releases_the_model_it_held"),
+            ("unit", "sirvis/tests/test_m6_benchmark.py:test_a_disk_that_fills_mid_run_ends_the_run_rather_than_leaving_it_running"),
+            ("unit", "sirvis/tests/test_m6_benchmark.py:test_a_full_disk_still_releases_the_model_it_held"),
+            ("route", "sirvis/tests/test_m6_api.py:test_a_full_disk_does_not_stop_the_service"),
             ("unit", "sirvis/tests/test_m6_storage.py:test_a_write_that_runs_out_of_room_says_so_rather_than_returning"),
         ],
+        outcomes=(
+            "truthful",
+            "idempotent_recovery",
+        ),
+        residual=
+            "A run that cannot write ends as failed rather than staying `running`, and the "
+            "lease is released. No admission check considers free space, so a run that cann"
+            "ot possibly finish still starts; and the release is proved by a patch applied "
+            "after `_execute` has already released it, which is weaker evidence than it rea"
+            "ds.",
     ),
     Cell(
         condition="unavailable keychain",
@@ -189,6 +305,16 @@ CELLS: list[Cell] = [
             ("unit", "ravis/tests/test_credentials.py:test_a_keychain_that_errors_at_the_operating_system_is_survived"),
             ("unit", "ravis/tests/test_credentials.py:test_a_keychain_that_answers_is_still_preferred_over_the_environment"),
         ],
+        outcomes=(
+            "truthful",
+            "standalone",
+        ),
+        residual=
+            "Six of the seven citations are unit-level, and deliberately: the four ways a l"
+            "ookup fails are branches of one function. The route entry shows the providers "
+            "listing still answers, but it can pass without entering the Keychain branch at"
+            " all. Nothing shows what a *provider* does when its credential is unreachable "
+            "rather than absent.",
     ),
     Cell(
         condition="trace collector loss (NERVIS event hub unreachable, refusing, hanging, or never configured, from the point of view of every producer that publishes events to it)",
@@ -199,14 +325,31 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_m18b_events.py:223,232"),
             ("static-gate", "tools/acceptance_run.py:89,743,795,806"),
         ],
+        outcomes=(
+            "bounded_queues",
+            "standalone",
+        ),
+        residual=
+            "Proved where it matters most: a dead collector never becomes the producer's ow"
+            "n unreadiness, and the publisher's queue is bounded. The acceptance-run citati"
+            "on beside it is a clause label rather than a check of collector loss, and is k"
+            "ept only as a pointer.",
     ),
     Cell(
         condition="read-only data directory",
         verdict="COVERED",
         evidence=[
-            ("route", "sirvis/tests/test_doctor.py:test_doctor_says_a_read_only_results_directory_is_not_writable"),
-            ("route", "sirvis/tests/test_doctor.py:test_a_writable_directory_is_not_labelled_unusable"),
+            ("manual", "sirvis/tests/test_doctor.py:test_doctor_says_a_read_only_results_directory_is_not_writable"),
+            ("manual", "sirvis/tests/test_doctor.py:test_a_writable_directory_is_not_labelled_unusable"),
+            ("route", "sirvis/tests/test_m6_api.py:test_a_read_only_results_directory_does_not_stop_the_service"),
         ],
+        outcomes=(
+            "truthful",
+        ),
+        residual=
+            "`doctor` says a results directory is not writable, and refuses to run as root "
+            "where the permission bits would not apply. No service is started against a rea"
+            "d-only directory, so what a *write* does under the condition is unproved.",
     ),
     Cell(
         condition="cloud provider 401/403/429/5xx",
@@ -217,6 +360,15 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_bare_500_is_not_chased_across_the_pool"),
             ("route", "ravis/tests/test_fallback.py:test_an_exhausted_chain_returns_the_last_upstreams_own_status"),
         ],
+        outcomes=(
+            "no_unsafe_failover",
+            "bounded_retries",
+        ),
+        residual=
+            "A credential failure reaches the client on a named model and is final regardle"
+            "ss of what the body says; a bare 500 is not chased. What is not shown is the j"
+            "itter §10 asks for — the 429 evidence proves status pass-through rather than a"
+            " bounded, jittered retry.",
     ),
     Cell(
         condition="network loss",
@@ -227,6 +379,15 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:171"),
             ("route", "ravis/tests/test_fallback.py:195"),
         ],
+        outcomes=(
+            "no_unsafe_failover",
+            "idempotent_recovery",
+        ),
+        residual=
+            "A connection that never opened falls through to the next candidate, and a fail"
+            "ure after the request left is no longer re-sent to the same target. Loss *mid-"
+            "stream* on the transparent path is not exercised at the route, and no test dro"
+            "ps a connection between two services.",
     ),
     Cell(
         condition="hung local runtime",
@@ -236,6 +397,15 @@ CELLS: list[Cell] = [
             ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_stream_is_a_timeout_too"),
             ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_runtime_leaves_the_service_answering"),
         ],
+        outcomes=(
+            "truthful",
+            "standalone",
+        ),
+        residual=
+            "A stalled runtime is reported busy rather than absent, on both the request and"
+            " streaming paths, and SIRVIS keeps answering. Two of the three citations are a"
+            "dapter-level; the route entry shows the listing answers but not that a *benchm"
+            "ark* against a hung runtime ends.",
     ),
     Cell(
         condition="expired credential",
@@ -246,15 +416,34 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_anthropic_adapter.py:test_a_server_error_from_a_provider_keeps_its_status"),
             ("route", "ravis/tests/test_anthropic_adapter.py:test_the_providers_listing_publishes_the_refused_credential"),
         ],
+        outcomes=(
+            "truthful",
+            "no_unsafe_failover",
+        ),
+        residual=
+            "A refused key is its own state and reaches the providers listing, and the fail"
+            "ure class forbids falling back on a named model. The pool path deliberately do"
+            "es fall back, which is defensible and is not the same claim; nothing proves a "
+            "rotation is noticed without a restart.",
     ),
     Cell(
         condition="code-server loss \u2014 the browser VS Code that hosts Clarvis and that NERVIS embeds in its Clarvis/Code tab stops answering after having answered (crash, stopped, port taken)",
         verdict="COVERED",
         evidence=[
-            ("route", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stops_answering_says_so_in_its_state"),
-            ("route", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stopped_is_not_reported_as_stopped"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stops_answering_says_so_in_its_state"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stopped_is_not_reported_as_stopped"),
+            ("route", "nervis/tests/test_m2_registry.py:test_the_services_route_reports_code_server_as_unreachable"),
             ("static-gate", "nervis/tools/editor_check.js"),
         ],
+        outcomes=(
+            "truthful",
+            "standalone",
+        ),
+        residual=
+            "The registry state changes, the services listing publishes it, and the editor "
+            "tab refuses to frame an editor that is not answering. The derived capability d"
+            "eliberately survives the loss, so anything gating on the capability rather tha"
+            "n the state would still be wrong.",
     ),
     Cell(
         condition="Bridge collision \u2014 two or more Clarvis Bridge instances (one per editor window/extension host) colliding on a listening endpoint, on an `instance_id`, on a NERVIS registry row, or on published state (\u00a710 \"Bridge collision\"; contract in CLARVIS.md \u00a76.6 \"Ports and sockets avoid collisions through OS-assigned endpoints or a documented broker. No instance overwrites another's registration.\")",
@@ -263,6 +452,16 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m8b_status.py:test_a_window_whose_lease_lapsed_is_gone_rather_than_probed"),
             ("route", "nervis/tests/test_m8b_status.py:test_a_lapsed_window_is_gone_from_diagnostics_and_config_too"),
         ],
+        outcomes=(
+            "truthful",
+            "no_unsafe_failover",
+        ),
+        residual=
+            "Proved for the dead-Bridge half — a lapsed window is gone rather than probed —"
+            " and for the isolation half, since an event claiming a registered window must "
+            "now present that window's token. Two *live* windows contesting one id or one p"
+            "ort are not exercised here; that half is covered by Clarvis's own suite rather"
+            " than by this matrix.",
     ),
     Cell(
         condition="stale registry lease",
@@ -272,6 +471,13 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m8b_status.py:test_a_lease_still_inside_its_window_is_read_normally"),
             ("route", "nervis/tests/test_m8b_status.py:test_a_renewed_lease_brings_the_window_back"),
         ],
+        outcomes=(
+            "truthful",
+        ),
+        residual=
+            "Proved for the Clarvis instance lease at the route, in both directions: lapsed"
+            " is a 404, and a heartbeat brings the window back. The §5.1 *service* registry"
+            " keeps its own staleness window and no cell cites it.",
     ),
 ]
 
@@ -299,6 +505,45 @@ def _matches(condition: str, named: str) -> bool:
     so the runbook's wording must appear in the cell's, not the reverse.
     """
     return named.lower() in condition.lower()
+
+
+def _scope_failures(cell: Cell) -> list[str]:
+    """Whether a cell's claim is the size of its evidence.
+
+    Three rules, each from a way the matrix was found flattering itself on
+    8 September 2026:
+
+    - An outcome it does not name is one it does not claim, so the names have
+      to be real ones.
+    - A cell claiming every outcome and citing two tests is the original
+      problem restated, so a short list must carry a `residual` saying what is
+      handled and unproved. A cell naming all six needs none.
+    - `route` means "the application answered" in this file's own words, and
+      several cells used it for tests that call a helper directly. A route
+      citation has to name a test file that actually drives a client.
+    """
+    problems = []
+    known = {name for name, _ in OUTCOMES}
+    for outcome in cell.outcomes:
+        if outcome not in known:
+            problems.append(f"{cell.condition!r} claims outcome {outcome!r}, which §10 does not list")
+    if cell.verdict == "COVERED" and not cell.outcomes:
+        problems.append(f"{cell.condition!r} is COVERED and names no outcome it establishes")
+    if cell.outcomes and len(cell.outcomes) < len(OUTCOMES) and not cell.residual:
+        problems.append(f"{cell.condition!r} establishes {len(cell.outcomes)} of "
+                        f"{len(OUTCOMES)} outcomes and says nothing about the rest")
+    for kind, where in cell.evidence:
+        if kind != "route":
+            continue
+        path = where.partition(":")[0]
+        found = ROOT / path if (ROOT / path).exists() else CLARVIS / path.removeprefix("clarvis/")
+        if not found.exists():
+            continue
+        body = found.read_text(encoding="utf-8", errors="ignore")
+        if "TestClient" not in body and "client." not in body and "api." not in body:
+            problems.append(f"{cell.condition!r} cites {where} as route evidence, and nothing in "
+                            "that file drives a client — 'route' means the application answered")
+    return problems
 
 
 def main() -> int:
@@ -332,6 +577,11 @@ def main() -> int:
             failures.append(f"{cell.condition!r} is PARTIAL and names no gap")
         if cell.verdict != "COVERED" and not cell.closes_with:
             failures.append(f"{cell.condition!r} is {cell.verdict} and says nothing about closing it")
+        failures.extend(_scope_failures(cell))
+
+    for outcome, _ in OUTCOMES:
+        if not any(outcome in cell.outcomes for cell in covered):
+            failures.append(f"no cell establishes §10's {outcome!r} outcome under any condition")
 
     thin = [cell for cell in covered
             if not any(kind in ("route", "live") for kind, _ in cell.evidence)]
@@ -352,6 +602,10 @@ def main() -> int:
     for verdict in VERDICTS:
         if scores[verdict]:
             print(f"  {scores[verdict]:>2} {verdict}")
+    print()
+    for outcome, sentence in OUTCOMES:
+        holding = [cell for cell in covered if outcome in cell.outcomes]
+        print(f"  {len(holding):>2}/{len(covered)} conditions establish  {sentence}…")
     if len(thin) < WITHOUT_LIVE_EVIDENCE:
         print(f"\n{len(thin)} cells rest on unit tests alone; the ceiling is "
               f"{WITHOUT_LIVE_EVIDENCE} and can come down.")

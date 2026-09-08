@@ -1188,3 +1188,42 @@ def test_a_code_server_that_answers_again_gets_its_capability_back() -> None:
     assert entry is not None
     assert entry.state is RegistryState.HEALTHY
     assert entry.capabilities["codeserver.workbench"] == "available"
+
+
+# ── §10, at the route rather than at the probe ──────────────────────────────
+#
+# Both cells below claimed route evidence for tests that call `probe()` or the
+# registry directly. Those are real tests of real rules and they are unit
+# tests; what §10 asks is what a *service* answers under the condition, and
+# these two are that question.
+
+
+def test_the_services_route_still_answers_while_a_peer_is_slow() -> None:
+    """§10's slow-response outcome is about the service's own routes, not about
+    the probe helper. Every peer here points at a dead port and each probe runs
+    to its own deadline, so this is the shape of a machine where a dependency
+    has gone quiet: the listing has to come back, name each peer, and say what
+    it found rather than hanging with it."""
+    with an_api() as client:
+        answered = client.get("/api/v1/services")
+
+    assert answered.status_code == 200
+    rows = answered.json()["items"]
+    assert rows, "the listing answered with nothing while its peers were unreachable"
+    assert all(row.get("state") for row in rows), "a peer was listed with no state at all"
+
+
+def test_the_services_route_reports_code_server_as_unreachable() -> None:
+    """The editor's own row, at the route. `editor_check.js` proves the tab
+    refuses to frame a code-server that is not answering; this proves the state
+    that gate reads is the one NERVIS actually publishes."""
+    with an_api() as client:
+        rows = client.get("/api/v1/services").json()["items"]
+
+    editor = [row for row in rows if row.get("key") == "codeserver"]
+    assert editor, "code-server is not in the registry at all"
+    # Not `healthy`, and not asserted to carry a reason: before the first probe
+    # lands the honest state is `discovering` with nothing to say yet, and
+    # demanding a detail there would be demanding an invention.
+    assert editor[0]["state"] != "healthy"
+    assert editor[0]["state"] in {"discovering", "unreachable", "stale", "stopped"}

@@ -138,3 +138,76 @@ def test_reading_a_run_needs_no_token() -> None:
     run, _ = _seed(client)
 
     assert client.get(f"/api/v1/benchmark-runs/{run}").status_code == 200
+
+
+# ── §10, at the route: the service keeps answering under a bad disk ─────────
+
+
+def _reading_app(results: object) -> object:
+    """SIRVIS pointed at a results directory of the caller's choosing."""
+    import httpx
+    from fastapi.testclient import TestClient
+    from tests.conftest_lmstudio import transport
+
+    from sirvis.app import create_app
+    from sirvis.config import Settings
+    from sirvis.runtimes import LMStudioAdapter
+
+    settings = Settings(database_path=":memory:", results_path=str(results),
+                        lmstudio_base_url="http://127.0.0.1:9",
+                        _env_file=None)  # type: ignore[call-arg]
+    return TestClient(create_app(
+        settings,
+        runtime=LMStudioAdapter("http://runtime.invalid",
+                                client=httpx.AsyncClient(transport=transport())),
+    ))
+
+
+def test_a_read_only_results_directory_does_not_stop_the_service(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**§15.4's standalone rule under §10's condition.** `doctor` reports an
+    unwritable directory, which is the operator's warning; this is the other
+    half — the service itself must keep answering rather than failing to start
+    or 500-ing every read because writing would fail later.
+
+    Refuses to run as root, where the permission bits do not apply and the test
+    would pass for the wrong reason.
+    """
+    import os
+    import pathlib
+
+    if os.geteuid() == 0:
+        raise AssertionError("permission bits do not apply as root; run as an ordinary user")
+    locked = pathlib.Path(tmp_path) / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        with _reading_app(locked) as client:  # type: ignore[attr-defined]
+            answered = client.get("/api/v1/runtimes")
+            health = client.get("/ecosystem/health")
+    finally:
+        locked.chmod(0o755)
+
+    assert answered.status_code == 200
+    assert health.status_code == 200
+
+
+def test_a_full_disk_does_not_stop_the_service(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The same claim for the other bad-disk condition. Every results write
+    raises `ENOSPC`; the reads a person uses to find out *why* must still
+    answer, because a diagnostic that dies with the disk is no diagnostic."""
+    import errno
+
+    from sirvis.storage.results import ResultDirectory
+
+    def full(*_: object, **__: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(ResultDirectory, "prepare", full)
+    monkeypatch.setattr(ResultDirectory, "write_experiment", full)
+
+    with _reading_app(tmp_path) as client:  # type: ignore[attr-defined]
+        answered = client.get("/api/v1/runtimes")
+        runs = client.get("/api/v1/benchmark-runs")
+
+    assert answered.status_code == 200
+    assert runs.status_code == 200
