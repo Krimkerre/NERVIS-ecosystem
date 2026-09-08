@@ -255,9 +255,9 @@ case "$(uname -s)" in
     NODE_GUARD=(node --permission --allow-fs-read="*")
     ;;
 esac
-for gate in render complexity shaping empty_world liveness injection routing outcome stream \
-            preserve attachment background handler learned notification plan proposal supervision \
-            capability provenance; do
+for gate in render complexity shaping empty_world liveness injection picture routing outcome \
+            stream preserve attachment background handler learned notification plan proposal \
+            supervision capability provenance; do
   step "dashboard $gate" nervis-eco/nervis "${NODE_GUARD[@]}" "tools/${gate}_check.js"
 done
 # **Held out of the loop above, and for the opposite reason of the two at the
