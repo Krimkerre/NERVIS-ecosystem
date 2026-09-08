@@ -79,6 +79,17 @@ document, the full up-to-date version has to actually be written out in
 that same reply before offering the button, or what gets saved is whatever
 short remark was said instead.
 
+As of 8 September 2026: **the card under an uploaded picture called it
+unreadable, in the transcript, beside the answer describing what was in
+it.** The dashboard decided whether chat could read a file from its own
+copy of the list of readable suffixes, kept in step with the reader by
+hand — and the hand slipped the moment pictures joined that list. The
+upload now answers with `readable` from the module that owns the reader,
+and the page's copy is gone, which removes the way this goes wrong rather
+than this instance of it. Found by attaching a picture through the
+dashboard rather than through the API, which is the only way a label on a
+card was ever going to be noticed.
+
 As of 7 September 2026, pictures work in both directions.
 
 **Chat can be shown a picture.** Attach a `.png`, `.jpg`, `.gif` or
