@@ -881,8 +881,53 @@ def _recorded() -> dict[str, dict[str, object]]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+#: Network shares to mount before the stack starts, as URLs macOS understands:
+#: `NERVIS_FILE_MOUNTS="smb://synology.local/nervis"`, comma-separated for more
+#: than one. Empty is every deployment that keeps everything on one machine.
+#:
+#: **The workspace itself stays local, deliberately.** A share is somewhere to
+#: *put* things from the Files tab, not somewhere to run from: a 64KB write
+#: measured 38ms over SMB against 0.09ms locally, and an editor or a chat
+#: writing at that rate is a stack that feels broken for no benefit.
+FILE_MOUNTS = [
+    url.strip() for url in os.environ.get("NERVIS_FILE_MOUNTS", "").split(",") if url.strip()
+]
+
+
+def mount_share(url: str) -> str:
+    """Mount one share, or say why not. Empty means it is there.
+
+    **Mounted at start rather than by a login item, because start is when it is
+    needed.** A login item mounts at login; the stack is started whenever, and
+    a share that dropped out over lunch is one the next `start` should bring
+    back rather than one somebody has to notice and fix by hand.
+
+    `osascript` rather than `mount_smbfs`: it uses the Keychain, so the
+    password stays where the operator already put it instead of in a launcher,
+    a plist, or a file under `/etc`.
+    """
+    if sys.platform != "darwin":
+        return f"{url}: mounting is only wired for macOS"
+    where = Path("/Volumes") / url.rstrip("/").rsplit("/", 1)[-1]
+    if os.path.ismount(where):
+        return ""
+    script = f'try\nmount volume "{url}"\nend try'
+    try:
+        subprocess.run(["/usr/bin/osascript", "-e", script], check=False,
+                       capture_output=True, timeout=45)
+    except (OSError, subprocess.SubprocessError) as failure:
+        return f"{url} could not be mounted: {failure}"
+    # Asked again rather than trusting the exit status: `osascript` answers 0
+    # for a `try` block that swallowed the failure, and what matters is whether
+    # something is mounted there now.
+    return "" if os.path.ismount(where) else f"{url} did not mount"
+
+
 def start() -> int:
     ensure_venv()
+    for url in FILE_MOUNTS:
+        trouble = mount_share(url)
+        print(f"  share: {trouble or f'{url} mounted'}")
     # **Before anything is up.** The admin credential has to exist in RAVIS's
     # store before RAVIS reads that store at startup, and writing it afterwards
     # would be a second process editing a JSON file the gateway already holds.

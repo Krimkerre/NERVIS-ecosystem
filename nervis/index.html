@@ -471,6 +471,97 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .banner{flex:0 0 auto}
 .app[data-app="clarvis"] .code-server{height:auto;flex:1 1 auto;min-height:320px}
 
+/* ── FILES ──────────────────────────────────────────────────────────────────
+   Two columns: the rooms, and what is in the one you are standing in. The
+   rooms are a rail rather than a tree because the workspace is four rooms deep
+   at the top and everything else is inside one of them — a tree would spend
+   its first level drawing what a rail says in full.
+
+   Everything here is built from the tokens the rest of the dashboard uses:
+   `--accent` and its rgb, the card border, the mono face for anything a
+   machine wrote. Nothing new is invented for this screen except the drop
+   state, which has to be visible enough to answer "will it land here". */
+/* The whole width: this screen is a directory, and a directory in half a
+   column is a list of truncated names beside empty space. */
+#content .card.files-card{grid-column:1/-1}
+/* **The widths are variables so they can be dragged.** A file manager whose
+   name column is fixed is one that truncates whatever this particular
+   directory happens to contain — and the widths that suit a room full of
+   `2026-09-07`-stamped exports are not the ones that suit `notes.md`. */
+.files{display:grid;grid-template-columns:var(--w-rail,186px) 6px minmax(0,1fr);
+  gap:5px;align-items:start}
+.rooms{display:flex;flex-direction:column;gap:3px}
+.room{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:3px;
+  border:1px solid transparent;border-left:2px solid transparent;background:transparent;
+  color:#8b9aa9;cursor:pointer;text-align:left;font:500 12px/1.2 inherit;letter-spacing:.02em}
+.room:hover{background:rgba(var(--rgb),.08);color:#dbe6f0}
+.room.on{border-color:rgba(var(--rgb),.22);border-left-color:var(--accent);color:#eaf2fa;
+  background:linear-gradient(90deg,rgba(var(--rgb),.16),rgba(var(--rgb),.02))}
+.room .glyph{color:var(--accent);opacity:.85}
+.room.on .glyph{opacity:1;filter:drop-shadow(0 0 6px rgba(var(--rgb),.5))}
+.room small{margin-left:auto;font:10px/1 "SFMono-Regular",Consolas,monospace;opacity:.55}
+/* Rooms are the workspace's own structure; a place is a directory somebody
+   else owns that NERVIS was pointed at. The line says they are different
+   kinds of thing without spending a sentence on it. */
+.rail-split{margin:9px 0 3px;padding-top:8px;border-top:1px solid var(--line);
+  color:#5d6d7f;font:9px/1 "SFMono-Regular",Consolas,monospace;letter-spacing:.14em;
+  text-transform:uppercase}
+.glyph{width:18px;height:18px;display:block;flex:0 0 auto;fill:none;stroke:currentColor;
+  stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.room .glyph{width:19px;height:19px}
+/* The one place a fill is right: a page's folded corner reads as paper only
+   when the corner is not see-through. */
+.entry .glyph{color:#8ba3ba}
+.entry[data-kind="folder"] .glyph{color:var(--accent)}
+.entries{display:flex;flex-direction:column;gap:2px;min-height:190px}
+/* **The actions column is fixed, not `auto`.** The buttons are transparent
+   until hover but they are still laid out, and an `auto` track sized to them
+   took the name column down to one letter — invisible in a mock with three
+   short filenames and obvious the moment a real directory was listed. */
+.entry,.entry-head{display:grid;
+  grid-template-columns:18px minmax(70px,1fr) var(--w-size,76px) var(--w-when,132px) var(--w-act,150px);
+  gap:10px;align-items:center;padding:8px 9px;border:1px solid transparent;border-radius:3px;
+  color:#c3cedb;background:transparent}
+/* The header exists to carry the handles; it earns its place by also saying
+   which column is which, which the rows alone never did. */
+.entry-head{padding-bottom:5px;border-bottom:1px solid var(--line);border-radius:0;
+  color:#6d7d8f;font:10px/1 "SFMono-Regular",Consolas,monospace;letter-spacing:.08em;
+  text-transform:uppercase}
+.entry-head span{position:relative}
+/* A grip is six pixels of nothing with a line down the middle: wide enough to
+   grab with a mouse, quiet enough not to read as a border. */
+.grip{cursor:col-resize;position:relative;align-self:stretch;min-height:18px;
+  touch-action:none}
+.grip:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
+  background:var(--line);transform:translateX(-.5px)}
+.grip:hover:before,.grip.dragging:before{background:var(--accent);
+  box-shadow:0 0 7px rgba(var(--rgb),.6)}
+.files>.grip{min-height:120px}
+.entry:hover{background:rgba(var(--rgb),.07);border-color:rgba(var(--rgb),.16)}
+.entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
+  font-variant-numeric:tabular-nums}
+.entry .row-actions{display:flex;gap:4px;justify-content:flex-end;opacity:0;
+  transition:opacity .12s}
+.entry:hover .row-actions,.entry:focus-within .row-actions{opacity:1}
+.entry .row-actions button{border:1px solid var(--line);background:#0e151d;color:#93a4b6;
+  border-radius:3px;padding:3px 7px;font-size:10px;cursor:pointer;letter-spacing:.03em}
+.entry .row-actions button:hover{border-color:rgba(var(--rgb),.5);color:#e6eef6}
+.entry .row-actions button.harm:hover{border-color:rgba(255,107,107,.55);color:#ff9b9b}
+.entry[draggable="true"]{cursor:grab}
+.entry.lifting{opacity:.45}
+/* Where it will land. Bright enough to answer the question a drag asks, and
+   only ever on the one target under the pointer. */
+.room.landing,.entries.landing{border-color:var(--accent);
+  background:rgba(var(--rgb),.14);box-shadow:inset 0 0 0 1px rgba(var(--rgb),.35)}
+.entries.landing{border:1px dashed var(--accent);border-radius:4px}
+.crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font:11px/1 "SFMono-Regular",Consolas,monospace;color:#7e8fa1}
+.crumbs button{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;
+  font:inherit}
+.crumbs span{opacity:.45}
+.file-empty{padding:26px 12px;text-align:center;color:#6d7d8f;font-size:12px}
+
 /* ── FOCUS MODE ─────────────────────────────────────────────────────────────
    code-server does have a Zen Mode (workbench.action.toggleZenMode) and it works
    in the browser — but it only reaches inside its own document. It cannot hide
@@ -775,7 +866,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
 const APP_CONFIG={
- nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
+ nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Files','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
@@ -977,12 +1068,78 @@ const ICON={
  'Logs':'<path d="M4 2.5h5.3l3.2 3.1v7.9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M9.2 2.6v3.1h3.2M5.4 8.7h5.1M5.4 11.1h5.1"/>',
  'Workspace':'<path d="M5.7 5 2.7 8l3 3M10.3 5l3 3-3 3M9.1 3.1 6.9 12.9"/>',
  'Explorer':'<path d="M2.4 12.4V4.1a1 1 0 0 1 1-1h2.9l1.4 1.8h4.9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
+ /* A folder carrying the mark on the tab bar and the brand's diamond on its
+    face — the same lozenge the header wears, so the tab reads as NERVIS's own
+    rather than as a stock file glyph. */
+ 'Files':'<path d="M2.4 12.4V4.1a1 1 0 0 1 1-1h2.9l1.4 1.8h4.9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M8 6.6 9.6 8.5 8 10.4 6.4 8.5z"/>',
  'Search':'<circle cx="7.2" cy="7.2" r="4.3"/><path d="m10.4 10.4 3.4 3.4"/>',
  'Source control':'<circle cx="4.4" cy="3.6" r="1.7"/><circle cx="4.4" cy="12.4" r="1.7"/><circle cx="11.6" cy="6" r="1.7"/><path d="M4.4 5.3v5.4M4.4 9.7c0-2.1 1.5-3.7 3.6-3.7h2"/>',
  'Run & debug':'<path d="M5.5 3.3 12.3 8l-6.8 4.7z"/>',
  'Extensions':'<rect x="2.4" y="2.4" width="4.7" height="4.7" rx="1"/><rect x="8.9" y="2.4" width="4.7" height="4.7" rx="1"/><rect x="2.4" y="8.9" width="4.7" height="4.7" rx="1"/><path d="M11.3 8.9v4.7M8.9 11.3h4.7"/>',
  'Terminal':'<rect x="2.2" y="3" width="11.6" height="10" rx="1.3"/><path d="m4.9 6.6 2.1 2-2.1 2M8.6 11.2h3.3"/>'
 };
+
+/* ── The workspace's own rooms ──────────────────────────────────────────────
+   One silhouette per room rather than one folder with four tints: at 16px a
+   colour is a guess and a shape is a name. Each keeps the same folder body so
+   they read as a set, and carries the one glyph that says which room it is —
+   arriving, kept, produced, and the editor's. */
+const ROOM_ICON={
+ /* Arriving: into the folder, from above. */
+ 'import':'<path d="M2.4 12.6V6.4h11.2v6.2a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M8 1.9v3.1M6.4 3.6 8 5.2l1.6-1.6"/>',
+ /* Kept: three spines on a shelf. The one thing here nobody empties. */
+ 'library':'<path d="M2.6 3.3h2.1v9.4H2.6zM6.1 3.3h2.1v9.4H6.1z"/><path d="m10.2 4 2 .5-1.9 8.1-2-.5z"/><path d="M2.2 13.7h11.6"/>',
+ /* Produced: out of the folder, upward. */
+ 'export':'<path d="M2.4 12.6V6.4h11.2v6.2a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/><path d="M8 5.2V2.1M6.4 3.7 8 2.1l1.6 1.6"/>',
+ /* The editor\'s: the shape every editor has worn since editors had shapes. */
+ 'clarvis':'<path d="m5.4 5.6-2.7 2.7 2.7 2.7M10.6 5.6l2.7 2.7-2.7 2.7M9.1 3.6 6.9 12.9"/>',
+ /* Anything somebody made themselves. */
+ 'folder':'<path d="M2.4 12.4V4.1a1 1 0 0 1 1-1h2.9l1.4 1.8h4.9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
+ /* Somewhere else NERVIS was given: a box on a network, drawn as the two
+    stacked units every NAS has worn since NASes had faces. */
+ 'share':'<rect x="2.4" y="3" width="11.2" height="4.4" rx="1"/><rect x="2.4" y="8.6" width="11.2" height="4.4" rx="1"/><path d="M4.6 5.2h.01M4.6 10.8h.01"/>',
+ /* Where a delete waits out its fortnight. */
+ 'trash':'<path d="M2.9 4.4h10.2M6.1 4.4V3.1a.9.9 0 0 1 .9-.9h2a.9.9 0 0 1 .9.9v1.3"/><path d="M4.2 4.4l.7 8.2a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.7-8.2"/><path d="M6.8 7v3.9M9.2 7v3.9"/>'
+};
+
+/* ── What a file is, by its suffix ──────────────────────────────────────────
+   A page silhouette with a folded corner, plus one glyph. The classification
+   is deliberately coarse: eight kinds a person recognises at a glance beat
+   thirty that all look like a rectangle with something in it. */
+const PAGE='<path d="M4 2.4h5.1l3 3v8.2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.4a1 1 0 0 1 1-1z"/><path d="M9 2.5v3.1h3.1"/>';
+const FILE_ICON={
+ 'text':PAGE+'<path d="M5.2 8.4h5.6M5.2 10.6h5.6"/>',
+ /* A document with a body block: what a rendered page looks like from far
+    enough away, which is how a PDF differs from a text file on this screen. */
+ 'pdf':PAGE+'<rect x="5" y="8" width="6" height="4.1" rx=".6"/>',
+ 'image':PAGE+'<circle cx="6.2" cy="8.4" r=".9"/><path d="m5 12.2 2.4-2.6 1.6 1.6 1-1 1.1 1.2"/>',
+ 'code':PAGE+'<path d="m6.6 8.6-1.4 1.6 1.4 1.6M9.4 8.6l1.4 1.6-1.4 1.6"/>',
+ 'table':PAGE+'<path d="M5 8.6h6M5 10.9h6M8 8.6v4.1"/><rect x="5" y="8.6" width="6" height="4.1" rx=".5"/>',
+ 'archive':PAGE+'<path d="M8 6.6v1.1M8 8.9v1.1M8 11.2v1.1"/><rect x="6.9" y="12.1" width="2.2" height="1.8" rx=".6"/>',
+ 'audio':PAGE+'<path d="M10.6 7.6v3.6"/><circle cx="6.4" cy="11.6" r="1.3"/><path d="M7.7 11.6V8.3l2.9-.7"/>',
+ 'video':PAGE+'<path d="m6.4 8.2 4 2.3-4 2.3z"/>',
+ 'file':PAGE
+};
+
+/* Which of the eight. Suffix only: reading a file to find out what it is would
+   be a download per row, on a screen whose whole point is not doing that. */
+function fileKind(name){
+ const end=(String(name).split('.').pop()||'').toLowerCase();
+ if(end==='pdf')return 'pdf';
+ if(['png','jpg','jpeg','gif','webp','svg','avif','bmp','heic'].includes(end))return 'image';
+ if(['py','js','ts','tsx','jsx','json','yaml','yml','toml','sh','html','css','rs','go','java','c','h','cpp','sql'].includes(end))return 'code';
+ if(['csv','tsv','xlsx','xls','ods','parquet'].includes(end))return 'table';
+ if(['zip','tar','gz','tgz','bz2','xz','7z','rar','vsix','whl'].includes(end))return 'archive';
+ if(['wav','mp3','m4a','flac','ogg','aac','aiff'].includes(end))return 'audio';
+ if(['mp4','mov','mkv','webm','avi','m4v'].includes(end))return 'video';
+ if(['md','txt','markdown','rst','log','ini','cfg','conf','env'].includes(end))return 'text';
+ return 'file';
+}
+
+/* One 16px glyph, drawn the way the side nav draws its own. */
+function glyph(paths,extra=''){
+ return `<svg viewBox="0 0 16 16" class="glyph ${extra}" aria-hidden="true">${paths}</svg>`;
+}
 /* An unknown key is *not usable*, rather than an exception. This threw for
    every caller the moment a registry row carried a key with no entry in
    `SERVICES` — LM Studio, which publishes no MEP surface and therefore owns no
@@ -1827,6 +1984,25 @@ function recentDecisions(payload){
    in. Every configuration write goes through `control_headers()` — a helper
    rather than six literals, so the seventh cannot quietly ship without it. */
 const CONTROL_TOKEN=(document.querySelector('meta[name="nervis-control"]')||{}).content||'';
+/* Each segment encoded, the separators left alone: the route takes a path and
+   `encodeURIComponent` on the whole thing would turn every `/` into `%2F` and
+   send one long filename. */
+function _workspacePath(path){
+ return String(path||'').split('/').map(encodeURIComponent).join('/');
+}
+
+/* One shape for every mutation's answer: what happened, or what NERVIS said
+   about why it did not. A screen that had to read status codes would be a
+   second place the refusal is worded. */
+async function _workspaceDid(response){
+ if(response.ok){
+  try{return {ok:true,...(await response.json())}}catch(e){return {ok:true}}
+ }
+ let detail='';
+ try{detail=((await response.json()).error||{}).message||''}catch(e){}
+ return {ok:false,detail:detail||`NERVIS refused (${response.status})`};
+}
+
 function control_headers(){return{'content-type':'application/json','x-nervis-control':CONTROL_TOKEN}}
 const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
@@ -3082,6 +3258,62 @@ const API={
    }catch(e){return{...row,activity:'unknown',activity_detail:'no answer'}}
   },
 
+  async workspaceEntries(path,place){
+   /* One directory. An unconfigured workspace answers with a reason rather
+      than an error, so the screen can say "turn this on" instead of looking
+      broken. */
+   try{
+    const r=await fetch(`/api/v1/workspace/entries?path=${encodeURIComponent(path||'')}`
+      +`&place=${encodeURIComponent(place||'workspace')}`,
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return await r.json();
+    let detail='';
+    try{detail=((await r.json()).error||{}).message||''}catch(e){}
+    return {items:[],path:path||'',detail:detail||`NERVIS refused that path (${r.status})`};
+   }catch(e){}
+   return {items:[],path:path||'',detail:'NERVIS did not answer about the workspace'};
+  },
+
+  async workspaceTrash(){
+   try{
+    const r=await fetch('/api/v1/workspace/trash',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return (await r.json()).items||[];
+   }catch(e){}
+   return [];
+  },
+
+  /* The four mutations, each carrying the page's own token like every other
+     mutation here, and each answering with the message NERVIS gave rather than
+     a status code the screen would have to translate. */
+  async workspaceUpload(path,bytes,place){
+   return _workspaceDid(await fetch(`/api/v1/workspace/entries/${_workspacePath(path)}`
+     +`?place=${encodeURIComponent(place||'workspace')}`,
+     {method:'PUT',headers:{'x-nervis-control':CONTROL_TOKEN},body:bytes}));
+  },
+  async workspaceFolder(path,place){
+   return _workspaceDid(await fetch('/api/v1/workspace/folders',
+     {method:'POST',headers:control_headers(),
+      body:JSON.stringify({path,place:place||'workspace'})}));
+  },
+  /* One call for move and for copy: the ends are the same question and only
+     `copy` differs, so a second endpoint would be the same refusals written
+     twice. */
+  async workspaceMove(from,to,opts={}){
+   return _workspaceDid(await fetch('/api/v1/workspace/move',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({from,to,
+      from_place:opts.fromPlace||'workspace',to_place:opts.toPlace||opts.fromPlace||'workspace',
+      copy:!!opts.copy})}));
+  },
+  async workspaceDelete(path,place){
+   return _workspaceDid(await fetch(`/api/v1/workspace/entries/${_workspacePath(path)}`
+     +`?place=${encodeURIComponent(place||'workspace')}`,
+     {method:'DELETE',headers:{'x-nervis-control':CONTROL_TOKEN}}));
+  },
+  async workspaceRestore(path,to){
+   return _workspaceDid(await fetch('/api/v1/workspace/trash/restore',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({path,to})}));
+  },
+
   async codeSession(){
    /* §13.3's "visible connection state". A closed session is a state to
       render rather than an error, so this never throws for the ordinary case
@@ -3801,7 +4033,381 @@ function liveSpanRows(tr){
    does it. Was a chain of eight `if`s, which cost a branch per screen and put
    this function over the complexity ratchet the moment a ninth was added — the
    ratchet pointing at a dispatch table written out longhand. */
-const NERVIS_VIEWS={'Chat':chatView,'Events':eventsView,'Notifications':notificationsView,
+/* ── The workspace, browsable ────────────────────────────────────────────────
+
+   The tab exists so that moving a file does not mean leaving the dashboard.
+   Everything it can do, chat and the editor could already do to the same four
+   rooms; what it adds is a person doing it directly.
+
+   **State is the path, and nothing else.** No cached tree, no open/closed
+   folders to keep in step with the disk — every navigation is a read of one
+   directory, which is also what makes a file somebody dropped in from another
+   application show up on the next click rather than never. */
+let FILES_AT='',FILES_PLACE='workspace';
+
+async function filesView(){
+ $('#pageTitle').textContent='Files';
+ $('#pageSubtitle').textContent='The workspace, and what is in each of its rooms.';
+ if(FILES_AT===TRASH_ROOM)return filesTrashView();
+
+ const listing=await API.nervis.workspaceEntries(FILES_AT,FILES_PLACE);
+ if(listing.detail&&!listing.items.length&&!listing.path){
+  $('#content').innerHTML=banner('No workspace is configured',escapeHtml(listing.detail),'info');
+  return;
+ }
+ FILES_AT=listing.path||'';
+ FILES_PLACE=listing.place||'workspace';
+ /* **The rooms are the workspace's structure, not this listing's.** Standing
+    on a share, the listing has no rooms to report — it is somebody else's
+    directory — and reading them from it emptied the rail of the four rooms a
+    person had just navigated away from and now needs to get back to. */
+ const rooms=FILES_PLACE==='workspace'
+  ?(listing.rooms||[])
+  :((await API.nervis.workspaceEntries('','workspace')).rooms||[]);
+ /* **Both actions exist as buttons, not only as gestures.** Drag-and-drop is
+    the faster way to put a file here and an undiscoverable one: nothing on
+    screen says a drop would work, and somebody who has not tried it has no
+    reason to. */
+ /* Files go inside a room, so the workspace's own top level offers nothing —
+    but a share's top level is an ordinary directory and takes both. */
+ $('#pageActions').innerHTML=(FILES_AT||FILES_PLACE!=='workspace')
+  ?'<button class="btn" id="newFolder">New folder</button>'
+   +'<button class="btn primary" id="addFiles">Add files</button>'
+   +'<input type="file" id="filePicker" multiple hidden>'
+  :'<small class="mono dim">Open a room to add or make something.</small>';
+ $('#content').innerHTML=`<div class="card wide files-card"><h3>Workspace</h3>${cell(`
+  <div class="files" id="filesPane" style="${filesWidths()}">
+   <div class="rooms" id="roomRail">${roomRail(rooms,listing.places||[])}</div>
+   <div class="grip" data-grip="rail" title="Drag to resize"></div>
+   <div>
+    <div class="crumbs" id="crumbs">${crumbs(FILES_AT)}</div>
+    ${listHead()}
+    <div class="entries" id="entries">${entryRows(listing.items)}</div>
+    <small class="mono dim">Drag a row onto a room to move it there, or drop files
+    from anywhere to put them in this one. Deleting keeps a copy for a fortnight.</small>
+   </div>
+  </div>`,'nervis')}</div>`;
+ wireFiles();
+ wireFileActions();
+}
+
+/* The two buttons above the list, wired to the same calls the drops use. */
+function wireFileActions(){
+ const make=$('#newFolder'),add=$('#addFiles'),picker=$('#filePicker');
+ if(make)make.onclick=async()=>{
+  const named=prompt(`New folder inside ${FILES_AT}`,'');
+  if(!named)return;
+  await finishFileAction(await API.nervis.workspaceFolder(
+    FILES_AT?`${FILES_AT}/${named}`:named,FILES_PLACE),`${named} created`);
+ };
+ if(add&&picker){
+  add.onclick=()=>picker.click();
+  picker.onchange=async()=>{if(picker.files.length)await dropFiles(picker.files,FILES_AT)};
+ }
+}
+
+/* **The trash is a room on the rail and not a directory in the listing.** The
+   API refuses to list anything beginning with a dot, deliberately, so a rail
+   button that navigated into it would be the screen disagreeing with the
+   boundary rather than respecting it. Its own read, its own rows, one verb. */
+const TRASH_ROOM='.trash';
+
+async function filesTrashView(){
+ $('#pageSubtitle').textContent='Deleted in the last fortnight. After that they are gone.';
+ $('#pageActions').innerHTML='';
+ const waiting=await API.nervis.workspaceTrash();
+ const listing=await API.nervis.workspaceEntries('');
+ $('#content').innerHTML=`<div class="card wide files-card"><h3>Workspace</h3>${cell(`
+  <div class="files" id="filesPane" style="${filesWidths()}">
+   <div class="rooms" id="roomRail">${roomRail(listing.rooms||[])}</div>
+   <div class="grip" data-grip="rail" title="Drag to resize"></div>
+   <div>
+    <div class="crumbs" id="crumbs"><button data-goto="">workspace</button>
+     <span>/</span><b>trash</b></div>
+    ${listHead()}
+    <div class="entries" id="entries">${trashRows(waiting)}</div>
+    <small class="mono dim">A deleted file waits a fortnight and is then swept.
+    Put one back into any room.</small>
+   </div>
+  </div>`,'nervis')}</div>`;
+ wireFiles();
+ $$('#entries [data-act="restore"]').forEach(button=>{
+  button.onclick=async()=>{
+   const row=button.closest('.entry');
+   const into=prompt(`Put ${row.dataset.name} back where?`,`library/${row.dataset.name}`);
+   if(!into)return;
+   await finishFileAction(await API.nervis.workspaceRestore(row.dataset.path,into),
+     `${row.dataset.name} restored`);
+  };
+ });
+}
+
+function trashRows(items){
+ if(!items.length)return '<div class="file-empty">The trash is empty.</div>';
+ return items.map(item=>`<div class="entry" data-kind="${escapeHtml(item.kind)}"
+   data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}">`
+  +glyph(item.kind==='folder'?ROOM_ICON.folder:FILE_ICON[fileKind(item.name)])
+  +`<b>${escapeHtml(item.name)}</b><small>—</small>`
+  +`<small>${escapeHtml(whenShort(item.deleted_at))}</small>`
+  +'<span class="row-actions"><button data-act="restore">Put back</button></span></div>').join('');
+}
+
+/* The rooms, in the order they mean something, plus the trash at the bottom
+   because it is where things go rather than a place things are kept. */
+/* The rail: the workspace's rooms, then anywhere else NERVIS was given, then
+   the trash. The places are separated because they are a different kind of
+   thing — a room is part of the workspace's structure, a place is a directory
+   somebody else owns and NERVIS was pointed at. */
+function roomRail(rooms,places){
+ const here=FILES_PLACE==='workspace'?FILES_AT.split('/')[0]:'';
+ const room=name=>`<button class="room${here===name?' on':''}" data-room="${escapeHtml(name)}">`
+  +glyph(ROOM_ICON[name]||ROOM_ICON.folder)+`<span>${escapeHtml(name)}</span></button>`;
+ const elsewhere=(places||[]).filter(name=>name!=='workspace').map(name=>
+  `<button class="room${FILES_PLACE===name?' on':''}" data-place="${escapeHtml(name)}">`
+  +glyph(ROOM_ICON.share)+`<span>${escapeHtml(name)}</span></button>`).join('');
+ return rooms.map(room).join('')
+  +(elsewhere?`<div class="rail-split">elsewhere</div>${elsewhere}`:'')
+  +`<button class="room${FILES_AT==='.trash'?' on':''}" data-room=".trash" data-trash="1">`
+  +glyph(ROOM_ICON.trash)+'<span>trash</span></button>';
+}
+
+/* Remembered per browser, because a width somebody dragged is a preference and
+   re-dragging it on every visit is the screen forgetting what it was told.
+   `localStorage` can throw in a private window, so every read and write is
+   guarded and an unreadable one simply means the defaults. */
+const FILES_WIDTH_KEY='nervis.files.widths';
+const FILES_WIDTH_DEFAULT={rail:186,size:76,when:132};
+
+function filesWidths(){
+ let held={};
+ try{held=JSON.parse(localStorage.getItem(FILES_WIDTH_KEY)||'{}')||{}}catch(e){}
+ const at=name=>Math.round(Number(held[name])||FILES_WIDTH_DEFAULT[name]);
+ return `--w-rail:${at('rail')}px;--w-size:${at('size')}px;--w-when:${at('when')}px`;
+}
+
+function listHead(){
+ return `<div class="entry-head"><span></span><span>name</span>
+  <span>size<i class="grip" data-grip="size"></i></span>
+  <span>modified<i class="grip" data-grip="when"></i></span><span></span></div>`;
+}
+
+/* One handle. The column it sizes grows as the pointer moves *left*, because
+   the handle sits on that column's leading edge — dragging it right makes the
+   name column bigger, which is the direction a person expects. */
+function wireGrips(){
+ const pane=$('#filesPane');
+ if(!pane)return;
+ $$('#filesPane .grip, .entry-head .grip').forEach(grip=>{
+  grip.addEventListener('pointerdown',event=>{
+   event.preventDefault();
+   const which=grip.dataset.grip;
+   const from=event.clientX;
+   const was=parseInt(getComputedStyle(pane).getPropertyValue(`--w-${which}`),10)
+     ||FILES_WIDTH_DEFAULT[which];
+   const grow=which==='rail'?1:-1;
+   grip.classList.add('dragging');
+   const move=step=>{
+    const wanted=Math.max(64,Math.min(520,was+grow*(step.clientX-from)));
+    pane.style.setProperty(`--w-${which}`,`${Math.round(wanted)}px`);
+   };
+   const done=()=>{
+    grip.classList.remove('dragging');
+    window.removeEventListener('pointermove',move);
+    window.removeEventListener('pointerup',done);
+    rememberWidths(pane);
+   };
+   window.addEventListener('pointermove',move);
+   window.addEventListener('pointerup',done);
+  });
+ });
+}
+
+function rememberWidths(pane){
+ const read=name=>parseInt(getComputedStyle(pane).getPropertyValue(`--w-${name}`),10)
+   ||FILES_WIDTH_DEFAULT[name];
+ try{
+  localStorage.setItem(FILES_WIDTH_KEY,
+    JSON.stringify({rail:read('rail'),size:read('size'),when:read('when')}));
+ }catch(e){}
+}
+
+function crumbs(path){
+ const parts=path?path.split('/'):[];
+ const trail=parts.map((part,at)=>{
+  const upto=parts.slice(0,at+1).join('/');
+  return `<span>/</span><button data-goto="${escapeHtml(upto)}">${escapeHtml(part)}</button>`;
+ }).join('');
+ /* The root crumb is the place, because "workspace" over a listing of the NAS
+    is the screen naming somewhere the reader is not. */
+ return `<button data-goto="">${escapeHtml(FILES_PLACE)}</button>${trail}`;
+}
+
+function entryRows(items){
+ if(!items.length)return '<div class="file-empty">Nothing here yet. Drop a file to put one in.</div>';
+ return items.map(item=>{
+  const icon=item.kind==='folder'
+   ?(ROOM_ICON[item.name]&&!item.path.includes('/')?ROOM_ICON[item.name]:ROOM_ICON.folder)
+   :FILE_ICON[fileKind(item.name)];
+  return `<div class="entry" data-kind="${escapeHtml(item.kind)}"
+    data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}"
+    draggable="true">${glyph(icon)}
+   <b>${escapeHtml(item.name)}</b>
+   <small>${item.kind==='folder'?'—':escapeHtml(fileSize(item.bytes))}</small>
+   <small>${escapeHtml(whenShort(item.modified))}</small>
+   <span class="row-actions">${rowActions(item)}</span></div>`;
+ }).join('');
+}
+
+/* **No download button.** The workspace is a directory on this machine; a
+   download would copy a file that is already on disk into another folder on
+   the same disk. What a person actually wants is to *look* at it, so a file
+   the browser can render opens in a tab and one it cannot offers nothing —
+   better an absent verb than one that saves a second copy. */
+function rowActions(item){
+ if(item.kind==='folder')return '<button data-act="open">Open</button>'
+  +'<button data-act="rename">Rename</button>'
+  +'<button class="harm" data-act="delete">Delete</button>';
+ return (viewableName(item.name)?'<button data-act="view">Open</button>':'')
+  +'<button data-act="rename">Rename</button>'
+  +'<button class="harm" data-act="delete">Delete</button>';
+}
+
+/* Which files the browser will render rather than save. The same list
+   `files.py` serves inline, and deliberately not a wider one: HTML and SVG are
+   absent from both because anything opened inline runs in NERVIS's origin. */
+const VIEWABLE=['pdf','png','jpg','jpeg','gif','webp','txt','md','log','csv','json','yaml','yml'];
+function viewableName(name){
+ return VIEWABLE.includes((String(name).split('.').pop()||'').toLowerCase());
+}
+
+function whenShort(seconds){
+ const at=new Date((Number(seconds)||0)*1000);
+ if(!Number.isFinite(at.getTime()))return '—';
+ return at.toLocaleString(undefined,{month:'short',day:'numeric',
+   hour:'2-digit',minute:'2-digit'});
+}
+
+/* Everything the screen does after it is drawn: navigation, the four
+   mutations, and the two drags. Its own function because `filesView` would be
+   past the file's complexity ratchet with any of it inline — and because this
+   is the half that touches the disk, which is worth reading in one place. */
+function wireFiles(){
+ $$('#roomRail .room').forEach(button=>{
+  button.onclick=()=>{
+   if(button.dataset.place){FILES_PLACE=button.dataset.place;FILES_AT=''}
+   else{FILES_PLACE='workspace';FILES_AT=button.dataset.room}
+   filesView();
+  };
+  dropOnto(button,()=>button.dataset.place
+    ?{place:button.dataset.place,path:''}
+    :{place:'workspace',path:button.dataset.room});
+ });
+ $$('#crumbs button').forEach(button=>{
+  button.onclick=()=>{FILES_AT=button.dataset.goto||'';filesView()};
+ });
+ const list=$('#entries');
+ if(list)dropOnto(list,()=>({place:FILES_PLACE,path:FILES_AT}),{files:true});
+ wireGrips();
+ $$('#entries .entry').forEach(row=>wireEntry(row));
+}
+
+function wireEntry(row){
+ const path=row.dataset.path,name=row.dataset.name;
+ row.ondblclick=()=>{if(row.dataset.kind==='folder'){FILES_AT=path;filesView()}};
+ row.addEventListener('dragstart',event=>{
+  event.dataTransfer.setData('text/nervis-path',
+    JSON.stringify({place:FILES_PLACE,path}));
+  event.dataTransfer.effectAllowed='copyMove';
+  FILES_SHIFT=event.shiftKey;
+  row.classList.add('lifting');
+ });
+ row.addEventListener('dragend',()=>row.classList.remove('lifting'));
+ row.querySelectorAll('[data-act]').forEach(button=>{
+  button.onclick=event=>{event.stopPropagation();fileAction(button.dataset.act,path,name)};
+ });
+}
+
+async function fileAction(what,path,name){
+ if(what==='open'){FILES_AT=path;return filesView()}
+ if(what==='view'){
+  /* A new tab, and `noopener` because the thing being opened is a file from a
+     room — it gets no handle on the page that opened it. */
+  window.open('/api/v1/workspace/download/'+_workspacePath(path)
+    +`?inline=1&place=${encodeURIComponent(FILES_PLACE)}`,'_blank','noopener');
+  return;
+ }
+ if(what==='rename'){
+  const wanted=prompt(`Rename ${name} to`,name);
+  if(!wanted||wanted===name)return;
+  const parent=path.split('/').slice(0,-1).join('/');
+  return finishFileAction(await API.nervis.workspaceMove(path,
+    parent?`${parent}/${wanted}`:wanted,{fromPlace:FILES_PLACE}),`renamed to ${wanted}`);
+ }
+ if(what==='delete'){
+  if(!confirm(`Delete ${name}? A copy stays in the trash for a fortnight.`))return;
+  return finishFileAction(await API.nervis.workspaceDelete(path,FILES_PLACE),
+    `${name} moved to the trash`);
+ }
+}
+
+async function finishFileAction(outcome,said){
+ notify(outcome.ok?said:(outcome.detail||'NERVIS refused that'));
+ await filesView();
+}
+
+/* One drop target. `where()` is a function rather than a value because the rail
+   is wired once and the room a button means never changes, while the folder the
+   *list* means changes every navigation. */
+function dropOnto(node,where,opts={}){
+ const clear=()=>node.classList.remove('landing');
+ node.addEventListener('dragover',event=>{
+  event.preventDefault();node.classList.add('landing');
+ });
+ node.addEventListener('dragleave',clear);
+ node.addEventListener('drop',async event=>{
+  event.preventDefault();clear();
+  const moving=event.dataTransfer.getData('text/nervis-path');
+  if(moving)return dropMove(JSON.parse(moving),where());
+  if(opts.files&&event.dataTransfer.files.length)return dropFiles(event.dataTransfer.files,where());
+ });
+}
+
+/* **Within a place a drag moves; across places it copies.** Dragging a
+   document onto the NAS to have it there should not empty the room it came
+   from — and a move across a mount is a copy and a delete anyway, which is a
+   thing to be deliberate about at 38ms a write. Hold Shift to move instead. */
+async function dropMove(from,into){
+ const name=from.path.split('/').pop();
+ if(!into||(from.place===into.place&&from.path===`${into.path}/${name}`))return;
+ const copying=from.place!==into.place&&!FILES_SHIFT;
+ const outcome=await API.nervis.workspaceMove(from.path,
+   into.path?`${into.path}/${name}`:name,
+   {fromPlace:from.place,toPlace:into.place,copy:copying});
+ await finishFileAction(outcome,
+   `${name} ${copying?'copied':'moved'} to ${into.place}${into.path?'/'+into.path:''}`);
+}
+
+/* Whether the last drag was held with Shift, which is what turns a copy across
+   places into a move. Read at drop time from the event that started it. */
+let FILES_SHIFT=false;
+
+/* Files dragged in from another application. Uploaded one at a time and
+   reported once: a toast per file would bury the one that failed. */
+async function dropFiles(files,into){
+ if(!into||(into.place==='workspace'&&!into.path)){
+  notify('Files go inside a room — open one first');return;
+ }
+ let put=0,refused='';
+ for(const file of files){
+  const outcome=await API.nervis.workspaceUpload(
+    into.path?`${into.path}/${file.name}`:file.name,await file.arrayBuffer(),into.place);
+  if(outcome.ok)put++;else refused=outcome.detail||'NERVIS refused that file';
+ }
+ await finishFileAction({ok:!refused,detail:refused},
+   `${put} file${put===1?'':'s'} added to ${into.place}${into.path?'/'+into.path:''}`);
+}
+
+const NERVIS_VIEWS={'Chat':chatView,'Files':filesView,'Events':eventsView,'Notifications':notificationsView,
  'Diagnostics':diagnosticsView,'Traces':tracesView,'Settings':settingsView,
  'Ecosystem map':mapView,'System':systemView};
 
@@ -4563,7 +5169,10 @@ function fileSize(bytes){
  const n=Number(bytes)||0;
  if(n<1024)return n+' B';
  if(n<1024*1024)return Math.round(n/1024)+' KB';
- return (n/(1024*1024)).toFixed(1)+' MB';
+ /* Gigabytes since the Files tab shows whatever is in a room, and "3891.4 MB"
+    is a number somebody has to divide in their head. */
+ if(n<1024*1024*1024)return (n/(1024*1024)).toFixed(1)+' MB';
+ return (n/(1024*1024*1024)).toFixed(1)+' GB';
 }
 
 /* Whether chat can read an uploaded file is **NERVIS's answer, not this

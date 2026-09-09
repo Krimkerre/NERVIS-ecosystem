@@ -114,6 +114,16 @@ class Settings(BaseSettings):
     workspace_import_path: str = ""
     workspace_export_path: str = ""
     workspace_library_path: str = ""
+    # Places the Files tab may reach *besides* the workspace, as
+    # `name=/path,name=/path`. A mounted NAS share is the case this exists for:
+    # `NERVIS_FILE_PLACES="nas=/Volumes/nervis"`.
+    #
+    # **Named explicitly rather than discovered.** Listing `/Volumes` and
+    # offering whatever is mounted would put a colleague's USB stick and a
+    # Time Machine disk in a file manager that is meant to reach two things,
+    # and "it was mounted" is not the same as "somebody meant NERVIS to write
+    # there". Every place here was typed by the operator.
+    file_places: str = ""
 
     # Where the launcher writes each service's stdout and stderr — §11.3's
     # fourth and last data source. Empty means no adapter exists, which is the

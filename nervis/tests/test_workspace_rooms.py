@@ -209,3 +209,43 @@ def test_a_stray_file_in_the_workspace_itself_is_not_searched(tmp_path: Path) ->
         for message in body.get("messages", [])
     )
     assert "Revenue fell in Q3." not in prompt
+
+
+# ── A workspace on a network share ──────────────────────────────────────────
+
+
+def test_a_room_under_an_unmounted_share_is_absent_rather_than_empty() -> None:
+    """**The expensive silent failure this prevents.**
+
+    A workspace on a NAS lives under `/Volumes/<name>`, and that directory
+    exists whether or not the share is mounted. Creating a room inside an
+    unmounted one writes to the *local* disk at the mountpoint — after which
+    macOS cannot mount the share there and brings it up as `<name>-1`. Two
+    workspaces, one shadowing the other, files accumulating in the wrong one,
+    and nothing reporting anything.
+
+    So it reads as "no workspace", which every caller already has a sentence
+    for, rather than as an empty one it should start filling.
+    """
+    settings = Settings(
+        database_path=":memory:",
+        workspace_path="/Volumes/nervis-not-mounted-in-this-test",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+
+    assert workspace.imported(settings) is None
+    assert workspace.exported(settings) is None
+    assert not Path("/Volumes/nervis-not-mounted-in-this-test").exists(), (
+        "the check created the very directory it exists to avoid creating"
+    )
+
+
+def test_an_ordinary_local_workspace_is_not_mistaken_for_a_share(
+    tmp_path: Path,
+) -> None:
+    """`os.path.ismount` is False for every ordinary directory, so a check
+    written a shade too broadly would turn every local workspace into no
+    workspace at all."""
+    settings = a_workspace(tmp_path)
+
+    assert workspace.imported(settings) == tmp_path / "import"

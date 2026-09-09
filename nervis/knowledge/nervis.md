@@ -57,6 +57,37 @@ then the library, then import, then export. **The workspace directory itself is
 not searched**: a layout with one place a stray file can sit and still work is a
 layout that is only advice, and the loose file is where everything ends up.
 
+### The Files tab
+
+A file manager over the workspace, so moving something does not mean leaving
+the dashboard. It lists a room, opens folders, renames, makes folders, and
+takes files dropped in from anywhere.
+
+**Delete moves to a trash that is swept after a fortnight**, not to nothing:
+every other change in NERVIS is a model proposing and a person agreeing, and
+this is a person acting directly, so being wrong about it should be
+recoverable.
+
+**There is no download button.** The workspace is a directory on this machine;
+downloading would copy a file that is already on disk into another folder on
+the same disk. What the tab offers instead is *Open* — a PDF, an image or a
+text file opens in a browser tab. HTML and SVG never do: anything shown inline
+runs on NERVIS's own address, and both can carry script.
+
+**It can also reach places outside the workspace**, when an operator names them
+(`NERVIS_FILE_PLACES="nas=/Volumes/nervis"`). A mounted NAS share is what this
+is for: drag a document from a room onto it to copy it there, or drag one back
+to move it in. Within a place a drag moves; across places it copies, because
+dragging a document onto a share to *have* it there should not empty the room
+it came from. The launcher can mount the share first
+(`NERVIS_FILE_MOUNTS="smb://synology.local/nervis"`), which it does before
+anything starts.
+
+**The workspace itself stays local, on purpose.** Measured on a LAN share: a
+64KB write took 38ms against 0.09ms locally, while listing and `stat` were
+indistinguishable. Reading a share is free and writing to it is not, so NERVIS
+works locally and the share is somewhere to put things.
+
 ### How the Code tab reaches the editor
 
 By default, at code-server's own address — the same way it always did.

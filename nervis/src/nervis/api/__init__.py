@@ -8,6 +8,7 @@ from nervis.api.commands import router as commands_router
 from nervis.api.diagnostics import router as diagnostics_router
 from nervis.api.documents import router as documents_router
 from nervis.api.events import router as events_router
+from nervis.api.files import router as files_router
 from nervis.api.inspector import router as inspector_router
 from nervis.api.instances import router as instances_router
 from nervis.api.learned import router as learned_router
@@ -22,6 +23,7 @@ from nervis.api.traces import router as traces_router
 from nervis.api.voice import router as voice_router
 
 __all__ = [
+    "files_router",
     "code_proxy_router",
     "code_router",
     "background_router",

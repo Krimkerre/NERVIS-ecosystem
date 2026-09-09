@@ -20,6 +20,7 @@ textual form is unremarkable is exactly how this gets bypassed.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -111,8 +112,38 @@ def room(settings: Any, which: str, chosen: str) -> Path | None:
         return None
     place = Path(chosen.strip()) if chosen.strip() else Path(root) / which
     place = place.expanduser()
+    if unmounted(place):
+        return None
     place.mkdir(parents=True, exist_ok=True)
     return place
+
+
+def unmounted(place: Path) -> bool:
+    """Whether this path is waiting inside a mountpoint nothing is mounted on.
+
+    **The failure this prevents is silent and expensive.** A workspace on a
+    network share lives under `/Volumes/<name>` on macOS, and that directory
+    exists whether or not the share is mounted. Creating a room inside an
+    unmounted one writes to the *local* disk at the mountpoint — after which
+    the share can no longer mount there and arrives as `<name>-1` instead. The
+    result is two workspaces, one shadowing the other, with files accumulating
+    in the wrong one and nothing anywhere reporting a problem.
+
+    So a path under a mountpoint that is not mounted is treated as absent
+    rather than as empty: every caller already has a sentence for "there is no
+    workspace", and "the share is not mounted" is that same state with a
+    better reason. Checked only for the shape it applies to — `/Volumes/<name>`
+    and its children — because `os.path.ismount` on an ordinary directory is
+    False and would turn every local workspace into no workspace at all.
+    """
+    volumes = Path("/Volumes")
+    try:
+        under = place.expanduser().resolve(strict=False).relative_to(volumes)
+    except ValueError:
+        return False
+    if not under.parts:
+        return False
+    return not os.path.ismount(volumes / under.parts[0])
 
 
 def imported(settings: Any) -> Path | None:

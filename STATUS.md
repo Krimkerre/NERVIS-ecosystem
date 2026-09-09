@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2677 tests, no network, no live service
+.venv/bin/pytest                      # part of 2706 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1100 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1129 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2677 passing across the four, conformance `PASS`.
+Expected: all clean, 2706 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16207,6 +16207,56 @@ save or an annotate output) and the existing `.attachments` tree moved under
 `import`, so nothing that was reachable stopped being reachable.
 
 NERVIS 1090 -> 1100.
+
+## A file manager in the dashboard, and somewhere else to put things — 2026-09-09
+
+**Asked for: a tab that manages the workspace, so a stack running full-screen
+never needs another application to move a file.** Most of it existed already —
+`resolve_in_workspace` is the wall, `documents.list_files` lists a directory,
+the upload route takes raw bytes — so what was missing was move, rename, make
+a folder, delete, and a screen.
+
+`nervis/src/nervis/api/files.py` serves them, and two rules sit on top of
+containment: the workspace's rooms may be filled and emptied but not renamed,
+because chat writes to `export` by name and the editor opens `clarvis` by name;
+and dot-directories are refused outright, because an attachment moved out from
+under its conversation is a file that still exists and a reading that has
+silently changed.
+
+**Delete moves to `.trash` and the fortnight timer that sweeps attachments
+sweeps it too.** One promise, one timer. A person clicking delete in a browser
+over the room they keep files in should be able to be wrong for two weeks.
+
+**The download button was built and then removed**, on the operator's own
+observation: the workspace is a directory on this machine, so downloading
+copies a file that is already on disk into another folder on the same disk.
+What replaced it is *Open* — inline in a browser tab, for an allowlist that
+excludes HTML and SVG deliberately, since anything served inline runs on
+NERVIS's origin and both can carry script. `tools/files_check.js` fails if
+either the button returns or Open is offered on something the browser would
+download instead.
+
+**Then: a NAS.** A Synology share, mounted by the launcher before anything
+starts (`NERVIS_FILE_MOUNTS`, Keychain-backed through `osascript`, no plaintext
+password anywhere) and reachable in the tab as a named place
+(`NERVIS_FILE_PLACES="nas=/Volumes/nervis"`). The containment argument survives
+having more than one root, and the way it survives is worth stating: a request
+chooses *which* configured place, never where a place is.
+
+**The workspace stayed local, and the measurement is why.** On the share: a
+64KB write took 38ms against 0.09ms locally — 400× — while listing and `stat`
+were indistinguishable. So reads are free and writes are not, which makes a
+share somewhere to put things rather than somewhere to work. Within a place a
+drag moves; across places it copies, because dragging a document onto a NAS to
+have it there should not empty the room it came from.
+
+**And a guard for the failure that would have been silent.** A workspace path
+under an unmounted `/Volumes/<name>` reads as *no workspace* rather than as an
+empty one: creating rooms inside an unmounted mountpoint writes to the local
+disk, after which macOS mounts the real share as `<name>-1` and there are two
+workspaces, one shadowing the other, with nothing reporting anything.
+
+NERVIS 1100 -> 1129.
 
 ## Starting the thing
 

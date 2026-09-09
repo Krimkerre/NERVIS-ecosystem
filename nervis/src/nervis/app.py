@@ -48,6 +48,7 @@ from nervis.api import (
     diagnostics_router,
     documents_router,
     events_router,
+    files_router,
     inspector_router,
     instances_router,
     learned_router,
@@ -64,6 +65,7 @@ from nervis.api import router as api_router
 from nervis.api.chat_personas import seed_chat_defaults
 from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
 from nervis.api.events import event_frames
+from nervis.api.files import prune_trash
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
 from nervis.code_extension import ensure as ensure_clarvis
 from nervis.code_proxy import Sessions as CodeSessions
@@ -119,6 +121,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(api_router)
     api.include_router(chat_router)
     api.include_router(events_router)
+    api.include_router(files_router)
     api.include_router(diagnostics_router)
     api.include_router(supervision_router)
     api.include_router(traces_router)
@@ -955,6 +958,13 @@ def _expire_attachments(api: FastAPI) -> None:
     gone = documents.prune_attachments(Path(root), now=time.time())
     if gone:
         logger.info("expired %d attachment(s) no conversation points at", gone)
+    # The file manager's trash keeps the same fortnight, swept by the same job:
+    # one timer for one promise, rather than a second one to forget about.
+    workspace_root = str(getattr(api.state.settings, "workspace_path", "") or "").strip()
+    if workspace_root:
+        emptied = prune_trash(Path(workspace_root), now=time.time())
+        if emptied:
+            logger.info("emptied %d trashed entr(ies) past their fortnight", emptied)
 
 
 def _next_interval(api: FastAPI) -> float:
