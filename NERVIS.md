@@ -345,7 +345,13 @@ and privacy controls.
 **Background calls.** NERVIS chat generates conversation titles (§7.2), and may later add
 summaries or suggestions. Each is a RAVIS background call and must carry RAVIS's declared
 marker (RAVIS §9.6.1) rather than arriving as an ordinary completion on the user's chosen
-profile. An untitled conversation is a smaller failure than a title billed to a frontier
+profile. **The title still names the model that just answered**, because a pool is a request
+for RAVIS to choose and choosing is what puts a second build in memory to write six words —
+and the marker costs nothing there, since a local model is free and §9.6.1 refuses only what
+is not. Where that model is hosted the marker refuses the call outright, no tokens billed, and
+the title goes to `ravis/cheap` instead. *The marker was sent only on the unnamed path until
+9 September 2026, so a conversation answered by a frontier model had its title billed to that
+model — the failure this paragraph names. An external audit found it.* An untitled conversation is a smaller failure than a title billed to a frontier
 model.
 
 ## 7.0 What chat is allowed to know, and what it may offer to do

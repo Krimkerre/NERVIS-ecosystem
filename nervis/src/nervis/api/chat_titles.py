@@ -202,45 +202,56 @@ async def _generate_title(
     if not settings.ravis_client_credential or entry is None or not entry.is_usable:
         return
     client: httpx.AsyncClient = request.app.state.probe_client
+    # **The marker goes on every title call, and RAVIS decides what that means.**
+    # It used to be sent only when NERVIS had no model to name, on the reading
+    # that a marker cannot accompany a named model — which is half true, and the
+    # half it gets wrong is the expensive one:
+    #
+    #   - Named a *local* model, the marker changes nothing. §9.6.1 refuses a
+    #     provider "not known to be free", and `_is_paid` reads a local model as
+    #     free because the hardware is already paid for. So the pin holds, the
+    #     resident build writes the title, and no second model is loaded — the
+    #     whole reason this path names the served model at all.
+    #   - Named a *hosted* model, the marker refuses the call outright: 422,
+    #     `refused by policy`, no tokens billed. Which is exactly right, and is
+    #     what was missing. Without the marker, a conversation answered by a
+    #     frontier model had its title billed to that model — the specific thing
+    #     NERVIS.md §7 calls a worse failure than having no title at all.
+    #
+    # Both were measured against the running RAVIS rather than reasoned about,
+    # because the comment this replaces was reasoned about and was wrong.
+    marked = {"background": True}
     payload = {
-        # **The model that just answered, by name — not a pool.** A pool is a
-        # request for RAVIS to choose, and choosing is exactly what put a second
-        # model in memory: the answer came from one build and the title from
-        # another, both resident, for one turn of conversation. Naming the
-        # served model asks for the one already loaded.
-        #
-        # The pool is the fallback for the case where nothing was served — an
-        # interrupted first turn, or a store that recorded no model.
+        # The model that just answered, by name — not a pool. A pool is a
+        # request for RAVIS to choose, and choosing is what put a second model
+        # in memory: the answer from one build and the title from another, both
+        # resident, for one turn of conversation.
         "model": served or TITLE_POOL,
         "max_tokens": TITLE_MAX_TOKENS,
         "messages": [{"role": "user", "content": TITLE_PROMPT + opening[:600]}],
+        "metadata": marked,
     }
-    if not served:
-        # RAVIS §9.6.1's declared marker, on the fallback path only. Never
-        # inferred by RAVIS from the shape of a request, which is why the client
-        # has to say it.
-        #
-        # **It cannot be sent alongside a named model, and the reason is the
-        # marker doing its job.** §9.6.1 makes a background call refuse any
-        # provider not known to be free — "declared a background call, and
-        # {provider} is not known to be free" — so a title pinned to the hosted
-        # model that just answered would be excluded by the very marker meant to
-        # protect it, and RAVIS would route to a free local build instead. That
-        # is the second model load this change exists to stop.
-        #
-        # So the marker guards the case where NERVIS does not know what answered
-        # and has to let RAVIS choose. Where it does know, the choice is already
-        # made and there is nothing to protect against: the model is loaded, the
-        # call is sixty-six tokens, and reusing it is cheaper in memory than any
-        # free alternative that is not already resident.
-        payload["metadata"] = {"background": True}
+    headers = _forwarded(new_request_id(), trace_id, settings.ravis_client_credential)
     try:
         response = await client.post(
             entry.declaration.base_url + "/v1/chat/completions",
             json=payload,
-            headers=_forwarded(new_request_id(), trace_id, settings.ravis_client_credential),
+            headers=headers,
             timeout=TITLE_TIMEOUT_SECONDS,
         )
+        # **A refused pin is not a failed title.** The refusal *is* the answer to
+        # "may this model write it for free", and the answer was no — so ask the
+        # pool, which admits only models that cost nothing. One extra request,
+        # only on the path where the alternative was paying a frontier model to
+        # write six words, and it carries no tokens of its own.
+        if response.status_code == 422 and served:
+            response = await client.post(
+                entry.declaration.base_url + "/v1/chat/completions",
+                json={**payload, "model": TITLE_POOL},
+                headers=_forwarded(new_request_id(), trace_id,
+                                   settings.ravis_client_credential),
+                timeout=TITLE_TIMEOUT_SECONDS,
+            )
         if response.status_code >= 400:
             return
         body = response.json()

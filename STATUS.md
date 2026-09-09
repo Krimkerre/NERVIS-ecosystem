@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2716 tests, no network, no live service
+.venv/bin/pytest                      # part of 2718 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1133 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2716 passing across the four, conformance `PASS`.
+Expected: all clean, 2718 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16571,6 +16571,35 @@ when reusing the answering model) is untouched: it needs the same treatment and
 has not had it.
 
 RAVIS 1035 -> 1041.
+
+**And the second policy finding, the same way.** M4 promised every title
+generation carries §9.6.1's background marker; the code sent it only when
+nothing had been served, so a conversation answered by a frontier model had its
+title billed to that model — the exact failure NERVIS.md §7 names as worse than
+having no title.
+
+The comment defending that was careful and half wrong, and the half it got
+wrong was the expensive one. Measured against the running RAVIS rather than
+reasoned about:
+
+- **Marker plus a named local model is honoured.** `_is_paid` reads a local
+  model as free, so §9.6.1's refusal never fires. The pin holds, the resident
+  build writes the title, no second model loads — the whole reason the code
+  names the served model, preserved.
+- **Marker plus a named hosted model is refused**, `422 refused by policy`, no
+  tokens billed. Which is the protection that was missing.
+
+So the marker now goes on every title call, and a refused pin asks
+`ravis/cheap` instead — one extra request, carrying no tokens, on the one path
+whose alternative was paying a frontier model to write six words.
+
+One more thing the probe found on the way, **not yet fixed**: the marker binds
+only to an identified caller. The same request sent anonymously to RAVIS on
+loopback was answered and billed. §9.6.1's protection, and the privacy ladder
+beside it, do not apply to a caller who presents no credential — which is
+anyone on this machine.
+
+NERVIS 1133 -> 1135.
 
 ## Starting the thing
 

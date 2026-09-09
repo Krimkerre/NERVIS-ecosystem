@@ -3509,12 +3509,17 @@ def test_an_upload_with_no_conversation_is_refused(tmp_path: Path) -> None:
 
 # ── A title reuses the model that answered, and does not load a second ─────
 
-def _title_payloads(served: str) -> list[dict[str, Any]]:
-    """Run `_generate_title` against a fake RAVIS and return what it posted."""
+def _title_payloads(served: str, *, refuse: int = 0) -> list[dict[str, Any]]:
+    """Run `_generate_title` against a fake RAVIS and return what it posted.
+
+    `refuse` is how many of the first calls answer `422` — RAVIS's own reply
+    when a background-marked request names a model policy will not pay for.
+    """
     posted: list[dict[str, Any]] = []
 
     class _Reply:
-        status_code = 200
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
 
         @staticmethod
         def json() -> dict[str, Any]:
@@ -3525,7 +3530,7 @@ def _title_payloads(served: str) -> list[dict[str, Any]]:
         async def post(url: str, **kwargs: Any) -> Any:
             del url
             posted.append(kwargs["json"])
-            return _Reply()
+            return _Reply(422 if len(posted) <= refuse else 200)
 
     client = an_api()
     app = client.app
@@ -3557,14 +3562,51 @@ def test_a_title_asks_for_the_model_that_just_answered() -> None:
     assert posted[0]["model"] == "anthropic/claude-haiku-4.5"
 
 
-def test_a_pinned_title_does_not_carry_the_background_marker() -> None:
-    """The marker would undo the pin. §9.6.1 makes a background call refuse any
-    provider not known to be free, so a title aimed at the hosted model that
-    just answered is excluded by the very marker meant to protect it — and RAVIS
-    routes to a free local build, which is the second load again."""
-    posted = _title_payloads(served="anthropic/claude-haiku-4.5")
+def test_every_title_call_carries_the_background_marker() -> None:
+    """**NERVIS.md §7's rule, which this used to break on the pinned path.**
 
-    assert "background" not in str(posted[0].get("metadata") or {})
+    The marker was sent only when nothing had been served, on the reading that
+    it "cannot be sent alongside a named model". Measured against the running
+    RAVIS, that is half true, and the half it gets wrong is the expensive one: a
+    marker on a *local* model changes nothing, because `_is_paid` reads a local
+    model as free — while a marker on a *hosted* one refuses the call, which is
+    precisely the protection §7 asks for. Without it, a conversation answered by
+    a frontier model had its title billed to that model.
+    """
+    for served in ("anthropic/claude-haiku-4.5", ""):
+        posted = _title_payloads(served=served)
+
+        assert posted[0]["metadata"] == {"background": True}, (
+            f"a title call for {served or 'no known model'} went out unmarked"
+        )
+
+
+def test_a_refused_pin_asks_the_free_pool_rather_than_giving_up() -> None:
+    """The refusal *is* the answer to "may this model write it for nothing".
+
+    RAVIS answers `422 refused by policy` — no tokens billed — and the title
+    then goes to the pool, which admits only models that cost nothing. One extra
+    request, on the one path whose alternative was paying a frontier model to
+    write six words.
+    """
+    posted = _title_payloads(served="anthropic/claude-haiku-4.5", refuse=1)
+
+    assert len(posted) == 2, "a refused pin must be retried against the pool"
+    assert posted[0]["model"] == "anthropic/claude-haiku-4.5"
+    assert posted[1]["model"] == TITLE_POOL
+    assert posted[1]["metadata"] == {"background": True}, (
+        "the second call is still background work and still must say so"
+    )
+
+
+def test_a_refusal_with_no_model_named_is_not_retried() -> None:
+    """The falsifier for the retry. With nothing served the first call already
+    *is* the pool, so trying it again would be the same request twice — and a
+    refusal there is a policy that admits nothing, which asking twice will not
+    change."""
+    posted = _title_payloads(served="", refuse=1)
+
+    assert len(posted) == 1
 
 
 def test_with_nothing_served_the_marker_and_the_cheap_pool_still_apply() -> None:
