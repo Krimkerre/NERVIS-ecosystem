@@ -98,3 +98,34 @@ def test_the_suite_ignores_this_machine_s_config_directory() -> None:
     assert during != before, "the suite must not read the operator's config"
     assert not during.exists(), "and the path it uses must not exist"
     assert after == before, "and it must put the environment back"
+
+
+async def test_the_suite_cannot_reach_a_real_provider() -> None:
+    """**The gate must not spend the operator's money, or read their keys.**
+
+    It did both. The application registers Anthropic and Google whether or not a
+    key exists, so on a machine with keys configured the fixture's catalogue was
+    joined by real models, `ravis/clarvis-chat` preferred `claude-haiku` over the
+    fixture's own, and the suite posted a fixture-shaped request to Anthropic's
+    live API — `400: messages: at least one message is required`. The check
+    failed for a reason unrelated to the code it tests, the run took three and a
+    half minutes, and `ECOSYSTEM_RUNBOOK.md` §14.5 says no test reaches a live
+    model.
+
+    Asserted on the app the suite actually builds, because the failure was
+    invisible on a machine with no credentials — which is every machine the
+    author of a change is likely to be using.
+    """
+    from ravis.compatibility.clarvis import fixtures
+    from ravis.compatibility.clarvis.conformance import _app_against, _FixtureUpstream
+
+    app = _app_against(_FixtureUpstream(fixtures.PLAIN_CHAT, ("chat-only-model",)))
+
+    assert app.app.state.translating == {}, (
+        "a translated provider is reachable from the conformance app, so a pool "
+        "can prefer a real hosted model over the fixture's own"
+    )
+    store = app.app.state.credentials
+    assert store.names() == [], "the suite can see credentials stored on this machine"
+    for provider in ("anthropic", "google", "openai", "deepseek", "xai"):
+        assert not store.resolve(provider), f"{provider}'s key is visible to the suite"

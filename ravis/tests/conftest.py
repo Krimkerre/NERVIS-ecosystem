@@ -9,6 +9,7 @@ on any machine.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -74,8 +75,22 @@ def _no_keyring_writes_from_the_suite() -> Any:
     is thrown for the whole session rather than per fixture.
     """
     os.environ[KEYRING_SWITCH] = "0"
+    # **And the file the store would otherwise read**, which is the other half
+    # of the same boundary. With the operator's real keys visible, any test that
+    # builds the whole application gets pools full of real hosted models — and
+    # `test_transparent_proxy` and the Clarvis conformance suite both duly sent
+    # fixture-shaped requests to Anthropic's live API, failed on the reply, and
+    # spent the operator's money doing it. A ten-minute suite at 21% CPU is what
+    # that looks like from outside: waiting on the network, not computing.
+    held = tempfile.mkdtemp(prefix="ravis-tests-config-")
+    was = os.environ.get("XDG_CONFIG_HOME")
+    os.environ["XDG_CONFIG_HOME"] = held
     yield
     os.environ.pop(KEYRING_SWITCH, None)
+    if was is None:
+        os.environ.pop("XDG_CONFIG_HOME", None)
+    else:
+        os.environ["XDG_CONFIG_HOME"] = was
 
 
 def as_administrator(store: Any) -> dict[str, str]:

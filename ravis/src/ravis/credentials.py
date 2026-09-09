@@ -69,7 +69,8 @@ SECURITY_BIN = "/usr/bin/security"
 # absence is the ordinary case on a server with no session bus.
 SECRET_TOOL_BIN = "secret-tool"
 
-#: Set to `0`, `false` or `no` to keep credentials in the file. Exists for two
+#: Set to `0`, `false` or `no` to leave this machine's keyring alone entirely —
+#: not written, not deleted from, and not read. Exists for two
 #: reasons that are the same reason: a shared or headless machine where a
 #: keyring prompt has nobody to answer it, and this repository's own test suite,
 #: which drives the real store and would otherwise write into the operator's
@@ -256,10 +257,14 @@ class CredentialStore:
         # writing anything into the operator's login keychain — a credential
         # path nobody has ever run is not a credential path.
         self._keychain_path = keychain_path
-        # Reads are unaffected: a keyring an operator filled by hand stays a
-        # source whatever this says. Only writes are switched, because only
-        # writes touch a store outside this process's own directory.
-        self._keyring_writes = str(
+        # **Off means off — reads included.** This gated writes alone at first,
+        # on the reading that a keyring an operator filled by hand should stay
+        # readable. That left the switch unable to do the one job it was added
+        # for: a test suite that builds the real application still saw every
+        # credential on the machine, and pools full of real hosted models sent
+        # fixture-shaped requests to paid providers. "Do not use this machine's
+        # keyring" has to mean all of it, or it is not a boundary.
+        self._keyring_allowed = str(
             self._environment.get(KEYRING_SWITCH, "1")
         ).strip().lower() not in {"0", "false", "no", "off"}
 
@@ -409,7 +414,7 @@ class CredentialStore:
         break readers to say "Secret Service" on Linux — the source means "the
         platform's keyring" and the docstrings say which one that is.
         """
-        if not self._keychain:
+        if not self._keychain or not self._keyring_allowed:
             return None
         if sys.platform == "darwin":
             return self._from_keychain(name)
@@ -455,7 +460,7 @@ class CredentialStore:
         Returns False on every platform without a keyring tool, which is the
         ordinary case on a server and on Windows.
         """
-        if not self._keychain or not self._keyring_writes:
+        if not self._keychain or not self._keyring_allowed:
             return False
         if not self._write_command(name, secret):
             return False
@@ -518,7 +523,7 @@ class CredentialStore:
         depended on. An OpenAI key went missing that way, on the machine this was
         built on, with no copy left to restore from.
         """
-        if not self._keychain or not self._keyring_writes:
+        if not self._keychain or not self._keyring_allowed:
             return
         if sys.platform == "darwin" and shutil.which(SECURITY_BIN):
             command = [SECURITY_BIN, "delete-generic-password",

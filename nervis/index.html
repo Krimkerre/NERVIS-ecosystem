@@ -9455,6 +9455,29 @@ const POOLEDIT={
   this.render(key);
  },
 
+ /* **Narrows what is already ticked; never adds.** This is the second step
+    after Auto curate, not an alternative to it: curate decides which models
+    suit a pool, and this drops the closed-weight ones from that answer. Ticking
+    every open-weight candidate instead would undo curate's work — it would add
+    back models curate had judged unsuitable, purely because their weights are
+    published.
+
+    Per pool, because the answer differs by pool: somebody may want
+    `ravis/coding` held to models they can run themselves while `ravis/chat`
+    stays free to reach a hosted frontier one.
+
+    The checkbox above changes what is *shown* and this changes what the pool
+    *holds* — two controls on purpose, the same split the price slider has, so
+    that exploring a filter cannot quietly rewrite a selection. */
+ narrowToOpenWeights(key){
+  const st=this.state[key];
+  if(!st)return;
+  for(const id of [...st.on]){
+   if(!isOpenWeight(id,!st.remote.has(id)))st.on.delete(id);
+  }
+  this.render(key);
+ },
+
  paintPrice(key){
   const st=this.state[key];
   const row=document.getElementById(domId('pmp',key));
@@ -9572,6 +9595,7 @@ function poolRow(x,inv){
       oninput="POOLEDIT.search('${jsAttr(key)}',this.value)">
     <label class="picker-open mono" title="Models whose weights are published, so they can be run somewhere other than their vendor's API. Matched on the family in the id, and everything on this machine counts. Open weights, not necessarily an OSI licence — Llama and Gemma are open-weight under their own terms.">
       <input type="checkbox" onchange="POOLEDIT.setOpenOnly('${jsAttr(key)}',this.checked)"> open weights only</label>
+    <button class="btn" title="Drop the closed-weight models from what is currently ticked. Run it after Auto curate to keep this pool's curated answer, minus anything whose weights are not published. It never adds a model back, and it applies to this pool alone." onclick="POOLEDIT.narrowToOpenWeights('${jsAttr(key)}')">Narrow to open</button>
     <span class="mono dim" id="${domId('pmc',key)}">loading\u2026</span>
     <button class="btn" onclick="POOLEDIT.checkAll('${jsAttr(key)}',true)">All</button>
     <button class="btn" onclick="POOLEDIT.checkAll('${jsAttr(key)}',false)">None</button>

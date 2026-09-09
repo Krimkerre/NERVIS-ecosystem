@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2719 tests, no network, no live service
+.venv/bin/pytest                      # part of 2720 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2719 passing across the four, conformance `PASS`.
+Expected: all clean, 2720 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16672,7 +16672,28 @@ the migration backup was deleted once the migration verified clean. The switch
 now gates deletion the same way it gates writing, proved by a test that fails
 without it. The key was re-entered by hand.
 
-**Recorded, not fixed: `test_clarvis_conformance` calls the real Anthropic
+**Fixed the next day, and it was wider than one test.** The suite could see
+every credential on the machine, so *any* test building the whole application
+got pools full of real hosted models: `test_clarvis_conformance` and
+`test_transparent_proxy` both sent fixture-shaped requests to Anthropic's live
+API and failed on the reply. The tell was the clock — ten minutes and
+twenty-six seconds at 21% CPU, which is a suite waiting on a network rather than
+computing.
+
+Two changes, one boundary. `RAVIS_CREDENTIAL_KEYRING=0` now means *leave this
+machine's keyring alone* — not read, not written, not deleted from; it gated
+writes alone, which left it unable to do the job it was added for. And the
+suite's session fixture points `XDG_CONFIG_HOME` at a temporary directory, so
+the credential file is out of reach too. The conformance app additionally
+empties its translated providers, because `create_app` builds those with the
+real store already closed over and replacing the store afterwards does not
+unmake them.
+
+**1043 tests in 46 seconds, all green** — against 10:26 and three failures. A
+new test asserts the conformance app can see no credential at all, and fails if
+the translated providers come back.
+
+*Original note, kept because the reasoning is the finding:* `test_clarvis_conformance` called the real Anthropic
 API.** The suite builds the real application against a fixture upstream, and the
 application registers the translating adapters unconditionally — so on a machine
 with credentials configured, `ravis/clarvis-chat` prefers `claude-haiku` over

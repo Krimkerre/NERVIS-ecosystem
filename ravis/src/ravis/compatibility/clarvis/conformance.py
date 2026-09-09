@@ -33,6 +33,7 @@ from ravis.app import create_app
 from ravis.compatibility.clarvis import fixtures
 from ravis.compatibility.clarvis.contract import ReadStream, read_stream
 from ravis.config import Settings
+from ravis.credentials import CredentialFile, CredentialStore
 from ravis.pool_membership import PoolMembership
 from ravis.reliability import AttemptChain, HealthRegistry
 
@@ -175,6 +176,33 @@ def _app_against(upstream: _FixtureUpstream, capabilities: dict[str, dict[str, s
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)
+    # **No credential this machine happens to hold**, and the same argument as
+    # the pools note below: a suite that reads the operator's configuration
+    # certifies *this installation* rather than the build.
+    #
+    # This one was worse than a wrong verdict. The application registers its
+    # translated providers unconditionally — Anthropic and Google exist whether
+    # or not a key does — so on a machine with keys configured, the fixture's
+    # catalogue was joined by every real Anthropic model, `ravis/clarvis-chat`
+    # preferred `claude-haiku` over the fixture's own `chat-only-model`, and the
+    # suite sent a fixture-shaped request to Anthropic's live API. It came back
+    # `400: messages: at least one message is required`, which is the check
+    # failing for a reason that has nothing to do with the code under test.
+    #
+    # It also meant the release gate spent the operator's money and took three
+    # and a half minutes doing it — against ECOSYSTEM_RUNBOOK §14.5, which says
+    # no test reaches a live model.
+    app.app.state.credentials = CredentialStore(
+        allow_environment=False,
+        keychain=False,
+        file=CredentialFile(
+            Path(tempfile.gettempdir()) / "ravis-conformance-no-such-credentials.json"
+        ),
+    )
+    # Emptied rather than rebuilt: the adapters were constructed by `create_app`
+    # with the real store already closed over, so replacing the store above does
+    # not unmake them.
+    app.app.state.translating = {}
     app.app.state.upstream_client = httpx.AsyncClient(transport=upstream.transport())
     app.app.state.model_registry.use_client(app.app.state.upstream_client)
     # **Against the declared pools, not this operator's narrowed ones.**
