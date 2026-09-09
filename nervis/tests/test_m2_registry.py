@@ -1255,3 +1255,91 @@ def test_the_services_route_reports_code_server_as_unreachable() -> None:
     # demanding a detail there would be demanding an invention.
     assert editor[0]["state"] != "healthy"
     assert editor[0]["state"] in {"discovering", "unreachable", "stale", "stopped"}
+
+
+# ── A cold start, and the three seconds before a peer's port is open ─────────
+#
+# Measured on this machine across a restart: RAVIS was down for seven seconds
+# and NERVIS came back inside that gap, so its first sweep recorded
+# `unreachable — no response: ConnectError` for a service that answered three
+# seconds later. That is the same sentence a service somebody killed produces,
+# and the dashboard turns red for both.
+
+
+def _api_at(started_ago: float) -> Any:
+    """A stand-in for the app object `_still_starting` reads two fields from."""
+    from types import SimpleNamespace
+
+    from nervis.config import Settings
+
+    settings = Settings(database_path=":memory:", _env_file=None)  # type: ignore[call-arg]
+    import time as _time
+
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            settings=settings,
+            probe_started_at=_time.monotonic() - started_ago,
+        )
+    )
+
+
+def _entry(last_seen: float = 0.0) -> Any:
+    from nervis.registry import RegistryEntry
+
+    return RegistryEntry(declaration=RAVIS, last_seen=last_seen)
+
+
+UNREACHABLE = {"state": RegistryState.UNREACHABLE, "detail": "no response: ConnectError"}
+
+
+def test_a_peer_that_has_not_answered_yet_carries_no_reading_at_all() -> None:
+    """No reading, rather than a wrong one — and rather than a guess.
+
+    `discovering` is the state every entry is already in before anybody asks,
+    and it means "NERVIS has not established what this is yet", which is
+    exactly true of a peer whose port is not open three seconds into a cold
+    start. The detail stays empty on purpose: NERVIS cannot see that a peer is
+    *starting*, and a row saying so would be an invention.
+    """
+    from nervis.app import _still_starting
+
+    seen = _still_starting(_api_at(1.0), _entry(), dict(UNREACHABLE))
+
+    assert seen["state"] is RegistryState.DISCOVERING
+    assert seen["detail"] == "", "a state with no reading behind it must claim nothing"
+
+
+def test_a_peer_that_answered_once_and_stopped_is_a_real_outage() -> None:
+    """The clause that keeps this from being a blindfold.
+
+    `last_seen` is written by a successful probe, so a service that was up and
+    went away reads as unreachable whatever the clock says — which is the case
+    somebody actually needs to be told about.
+    """
+    from nervis.app import _still_starting
+
+    seen = _still_starting(_api_at(1.0), _entry(last_seen=123.0), dict(UNREACHABLE))
+
+    assert seen["state"] is RegistryState.UNREACHABLE
+
+
+def test_the_window_closes_on_the_clock() -> None:
+    """A grace period that never ended would be a registry that stopped working."""
+    from nervis.app import _still_starting
+    from nervis.config import Settings
+
+    window = Settings(database_path=":memory:", _env_file=None).startup_window_seconds  # type: ignore[call-arg]
+    seen = _still_starting(_api_at(window + 1), _entry(), dict(UNREACHABLE))
+
+    assert seen["state"] is RegistryState.UNREACHABLE
+
+
+def test_a_peer_that_answered_badly_is_not_called_a_slow_start() -> None:
+    """A 401 means the peer *answered*. Nothing about that is a startup race,
+    and calling it one would hide a rejected credential for thirty seconds."""
+    from nervis.app import _still_starting
+
+    refused = {"state": RegistryState.UNAUTHORIZED, "detail": "authentication rejected"}
+    seen = _still_starting(_api_at(1.0), _entry(), dict(refused))
+
+    assert seen["state"] is RegistryState.UNAUTHORIZED

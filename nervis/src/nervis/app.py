@@ -87,7 +87,13 @@ from nervis.errors import (
 from nervis.events import Hub
 from nervis.instances import Instances
 from nervis.probes import probe
-from nervis.registry import Registry, RegistryState, admissible, declared_services
+from nervis.registry import (
+    Registry,
+    RegistryEntry,
+    RegistryState,
+    admissible,
+    declared_services,
+)
 from nervis.storage import installation_identity, prepare_database
 from nervis.voice import VoiceCredential
 from nervis.voice import config_directory as voice_config_directory
@@ -492,8 +498,50 @@ async def refresh_registry(api: FastAPI) -> None:
             # exactly the failure §5.1's gate forbids.
             logger.exception("probe for %s raised", entry.key, exc_info=observation)
             continue
-        registry.record(entry.key, observation)
+        registry.record(entry.key, _still_starting(api, entry, observation))
     _announce_transitions(api, before)
+
+
+def _still_starting(
+    api: FastAPI, entry: RegistryEntry, observation: dict[str, Any]
+) -> dict[str, Any]:
+    """A peer that has never answered *yet*, while the stack is coming up.
+
+    **No reading yet, rather than a bad one.** The launcher starts five services
+    at once and NERVIS is one of them, so its first sweep regularly lands in the
+    two or three seconds before RAVIS has bound its port. Recorded plainly that
+    reads `unreachable — no response: ConnectError`, which is what a service
+    somebody killed also reads, and the dashboard turns red for a service that
+    is a moment from answering. Measured on this machine: RAVIS was down for
+    seven seconds across a restart, and NERVIS came back inside that gap.
+
+    Claiming the peer is *starting* would be an invention — NERVIS cannot see
+    that — and holding the last state would report a genuinely dead RAVIS as
+    fine, which is the one thing these surfaces must never do. So the entry
+    stays in the state it was already in before anybody asked: `discovering`,
+    with nothing to say, which is what "NERVIS has not established what this is
+    yet" means. The screen shows no reading rather than a wrong one, and the
+    voice holds its status line until every entry has one.
+
+    Narrow on purpose, and every clause earns its place:
+
+    - **Only `unreachable`.** A 401, a 500 or a bad protocol version means the
+      peer *answered*; nothing about that is a startup race.
+    - **Only a peer never seen in this process.** `last_seen` is set by a
+      successful probe, so a service that answered and then stopped is a real
+      outage and reads as one, whatever the clock says.
+    - **Only inside the startup window**, the same thirty seconds
+      `_next_interval` probes faster over and `_worth_saying` stays quiet for.
+      A peer that is still silent after that is unreachable and says so.
+    """
+    settings: Settings = api.state.settings
+    if observation.get("state") is not RegistryState.UNREACHABLE:
+        return observation
+    if entry.last_seen:
+        return observation
+    if time.monotonic() - api.state.probe_started_at > settings.startup_window_seconds:
+        return observation
+    return {"state": RegistryState.DISCOVERING, "detail": ""}
 
 
 def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:

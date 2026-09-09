@@ -57,6 +57,35 @@ then the library, then import, then export. **The workspace directory itself is
 not searched**: a layout with one place a stray file can sit and still work is a
 layout that is only advice, and the loose file is where everything ends up.
 
+### What a card shows, and where its explanation went
+
+Every card carries a paragraph in NERVIS's own voice — what it is, where the
+number came from, what it deliberately does not claim. Those paragraphs are
+still there and still say the same thing; they are folded behind a **?** in the
+corner of the card they belong to, and open on a click. A card whose whole body
+is the paragraph keeps it open, because folding that one leaves an empty card.
+Help attached to a particular control — the sentence under a settings switch —
+stays with its control.
+
+### A peer that has not answered yet
+
+The launcher starts five services at once and NERVIS is one of them, so its
+first sweep after a restart regularly lands in the seconds before RAVIS has
+bound its port. That reads as `unreachable — no response`, which is also what a
+service somebody killed reads as. So while NERVIS is inside its own startup
+window, a peer it has **never** reached in this process stays `discovering`
+with nothing to say, rather than being reported as an outage. Three clauses
+keep it honest: only a transport failure (a 401 or a 500 means the peer
+answered), only a peer never seen (`last_seen` makes a real outage a real
+outage), and only inside the window (after it, unreachable is unreachable).
+Measured across a restart: RAVIS was down for seven seconds, NERVIS came back
+inside that gap, and the row settled to healthy three seconds later.
+
+The spoken status line waits for the same thing: nothing is said until every
+service has been read at least once, so the sentence heard is the one that is
+true when it is heard. It names what is down and it quotes no count — "all
+services are up and well", never "all 4".
+
 ### Which screen the dashboard opens on
 
 A page load with no screen in its address opens on the tab this browser was
@@ -67,7 +96,10 @@ and opens on the overview, which is the screen that says what came up and what
 did not. A link with a screen in it always wins, because somebody who pasted
 one asked for that screen. Settings → Screen → "Open on the tab I used last"
 turns it off; the preference is `ui.remember_tab` and travels with a settings
-backup.
+backup. **Each app remembers its own screen too**: the top bar used to open
+every app on its first nav item, so a trip to the Clarvis editor and back
+landed on the overview rather than on the Files tab that was open a second
+ago.
 
 ### The Files tab
 

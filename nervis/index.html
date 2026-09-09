@@ -554,6 +554,27 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
   color:#eaf2fa}
 .entry.picked .glyph{color:var(--accent)}
 .entries:focus{outline:none}
+
+/* ── The explanation, behind a question mark ───────────────────────────────
+   Every card here carries a paragraph saying what it is, why it says what it
+   says, and what it deliberately does not claim. Those paragraphs are the
+   reason this dashboard can be trusted — and read end to end they are also
+   why a screen of six cards scrolls like a document. So they stay, in the
+   markup and in the page's own voice, one click away instead of always open. */
+.card{position:relative}
+.card>h3{padding-right:26px}
+.card>.help{position:absolute;top:9px;right:9px;width:17px;height:17px;padding:0;
+  border:1px solid var(--line);border-radius:999px;background:transparent;
+  color:#6f8093;font:600 10px/1 "SFMono-Regular",Consolas,monospace;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;opacity:.55;transition:.12s}
+.card:hover>.help{opacity:1}
+.card>.help:hover,.card>.help.on{border-color:var(--accent);color:var(--accent);opacity:1;
+  box-shadow:0 0 8px rgba(var(--rgb),.25)}
+.card small.help-body{margin-top:9px}
+/* `[hidden]` is a user-agent rule and loses to any author `display`, and half
+   the `small`s on this page are `display:block` — so the attribute was set and
+   the paragraph stayed on screen. */
+.card .help-body[hidden]{display:none}
 .entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
   font-variant-numeric:tabular-nums}
@@ -984,6 +1005,19 @@ let ROUTE_NOTE='';
 const LAST_TAB_KEY='nervis.tab';
 let NERVIS_BOOT='';
 
+/* **Each app remembers its own screen, not just the last one overall.** The
+   top bar is how somebody moves between NERVIS and the Clarvis editor, and it
+   opened every app on its first nav item — so going to Clarvis and back landed
+   on the overview rather than on the Files tab that was open a second ago,
+   which is the same "find your way back" this whole thing exists to remove. */
+const LAST_VIEW={};
+
+function tabView(app,views,remember){
+ const config=APP_CONFIG[app];
+ const held=remember&&views?views[app]:'';
+ return config.nav.includes(held)?held:config.nav[0];
+}
+
 function landing(opened,held,boot,remember){
  if(opened)return null;
  if(!remember||!boot||!held||held.boot!==boot)return null;
@@ -992,9 +1026,12 @@ function landing(opened,held,boot,remember){
 }
 
 function rememberTab(){
+ /* Filled whichever way the switch is set, because it costs nothing and the
+    switch is about what the page *does* with it. */
+ LAST_VIEW[state.app]=state.view;
  if(!NERVIS_BOOT||!USER.rememberTab)return;
- try{localStorage.setItem(LAST_TAB_KEY,
-   JSON.stringify({app:state.app,view:state.view,boot:NERVIS_BOOT}))}catch(e){}
+ try{localStorage.setItem(LAST_TAB_KEY,JSON.stringify(
+   {app:state.app,view:state.view,views:LAST_VIEW,boot:NERVIS_BOOT}))}catch(e){}
 }
 
 /* Read after the first paint rather than before it: this costs two local
@@ -1009,6 +1046,9 @@ async function restoreLastTab(opened){
  await USER.load();
  let held=null;
  try{held=JSON.parse(localStorage.getItem(LAST_TAB_KEY)||'null')}catch(e){}
+ /* The per-app map comes back with it, so the first hop to another app and
+    back lands where it left off rather than on that app's first screen. */
+ if(held&&held.views&&held.boot===NERVIS_BOOT)Object.assign(LAST_VIEW,held.views);
  const where=landing(opened,held,NERVIS_BOOT,USER.rememberTab);
  if(where&&(where.app!==state.app||where.view!==state.view)){
   go(where.app,where.view,{replace:true});
@@ -1115,7 +1155,7 @@ const REASON={
  unreachable:'no response on the configured endpoint',
  stale:'last response older than the detection interval',
  incompatible:'unsupported protocol major', unauthorized:'authentication rejected',
- stopped:'not running', discovering:'negotiating capabilities'};
+ stopped:'not running', discovering:'no reading yet'};
 /* Purpose-drawn icons, one per destination. Unicode had no honest mark for
    "runtime sets" or "providers", and a rail of near-identical geometry is not
    navigation. 16px grid, stroked in currentColor so the accent follows the app.
@@ -4197,14 +4237,14 @@ async function filesView(){
  wireFileActions();
 }
 
-/* Files go inside a room, so the workspace's own top level offers nothing — but
-   a share's top level is an ordinary directory and takes both. Its own function
-   because `filesView` was at the file's complexity ratchet and this is the part
-   that is a decision rather than a rendering. */
+/* **Both buttons, everywhere.** The workspace's own top level used to swap
+   them for a sentence explaining that files go inside a room — a paragraph
+   standing where two controls had been, on the one screen whose whole point is
+   not having to go somewhere else to move a file. New folder at the top level
+   makes a room, which is a thing somebody may well want; a file dropped there
+   is still refused, and says so in a toast at the moment it happens rather
+   than in a notice standing there all the time. */
 function filesActions(){
- if(!FILES_AT&&FILES_PLACE==='workspace'){
-  return '<small class="mono dim">Open a room to add or make something.</small>';
- }
  return '<button class="btn" id="newFolder">New folder</button>'
   +'<button class="btn primary" id="addFiles">Add files</button>'
   +'<input type="file" id="filePicker" multiple hidden>';
@@ -4672,6 +4712,93 @@ async function finishFileAction(outcome,said){
  await filesView();
 }
 
+/* ── The explanation, behind a question mark ───────────────────────────────
+   Every card ends in a paragraph in the page's own voice: what it is, where
+   the number came from, what it deliberately does not claim. Those paragraphs
+   are why anything here can be trusted, and read end to end they are also why
+   a screen of six cards scrolls like a document. So none of them are deleted —
+   they are folded behind a mark in the corner of the card they belong to.
+
+   **A pass over the rendered page rather than an edit to two hundred
+   templates.** The prose is already the last child of its card, always the
+   same shape, so one rule finds every one of them — including the cards nobody
+   has written yet. It also keeps the text in the DOM rather than behind a
+   fetch, so a reader can still find it with the browser's own search and the
+   checks that read a card's markup still see what it says.
+
+   Open cards stay open across a repaint, keyed by which card on which screen:
+   a poll every eight seconds that closed the paragraph somebody was reading
+   would be worse than not folding it at all. */
+const HELP_OPEN=new Set();
+
+function helpKey(title){return `${state.app}/${state.view}/${title.slice(0,48)}`}
+
+/* **Which text is an explanation rather than the card's content.** Long, dim,
+   and not attached to something in particular: a caption on a table row, the
+   help under a form control and the sentence an empty state is made of all
+   stay exactly where they are, because each of those explains *that thing*
+   rather than the card. Everything else is the paragraph this fold is for,
+   wherever in the card it was written. */
+const NOT_A_CARDS_PROSE='.table-row,.entry,label,.absent,.trace-step,.model,.lane';
+
+function cardProse(card){
+ return [...card.querySelectorAll('small.dim,p.dim')].filter(node=>
+   node.textContent.trim().length>120&&!node.closest(NOT_A_CARDS_PROSE));
+}
+
+/* A card whose whole body *is* the paragraph keeps it. Folding one leaves a
+   title, a question mark and nothing else — which is not a tidier card, it is
+   an empty one. */
+function hasBodyBesides(card,head,prose){
+ return [...card.querySelectorAll('*')].some(node=>node.children.length===0
+   &&node.textContent.trim()&&!head.contains(node)&&!prose.some(p=>p.contains(node)));
+}
+
+function foldCard(card){
+ if(card.dataset.helped)return;
+ const head=card.querySelector(':scope > h3');
+ const prose=cardProse(card);
+ if(!head||!prose.length||!hasBodyBesides(card,head,prose))return;
+ card.dataset.helped='1';
+ const key=helpKey(head.textContent.trim());
+ const mark=document.createElement('button');
+ mark.type='button';
+ mark.className='help';
+ mark.textContent='?';
+ const paint=()=>{
+  const open=HELP_OPEN.has(key);
+  prose.forEach(node=>{node.classList.add('help-body');node.hidden=!open});
+  mark.classList.toggle('on',open);
+  mark.setAttribute('aria-expanded',String(open));
+  mark.title=open?'Hide what this card is':'What this card is, and what it does not claim';
+ };
+ mark.onclick=event=>{
+  event.stopPropagation();
+  HELP_OPEN.has(key)?HELP_OPEN.delete(key):HELP_OPEN.add(key);
+  paint();
+ };
+ paint();
+ card.appendChild(mark);
+}
+
+/* Run after anything repaints the content region, which is more places than
+   `render()` — the Files tab, the notification centre and the chat all write
+   their own screens. An observer covers every one of them and every one added
+   later; `helped` keeps it idempotent, and the flag keeps this from watching
+   its own writes. */
+let FOLDING=false;
+function foldCards(){
+ if(FOLDING)return;
+ FOLDING=true;
+ try{$$('#content .card').forEach(foldCard)}finally{FOLDING=false}
+}
+
+(function(){
+ const region=document.getElementById('content');
+ if(!region||typeof MutationObserver!=='function')return;
+ new MutationObserver(foldCards).observe(region,{childList:true,subtree:true});
+})();
+
 /* Anything that is not the menu closes it: a stale menu floats over a list
    that has since repainted, and its items would act on a file that has moved.
    Bound once, at load, rather than per render — a listener added on every
@@ -4779,13 +4906,11 @@ function menuForEntry(row,rooms,places,here,count=1){
 }
 
 /* Right-clicking the empty space below a listing asks about the *place*, not
-   about a file. */
+   about a file. The same two verbs the header offers, so the menu and the
+   buttons never disagree about what is possible here. */
 function menuForHere(){
- const inside=FILES_AT||FILES_PLACE!=='workspace';
- return (inside
-   ?`<button data-act="newfolder">${glyph(ROOM_ICON.folder)}<span>New folder</span></button>`
-    +`<button data-act="addfiles">${glyph(ROOM_ICON.import)}<span>Add files…</span></button><hr>`
-   :'<button disabled>Open a room to add or make something</button><hr>')
+ return `<button data-act="newfolder">${glyph(ROOM_ICON.folder)}<span>New folder</span></button>`
+  +`<button data-act="addfiles">${glyph(ROOM_ICON.import)}<span>Add files…</span></button><hr>`
   +`<button data-act="refresh">${glyph(ICON.Runtime)}<span>Refresh</span></button>`;
 }
 
@@ -5906,6 +6031,25 @@ const VOICE_PREVIEW='RAVIS has been failing over to cloud for eleven minutes. Sh
    from this list on purpose. */
 const FAULTS=['unreachable','refused','no_credential','no_voice','daily_cap'];
 
+/* **Which entries the spoken status line is about.** The local runtimes are
+   left out: they get their own sentence, and counting them here named them
+   twice — "LM Studio and Ollama are not answering; the rest are up. LM Studio
+   and Ollama are down." They are model providers rather than services anyway,
+   which is how the ecosystem map already treats them: one bundled node, not
+   two rows on the ring. An optional peer nobody installed is left out for the
+   older reason — absent is not broken. */
+function counted(items){
+ return (items||[]).filter(e=>e.awaiting_first_contact!==true
+   &&e.key!=='lmstudio'&&e.key!=='ollama');
+}
+
+/* Whether anything still has no reading behind it, which is the whole of the
+   cold-start problem: a status line spoken here is a report about a moment
+   that has already passed. */
+function unsettled(items){
+ return counted(items).some(e=>e.state==='discovering');
+}
+
 const SPEECH={
  /* What the service says is in force, re-read whenever a screen paints. Held
     rather than fetched per utterance: mute must be honoured immediately, and a
@@ -5969,6 +6113,15 @@ const SPEECH={
     register is the persona's; the numbers are the registry's. */
  welcome(items){
   if(!this.announcing()||this.welcomed)return;
+  /* **Nothing is said until every service has been read at least once.** The
+     launcher starts five services at once, so a dashboard opened during a
+     restart hears "RAVIS is not answering" about a service that answers three
+     seconds later — a status report about a moment that has already passed.
+     `discovering` is NERVIS's word for "no reading yet", and it cannot last:
+     the probe loop settles every entry inside its startup window, one way or
+     the other. So this returns and is called again on the next poll, and the
+     line that is finally spoken is the one that is true when it is heard. */
+  if(unsettled(items))return;
   this.welcomed=true;
   /* **Held until the page has been touched.** A browser refuses to play audio
      before a user gesture, and a freshly loaded dashboard has had none — so
@@ -5999,20 +6152,24 @@ const SPEECH={
  },
 
  welcomeLine(items){
-  /* **The local runtimes are left out of the count.** They get their own
-     sentence, and counting them here named them twice — "LM Studio and Ollama
-     are not answering; the rest are up. LM Studio and Ollama are down." They
-     are model providers rather than services anyway, which is how the ecosystem
-     map already treats them: one bundled node, not two rows on the ring. */
-  const live=(items||[]).filter(e=>e.awaiting_first_contact!==true
-    &&e.key!=='lmstudio'&&e.key!=='ollama');
+  /* `counted()` above says what is left out and why. **An entry with no
+     reading yet is left out here too**, so a line composed while something is
+     still `discovering` describes what it does know rather than reporting a
+     service NERVIS has not managed to ask about as one that is not answering.
+     `welcome()` holds the line until nothing is in that state at all; this is
+     the same rule for the paths that do not. */
+  const live=counted(items).filter(e=>e.state!=='discovering');
   const well=live.filter(e=>e.state==='healthy');
   const off=live.filter(e=>e.state!=='healthy'&&e.state!=='degraded');
   const soft=live.filter(e=>e.state==='degraded');
   let line;
-  /* "All 1 services are up and well" is what counting without checking reads
-     like on a machine with one service answering. */
-  const all=live.length===1?'The one service is':`All ${live.length} services are`;
+  /* **No count.** "All 4 services are up and well" invites the listener to
+     check the number against what they think is running, and the number is the
+     part most likely to be wrong from their side — a peer NERVIS was never told
+     about is not in it, and a runtime is deliberately not counted here at all.
+     The sentence is about whether anything is wrong, so it says that and stops.
+     It also removes the "All 1 services" case that needed its own wording. */
+  const all='All services are';
   if(!live.length)line='Systems online, sir. Nothing is reporting in yet.';
   else if(off.length)
    line=`Good ${partOfDay()}, sir. ${off.map(e=>e.label).join(' and ')} `
@@ -13578,7 +13735,8 @@ addEventListener('keydown',e=>{if(e.key==='Escape')setZen(false)});
 const goHome=()=>{setZen(false);go('nervis','Overview')};
 $('#brandHome').onclick=goHome;
 $('#brandHome').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();goHome()}};
-$$('.tab').forEach(t=>t.onclick=()=>{setZen(false);go(t.dataset.app,APP_CONFIG[t.dataset.app].nav[0])});
+$$('.tab').forEach(t=>t.onclick=()=>{setZen(false);
+ go(t.dataset.app,tabView(t.dataset.app,LAST_VIEW,USER.rememberTab))});
 
 /* Resolve the address *before* the first paint, not after it.
    `applyTheme()` reads `APP_CONFIG[state.app]` with no guard and `render()`

@@ -58,6 +58,19 @@ async function drawn(payload) {
   return String((content && content.innerHTML) || "");
 }
 
+/* The two controls live above the listing rather than in it, so they are read
+   from their own sink. */
+async function actionsOf(payload) {
+  const page = pageWith(payload);
+  const { exported, elements } = page;
+  exported.state.app = "nervis";
+  exported.state.view = "Files";
+  await exported.filesView();
+  if (exported.stopPolling) exported.stopPolling();
+  const actions = elements.get("sel:#pageActions");
+  return String((actions && actions.innerHTML) || "");
+}
+
 async function main() {
   const failures = [];
 
@@ -253,6 +266,17 @@ async function main() {
   }
 
   /* An unconfigured workspace is a state to render, not an empty table. */
+  /* The header keeps both controls wherever it is: the workspace's own top
+     level used to swap them for a sentence saying files go inside a room, and
+     a paragraph standing where two buttons had been is not a tidier screen. */
+  const atTop = await actionsOf(listing("", ROOMS.map((name) => ({
+    name, path: name, kind: "folder", bytes: 0, modified: 1e9, readable: false,
+  }))));
+  if (!/id="newFolder"/.test(atTop) || !/id="addFiles"/.test(atTop)) {
+    failures.push("the top of the workspace offered no way to make a folder or "
+      + "add a file — the two things this tab exists for.");
+  }
+
   const off = await drawn({ items: [], path: "", detail: "Set NERVIS_WORKSPACE_PATH to …" });
   if (!/NERVIS_WORKSPACE_PATH/.test(off)) {
     failures.push("an unconfigured workspace drew no explanation, so an install "

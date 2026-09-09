@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2706 tests, no network, no live service
+.venv/bin/pytest                      # part of 2710 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1129 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1133 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2706 passing across the four, conformance `PASS`.
+Expected: all clean, 2710 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16354,6 +16354,74 @@ rather than trusting the description.
 rendered faded is the screen calling its own data invented. It derives the mark
 from whether the read happened rather than hardcoding it, which keeps the
 liveness ratchet at its ceiling of 49 instead of spending the last two.
+
+## A peer that has not answered yet, and a card that has stopped explaining
+## itself out loud — 2026-09-09
+
+**"RAVIS still reports as unresponding when the stack reboots, and recovers
+later."** Measured rather than guessed, by sampling both ends once a second
+across a restart: RAVIS was genuinely down for seven seconds, NERVIS came back
+inside that gap, and its first sweep recorded `unreachable — no response:
+ConnectError` for a service that answered three seconds later. That is the same
+sentence a service somebody killed produces.
+
+The suggestion on the table was a delay. A delay would have reported a
+genuinely dead RAVIS as fine, which is the one thing these surfaces must never
+do — so the fix is narrower: while NERVIS is inside its own startup window, a
+peer it has **never reached in this process** stays in the state it was already
+in, `discovering`, with an empty detail. No claim that it is "starting", which
+NERVIS cannot see; no reading at all, which is the truth. Three clauses keep it
+from becoming a blindfold — only a transport failure, only a peer with no
+`last_seen`, only inside the window — and each has its own test. Verified live
+on the next restart: the row read `discovering` for three seconds and then
+`healthy`, with no red in between.
+
+**The spoken status line waits for the same thing.** It is heard once, by
+somebody looking at something else, and cannot be scrolled back to — so a
+sentence that was true three seconds ago is a worse problem here than on
+screen. `welcome()` now returns without speaking while anything is still
+`discovering` and is called again on the next poll; the probe loop guarantees
+every entry settles inside the window, so the hold cannot become silence.
+`voice_check.js` drives it rather than reading it, because the failure being
+prevented is a line that *is* spoken.
+
+**And it stopped counting.** "All 4 services are up and well" invites the
+listener to check a number against what they think is running, and the number
+is the part most likely to disagree — an uninstalled optional peer is not in
+it, and the local runtimes are deliberately counted somewhere else entirely.
+"All services are up and well" says the thing the sentence is for.
+
+**Every card's explanation moved behind a ? in its corner.** Two hundred and
+seven paragraphs, none deleted: they are why anything on this dashboard can be
+trusted, and read end to end they are also why a screen of six cards scrolled
+like a document. One pass over the rendered page rather than an edit to two
+hundred templates — the prose is always the same shape, so one rule finds every
+one of them including the cards nobody has written yet, and the text stays in
+the DOM where the browser's own search and the checks that read a card's markup
+can still see it. A card whose whole body *is* the paragraph keeps it, because
+folding that one leaves a title, a question mark and nothing else. Open cards
+stay open across the eight-second poll, keyed by screen and title.
+
+Two things caught while building it, both by looking rather than by a test:
+`[hidden]` is a user-agent rule and loses to any author `display`, and half the
+`small`s on this page are `display:block` — so the attribute was set and the
+paragraphs stayed on screen. And the Files tab had been swapping its two
+buttons for a sentence explaining that files go inside a room, which is a
+paragraph standing where two controls belong; both buttons are now always
+there, and a file dropped at the top level still says no at the moment it
+happens.
+
+**The tab memory needed a second half.** Reported: "opened the file browser,
+went to clarvis, went back to nervis, and it landed on the dashboard." The
+top bar opened every app on its first nav item, so the memory only ever worked
+across a reload. Each app now remembers its own screen, restored with the rest
+of the record, and `tabView()` is a function so the router check can assert the
+fallback for a view that no longer exists.
+
+`files_check.js` and the new `voice_check.js` joined the clean-clone gate list,
+which `files_check.js` had never been added to.
+
+NERVIS 1129 -> 1133.
 
 ## Starting the thing
 

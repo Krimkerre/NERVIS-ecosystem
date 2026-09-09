@@ -120,6 +120,32 @@ if (landed(null, null, BOOT, true) || landed(null, held, "", true)) {
     + "compare against, landed somewhere other than the dashboard.");
 }
 
+/* 6 · **A top-bar tab opens the screen you were last on in that app.** The bar
+ * is how somebody moves between NERVIS and the editor, and opening every app
+ * on its first nav item means the trip back lands on the overview rather than
+ * on the Files tab that was open a second ago — the same "find your way back"
+ * the memory exists to remove. A view that no longer exists falls back rather
+ * than blanking the page. */
+const views = { nervis: "Files", clarvis: "Nonexistent" };
+const opens = (app, remember) =>
+  run(`tabView(${JSON.stringify(app)},${JSON.stringify(views)},`
+    + `${JSON.stringify(remember)})`);
+
+if (opens("nervis", true) !== "Files") {
+  failures.push("switching back to an app opened its first screen instead of "
+    + "the one that was open in it a moment ago.");
+}
+if (opens("clarvis", true) !== exported.APP_CONFIG.clarvis.nav[0]) {
+  failures.push("a remembered screen that no longer exists was opened anyway, "
+    + "which is the address-bar failure this file's other half is about.");
+}
+if (opens("nervis", false) !== exported.APP_CONFIG.nervis.nav[0]) {
+  failures.push("the switch was off and the tab reopened a remembered screen.");
+}
+if (opens("sirvis", true) !== exported.APP_CONFIG.sirvis.nav[0]) {
+  failures.push("an app with nothing remembered did not open its first screen.");
+}
+
 if (!checked) {
   console.error("no screens were checked — that is a fault in this check.");
   process.exit(1);
