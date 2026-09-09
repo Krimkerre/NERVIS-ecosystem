@@ -156,35 +156,29 @@ class TargetHealth:
         if ttft is not None:
             self.ttft_samples.append(ttft)
 
-    def probe_ended(self) -> None:
-        """Release a half-open probe this attempt claimed but did not judge.
-
-        `AttemptChain.begin` claims an attempt on **both** the model and the
-        provider, so both may be left `probing`. A failure blames only one of
-        them — and the other has to be released here, or the circuit latches:
-        `allows()` is False while probing, only a success clears it, and no
-        success can arrive while `allows()` is False. Terminal for the process,
-        and reached most easily on the recovery path, since a half-open probe is
-        by definition the first request sent to a provider that was just down.
-        """
-        self.probing = False
-
     def blamed_elsewhere(self, failure_class: FailureClass) -> None:
         """Count an attempt that failed for somebody else's reason, and let go.
 
-        **Releasing the probe was all this used to do, and the count was lost
-        with it.** An attempt is claimed on both the model and the provider;
-        when the provider is to blame, the model's record kept the `requests`
-        but recorded no failure — so a model behind an unreachable provider read
-        `2 requests, 0 successes, error_rate 0.0`. That confident zero is the
-        exact reading `error_rate` refuses to give for a target nobody has
-        called, handed instead to one that has never worked.
+        **Releasing the probe was all this used to do — as `probe_ended` — and
+        the count was lost with it.** An attempt is claimed on both the model
+        and the provider; when the provider is to blame, the model's record kept
+        the `requests` and recorded no failure, so a model behind an unreachable
+        provider read `2 requests, 0 successes, error_rate 0.0`. That confident
+        zero is the exact reading `error_rate` refuses to give for a target
+        nobody has called, handed instead to one that has never worked.
 
         So the class is counted here and nothing else is: no `last_failure`, no
         `consecutive_failures`, no latency sample, no breaker. Those are blame,
         and the blame belongs to the other scope — a model must not be dropped
         from routing because its runtime was down, and its latency figures must
         not be shifted by attempts that never reached it.
+
+        **Releasing `probing` is still the load-bearing half.** Both records may
+        be left probing, only one is judged, and an unreleased probe latches the
+        circuit: `allows()` is False while probing, only a success clears it,
+        and no success can arrive while `allows()` is False. Reached most easily
+        on the recovery path, since a half-open probe is by definition the first
+        request sent to a provider that was just down.
         """
         name = failure_class.value
         self.failures_by_class[name] = self.failures_by_class.get(name, 0) + 1
