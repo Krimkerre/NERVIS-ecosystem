@@ -345,6 +345,7 @@ class RoutingEngine:
             _load_would_not_amortise(expected_session_requests, memory),
             policy.prefers_cheap,
             _reasoning_note(eligible, reasoning or {}, requirements.output_budget),
+            remote,
         )
         return decision
 
@@ -972,6 +973,7 @@ def _selection_reason(
     short_session: bool = False,
     budget_leans_cheap: bool = False,
     reasoning_note: str = "",
+    remote: frozenset[str] = frozenset(),
 ) -> str:
     """Say honestly why the winner won.
 
@@ -1000,8 +1002,19 @@ def _selection_reason(
             f"preferred over one that must be loaded (§12.2)"
         )
 
+    # **A hosted model has no residency, and saying it does is a false cost.**
+    # This read `residency.known` alone, so a cloud model — `UNKNOWN` by
+    # definition, because a provider's API has no notion of being loaded —
+    # produced "not currently loaded; using it will cost a load" about a
+    # network call. `_reach_rank` had already learned this and says so at
+    # length: "a remote model is not a cold one, and treating them alike was
+    # the switchboard's central error". The ranking was fixed and the sentence
+    # explaining it was not, which is how the two came to contradict each other
+    # a few hundred lines apart.
     state = residency.state_of(selected)
-    if state in (Residency.HOT, Residency.WARM):
+    if selected in remote:
+        parts.append("hosted, so there is no load to pay — one network round trip")
+    elif state in (Residency.HOT, Residency.WARM):
         parts.append(f"already loaded ({state.value}), so no load is required")
     elif residency.known:
         parts.append(f"not currently loaded ({state.value}); using it will cost a load")

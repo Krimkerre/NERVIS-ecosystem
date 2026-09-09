@@ -16853,6 +16853,38 @@ note's reason matched on the raw state, so a "connected" group would have found
 no members and filed *"state moved from  to connected"* — a sentence about this
 function's own vocabulary, with a hole in it.
 
+## Two contradictions a few hundred lines apart, and a gap nobody had written
+## down — 2026-09-09
+
+**"Using it will cost a load", said about a hosted model.** The operator read
+their own route explanation and noticed: cold start is not a thing an API has.
+`_reach_rank` had already learned this the hard way and says so at length —
+*"a remote model is not a cold one, and treating them alike was the
+switchboard's central error"*, from when every cloud model's `UNKNOWN` residency
+tied with `COLD` and RAVIS believed a network call cost about as much as loading
+seventy billion parameters off disk. The **ranking** was fixed then. The
+**sentence explaining the ranking** was not, so the two contradicted each other
+in the same file, and the one a person reads was the wrong one. A hosted model
+now says what is true: no load to pay, one network round trip.
+
+**And the measurement gap underneath the question.** Asked whether a model that
+is never selected can ever be measured, which is the exploration trap stated
+exactly. RAVIS already guards half of it — an unmeasured model sorts *neutral*
+rather than last, with the comment naming the loop it avoids: never chosen,
+never measured, never chosen.
+
+The half nobody had written down: **SIRVIS cannot benchmark a hosted model.** It
+drives local runtimes only, and load time, memory pressure and thermal readings
+do not exist for an API. So a local model nobody has used can be measured on
+purpose, and a hosted one can only be measured by being used — and in a pool
+that ranks on speed, anything already measured under a second beats the neutral
+placeholder, which can keep an untried hosted model untried indefinitely.
+
+Recorded in `RAVIS.md` and in chat's knowledge rather than closed silently:
+closing it means either spending money on unproven models automatically or
+asking a person, and both are decisions rather than defaults. The operator chose
+a switch — two, nested — which is the next piece of work.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

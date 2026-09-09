@@ -715,6 +715,18 @@ above a sample floor — an unmeasured model sorts *neutral*, because RAVIS only
 measures a model by routing to it and sorting unmeasured last is a trap that
 closes.
 
+**What that leaves open, for hosted models.** A local model nobody has routed to
+can still be measured deliberately: SIRVIS loads it and benchmarks it. A hosted
+one cannot — SIRVIS drives local runtimes only, and most of what it measures
+(load time, memory pressure, thermal) does not exist for an API. So production
+traffic is the *only* way a hosted model acquires timings, and in a pool where
+speed leads the ranking, anything already measured under a second beats the
+neutral placeholder — which can keep an untried hosted model untried
+indefinitely. The neutral sort stops the loop in pools that rank on something
+else, and does not close it here. Recorded rather than fixed: closing it means
+either spending money on unproven models automatically, or asking a person to
+choose, and both are decisions rather than defaults.
+
 **And `prefer fast` is consulted before a pool's declared preference**, which is
 a trap of its own for a pool that has one. Any model RAVIS happens to have timed
 jumps ahead of the families the pool declared, so a curated pool (§5.1.1) either

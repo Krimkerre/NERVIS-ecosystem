@@ -257,6 +257,26 @@ configured for the calling application, never from the request. A request may
 tighten privacy and nothing else, so no client can grant itself a provider by
 asking.
 
+## How a model gets measured, and which ones never do
+
+RAVIS times every request it routes and keeps a median per model, but only ranks
+on the ones with enough samples to mean it — a model with two samples is treated
+as unmeasured rather than as slow. An unmeasured model sorts in the *middle*
+rather than last, deliberately: sorting it last would close the loop of never
+chosen, never measured, never chosen.
+
+**That guard is weaker for hosted models than for local ones.** A local model
+nobody has used can be measured on purpose — SIRVIS loads it and benchmarks it.
+A hosted one cannot: SIRVIS drives local runtimes only, and load time, memory
+pressure and thermal readings do not exist for an API. So a hosted model is
+measured only by being used, and in a pool that ranks on speed — `ravis/fast`,
+`ravis/balanced` — anything already measured under a second beats the neutral
+placeholder, so an untried hosted model can stay untried.
+
+Known and written down rather than fixed automatically: routing to unproven
+models to collect timings spends real money, which is a decision rather than a
+default.
+
 ## Known limits, as of this writing
 
 The management API is **degraded**: reads work, and pool-membership and
