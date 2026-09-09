@@ -16462,13 +16462,22 @@ clutter rather than removing it. What somebody opens stays open across a
 repaint, because a screen that shut the section being read every time a poll
 landed would be worse than one that never folded.
 
-## The webview service-worker error is the preview browser, not the editor
-## — 2026-09-09
+## The webview service-worker error is the preview browser — again, and this
+## time written where it will be found — 2026-09-09
 
 Seen in the Clarvis tab: *"Error loading webview: Could not register service
-worker … An unknown error occurred when fetching the script."* Chased to the
-end, because a webview failing is the Clarvis panel failing, and the tab exists
-for that panel.
+worker … An unknown error occurred when fetching the script."*
+
+**This was already known and was re-derived from scratch**, which is the more
+useful half of this entry. Stage 9 settled it on 30 August — "registration
+fails for *every* script, so service workers are blocked in that agent and no
+webview of any kind can load. A browser-axis fact, not a verdict" — and proved
+the panel works by driving Firefox. That finding lived in an entry about
+conformance cells, under a heading about Firefox, where nobody diagnosing *this
+symptom* would look, so the same hour was spent twice. It is now in
+`knowledge/nervis.md`, which is what chat answers from, and as a comment in
+`api/code.py`, which is the first file anyone opens when the word "webview"
+turns up next to the word "proxy".
 
 **Not NERVIS's proxy.** The failing URL names port 8080 — code-server's own
 address — so the frame was not proxied at all when it happened, which is the

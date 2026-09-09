@@ -48,6 +48,14 @@ proxy = APIRouter(prefix="/code", tags=["code"])
 #: (RFC 9110 §7.6.1). `host` is separate below because httpx sets it from the
 #: URL and forwarding the browser's would tell code-server it is answering on
 #: NERVIS's port, which is how a base-path rewrite goes wrong.
+# **"Could not register service worker" in a webview is not this file.** It has
+# been chased twice now — once on 30 August against the conformance cells, once
+# on 9 September against these headers — and both times the answer was the
+# browser doing the looking. The tell is that registration fails identically for
+# a missing path, a file served as HTML and the real script, where a browser
+# that supports service workers distinguishes all three; the script itself
+# answers 200 with `text/javascript`, framed or not, proxied or not. Firefox and
+# Chrome both load the webviews. Some embedded browsers forbid the API outright.
 HOP_BY_HOP = frozenset({
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailer", "transfer-encoding", "upgrade",
