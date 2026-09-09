@@ -4283,7 +4283,12 @@ function viewableName(name){
 function whenShort(seconds){
  const at=new Date((Number(seconds)||0)*1000);
  if(!Number.isFinite(at.getTime()))return '—';
- return at.toLocaleString(undefined,{month:'short',day:'numeric',
+ /* `[]` rather than `undefined` for "whatever locale the browser has". Both
+    mean the same thing to `toLocaleString`, and the literal `undefined` is the
+    one `tools/check.py` refuses on sight — because the eight characters
+    reaching a screen is a real bug this page has had, and a rule that has
+    caught it is worth more than a stylistic preference here. */
+ return at.toLocaleString([],{month:'short',day:'numeric',
    hour:'2-digit',minute:'2-digit'});
 }
 
