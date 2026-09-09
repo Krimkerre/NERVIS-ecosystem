@@ -21,16 +21,6 @@ outvoted by a good score — the candidate is never in the running.
 with its reason. Model-scoped and provider-scoped are separate, so one dead
 model does not take its provider's other models with it.
 
-Counting a failure and blaming one are also separate, and the health screen
-shows both. An attempt that dies at the provider — the runtime is not running,
-the connection never opens — is counted against the model it was aimed at *and*
-against the provider, so a model that has never worked reads as never having
-worked; but only the provider's breaker moves, because a model must not be
-dropped from routing over its runtime being down. A wrong API key moves neither:
-`authentication` is counted on both rows and blamed on neither, since a
-credential is configuration somebody can fix in a minute rather than an outage
-to route around. Timing is only ever recorded for the target actually
-responsible, so a connection that never opened cannot make a model look slow.
 
 **3. Ranking, in this order.** Session affinity first — a conversation stays on
 one model for consistency and prompt caching. Then whether the request would pay
@@ -42,6 +32,22 @@ because "smaller is cheaper" is a tiebreak, not a ranking.
 **4. The attempt chain.** The ranked list is walked in order. If the first
 choice fails, the next is tried, and every attempt is recorded with its outcome
 and elapsed time.
+
+### What the health screen counts, and what it blames
+
+Counting a failure and blaming one are separate, and `/api/v1/health` shows
+both. An attempt that dies at the provider — the runtime is not running, the
+connection never opens — is counted against the model it was aimed at *and*
+against the provider, so a model that has never worked reads as never having
+worked rather than as error-free. Only the provider's circuit breaker moves,
+because a model must not be dropped from routing over its runtime being down.
+
+A wrong API key moves neither breaker: `authentication` is counted on both rows
+and blamed on neither, since a credential is configuration somebody can fix in a
+minute rather than an outage to route around.
+
+Timing is recorded only for the target actually responsible, so a connection
+that never opened cannot make a model look slow.
 
 ## What it optimises for
 
@@ -188,13 +194,17 @@ opinion about RAVIS's own health — and it is now a route-level regression
 test rather than only a code comment: overflow the publisher's buffer against
 a collector that refuses every request, and readiness still reads true.
 
-**Events outlive a hub outage rather than being retried into one.** Each
-service buffers what it could not publish, up to a fixed number, and drops the
-*oldest* when full — the newest events are the ones somebody is looking at — and
-counts what it dropped so a gap is visible rather than silent. When the hub
-answers again the buffer is sent in order, and each event carries an id derived
-from what it describes rather than minted per attempt, so a re-send arrives at
-the hub as the same event rather than as a second one.
+
+### What happens to events while the hub is unreachable
+
+Events outlive a hub outage rather than being retried into one. Each service
+buffers what it could not publish, up to a fixed number, and drops the *oldest*
+when that fills — the newest events are the ones somebody is looking at — and
+counts what it dropped, so a gap in the timeline is visible rather than silent.
+
+When the hub answers again the buffer is sent in order, and each event carries
+an id derived from what it describes rather than minted per attempt, so a
+re-send arrives as the same event rather than as a second one.
 
 ## What an operator can ask it for
 
