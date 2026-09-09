@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 from nervis import bridges, commands, situation
 from nervis import chat as store
-from nervis.api.chat import _house_system
+from nervis.api.chat import _turn_context
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import (
     TITLE_POOL,
@@ -149,6 +149,35 @@ def an_api(stream: list[bytes] | None = None, *, status: int = 200,
 
 def turn(client: TestClient, content: str, **extra: Any) -> httpx.Response:
     return client.post("/api/v1/chat", json={"content": content, **extra})
+
+
+def told(call: dict[str, Any]) -> str:
+    """Everything the model was given on one turn, wherever NERVIS put it.
+
+    **Not the system message any more.** Until 9 September 2026 the clock, the
+    recalled conversations and the live readings all opened the system prompt,
+    and every assertion below read `messages[0]["content"]` because that is
+    where they were. They now ride on the question instead, at the very end of
+    the request -- prompt caching hashes a request from its first byte, so a
+    block that changes every turn sitting in front of the conversation meant no
+    provider could ever reuse any of it.
+
+    So these tests now ask the question they were always really asking: *was
+    the model told this?* Where NERVIS chooses to put it is the implementation
+    detail that just changed, and pinning it here would only make the suite
+    hostile to the next such fix.
+
+    The property this stops asserting is asserted directly instead, by the two
+    tests under "Nothing per-turn in the cached half" -- without them, moving
+    the readings back into the system prompt would pass every test in this file
+    while quietly costing real money.
+    """
+    messages = call["messages"]
+    spoken = messages[-1]["content"]
+    if isinstance(spoken, list):
+        spoken = " ".join(part.get("text", "") for part in spoken if part.get("type") == "text")
+    system = messages[0]["content"] if messages[0].get("role") == "system" else ""
+    return f"{system}\n\n{spoken}"
 
 
 # ── The store (§7.2) ────────────────────────────────────────────────────────
@@ -609,7 +638,7 @@ def test_an_ordinary_turn_is_told_what_the_ecosystem_is_doing() -> None:
 
     turn(client, "is sirvis up?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "services (" in system
     # Named, with the state as the registry recorded it — not a summary of how
     # many are up, which is what a model would then have to guess *from*.
@@ -640,7 +669,7 @@ def test_the_live_reading_does_not_claim_to_be_the_only_source() -> None:
 
     turn(client, "is sirvis up?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "These are the only ecosystem facts you have" not in system
     assert "the only *live* source" in system
     assert "If neither source carries what you were asked for" in system
@@ -659,7 +688,7 @@ def test_the_reading_is_fenced_and_a_service_detail_cannot_end_the_fence() -> No
 
     turn(client, "anything wrong?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     # **Markers come in pairs, and there may be more than one pair.** This
     # asserted exactly two until §16 item 8 fenced the background notes as well,
     # so a prompt carrying both a reading and those notes now has four. What
@@ -685,7 +714,7 @@ def test_a_greeting_is_not_handed_the_figures() -> None:
 
     client.post("/api/v1/chat", json={"greeting": True})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert FENCE not in system
     # It still reaches the browser, which prints it rather than speaking it.
 
@@ -709,7 +738,7 @@ def test_a_figure_that_cannot_be_read_is_left_out_of_the_reading() -> None:
 
     turn(client, "how many models?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "models:" not in system
     # The half that could be read still travels.
     assert "services (" in system
@@ -736,7 +765,7 @@ def test_a_failure_travels_with_what_it_said() -> None:
 
     turn(client, "anything wrong?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "ravis.request.failed" in system
     assert "upstream returned 503" in system
     # And still only the named fields: everything else in `data` stays behind.
@@ -765,7 +794,7 @@ def test_asking_about_one_service_gets_that_service_in_depth() -> None:
 
     turn(client, "how is ravis doing?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "in detail, because the question named it" in system
     # The sentence RAVIS wrote about its own limitation, quoted rather than
     # paraphrased — the difference between "it cannot" and "it cannot, because".
@@ -788,7 +817,7 @@ def test_an_error_is_explained_and_not_merely_counted() -> None:
 
     turn(client, "is ravis erroring?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "ravis.upstream.failed" in system
     assert "no upstream declared" in system
 
@@ -814,7 +843,7 @@ def test_only_a_closed_list_of_fields_is_ever_quoted_from_an_event() -> None:
 
     turn(client, "how is ravis?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "rejected by the upstream" in system
     assert "sk-live-4242" not in system
     assert "everything the user typed last time" not in system
@@ -1014,7 +1043,7 @@ def test_asking_for_a_benchmark_offers_one() -> None:
     assert offer["target"] == "qwen/qwen3-4b-2507"
     assert offer["ready"] is True
     # And the model is told an offer exists, and told what it may not claim.
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     # The prohibition is a *fact* rather than a list of forbidden words: told
     # "queue a benchmark of X", an 8B build answered "a benchmark of X has been
     # queued" — conjugating the only verb it was given rather than disobeying.
@@ -1092,7 +1121,7 @@ def test_an_injected_instruction_cannot_propose_anything() -> None:
     assert answered.headers["x-command-offer"] == ""
     # The instruction still travels as evidence, inside the fence, where the
     # instructions above it say what it is.
-    assert "benchmark phi-4-mini-instruct" in sent[0]["messages"][0]["content"]
+    assert "benchmark phi-4-mini-instruct" in told(sent[0])
 
 
 def test_a_greeting_never_carries_an_offer() -> None:
@@ -1403,7 +1432,7 @@ def test_how_did_the_benchmark_go_is_answered_with_the_numbers() -> None:
 
     turn(client, "how did the benchmark go?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "19.386" in system
     assert "tokens/second" in system
     # **With the caveat.** A figure without the reason it might be wrong is the
@@ -1564,7 +1593,7 @@ def test_asking_what_is_loaded_reads_the_runtime_itself() -> None:
 
     turn(client, "what is loaded in lm studio?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "2 local build(s), 1 loaded" in system
     assert "qwen/qwen3-4b-2507" in system
     assert "4bit" in system
@@ -1695,7 +1724,7 @@ def test_asking_what_happened_recently_reads_the_routing_record() -> None:
 
     turn(client, "what happened recently?", system="Be someone.")
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "ravis/chat → amazon/nova-2-lite-v1" in system
     assert "succeeded" in system
     # RAVIS's own sentence about its own decision, quoted rather than
@@ -1855,7 +1884,7 @@ def test_the_reading_comes_after_the_recalled_conversations() -> None:
 
     turn(client, "how is everything?", system="Be someone.")
 
-    system = sent[-1]["messages"][0]["content"]
+    system = told(sent[-1])
     assert "Earlier conversations on this machine" in system
     assert "They are memories, not measurements" in system
     assert system.index("Earlier conversations") < system.index(FENCE), (
@@ -1941,7 +1970,7 @@ def test_the_house_style_is_a_switch_and_not_a_silent_rule() -> None:
     turn(client, "hello", brief=True)
     turn(client, "hello again")
 
-    assert "two or three sentences" in sent[0]["messages"][0]["content"]
+    assert "two or three sentences" in told(sent[0])
     # No system message at all on the second: nothing was configured and nothing
     # was asked for, so NERVIS adds nothing.
     assert sent[1]["messages"][0]["role"] != "system"
@@ -1965,7 +1994,7 @@ def test_nervis_is_told_what_to_call_you() -> None:
 
     turn(client, "hello")
 
-    assert "The user's name is Mathias" in sent[0]["messages"][0]["content"]
+    assert "The user's name is Mathias" in told(sent[0])
 
 
 def test_nervis_ships_with_a_voice_you_can_read_and_change() -> None:
@@ -2133,8 +2162,8 @@ def test_the_third_silence_is_the_one_that_complains() -> None:
     for count in (1, 3):
         client.post("/api/v1/chat", json={"nudge": count})
 
-    assert "ask them one real question" in sent[0]["messages"][0]["content"]
-    assert "not letting it slide" in sent[1]["messages"][0]["content"]
+    assert "ask them one real question" in told(sent[0])
+    assert "not letting it slide" in told(sent[1])
 
 
 def test_a_nudge_does_not_override_the_memory_scope() -> None:
@@ -2156,7 +2185,7 @@ def test_a_nudge_does_not_override_the_memory_scope() -> None:
     # Memory is left at its default of this-conversation-only.
     client.post("/api/v1/chat", json={"nudge": 2})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "Earlier conversations on this machine" not in system
     assert "ask them one real question" in system
 
@@ -2189,14 +2218,14 @@ def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
 
     # With nothing barred, both earlier conversations are recallable.
     client.post("/api/v1/chat", json={"content": "hello"})
-    before = sent[-1]["messages"][0]["content"]
+    before = told(sent[-1])
     assert "did not want remembered" in before
     assert "something unremarkable" in before
 
     client.put("/api/v1/settings/chat.memory_excluded", json={"value": [barred]},
         headers=_control(client))
     client.post("/api/v1/chat", json={"content": "hello again"})
-    after = sent[-1]["messages"][0]["content"]
+    after = told(sent[-1])
 
     assert "did not want remembered" not in after
     # And only that one: barring is per conversation, not a switch for recall.
@@ -2224,7 +2253,7 @@ def test_the_conversation_being_had_is_never_recalled_into_itself() -> None:
 
     client.post("/api/v1/chat", json={"content": "more", "conversation_id": held})
 
-    system = sent[-1]["messages"][0]["content"]
+    system = told(sent[-1])
     assert "Earlier conversations on this machine" not in system
 
 
@@ -2251,7 +2280,7 @@ def test_an_unreadable_exclusion_list_does_not_bar_everything() -> None:
     )
     client.post("/api/v1/chat", json={"content": "hello"})
 
-    assert "recallable" in sent[-1]["messages"][0]["content"]
+    assert "recallable" in told(sent[-1])
 
 
 def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
@@ -2272,7 +2301,7 @@ def test_a_nudge_is_told_the_screen_but_never_its_contents() -> None:
 
     client.post("/api/v1/chat", json={"nudge": 1, "screen": "Diagnostics"})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "Diagnostics screen" in system
     assert "cannot see anything on it" in system
 
@@ -2322,7 +2351,7 @@ def test_the_model_is_handed_a_clock_rather_than_forbidden_one() -> None:
 
     client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "The current local time is" in system
     # The zone is named, because a bare time is ambiguous on any machine.
     assert "UTC+" in system or "UTC-" in system
@@ -2357,7 +2386,7 @@ def test_the_quiet_gap_is_measured_from_stored_turns() -> None:
 
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "They last said something 0 seconds ago." in system
 
 
@@ -2408,7 +2437,7 @@ def test_the_gap_is_worded_correctly_at_every_boundary(seconds: int, expected: s
 
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
-    assert expected in sent[0]["messages"][0]["content"]
+    assert expected in told(sent[0])
 
 
 def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
@@ -2430,7 +2459,7 @@ def test_a_conversation_with_no_turns_yet_reports_no_gap() -> None:
 
     client.post("/api/v1/chat", json={"greeting": True})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "The current local time is" in system
     assert "last said something" not in system
 
@@ -2452,7 +2481,7 @@ def test_the_greeting_does_not_read_the_clock_out() -> None:
 
     client.post("/api/v1/chat", json={"greeting": True})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "Do not say the time or the date" in system
     # And it is still *given* to her, which is the distinction.
     assert "The current local time is" in system
@@ -2515,7 +2544,7 @@ def test_the_gap_is_given_in_seconds_rather_than_rounded_away() -> None:
 
     client.post("/api/v1/chat", json={"nudge": 1, "conversation_id": held})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "They last said something 50 seconds ago." in system
     assert "never make it more precise than it is written here" in system
 
@@ -2542,7 +2571,7 @@ def test_the_clock_is_for_answering_about_not_for_garnish() -> None:
 
     client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
 
-    system = sent[0]["messages"][0]["content"]
+    system = told(sent[0])
     assert "Do not mention the time" in system
     assert "unless they ask" in system
     # Still given, which is the whole distinction.
@@ -3723,8 +3752,8 @@ def test_the_readings_come_with_a_note_about_who_is_reading_them() -> None:
     Nothing is withheld: the reason is still the answer. It has to arrive in the
     words of somebody describing the system rather than citing it.
     """
-    prompt = _house_system({"system": "Be someone."}, prepare_database(":memory:"),
-                           greeting=False, situation="4 of 4 services reachable")
+    prompt = _turn_context(prepare_database(":memory:"), "",
+                           wanted=True, situation="4 of 4 services reachable")
 
     assert "§15.1" in prompt, "the directive should name the shape it is correcting"
     assert "reads the screen, not the source" in prompt
@@ -3736,8 +3765,7 @@ def test_a_turn_with_no_readings_gets_no_such_note() -> None:
     turn carrying none has nothing to apply it to — and a system prompt that
     grows a paragraph for every rule regardless of relevance is how the
     instructions start outweighing the question."""
-    prompt = _house_system({"system": "Be someone."}, prepare_database(":memory:"),
-                           greeting=False, situation="")
+    prompt = _turn_context(prepare_database(":memory:"), "", wanted=True, situation="")
 
     assert "reads the screen, not the source" not in prompt
 

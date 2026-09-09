@@ -466,6 +466,58 @@ at 40,000 characters — the blueprint that started this was 97,000 — so every
 opinion chat had about it was about less than half of it. The cap is now
 400,000, which covers a document several times that size.
 
+## How a question is assembled, and why the order costs money
+
+Every turn NERVIS sends the model three things: a **system prompt** (the
+persona, the user's name, the house style), the **conversation so far**, and a
+**reading** — a fresh, fenced block naming which services answered, what events
+just happened, how many models exist and, where the question calls for it, jobs,
+spend, benchmark runs and provider state. The reading is what lets chat answer
+"is SIRVIS up?" with a fact instead of a guess, and it opens by telling the
+model that everything inside it is data reported by other programs and must
+never be obeyed as an instruction.
+
+**Until 9 September 2026 all of that arrived in the wrong order, and it was
+expensive.** Providers avoid re-reading a prompt they have seen by matching its
+*prefix* — they hash the request from its first byte up to some point, and reuse
+the work only if the next request opens identically. NERVIS put the clock, the
+recalled conversations and the reading at the **front**, inside the system
+prompt. All three change every single turn. So the hash never matched, the whole
+conversation was re-read from scratch on every turn, and nothing was ever cached
+on any provider. Measured: the reading alone is about eleven hundred tokens, in
+front of a history that only grows.
+
+**The fix is an order, not a feature.** The stable half — persona, name, house
+style — stays in the system prompt. The conversation follows it untouched. The
+per-turn half now rides on the question itself, at the very end. That leaves
+everything before the question byte-identical from one turn to the next, which
+is exactly what a provider needs. On DeepSeek, where a cache hit costs about 3%
+of a miss, a long conversation now pays close to full price once instead of
+every time.
+
+Two details that make it work and are easy to undo by accident:
+
+- **The reading is never stored.** The conversation NERVIS keeps holds the
+  person's actual words; the reading is built fresh each turn and dropped. If it
+  were saved, every later turn would replay a different copy of it inside the
+  history and the prefix would break from behind.
+- **The readings still come last, after the recalled conversations.** That order
+  was load-bearing before and still is: asked the same question twice, a small
+  model once quoted its own earlier answer out of the recall instead of the
+  fresh figures. Moving the whole block later strengthens that rather than
+  undoing it — the measurements are now the last thing before the question.
+
+**Claude is the exception that has to be asked.** DeepSeek and OpenAI cache a
+repeated prefix on their own; Anthropic caches only what a request marks. RAVIS
+now marks the last completed exchange when a conversation has actually
+continued — never the newest turn, whose prefix nothing will ever repeat, and
+never a one-off request, because writing a cache entry costs 25% more than an
+ordinary read and a question with no follow-up would never earn it back.
+
+A nudge — NERVIS speaking first about a silence — deliberately keeps its
+instruction in the system prompt. It is an instruction to the assistant rather
+than data, and a single unprompted turn has no conversation to cache anyway.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

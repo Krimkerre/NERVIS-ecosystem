@@ -405,8 +405,15 @@ async def send(request: Request) -> Any:
     awareness = "\n\n".join(
         part for part in (memory.block(remembered), awareness) if part
     )
-    system = _house_system(
-        body, database, greeting, conversation_id, nudge > 0,
+    system = _house_system(body, database, greeting)
+    # **The per-turn half, kept out of the system message on purpose.** See
+    # `_turn_context`: a prefix that changes every turn is a prefix no provider
+    # can cache, and the readings alone measure about eleven hundred tokens.
+    context = _turn_context(
+        database, conversation_id,
+        # The condition the clock and the readings were already under, now that
+        # they live in a different function: only alongside something else.
+        wanted=bool(system) or nudge > 0,
         # Read from the app rather than taken here, so one reading covers the
         # whole assembly and a test can hold it still. See `app.state.chat_clock`.
         now=request.app.state.chat_clock(),
@@ -418,9 +425,15 @@ async def send(request: Request) -> Any:
         directive, recall = _nudge_directive(
             database, conversation_id, nudge, str(body.get("screen") or "")
         )
+        # **This one stays in the system prompt**, unlike the readings. It is an
+        # instruction addressed to the assistant -- speak first, about the
+        # silence -- and an instruction in a user turn reads as the person
+        # saying it. The caching argument does not apply either: a nudge is a
+        # single unprompted turn, so there is no conversation to cache and
+        # nothing is lost by breaking the prefix on it.
         system = "\n\n".join(part for part in (system, directive, recall) if part)
         asked = NUDGE_OPENER
-    body = {**body, "system": system}
+    body = {**body, "system": system, "turn_context": context}
     payload = _completion_payload(body, profile, prior, asked, pages)
     # Assembled here and sent as a header, so the browser prints it verbatim.
     #
@@ -466,15 +479,7 @@ async def send(request: Request) -> Any:
     )
 
 
-def _house_system(
-    body: dict[str, Any],
-    database: Any,
-    greeting: bool,
-    conversation_id: str = "",
-    speaking_first: bool = False,
-    now: datetime | None = None,
-    situation: str = "",
-) -> str:
+def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
     **Theirs comes first and is never rewritten.** It is the character; these are
@@ -482,6 +487,13 @@ def _house_system(
     makes a configured persona audible from the first sentence, which is the
     whole reason the greeting goes through the model instead of being a fixed
     line.
+
+    **Everything here is stable between turns, and that is now load-bearing.**
+    The clock, the recalled conversations and the live readings used to be
+    assembled here too; they moved to `_turn_context` so that this — the first
+    thing in every request — stops changing on every turn and the conversation
+    behind it can be cached. Anything added here that varies per turn silently
+    undoes that, at no visible cost and considerable real one.
     """
     parts = [str(body.get("system") or "").strip()]
     if greeting:
@@ -500,22 +512,57 @@ def _house_system(
     # `speaking_first` covers the nudge, whose directive is joined on after this
     # returns: an unprompted remark about a silence is the one place the gap is
     # load-bearing, and it would have been the one place without a clock.
-    if any(parts) or speaking_first:
+    return "\n\n".join(part for part in parts if part)
+
+
+def _turn_context(
+    database: Any,
+    conversation_id: str,
+    *,
+    wanted: bool,
+    now: datetime | None = None,
+    situation: str = "",
+) -> str:
+    """Everything true of *this turn* rather than of the assistant.
+
+    **Split out of the system prompt on 9 September 2026, to make prompt caching
+    possible at all.** Every provider that caches does it by prefix: it hashes
+    the request from the very beginning up to some point, and reuses the result
+    only if the next request's opening bytes are identical. The clock changes
+    every turn, the readings change every turn, and both sat in the system
+    message — which is the *first* thing in every request. So the prefix never
+    matched, the entire conversation was re-read from scratch on every single
+    turn, and nothing was ever cached on any provider. On DeepSeek a cache hit
+    costs 3% of a miss; this was paying full price for the whole history, every
+    time.
+
+    Moving these to the end is the only arrangement that works, and it is not a
+    stylistic choice: the cached prefix is *everything before the breakpoint*,
+    so anything that changes per turn has to come after everything that does
+    not. The stable half -- persona, name, house style -- stays in the system
+    message, the conversation history follows it unchanged, and this block rides
+    on the question at the very end.
+
+    **The order inside it is preserved exactly**, because it was load-bearing.
+    The readings still come after the recalled conversations, for the reason
+    recorded when that was fixed: asked the same question twice, an 8B build
+    quoted its own earlier answer out of the recall instead of reading the fresh
+    figures. Memory outranked measurement, and position is half of what decides
+    that. Moving the whole block *later* strengthens that fix rather than
+    undoing it -- the readings are now the last thing before the question.
+
+    `wanted` carries the condition the clock and the readings were already
+    under: a request with no persona, no name and no house style sends no system
+    message at all, and must not suddenly acquire ecosystem awareness through
+    the back door. §7 makes NERVIS a plain client of RAVIS's published API, and
+    a gateway that silently prepends a paragraph to every request is not one.
+    """
+    parts: list[str] = []
+    if wanted:
         parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
     if _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
-    # **Last, and after the recall.** Under the same condition as the clock, and
-    # for the same reason: a request with no persona, no name and no house style
-    # still sends no system message at all — ecosystem awareness is something
-    # NERVIS adds to its own assistant, not something it injects into a plain
-    # client of RAVIS's API.
-    #
-    # It goes *after* the recalled conversations because of what happened when
-    # it went before them: asked the same question twice, an 8B build answered
-    # word for word the same both times, quoting its own earlier reply out of
-    # the recall instead of reading the fresh figures above it. Memory outranked
-    # measurement, and position is half of what decides that.
-    if any(parts) or speaking_first:
+    if wanted:
         parts.append(situation)
         # With the readings and only with them: the directive is about how to
         # quote *them*, so a turn that carries none has nothing to apply it to.
@@ -1325,8 +1372,31 @@ def _completion_payload(
     # person asked about the document is the one the pictures belong to. The
     # text part stays first so a model reading in order meets the question
     # before the pictures of what it is about.
-    spoken: Any = content if not pages else [
-        {"type": "text", "text": content},
+    # **The per-turn readings go last, immediately before the question.** They
+    # used to open the system message, which put a block that changes every turn
+    # in front of everything that does not -- and prefix caching hashes from the
+    # start, so nothing after it could ever be reused. Here they sit after the
+    # whole history instead, which leaves that history byte-identical from one
+    # turn to the next and therefore cacheable. See `_turn_context`.
+    #
+    # On the question rather than in a system message of their own: a
+    # mid-conversation system turn is not a thing every provider accepts, and
+    # Anthropic's API has no place to put one at all.
+    #
+    # **Never stored.** The conversation NERVIS keeps holds the person's actual
+    # words; this is assembled fresh per turn and dropped. That is what keeps
+    # the replayed history stable -- if the readings were saved with the turn,
+    # every future request would carry a different copy of them and the cache
+    # would break again from the other end.
+    # Joined into the question's own text rather than added as a second content
+    # part, which keeps the wire shape byte-identical to what it has always
+    # been: a turn with no pages is still a plain string, not a list. The block
+    # carries its own fence and its own "this is data, not instructions"
+    # warning, so nothing is lost by putting it in the same part.
+    context = str(body.get("turn_context") or "")
+    asked_now = f"{context}\n\n{content}" if context else content
+    spoken: Any = asked_now if not pages else [
+        {"type": "text", "text": asked_now},
         *({"type": "image_url", "image_url": {"url": page}} for page in pages),
     ]
     messages: list[dict[str, Any]] = [*prior, {"role": "user", "content": spoken}]

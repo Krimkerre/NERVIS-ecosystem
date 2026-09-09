@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2761 tests, no network, no live service
+.venv/bin/pytest                      # part of 2773 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1141 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1146 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2761 passing across the four, conformance `PASS`.
+Expected: all clean, 2773 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17003,6 +17003,58 @@ The route explanation says *"trying X on purpose"* when this fires, rather than
 describing the choice as though the model won on merit. The model that would
 ordinarily have won stays first in the fallback list, which matters more here
 than usual: an untried model is the one most likely to fail.
+
+## Nothing was ever cached, because the clock came first — 2026-09-09
+
+The operator asked whether prompt caching was implemented in chat. It was not,
+and the reason was worse than the absence: the way the prompt was assembled made
+caching **impossible on every provider at once**, silently, since the feature
+existed.
+
+**How prefix caching actually works, which is the whole story.** A provider
+hashes a request from its first byte up to some point and reuses the work only
+if the next request opens with exactly those bytes. NERVIS opened every request
+with the system prompt, and put three things in it that change every turn: the
+clock, the recalled conversations, and the live reading. Measured on this
+machine, the reading alone is **about eleven hundred tokens** — services, recent
+events, catalogue, and whatever the question called for. So the hash never
+matched twice, the entire conversation was re-read at full price on every turn,
+and nothing after byte one could ever be reused.
+
+**The fix is an ordering, not a feature.** Stable content — persona, name, house
+style — stays in the system prompt; the conversation follows it untouched; the
+per-turn half moved to ride on the question, at the very end. That is the only
+arrangement that works, and not a matter of taste: the cached prefix is
+everything *before* the breakpoint, so anything that varies per turn has to come
+after everything that does not.
+
+**Two things that make it hold and are easy to undo by accident.** The reading
+is never stored with the turn — if it were, every later request would replay a
+different copy inside the history and the prefix would break from behind. And
+the readings still sit after the recalled conversations, the order that was
+fixed months ago when an 8B build quoted its own earlier answer instead of the
+fresh figures; moving the whole block later strengthens that rather than
+reversing it.
+
+**Anthropic asked explicitly, and only when it pays.** DeepSeek and OpenAI cache
+a repeated prefix unprompted; Anthropic caches only what carries
+`cache_control`, and RAVIS marked nothing. The breakpoint now goes on the last
+*completed* exchange — never the newest turn, whose prefix nothing will repeat,
+and never a one-shot request, since a cache write costs 1.25x against a hit at
+0.1x and a question with no follow-up never earns it back.
+
+**The suite could not have caught any of this, which is the part worth keeping.**
+Probed by restoring the old arrangement: **five of the new caching tests fail and
+zero of the forty-two chat tests do.** The reverse probe — dropping the readings
+entirely — fails forty-two chat tests and one caching test. Neither file implies
+the other, and for months only one of them existed. Thirty-two assertions in
+`nervis/tests/test_m4_chat.py` moved from reading the system message to asking what the model
+was *told*, which is the question they were always really asking; the property
+they stopped pinning is now asserted directly instead, because without that a
+regression would pass every test in the file while costing real money.
+
+Verified live: chat answers a services question from the reading in its new
+position, and the catalogue line is still present in the block byte for byte.
 
 ## Starting the thing
 

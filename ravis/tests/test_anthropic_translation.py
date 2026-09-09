@@ -117,7 +117,13 @@ def test_assistant_tool_calls_become_tool_use_blocks() -> None:
 
     blocks = body["messages"][1]["content"]
     assert blocks[0] == {"type": "text", "text": "On it."}
-    assert blocks[1] == {
+    # `cache_control` is dropped before comparing: this turn is the last
+    # completed one, so `_mark_cache_breakpoint` marks it, and that is a
+    # question about billing rather than about translation. Asserting the exact
+    # dict made this test fail on a change that had nothing to do with what it
+    # is named for -- see `test_anthropic_caching.py`, which pins the mark
+    # itself.
+    assert {k: v for k, v in blocks[1].items() if k != "cache_control"} == {
         "type": "tool_use",
         "id": "call_a",
         "name": "edit",

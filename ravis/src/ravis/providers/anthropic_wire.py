@@ -112,16 +112,72 @@ def render_request(
     path consuming the response.
     """
     system, conversation = _split_system(request.messages)
+    rendered = _render_messages(conversation)
+    _mark_cache_breakpoint(rendered)
     body: dict[str, Any] = {
         "model": model,
         "max_tokens": request.max_output_tokens or max_output_tokens,
-        "messages": _render_messages(conversation),
+        "messages": rendered,
     }
     if system:
         body["system"] = system
     _apply_tools(body, request)
     _apply_output_config(body, request)
     return body
+
+
+#: How many rendered turns a conversation needs before it is worth caching.
+#: Three is one completed exchange plus the question being asked -- the first
+#: point at which a *second* request could reuse anything. See
+#: `_mark_cache_breakpoint` for why this is not simply always on.
+CACHEABLE_FROM_TURNS = 3
+
+
+def _mark_cache_breakpoint(rendered: list[dict[str, Any]]) -> None:
+    """Ask Anthropic to cache everything up to the last completed turn.
+
+    **Anthropic is the one provider that has to be asked.** DeepSeek and OpenAI
+    cache a repeated prefix on their own; Anthropic caches only what a request
+    marks with `cache_control`, and RAVIS marked nothing, so every Claude call
+    re-read the whole conversation at full price no matter how long it ran.
+
+    **The breakpoint goes on the second-to-last turn, not the last one.** The
+    cached prefix is everything up to *and including* the marked block, and the
+    final turn is the question being asked right now -- it has never been seen
+    before, and NERVIS attaches its live readings to it, so a prefix ending
+    there could never match anything on the next request. Ending one turn
+    earlier lands on the last *completed* exchange, which is exactly the part
+    the next request will repeat verbatim. Anthropic looks back up to twenty
+    blocks for an existing entry, so each turn hits the one the turn before it
+    wrote and then writes a slightly longer one.
+
+    **Not unconditional, because a cache write is not free.** Writing costs
+    1.25x ordinary input against a hit at 0.1x, so marking a one-shot request --
+    the shape most API clients send -- would be a straight 25% surcharge on a
+    prefix nothing will ever reuse. `CACHEABLE_FROM_TURNS` waits until a
+    conversation has actually continued once, which is the first moment the
+    trade is in the caller's favour.
+
+    Nothing here can change an answer: caching affects billing and latency only,
+    and a prompt below the model's minimum cacheable length is served normally
+    with no error. The worst case is a wasted write, which is why the gate is
+    about likelihood of reuse rather than about correctness.
+    """
+    if len(rendered) < CACHEABLE_FROM_TURNS:
+        return
+    turn = rendered[-2]
+    blocks = turn.get("content")
+    if isinstance(blocks, str):
+        # `cache_control` is a property of a content *block*, and this turn is
+        # still a bare string. An empty one is left alone: Anthropic rejects an
+        # empty text block, and a breakpoint is not worth a 400.
+        if not blocks:
+            return
+        blocks = [{"type": "text", "text": blocks}]
+        turn["content"] = blocks
+    if not isinstance(blocks, list) or not blocks:
+        return
+    blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
 
 
 def _split_system(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
