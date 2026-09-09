@@ -667,6 +667,7 @@ async def _execute(
         outcome.warnings.extend(_configuration_warnings(spec, resident))
 
         outcome.thermal_before = thermal()
+        stopped = False
         for test in spec.tests:
             # **Between tests, not mid-inference.** A cancel that killed the
             # task would lose the partial telemetry §11.10 says to keep — how
@@ -674,6 +675,7 @@ async def _execute(
             # most of the value of a run that ended early. So the check is
             # cooperative and the granularity is one test.
             if should_stop is not None and should_stop():
+                stopped = True
                 outcome.warnings.append((
                     ValidityScope.CONDITIONS,
                     "cancelled after "
@@ -683,7 +685,19 @@ async def _execute(
                 ))
                 break
             await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
-        if spec.tool_trials:
+        # **The stop has to survive the loop that observed it.** The `break`
+        # left the prose tests and nothing else: the trials began regardless,
+        # and an ordinary agent benchmark is eight phrasings times three
+        # repetitions, so cancelling bought twenty-four further generations with
+        # the model held for all of them. The engine had already agreed to stop
+        # at a safe boundary; the defect was that it then started new work.
+        # Found by an external audit, 9 September 2026.
+        # Not carried *into* the trials: `run_tool_trials` is M13's own contract
+        # and the documented granularity is one test, which this keeps. A cancel
+        # arriving mid-phase still waits out the trials, deliberately and not
+        # silently — the fix here is that a cancel already *seen* stops the phase
+        # from beginning.
+        if spec.tool_trials and not stopped:
             await _run_tool_trials(spec, runtime, directory, outcome)
     finally:
         outcome.thermal_after = thermal()

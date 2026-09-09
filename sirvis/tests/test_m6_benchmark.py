@@ -161,13 +161,15 @@ def _spec(**overrides: Any) -> ExperimentSpec:
 
 async def _run(runtime: FakeRuntime, spec: ExperimentSpec | None = None,
                results_root: Any = None,
-               thermal: Any = None) -> Any:
+               thermal: Any = None,
+               should_stop: Any = None) -> Any:
     database = prepare_database(":memory:")
     resources = ResourceManager(runtime=runtime)
     outcome = await run_experiment(
         spec or _spec(), runtime=runtime, resources=resources, database=database,
         results_root=str(results_root), probe=SteadyProbe(), snapshot=SNAPSHOT,
         clock=Ticking(), thermal=thermal or (lambda: "nominal"),
+        should_stop=should_stop,
     )
     return outcome, database
 
@@ -848,4 +850,35 @@ async def test_a_failure_after_the_load_still_releases_the_model(tmp_path) -> No
     assert runtime.unloads == [MODEL], (
         "a benchmark that failed after loading kept the model resident, and the "
         f"capacity with it: loaded {runtime.loads}, unloaded {runtime.unloads}"
+    )
+
+
+async def test_a_cancelled_run_does_not_start_the_tool_trials(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**The stop was seen, accepted, and then ignored by the next phase.**
+
+    Cancellation is cooperative and its granularity is one test — that much is
+    deliberate and documented. What was not deliberate: the loop noticed the
+    request to stop, broke out of the prose tests, and then ran
+    `_run_tool_trials` unconditionally. An ordinary agent benchmark is eight
+    phrasings times three repetitions, so pressing cancel bought twenty-four
+    further generations, the model held for all of them and the serial queue
+    with it.
+
+    This is not a complaint about mid-inference cancellation. The engine had
+    already inspected the flag at a safe boundary and agreed to stop; the
+    defect is that it then began new work. Found by an external audit,
+    9 September 2026.
+    """
+    runtime = FakeRuntime()
+    spec = _spec(tool_trials=True)
+
+    outcome, _ = await _run(runtime, spec, results_root=tmp_path,
+                            should_stop=lambda: True)
+
+    assert runtime.generations == 0, (
+        "a run cancelled before its first test still generated "
+        f"{runtime.generations} time(s) — the tool trials started anyway"
+    )
+    assert any("cancelled" in text for _scope, text in outcome.warnings), (
+        "the run does not say it was cancelled"
     )
