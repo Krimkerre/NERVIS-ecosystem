@@ -49,14 +49,27 @@ def a_hub(**kwargs: Any) -> Hub:
     return Hub(prepare_database(":memory:"), **kwargs)
 
 
-def an_api() -> TestClient:
-    return TestClient(create_app(Settings(
+def an_api(**overrides: Any) -> TestClient:
+    """A NERVIS whose peers are all absent, and whose hub can be tuned.
+
+    `retention_events` is the one override so far, and it is here rather than
+    on a second builder because a retention bound is a property of the hub this
+    app owns — a test that constructed its own hub would be asserting about a
+    different object from the one the route writes to.
+    """
+    settings = Settings(
         database_path=":memory:",
         ravis_base_url="http://127.0.0.1:9", sirvis_base_url="http://127.0.0.1:9",
         clarvis_base_url="http://127.0.0.1:9", lmstudio_base_url="http://127.0.0.1:9",
         ollama_base_url="http://127.0.0.1:9",
         _env_file=None,  # type: ignore[call-arg]
-    )))
+    )
+    client = TestClient(create_app(settings))
+    retention = overrides.pop("retention_events", None)
+    if retention is not None:
+        client.app.state.hub._retention_events = retention  # noqa: SLF001 - the hub is ours
+    assert not overrides, f"unknown override(s): {', '.join(overrides)}"
+    return client
 
 
 # ── An invalid event cannot crash the hub ──────────────────────────────────
@@ -716,3 +729,64 @@ def test_an_open_stream_ends_when_the_service_is_stopping() -> None:
         return False
 
     assert asyncio.run(exercise()), "the stream did not end when the service stopped"
+
+
+# ── §10's bounded-queues outcome, at the route ──────────────────────────────
+#
+# The bounds themselves are asserted above, against the hub object. What §10
+# asks is narrower and about the service: that a full queue never becomes
+# back-pressure on core work, and that what a queue holds stays observable.
+
+
+def test_ingestion_keeps_answering_while_a_subscriber_is_full() -> None:
+    """**"Telemetry loss never blocks core work", at the route that does the
+    work.** A browser tab that stops reading its stream fills its buffer within
+    256 events; if the hub waited for it, one stalled reader would stop every
+    producer on the machine from publishing anything."""
+    from nervis.events import SUBSCRIBER_BUFFER
+
+    with an_api() as client:
+        hub = client.app.state.hub
+        stalled = hub.subscribe()
+
+        for n in range(SUBSCRIBER_BUFFER + 20):
+            answered = client.post("/api/v1/events", json=envelope(event_id=f"flood-{n}"))
+            assert answered.status_code == 202, "ingestion stopped while a reader was full"
+
+        assert stalled.qsize() <= SUBSCRIBER_BUFFER, "the subscriber buffer is not a bound"
+        stored = client.get("/api/v1/events?limit=1000").json()["items"]
+
+    assert len(stored) >= SUBSCRIBER_BUFFER + 20, (
+        "events were lost to a reader nobody was waiting for"
+    )
+
+
+def test_what_the_hub_holds_is_readable_rather_than_inferred() -> None:
+    """The other half of the outcome, and the half a bound alone does not give:
+    observable. A queue nobody can read the depth of is one an operator can only
+    guess about when the machine is busy."""
+    with an_api() as client:
+        for n in range(5):
+            client.post("/api/v1/events", json=envelope(event_id=f"seen-{n}"))
+
+        feed = client.get("/api/v1/events?limit=1000").json()
+
+    assert len(feed["items"]) >= 5
+    # The cursor and the hub's own high-water mark: a reader can tell how far it
+    # has got and how far there is to go, which is what "observable" asks for.
+    assert feed["latest_sequence"] >= 5
+    assert feed["next_cursor"] == feed["items"][-1]["_sequence"]
+
+
+def test_a_replaying_producer_cannot_grow_the_hub_without_bound() -> None:
+    """§10 pairs duplicates with bounded queues for a reason: a producer that
+    reconnects and resends its backlog is the ordinary way a hub is flooded,
+    and retention is what stops that becoming unbounded storage."""
+    with an_api(retention_events=4) as client:
+        for n in range(12):
+            client.post("/api/v1/events", json=envelope(event_id=f"replay-{n}"))
+        client.app.state.hub.enforce_retention()
+
+        kept = client.get("/api/v1/events?limit=1000").json()["items"]
+
+    assert len(kept) == 4, f"retention did not bound the hub: {len(kept)} kept"

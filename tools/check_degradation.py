@@ -211,15 +211,19 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m7_traces.py:test_a_trace_assembles_the_same_way_whatever_order_it_arrived_in"),
             ("route", "nervis/tests/test_m7_traces.py:test_the_same_batch_twice_does_not_double_the_trace"),
             ("route", "nervis/tests/test_m7_traces.py:test_a_replay_out_of_order_is_still_one_trace"),
+            ("route", "nervis/tests/test_m6_events.py:test_a_replaying_producer_cannot_grow_the_hub_without_bound"),
+            ("unit", "nervis/tests/test_m6_events.py:test_retention_drops_by_age_and_by_count"),
         ],
         outcomes=(
             "idempotent_recovery",
+            "bounded_queues",
         ),
         residual=
-            "Proved for transport duplicates — the identical envelope re-POSTed, deduped on"
-            " `event_id`. A producer that rebuilds the same logical event with a fresh id i"
-            "s not deduped and nothing tests that, which is the shape a retrying publisher "
-            "actually produces.",
+            "Proved for transport duplicates — the identical envelope re-POSTed, deduped "
+            "on `event_id` — and for the storage a replaying producer would otherwise "
+            "grow without bound. A producer that rebuilds the same logical event with a "
+            "fresh id is not deduped and nothing tests that, which is the shape a "
+            "retrying publisher actually produces.",
     ),
     Cell(
         condition="each service absent at startup",
@@ -227,15 +231,20 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:cold_start_clause"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_the_buffer_is_bounded_and_a_drop_is_counted"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_a_drop_is_reported_without_touching_the_product_s_health"),
         ],
         outcomes=(
             "truthful",
             "standalone",
+            "bounded_queues",
         ),
         residual=
-            "Proved live for one pair — NERVIS started with SIRVIS absent. The other starti"
-            "ng orders are untested, and the probe-deadline evidence beside it exercises a "
-            "hang rather than an absence.",
+            "Proved live for one pair — NERVIS started with SIRVIS absent — and at the "
+            "publisher, which buffers to a bound and counts what it drops while its "
+            "collector has never answered. The other starting orders are untested, and "
+            "the probe-deadline evidence beside it exercises a hang rather than an "
+            "absence.",
     ),
     Cell(
         condition="timeout",
@@ -244,15 +253,24 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_timeout_moves_on_rather_than_asking_the_same_model_twice"),
             ("route", "ravis/tests/test_fallback.py:test_a_chain_that_times_out_everywhere_says_so_per_model"),
             ("route", "ravis/tests/test_fallback.py:test_a_directly_named_model_that_times_out_is_not_replaced"),
+            ("route", "ravis/tests/test_fallback.py:test_a_local_model_that_hangs_is_not_replaced_by_a_cloud_one"),
+            ("route", "ravis/tests/test_fallback.py:test_the_cloud_model_would_otherwise_have_answered"),
+            ("route", "ravis/tests/test_management_api.py:test_the_decision_log_is_bounded_and_says_where_it_starts"),
+            ("route", "ravis/tests/test_management_api.py:test_a_decision_pushed_out_by_the_bound_reads_as_aged_out"),
         ],
         outcomes=(
             "bounded_retries",
             "idempotent_recovery",
+            "bounded_queues",
+            "no_unsafe_failover",
         ),
         residual=
-            "A timed-out target is asked once and the chain moves on, per model. Nothing sh"
-            "ows queues staying bounded under a timeout, and nothing shows a service's own "
-            "routes staying usable while one is in flight.",
+            "A timed-out target is asked once and the chain moves on, per model; a model "
+            "the caller named is not replaced; a local model that hangs is not answered "
+            "from the cloud, with the control beside it showing that same cloud model "
+            "answering when no pool forbids it; and the decision log an operator reads "
+            "under load is bounded and says so when an id has aged out. What is not shown "
+            "is a service's own routes staying usable while a timeout is in flight.",
     ),
     Cell(
         condition="slow response",
@@ -262,16 +280,20 @@ CELLS: list[Cell] = [
             ("unit", "nervis/tests/test_m2_registry.py:test_a_slow_peer_is_reported_as_unreachable_rather_than_healthy"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_runtime_without_a_mep_surface_is_bounded_the_same_way"),
             ("route", "nervis/tests/test_m2_registry.py:test_the_services_route_still_answers_while_a_peer_is_slow"),
+            ("route", "nervis/tests/test_m6_events.py:test_ingestion_keeps_answering_while_a_subscriber_is_full"),
+            ("unit", "nervis/tests/test_m6_events.py:test_a_subscriber_that_falls_behind_is_dropped_not_waited_for"),
         ],
         outcomes=(
             "truthful",
             "bounded_retries",
+            "bounded_queues",
         ),
         residual=
-            "The probe's deadline is asserted on both branches and the services listing ans"
-            "wers while every peer is quiet. What is not shown is a *partially* slow world "
-            "— one peer slow, the rest healthy — or that a slow peer cannot delay another p"
-            "eer's row.",
+            "The probe's deadline is asserted on both branches, the services listing "
+            "answers while every peer is quiet, and a reader that stops reading fills its "
+            "buffer without holding up ingestion. What is not shown is a *partially* slow "
+            "world — one peer slow, the rest healthy — or that a slow peer cannot delay "
+            "another peer's row.",
     ),
     Cell(
         condition="full disk",
@@ -359,16 +381,19 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_pool_treats_one_providers_bad_key_as_evidence_about_that_provider"),
             ("route", "ravis/tests/test_fallback.py:test_a_bare_500_is_not_chased_across_the_pool"),
             ("route", "ravis/tests/test_fallback.py:test_an_exhausted_chain_returns_the_last_upstreams_own_status"),
+            ("route", "ravis/tests/test_fallback.py:test_the_retry_budget_caps_how_many_models_are_tried"),
         ],
         outcomes=(
             "no_unsafe_failover",
             "bounded_retries",
         ),
         residual=
-            "A credential failure reaches the client on a named model and is final regardle"
-            "ss of what the body says; a bare 500 is not chased. What is not shown is the j"
-            "itter §10 asks for — the 429 evidence proves status pass-through rather than a"
-            " bounded, jittered retry.",
+            "A credential failure reaches the client on a named model and is final "
+            "regardless of what the body says, a bare 500 is not chased, and a pool of "
+            "candidates all answering 503 stops at the configured attempt count with an "
+            "eligible model still untried. What is not shown is the jitter §10 asks for — "
+            "the 429 evidence proves status pass-through rather than a bounded, jittered "
+            "retry.",
     ),
     Cell(
         condition="network loss",
@@ -376,18 +401,30 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:796"),
             ("route", "ravis/src/ravis/api/openai/chat.py:1411"),
-            ("route", "ravis/tests/test_fallback.py:171"),
-            ("route", "ravis/tests/test_fallback.py:195"),
+            ("route", "ravis/tests/test_fallback.py:test_a_connection_that_never_completes_still_falls_back"),
+            ("route", "ravis/tests/test_fallback.py:test_a_connection_that_never_completes_still_falls_back_while_streaming"),
+            ("route", "ravis/tests/test_fallback.py:test_a_world_where_nothing_connects_stops_at_the_budget_not_at_the_pool"),
+            ("route", "ravis/tests/test_fallback.py:test_a_failing_local_model_is_not_replaced_by_a_cloud_one"),
+            ("unit", "ravis/tests/test_reliability.py:test_the_budget_stops_the_chain_on_attempts"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_the_drain_is_bounded_when_the_collector_hangs"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_the_oldest_is_dropped_not_the_newest"),
         ],
         outcomes=(
             "no_unsafe_failover",
             "idempotent_recovery",
+            "bounded_queues",
+            "bounded_retries",
         ),
         residual=
-            "A connection that never opened falls through to the next candidate, and a fail"
-            "ure after the request left is no longer re-sent to the same target. Loss *mid-"
-            "stream* on the transparent path is not exercised at the route, and no test dro"
-            "ps a connection between two services.",
+            "A connection that never opened falls through to the next candidate, a "
+            "failure after the request left is no longer re-sent to the same target, the "
+            "publisher's buffer stays bounded while the collector is unreachable, dropping "
+            "oldest-first, an unreachable local model is refused rather than answered "
+            "from the cloud, and a world where *nothing* connects stops at the retry budget "
+            "rather than walking the pool — the same-target retry a connection failure buys "
+            "is counted against that budget like any other attempt. Loss *mid-stream* on "
+            "the transparent path is not exercised at the route, and no test drops a "
+            "connection between two services.",
     ),
     Cell(
         condition="hung local runtime",
@@ -396,16 +433,27 @@ CELLS: list[Cell] = [
             ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_runtime_is_reported_busy_rather_than_absent"),
             ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_stream_is_a_timeout_too"),
             ("route", "sirvis/tests/test_m8_resources.py:test_a_stalled_runtime_leaves_the_service_answering"),
+            ("route", "ravis/tests/test_fallback.py:test_a_runtime_that_accepts_and_never_answers_is_not_asked_forever"),
+            ("unit", "ravis/tests/test_reliability.py:test_the_budget_stops_the_chain_on_elapsed_time"),
+            ("route", "ravis/tests/test_fallback.py:test_a_local_model_that_hangs_is_not_replaced_by_a_cloud_one"),
         ],
         outcomes=(
             "truthful",
             "standalone",
+            "bounded_retries",
+            "no_unsafe_failover",
         ),
         residual=
-            "A stalled runtime is reported busy rather than absent, on both the request and"
-            " streaming paths, and SIRVIS keeps answering. Two of the three citations are a"
-            "dapter-level; the route entry shows the listing answers but not that a *benchm"
-            "ark* against a hung runtime ends.",
+            "A stalled runtime is reported busy rather than absent, on both the request "
+            "and streaming paths, SIRVIS keeps answering, and on RAVIS's side of the same "
+            "socket a runtime that accepts and never answers is asked to the budget and no "
+            "further — a timeout buys no same-target retry, so the third eligible candidate "
+            "is never reached — and a hung *local* model is refused rather than answered "
+            "from a cloud one that is configured, eligible and reachable. Two of the SIRVIS "
+            "citations are adapter-level; its route "
+            "entry shows the listing answers but not that a *benchmark* against a hung "
+            "runtime ends, and the elapsed-time ceiling is proved on the budget itself "
+            "rather than through a route.",
     ),
     Cell(
         condition="expired credential",
@@ -470,14 +518,21 @@ CELLS: list[Cell] = [
             ("route", "nervis/tests/test_m8b_status.py:test_a_window_whose_lease_lapsed_is_gone_rather_than_probed"),
             ("route", "nervis/tests/test_m8b_status.py:test_a_lease_still_inside_its_window_is_read_normally"),
             ("route", "nervis/tests/test_m8b_status.py:test_a_renewed_lease_brings_the_window_back"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_window_that_comes_back_re_registers_into_the_same_row"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_window_still_answering_is_not_displaced_by_a_second_claim"),
         ],
         outcomes=(
             "truthful",
+            "idempotent_recovery",
         ),
         residual=
-            "Proved for the Clarvis instance lease at the route, in both directions: lapsed"
-            " is a 404, and a heartbeat brings the window back. The §5.1 *service* registry"
-            " keeps its own staleness window and no cell cites it.",
+            "Proved for the Clarvis instance lease at the route, in both directions — "
+            "lapsed is a 404, a heartbeat brings the window back — and for the recovery a "
+            "Bridge that lost its token actually takes: registering the same id again "
+            "leaves one row rather than a row per restart, re-arms the lease under a new "
+            "token, retires the old one, and is refused outright while the id is still "
+            "answering. The §5.1 *service* registry keeps its own staleness window and no "
+            "cell cites it.",
     ),
 ]
 

@@ -278,9 +278,16 @@ def test_an_exhausted_chain_returns_the_last_upstreams_own_status() -> None:
 
 
 def test_the_retry_budget_caps_how_many_models_are_tried() -> None:
-    """Two attempts configured, three eligible candidates, two requests made."""
+    """Two attempts configured, three eligible candidates, two requests made.
+
+    **The third candidate has to actually be eligible.** It declared tools and
+    32K, which the agent pool refuses outright — so the pool only ever offered
+    two models and this passed with the budget disabled entirely. It now
+    declares the full invariant, and the only thing keeping it out of the chain
+    is the budget under test.
+    """
     catalogue = dict(TWO_CODERS)
-    catalogue["coder-c"] = {"tools": "SUPPORTED", "context_window": "32768"}
+    catalogue["coder-c"] = dict(TWO_CODERS["coder-a"])
     upstream = ScriptedUpstream(
         catalogue,
         refuse={model: (503, {"error": "busy"}) for model in catalogue},
@@ -289,6 +296,156 @@ def test_the_retry_budget_caps_how_many_models_are_tried() -> None:
         client.post("/v1/chat/completions", json={"model": AGENT_POOL})
 
         assert upstream.served == ["coder-a", "coder-b"]
+
+
+def test_a_world_where_nothing_connects_stops_at_the_budget_not_at_the_pool() -> None:
+    """Network loss everywhere: the bound is the budget, not the candidate list.
+
+    A `CONNECTION` failure buys one same-target retry — the test above relies on
+    it — so an unbounded chain across three unreachable candidates would make
+    *six* calls, and each one is a connection attempt against a machine that is
+    not answering. Three attempts are configured and three calls are made: the
+    budget counts a same-target retry and a fallback the same way, which is the
+    only reason this stops before the pool is exhausted.
+    """
+    catalogue = dict(TWO_CODERS)
+    catalogue["coder-c"] = dict(TWO_CODERS["coder-a"])
+    upstream = ScriptedUpstream(catalogue, refuse_transport=set(catalogue))
+    with _app_with(upstream, retry_max_attempts=3) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+        # Twice on the primary (the class's one retry), once on the fallback,
+        # and then the budget — `coder-c` is eligible and never called.
+        assert upstream.served == ["coder-a", "coder-a", "coder-b"]
+        assert response.status_code != 200
+
+
+def test_a_runtime_that_accepts_and_never_answers_is_not_asked_forever() -> None:
+    """A hung local runtime, from RAVIS's side of the socket.
+
+    SIRVIS's evidence for this condition says a stalled runtime is *reported*
+    busy. It says nothing about what the router does meanwhile, and a router
+    that kept trying would hold a request open for `upstream_timeout` per
+    candidate for as long as the pool lasts. A timeout buys no same-target
+    retry, so two attempts are two distinct models — and the third eligible
+    candidate is never reached.
+    """
+    catalogue = dict(TWO_CODERS)
+    catalogue["coder-c"] = dict(TWO_CODERS["coder-a"])
+    upstream = ScriptedUpstream(catalogue, time_out=set(catalogue))
+    with _app_with(upstream, retry_max_attempts=2) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+
+        assert upstream.served == ["coder-a", "coder-b"]
+        assert response.status_code != 200
+
+
+class TwoUpstreams(ScriptedUpstream):
+    """One fake serving two declared upstreams, told apart by who asked.
+
+    The base fake answers every `/models` request with one catalogue, which
+    makes every model equally local or equally remote and so cannot describe
+    the world `ravis/local` exists for. Here the loopback upstream lists one
+    catalogue and the cloud one another, which is exactly how RAVIS decides
+    residency: from the upstream's address, never from the model id.
+    """
+
+    def __init__(
+        self,
+        local: dict[str, dict[str, str]],
+        cloud: dict[str, dict[str, str]],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__({**local, **cloud}, **kwargs)
+        self.local, self.cloud = local, cloud
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models") and request.url.path != "/api/v0/models":
+            served = self.local if request.url.host == "127.0.0.1" else self.cloud
+            data = [{"id": model} for model in served]
+            return httpx.Response(200, json={"object": "list", "data": data})
+        return super()._handle(request)
+
+
+UPSTREAM_PAIR = json.dumps(
+    [
+        {"name": "local", "base_url": "http://127.0.0.1:1234"},
+        {"name": "cloud", "base_url": "https://cloud.invalid"},
+    ]
+)
+
+
+def _mixed_world(**overrides: Any) -> tuple[TwoUpstreams, TestClient]:
+    """A local model and a cloud model, both eligible, one fake underneath."""
+    upstream = TwoUpstreams(
+        local={"local-model": dict(TWO_CODERS["coder-a"])},
+        cloud={"cloud-model": dict(TWO_CODERS["coder-a"])},
+        **overrides,
+    )
+    client = _app_with(upstream, upstreams=UPSTREAM_PAIR)
+    # Each declared upstream builds its own registry around the client the app
+    # was created with, so replacing `state.upstream_client` alone leaves the
+    # cloud one resolving `cloud.invalid` for real — it fails, its catalogue is
+    # empty, and the pool then has nothing to fall back *to*, which would make
+    # the refusal below pass for the wrong reason.
+    fake = client.app.app.state.upstream_client
+    for built in client.app.app.state.transparents.values():
+        built.registry.use_client(fake)
+    return upstream, client
+
+
+def test_a_failing_local_model_is_not_replaced_by_a_cloud_one() -> None:
+    """§10's failover, meeting §5.2's one pool that forbids it.
+
+    Every other test here asks whether a fallback *happens*. This asks where it
+    is allowed to go, under the condition that makes the question live: the
+    local model is unreachable, a cloud model is configured and eligible, and
+    answering the request at all means sending the prompt off the machine.
+    `ravis/local` must refuse — a degraded answer from the wrong side of that
+    boundary is the disclosure the pool exists to prevent, not a recovery.
+    """
+    upstream, client = _mixed_world(refuse_transport={"local-model"})
+    with client:
+        response = client.post("/v1/chat/completions", json={"model": "ravis/local"})
+
+        # Twice: a connection failure buys one same-target retry. The cloud
+        # model is never asked, which is the whole claim.
+        assert upstream.served == ["local-model", "local-model"]
+        assert response.status_code != 200
+
+
+def test_a_local_model_that_hangs_is_not_replaced_by_a_cloud_one() -> None:
+    """The same boundary under the other local failure §10 names.
+
+    A hung runtime reaches RAVIS as a timeout rather than a connection failure,
+    which is a different branch of the failure policy — one attempt, no
+    same-target retry — and it is the branch a local model is *most* likely to
+    take, because a runtime that is loading or swapping accepts the connection
+    and then says nothing. The candidate list is what forbids the crossing, so
+    it must hold whichever branch the failure took.
+    """
+    upstream, client = _mixed_world(time_out={"local-model"})
+    with client:
+        response = client.post("/v1/chat/completions", json={"model": "ravis/local"})
+
+        assert upstream.served == ["local-model"]
+        assert response.status_code != 200
+
+
+def test_the_cloud_model_would_otherwise_have_answered() -> None:
+    """The control that makes the refusal above mean something.
+
+    Same fake, same failure, a pool with no locality constraint: the cloud
+    model answers. Without this, the test above would pass just as well if the
+    cloud model were unroutable for some unrelated reason — an empty catalogue,
+    a capability the pool wanted, a transport that never reached it.
+    """
+    upstream, client = _mixed_world(refuse_transport={"local-model"})
+    with client:
+        response = client.post("/v1/chat/completions", json={"model": "ravis/auto"})
+
+        assert response.status_code == 200, response.text
+        assert "cloud-model" in upstream.served
 
 
 # ── Streaming: the acceptance criterion ──────────────────────────────────────

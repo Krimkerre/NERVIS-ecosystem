@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2614 tests, no network, no live service
+.venv/bin/pytest                      # part of 2626 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 479 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1047 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1052 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2614 passing across the four, conformance `PASS`.
+Expected: all clean, 2626 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15873,6 +15873,64 @@ than in a claim: the sentence asks for six outcomes and the matrix establishes
 between one and thirteen conditions' worth of each.
 
 SIRVIS 477 -> 479, NERVIS 1045 -> 1047.
+
+## Raising the thin rows of the degradation matrix — 2026-09-09
+
+The per-outcome counts published yesterday were the point of publishing them:
+bounded queues held under 1 of 19 conditions, bounded retries under 3, no
+unsafe failover and idempotent recovery under 5 each. Raised by building the
+missing proofs, not by re-reading the existing ones — every citation added here
+is a test written or strengthened today, and every one was checked by breaking
+the mechanism it names and watching it fail.
+
+    13/19 truthful · 7/19 no unsafe failover · 6/19 bounded queues
+     6/19 idempotent recovery · 6/19 standalone · 5/19 bounded retries
+
+**Bounded queues, 1 -> 6.** The queues were bounded; nothing read them under
+the conditions §10 names. The event hub now proves at the route that a
+subscriber which stops reading fills its own buffer without holding up
+ingestion, that what the hub holds is readable rather than inferred, and that a
+replaying producer cannot grow it past retention. RAVIS's decision log — the
+one an operator reads while things are failing — proves it is bounded and says
+where it starts, and that an id pushed out by the bound reads as aged out
+rather than as never having existed.
+
+**Bounded retries, 3 -> 5, and an existing test that could not fail.**
+`test_the_retry_budget_caps_how_many_models_are_tried` configured two attempts
+and three candidates, and the third candidate declared tools and 32K — which
+the agent pool refuses outright. The pool only ever offered two models, so the
+test passed with the budget disabled entirely. It now declares the full
+invariant. Two new route tests bound the two failures that reach RAVIS from a
+machine rather than from a provider: a world where nothing connects stops at
+the budget rather than walking the pool — a connection failure buys one
+same-target retry and the budget counts it like any other attempt — and a
+runtime that accepts and never answers is asked to the budget and no further.
+
+**No unsafe failover, 5 -> 7, and the claim that was enforced but never
+proved under failure.** `ravis/local` never leaves this machine, and that is
+enforced when candidates are chosen. Nothing asked what happens when the local
+model *fails*: the pool with a cloud model configured, eligible and reachable,
+and the local one unreachable. Answering at all means sending the prompt off
+the machine, which is the disclosure the pool exists to prevent rather than a
+degraded answer. Proved on both local-failure branches — connection refused and
+accepted-then-silent — with the control beside them showing that same cloud
+model answering under `ravis/auto`, so the refusal cannot pass because the
+cloud model was unroutable for some unrelated reason.
+
+The fixture is worth naming: each declared upstream builds its own registry
+around the client the application was created with, so a test that swaps only
+`state.upstream_client` leaves the second upstream resolving its host for real.
+It fails, its catalogue is empty, and the pool then has nothing to fall back
+*to* — which would have made the refusal pass while proving nothing.
+
+**Idempotent recovery, 5 -> 6.** A Bridge that lost its token has exactly one
+way back: register the same `instance_id` again, since the token is issued once
+and cannot be read out of the API. That path runs after a crash, after a reload
+and after a laptop wakes, and nothing tested running it twice. It now leaves one
+row rather than a row per restart, re-arms the lease under a new token, retires
+the old one, and is refused with a 409 while the id is still answering.
+
+RAVIS 1026 -> 1033, NERVIS 1047 -> 1052.
 
 ## Starting the thing
 

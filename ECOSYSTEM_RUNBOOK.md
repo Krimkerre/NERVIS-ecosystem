@@ -1316,11 +1316,13 @@ may only add product-specific detail beside the required state.
       *Re-scoped 8 September 2026, and still open — for a better reason than
       before. `tools/check_degradation.py` reads 19 of 19 conditions handled
       with evidence that exists and is anchored to real tests. What it also
-      now reports, per outcome, is how thin that is: truthfulness is
-      established under 13 of 19 conditions, standalone behaviour under 6, no
-      unsafe failover and idempotent recovery under 5 each, bounded retries
-      under 3, and bounded queues under 1. This sentence asks for all six, so
-      it cannot be signed on the strength of a verdict count.*
+      now reports, per outcome, is how thin that is. Raised 9 September, by
+      building the missing proofs rather than by re-reading the old ones:
+      truthfulness is established under 13 of 19 conditions, no unsafe
+      failover under 7, bounded queues, idempotent recovery and standalone
+      behaviour under 6 each, and bounded retries under 5. This sentence asks
+      for all six under every condition, so it cannot be signed on the
+      strength of a verdict count.*
 
       *The second half of the sentence stopped being an assumption the same
       day. Nineteen readers each took one cell, read its cited tests and asked

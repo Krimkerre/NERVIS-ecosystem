@@ -423,3 +423,51 @@ def test_a_hanging_keychain_does_not_hang_the_providers_listing(
 
     assert rows, "the listing did not answer at all"
     assert all("credential_source" in row for row in rows)
+
+
+# ── §10's bounded-queues outcome, on the log an operator reads ──────────────
+
+
+def test_the_decision_log_is_bounded_and_says_where_it_starts() -> None:
+    """**A log that grows with traffic is a memory leak with a UI.** The
+    decision log is the one RAVIS keeps in memory, and every routed request
+    appends to it — so its bound is what stands between a busy afternoon and a
+    gateway that has to be restarted. Bounded is half of §10's outcome; the
+    other half is that a reader can tell it is bounded rather than discovering
+    it, which is what the aged-out 404 says in its own words.
+    """
+    from ravis.api.management.decisions import DecisionLog
+
+    log = DecisionLog(capacity=5)
+    client, _ = _app_with(RecordingUpstream())
+    client.app.app.state.decision_log = log  # type: ignore[attr-defined]
+
+    with client:
+        for _ in range(20):
+            client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+        listed = client.get("/api/v1/route-decisions?limit=200").json()["items"]
+
+    assert len(listed) <= 5, f"the log kept {len(listed)} of 20 with a capacity of 5"
+    assert listed, "a bounded log that keeps nothing is not observable either"
+
+
+def test_a_decision_pushed_out_by_the_bound_reads_as_aged_out() -> None:
+    """The observable half, in the case that actually happens: somebody follows
+    a decision id from a trace an hour later. Saying "aged out" is a fact about
+    the bound; a bare 404 would read as "that never happened"."""
+    from ravis.api.management.decisions import DecisionLog
+
+    client, _ = _app_with(RecordingUpstream())
+    client.app.app.state.decision_log = DecisionLog(capacity=2)  # type: ignore[attr-defined]
+
+    with client:
+        client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+        first = client.get("/api/v1/route-decisions?limit=10").json()["items"]
+        oldest = first[-1]["decision_id"] if first else ""
+        for _ in range(5):
+            client.post("/v1/chat/completions", json={"model": "any", "messages": []})
+        gone = client.get(f"/api/v1/route-decisions/{oldest}")
+
+    assert oldest, "no decision was recorded to push out"
+    assert gone.status_code == 404
+    assert "age out" in gone.json()["error"]["message"]

@@ -279,6 +279,84 @@ def test_a_window_whose_lease_lapsed_is_gone_rather_than_probed(api: TestClient)
         bridge.shutdown()
 
 
+def test_a_window_that_comes_back_re_registers_into_the_same_row(api: TestClient) -> None:
+    """Recovery from a lapse leaves one window, not two.
+
+    A Bridge that lost its token has one way back: register again with the same
+    `instance_id` (§5.1 — the token is issued once and is not readable out of
+    the API). That is the recovery path, and it runs after a crash, after a
+    reload, and after a laptop wakes up — so it has to be safe to run twice.
+    A registry that appended instead of replacing would grow a row per restart,
+    and every one of them would be probed at the same port.
+    """
+    bridge = a_bridge(lambda _: (200, "{}"))
+    try:
+        port = bridge.server_address[1]
+        instance_id, first_token = register(api, port)
+        _age_the_registry(api, LEASE_SECONDS + 1)
+
+        again, second_token = register(api, port)
+
+        assert again == instance_id
+        rows = [
+            row for row in api.get("/api/v1/registry/instances").json()["items"]
+            if row["instance_id"] == instance_id
+        ]
+        assert len(rows) == 1, "a re-registered window must not become a second row"
+        assert rows[0]["live"] is True
+        # The lease is genuinely held again, by the new token and only by it.
+        assert api.post(
+            f"/api/v1/registry/instances/clarvis/{instance_id}/heartbeat",
+            headers={"Authorization": f"Bearer {second_token}"},
+        ).status_code == 200
+        assert api.post(
+            f"/api/v1/registry/instances/clarvis/{instance_id}/heartbeat",
+            headers={"Authorization": f"Bearer {first_token}"},
+        ).status_code == 401
+    finally:
+        bridge.shutdown()
+
+
+def test_a_window_still_answering_is_not_displaced_by_a_second_claim(
+    api: TestClient,
+) -> None:
+    """The other half: idempotent for the same process, refused for a rival.
+
+    Re-registration is only safe because it cannot be used to take an id that
+    is still held. Without this the test above would describe a registry where
+    anybody holding the enrollment secret could point somebody else's window at
+    their own port and be handed the token for it.
+    """
+    bridge = a_bridge(lambda _: (200, "{}"))
+    try:
+        port = bridge.server_address[1]
+        instance_id, token = register(api, port)
+
+        secret = Path(api.app.state.settings.database_path).with_suffix(".enrollment")
+        rejected = api.post(
+            "/api/v1/registry/instances",
+            json={
+                "service": "clarvis",
+                "instance_id": instance_id,
+                "machine_id": "machine-2",
+                "port": port + 1,
+                "api_version": "1",
+                "protocol_version": "1.0.0",
+                "capabilities": {"clarvis.status.read": "1.0.0"},
+            },
+            headers={"Authorization": f"Bearer {secret.read_text().strip()}"},
+        )
+
+        assert rejected.status_code == 409, rejected.text
+        # And the window that was already there still holds its lease.
+        assert api.post(
+            f"/api/v1/registry/instances/clarvis/{instance_id}/heartbeat",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code == 200
+    finally:
+        bridge.shutdown()
+
+
 def test_a_lapsed_window_is_gone_from_diagnostics_and_config_too(api: TestClient) -> None:
     """Three routes take the same lookup, and a fix applied to one of them
     would look done. The diagnostics route is the one whose docstring made the
