@@ -115,7 +115,8 @@ directly at its own address and no NERVIS involved, and registering a missing
 path or a file served as HTML fails with the identical message — which means
 registration is refused before the response matters. The script itself answers
 `200` with `text/javascript`. Some embedded browsers disable service workers;
-in an ordinary one the webviews render.
+in Chrome, checked directly, the editor loads with no error and the webviews
+render.
 
 ### Which screen the dashboard opens on
 

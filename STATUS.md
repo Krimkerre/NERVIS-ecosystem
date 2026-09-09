@@ -16487,13 +16487,16 @@ identical generic failure for three different responses means registration is
 refused before the response matters: service workers are disabled in the
 embedded preview browser these checks run in.
 
-So there is nothing to fix here, and nothing was changed. Worth writing down
-because the next person to see that toast will otherwise spend the same hour on
-the proxy's headers. **Unverified**: whether the operator's own Chrome
-registers it — the browser extension was not connected, and this could not be
-checked from here. The one-line check is `navigator.serviceWorker.register`
-against that script in their own console, or simply opening a Clarvis panel and
-seeing it render.
+**Confirmed from the other side.** The one thing this could not check from
+here was the operator's own browser — the Chrome extension was not connected.
+They opened the editor in Chrome directly: no error, everything renders. So the
+error exists only in the embedded preview browser, and the webviews are fine
+where they are actually used.
+
+Nothing to fix, and nothing was changed. Worth writing down because the next
+person to see that toast will otherwise spend the same hour on the proxy's
+headers — and because a check run in a browser that quietly forbids a whole API
+is a check that can only produce a false finding.
 
 ## Starting the thing
 
