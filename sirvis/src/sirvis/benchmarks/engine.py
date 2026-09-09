@@ -684,7 +684,8 @@ async def _execute(
                     "before the request to stop",
                 ))
                 break
-            await _run_test(spec, test, runtime, sampler, directory, outcome, clock)
+            await _run_test(spec, test, runtime, sampler, directory, outcome, clock,
+                            should_stop)
         # **The stop has to survive the loop that observed it.** The `break`
         # left the prose tests and nothing else: the trials began regardless,
         # and an ordinary agent benchmark is eight phrasings times three
@@ -692,13 +693,14 @@ async def _execute(
         # the model held for all of them. The engine had already agreed to stop
         # at a safe boundary; the defect was that it then started new work.
         # Found by an external audit, 9 September 2026.
-        # Not carried *into* the trials: `run_tool_trials` is M13's own contract
-        # and the documented granularity is one test, which this keeps. A cancel
-        # arriving mid-phase still waits out the trials, deliberately and not
-        # silently — the fix here is that a cancel already *seen* stops the phase
-        # from beginning.
+        # **Carried into the trials as well**, because "stop" has to mean the
+        # next generation does not start. Twenty-four attempts is minutes on a
+        # machine that has started thermally throttling, and an operator
+        # watching that happen cannot be told to wait for the phase to end.
+        # Read between attempts rather than mid-generation, so the longest wait
+        # is one generation and no half-measured reading is invented.
         if spec.tool_trials and not stopped:
-            await _run_tool_trials(spec, runtime, directory, outcome)
+            await _run_tool_trials(spec, runtime, directory, outcome, should_stop)
     finally:
         outcome.thermal_after = thermal()
         outcome.telemetry.append(sampler.sample(POST_RUN))
@@ -720,6 +722,7 @@ async def _run_tool_trials(
     runtime: GenerationRuntime,
     directory: ResultDirectory,
     outcome: ExperimentOutcome,
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """M13's trials, run against a model that is already loaded and warm.
 
@@ -730,7 +733,7 @@ async def _run_tool_trials(
     Every attempt is written out (§11.9). "Six of eight, and here are the two
     phrasings that failed" is the finding; the rate alone cannot carry it.
     """
-    from sirvis.benchmarks.clarvis_roles import run_tool_trials
+    from sirvis.benchmarks.clarvis_roles import TOOL_PROMPTS, run_tool_trials
 
     # The spec's repetition count reaches the trials, which it did not at first:
     # §13.2's threshold is eight phrasings **times three repetitions**, and a
@@ -738,8 +741,23 @@ async def _run_tool_trials(
     # threshold turns on. `--repetitions 3` therefore means 24 attempts here,
     # the same number it means everywhere else in this engine.
     reliability = await run_tool_trials(
-        runtime, spec.model_key, repetitions=spec.repetitions
+        runtime, spec.model_key, repetitions=spec.repetitions, should_stop=should_stop
     )
+    # **A cut-short set of attempts publishes no rate.** Four attempts and
+    # twenty-four are not the same measurement, and a tool-reliability figure is
+    # exactly the kind of number that outlives the run it came from — §13.2's
+    # threshold turns on it. So a stopped phase keeps its raw attempts in the
+    # result directory, where §11.9 wants them, and records nothing the router
+    # could later read as a verdict.
+    if reliability.stopped_early:
+        outcome.warnings.append((
+            ValidityScope.CONDITIONS,
+            f"stopped after {reliability.total} of "
+            f"{len(TOOL_PROMPTS) * max(1, spec.repetitions)} tool attempts; no "
+            "tool-call reliability is published for a set that was cut short",
+        ))
+        directory.write_response("__tools__", "trial", 0, reliability.as_dict())
+        return
     outcome.tool_reliability = reliability
     directory.write_response("__tools__", "trial", 0, reliability.as_dict())
     directory.append_log(
@@ -756,15 +774,29 @@ async def _run_test(
     directory: ResultDirectory,
     outcome: ExperimentOutcome,
     clock: Callable[[], float],
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """Warm up, then measure, one test at a time.
 
     Warmups are per test rather than once per experiment because they exist to
     absorb the runtime's first-call costs *for this prompt* — LM Studio loads on
     demand, and a prompt length it has not seen pays for its own KV cache.
+
+    **Stoppable between generations.** The engine's outer loop checks between
+    *tests*, which on a three-repetition spec with warmups is a dozen
+    generations an operator cannot interrupt — too long for somebody watching a
+    laptop start to struggle. Checked here as well, so the longest a stop waits
+    is the generation already in flight. Mid-generation cancellation stays out:
+    killing a running read loses the partial telemetry §11.10 keeps, which is
+    most of the value of a run that ended early.
     """
+    def stopping() -> bool:
+        return should_stop is not None and should_stop()
+
     warmed = []
     for index in range(spec.warmups):
+        if stopping():
+            return
         result = await _measure(test, spec, runtime, sampler, "warmup", index, outcome, clock)
         directory.write_response(test.id, "warmup", index, result.as_dict())
         warmed.append(result)
@@ -778,6 +810,8 @@ async def _run_test(
         effective = await _suppress(spec, test, runtime, sampler, directory, outcome, clock)
 
     for index in range(spec.repetitions):
+        if stopping():
+            return
         result = await _measure(
             effective, spec, runtime, sampler, "measured", index, outcome, clock
         )

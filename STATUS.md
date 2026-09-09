@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2728 tests, no network, no live service
+.venv/bin/pytest                      # part of 2730 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 483 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 485 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1137 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2728 passing across the four, conformance `PASS`.
+Expected: all clean, 2730 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16792,11 +16792,24 @@ repetitions, so pressing cancel bought twenty-five further generations, with the
 model held for all of them and the serial queue behind it. Measured before the
 fix: `generations == 25` on a run cancelled before its first test.
 
-Not a complaint about mid-inference cancellation, and the fix does not become
-one. The engine had already inspected the flag at a safe boundary and agreed to
-stop; the defect was that it then began new work. A cancel arriving *during* the
-trials still waits them out, which is M13's own contract and the documented
-one-test granularity — left alone deliberately rather than silently.
+That fix stopped the phase from *beginning*, and the operator's answer moved
+the requirement: *"I do need to be able to stop on the spot if the laptop starts
+acting weird."* Which is the case cancellation exists for — a machine that has
+begun thermally throttling is exactly when somebody presses it, and "between
+tests" on a three-repetition spec with warmups is a dozen generations, with the
+tool phase another twenty-four behind it.
+
+**So the flag is read between every generation now**, in the repetition loop, the
+warmup loop and the trial loop. The guarantee is *one more generation at most*,
+and a test measures it rather than asserting it. Mid-generation cancellation
+stays out deliberately: killing a running read loses the partial telemetry
+§11.10 keeps, which is most of what a run that ended early is worth.
+
+**A cut-short set of attempts publishes no tool-reliability figure.** Four
+attempts and twenty-four are not the same measurement, and a reliability rate
+outlives the run it came from — §13.2's threshold turns on it. So the raw
+attempts are kept where §11.9 wants them and no verdict is recorded, because the
+alternative is a build that looks unreliable because somebody cancelled once.
 
 **And a sentence corrected, reported from the room.** Starting LM Studio made
 NERVIS say *"LM Studio is back to healthy, sir"* — which claims it had been

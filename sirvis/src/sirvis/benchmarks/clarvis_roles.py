@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from sirvis.benchmarks.spec import BenchmarkTest, ExperimentSpec, GenerationConfig
 from sirvis.core.evidence import EvidenceKind, Provenance, TrialRate
@@ -330,6 +330,11 @@ class ToolReliability:
 
     trials: list[ToolTrial] = field(default_factory=list)
     followup: str = ""
+    #: Whether the operator stopped the run part-way through the attempts. A
+    #: rate from four attempts is not the measurement a rate from twenty-four
+    #: is, and the caller has to be able to tell them apart — the engine refuses
+    #: to publish reliability at all when this is set.
+    stopped_early: bool = False
 
     @property
     def passed(self) -> int:
@@ -363,6 +368,7 @@ async def run_tool_trials(
     *,
     prompts: Sequence[str] = TOOL_PROMPTS,
     repetitions: int = 1,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ToolReliability:
     """Ask one build to call a tool, in every phrasing, the way Clarvis asks.
 
@@ -376,14 +382,33 @@ async def run_tool_trials(
     rather than skipped. A build that makes the runtime fall over on two of
     eight prompts has a tool-call reliability of six in eight, and dropping
     those two would publish eight in eight for it.
+
+    **Stoppable between attempts.** Eight phrasings times three repetitions is
+    twenty-four generations, and an operator whose laptop has started
+    misbehaving cannot wait them out: "cancel" has to mean the next attempt does
+    not start. The flag is read between attempts rather than mid-generation, so
+    the longest wait is one generation and no partial reading is invented.
+
+    `stopped_early` travels with the result, because a reliability figure taken
+    from four attempts is not the same measurement as one taken from
+    twenty-four, and the caller must be able to tell.
     """
     trials: list[ToolTrial] = []
+    stopped = False
     for _ in range(max(1, repetitions)):
         for prompt in prompts:
+            if should_stop is not None and should_stop():
+                stopped = True
+                break
             trials.append(await _one_trial(runtime, model_key, prompt))
+        if stopped:
+            break
     return ToolReliability(
         trials=trials,
-        followup=await run_followup(runtime, model_key),
+        followup=(
+            "" if stopped else await run_followup(runtime, model_key)
+        ),
+        stopped_early=stopped,
     )
 
 

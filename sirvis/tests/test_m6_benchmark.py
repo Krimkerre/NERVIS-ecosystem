@@ -882,3 +882,64 @@ async def test_a_cancelled_run_does_not_start_the_tool_trials(tmp_path) -> None:
     assert any("cancelled" in text for _scope, text in outcome.warnings), (
         "the run does not say it was cancelled"
     )
+
+
+async def test_a_stop_mid_run_costs_at_most_one_more_generation(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**"Cancel" has to mean the next generation does not start.**
+
+    The operator's reason, in their words: *"I do need to be able to stop on the
+    spot if the laptop starts acting weird."* Checking only between tests left
+    a three-repetition spec with warmups running a dozen generations after the
+    stop, and the tool phase another twenty-four — minutes on a machine that has
+    begun thermally throttling, which is exactly when somebody presses it.
+
+    The flag is read between generations, never mid-generation: killing a
+    running read would lose the partial telemetry §11.10 keeps, which is most of
+    what a run that ended early is worth. So the guarantee is *one more
+    generation at most*, and this measures it rather than trusting it.
+    """
+    runtime = FakeRuntime()
+    spec = _spec(tool_trials=True, warmups=1, repetitions=3)
+    stop_after = 2
+
+    def should_stop() -> bool:
+        return runtime.generations >= stop_after
+
+    outcome, _ = await _run(runtime, spec, results_root=tmp_path,
+                            should_stop=should_stop)
+
+    assert runtime.generations <= stop_after + 1, (
+        f"a stop at {stop_after} generations cost "
+        f"{runtime.generations - stop_after} more; at most one is the promise"
+    )
+    assert outcome.tool_reliability is None, (
+        "a reliability figure was published from a phase that never ran"
+    )
+
+
+async def test_trials_cut_short_publish_no_reliability(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**Four attempts and twenty-four are not the same measurement.**
+
+    A tool-call rate outlives the run it came from — §13.2's threshold turns on
+    it — so a set of attempts that was stopped part-way keeps its raw records
+    and publishes no verdict. The alternative is a build that looks unreliable
+    because somebody cancelled once.
+    """
+    runtime = FakeRuntime()
+    spec = _spec(tool_trials=True, tests=(), warmups=0, repetitions=3)
+    started: list[int] = []
+
+    def should_stop() -> bool:
+        # Let a few trials run, then stop in the middle of the phase.
+        started.append(runtime.generations)
+        return runtime.generations >= 4
+
+    outcome, _ = await _run(runtime, spec, results_root=tmp_path,
+                            should_stop=should_stop)
+
+    assert runtime.generations >= 4, "the trials never started, so this proves nothing"
+    assert runtime.generations <= 5, f"the stop was not honoured: {runtime.generations}"
+    assert outcome.tool_reliability is None
+    assert any("cut short" in text for _scope, text in outcome.warnings), (
+        f"nothing says the attempts were cut short: {outcome.warnings}"
+    )
