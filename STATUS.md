@@ -16702,6 +16702,17 @@ records `anthropic 400: messages: at least one message is required`. It fails
 identically on a clean tree, takes three and a half minutes doing it, and spends
 money. §14.5 says no test reaches a live model; this one does.
 
+**One button for the whole machine.** Beside *Reset pools to their curated
+defaults* there is now *…and keep only open weights*: the same reset, then every
+pool narrowed to models whose weights are published, stored through the same
+endpoint the picker writes to. A pool that would end up empty is left as curate
+left it — `ravis/draw` is the real case — because an empty pool refuses every
+request to it, and a button whose worst outcome is "your editor stopped
+answering" is a trap rather than a convenience.
+
+Measured on this machine before shipping it, read-only: coding 124 → 12,
+clarvis-agent 58 → 11, reasoning 88 → 19, api 494 → 162, draw left alone.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

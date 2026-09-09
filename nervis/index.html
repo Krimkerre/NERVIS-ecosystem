@@ -9586,6 +9586,65 @@ async function curatePools(){
  setTimeout(ravisPools,1200);
 }
 
+/* **Curate, then keep only what has published weights — across every pool.**
+   The per-pool button does this one pool at a time; somebody who wants the
+   whole machine on open weights should not have to open eleven pickers and
+   press the same button in each.
+
+   Written as *curate first, then narrow* rather than as a second kind of
+   curation, because that is what it is: RAVIS still decides which models suit a
+   pool, and this drops the closed-weight ones from that answer. Narrowing is
+   stored per pool through the same endpoint the picker uses, so it survives a
+   restart the way a hand-made selection does.
+
+   **A pool that would end up empty is left as curate left it.** An empty pool
+   refuses every request to it, and a button whose worst case is "your editor
+   stops answering" would be a trap — `ravis/draw` and `ravis/vision` are the
+   real cases, where the open-weight candidates are few or none. */
+async function curatePoolsOpenWeights(){
+ const note=document.getElementById('curate-note');
+ if(!armed('pool:curate-open',
+   'This discards every per-pool selection you made by hand, then narrows each '
+   +'pool to models whose weights are published'))return;
+ if(note)note.textContent='resetting, then narrowing…';
+ try{
+  const reset=await fetch('/api/v1/ravis/pools/curate',
+    {method:'POST',headers:control_headers(),body:'{}'});
+  if(!reset.ok){if(note)note.textContent='RAVIS refused the reset: HTTP '+reset.status;return}
+  const narrowed=await narrowEveryPool();
+  if(note)note.textContent=narrowed;
+ }catch(e){if(note)note.textContent='RAVIS is not reachable.';return}
+ setTimeout(ravisPools,1200);
+}
+
+/* One pass over the pools, reading what curate just chose and storing the
+   open-weight part of it. Sequential rather than parallel: eleven writes at
+   once against one service, to save perhaps a second, is a burst nobody asked
+   for on a machine that may also be serving a conversation. */
+async function narrowEveryPool(){
+ const listed=await fetch('/api/v1/ravis/pools',{signal:AbortSignal.timeout(15000)});
+ if(!listed.ok)return 'RAVIS refused the pool list: HTTP '+listed.status;
+ const pools=((await listed.json()).data||{}).items||[];
+ let changed=0,skipped=[];
+ for(const pool of pools){
+  const key=String(pool.pool_id||'').replace(/^ravis\//,'');
+  if(!key)continue;
+  const read=await fetch(BASE.ravis+'/api/v1/pools/'+encodeURIComponent(key)+'/members',
+    {signal:AbortSignal.timeout(15000)});
+  if(!read.ok)continue;
+  const items=((await read.json()).items)||[];
+  const chosen=items.filter(i=>i.selected);
+  const open=chosen.filter(i=>isOpenWeight(i.id,!i.remote)).map(i=>i.id);
+  if(!open.length){skipped.push(key);continue}
+  if(open.length===items.length)continue;
+  const put=await fetch('/api/v1/ravis/pools/'+encodeURIComponent(key)+'/members',
+    {method:'PUT',headers:control_headers(),body:JSON.stringify({models:open})});
+  if(put.ok)changed++;
+ }
+ return `${changed} pool(s) narrowed to open weights`
+   +(skipped.length?`; ${skipped.join(', ')} left alone — no open-weight model qualifies, and an empty pool refuses every request`:'');
+}
+
 function poolRow(x,inv){
  const key=x.pool_id.replace(/^ravis\//,'');
  return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${jsAttr(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${escapeHtml(x.pool_id)}</a>${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${escapeHtml(inv(x.requires))}</span><span>${escapeHtml(x.members)}</span><span class="chip${warnUnless(x.available)}">${escapeHtml(x.available?'yes':'no')}</span><span style="opacity:.7">${escapeHtml(dash(x.reason))}</span></div>
@@ -9671,6 +9730,7 @@ async function ravisPools(){
  +`<div class="card kpi${escapeHtml(liveClass(p.live))}"><h3>Curation</h3>
    <div class="curate-bar">
     <button class="btn primary" onclick="curatePools()">Reset pools to their curated defaults</button>
+    <button class="btn" title="The same reset, then every pool narrowed to models whose weights are published. Two steps in one: curate decides what suits each pool, and this keeps only the part of that answer you could run yourself. Pools that would be left empty are left alone instead — an empty pool refuses every request to it." onclick="curatePoolsOpenWeights()">…and keep only open weights</button>
    </div>
    <small class="mono dim" id="curate-note">membership is worked out per request from what the providers publish, so a pool follows a changing catalogue on its own. This clears any hand-picked selection that is overriding that.</small></div>`
  /* `p.live`, which the adapter has reported since the pools fix. The table
