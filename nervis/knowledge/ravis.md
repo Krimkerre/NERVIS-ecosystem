@@ -77,6 +77,25 @@ not a ban — the aggregator's copy stays in the chain as a fallback, because a
 vendor catalogue can advertise a model whose endpoint answers 404, and a ban
 there would leave no route at all.
 
+**A slow chatbot is a bad chatbot, so chat now weighs speed — last.** Until
+9 September 2026 the conversational pool ignored measured response times
+entirely: `ravis/fast` ranked on latency, `ravis/chat` did not, so two models
+the pool liked equally were separated by nothing more meaningful than
+alphabetical order, and the slower one won about half the time. Chat now adds a
+speed term to its ranking, placed *after* everything that says what the pool is
+for. Ordering matters more than the term itself: a model the pool was written
+around still beats a faster stranger, so chat cannot degenerate into "whichever
+tiny model replies quickest". It only decides between candidates the pool
+already considers equals.
+
+Speed is read in 750-millisecond buckets rather than as a raw number, because a
+difference nobody can feel should not reorder anything — 620ms and 700ms are one
+bucket and rank identically, while 600ms and 2,400ms do not. A model nothing has
+measured yet is not punished for it; it sorts as though average, so an unmeasured
+model still gets its turn and can earn a real timing. This is why the pool
+carries `speed_tiebreak_ms` rather than the `prefer_fast` flag `ravis/fast` uses:
+the same measurement, read as a tiebreak instead of as the purpose.
+
 ## Pools
 
 Every pool is a standing description of what matters, so a caller states intent
@@ -240,6 +259,59 @@ deleted from. Reads are file, then keyring, then environment.
 Providers with a credential row: Anthropic, DeepSeek, Google AI Studio, OpenAI,
 OpenRouter and xAI. The last two of those were added on 9 September 2026 and
 need nothing but an address, because both speak the OpenAI protocol.
+
+## Where the prices come from, and why some are approximate
+
+RAVIS ships **no built-in price list**. Every hosted rate is written down by the
+operator in `~/.config/ravis/prices.json`, keyed by the vendor's own model id,
+in dollars per million tokens. This is deliberate: a rate baked into the source
+goes stale silently and nobody can say when it was true, whereas a file someone
+wrote has both an author and a date. Of the providers configured here only
+OpenRouter publishes per-token figures in its catalogue; OpenAI, Anthropic,
+Google, DeepSeek and xAI publish catalogues with no pricing in them at all, so
+without that file their calls cost `UNKNOWN` — which a budget reads as *nothing
+has been spent*.
+
+DeepSeek and xAI rates were added on 9 September 2026 from each vendor's own
+documentation. Both vendors bill **two tiers**, and the file holds one rate per
+model, so two deliberate choices were made:
+
+- **DeepSeek charges double during peak hours** (01:00–04:00 and 06:00–10:00
+  UTC, Monday to Friday; everything else, weekends included, is half price). The
+  file states the *peak* rate, so an off-peak conversation is reported as
+  costing about twice what it did. Overstating is the safe direction — a budget
+  that under-reports is worse than one that flatters itself.
+- **xAI charges double once a single prompt reaches 200,000 tokens** — the whole
+  request, not just the excess. The file states the under-200K rate, because
+  ordinary conversation is nowhere near that and doubling every message would
+  make the running total meaningless. A genuinely enormous prompt is therefore
+  reported at about half what it cost.
+
+Neither distortion touches routing decisions between vendors, since both models'
+rates move together. It only affects the figure on the spend screen.
+
+**How often any of this updates, which was worse than it looked.** Until
+9 September 2026 the answer was *never*: prices were read from the file once,
+at startup, and OpenRouter's published rates — the only machine-readable
+pricing any configured provider ships — were parsed on every catalogue refresh
+and then thrown away, because the method that accepts a catalogue price had no
+callers at all. The source comment claimed otherwise, which is how it went
+unnoticed. Every figure on the spend screen was as old as the process.
+
+Now, on the same refresh that already fetches catalogues:
+
+- `prices.json` is **re-read from disk**, so editing a rate takes effect on the
+  next refresh instead of at the next restart, and a rate deleted from the file
+  stops being charged rather than lingering until a reboot.
+- **OpenRouter's own published rates are taken automatically**, so anything
+  routed through it stays current with no help. An operator-written rate always
+  wins over a catalogue one — a catalogue price is what a vendor charges
+  anybody, and what the operator wrote down is what *they* pay.
+
+The hand-written rates still have to be maintained by hand. OpenAI, Anthropic,
+Google, DeepSeek and xAI publish no machine-readable prices anywhere, so there
+is nothing to fetch; RAVIS will not scrape a marketing page and call the result
+a fact. Those numbers are only as current as the last time somebody checked.
 
 ## Which provider a model belongs to
 

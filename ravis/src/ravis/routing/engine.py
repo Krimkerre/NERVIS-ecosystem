@@ -612,6 +612,18 @@ def _rank(
         terms: list[float | str] = [affinity, load, reseller, *_preference_terms(
             pool, policy, model, candidates, remote, observed or {})]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
+        # **Speed, after the preference rather than before it.** "Nobody likes a
+        # slow chatbot" — but among models a pool considers equally right for
+        # the job, not instead of that judgement. `prefer_fast` ranks speed
+        # ahead of preference and is correct for `ravis/fast`; a conversational
+        # pool that did the same would hand every turn to whichever small build
+        # happened to answer quickest, which is the failure `_reach_rank`'s note
+        # already describes from the other direction.
+        #
+        # The bucket is wide on purpose: models within it tie here and a later
+        # term decides, so a difference nobody would notice reorders nothing.
+        if pool.speed_tiebreak_ms > 0:
+            terms.append(_speed_rank(model, observed or {}, pool.speed_tiebreak_ms))
         lead: tuple[float | str, ...] = tuple(terms)
         # Size is the *last* thing consulted, and only for a pool that declared
         # a preference at all.

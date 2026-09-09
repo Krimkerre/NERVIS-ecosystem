@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -211,6 +211,15 @@ class PriceBook:
     price is never older than the catalogue it came from. Held in memory: a
     stale price is worse than an absent one, and re-reading it costs a catalogue
     fetch that happens anyway.
+
+    **That first sentence was false until 9 September 2026** -- and false in the
+    quiet direction, which is why it is called out here rather than silently
+    corrected. `record` had no callers anywhere in the tree: the book was filled
+    once, at startup, from `prices.json`, and OpenRouter's published rates were
+    parsed on every catalogue refresh and then dropped on the floor. Every
+    number on the spend screen was therefore as old as the process. The refresh
+    now calls `restate` and `record`, which is what makes the paragraph above
+    describe the code.
     """
 
     def __init__(self, clock: Any = time.time) -> None:
@@ -231,6 +240,25 @@ class PriceBook:
     def state(self, model: str, price: Price) -> None:
         """Record an operator-stated price, which nothing else overwrites."""
         self._prices[model] = price
+
+    def restate(self, stated: Mapping[str, Price]) -> None:
+        """Replace the whole operator-stated layer with what the file now says.
+
+        Deliberately not `state` in a loop. `state` only ever adds, so a rate
+        the operator *deleted* would stay in force until the next restart, and
+        the file and the spend figure would disagree with nothing to show which
+        was current. A withdrawn price falls back to whatever the catalogue
+        publishes, or to `UNKNOWN` -- honest, where the stale number was not.
+
+        Catalogue prices are left alone. The refresh that calls this re-records
+        them immediately afterwards, and clearing them here would open a window
+        where a call in flight costs `UNKNOWN` for no reason.
+        """
+        for model, held in list(self._prices.items()):
+            if held.source == "operator" and model not in stated:
+                del self._prices[model]
+        for model, price in stated.items():
+            self._prices[model] = price
 
     def price_of(self, model: str) -> Price | None:
         return self._prices.get(model)

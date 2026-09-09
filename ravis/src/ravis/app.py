@@ -46,7 +46,13 @@ from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, embeddings_router, models_router
 from ravis.config import Settings, resolved_capabilities
-from ravis.cost import PriceBook, UsageLedger, budget_from, load_prices
+from ravis.cost import (
+    PriceBook,
+    PriceConfigurationError,
+    UsageLedger,
+    budget_from,
+    load_prices,
+)
 from ravis.credentials import CredentialStore, credential_for
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
@@ -236,8 +242,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.sessions = SessionStore(api.state.database)
 
     # §14's cost engine. The price book is filled from provider catalogues on
-    # the refresh that already runs, so a price is never older than the
-    # catalogue it came from; the ledger is bounded and in memory, like the
+    # the refresh that already runs -- see `_restate_prices`, which is the
+    # wiring that makes that true; until 9 September 2026 this comment
+    # described an intention rather than the code, and every figure on the
+    # spend screen was as old as the process. The ledger is bounded and in
+    # memory, like the
     # decision log, because neither is anybody's accounting system and §14 is
     # explicit that RAVIS never presents an estimate as an invoice.
     api.state.prices = PriceBook()
@@ -582,6 +591,43 @@ async def _refresh_catalogues(api: FastAPI) -> None:
     if not registries:
         return
     await asyncio.gather(*(registry.refresh() for registry in registries))
+    await _restate_prices(api)
+
+
+async def _restate_prices(api: FastAPI) -> None:
+    """Re-read what a call costs, on the refresh that already runs.
+
+    Two sources, in the order §14's precedence needs them.
+
+    The operator's `prices.json` is re-read from disk, so **editing a rate now
+    takes effect on the next refresh rather than at the next restart**. Vendors
+    change their pricing without asking, and needing the gateway bounced to
+    record that made the file feel like a build-time constant instead of
+    configuration.
+
+    Then every catalogue that publishes per-token figures re-states its own,
+    through `record`, which refuses to apply over anything the operator wrote
+    down. Only OpenRouter publishes any; the rest are silently skipped, which is
+    not a failure but the state five of the six providers are permanently in.
+
+    Tolerant of everything, like the retention sweep it runs beside. A typo in
+    `prices.json` must not kill the task that also refreshes catalogues -- it is
+    reported by `ravis doctor` and refused outright by `serve`, which are the
+    two places an operator actually looks. Nothing here is allowed to make the
+    model lists stop updating.
+    """
+    book: PriceBook | None = getattr(api.state, "prices", None)
+    if book is None:
+        return
+    with contextlib.suppress(PriceConfigurationError, OSError):
+        book.restate(load_prices())
+    for built in getattr(api.state, "transparents", {}).values():
+        published = getattr(built.adapter, "catalogue_prices", None)
+        if published is None:
+            continue
+        with contextlib.suppress(Exception):
+            for model, price in (await published()).items():
+                book.record(model, price)
 
 
 async def _refresh_catalogues_periodically(api: FastAPI, interval: float) -> None:

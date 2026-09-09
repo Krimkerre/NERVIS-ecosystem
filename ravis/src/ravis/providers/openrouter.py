@@ -140,6 +140,27 @@ class OpenRouterAdapter(GenericOpenAiAdapter):
         apply_configured(known, self._configured.get(model, {}))
         return known
 
+    async def catalogue_prices(self) -> dict[str, Price]:
+        """Every per-token price OpenRouter publishes, by model id.
+
+        Deliberately **not** on the `ProviderAdapter` protocol. OpenRouter is
+        the only configured provider that publishes machine-readable pricing at
+        all -- OpenAI, Anthropic, Google, DeepSeek and xAI ship catalogues with
+        no rates in them -- so putting this on the protocol would make five
+        adapters stub a method none of them can ever answer. The caller reaches
+        for it with `getattr` and skips upstreams that lack it.
+
+        Reads the cached catalogue, so on the refresh that just fetched it this
+        costs nothing but the parse.
+        """
+        published: dict[str, Price] = {}
+        for model, entry in (await self._read_catalogue()).items():
+            known = ModelCapabilities(model_id=model)
+            _absorb_price(known, entry.get("pricing"))
+            if known.price is not None:
+                published[model] = known.price
+        return published
+
     async def _read_catalogue(self) -> dict[str, dict[str, Any]]:
         """Every model OpenRouter describes, keyed by id, cached for `_ttl`.
 

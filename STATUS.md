@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2731 tests, no network, no live service
+.venv/bin/pytest                      # part of 2744 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1137 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2731 passing across the four, conformance `PASS`.
+Expected: all clean, 2744 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16884,6 +16884,71 @@ Recorded in `RAVIS.md` and in chat's knowledge rather than closed silently:
 closing it means either spending money on unproven models automatically or
 asking a person, and both are decisions rather than defaults. The operator chose
 a switch — two, nested — which is the next piece of work.
+
+## Nobody likes a slow chatbot, and prices that never updated
+## — 2026-09-09
+
+**Chat now weighs speed — last, on purpose.** `ravis/fast` ranked on measured
+latency; `ravis/chat` ignored it entirely, so two models the pool liked equally
+were separated by alphabetical order and the slower one won about half the time.
+Chat gained `speed_tiebreak_ms=750.0`, a term appended *after* the pool's
+declared preference rather than ahead of it — which is the whole difference
+between this and the `prefer_fast` flag, and the reason chat does not use that
+flag. A model the pool was written around still beats a faster stranger. Speed
+is read in 750ms buckets so a difference nobody can feel reorders nothing, and
+an unmeasured model sorts as though average rather than being punished for
+never having been tried.
+
+**Two of the four tests written for it were vacuous, found by breaking the fix
+rather than by reading them.** The first pair used models the family list
+already ordered, so the "faster one wins" test passed with the tiebreak removed
+— QUICK simply won on alphabet. Fixed by picking two models with an identical
+`preference_rank` where the fast one is the alphabetically *later*, and
+therefore losing, candidate. The third resisted entirely: a fast stranger loses
+to a declared model for reasons that hold whether speed ranks first or last, so
+no arrangement of the catalogue could make it fail. It is kept, reworded to stop
+claiming what it does not prove, and the claim it was supposed to carry — that
+speed sits *after* the pool's purpose — is now asserted against the pool
+declaration itself, which is the level where it is actually decidable.
+
+**Then a plain question with an uncomfortable answer: "do those prices get
+updated periodically?"** No — and worse than no. `PriceBook.record`, whose
+docstring reads *"Take a catalogue price"*, had **no callers anywhere in the
+tree**, while `app.py`'s comment beside it claimed the book "is filled from
+provider catalogues on the refresh that already runs". Neither half was true.
+Every price came out of `prices.json` once, at process start, and OpenRouter's
+published rates were parsed into `ModelCapabilities.price` on every refresh and
+then dropped on the floor. Every figure on the spend screen was as old as the
+process, and a vendor changing its pricing was invisible until somebody
+restarted the gateway. The comment is why it survived: an assertion in prose
+reads exactly like an assertion in code right up until someone checks.
+
+The refresh that already runs now calls `_restate_prices`: `prices.json` is
+re-read from disk, and every upstream publishing per-token figures re-states
+them through `record`, which still refuses to overwrite an operator's number.
+`PriceBook.restate` replaces the whole operator layer rather than adding to it,
+so a rate deleted from the file stops being charged instead of lingering until a
+reboot. `catalogue_prices` is duck-typed on the OpenRouter adapter rather than
+added to the `ProviderAdapter` protocol — five of the six configured providers
+publish no rates at all, and making them stub a method none can answer would
+add surface for a capability that does not exist.
+
+**Eight tests, and the first probe found a hole of exactly the original shape.**
+Removing the hook from `_refresh_catalogues` failed nothing, because every test
+called `_restate_prices` directly — a correct function nothing calls, which is
+the bug being fixed, reproduced in its own test file. A test that drives the
+refresh itself closes it; all four probes now fail as they should.
+
+**DeepSeek and xAI rates written down**, from each vendor's own documentation.
+Both bill two tiers against a schema holding one rate, so two stated choices:
+DeepSeek's *peak* rate (off-peak is half, so spend is overstated rather than
+under — a budget that flatters itself is the dangerous direction), and xAI's
+under-200K rate (the ≥200K tier doubles the whole request, but doubling every
+ordinary message would make the running total meaningless). Both distortions are
+recorded in chat's knowledge, and neither touches routing, since a vendor's
+tiers move together. Those numbers stay hand-maintained: no vendor but
+OpenRouter publishes machine-readable pricing, and RAVIS will not scrape a
+marketing page and call the result a fact.
 
 ## Starting the thing
 

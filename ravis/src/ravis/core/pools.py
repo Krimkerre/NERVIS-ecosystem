@@ -136,6 +136,17 @@ class VirtualModelPool:
     # cheaper of them wins. Nothing is weighted against anything; two facts are
     # consulted in a stated order.
     speed_bucket_ms: float = 0.0
+    #: Measured speed as a *tiebreak*, consulted after the pool's declared
+    #: preference rather than before it.
+    #:
+    #: `prefer_fast` puts speed ahead of preference, which is right for a pool
+    #: whose whole purpose is latency and wrong for one that exists to pick a
+    #: good conversational model — there, speed leading would let a small quick
+    #: build outrank the families the pool was written around. This term ranks
+    #: only among candidates the preference already considers equal, and its
+    #: bucket is deliberately wide: a difference nobody would notice should not
+    #: reorder anything.
+    speed_tiebreak_ms: float = 0.0
     # The most a model may cost per million tokens and still be a default
     # member, in USD. `None` means price is not a membership condition.
     #
@@ -306,6 +317,7 @@ class VirtualModelPool:
                 "prefer_cheap": self.prefer_cheap,
                 "prefer_fast": self.prefer_fast,
                 "speed_bucket_ms": self.speed_bucket_ms,
+                "speed_tiebreak_ms": self.speed_tiebreak_ms,
                 "max_price_per_million": self.max_price_per_million,
                 "default_tier": self.default_tier,
             },
@@ -786,6 +798,15 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
         # to. Preferred rather than required, so a machine with no reachable
         # provider still answers instead of refusing.
         prefer_remote=True,
+        # **Speed matters here, and does not decide here.** Asked for plainly:
+        # "nobody likes a slow chatbot" — but a conversational pool that ranked
+        # on latency first would hand every turn to whichever small build
+        # answered quickest, which is the failure the comment above describes.
+        # So it is a tiebreak, consulted after the declared families, with a
+        # bucket wide enough that only a difference a person would actually feel
+        # reorders anything: three quarters of a second between first tokens is
+        # noticeable, two hundred milliseconds is not.
+        speed_tiebreak_ms=750.0,
         # **And a membership, which is what it had none of.** See
         # `CHAT_FAMILIES`: without it this pool admitted every model RAVIS knew
         # and, declaring no preference, ordered them alphabetically.
