@@ -530,6 +530,27 @@ A nudge — NERVIS speaking first about a silence — deliberately keeps its
 instruction in the system prompt. It is an instruction to the assistant rather
 than data, and a single unprompted turn has no conversation to cache anyway.
 
+## Two encodings in the settings table, and what it cost
+
+Settings are stored two different ways and both are legitimate: the settings
+endpoint writes JSON, so `chat.memory` sits in the row as `"all"` with its
+quotes, while `nervis.voice.write_setting` writes bare text, so
+`user.display_name` sits there as `Matty`. Readers that called `json.loads` and
+returned a default on the error silently threw away every value stored the
+second way.
+
+**It surfaced as a personality complaint.** Chat kept saying "sir" and never the
+name that had been entered. The persona was not at fault: `_display_name` raised
+on `Matty` and returned empty, so NERVIS had no name at all and "sir" was the
+only address it could produce. The same strict read had also disabled the
+mechanism that lets a shipped default persona change — every rewrite since had
+reached nobody with an existing install, and looked from outside exactly like
+the edit not having been made.
+
+Both readers now accept either encoding. A value that parses as JSON but is not
+a string — a list, an object, a number — still returns empty, because that is
+corruption in a row meant to hold a name rather than a name.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

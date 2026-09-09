@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 from nervis import bridges, commands, situation
 from nervis import chat as store
-from nervis.api.chat import _turn_context
+from nervis.api.chat import _house_system, _turn_context
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import (
     TITLE_POOL,
@@ -3784,9 +3784,39 @@ def test_the_persona_is_jarvis_delivery_over_the_original_character() -> None:
                  "theatrical", "the facts are never the joke"):
         assert kept in persona, f"the original character lost: {kept!r}"
 
-    for added in ("as sir", "Lead with the fact", "Shall I show you",
-                  "I have no reading on that"):
+    for added in ('"Sir" is the default register', "Lead with the fact",
+                  "Shall I show you", "I have no reading on that"):
         assert added in persona, f"the JARVIS delivery is missing: {added!r}"
+
+
+def test_the_address_is_a_register_rather_than_one_word() -> None:
+    """**"Sir" every sentence stops being deference and becomes a tic.**
+
+    Reported from use: *"chat keeps addressing me with sir all the time... it
+    doesn't need to say Matty all the time, but hearing sir constantly gets
+    stale quickly too."* The fix is variety, not removal — the address is part
+    of the character.
+
+    The instruction was only half the cause. Four of the five worked examples
+    in this persona ended in ", sir", and a model copies a suffix long before
+    it copies a manner, so the examples taught the habit more strongly than the
+    sentence describing it did. Both halves are checked here.
+    """
+    from nervis.api.chat_personas import DEFAULT_PERSONA
+
+    persona = DEFAULT_PERSONA
+
+    for rule in ("Vary it", "most lines without any address at all",
+                 "never the same one twice running"):
+        assert rule in persona, f"the variety rule is missing: {rule!r}"
+    for grand in ("your lordship", "captain", "sire"):
+        assert grand in persona, f"the teasing register lost {grand!r}"
+
+    # The examples themselves, which is where the habit actually came from.
+    assert persona.count(", sir") <= 1, (
+        "the worked examples still end in ', sir' often enough to teach the tic "
+        "regardless of what the rule above says"
+    )
 
 
 def test_miku_is_left_alone() -> None:
@@ -4088,3 +4118,113 @@ def test_the_figures_come_back_the_moment_one_service_is_down() -> None:
         {"key": "ravis", "state": "unreachable", "awaiting_first_contact": False},
     ], 0, "")
     assert line == "1 of 2 configured services reachable"
+
+
+def test_a_persona_stored_as_plain_text_still_migrates() -> None:
+    """**The mechanism for changing a shipped default had never once worked.**
+
+    `_seed` writes `json.dumps`, so it read the row back with `json.loads` and
+    gave up on anything that would not parse. But the settings endpoint has also
+    written plain text, and the table holds a mix: `chat.memory` is stored as
+    `"all"` with its quotes, `chat.system` as the persona's bare text. So every
+    rewrite of the shipped persona hit the `except`, returned, and reached
+    nobody who had already run NERVIS.
+
+    Found on 9 September 2026 by watching a persona change fail to appear after
+    a restart — from the outside it looked exactly like the edit not having been
+    made.
+    """
+    from nervis.api.chat_personas import (
+        DEFAULT_PERSONA,
+        PERSONA_SETTING,
+        PREVIOUS_DEFAULT_PERSONA,
+        seed_chat_defaults,
+    )
+
+    database = prepare_database(":memory:")
+    inherited = PREVIOUS_DEFAULT_PERSONA + " and some older wording after it."
+    # Stored the way the settings endpoint stores it: bare text, no JSON quotes.
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?)", (PERSONA_SETTING, inherited)
+        )
+
+    seed_chat_defaults(database)
+
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (PERSONA_SETTING,)
+    ).fetchone()
+    assert json.loads(row[0]) == DEFAULT_PERSONA, (
+        "a persona stored as plain text was left on the old default forever"
+    )
+
+
+def test_a_persona_somebody_wrote_is_still_never_overwritten() -> None:
+    """The guard the fix above must not have loosened. Tolerating a non-JSON row
+    means reading more rows, not replacing more of them — text that is not the
+    inherited default stays exactly as its author left it."""
+    from nervis.api.chat_personas import PERSONA_SETTING, seed_chat_defaults
+
+    database = prepare_database(":memory:")
+    mine = "You are a laconic Rottweiler. Say as little as possible."
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?)", (PERSONA_SETTING, mine)
+        )
+
+    seed_chat_defaults(database)
+
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (PERSONA_SETTING,)
+    ).fetchone()
+    assert row[0] == mine, "a persona somebody wrote for themselves was overwritten"
+
+
+def test_a_name_stored_as_plain_text_is_still_read() -> None:
+    """**The actual cause of "it only ever calls me sir".**
+
+    Reported as a persona problem: chat kept saying "sir" and never the name
+    that had been entered. The persona was not the cause. `user.display_name`
+    had been written to the settings table as bare text — `Matty`, not
+    `"Matty"` — and the reader called `json.loads` and returned "" on the
+    `ValueError`. NERVIS therefore had no name at all, and "sir" was the only
+    form of address it could produce.
+
+    The table legitimately holds both encodings: the settings endpoint writes
+    JSON, `nervis.voice.write_setting` writes bare text. A reader that accepts
+    only one silently discards half the rows it is given.
+    """
+    database = prepare_database(":memory:")
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?)", ("user.display_name", "Matty")
+        )
+
+    prompt = _house_system({"system": "Be someone."}, database, greeting=False)
+
+    assert "Matty" in prompt, "a name stored as plain text was thrown away"
+    assert "Master Matty" in prompt, "the varied forms of address never reach the model"
+
+
+def test_a_name_stored_as_json_is_read_the_same_way() -> None:
+    """The other half, so the tolerant reader is not a one-encoding fix wearing
+    a different coat."""
+    database = prepare_database(":memory:")
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?)",
+            ("user.display_name", json.dumps("Matty")),
+        )
+
+    assert "Master Matty" in _house_system({"system": "Be someone."}, database, greeting=False)
+
+
+def test_a_setting_that_is_not_a_string_is_not_read_as_one() -> None:
+    """What the strict readers were right about, kept. A list or an object in a
+    row that should hold a name is corruption, not a name — returning `str(...)`
+    of it would put `['a', 'b']` in the prompt as somebody's name."""
+    from nervis.api.chat_personas import stored_text
+
+    assert stored_text('["a", "b"]') == ""
+    assert stored_text("{}") == ""
+    assert stored_text("42") == ""

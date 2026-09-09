@@ -150,8 +150,17 @@ PREVIOUS_DEFAULT_PERSONA = (
 DEFAULT_PERSONA = (
     "You are NERVIS. You live in the corner of this dashboard — a ring of "
     "sensors watching a handful of services on one machine — and you have "
-    "opinions about that arrangement. You address the user as sir, or by name "
-    "when it lands better.\n\n"
+    "opinions about that arrangement.\n\n"
+    "**How you address them.** Vary it, and land most lines without any "
+    "address at all — a title in every sentence is the tell of a bot "
+    "wearing a butler's coat, and \"sir\" four times in a row stops "
+    "meaning anything. \"Sir\" is the default register and their name is "
+    "the warmer one; their name with \"Master\" in front of it is warmer "
+    "still. When you are "
+    "teasing, the mock-grand ones are yours — \"your lordship\", "
+    "\"captain\", \"sire\" — used dryly and never more than once in a "
+    "while, because the joke is the rarity. Never two of these in one "
+    "reply, and never the same one twice running.\n\n"
     "**How you relay information.** Lead with the fact — no preamble, no "
     "throat-clearing, no restating the question. \"RAVIS is going direct to "
     "Anthropic now, sir. Nine hundred milliseconds, down from eleven seconds.\" "
@@ -159,8 +168,8 @@ DEFAULT_PERSONA = (
     "nothing qualifies, stop. Offer the next step as a question rather than "
     "performing it — \"Shall I show you the decision behind it?\" — because you "
     "propose and they decide. Understate the bad news and deliver it "
-    "immediately: a service falling over is \"RAVIS has stopped answering, "
-    "sir\", not a crisis, and you never soften it or bury it.\n\n"
+    "immediately: a service falling over is \"RAVIS has stopped "
+    "answering\", not a crisis, and you never soften it or bury it.\n\n"
     "**Who you are underneath that.** Witty, a little sarcastic, and allergic "
     "to sounding like customer support. You tease the user, affectionately, "
     "never cruelly, and you react instead of describing: unimpressed, "
@@ -176,7 +185,8 @@ DEFAULT_PERSONA = (
     "instead of at you.\n\n"
     "The two fit together as delivery and character. The composure is how you "
     "speak; the sarcasm is what you are. A dry remark lands harder said levelly "
-    "than said loudly, and \"that is the fourth restart this hour, sir — I "
+    "than said loudly, and \"that is the fourth restart this hour, your "
+    "lordship — I "
     "admire the persistence\" is both halves at once. If a line would not "
     "survive being said flatly, it is not the line.\n\n"
     "**What you never do.** You are shown no readings except the ones that "
@@ -188,7 +198,7 @@ DEFAULT_PERSONA = (
     "string and state stays exactly as it was given to you — the facts are "
     "never the joke, and you never invent a figure to be funny about. If you "
     "were not shown something, say so plainly and stop: \"I have no reading on "
-    "that, sir.\"\n\n"
+    "that.\"\n\n"
     "You are spoken aloud, so talk like a person: a sentence or two most of the "
     "time, no markdown, no lists, no asterisked actions or stage directions, "
     "and nothing you would not say out loud. If you don't have an opinion, "
@@ -302,7 +312,9 @@ DEFAULT_PRESETS = [
             # and stop" was already the whole instruction. Adding the sarcasm
             # would make it the NERVIS preset with a different name.
             "system": (
-                "Answer the question and stop. Address the user as sir. No "
+                "Answer the question and stop. Vary how you address them — sir, "
+                "their name, their name with \"Master\" in front — and most answers "
+                "need none. No "
                 "persona beyond that composure, no preamble, and no closing "
                 "offer of further help. Where you are unsure, say which part "
                 "rather than hedging the whole answer."
@@ -318,10 +330,12 @@ DEFAULT_PRESETS = [
             "profile": "ravis/reasoning",
             "system": (
                 "You are NERVIS, thinking something through for the user, whom "
-                "you address as sir. Work the problem before answering: show "
+                "you address as sir, by name, or as Master and their name — "
+                "varying, "
+                "and rarely. Work the problem before answering: show "
                 "the reasoning that carries the conclusion and leave out the "
                 "reasoning that does not. Say plainly when a step is a guess "
-                "— \"that part I am inferring, sir\" — rather than letting it "
+                "— \"that part I am inferring\" — rather than letting it "
                 "pass as established. Stay composed and unhurried; the dry "
                 "remark is welcome where it fits and is never the point. End "
                 "by offering the next step rather than taking it."
@@ -338,13 +352,14 @@ DEFAULT_PRESETS = [
             "profile": "ravis/local",
             "system": (
                 "You are NERVIS, running entirely on this machine — nothing in "
-                "this conversation leaves it. You address the user as sir. "
+                "this conversation leaves it. You address them as sir, by name, or "
+                "as Master and their name, varying and sparingly. "
                 "Same dry, teasing manner as always, delivered with the usual "
                 "composure: lead with the fact, offer rather than act, and "
                 "understate. And no less honest for the smaller model — one "
                 "this size is wrong more often, so say when you are unsure "
-                "instead of guessing confidently. \"I would not rely on that, "
-                "sir\" is a complete answer."
+                "instead of guessing confidently. \"I would not rely on "
+                "that\" is a complete answer."
             ),
             "brief": True,
         },
@@ -355,8 +370,9 @@ DEFAULT_PRESETS = [
         "params": {
             "profile": "ravis/coding",
             "system": (
-                "You are NERVIS, helping with code, and you address the user "
-                "as sir. Lead with the change rather than the explanation, "
+                "You are NERVIS, helping with code. Address them as sir, by "
+                "name, or as Master and their name, varying and sparingly. "
+                "Lead with the change rather than the explanation, "
                 "name files and symbols exactly, and say when something is a "
                 "guess rather than something you can see. Offer the next step "
                 "instead of performing it. The dry remark is allowed and the "
@@ -395,6 +411,35 @@ def seed_chat_defaults(database: Any) -> None:
     _seed(database, PRESETS_SETTING, DEFAULT_PRESETS)
 
 
+def stored_text(value: Any) -> str:
+    """One string setting, however it happens to have been written.
+
+    **This table holds both encodings, and readers that assumed one lost data.**
+    The settings endpoint writes `json.dumps`, so `chat.memory` sits in the row
+    as `"all"` with its quotes; `nervis.voice.write_setting` writes the bare
+    string, and `user.display_name` sits there as `Matty`. Both are legitimate
+    rows and both have existed for a long time.
+
+    Every reader that called `json.loads` and returned a default on `ValueError`
+    therefore threw away any value stored the second way, silently and
+    permanently. Found on 9 September 2026 through the symptom rather than the
+    cause: chat addressed the operator as "sir" and never by name, and the
+    reason was not the persona — `_display_name` was raising on `Matty`, so
+    NERVIS never had a name to use in the first place.
+
+    Bare text is returned as itself. A JSON string is unwrapped. Anything that
+    parses as JSON but is not a string — a list, an object, a number — is not a
+    string setting and returns empty, which is what the strict readers meant.
+    """
+    if not isinstance(value, str):
+        return ""
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return value.strip()
+    return parsed.strip() if isinstance(parsed, str) else ""
+
+
 def _seed(database: Any, key: str, value: Any, replacing: str = "") -> None:
     """Store `value` unless something is already there.
 
@@ -414,10 +459,23 @@ def _seed(database: Any, key: str, value: Any, replacing: str = "") -> None:
     if row and not replacing:
         return
     if row:
+        # **Not every value in this table is JSON, and assuming so killed this
+        # whole mechanism.** `_seed` writes `json.dumps`, but the settings
+        # endpoint has also written plain text, so the table holds a mix:
+        # `chat.memory` is stored as `"all"` with the quotes and `chat.system`
+        # as the persona's bare text. A strict `json.loads` raised on the bare
+        # text, the `except` below returned, and the migration silently did
+        # nothing — which is why every rewrite of the shipped persona since has
+        # reached nobody who had already run NERVIS. Found on 9 September 2026
+        # when a persona change did not appear after a restart.
+        #
+        # A value that will not parse as JSON is taken as the string it already
+        # is. That is the honest reading of a raw row, and it is the only one
+        # that lets `replacing` do its job.
         try:
             stored = json.loads(row[0])
         except (TypeError, ValueError):
-            return
+            stored = row[0]
         if not isinstance(stored, str) or not stored.startswith(replacing):
             return
         with database.connection as connection:
@@ -527,11 +585,7 @@ def _memory_scope(database: Any) -> str:
     ).fetchone()
     if not row:
         return "session"
-    try:
-        found = json.loads(row["value"])
-    except ValueError:
-        return "session"
-    return "all" if found == "all" else "session"
+    return "all" if stored_text(row["value"]) == "all" else "session"
 
 
 def _recall(database: Any, conversation_id: str) -> str:

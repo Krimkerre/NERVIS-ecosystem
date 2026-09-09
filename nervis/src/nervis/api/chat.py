@@ -56,6 +56,7 @@ from nervis.api.chat_personas import (
     _memory_scope,
     _nudge_directive,
     _recall,
+    stored_text,
 )
 from nervis.api.chat_reads import (
     CATALOGUE_RETRY_SECONDS,
@@ -502,7 +503,19 @@ def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
         parts.append(BREVITY_DIRECTIVE)
     name = _display_name(database)
     if name:
-        parts.append(f"The user's name is {name}. Address them by it when it fits naturally.")
+        # **The concrete forms, because only this line knows the name.**
+        # The persona describes the register; this supplies the actual
+        # words, so the model is not left resolving a placeholder. Asked
+        # for on 9 September 2026: "sir" was landing on nearly every
+        # sentence and going stale, and the fix is variety rather than
+        # removal -- the address is part of the character.
+        parts.append(
+            f"The user's name is {name}. Vary how you address them —"
+            f" \"sir\", \"{name}\", \"Master {name}\", and now and then a dry"
+            " \"your lordship\" or \"captain\" when you are teasing. Never the"
+            " same one twice running, never two in one reply, and most replies"
+            " want none at all."
+        )
     # **Only alongside something else.** A request with no persona, no name and
     # no house style sends no system message at all, and that is a property
     # worth keeping: §7 makes NERVIS a plain client of RAVIS's published API,
@@ -668,11 +681,10 @@ def _display_name(database: Any) -> str:
     ).fetchone()
     if not row:
         return ""
-    try:
-        found = json.loads(row["value"])
-    except ValueError:
-        return ""
-    return str(found).strip() if isinstance(found, str) else ""
+    # Tolerant of both encodings this table holds -- see `stored_text`. The
+    # strict version returned "" for a name stored as bare text, which is why
+    # chat only ever said "sir": there was no name for it to alternate with.
+    return stored_text(row["value"])
 
 
 def _editor_destination(request: Request) -> dict[str, Any]:

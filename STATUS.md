@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2774 tests, no network, no live service
+.venv/bin/pytest                      # part of 2780 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1147 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1153 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2774 passing across the four, conformance `PASS`.
+Expected: all clean, 2780 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17086,6 +17086,39 @@ readings.
 Verified live on both paths: a plain client now answers *"Unable to
 determine"* rather than a confident stale figure, and the browser path answers
 649. Probed by removing the guard again, which fails the new test.
+
+## "It only ever calls me sir" was not a persona problem — 2026-09-09
+
+Reported from use: chat kept addressing the operator as "sir" and never by the
+name they had entered, and constant "sir" goes stale. Asked for variety between
+the two, not removal, and then for more titles in the mix.
+
+**The persona was the smaller half.** Its instruction did say "sir, or by name",
+but four of its five worked examples ended in ", sir" — and a model copies a
+suffix long before it copies a manner. The rule is now a register rather than a
+word: "sir" as the default, the name warmer, "Master <name>" warmer still, and
+the mock-grand ones — "your lordship", "captain", "sire" — reserved for teasing.
+Most lines carry no address at all. The examples were thinned to match, which is
+what the new test pins: more than one `", sir"` in the persona fails it.
+
+**The bigger half was that NERVIS never knew the name.** Settings are stored two
+ways, both legitimate — the settings endpoint writes JSON, `voice.write_setting`
+writes bare text — so `user.display_name` sat in the table as `Matty` rather
+than `"Matty"`. `_display_name` called `json.loads`, raised, and returned empty.
+There was no name to alternate with, so "sir" was the only form available.
+
+**And the same strict read had quietly disabled `_seed`'s whole reason for
+existing.** `PREVIOUS_DEFAULT_PERSONA` exists so a shipped persona can be
+improved without overwriting one somebody wrote themselves; it never fired once,
+because the stored persona is bare text too. Every rewrite since had reached
+nobody with an existing install — and from outside it looked exactly like the
+edit not having been made, which is how this was found: the persona change did
+not appear after a restart.
+
+One tolerant reader now serves both encodings, and a value that parses as JSON
+but is not a string still returns empty, because that is corruption in a row
+meant to hold a name. Verified live across four turns: no address, "sir", no
+address, "Matty".
 
 ## Starting the thing
 
