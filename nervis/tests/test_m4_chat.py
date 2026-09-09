@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 from nervis import bridges, commands, situation
 from nervis import chat as store
-from nervis.api.chat import _house_system, _turn_context
+from nervis.api.chat import _completion_payload, _house_system, _turn_context
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import (
     TITLE_POOL,
@@ -4228,3 +4228,34 @@ def test_a_setting_that_is_not_a_string_is_not_read_as_one() -> None:
     assert stored_text('["a", "b"]') == ""
     assert stored_text("{}") == ""
     assert stored_text("42") == ""
+
+
+def test_an_ordinary_turn_asks_for_no_reasoning() -> None:
+    """**Ten seconds of thinking before "good morning".**
+
+    Chased from "chat responses are still rather slow": a turn took eight to
+    twenty-five seconds and almost none of it was NERVIS or RAVIS. NERVIS's own
+    assembly measured 0.4s and RAVIS answered in 0.3s; the reply to the single
+    word "hi" carried 1,215 `reasoning_content` frames over ten seconds, then
+    sixty-three frames of text in the last third of a second.
+    `deepseek-v4-flash` is a thinking model and chat's prompt — persona,
+    readings, recall — is exactly what makes one think hard.
+    """
+    payload = _completion_payload({}, "ravis/chat", [], "good morning")
+
+    assert payload["reasoning_effort"] == "none"
+
+
+def test_the_reasoning_pool_is_left_alone() -> None:
+    """Somebody who picked **Deep think** asked for the thinking. Switching it
+    off there would quietly turn that preset into the ordinary one."""
+    payload = _completion_payload({}, "ravis/reasoning", [], "work this through")
+
+    assert "reasoning_effort" not in payload
+
+
+def test_a_caller_that_names_its_own_budget_keeps_it() -> None:
+    """A default, not a policy."""
+    payload = _completion_payload({"reasoning_effort": "high"}, "ravis/chat", [], "hard one")
+
+    assert payload["reasoning_effort"] == "high"

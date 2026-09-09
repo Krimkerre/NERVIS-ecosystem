@@ -95,7 +95,16 @@ def analyse(request: NormalizedRequest) -> RequestRequirements:
             "the request asks for a JSON schema response",
         )
 
-    if request.reasoning_effort:
+    # **"none" asks for the opposite, so it must not demand the capability.**
+    # Setting any reasoning budget used to require a reasoning-capable model,
+    # which is right for "high" and backwards for "none": a request saying
+    # *do not think* was narrowing the pool to models that think. Found on
+    # 9 September 2026 when chat asked for no reasoning and was routed away
+    # from the model it had been using to one picked for a capability the
+    # request was declining. The value still travels to the provider — a
+    # thinking model that receives it turns thinking off — but it stops being
+    # a hard constraint on who may answer.
+    if request.reasoning_effort and request.reasoning_effort != NO_REASONING:
         _require(requirements, Capability.REASONING, "the request sets reasoning_effort")
 
     if request.stream:
@@ -112,6 +121,13 @@ def analyse(request: NormalizedRequest) -> RequestRequirements:
 def _require(requirements: RequestRequirements, capability: Capability, why: str) -> None:
     requirements.required.add(capability)
     requirements.reasons[capability] = why
+
+
+#: The reasoning budget that asks for no reasoning at all. OpenAI-shaped and
+#: honoured by DeepSeek, which is where it matters here: `deepseek-v4-flash`
+#: thinks by default, and a conversational pool wants an answer rather than ten
+#: seconds of deliberation about "good morning".
+NO_REASONING = "none"
 
 
 def _estimate_context(request: NormalizedRequest) -> int:

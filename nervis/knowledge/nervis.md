@@ -551,6 +551,37 @@ Both readers now accept either encoding. A value that parses as JSON but is not
 a string — a list, an object, a number — still returns empty, because that is
 corruption in a row meant to hold a name rather than a name.
 
+## Why chat used to take ten seconds to say hello
+
+`deepseek-v4-flash` is a **thinking** model: given a long, dense prompt it
+deliberates before it speaks. Chat's prompt is exactly that — persona, live
+readings, recalled conversations — so it thought hard about everything. Measured
+on 9 September 2026, the reply to the single word "hi" carried **1,215 frames of
+reasoning over ten seconds**, then sixty-three frames of actual text in the last
+third of a second. Turns ran eight to twenty-five seconds.
+
+None of it was NERVIS or RAVIS. NERVIS assembled the whole request in 0.4s and
+RAVIS answered in 0.3s; every remaining second was the model thinking.
+
+**Ordinary chat now asks for no reasoning** (`reasoning_effort: "none"`), and
+turns land in one to two seconds. Two deliberate exceptions: a caller that sets
+its own reasoning budget keeps it, and the **Deep think** preset is untouched —
+it routes to `ravis/reasoning` and sends no budget at all, so the model decides.
+Somebody who picked Deep think asked for the deliberation.
+
+**RAVIS had to be taught what "none" means.** Setting any reasoning budget made
+the router *require* a reasoning-capable model, which is right for "high" and
+backwards for "none": chat asked not to think and was routed away from DeepSeek
+to a model chosen for thinking. The value still reaches the provider — a
+thinking model that receives it switches thinking off — but it is no longer a
+constraint on who may answer.
+
+**The thinking itself is not shown.** NERVIS counts reasoning frames but does
+not display them; the count only surfaces when a model spent its whole budget
+deliberating and produced no answer, which is reported as *"the model spent its
+whole budget on reasoning — raise Max tokens"*. So a Deep think turn looks like
+an ordinary wait.
+
 ## Attachments
 
 A file attached in chat belongs to **that conversation**, not to the machine. A

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2780 tests, no network, no live service
+.venv/bin/pytest                      # part of 2786 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1153 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1156 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2780 passing across the four, conformance `PASS`.
+Expected: all clean, 2786 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17119,6 +17119,44 @@ One tolerant reader now serves both encodings, and a value that parses as JSON
 but is not a string still returns empty, because that is corruption in a row
 meant to hold a name. Verified live across four turns: no address, "sir", no
 address, "Matty".
+
+## Chat spent ten seconds thinking about "hello" — 2026-09-09
+
+Reported: *"chat responses are still rather slow... several seconds for a
+reply,"* and separately that NERVIS was reporting many refusals in RAVIS.
+Neither guess was the cause, and measuring settled it in one pass.
+
+**The decomposition.** Turns ran eight to twenty-five seconds. NERVIS assembled
+the entire request — readings, recall, knowledge, payload — in **0.4s**. RAVIS
+returned its first frame **0.3s** later. Every remaining second belonged to the
+model: the reply to the single word "hi" carried **1,215 `reasoning_content`
+frames over ten seconds**, then sixty-three frames of text in the last third of
+a second. `deepseek-v4-flash` is a thinking model, and chat's long, dense prompt
+is precisely what makes one think hard.
+
+Four wrong suspects were ruled out by measurement rather than argument: the
+embedding lookup (7-270ms), payload size (RAVIS serves 17.5KB in 1.64s), the
+pool contents (33 members, all hosted, no Ollama models — auto-curate had not
+added them), and the refusals, which turned out to be RAVIS being handed
+`all-minilm`, an *embedding* model, for chat completions and failing fast.
+
+**Ordinary chat now asks for no reasoning** and turns land in **1.2-1.7s**, a
+five- to fifteen-fold improvement, still on `deepseek-v4-flash`. Two exceptions
+kept on purpose: a caller naming its own budget keeps it, and **Deep think** is
+untouched — it routes to `ravis/reasoning` and sends no budget at all, because
+somebody who picked that preset asked for the deliberation.
+
+**RAVIS had to learn what "none" means.** Any reasoning budget made the router
+require `Capability.REASONING` — right for "high", backwards for "none". The
+first attempt at this fix worked and quietly rerouted chat from DeepSeek to
+Mistral, a model selected for the capability the request was declining. The
+budget still travels to the provider; it is no longer a hard constraint on who
+may answer.
+
+Answered while measuring: the **Deep think** pool holds nineteen real reasoning
+models and keeps its purpose, but the thinking is never displayed — NERVIS
+counts the frames and mentions them only when a model produced no answer at
+all.
 
 ## Starting the thing
 

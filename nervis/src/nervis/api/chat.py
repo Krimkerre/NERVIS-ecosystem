@@ -1363,6 +1363,9 @@ FORWARDED = (
     "temperature", "max_tokens", "top_p",
     "top_k", "min_p", "frequency_penalty", "presence_penalty",
     "repetition_penalty", "seed", "stop",
+    # A caller's own reasoning budget, which overrides the default set in
+    # `_completion_payload` -- see the note there.
+    "reasoning_effort",
     # Not sampling parameters but routing ones, and forwarded by the same
     # mechanism because they travel the same way: set per request, owned by the
     # person asking, and meaningless to NERVIS itself. RAVIS decides what to do
@@ -1434,12 +1437,35 @@ def _completion_payload(
     messages: list[dict[str, Any]] = [*prior, {"role": "user", "content": spoken}]
     if body.get("system"):
         messages.insert(0, {"role": "system", "content": str(body["system"])})
-    return {
+    sent = {
         "model": profile,
         "messages": messages,
         "stream": True,
         **{name: body[name] for name in FORWARDED if name in body},
     }
+    # **Do not think about "good morning" for ten seconds.**
+    #
+    # Measured on 9 September 2026, chasing "chat responses are still rather
+    # slow": a turn took eight to twenty-five seconds, and almost all of it was
+    # the model reasoning before it spoke. NERVIS's own work was 0.4s and RAVIS
+    # answered in 0.3s; for the single word "hi" the reply carried **1,215
+    # `reasoning_content` frames over ten seconds**, then sixty-three frames of
+    # actual text in the last third of a second. `deepseek-v4-flash` is a
+    # thinking model, and the long, dense prompt chat sends -- persona,
+    # readings, recall -- is exactly what makes such a model think hard.
+    #
+    # A conversation is the wrong place for that. `reasoning_effort: "none"`
+    # removed the reasoning entirely and more than halved the simplest turn
+    # (0.71s against 1.61s) before the readings were even in play.
+    #
+    # Two escapes, both deliberate. A caller that sets the field keeps its own
+    # value -- this is a default, not a policy. And the reasoning pool is left
+    # alone: somebody who picked **Deep think** asked for the thinking, and
+    # switching it off there would quietly turn that preset into the ordinary
+    # one.
+    if "reasoning_effort" not in sent and not profile.endswith("/reasoning"):
+        sent["reasoning_effort"] = "none"
+    return sent
 
 
 # A file named the way people name one: in quotes, or after a reading verb.
