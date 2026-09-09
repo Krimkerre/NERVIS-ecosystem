@@ -17,6 +17,7 @@ that a run which failed leaves a truthful row rather than nothing.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, AsyncIterator
 
 import pytest
@@ -942,4 +943,40 @@ async def test_trials_cut_short_publish_no_reliability(tmp_path) -> None:  # typ
     assert outcome.tool_reliability is None
     assert any("cut short" in text for _scope, text in outcome.warnings), (
         f"nothing says the attempts were cut short: {outcome.warnings}"
+    )
+
+
+async def test_a_generation_that_never_finishes_is_cut_off(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**One read cannot hold the machine indefinitely.**
+
+    The runtime's own timeout bounds the *gap between chunks*, so a stream that
+    produces a token a second forever never trips it, and one that produces
+    nothing at all takes ten minutes to say so. Neither is a bound an operator
+    watching their laptop struggle can use — and the cooperative stop between
+    generations cannot help either, because it is only read between them.
+
+    So a generation carries a wall-clock budget. This runtime dribbles chunks
+    for longer than the budget allows and never finishes, which is the shape of
+    the failure: alive enough to look healthy, never done.
+    """
+    class NeverFinishes(FakeRuntime):
+        async def stream_generate(self, *args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            self.generations += 1
+            while True:  # a token a second, forever
+                await asyncio.sleep(0.01)
+                yield GenerationChunk(content="tick ")
+
+    runtime = NeverFinishes()
+    spec = _spec(warmups=0, repetitions=1, generation_timeout_seconds=0.05)
+
+    outcome, _ = await _run(runtime, spec, results_root=tmp_path)
+
+    assert outcome.state is not RunState.SUCCEEDED
+    assert runtime.unloads == [MODEL], (
+        "a run cut off by the budget still has to give the model back"
+    )
+    detail = f"{outcome.state} {getattr(outcome, 'detail', '')} {outcome.warnings}"
+    assert "generation" in detail.lower() or outcome.state is RunState.FAILED, (
+        f"the run does not say why it stopped: {detail}"
     )

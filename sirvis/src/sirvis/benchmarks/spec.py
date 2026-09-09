@@ -39,6 +39,21 @@ from sirvis.errors import InvalidConfigurationError
 DEFAULT_WARMUPS = 2
 DEFAULT_REPETITIONS = 5
 
+# How long one generation may take before the run gives up on it.
+#
+# **A ceiling on a single read, not a performance expectation.** A large local
+# model answering a long prompt can legitimately take minutes, so this is set
+# where it stops a *hang* rather than where it judges a slow machine — five
+# minutes is far past any generation this suite asks for and far short of a
+# session somebody has to sit through.
+#
+# The runtime's own HTTP timeout does not cover this: it bounds the gap between
+# chunks, so a stream that produces one token every second forever never trips
+# it, and a stream that produces nothing at all takes ten minutes to say so.
+# This bounds the whole generation, which is the thing an operator watching a
+# laptop struggle actually wants bounded.
+DEFAULT_GENERATION_TIMEOUT_SECONDS = 300.0
+
 # §11.1's two environment modes. `shared` is the default because it is what an
 # ordinary laptop actually offers, and claiming `controlled` without having
 # arranged exclusivity would be the silent equivalence §11.1 forbids.
@@ -171,6 +186,10 @@ class ExperimentSpec:
     # what that role *is* — an agent verdict without it is a verdict about
     # something else.
     tool_trials: bool = False
+    # Per generation, not per run. `None` keeps the previous behaviour — bounded
+    # only by the runtime's own idle timeout — for a caller that deliberately
+    # wants an unbounded read.
+    generation_timeout_seconds: float | None = DEFAULT_GENERATION_TIMEOUT_SECONDS
 
     def as_dict(self) -> dict[str, Any]:
         """The specification as stored beside its results (§11.9).

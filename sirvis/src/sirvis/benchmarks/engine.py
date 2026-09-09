@@ -37,6 +37,7 @@ facts, so the run completes and the record carries a validity warning.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import statistics
 import time
@@ -67,7 +68,12 @@ from sirvis.errors import (
     VariantUnconfirmedError,
 )
 from sirvis.resources import ResourceManager
-from sirvis.runtimes.base import GenerationChunk, LoadedModel, RuntimeUnavailableError
+from sirvis.runtimes.base import (
+    GenerationChunk,
+    LoadedModel,
+    RuntimeTimeoutError,
+    RuntimeUnavailableError,
+)
 from sirvis.storage import (
     Database,
     ResultDirectory,
@@ -881,6 +887,15 @@ async def _measure(
     """
     outcome.telemetry.append(sampler.sample(BEFORE_GENERATION))
     started = clock()
+    # **A ceiling on this one read.** The runtime's HTTP timeout bounds the gap
+    # between chunks, so a stream that dribbles a token a second runs forever
+    # and one that says nothing takes ten minutes to admit it. Neither is a
+    # bound an operator watching a laptop struggle can use. `wait_for` cancels
+    # the generation, which is safe *here* precisely because it is not safe
+    # elsewhere: this is a read that already produced nothing usable, so the
+    # partial telemetry §11.10 protects is the sample taken before it started
+    # plus whatever the watcher recorded — both already kept.
+    budget = spec.generation_timeout_seconds
     first_token_at: float | None = None
     text = ""
     answer_from: int | None = None
@@ -888,25 +903,38 @@ async def _measure(
     usage: Mapping[str, Any] | None = None
     chunks = 0
 
-    async with MemoryWatcher(sampler) as watcher:
-        async for chunk in runtime.stream_generate(
-            spec.model_key, test.messages(), **test.generation.as_options()
-        ):
-            if chunk.content:
-                text += chunk.content
-                if answer_from is None:
-                    # Still inside a think block, or too little text to tell.
-                    # Neither the clock nor the chunk counter may start yet: both
-                    # describe the answer, and the answer has not begun.
-                    offset = answer_offset(text)
-                    if offset is not None and len(text) > offset:
-                        answer_from = offset
-                        first_token_at = clock()
-                        chunks = 1
-                else:
-                    chunks += 1
-            finish_reason = chunk.finish_reason or finish_reason
-            usage = chunk.usage or usage
+    # `asyncio.timeout(None)` applies no timeout, so a caller that wants an
+    # unbounded read gets exactly the behaviour this had before.
+    try:
+        async with asyncio.timeout(budget), MemoryWatcher(sampler) as watcher:
+            async for chunk in runtime.stream_generate(
+                spec.model_key, test.messages(), **test.generation.as_options()
+            ):
+                if chunk.content:
+                    text += chunk.content
+                    if answer_from is None:
+                        # Still inside a think block, or too little text to
+                        # tell. Neither the clock nor the chunk counter may
+                        # start yet: both describe the answer, and the answer
+                        # has not begun.
+                        offset = answer_offset(text)
+                        if offset is not None and len(text) > offset:
+                            answer_from = offset
+                            first_token_at = clock()
+                            chunks = 1
+                    else:
+                        chunks += 1
+                finish_reason = chunk.finish_reason or finish_reason
+                usage = chunk.usage or usage
+    except TimeoutError as hang:
+        # Named rather than left as a bare timeout: "the runtime did not finish
+        # one generation within N seconds" is a sentence somebody can act on,
+        # and it distinguishes a wedged read from a machine that is merely slow.
+        raise RuntimeTimeoutError(
+            f"{spec.model_key} did not finish one generation within "
+            f"{budget:.0f}s ({phase} {index}); the run stops rather than "
+            "waiting out a read that is not progressing"
+        ) from hang
 
     total = clock() - started
     outcome.telemetry.extend(watcher.samples)

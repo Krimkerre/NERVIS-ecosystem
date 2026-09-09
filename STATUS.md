@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2730 tests, no network, no live service
+.venv/bin/pytest                      # part of 2731 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 485 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1137 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2730 passing across the four, conformance `PASS`.
+Expected: all clean, 2731 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16804,6 +16804,26 @@ warmup loop and the trial loop. The guarantee is *one more generation at most*,
 and a test measures it rather than asserting it. Mid-generation cancellation
 stays out deliberately: killing a running read loses the partial telemetry
 §11.10 keeps, which is most of what a run that ended early is worth.
+
+**And a ceiling on one generation**, asked for once the cooperative stop was in
+place: *"add a timeout for a single hanging generation too."* The cooperative
+flag is read *between* generations, so it cannot help with a read that never
+returns — and the runtime's own timeout does not close that either. It bounds
+the gap between chunks, so a stream producing one token a second runs forever,
+and a stream producing nothing takes ten minutes to admit it.
+
+`generation_timeout_seconds` on the spec, five minutes by default: far past any
+generation this suite asks for and far short of a session somebody has to sit
+through. `None` keeps the old unbounded behaviour for a caller that wants it.
+Cancelling the read is safe *here* precisely because it is not safe in general —
+the telemetry §11.10 protects is the sample taken before the read plus whatever
+the watcher recorded, and both are already kept. A hang now fails the run with a
+sentence naming the model, the budget and the phase, and the model goes back
+because the release covers everything after the acquire.
+
+Proved by a runtime that dribbles a chunk every ten milliseconds and never
+finishes: with the budget the run ends and the model is released; with the
+budget removed, the same test was still running after fifteen seconds.
 
 **A cut-short set of attempts publishes no tool-reliability figure.** Four
 attempts and twenty-four are not the same measurement, and a reliability rate
