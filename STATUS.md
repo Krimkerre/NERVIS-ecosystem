@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2744 tests, no network, no live service
+.venv/bin/pytest                      # part of 2761 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1137 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1141 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2744 passing across the four, conformance `PASS`.
+Expected: all clean, 2761 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16949,6 +16949,60 @@ recorded in chat's knowledge, and neither touches routing, since a vendor's
 tiers move together. Those numbers stay hand-maintained: no vendor but
 OpenRouter publishes machine-readable pricing, and RAVIS will not scrape a
 marketing page and call the result a fact.
+
+## Two switches for the models nothing has measured — 2026-09-09
+
+The operator went looking for a setting and it was not there. It had been
+written into this file as *"the next piece of work"* and then skipped, twice
+over, while the speed tiebreak and the price refresh were built instead. Their
+question — *"where have you put it?"* — had a one-word answer: nowhere.
+
+**What they are.** Two toggles under **Model** in chat's settings, both off
+unless switched on. *"Occasionally try a different model"* spends about one turn
+in twelve on a model that was not the best pick. *"…and prefer ones nothing has
+measured"*, nested under it, aims those turns at models with no timing at all.
+
+**The trap they close**, spotted by the operator: *"is there something in place
+that never used models get picked too? no way to measure things, if the model
+never gets selected, right?"* Exactly so, and it grew teeth when `ravis/chat`
+started ranking on speed. An untimed model sorts as merely average, which is
+enough to keep it out of first place indefinitely — never chosen, never
+measured, never chosen. Benchmarking cannot close it either: SIRVIS drives local
+runtimes, so a hosted model is measured by being used or not at all.
+
+**Where the dice are, which is not where they look.** The routing engine is a
+pure function of its arguments and §9.7 gates that. So `Exploration` carries the
+*result* of a throw made in the API layer — which already does I/O and promises
+nothing — and the engine receives a number. Same throw, same route; still random
+across requests, and every test of it deterministic.
+
+**A no-op wearing a decision's clothes, found by a test that expected change.**
+The first draft drew the explored model from the whole eligible list. Since the
+roll is rescaled into an index, every roll well under the rate landed on index
+zero — the model that was going to answer anyway. Roughly one exploration in
+three did nothing at all while the reason line claimed a deliberate choice had
+been made. The field now excludes the winner, and a test sweeps forty rolls
+across the range rather than sampling one, because the defect lived at the low
+end where a single mid-range probe would have missed it.
+
+**Two fixture assumptions caught by running them.** `ministral-14b-2512` is one
+of the families `ravis/chat` is written around, so it wins outright and no
+timing moves it — the speed tiebreak behaving exactly as designed, and the
+opposite of what the first draft of the test file assumed. Both wrong tests
+failed immediately, which is the good outcome.
+
+**Seventeen tests, and the wire tested separately from what it carries.** The
+engine half is unit-tested; the NERVIS half asserts both switches survive
+`FORWARDED`; and a third file drives a real request through the real application
+with only the dice replaced, because between the switch and the router sits one
+keyword argument — the same shape as the price-book bug found hours earlier,
+where a correct function had no callers and every test called it directly. Five
+adversarial probes, each failing the test it should.
+
+The route explanation says *"trying X on purpose"* when this fires, rather than
+describing the choice as though the model won on merit. The model that would
+ordinarily have won stays first in the fallback list, which matters more here
+than usual: an untried model is the one most likely to fail.
 
 ## Starting the thing
 

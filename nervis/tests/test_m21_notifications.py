@@ -411,7 +411,7 @@ def test_an_ordinary_tick_leaves_the_window_closed(client: TestClient) -> None:
     assert client.get("/api/v1/notifications").json()["unread"] > 0
 
 
-def test_a_peer_answering_for_the_first_time_has_not_come_back(client: TestClient) -> None:
+def test_a_peer_answering_for_the_first_time_has_not_come_back() -> None:
     """**"Back to healthy" is a claim about a past that did not happen.**
 
     Reported from the room: LM Studio was started for the first time in a
@@ -440,9 +440,7 @@ def test_a_peer_answering_for_the_first_time_has_not_come_back(client: TestClien
     )
 
 
-def test_a_connection_and_a_recovery_in_one_sweep_are_two_notes(
-    client: TestClient,
-) -> None:
+def test_a_connection_and_a_recovery_in_one_sweep_are_two_notes() -> None:
     """They are two different events and one sentence cannot carry both.
 
     The grouping is by sentence rather than by destination state now, which is

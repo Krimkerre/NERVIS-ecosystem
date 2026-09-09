@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import time
 import uuid
 from contextlib import aclosing
@@ -68,7 +69,7 @@ from ravis.reliability import (
     error_body,
 )
 from ravis.reliability.failures import HealthScope
-from ravis.routing.engine import RoutingEngine
+from ravis.routing.engine import DEFAULT_EXPLORATION_RATE, Exploration, RoutingEngine
 from ravis.routing.explain import RouteDecision
 from ravis.runtime.resources import read_memory
 from ravis.sessions import SESSION_HEADER, SessionStore
@@ -866,6 +867,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # less answer, or none. Dormant otherwise; see `_reasoning_rank`.
         reasoning_share=_reasoning_shares(request, list(candidates)),
         role_evidence=_role_evidence(request, list(candidates)),
+        # Whether this request is allowed to spend itself learning about a
+        # model instead of using the best one. Off unless the caller asked.
+        explore=_exploration(payload),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it.
@@ -1322,6 +1326,41 @@ def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
         ceiling=identity.max_privacy_level if identity else PrivacyLevel.NORMAL,
         budget_band=band,
         budget_hard=bool(budget and budget.hard),
+    )
+
+
+def _exploration(payload: dict[str, Any]) -> Exploration | None:
+    """Whether this request may answer with something other than the best pick.
+
+    **Opt-in, per request, and off by default.** Exploration costs the person
+    asking a worse answer some of the time, so nothing here may switch it on by
+    inference -- it is a choice somebody makes in chat's Model settings, and it
+    travels on the request that choice applies to.
+
+    This is also the one place the dice are thrown. The routing engine is a pure
+    function of its arguments and §9.7 gates that; the API layer already does
+    I/O and holds no such promise, so the randomness lives here and the engine
+    receives a number. See `Exploration`.
+
+    `rate` is accepted from the caller but clamped: a client asking to explore
+    on every single request has almost certainly made a mistake, and half is
+    already far more than anyone wants in a conversation.
+    """
+    if not payload.get("explore"):
+        return None
+    asked = payload.get("explore_rate")
+    try:
+        rate = float(asked) if asked is not None else DEFAULT_EXPLORATION_RATE
+    except (TypeError, ValueError):
+        rate = DEFAULT_EXPLORATION_RATE
+    return Exploration(
+        rate=min(max(rate, 0.0), 0.5),
+        roll=random.random(),
+        # Defaults true because it is the useful half: a model with no timing at
+        # all is the one the ranking can never reach on merit. Explicitly false
+        # means "spread the sampling evenly", which keeps existing figures
+        # current instead.
+        prefer_unmeasured=payload.get("explore_prefer_unmeasured") is not False,
     )
 
 

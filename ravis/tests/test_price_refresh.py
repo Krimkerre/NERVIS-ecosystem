@@ -29,7 +29,7 @@ import httpx
 import pytest
 
 from ravis.app import _refresh_catalogues, _restate_prices
-from ravis.cost import Price, PriceBook
+from ravis.cost import PriceBook
 from ravis.providers.openrouter import OpenRouterAdapter
 from ravis.upstream import Upstream
 

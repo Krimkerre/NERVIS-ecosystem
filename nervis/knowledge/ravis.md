@@ -260,6 +260,36 @@ Providers with a credential row: Anthropic, DeepSeek, Google AI Studio, OpenAI,
 OpenRouter and xAI. The last two of those were added on 9 September 2026 and
 need nothing but an address, because both speak the OpenAI protocol.
 
+## Trying a model on purpose, so it can be measured at all
+
+Two switches under **Model** in chat's settings, both off unless switched on.
+The first, *"occasionally try a different model"*, spends about one turn in
+twelve on a model that was **not** the best pick. The second, nested under it,
+aims those turns at models nothing has timed at all.
+
+**Why they exist.** A model that is never chosen is never measured, and a model
+that is never measured is never chosen — a loop that closes on itself. It got
+teeth once chat started ranking on speed: an untimed model sorts as merely
+average, which is enough to keep it out of first place indefinitely. And it
+cannot be solved by benchmarking, because SIRVIS drives local runtimes only —
+load time, memory pressure and thermal readings do not exist for an API — so a
+hosted model is measured by being used, or not at all.
+
+**What it costs, stated plainly.** A worse answer some of the time. That is the
+entire trade, and the reason nothing switches this on by inference. When it does
+fire, the route explanation says so in as many words — *"trying X on purpose"* —
+rather than describing the choice as though the model had won on merit.
+
+**Where the randomness lives, which is not where it looks.** The routing engine
+is a pure function of its arguments and a gate enforces that: identical inputs
+must produce an identical decision. So the dice are thrown at the edge, in the
+API layer, and only the result is handed to the router. Same throw, same route;
+still random across requests.
+
+The model that would ordinarily have won stays first in the fallback list, which
+matters more here than usual — an untried model is exactly the one most likely
+to fail.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the

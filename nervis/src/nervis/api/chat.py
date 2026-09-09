@@ -1284,6 +1284,11 @@ FORWARDED = (
     "temperature", "max_tokens", "top_p",
     "top_k", "min_p", "frequency_penalty", "presence_penalty",
     "repetition_penalty", "seed", "stop",
+    # Not sampling parameters but routing ones, and forwarded by the same
+    # mechanism because they travel the same way: set per request, owned by the
+    # person asking, and meaningless to NERVIS itself. RAVIS decides what to do
+    # with them -- see its `_exploration`.
+    "explore", "explore_prefer_unmeasured",
 )
 
 

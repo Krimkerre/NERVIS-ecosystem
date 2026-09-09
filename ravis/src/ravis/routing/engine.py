@@ -24,6 +24,7 @@ one that admits the choice was made on stable ordering.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Mapping
 
@@ -51,6 +52,37 @@ from ravis.runtime.resources import MemoryReading
 # request has already waited through two failures, and a client that has been
 # waiting that long is usually better served by an error it can act on.
 MAX_FALLBACKS = 2
+
+#: How often an exploring request actually explores. Roughly one turn in
+#: twelve: frequent enough that a catalogue's unmeasured models get timed over
+#: an afternoon of ordinary use, rare enough that a conversation does not feel
+#: like a lottery. It is a default rather than a fixed constant because the
+#: right number depends on how much someone is willing to pay in odd answers to
+#: learn what their models actually do.
+DEFAULT_EXPLORATION_RATE = 0.08
+
+
+@dataclass(frozen=True)
+class Exploration:
+    """Permission to occasionally answer with something other than the best pick.
+
+    **Why this carries a dice roll instead of throwing its own.** The engine is
+    a pure function of its arguments and §9.7 gates exactly that: identical
+    inputs must produce an identical decision, or the determinism test cannot
+    exist at all. A `random.random()` inside the ranking would end that property
+    for every caller, including the ones that never asked to explore. So the
+    dice are thrown at the edge -- in the API layer, which is already impure --
+    and only the *result* comes in here. Same roll, same route, still random
+    across requests.
+
+    `rate` is the share of requests allowed to explore, `roll` is this request's
+    throw. A roll at or above the rate changes nothing, which is the ordinary
+    case and the default.
+    """
+
+    rate: float = 0.0
+    roll: float = 1.0
+    prefer_unmeasured: bool = True
 
 
 class RoutingEngine:
@@ -81,6 +113,7 @@ class RoutingEngine:
         expected_session_requests: int | None = None,
         reasoning_share: Mapping[str, float] | None = None,
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
+        explore: Exploration | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -147,6 +180,7 @@ class RoutingEngine:
                 reasoning_share,
                 role_evidence,
                 resold or {},
+                explore,
             )
 
         target = direct_target(requested)
@@ -258,6 +292,7 @@ class RoutingEngine:
         reasoning: Mapping[str, float] | None = None,
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
         resold: Mapping[str, str] | None = None,
+        explore: Exploration | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -334,18 +369,33 @@ class RoutingEngine:
             )
             return decision
 
-        decision.selected = eligible[0]
+        # **Exploration is applied after ranking, never inside it.** Everything
+        # above decides what is *best*; this decides, occasionally and only when
+        # switched on, to spend one request learning about something else
+        # instead. Keeping the two apart is what lets the reason below tell the
+        # truth about which of the two happened.
+        trying = _explore_pick(eligible, explore, observed or {})
+        decision.selected = trying or eligible[0]
         # §10 requires every fallback candidate to satisfy the original hard
         # constraints and the pool invariants. Taking them from the ranked
         # eligible list makes that structural: a candidate that failed either
         # check is not in this list to be chosen from.
-        decision.fallbacks = eligible[1 : 1 + MAX_FALLBACKS]
-        decision.reason = _selection_reason(
-            pool, eligible, residency, memory, expected_session_requests,
-            _load_would_not_amortise(expected_session_requests, memory),
-            policy.prefers_cheap,
-            _reasoning_note(eligible, reasoning or {}, requirements.output_budget),
-            remote,
+        #
+        # Filtered by identity rather than sliced from index 1, because an
+        # explored model can come from anywhere in the ranking -- slicing would
+        # leave it listed as its own fallback and drop the model that would
+        # actually have won.
+        decision.fallbacks = [
+            model for model in eligible if model != decision.selected
+        ][:MAX_FALLBACKS]
+        decision.reason = _exploration_reason(trying, observed or {}) if trying else (
+            _selection_reason(
+                pool, eligible, residency, memory, expected_session_requests,
+                _load_would_not_amortise(expected_session_requests, memory),
+                policy.prefers_cheap,
+                _reasoning_note(eligible, reasoning or {}, requirements.output_budget),
+                remote,
+            )
         )
         return decision
 
@@ -664,6 +714,71 @@ def _rank(
         return (*lead, thinking, *_cost_rank(model, candidates, remote))
 
     return sorted(members, key=key)
+
+
+def _explore_pick(
+    eligible: list[str], explore: Exploration | None, observed: Mapping[str, float]
+) -> str:
+    """The model this request will try instead of the winner, or `""`.
+
+    **The whole point is the models nobody has ever timed.** A pool that ranks
+    on speed hands each turn to whatever is already known to be fast, and a
+    model nothing has measured sorts as merely average -- enough to keep it out
+    of first place indefinitely. That is the loop this breaks: never chosen,
+    never measured, never chosen. The only way to learn what a model costs in
+    practice is to spend one request finding out.
+
+    Prefers a candidate with no timing at all when asked to, and falls back to
+    the full eligible list once everything has been measured -- "explore" still
+    means something then, because a single old sample from a machine under
+    different load is not a current figure.
+
+    Returns `""` for the ordinary case rather than the winner, so the caller can
+    tell an exploration apart from an ordinary win and *say so*. Quietly
+    promoting a model and then explaining the choice as though it had won on
+    merit would be the same class of untruth as the cold-start line that was
+    removed from this file a day earlier.
+    """
+    if explore is None or explore.rate <= 0 or not eligible:
+        return ""
+    if explore.roll >= explore.rate:
+        return ""
+    # **The winner is not a candidate for exploration.** Obvious in hindsight
+    # and wrong in the first draft, which drew from the whole eligible list: the
+    # roll is rescaled into an index, so every roll well under the rate landed on
+    # index 0 -- the model that was going to be chosen anyway. Roughly one
+    # exploration in three silently did nothing, and the two tests that caught it
+    # only did so because they asserted the answer *changed*.
+    alternatives = eligible[1:]
+    if not alternatives:
+        return ""
+    unmeasured = [model for model in alternatives if model not in observed]
+    field = unmeasured if (explore.prefer_unmeasured and unmeasured) else alternatives
+    # The same roll is rescaled into an index rather than drawn again, for the
+    # purity reason above. Rescaled across the field so every candidate is
+    # reachable: using the raw roll would only ever land in the first `rate`
+    # share of the list, which at a rate of 0.08 is the first model alone.
+    return field[min(int(explore.roll / explore.rate * len(field)), len(field) - 1)]
+
+
+def _exploration_reason(model: str, observed: Mapping[str, float]) -> str:
+    """Why this answer came from somewhere other than the top of the ranking.
+
+    Named as a deliberate act, because it was one. An explanation that let this
+    read as an ordinary win would make every *other* route explanation less
+    trustworthy too.
+    """
+    unmeasured = model not in observed
+    return (
+        f"trying {model} on purpose rather than the usual pick — "
+        + (
+            "nothing has timed it yet, and a model that is never chosen is never "
+            "measured"
+            if unmeasured
+            else "an occasional re-check, so its timing does not go stale"
+        )
+        + ". Switch this off under Model in chat's settings."
+    )
 
 
 def _default_exclusion(pool: VirtualModelPool) -> str:

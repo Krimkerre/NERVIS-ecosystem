@@ -56,7 +56,8 @@ FORMAT_VERSION = 1
 # exact set means a new key is exportable only once somebody has looked at it
 # and added it here — which is the point.
 EXPORTABLE: frozenset[str] = frozenset({
-    "chat.brief", "chat.memory", "chat.memory_skips_current", "chat.mode",
+    "chat.brief", "chat.explore", "chat.explore_prefer_unmeasured",
+    "chat.memory", "chat.memory_skips_current", "chat.mode",
     "chat.params", "chat.preset", "chat.presets", "chat.system",
     "background.enabled", "background.interval_minutes", "background.daily_runs",
     "recall.enabled",

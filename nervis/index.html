@@ -10647,6 +10647,13 @@ const asFlag=(v,fallback)=>v===undefined?fallback:v!==false;
 
 const USER={
  name:'', system:'', brief:true, pages:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false,
+ /* Whether the occasional turn is spent on a model that is not the best pick,
+    so RAVIS learns what the others actually cost in time. Off by default and
+    never inferred: it buys a measurement with a worse answer, which is the
+    person's trade to make, not NERVIS's. `exploreUnmeasured` aims those turns
+    at models nothing has timed at all — the ones ranking can never reach on
+    merit — and is meaningless while `explore` is off. */
+ explore:false, exploreUnmeasured:true,
  excluded:[], memory:'session',
  /* Whether a page load opens on the tab this browser was last on. `read` is
     whether any of this came from the service, which is what the card that
@@ -10669,6 +10676,8 @@ const USER={
    PRESETS.items=asList(items['chat.presets']);
    this.brief=asFlag(items['chat.brief'],true);
    this.pages=asFlag(items['chat.page_images'],true);
+   this.explore=asFlag(items['chat.explore'],false);
+   this.exploreUnmeasured=asFlag(items['chat.explore_prefer_unmeasured'],true);
    this.mode=asText(items['chat.mode']);
    /* NERVIS unless something else was chosen. The seeded settings already hold
       that preset's values, so naming it is a readout rather than a claim. */
@@ -10697,6 +10706,9 @@ const USER={
  setName(value){this.name=value;this.write('user.display_name',value)},
  setBrief(on){this.brief=on;this.write('chat.brief',on)},
  setPages(on){this.pages=on;this.write('chat.page_images',on)},
+ setExplore(on){this.explore=on;this.write('chat.explore',on);render()},
+ setExploreUnmeasured(on){this.exploreUnmeasured=on;
+   this.write('chat.explore_prefer_unmeasured',on)},
  /* Presentation only: the avatar and the accent. Sends nothing, routes
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
@@ -11334,6 +11346,12 @@ function modelPane(){
   <div id="modelPickList" class="picker-list" style="max-height:none;grid-template-columns:1fr;border-top:0;padding-top:0">
    <div class="picker-empty">reading catalogues…</div>
   </div>
+  <label class="adv-toggle" style="grid-column:1/-1;margin-top:10px"><input type="checkbox"${USER.explore?' checked':''}
+    onchange="USER.setExplore(this.checked)"> Occasionally try a different model
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">about one turn in twelve is answered by a model that was <i>not</i> the best pick, so RAVIS finds out how fast the others actually are. It says so in the route explanation when it does. <b>The cost is a worse answer some of the time</b> — that is the whole trade, which is why this is off unless you switch it on.</small></label>
+  ${USER.explore?`<label class="adv-toggle" style="grid-column:1/-1;margin-left:18px"><input type="checkbox"${USER.exploreUnmeasured?' checked':''}
+    onchange="USER.setExploreUnmeasured(this.checked)"> …and prefer ones nothing has measured
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">aims those turns at models with no timing at all. Without this the sampling spreads evenly, which keeps existing figures current instead. <b>Why it matters:</b> SIRVIS can only benchmark models running on this machine, so a hosted model is measured by being used or not at all — and a model nothing has timed ranks as merely average, which is enough to keep it out of first place forever.</small></label>`:''}
   <small class="mono dim">a <b>pool</b> lets RAVIS choose per request and keeps working as models come and go. Pinning names one upstream outright — the only way to reach a model two providers both serve, and Anthropic's models are on Anthropic <i>and</i> on OpenRouter at different prices. ${pinned?'<b>Pinned right now</b>, so RAVIS is not choosing and a model that stops being offered becomes a refusal rather than a fallback.':''} Only providers that are keyed <i>and</i> reachable are listed, and only the models their filter lets through.</small>`;
 }
 
@@ -11636,6 +11654,13 @@ function chatRequestBody(conversationId){
       reason `brief` is: it is a preference about how to ask, and the person
       may change it between two questions about the same document. */
    page_images:USER.pages,
+   /* Sent per turn like `brief` and `page_images`, and for the same reason:
+      it is a preference about how to ask, and it can change between two
+      questions in one conversation. RAVIS throws the dice — see its
+      `_exploration` — because the routing engine is a pure function and may
+      not contain randomness. */
+   explore:USER.explore,
+   explore_prefer_unmeasured:USER.exploreUnmeasured,
    /* **The browser's id, and it has to be on every chat request** — this is the
       one the attachments are filed under. NERVIS only mints a conversation id
       once a turn is stored, and clip-then-question is the ordinary order, so a
