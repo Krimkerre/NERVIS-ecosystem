@@ -35,7 +35,7 @@ from typing import Any
 import pdfplumber
 
 from nervis.diagnostics import fenced
-from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace
+from nervis.workspace import OutsideWorkspaceError, resolve_in_workspace, still_inside
 
 #: How many rendered pages may travel with a reading.
 #:
@@ -461,8 +461,15 @@ def attachment_dir(root: Path, conversation_id: str) -> Path | None:
     if not wanted or wanted in {".", ".."} or not _SAFE_ID.match(wanted):
         return None
     place = root.expanduser().resolve(strict=False) / ATTACHMENTS / wanted
+    # **The directory before the files in it.** `mkdir(exist_ok=True)` on a
+    # symlink succeeds silently, and every attachment written or read afterwards
+    # goes wherever it points — one link is enough to move a whole
+    # conversation's files out of the workspace. The id already passed
+    # `_SAFE_ID`, which says nothing about what is at the path. See
+    # `still_inside`.
+    still_inside(root, place)
     place.mkdir(parents=True, exist_ok=True)
-    return place
+    return still_inside(root, place)
 
 
 def reconcile_attachments(root: Path, source_id: str, target_id: str) -> int:
@@ -502,7 +509,9 @@ def reconcile_attachments(root: Path, source_id: str, target_id: str) -> int:
     copied = 0
     for entry in source.iterdir():
         if entry.is_file():
-            (target / entry.name).write_bytes(entry.read_bytes())
+            # `entry.name` is a real directory entry and cannot traverse, but a
+            # file of that name in the destination may still be a link out.
+            still_inside(root, target / entry.name).write_bytes(entry.read_bytes())
             copied += 1
     return copied
 

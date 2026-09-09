@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2815 tests, no network, no live service
+.venv/bin/pytest                      # part of 2820 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1163 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1168 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2815 passing across the four, conformance `PASS`.
+Expected: all clean, 2820 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17331,6 +17331,47 @@ if the loop stopped using it, which is the shape of the price-book bug found the
 day before. The twentieth sends genuinely split chunks through the application
 and reads the ledger. Probed: reverting the loop to per-chunk reading fails
 **only** that test.
+
+## The audit's filesystem finding: symlinks, on both sides
+## — 2026-09-10
+
+The last of the audit's behavioural findings with a security shape, and it had
+two halves in two repositories.
+
+**NERVIS trusted the paths it built itself.** `resolve_in_workspace` has always
+resolved before comparing, so a path a *caller* supplies cannot leave the tree.
+The paths NERVIS constructs were never checked — a fixed filename, a directory
+entry's own name, an id that had already passed a character test. None of those
+says anything about what is *at* the path, and `write_text`, `write_bytes` and
+`mkdir` all follow a symlink without a word. `still_inside` now checks the
+resolved form at the three sites that build their own: the Clarvis handover
+file, a conversation's attachment directory, and the files copied into it. The
+attachment directory is the widest of them — `mkdir(exist_ok=True)` on a link
+succeeds silently and relocates a whole conversation's files.
+
+Written out by hand inside `handoff.py` rather than imported: §6.7 keeps that
+module free of every `nervis` import, and `test_nothing_here_reaches_the_editor`
+enforces it. Four duplicated lines are the cheaper half of that trade.
+
+**CLARVIS's search was the one read path with no gate on it.** `readFile` puts
+every sensitive path behind `gateSensitiveRead`, which asks before a key reaches
+the model; `search` returns the matching *line*, verbatim, and asked nothing. A
+pattern that happens to appear in a `.env` handed the credential over silently.
+Sensitive files are skipped outright rather than prompted for — a search touches
+hundreds of files and a modal per file is not a question anybody can answer, and
+the model can still ask for the file by name, where the gate lives.
+
+Search also read straight out of the workspace: `readdir` reports a link as
+neither file nor directory, so a link to a file outside the tree arrived looking
+like an ordinary result. The target is resolved and checked against the real
+root before it is opened.
+
+**A probe found a hole in the tests rather than the code**, which is the part
+worth keeping. Making the guard refuse *every* symlink failed nothing — the
+"links inside are allowed" test put the link on a parent directory, so the final
+component was an ordinary name. The link-as-final-component case is exactly what
+a blanket ban would break, and it was the case missing. Both shapes are covered
+now. Five probes across the two repositories, each failing the test it should.
 
 ## Starting the thing
 

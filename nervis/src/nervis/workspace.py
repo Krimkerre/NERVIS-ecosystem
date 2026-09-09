@@ -46,6 +46,35 @@ class Resolved:
     shown: str
 
 
+def still_inside(root: Path, target: Path) -> Path:
+    """`target`, proven to sit inside `root` *after* symlinks are followed.
+
+    The sibling of `resolve_in_workspace`, for paths this code built itself
+    rather than accepted from a caller. Those look safe — a fixed filename, a
+    directory entry's own name, an id that already passed a character check —
+    and none of that says anything about what is *at* the path. A symlink
+    planted where NERVIS is about to write is followed silently by
+    `write_text`, `write_bytes` and `mkdir` alike, and the bytes land wherever
+    it points.
+
+    Nothing here needs a hostile user to be interesting: the workspace takes
+    files from a NAS mount and an import directory, and a symlink arriving that
+    way is an ordinary thing for a backup tool to have made.
+
+    **Only a link leaving the tree is refused.** One pointing at another place
+    inside the workspace resolves to somewhere still contained, and writing
+    through it is exactly what the person who made it asked for.
+    """
+    base = root.expanduser().resolve(strict=False)
+    landed = target.expanduser().resolve(strict=False)
+    if landed != base and not landed.is_relative_to(base):
+        raise OutsideWorkspaceError(
+            f"{target.name!r} resolves outside the workspace — a symbolic link "
+            "there would put this write somewhere chat is not allowed to touch"
+        )
+    return target
+
+
 def resolve_in_workspace(root: Path, candidate: str) -> Resolved:
     """The absolute path `candidate` names inside `root`, or a refusal.
 

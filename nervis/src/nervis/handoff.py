@@ -86,7 +86,21 @@ def write(root: Path, task: str, *, conversation: str = "", today: str = "") -> 
         conversation=conversation,
     )
     root.mkdir(parents=True, exist_ok=True)
-    (root / TASK_FILE).write_text(written.as_markdown(), encoding="utf-8")
+    # **Checked after symlinks are followed, and spelled out here rather than
+    # imported.** `nervis.workspace.still_inside` is the same four lines, but
+    # §6.7 keeps this module free of every `nervis` import — a module that
+    # cannot reach anything cannot be one edit from reaching the editor, and
+    # `test_nothing_here_reaches_the_editor` enforces it. Four duplicated lines
+    # are the cheaper half of that trade.
+    #
+    # The name is fixed and this code built the path; neither says anything
+    # about what is *at* it. A symlink left where the task file goes is followed
+    # silently by `write_text`, and the handover lands wherever it points.
+    destination = root / TASK_FILE
+    base = root.expanduser().resolve(strict=False)
+    if not destination.expanduser().resolve(strict=False).is_relative_to(base):
+        raise ValueError(f"{TASK_FILE} resolves outside the handover directory")
+    destination.write_text(written.as_markdown(), encoding="utf-8")
     return written
 
 
