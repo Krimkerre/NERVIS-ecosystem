@@ -576,6 +576,15 @@ to a model chosen for thinking. The value still reaches the provider — a
 thinking model that receives it switches thinking off — but it is no longer a
 constraint on who may answer.
 
+**The readings are reference, not news.** They travel with every non-greeting
+turn because a question about the machine can arrive at any time, not because
+anything in them needs saying. Chat used to volunteer the system status every
+few messages — the persona told it to *react* to anything from the ecosystem
+"like a nosy roommate reading over their shoulder", and with a fresh service
+list in front of every question it duly did. The block now says what it is for,
+and the persona is nosy when asked rather than unprompted. Asking still works
+exactly as before.
+
 **The thinking is now shown, folded.** A reply that carries reasoning draws a
 collapsed line above the answer — *"thought it through — N words"* — which opens
 to the model's working. Closed by default, because the answer is what somebody

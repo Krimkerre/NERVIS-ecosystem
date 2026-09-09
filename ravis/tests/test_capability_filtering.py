@@ -20,14 +20,28 @@ from ravis.core.capabilities import (
 from ravis.core.requests import NormalizedRequest
 from ravis.policy import PrivacyLevel, RoutingPolicy, policy_refusals
 from ravis.routing.engine import RoutingEngine
-from ravis.routing.requirements import CONTEXT_ESTIMATE_FLOOR, analyse
+from ravis.routing.requirements import CONTEXT_ESTIMATE_FLOOR, analyse, unmet_by
 
 CHAT = "ravis/clarvis-chat"
 
 
 def _capable(name: str, *supported: Capability, context: int | None = None) -> ModelCapabilities:
+    """A model declaring exactly what it is given, plus TEXT.
+
+    **TEXT is added for every fixture, because every real model declares it.**
+    Chat completions require it since 9 September 2026 — an embedding model was
+    otherwise an ordinary candidate, and `ravis/local` duly routed a completion
+    to `all-minilm`, which cannot complete anything. Measured across the live
+    catalogue: 629 of 631 models report TEXT as SUPPORTED, the two that do not
+    are the embedding models, and none report UNKNOWN. A fixture that omits it
+    is therefore describing a model that does not exist, and would fail here for
+    a reason nothing in its test is about.
+
+    `test_an_embedding_model_is_not_a_chat_candidate` builds one deliberately
+    without it, which is the case this whole requirement exists for.
+    """
     known = ModelCapabilities(model_id=name, context_window=context)
-    for capability in supported:
+    for capability in (Capability.TEXT, *supported):
         known.record(
             CapabilityClaim(
                 capability=capability,
@@ -342,3 +356,56 @@ def test_a_router_that_advertises_drawing_is_not_a_drawing_model() -> None:
 
     assert decision.selected == "google/gemini-3.1-flash-image"
     assert "openrouter/auto" not in (decision.fallbacks or [])
+
+
+def test_an_embedding_model_is_not_a_chat_candidate() -> None:
+    """**The one this requirement exists for.**
+
+    `all-minilm` reports `["embedding"]` and nothing else, which the Ollama
+    adapter reads as a closed list — TEXT is UNSUPPORTED, not unknown. It was
+    still an ordinary candidate for a chat completion, because the requirements
+    built for such a request covered tools, vision, reasoning and streaming and
+    never the one thing every request to that endpoint needs.
+
+    Seen live: `ravis/local` had no members of its own, fell back to whatever
+    local model qualified, and picked the embedding model. Ollama answered 400,
+    and `invalid_request` is correctly not fallback-eligible — another model
+    would fail the same way — so the request died instead of moving on. The
+    operator saw it as "lots of refusals in RAVIS".
+    """
+    embedder = ModelCapabilities(model_id="all-minilm:latest")
+    embedder.record(
+        CapabilityClaim(
+            capability=Capability.TEXT,
+            state=CapabilityState.UNSUPPORTED,
+            provenance=Provenance.ADVERTISED,
+            detail="reports ['embedding'] alone",
+        )
+    )
+    talker = _capable("llama3.2:3b", context=32_000)
+
+    decision = RoutingEngine().select(
+        CHAT, {"all-minilm:latest": embedder, "llama3.2:3b": talker},
+    )
+
+    assert decision.selected == "llama3.2:3b", (
+        "a model that cannot produce text was chosen to produce text"
+    )
+    # And the reason is stated, in the words the router would use. Read from
+    # `unmet_by` rather than `decision.excluded`: a candidate the pool's own
+    # membership never admitted is not listed as excluded, so on this pool the
+    # decision record is silent about it either way.
+    assert any(
+        "text" in reason for reason in unmet_by(analyse(NormalizedRequest()), embedder)
+    ), "the embedding model is refused without naming text as the reason"
+
+
+def test_a_model_that_never_mentioned_text_is_still_refused() -> None:
+    """Fails closed, like every other requirement here. Not having asked is not
+    a yes — and this is the state a new adapter produces before anybody teaches
+    it the vocabulary, which is exactly when a wrong answer is most likely."""
+    silent = ModelCapabilities(model_id="mystery-model", context_window=32_000)
+
+    assert unmet_by(analyse(NormalizedRequest()), silent), (
+        "a model saying nothing about text passed a requirement that fails closed"
+    )

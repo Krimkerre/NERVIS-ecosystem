@@ -88,6 +88,23 @@ def analyse(request: NormalizedRequest) -> RequestRequirements:
     if request.carries_images:
         _require(requirements, Capability.VISION, "the request contains an image")
 
+    # **Every chat completion needs a model that can produce text.** Obvious,
+    # and unstated until 9 September 2026 — the requirements built here covered
+    # tools, vision, reasoning and streaming, and never the one thing every
+    # request to this endpoint actually needs. So an embedding model was a
+    # perfectly ordinary candidate: `ravis/local` resolved to `all-minilm`,
+    # which cannot complete anything, and Ollama answered 400. The failure is
+    # `invalid_request`, which §10 correctly refuses to treat as
+    # fallback-eligible — another model would fail the same way — so the whole
+    # request died rather than moving on.
+    #
+    # Safe to require, checked against the live catalogue rather than assumed:
+    # of 631 models, 629 report TEXT as SUPPORTED and exactly two report
+    # UNSUPPORTED — `all-minilm` and `nomic-embed-text`, the two embedding
+    # models. **None report UNKNOWN**, which matters because `satisfies` fails
+    # closed and an UNKNOWN would be excluded here just as firmly as a denial.
+    _require(requirements, Capability.TEXT, "every chat completion returns text")
+
     if request.response_schema is not None:
         _require(
             requirements,

@@ -4259,3 +4259,40 @@ def test_a_caller_that_names_its_own_budget_keeps_it() -> None:
     payload = _completion_payload({"reasoning_effort": "high"}, "ravis/chat", [], "hard one")
 
     assert payload["reasoning_effort"] == "high"
+
+
+def test_the_readings_say_they_are_reference_rather_than_news() -> None:
+    """**Reported from use: chat volunteered the system status every few
+    messages.**
+
+    The readings travel with every non-greeting turn — a question about the
+    machine can arrive at any time, and gathering them on demand would put a
+    round trip in front of the answer. Nothing in the block said so, and the
+    persona actively encouraged comment: it told the model to *react* to
+    anything from the ecosystem "like a nosy roommate reading over their
+    shoulder". With a fresh service list in front of every question, it did.
+
+    Both ends now say the same thing: the block calls itself reference, and the
+    persona reacts only when asked.
+    """
+    from datetime import datetime
+
+    from nervis import situation
+
+    block = situation.block(
+        [{"name": "ravis", "state": "healthy"}], 0, [{"type": "x"}],
+        "649 models routable", datetime.now().astimezone(), question="hello",
+    )
+
+    assert "reference, not news" in block
+    assert "do not open with a status report" in block
+
+
+def test_the_persona_reacts_when_asked_rather_than_unprompted() -> None:
+    """The other end of the same fix. The character is kept — being nosy about
+    the machine is the point of it — and only the trigger changes."""
+    from nervis.api.chat_personas import DEFAULT_PERSONA
+
+    assert "When the person *asks* about the" in DEFAULT_PERSONA
+    assert "nosy roommate" in DEFAULT_PERSONA, "the character was thrown out with the tic"
+    assert "unasked-for status report" in DEFAULT_PERSONA

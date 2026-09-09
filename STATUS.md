@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2786 tests, no network, no live service
+.venv/bin/pytest                      # part of 2790 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1156 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1158 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2786 passing across the four, conformance `PASS`.
+Expected: all clean, 2790 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17185,6 +17185,41 @@ deliberate can show its working whoever served it.
 Verified in the browser against the live build: the block renders, is closed on
 arrival, opens to the full text, and an empty or absent value draws nothing at
 all.
+
+## An embedding model asked to talk, and a status report nobody asked for
+## — 2026-09-09
+
+**Every chat completion needs a model that can produce text, and nothing said
+so.** The requirements built for a completion covered tools, vision, reasoning
+and streaming — never the one thing every request to that endpoint actually
+needs. So an embedding model was an ordinary candidate: `ravis/local` had no
+members of its own, fell back to whatever local model qualified, and picked
+`all-minilm`, which reports `["embedding"]` and nothing else. Ollama answered
+400, and `invalid_request` is correctly not fallback-eligible — another model
+would fail the same way — so the request died rather than moving on. The
+operator saw it as *"lots of refusals in RAVIS"*.
+
+Safe to require, checked rather than assumed: of 631 live models **629 report
+TEXT as SUPPORTED and exactly two report UNSUPPORTED** — `all-minilm` and
+`nomic-embed-text` — and **none report UNKNOWN**, which mattered because
+`satisfies` fails closed and an UNKNOWN would have been excluded just as firmly
+as a denial. All four adapters set it from their protocol defaults.
+
+The first test written for it was vacuous and the probe caught it: the pool's
+own membership already dropped the embedding model, so the selection assertion
+passed without the fix. Rewritten to read the refusal from `unmet_by`, where
+the reason is actually stated. Verified live: `ravis/local` now answers with
+`qwen2.5vl:3b`, and embeddings still run on `nomic-embed-text`.
+
+**And chat stopped volunteering the system status.** Reported: *"it keeps
+bringing up the system status every few messages... it doesn't need to do that
+unless asked."* The persona was the cause — it told the model to *react* to
+anything from the ecosystem "like a nosy roommate reading over their shoulder",
+and the readings arrive with every turn, so it reacted to them constantly. Both
+ends now agree: the block calls itself reference rather than news and says not
+to open with a status report, and the persona is nosy when asked. Verified over
+four ordinary turns (cat names, pasta, rain, favourite number) with no status
+volunteered, and two direct questions still answered exactly as before.
 
 ## Starting the thing
 
