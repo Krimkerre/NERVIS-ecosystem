@@ -17158,6 +17158,34 @@ models and keeps its purpose, but the thinking is never displayed — NERVIS
 counts the frames and mentions them only when a model produced no answer at
 all.
 
+## The thinking, shown and folded — 2026-09-09
+
+Asked whether Deep think's reasoning appears in the chat window and, if not,
+for it to — collapsible, closed by default.
+
+It did not. The frames reached the browser (NERVIS forwards RAVIS's stream
+unchanged) and were *counted* and thrown away; the count surfaced only in the
+older case of a model that deliberated until its budget ran out and produced no
+answer. So a Deep think turn was an unexplained wait.
+
+The reasoning text is now kept beside the count and drawn as a collapsed line
+above the answer — *"thought it through — N words"* — opening to the working in
+dimmer type. Closed by default: it is the working, not the answer.
+
+**Asked for as "that persona only", and built on the presence of thinking
+instead — because gating on the profile would have shown nothing, ever.**
+Measured while wiring it: `ravis/reasoning` currently routes to `solar-pro4`,
+which reasons without streaming a single `reasoning_content` frame, and the
+model that does stream them is `deepseek-v4-flash` — which ordinary chat now
+tells not to think. Gating on presence gives the behaviour asked for without
+depending on which model a pool happens to pick that day: an ordinary turn
+produces no reasoning and stays exactly as clean, and any turn that did
+deliberate can show its working whoever served it.
+
+Verified in the browser against the live build: the block renders, is closed on
+arrival, opens to the full text, and an empty or absent value draws nothing at
+all.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

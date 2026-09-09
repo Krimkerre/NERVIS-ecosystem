@@ -576,11 +576,19 @@ to a model chosen for thinking. The value still reaches the provider — a
 thinking model that receives it switches thinking off — but it is no longer a
 constraint on who may answer.
 
-**The thinking itself is not shown.** NERVIS counts reasoning frames but does
-not display them; the count only surfaces when a model spent its whole budget
-deliberating and produced no answer, which is reported as *"the model spent its
-whole budget on reasoning — raise Max tokens"*. So a Deep think turn looks like
-an ordinary wait.
+**The thinking is now shown, folded.** A reply that carries reasoning draws a
+collapsed line above the answer — *"thought it through — N words"* — which opens
+to the model's working. Closed by default, because the answer is what somebody
+came for. An ordinary turn produces no reasoning at all now, so nothing appears
+there; in practice this is the Deep think preset.
+
+One caveat worth knowing: whether a model *streams* its thinking is the model's
+choice, not NERVIS's. `deepseek-v4-flash` does. `solar-pro4`, which the
+reasoning pool currently favours, reasons without emitting a single frame — so a
+Deep think turn can still show nothing, and that is the model being quiet rather
+than the feature failing. The count is still used for the older case: a model
+that spent its whole budget deliberating and produced no answer is reported as
+*"the model spent its whole budget on reasoning — raise Max tokens"*.
 
 ## Attachments
 
