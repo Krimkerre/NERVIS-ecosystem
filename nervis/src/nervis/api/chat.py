@@ -408,7 +408,7 @@ async def send(request: Request) -> Any:
     awareness = "\n\n".join(
         part for part in (memory.block(remembered), awareness) if part
     )
-    system = _house_system(body, database, greeting)
+    system = _house_system(body, database, greeting, conversation_id, nudge > 0)
     # **The per-turn half, kept out of the system message on purpose.** See
     # `_turn_context`: a prefix that changes every turn is a prefix no provider
     # can cache, and the readings alone measure about eleven hundred tokens.
@@ -482,7 +482,13 @@ async def send(request: Request) -> Any:
     )
 
 
-def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
+def _house_system(
+    body: dict[str, Any],
+    database: Any,
+    greeting: bool,
+    conversation_id: str = "",
+    speaking_first: bool = False,
+) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
     **Theirs comes first and is never rewritten.** It is the character; these are
@@ -527,6 +533,21 @@ def _house_system(body: dict[str, Any], database: Any, greeting: bool) -> str:
     # `speaking_first` covers the nudge, whose directive is joined on after this
     # returns: an unprompted remark about a silence is the one place the gap is
     # load-bearing, and it would have been the one place without a clock.
+    #
+    # **The recalled conversations, moved here from the per-turn half.** They
+    # read like per-turn content and are not: `_recall` always skips the
+    # conversation being had, so this conversation's own growth cannot change
+    # them, and the other conversations they digest do not change while somebody
+    # is talking in this one. Checked against the live store before the move --
+    # two calls for one conversation return identical text.
+    #
+    # Worth the move because of where it sits rather than how big it is: 4,694
+    # characters, about 1,170 tokens, which in the volatile tail was re-read at
+    # full price every single turn and here is paid for once per conversation.
+    # Under the same condition as before, so a request with no persona still
+    # receives none of NERVIS's extras.
+    if (any(parts) or speaking_first) and _memory_scope(database) == "all":
+        parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
 
 
@@ -575,28 +596,6 @@ def _turn_context(
     parts: list[str] = []
     if wanted:
         parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
-    # **Under the same condition as the readings, which it was not until now.**
-    # Found by accident while checking something else: a request carrying no
-    # persona got no clock and no live readings -- correctly, since NERVIS does
-    # not inject its own ecosystem awareness into a plain client of RAVIS's API
-    # -- but *did* get the recalled conversations, because this line sat outside
-    # the guard. Asked how many models were routable, the model answered "15"
-    # three times running: a figure quoted out of a remembered conversation from
-    # an earlier session, when RAVIS's catalogue was still warming. The true
-    # answer was 649, and nothing fresh was present to contradict the memory.
-    #
-    # That is the failure the reading order was already arranged to prevent --
-    # memory outranking measurement -- reappearing in the one case where the
-    # measurement is absent entirely. Recall and the readings are the same kind
-    # of thing: extras NERVIS adds to its own assistant. They belong under one
-    # condition, not two.
-    #
-    # It is an egress point as well. Recall carries the contents of the
-    # operator's *other* conversations, and handing those to a plain API client
-    # that asked for none of NERVIS's extras is a larger version of the same
-    # mistake the guard above exists to prevent.
-    if wanted and _memory_scope(database) == "all":
-        parts.append(_recall(database, conversation_id))
     if wanted:
         parts.append(situation)
         # With the readings and only with them: the directive is about how to

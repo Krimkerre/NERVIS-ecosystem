@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2793 tests, no network, no live service
+.venv/bin/pytest                      # part of 2795 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1161 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1163 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2793 passing across the four, conformance `PASS`.
+Expected: all clean, 2795 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17273,6 +17273,35 @@ character choice, not a defect.
 
 Recorded rather than closed, because the previous two entries claimed this fixed
 and it was not.
+
+## Recall moved into the cached half — 2026-09-09
+
+Asked for after the caching work: the recalled conversations were riding in the
+per-turn tail, where nothing is cached, and being re-read at full price on every
+single turn.
+
+**Checked before moving, because the wrong answer here is expensive.** The
+system message is the *first* thing in a request, so anything unstable there
+invalidates the cache for the whole conversation behind it — which is the bug
+this whole line of work started from. Recall qualifies: `_recall` always skips
+the conversation being had, so this conversation's own growth cannot change it,
+and the other conversations it digests do not change while somebody is talking
+in this one. Verified against the live store — two calls for one conversation
+return byte-identical text.
+
+Measured rather than estimated. The block is **4,694 characters, about 1,170
+tokens**: 1,835 of fixed instruction prose and 2,858 of conversation, bounded at
+five conversations, six turns each, four thousand characters. The earlier
+"14 KB every turn" figure was mostly the 28 test conversations this session
+created plus the readings block, and both are gone.
+
+Live afterwards, with the real system prompt built from the operator's own
+store: turn one 34.8% cached, **turn two 97.6%, turn three 96.5%**.
+
+Two probes, both failing as they should: putting recall back in the tail fails
+the placement test, and passing an empty conversation id — which stops the
+current conversation being barred, so its own turns start appearing — fails the
+stability test.
 
 ## Starting the thing
 

@@ -140,3 +140,60 @@ def test_the_readings_still_arrive_on_the_question() -> None:
     assert any(marker in asked for marker in READING_MARKERS), (
         "the readings reached neither the system prompt nor the question"
     )
+
+
+def _with_recall_on() -> list[dict[str, Any]]:
+    """Three turns in one conversation, with cross-session recall switched on."""
+    from tests.test_m4_chat import _control
+
+    sent: list[dict[str, Any]] = []
+    client = an_api(frames("first"))
+    # Two other conversations for recall to draw on, then the one under test.
+    turn(client, "an earlier conversation about badgers", system="Be someone.")
+    turn(client, "another one about kettles", system="Be someone.")
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"}, headers=_control(client))
+    opened = turn(client, "first question", system="Be someone.")
+    conversation = opened.headers["x-conversation-id"]
+    _captured(client, sent)
+    turn(client, "second question", system="Be someone.", conversation_id=conversation)
+    turn(client, "third question", system="Be someone.", conversation_id=conversation)
+    return sent
+
+
+def test_the_recalled_conversations_ride_in_the_cached_half() -> None:
+    """**Moved there on 9 September 2026, and the move is the point.**
+
+    Recall reads like per-turn content and is not: `_recall` always skips the
+    conversation being had, so this conversation's own growth cannot change it,
+    and the other conversations it digests do not change while somebody is
+    talking in this one. Measured at 4,694 characters — about 1,170 tokens that
+    were being re-read at full price on every single turn while they sat in the
+    volatile tail.
+    """
+    sent = _with_recall_on()
+    system = json.dumps(sent[-1]["messages"][0])
+    asked = json.dumps(sent[-1]["messages"][-1])
+
+    assert "badgers" in system, "the recalled conversations are not in the cached half"
+    assert "badgers" not in asked, (
+        "recall is still riding on the question, where it is re-read every turn"
+    )
+
+
+def test_recall_does_not_change_the_prefix_between_turns() -> None:
+    """**The property that makes the move safe, and the one that would make it a
+    disaster if it were false.**
+
+    The system message is the first thing in the request. Anything unstable
+    there invalidates the cache for the entire conversation behind it — which is
+    exactly the bug that started this work. So recall may only live here while
+    it is genuinely constant across a conversation's turns.
+    """
+    sent = _with_recall_on()
+
+    systems = {json.dumps(call["messages"][0]) for call in sent}
+
+    assert len(systems) == 1, (
+        "the recalled block changed between turns, so moving it into the system "
+        "message costs the whole conversation its cache rather than saving it"
+    )

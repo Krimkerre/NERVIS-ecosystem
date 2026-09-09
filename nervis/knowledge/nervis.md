@@ -576,6 +576,16 @@ to a model chosen for thinking. The value still reaches the provider — a
 thinking model that receives it switches thinking off — but it is no longer a
 constraint on who may answer.
 
+**Recalled conversations sit in the cached half, not the per-turn half.** They
+read like per-turn content and are not: the recall always skips the conversation
+being had, so this conversation's own growth cannot change it, and the other
+conversations it digests do not change while somebody is talking in this one.
+That block is about 1,170 tokens, and in the volatile tail it was re-read at
+full price every single turn. In the system prompt a conversation pays for it
+once. Starting a conversation elsewhere mid-chat costs a single cache miss and
+then caches again. Measured after the move: turns two and three of a
+conversation came back 97.6% and 96.5% cached.
+
 **The readings are reference, not news.** They travel with every non-greeting
 turn because a question about the machine can arrive at any time, not because
 anything in them needs saying. Chat used to volunteer the system status every
