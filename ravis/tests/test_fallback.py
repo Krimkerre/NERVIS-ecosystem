@@ -448,6 +448,57 @@ def test_the_cloud_model_would_otherwise_have_answered() -> None:
         assert "cloud-model" in upstream.served
 
 
+def test_a_credential_failure_is_visible_on_the_health_surface() -> None:
+    """§10 asks that readiness become truthful under the condition, and the
+    place a person reads it is `/api/v1/health`.
+
+    Routing correctly around a provider with a bad key is half the answer. The
+    other half is that the screen says so: a target that answered 401 must show
+    the failure and its class, not sit at zero requests looking untouched or
+    accumulate successes it did not have. Somebody diagnosing "why is it always
+    picking the slow model" reads this list and nothing else.
+    """
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (401, {"error": "check the key"})})
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+        targets = {one["target"]: one for one in client.get("/api/v1/health").json()["targets"]}
+
+    assert targets["coder-a"]["successes"] == 0
+    assert targets["coder-a"]["error_rate"] == 1.0
+    assert "authentication" in targets["coder-a"]["failures"], targets["coder-a"]["failures"]
+    # Visible on both rows and blamed on neither breaker, which is what
+    # `AUTHENTICATION`'s scope of NONE means: a wrong key is somebody's
+    # configuration, and taking a model or a whole provider out of service over
+    # it would turn a two-minute fix into an outage. Counted, not punished.
+    assert targets["coder-a"]["state"] == "CLOSED"
+    assert targets["coder-a"]["consecutive_failures"] == 0
+    assert targets["default"]["failures"].get("authentication") == 1
+    assert targets["default"]["consecutive_failures"] == 0
+    # And the model that actually answered is not tarred with it.
+    assert targets["coder-b"]["successes"] == 1
+
+
+def test_a_target_that_never_connected_says_so_rather_than_reading_untried() -> None:
+    """The same surface under network loss, which has a different class.
+
+    "Never reached" and "never called" look identical on a screen that only
+    counts successes, and they call for opposite actions — check the cable
+    versus check the routing. The class is recorded, so the two are
+    distinguishable.
+    """
+    upstream = ScriptedUpstream(TWO_CODERS, refuse_transport={"coder-a"})
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json={"model": AGENT_POOL})
+        targets = {one["target"]: one for one in client.get("/api/v1/health").json()["targets"]}
+
+    assert "connection_failure" in targets["coder-a"]["failures"], targets["coder-a"]["failures"]
+    assert targets["coder-a"]["successes"] == 0
+    assert targets["coder-a"]["error_rate"] == 1.0, "a model that never worked is not error-free"
+    # The timing is not the model's either: a connection that never opened says
+    # nothing about how fast it answers, so no latency sample is invented.
+    assert targets["coder-a"]["mean_latency_seconds"] is None
+
+
 # ── Streaming: the acceptance criterion ──────────────────────────────────────
 
 

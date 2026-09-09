@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2626 tests, no network, no live service
+.venv/bin/pytest                      # part of 2630 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 479 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1052 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1053 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2626 passing across the four, conformance `PASS`.
+Expected: all clean, 2630 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15931,6 +15931,65 @@ row rather than a row per restart, re-arms the lease under a new token, retires
 the old one, and is refused with a 409 while the id is still answering.
 
 RAVIS 1026 -> 1033, NERVIS 1047 -> 1052.
+
+## The rest of the thin rows, and a health surface that reported a zero it had
+## not earned — 2026-09-09
+
+The second pass over the same counts, on the four outcomes still resting on
+fewer than eight conditions each.
+
+    16/19 truthful · 8/19 bounded retries · 8/19 idempotent recovery
+     8/19 standalone · 7/19 no unsafe failover · 6/19 bounded queues
+
+**The defect this pass found is a reported number, not a missing test.**
+`/api/v1/health` showed a model whose every attempt had failed at its provider
+as `requests: 2, successes: 0, failures: {}, error_rate: 0.0`. `error_rate`'s
+own docstring refuses to return `0.0` for a target nobody has called — *"a
+dashboard reporting a confident zero is repeating a lie it was handed"* — and
+the same zero was being handed to a model that had never worked.
+
+The cause is one line in `HealthRegistry.record`. An attempt is claimed on both
+the model's record and the provider's; a failure blames one of them, and the
+other was released with `probe_ended()`, which clears the half-open probe and
+drops the count with it. `TargetHealth.failed` was already written to count a
+class it does not blame — that is how a malformed request is recorded without
+opening a circuit — so the fix is a sibling of it: `blamed_elsewhere` counts the
+class and nothing else. No `last_failure`, no `consecutive_failures`, no
+latency sample, no breaker, because those are blame and the blame belongs to
+the other scope. A model must not be dropped from routing because its runtime
+was down, and its latency figures must not shift by attempts that never reached
+it.
+
+Both new route tests read the surface rather than the registry: a credential
+failure shows the model as never having worked with both breakers shut (a wrong
+key is configuration, not an outage to route around), and a target that never
+connected reads as failed for that reason rather than as untried, with no
+invented latency for a connection that never opened.
+
+**What else was proved rather than re-read.** SIRVIS does not run an
+interrupted benchmark again — two applications over one database file, which is
+what a restart is; an unbounded retry there spends the machine on work nobody
+was told had restarted. A peer that is simply absent costs NERVIS one
+connection attempt a pass rather than the four reads a full probe makes,
+however long it has been gone. A corrupt body whose words match no marker table
+stops the chain at one attempt. The publisher re-sends what survived a
+collector outage in order, under an id derived from the event rather than
+minted per attempt, so the retry is one event at the hub instead of two. A
+second claim on an instance id that is still answering is refused 409 and the
+window holding it keeps its lease.
+
+**Two cells were also saying something no longer true**, found while rewriting
+their residuals rather than by a gate: `read-only data directory` claimed no
+service is started against one, and `full disk` did not mention the service
+staying up — both had gained route tests the day before that proved exactly
+those things.
+
+**Bounded queues stayed at 6 and is left there.** Every remaining condition
+would have needed a citation that does not prove the outcome — a registry
+bounded by eviction is not a queue, and saying so would be the kind of
+verdict-padding this matrix exists to make visible.
+
+RAVIS 1033 -> 1035, SIRVIS 479 -> 480, NERVIS 1052 -> 1053.
 
 ## Starting the thing
 

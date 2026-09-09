@@ -169,6 +169,27 @@ class TargetHealth:
         """
         self.probing = False
 
+    def blamed_elsewhere(self, failure_class: FailureClass) -> None:
+        """Count an attempt that failed for somebody else's reason, and let go.
+
+        **Releasing the probe was all this used to do, and the count was lost
+        with it.** An attempt is claimed on both the model and the provider;
+        when the provider is to blame, the model's record kept the `requests`
+        but recorded no failure — so a model behind an unreachable provider read
+        `2 requests, 0 successes, error_rate 0.0`. That confident zero is the
+        exact reading `error_rate` refuses to give for a target nobody has
+        called, handed instead to one that has never worked.
+
+        So the class is counted here and nothing else is: no `last_failure`, no
+        `consecutive_failures`, no latency sample, no breaker. Those are blame,
+        and the blame belongs to the other scope — a model must not be dropped
+        from routing because its runtime was down, and its latency figures must
+        not be shifted by attempts that never reached it.
+        """
+        name = failure_class.value
+        self.failures_by_class[name] = self.failures_by_class.get(name, 0) + 1
+        self.probing = False
+
     def failed(self, failure_class: FailureClass, started_at: float) -> None:
         """Record a failure, and open the circuit if it has earned it.
 
@@ -301,13 +322,13 @@ class HealthRegistry:
         scope = failure_class.policy.scope
         if scope is HealthScope.PROVIDER:
             self.of(HealthScope.PROVIDER, provider).failed(failure_class, started_at)
-            self.of(HealthScope.MODEL, target).probe_ended()
+            self.of(HealthScope.MODEL, target).blamed_elsewhere(failure_class)
         else:
             # MODEL and NONE both land on the model record: NONE is recorded so
             # the counters stay complete, while `failed` itself declines to open
             # a circuit on a scope mismatch.
             self.of(HealthScope.MODEL, target).failed(failure_class, started_at)
-            self.of(HealthScope.PROVIDER, provider).probe_ended()
+            self.of(HealthScope.PROVIDER, provider).blamed_elsewhere(failure_class)
 
     def allows(self, scope: HealthScope, target: str) -> bool:
         """Whether a target may be called — **without** creating a record for it.

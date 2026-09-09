@@ -1055,6 +1055,34 @@ def test_version_numbers_compare_by_number_and_not_as_text() -> None:
 # slow and then asked whether the *service* stayed answerable and truthful.
 
 
+def test_a_peer_that_is_simply_absent_costs_one_request_a_pass() -> None:
+    """The deadline bounds a peer that hangs; this bounds one that is not there.
+
+    A full MEP probe is four reads — version, identity, health, capabilities —
+    and the first of them failing is what an absent service looks like. The
+    probe stops there rather than asking the remaining three of a port nothing
+    is listening on, and it does not try the same read twice: an absent peer
+    costs one connection attempt a pass, whether it has been absent for a
+    second or since boot. A probe that walked all four would quadruple the cost
+    of every stopped service on the machine, and RAVIS's anonymous rate limit
+    is the reason this loop was made cheaper once already.
+    """
+    asked: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        raise httpx.ConnectError("nothing is listening", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+    first = observe(client, RAVIS)
+    second = observe(client, RAVIS)
+
+    assert first["state"] is RegistryState.UNREACHABLE
+    assert second["state"] is RegistryState.UNREACHABLE
+    assert asked == ["/ecosystem/version", "/ecosystem/version"], asked
+
+
 def test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline() -> None:
     """**The probe's own deadline is the thing that keeps one slow peer from
     stalling the loop**, and it was passed to `httpx` with nothing checking it.

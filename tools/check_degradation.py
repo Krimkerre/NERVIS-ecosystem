@@ -174,16 +174,19 @@ CELLS: list[Cell] = [
             ("live", "tools/acceptance_run.py:crash_clause"),
             ("live", "tools/acceptance_run.py:_reconciled"),
             ("unit", "sirvis/tests/test_m6_storage.py:test_a_run_starts_recorded_so_a_crash_leaves_evidence_of_it"),
+            ("route", "sirvis/tests/test_m14_queue.py:test_a_job_interrupted_by_a_restart_is_not_quietly_run_again"),
         ],
         outcomes=(
             "truthful",
             "idempotent_recovery",
+            "bounded_retries",
         ),
         residual=
-            "Proved for SIRVIS, live, with a real SIGKILL during a benchmark: the run is re"
-            "conciled and the job ends rather than hanging. RAVIS and NERVIS are never kill"
-            "ed mid-operation by anything, and no test shows retries staying bounded across"
-            " a restart.",
+            "Proved for SIRVIS, live, with a real SIGKILL during a benchmark: the run is "
+            "reconciled and the job ends rather than hanging — and, across two applications "
+            "over one database file, that the next process does not quietly run the "
+            "interrupted job again, which would spend the machine on work nobody was told "
+            "had restarted. RAVIS and NERVIS are never killed mid-operation by anything.",
     ),
     Cell(
         condition="corrupt response",
@@ -193,16 +196,20 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_transparent_proxy.py:test_a_corrupt_answer_does_not_take_the_route_down_with_it"),
             ("route", "ravis/tests/test_transparent_proxy.py:test_a_corrupt_streamed_frame_is_passed_through_and_the_stream_ends"),
             ("route", "ravis/tests/test_anthropic_adapter.py:test_a_corrupt_provider_body_is_a_refusal_rather_than_a_crash"),
+            ("route", "ravis/tests/test_fallback.py:test_an_unrecognisable_refusal_stops_the_chain_rather_than_shopping_around"),
         ],
         outcomes=(
             "no_unsafe_failover",
             "standalone",
+            "bounded_retries",
         ),
         residual=
-            "A corrupt body is forwarded rather than rewritten, and the process serves the "
-            "next request. Capability and readiness are not shown to become truthful under "
-            "it — a provider answering garbage still reads as reachable, which is a reading"
-            " nobody has corrected.",
+            "A corrupt body is forwarded rather than rewritten, the process serves the "
+            "next request, and a body whose words match no marker table stops the chain at "
+            "one attempt rather than shopping the same request around for a provider that "
+            "says yes. Capability and readiness are not shown to become truthful under it "
+            "— a provider answering garbage still reads as reachable, which is a reading "
+            "nobody has corrected.",
     ),
     Cell(
         condition="duplicate and out-of-order events",
@@ -231,6 +238,7 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:cold_start_clause"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
+            ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_is_simply_absent_costs_one_request_a_pass"),
             ("unit", "protocol/tests/test_event_publisher.py:test_the_buffer_is_bounded_and_a_drop_is_counted"),
             ("unit", "protocol/tests/test_event_publisher.py:test_a_drop_is_reported_without_touching_the_product_s_health"),
         ],
@@ -238,13 +246,15 @@ CELLS: list[Cell] = [
             "truthful",
             "standalone",
             "bounded_queues",
+            "bounded_retries",
         ),
         residual=
-            "Proved live for one pair — NERVIS started with SIRVIS absent — and at the "
+            "Proved live for one pair — NERVIS started with SIRVIS absent — at the "
             "publisher, which buffers to a bound and counts what it drops while its "
-            "collector has never answered. The other starting orders are untested, and "
-            "the probe-deadline evidence beside it exercises a hang rather than an "
-            "absence.",
+            "collector has never answered, and at the probe, where a peer that is simply "
+            "not there costs one connection attempt a pass rather than the four reads a "
+            "full pass makes, however long it has been absent. The other starting orders "
+            "are untested.",
     ),
     Cell(
         condition="timeout",
@@ -307,13 +317,15 @@ CELLS: list[Cell] = [
         outcomes=(
             "truthful",
             "idempotent_recovery",
+            "standalone",
         ),
         residual=
-            "A run that cannot write ends as failed rather than staying `running`, and the "
-            "lease is released. No admission check considers free space, so a run that cann"
-            "ot possibly finish still starts; and the release is proved by a patch applied "
-            "after `_execute` has already released it, which is weaker evidence than it rea"
-            "ds.",
+            "A run that cannot write ends as failed rather than staying `running`, the "
+            "lease is released, and the service keeps answering while every results write "
+            "raises `ENOSPC`. No admission check considers free space, so a run that cannot "
+            "possibly finish still starts; and the release is proved by a patch applied "
+            "after `_execute` has already released it, which is weaker evidence than it "
+            "reads.",
     ),
     Cell(
         condition="unavailable keychain",
@@ -343,19 +355,30 @@ CELLS: list[Cell] = [
         verdict="COVERED",
         evidence=[
             ("live", "STATUS.md:5392"),
-            ("route", "ravis/tests/test_m18b_events.py:251"),
-            ("route", "ravis/tests/test_m18b_events.py:223,232"),
+            ("route", "ravis/tests/test_m18b_events.py:test_a_dead_collector_never_becomes_the_service_s_own_unreadiness"),
+            ("route", "ravis/tests/test_m18b_events.py:test_a_collector_that_refuses_does_not_reach_the_caller"),
+            ("route", "ravis/tests/test_m18b_events.py:test_routing_works_with_no_collector_configured"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_a_drop_is_reported_without_touching_the_product_s_health"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_a_5xx_is_retried_and_a_202_is_not"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_a_failed_flush_preserves_order"),
+            ("unit", "protocol/tests/test_event_publisher.py:test_a_stable_id_makes_a_retry_one_event_rather_than_two"),
             ("static-gate", "tools/acceptance_run.py:89,743,795,806"),
         ],
         outcomes=(
             "bounded_queues",
             "standalone",
+            "truthful",
+            "idempotent_recovery",
         ),
         residual=
-            "Proved where it matters most: a dead collector never becomes the producer's ow"
-            "n unreadiness, and the publisher's queue is bounded. The acceptance-run citati"
-            "on beside it is a clause label rather than a check of collector loss, and is k"
-            "ept only as a pointer.",
+            "Proved where it matters most: a dead collector never becomes the producer's "
+            "own unreadiness — read back off `/ecosystem/health` after a real overflow, not "
+            "argued from a comment — the publisher's queue is bounded, what it dropped is "
+            "counted and reportable rather than silently gone, and what survived is "
+            "re-sent in order when the hub returns, under an id derived from the event "
+            "rather than minted per attempt, so the retry is one event at the hub instead "
+            "of two. The acceptance-run citation beside it is a clause label rather than a "
+            "check of collector loss, and is kept only as a pointer.",
     ),
     Cell(
         condition="read-only data directory",
@@ -367,11 +390,14 @@ CELLS: list[Cell] = [
         ],
         outcomes=(
             "truthful",
+            "standalone",
         ),
         residual=
-            "`doctor` says a results directory is not writable, and refuses to run as root "
-            "where the permission bits would not apply. No service is started against a rea"
-            "d-only directory, so what a *write* does under the condition is unproved.",
+            "`doctor` says a results directory is not writable and refuses to run as root "
+            "where the permission bits would not apply, and the service itself keeps "
+            "answering with its results directory read-only. What a *write* does under the "
+            "condition is proved for the disk being full rather than for the directory "
+            "being read-only, which are two different `OSError`s reaching the same code.",
     ),
     Cell(
         condition="cloud provider 401/403/429/5xx",
@@ -382,18 +408,22 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_bare_500_is_not_chased_across_the_pool"),
             ("route", "ravis/tests/test_fallback.py:test_an_exhausted_chain_returns_the_last_upstreams_own_status"),
             ("route", "ravis/tests/test_fallback.py:test_the_retry_budget_caps_how_many_models_are_tried"),
+            ("route", "ravis/tests/test_fallback.py:test_a_credential_failure_is_visible_on_the_health_surface"),
         ],
         outcomes=(
             "no_unsafe_failover",
             "bounded_retries",
+            "truthful",
         ),
         residual=
             "A credential failure reaches the client on a named model and is final "
-            "regardless of what the body says, a bare 500 is not chased, and a pool of "
+            "regardless of what the body says, a bare 500 is not chased, a pool of "
             "candidates all answering 503 stops at the configured attempt count with an "
-            "eligible model still untried. What is not shown is the jitter §10 asks for — "
-            "the 429 evidence proves status pass-through rather than a bounded, jittered "
-            "retry.",
+            "eligible model still untried, and the health surface a person actually reads "
+            "shows the refused model as never having worked while leaving both breakers "
+            "shut — a wrong key is configuration, not an outage to route around. What is "
+            "not shown is the jitter §10 asks for: the 429 evidence proves status "
+            "pass-through rather than a bounded, jittered retry.",
     ),
     Cell(
         condition="network loss",
@@ -405,6 +435,7 @@ CELLS: list[Cell] = [
             ("route", "ravis/tests/test_fallback.py:test_a_connection_that_never_completes_still_falls_back_while_streaming"),
             ("route", "ravis/tests/test_fallback.py:test_a_world_where_nothing_connects_stops_at_the_budget_not_at_the_pool"),
             ("route", "ravis/tests/test_fallback.py:test_a_failing_local_model_is_not_replaced_by_a_cloud_one"),
+            ("route", "ravis/tests/test_fallback.py:test_a_target_that_never_connected_says_so_rather_than_reading_untried"),
             ("unit", "ravis/tests/test_reliability.py:test_the_budget_stops_the_chain_on_attempts"),
             ("unit", "protocol/tests/test_event_publisher.py:test_the_drain_is_bounded_when_the_collector_hangs"),
             ("unit", "protocol/tests/test_event_publisher.py:test_the_oldest_is_dropped_not_the_newest"),
@@ -414,6 +445,7 @@ CELLS: list[Cell] = [
             "idempotent_recovery",
             "bounded_queues",
             "bounded_retries",
+            "truthful",
         ),
         residual=
             "A connection that never opened falls through to the next candidate, a "
@@ -422,7 +454,9 @@ CELLS: list[Cell] = [
             "oldest-first, an unreachable local model is refused rather than answered "
             "from the cloud, and a world where *nothing* connects stops at the retry budget "
             "rather than walking the pool — the same-target retry a connection failure buys "
-            "is counted against that budget like any other attempt. Loss *mid-stream* on "
+            "is counted against that budget like any other attempt — and the target that "
+            "never connected reads as failed for that reason rather than as untried, with "
+            "no invented latency for a connection that never opened. Loss *mid-stream* on "
             "the transparent path is not exercised at the route, and no test drops a "
             "connection between two services.",
     ),
@@ -499,17 +533,22 @@ CELLS: list[Cell] = [
         evidence=[
             ("route", "nervis/tests/test_m8b_status.py:test_a_window_whose_lease_lapsed_is_gone_rather_than_probed"),
             ("route", "nervis/tests/test_m8b_status.py:test_a_lapsed_window_is_gone_from_diagnostics_and_config_too"),
+            ("route", "nervis/tests/test_m8b_status.py:test_a_window_still_answering_is_not_displaced_by_a_second_claim"),
         ],
         outcomes=(
             "truthful",
             "no_unsafe_failover",
+            "idempotent_recovery",
         ),
         residual=
-            "Proved for the dead-Bridge half — a lapsed window is gone rather than probed —"
-            " and for the isolation half, since an event claiming a registered window must "
-            "now present that window's token. Two *live* windows contesting one id or one p"
-            "ort are not exercised here; that half is covered by Clarvis's own suite rather"
-            " than by this matrix.",
+            "Proved for the dead-Bridge half — a lapsed window is gone rather than probed "
+            "— for the isolation half, since an event claiming a registered window must now "
+            "present that window's token, and for the collision itself at the registry: a "
+            "second claim on an id that is still answering is refused with a 409 and the "
+            "window holding it keeps its lease, so the recovery path a restarted Bridge "
+            "takes cannot be turned against a live one. Two live windows contesting one "
+            "*port* are not exercised here; that half is covered by Clarvis's own suite "
+            "rather than by this matrix.",
     ),
     Cell(
         condition="stale registry lease",

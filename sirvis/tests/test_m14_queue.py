@@ -225,6 +225,48 @@ def test_a_job_running_when_the_process_died_is_marked_unrecoverable() -> None:
     assert "stopped while this job was running" in found["detail"]
 
 
+def test_a_job_interrupted_by_a_restart_is_not_quietly_run_again(tmp_path: Any) -> None:
+    """§11.10 through the API, across a real restart of the service.
+
+    The reconciliation is asserted directly above, on the store. What that
+    cannot show is the half that matters to whoever submitted the benchmark:
+    the *next* process must not pick the job back up. A benchmark loads a model
+    and occupies the machine for minutes, so a queue that re-ran interrupted
+    work would spend the operator's hardware on a job they were never told had
+    restarted — and would do it again after every crash, unbounded, with the
+    row reading `running` throughout as though nothing had happened.
+
+    Two applications over one database file, which is what a restart is.
+    """
+    settings = Settings(
+        database_path=str(tmp_path / "sirvis.db"),
+        lmstudio_base_url="http://127.0.0.1:9",
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    first = create_app(settings)
+    with TestClient(first) as client:
+        token = mint_token(first.state.database, "dashboard", {Scope.BENCHMARK})
+        job_id = submit(client, token).json()["job"]["job_id"]
+        # The worker claims it and the process dies mid-run: the row is left
+        # reading `running`, which is the state a crash actually leaves behind.
+        jobs.claim(first.state.database)
+        assert jobs.read(first.state.database, job_id)["state"] == "running"
+
+    second = create_app(settings)
+    with TestClient(second) as client:
+        answered = client.get(f"/api/v1/benchmark-jobs/{job_id}")
+
+        assert answered.status_code == 200, answered.text
+        job = answered.json()["job"]
+        assert job["state"] == "failed"
+        assert "stopped while this job was running" in job["detail"]
+        # Nothing queued means nothing to claim: the interrupted job was
+        # retired, not returned to the queue under another name.
+        assert jobs.claim(second.state.database) is None
+        listed = client.get("/api/v1/benchmark-jobs").json()["items"]
+        assert [one["job_id"] for one in listed] == [job_id], "one job, not a copy per restart"
+
+
 def test_a_queued_job_survives_a_restart_untouched() -> None:
     """It never started, so it survives honestly and the worker will take it.
     Failing it would throw away work nobody had begun."""
