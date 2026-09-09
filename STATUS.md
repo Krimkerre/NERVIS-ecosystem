@@ -16601,6 +16601,33 @@ anyone on this machine.
 
 NERVIS 1133 -> 1135.
 
+**Batch 2: three gates that asserted less than they said.** Each was found by
+the audit planting a defect and watching the gate pass, and each is now proved
+the same way — with a counterexample the fix has to catch.
+
+- **`handler_check.js` read only a handler's first word.** `onclick="if(x)gone()"`
+  yielded `if`, which the keyword list discarded, and `gone` was never looked
+  at — on a page that already has conditional handlers. It now reads the whole
+  attribute and every call inside it. Two things surfaced while fixing it: the
+  first attempt required a closing quote in the same string, which found 48
+  handlers where the page has 101, because a template literal splits an
+  attribute across interpolations; and reading whole bodies turned up
+  `paintDiscover`, which is assigned to `window` by the screen that draws its
+  markup and so cannot be missing when a user can click it — the gate now reads
+  those assignments out of the tree. **105 handlers checked, up from 101.**
+- **`editor_check.js` checked that a folder was asked for, not which.** The
+  audit pointed the frame at `/audit-wrong-workspace` and the gate passed. It
+  now parses the `src` and compares `folder` against the session's workspace,
+  and the fixture workspace carries a space and a `#` so a frame that forgets to
+  encode fails too — an unencoded hash truncates the query at the browser, which
+  looks exactly like the folder being ignored.
+- **`plan_check.js` measured overlap by reading a field.** `plan().running !==
+  undefined` says nothing about how many requests are in flight, and the fixture
+  answered every call immediately, so a `runPlan` firing all three at once would
+  have passed. The first request is now held open while the assertion looks for
+  a second. Proved with a counterexample that dispatches every step at once *in
+  order*, so the existing order assertion cannot take the credit.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

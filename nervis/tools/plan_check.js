@@ -24,6 +24,7 @@ const failures = [];
 let calls = [];
 let failAt = -1;      // index of the step whose request should fail
 let onStep = null;    // called as each step's request is made
+let holdStep = null;  // a promise a step's request waits on before answering
 
 function fetchImpl(url, options = {}) {
   const u = String(url);
@@ -36,8 +37,11 @@ function fetchImpl(url, options = {}) {
       return Promise.resolve({ ok: false, status: 500,
         json: async () => ({ error: { message: "SIRVIS refused it" } }) });
     }
-    return Promise.resolve({ ok: true, status: 200,
-      json: async () => ({ job: { id: `j${n}`, state: "queued" } }) });
+    const answer = { ok: true, status: 200,
+      json: async () => ({ job: { id: `j${n}`, state: "queued" } }) };
+    // **Held open when the test asks for it**, which is the only way to observe
+    // whether a second step starts while the first is still in flight.
+    return holdStep ? holdStep.then(() => answer) : Promise.resolve(answer);
   }
   if (u.includes("/api/v1/proposals/outcome")) {
     return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
@@ -64,7 +68,7 @@ function seed(plan = PLAN) {
     `CHAT_SESSION.messages = [{role:'assistant',text:'ok',plan:${JSON.stringify(plan)}}]`,
     context,
   );
-  calls = []; failAt = -1; onStep = null;
+  calls = []; failAt = -1; onStep = null; holdStep = null;
 }
 
 const plan = () => vm.runInContext("CHAT_SESSION.messages[0].plan", context);
@@ -87,6 +91,31 @@ async function main() {
 
   /* ── In order, one at a time, through the enumerated operation ─────────── */
 
+  /* **Overlap is measured by holding a request open, not by reading a field.**
+     This used to check that `plan().running` was defined as each request went
+     out, which says nothing about how many are in flight: the fixture answered
+     every call immediately, so a `runPlan` that fired all three at once would
+     have set `running` and passed. An external audit pointed at the gap; the
+     first request is now held while the assertion looks for a second, which is
+     the thing the sentence has always claimed to prove.
+
+     A sequence somebody approved as a sequence must not run as a set — a
+     benchmark queue is serial, and three submissions at once is three jobs
+     racing for one machine. */
+  seed();
+  let released = () => {};
+  holdStep = new Promise((resolve) => { released = resolve; });
+  const running = vm.runInContext("runPlan(0)", context);
+  await new Promise((tick) => setTimeout(tick, 0));
+  const startedWhileHeld = calls.length;
+  released();
+  await running;
+  if (startedWhileHeld !== 1) {
+    failures.push(`${startedWhileHeld} step(s) were in flight while the first `
+      + "request was still open. A sequence approved as a sequence must not run "
+      + "as a set: the queue is serial and three submissions race for one machine.");
+  }
+
   seed();
   let overlapped = false;
   onStep = () => { if (plan().running === undefined) overlapped = true; };
@@ -99,7 +128,8 @@ async function main() {
     failures.push("a step ran through something other than its own enumerated operation.");
   }
   if (overlapped) {
-    failures.push("steps overlapped. A sequence approved as a sequence must not run as a set.");
+    failures.push("a step ran without the plan being marked as running, so the "
+      + "card cannot show which step is in flight.");
   }
   if (!plan().finished) failures.push("a plan that ran every step does not report finishing.");
 

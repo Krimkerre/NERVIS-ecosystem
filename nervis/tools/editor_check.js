@@ -41,7 +41,12 @@ const services = (state) => ({
    state and a closed session would make them all pass for the wrong reason —
    the frame is not drawn without one. `session: null` is the other case, and
    has its own check further down. */
-function pageIn(state, session = { open: true, workspace: "/w", proxied: true },
+/* Chosen to need encoding: a space and a `#`. A frame that interpolates the
+   workspace raw truncates its own query at the hash, and the folder silently
+   goes missing. */
+const WORKSPACE = "/w space#1";
+
+function pageIn(state, session = { open: true, workspace: WORKSPACE, proxied: true },
                 extension = { configured: false }) {
   return loadPage({
     fetchImpl: async (url) => {
@@ -116,12 +121,25 @@ if (!/src="\/code\/(\?[^"]*)?"/.test(alive)) {
     + "/code/ path, which is the proxy that makes it same-origin. §13.3's auth, "
     + "header and redirect rules apply to nothing if the frame bypasses them.");
 }
-/* The session names a workspace; the frame has to ask for that one. code-server
-   otherwise opens whatever it had open last, and the tab would say "workspace X"
-   above an editor showing Y. */
-if (!/src="\/code\/\?folder=/.test(alive)) {
-  failures.push("the frame did not ask for the workspace the session authorised, "
-    + "so the editor opens its own last folder and the two disagree.");
+/* **The frame asks for the workspace the session authorised — that one, by
+   value.** This read `src="/code/?folder=` and stopped, which proves a folder
+   was asked for and nothing about *which*. An external audit replaced the
+   page's folder expression with `/audit-wrong-workspace` and watched this gate
+   pass, which is the whole failure it exists to prevent: code-server otherwise
+   opens whatever it had open last, and the tab says "workspace X" above an
+   editor showing Y.
+
+   The fixture's workspace carries a space and a hash so the comparison also
+   fails on a frame that forgets to encode one — a raw `#` would truncate the
+   query at the browser, which looks like the folder simply being ignored. */
+const framed = /src="(\/code\/[^"]*)"/.exec(alive);
+const asked = framed && new URL(framed[1], "http://nervis.invalid")
+  .searchParams.get("folder");
+if (asked !== WORKSPACE) {
+  failures.push("the frame asked for "
+    + `${asked === null ? "no workspace at all" : JSON.stringify(asked)}, not the `
+    + `${JSON.stringify(WORKSPACE)} the session authorised — so the editor opens `
+    + "its own last folder while the tab names another.");
 }
 if (/src="http/.test(alive)) {
   failures.push("the frame's src is an absolute address, so the editor is on a "
