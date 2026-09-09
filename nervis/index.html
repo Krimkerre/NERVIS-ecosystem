@@ -4880,7 +4880,16 @@ let FOLDING=false;
 function foldCards(){
  if(FOLDING)return;
  FOLDING=true;
- try{$$('#content .card').forEach(foldCard);keepSections()}finally{FOLDING=false}
+ try{
+  $$('#content .card').forEach(foldCard);
+  /* **The chat drawer too, which is not a card and so was never swept.** Its
+     panes carry exactly the rows this exists for -- a label with a paragraph
+     under it -- and they rendered as full prose while every card in the app
+     folded. Found when two switches landed at the top of the Model pane and
+     their explanations pushed the model list off the screen. */
+  $$('.chat-drawer .drawer-body').forEach(body=>foldControls(body,'chat drawer'));
+  keepSections();
+ }finally{FOLDING=false}
 }
 
 (function(){
@@ -11339,19 +11348,24 @@ function modelPane(){
  queueMicrotask(()=>MODELPICK.load());
  const pinned=String(CHAT_SESSION.profile||'').startsWith('ravis/')
    && String(CHAT_SESSION.profile||'').split('/').length>2;
- return `<div class="picker-head" style="margin:0 0 8px">
+ /* **Above the catalogue, not below it.** Two switches, over a list of six
+    hundred models. Putting them after it meant scrolling the whole catalogue
+    to reach a checkbox, which is how they shipped and the first thing said
+    about them. Their prose folds behind a `?` like every other long hint in
+    the app -- see `foldCards` -- so leading costs two lines, not ten. */
+ return `<label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.explore?' checked':''}
+    onchange="USER.setExplore(this.checked)"> Occasionally try a different model
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">about one turn in twelve is answered by a model that was <i>not</i> the best pick, so RAVIS finds out how fast the others actually are. It says so in the route explanation when it does. <b>The cost is a worse answer some of the time</b> — that is the whole trade, which is why this is off unless you switch it on.</small></label>
+  ${USER.explore?`<label class="adv-toggle" style="grid-column:1/-1;margin-left:18px"><input type="checkbox"${USER.exploreUnmeasured?' checked':''}
+    onchange="USER.setExploreUnmeasured(this.checked)"> …and prefer ones nothing has measured
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">aims those turns at models with no timing at all. Without this the sampling spreads evenly, which keeps existing figures current instead. <b>Why it matters:</b> SIRVIS can only benchmark models running on this machine, so a hosted model is measured by being used or not at all — and a model nothing has timed ranks as merely average, which is enough to keep it out of first place forever.</small></label>`:''}
+ <div class="picker-head" style="margin:10px 0 8px">
    <input class="picker-search mono" placeholder="filter models…"
      oninput="MODELPICK.search(this.value)">
   </div>
   <div id="modelPickList" class="picker-list" style="max-height:none;grid-template-columns:1fr;border-top:0;padding-top:0">
    <div class="picker-empty">reading catalogues…</div>
   </div>
-  <label class="adv-toggle" style="grid-column:1/-1;margin-top:10px"><input type="checkbox"${USER.explore?' checked':''}
-    onchange="USER.setExplore(this.checked)"> Occasionally try a different model
-   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">about one turn in twelve is answered by a model that was <i>not</i> the best pick, so RAVIS finds out how fast the others actually are. It says so in the route explanation when it does. <b>The cost is a worse answer some of the time</b> — that is the whole trade, which is why this is off unless you switch it on.</small></label>
-  ${USER.explore?`<label class="adv-toggle" style="grid-column:1/-1;margin-left:18px"><input type="checkbox"${USER.exploreUnmeasured?' checked':''}
-    onchange="USER.setExploreUnmeasured(this.checked)"> …and prefer ones nothing has measured
-   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">aims those turns at models with no timing at all. Without this the sampling spreads evenly, which keeps existing figures current instead. <b>Why it matters:</b> SIRVIS can only benchmark models running on this machine, so a hosted model is measured by being used or not at all — and a model nothing has timed ranks as merely average, which is enough to keep it out of first place forever.</small></label>`:''}
   <small class="mono dim">a <b>pool</b> lets RAVIS choose per request and keeps working as models come and go. Pinning names one upstream outright — the only way to reach a model two providers both serve, and Anthropic's models are on Anthropic <i>and</i> on OpenRouter at different prices. ${pinned?'<b>Pinned right now</b>, so RAVIS is not choosing and a model that stops being offered becomes a refusal rather than a fallback.':''} Only providers that are keyed <i>and</i> reachable are listed, and only the models their filter lets through.</small>`;
 }
 
