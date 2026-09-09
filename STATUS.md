@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2795 tests, no network, no live service
+.venv/bin/pytest                      # part of 2815 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1163 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2795 passing across the four, conformance `PASS`.
+Expected: all clean, 2815 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17302,6 +17302,35 @@ Two probes, both failing as they should: putting recall back in the tail fails
 the placement test, and passing an empty conversation id — which stops the
 current conversation being barred, so its own turns start appearing — fails the
 stability test.
+
+## The audit's usage finding: counts lost on a chunk boundary
+## — 2026-09-10
+
+The second of the four behavioural findings left from the external audit, and
+the one with a direct line to the operator's DeepSeek bill.
+
+**HTTP chunking has nothing to do with SSE framing.** `_usage_in` was called on
+each chunk alone, so a provider ending a chunk inside the usage frame produced
+two halves, neither of which contains a parseable `"usage"` line. Both were
+skipped and the call was recorded with no token counts at all — priced
+`UNKNOWN`, which §14 is explicit a budget reads as *nothing spent*. Silent: the
+only symptom is RAVIS's spend sitting under the provider's own, which is exactly
+the comparison the operator had just made against their dashboard.
+
+The loop now keeps a carry-over of the bytes after the last complete frame and
+inspects that joined to the next chunk. Complete frames are dropped from it in
+the same pass that reads them, which is what stops a frame being read twice and
+inverting "latest wins". The carry is capped at 32 KB: a fragment that outgrows
+that loses its figure rather than holding an unbounded buffer for a provider
+that never closes a frame. `chunk` is still yielded whole and unaltered, so §6's
+byte-for-byte guarantee on the transparent path is untouched.
+
+**Twenty tests, and the last one is the one that matters.** Nineteen drive a
+copy of the loop's three lines — enough to pin the reading, not enough to notice
+if the loop stopped using it, which is the shape of the price-book bug found the
+day before. The twentieth sends genuinely split chunks through the application
+and reads the ledger. Probed: reverting the loop to per-chunk reading fails
+**only** that test.
 
 ## Starting the thing
 

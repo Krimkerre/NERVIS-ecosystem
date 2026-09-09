@@ -320,6 +320,16 @@ model, so two deliberate choices were made:
 Neither distortion touches routing decisions between vendors, since both models'
 rates move together. It only affects the figure on the spend screen.
 
+**A call whose token counts went missing was priced as nothing.** RAVIS reads
+the token counts off the stream as it passes. It used to look at each HTTP chunk
+on its own — but HTTP chunking has nothing to do with the frames a provider
+sends, so a chunk boundary landing inside the counts made both halves
+unrecognisable. The call was then recorded with no usage at all, which is priced
+`UNKNOWN`, which a budget reads as *nothing spent*. Nothing announced it; the
+only symptom was RAVIS's spend sitting below the provider's own figures. Since
+10 September 2026 the reader keeps the tail of an unfinished frame and joins it
+to the next chunk. The bytes sent to the client are untouched either way.
+
 **How often any of this updates, which was worse than it looked.** Until
 9 September 2026 the answer was *never*: prices were read from the file once,
 at startup, and OpenRouter's published rates — the only machine-readable

@@ -1168,6 +1168,32 @@ def _usage_writer(
     return note
 
 
+#: How much of a partly-arrived SSE frame is kept while waiting for the rest.
+#: A usage frame is a few hundred bytes; a content delta carrying an image can
+#: be far larger, and it is a *frame* too, so the boundary can land inside one.
+#: Generous enough that no real frame is cut, bounded so a provider that never
+#: sends a frame terminator cannot grow this without limit.
+USAGE_CARRY_BYTES = 32_768
+
+
+def _carry_over(seen: bytes) -> bytes:
+    """The tail of `seen` that is not yet a complete SSE frame.
+
+    Frames end with a blank line, so everything before the last `\n\n` has
+    already been offered to `_usage_in` in full and is dropped — which is what
+    keeps a frame from being read twice, and keeps this buffer the size of one
+    partial frame rather than the size of the stream.
+
+    Truncating from the front when the cap is hit can leave a fragment that no
+    longer parses, costing the usage figure for that one call. That is the
+    deliberate trade against holding an unbounded buffer for a provider that
+    never terminates a frame.
+    """
+    cut = seen.rfind(b"\n\n")
+    tail = seen if cut < 0 else seen[cut + 2:]
+    return tail[-USAGE_CARRY_BYTES:]
+
+
 def _usage_in(chunk: bytes) -> Usage | None:
     """The token counts in an SSE chunk, if it carries a usage frame.
 
@@ -1668,6 +1694,7 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
                 # the upstream's own error object through — it is already in the
                 # shape clients parse.
                 _refuse(call, model, started, upstream.status_code, await upstream.aread())
+            carried = b""
             async for chunk in upstream.aiter_bytes():
                 if not committed:
                     # The last moment a different model can still be chosen.
@@ -1680,11 +1707,27 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
                 # unchanged on the next line, so §6's byte-for-byte guarantee is
                 # untouched — this looks, and never rewrites.
                 #
+                # **Read across the chunk boundary, not within one chunk.** HTTP
+                # chunking has nothing to do with SSE framing, so a usage frame
+                # can arrive split in two. Each half then fails the `"usage"`
+                # substring test, both are skipped, and the call is recorded
+                # with no token counts at all — priced as UNKNOWN, which a
+                # budget reads as nothing spent. Nothing announces it; the
+                # figures are simply lower than the provider's own.
+                #
+                # `carried` holds only the bytes after the last complete frame,
+                # so a frame is inspected exactly once: complete frames are
+                # dropped from it in the same pass that reads them. It is an
+                # inspection buffer and never reaches the client — `chunk` is
+                # still yielded whole and unaltered below.
+                #
                 # Latest wins, for the reason the translated path documents: a
                 # provider that reports usage on every frame reports it growing.
-                seen = _usage_in(chunk)
+                combined = carried + chunk
+                seen = _usage_in(combined)
                 if seen is not None:
                     reported = seen
+                carried = _carry_over(combined)
                 yield chunk
     except httpx.HTTPError as failure:
         yield _stream_failed(call, model, started, failure, committed)
