@@ -66,7 +66,7 @@ EXPORTABLE: frozenset[str] = frozenset({
     "voice.trim_long_replies", "voice.fallback", "voice.daily_cap",
     "voice.daily_cap_enabled",
     "user.display_name",
-    "ui.remember_tab",
+    "ui.remember_tab", "ui.editor_keepalive",
     "refresh_seconds",
 })
 

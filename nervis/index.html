@@ -368,6 +368,17 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    item is the stage, and the frame is positioned to fill it at the inverse
    scale. The editor gets exactly the room the notes leave, whatever they are,
    and nothing scrolls. */
+/* **Where the editor lives, and why it is not in `#content`.** Moving an
+   `<iframe>` in the DOM reloads it, and `#content` is rewritten on every
+   navigation — so an editor rendered there was torn down and reloaded on every
+   trip away from the tab, which is a VS Code workbench start each time. This
+   holder is a child of `.app` that nothing ever re-parents; leaving the tab
+   hides it, and hiding an iframe does not unload it. Measured against `.main`
+   rather than given a copy of its geometry, so it cannot drift from the
+   layout it is covering. */
+#editorHold{position:fixed;display:flex;flex-direction:column;z-index:3;
+  background:#0a0f15}
+#editorHold[hidden]{display:none}
 .app[data-app="clarvis"] .code-stage{flex:1 1 auto;min-height:0;position:relative;
   overflow:hidden}
 .app[data-app="clarvis"] .code-stage .code-frame{position:absolute;top:0;left:0;
@@ -563,18 +574,24 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    markup and in the page's own voice, one click away instead of always open. */
 .card{position:relative}
 .card>h3{padding-right:26px}
-.card>.help{position:absolute;top:9px;right:9px;width:17px;height:17px;padding:0;
+.card .help{width:17px;height:17px;padding:0;
   border:1px solid var(--line);border-radius:999px;background:transparent;
   color:#6f8093;font:600 10px/1 "SFMono-Regular",Consolas,monospace;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;opacity:.55;transition:.12s}
-.card:hover>.help{opacity:1}
-.card>.help:hover,.card>.help.on{border-color:var(--accent);color:var(--accent);opacity:1;
+  display:inline-flex;align-items:center;justify-content:center;opacity:.55;transition:.12s}
+/* The card's own mark sits in its corner; a control's sits beside the control,
+   because a settings card holds five switches and a mark in the corner would
+   say nothing about which switch it was explaining. */
+.card>.help{position:absolute;top:9px;right:9px;display:flex}
+.card .help.inline{margin-left:7px;vertical-align:-3px}
+.card:hover .help{opacity:.8}
+.card .help:hover,.card .help.on{border-color:var(--accent);color:var(--accent);opacity:1;
   box-shadow:0 0 8px rgba(var(--rgb),.25)}
 .card small.help-body{margin-top:9px}
-/* `[hidden]` is a user-agent rule and loses to any author `display`, and half
-   the `small`s on this page are `display:block` — so the attribute was set and
-   the paragraph stayed on screen. */
-.card .help-body[hidden]{display:none}
+/* `[hidden]` is a user-agent rule and loses to any author `display` — and half
+   the `small`s on this page are `display:block`, several of them from an inline
+   `style` attribute, which beats any stylesheet rule that does not say this. So
+   the attribute was set twice and the paragraph stayed on screen twice. */
+.card .help-body[hidden]{display:none!important}
 .entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
   font-variant-numeric:tabular-nums}
@@ -914,7 +931,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
 @media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
 </style></head>
-<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div></div>
+<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
 <div class="toast" id="toast"></div>
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
@@ -4059,10 +4076,13 @@ const card = ({size = 'full', title, chip = '', service, live}, body) => {
    cards in one column makes the reader scroll past three of them to reach the
    one they came for. Sections keep them addressable without a second screen.
 
-   The two that hold *controls* open by default and the readouts start closed:
-   a setting nobody can find is not much better than one that does not exist,
-   while a paragraph explaining what is unenforced can wait to be asked for. */
-const section=(title,body,open=true)=>`<details class="settings-group"${open?' open':''}>
+   **All of them start closed.** Nine open sections is the whole of Settings in
+   one column, which is the clutter the sections were introduced to fix and
+   then only halved: the screen is a list of subjects, and a subject you are
+   not here for should cost nothing to skip. What is open stays open across a
+   repaint — see `keepSections()` — so a section somebody opened does not shut
+   itself while they are reading it. */
+const section=(title,body,open=false)=>`<details class="settings-group"${open?' open':''}>
   <summary>${title}</summary><div class="grid">${body}</div></details>`;
 
 /* A cost, at the precision these figures actually have.
@@ -4739,11 +4759,21 @@ function helpKey(title){return `${state.app}/${state.view}/${title.slice(0,48)}`
    stay exactly where they are, because each of those explains *that thing*
    rather than the card. Everything else is the paragraph this fold is for,
    wherever in the card it was written. */
-const NOT_A_CARDS_PROSE='.table-row,.entry,label,.absent,.trace-step,.model,.lane';
+/* Rows that hold their own explanation: a switch and the sentence under it, a
+   settings row and the paragraph in its right-hand column. Those fold with the
+   row rather than with the card, because a card holding five of them and one
+   mark in its corner would say nothing about which row it was explaining. */
+const A_ROW_WITH_HELP='label,.trace-step';
+const NOT_A_CARDS_PROSE=`.table-row,.entry,.absent,.model,.lane,${A_ROW_WITH_HELP}`;
+
+/* Seventy characters, the same threshold the control help uses: shorter than
+   that is a caption doing a caption's job, and a dozen words behind a click is
+   worse than a dozen words. */
+const A_SENTENCE=70;
 
 function cardProse(card){
  return [...card.querySelectorAll('small.dim,p.dim')].filter(node=>
-   node.textContent.trim().length>120&&!node.closest(NOT_A_CARDS_PROSE));
+   node.textContent.trim().length>A_SENTENCE&&!node.closest(NOT_A_CARDS_PROSE));
 }
 
 /* A card whose whole body *is* the paragraph keeps it. Folding one leaves a
@@ -4754,31 +4784,59 @@ function hasBodyBesides(card,head,prose){
    &&node.textContent.trim()&&!head.contains(node)&&!prose.some(p=>p.contains(node)));
 }
 
-function foldCard(card){
- if(card.dataset.helped)return;
- const head=card.querySelector(':scope > h3');
- const prose=cardProse(card);
- if(!head||!prose.length||!hasBodyBesides(card,head,prose))return;
- card.dataset.helped='1';
- const key=helpKey(head.textContent.trim());
+/* One question mark. The card's paragraph and the sentence under a single
+   switch differ only in where the button sits and what it is keyed by. */
+function helpMark(key,prose,inline){
  const mark=document.createElement('button');
  mark.type='button';
- mark.className='help';
+ mark.className=inline?'help inline':'help';
  mark.textContent='?';
  const paint=()=>{
   const open=HELP_OPEN.has(key);
   prose.forEach(node=>{node.classList.add('help-body');node.hidden=!open});
   mark.classList.toggle('on',open);
   mark.setAttribute('aria-expanded',String(open));
-  mark.title=open?'Hide what this card is':'What this card is, and what it does not claim';
+  mark.title=open?'Hide the explanation':'What this is, and what it does not claim';
  };
  mark.onclick=event=>{
+  /* **`preventDefault` before anything else.** A click anywhere inside a
+     `<label>` is forwarded to the control it wraps, so without this, asking
+     what a switch does would also flip it. */
+  event.preventDefault();
   event.stopPropagation();
   HELP_OPEN.has(key)?HELP_OPEN.delete(key):HELP_OPEN.add(key);
   paint();
  };
  paint();
- card.appendChild(mark);
+ return mark;
+}
+
+/* Short hints stay where they are — a dozen words behind a click is worse than
+   a dozen words. */
+function foldControls(card,title){
+ card.querySelectorAll(A_ROW_WITH_HELP).forEach(row=>{
+  if(row.querySelector('.help.inline'))return;
+  const prose=[...row.querySelectorAll('small.dim,p.dim')]
+    .filter(node=>node.textContent.trim().length>A_SENTENCE);
+  if(!prose.length)return;
+  const key=helpKey(`${title}/${row.textContent.trim().slice(0,40)}`);
+  prose[0].parentElement.insertBefore(helpMark(key,prose,true),prose[0]);
+ });
+}
+
+/* **Asked again on every repaint, not once per card.** A card is often drawn
+   empty and filled a moment later by the read behind it — marking it done on
+   the first sight left every one of those unfolded for good. Each mark is its
+   own record instead: a row that has one is skipped, and so is a card that
+   already carries one. */
+function foldCard(card){
+ const head=card.querySelector(':scope > h3');
+ const title=head?head.textContent.trim():'';
+ foldControls(card,title);
+ if(!head||card.querySelector(':scope > .help'))return;
+ const prose=cardProse(card);
+ if(!prose.length||!hasBodyBesides(card,head,prose))return;
+ card.appendChild(helpMark(helpKey(title),prose,false));
 }
 
 /* Run after anything repaints the content region, which is more places than
@@ -4786,11 +4844,25 @@ function foldCard(card){
    their own screens. An observer covers every one of them and every one added
    later; `helped` keeps it idempotent, and the flag keeps this from watching
    its own writes. */
+/* Which settings sections are open, across repaints. A screen that shut the
+   section somebody was reading, every time a poll landed, would be worse than
+   one that never folded. */
+const SECTION_OPEN=new Set();
+
+function keepSections(){
+ $$('#content details.settings-group').forEach(group=>{
+  const summary=group.querySelector('summary');
+  const title=summary?summary.textContent.trim():'';
+  group.open=SECTION_OPEN.has(title);
+  group.ontoggle=()=>{group.open?SECTION_OPEN.add(title):SECTION_OPEN.delete(title)};
+ });
+}
+
 let FOLDING=false;
 function foldCards(){
  if(FOLDING)return;
  FOLDING=true;
- try{$$('#content .card').forEach(foldCard)}finally{FOLDING=false}
+ try{$$('#content .card').forEach(foldCard);keepSections()}finally{FOLDING=false}
 }
 
 (function(){
@@ -7201,7 +7273,21 @@ function screenSection(){
     NERVIS's own start time, so a freshly started stack opens on the overview —
     the screen that says what came up and what did not. A link with a screen in
     it always wins, because somebody who pasted one asked for that screen.
-    </small></label>`,'nervis')}</div>`;
+    </small></label>
+  <label>Keep the Clarvis editor loaded after leaving its tab
+   <select style="width:100%;background:rgba(255,255,255,.04);color:inherit;
+     border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
+     onchange="USER.setEditorKeep(this.value)">
+    <option value="off"${USER.editorKeep==='off'?' selected':''}>Unload it straight away</option>
+    <option value="5"${USER.editorKeep==='5'?' selected':''}>For five minutes</option>
+    <option value="30"${USER.editorKeep==='30'?' selected':''}>For half an hour</option>
+    <option value="always"${USER.editorKeep==='always'?' selected':''}>As long as this page is open</option>
+   </select>
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;
+    letter-spacing:0">a VS Code workbench takes seconds to start, and the tab used to
+    start one on every visit. Held open it is a workbench sitting in this browser's
+    memory doing nothing; unloaded it is that wait again. Nothing is lost either way —
+    code-server keeps the files and the folder it had open.</small></label>`,'nervis')}</div>`;
 }
 
 /* Saving is a mutation and carries the page's own token, like every other one.
@@ -10426,6 +10512,9 @@ const USER={
     whether any of this came from the service, which is what the card that
     shows it keys its liveness off. */
  rememberTab:true, read:false,
+ /* How long the Clarvis editor stays loaded after you leave its tab: 'off',
+    '5', '30' or 'always'. A memory trade, so it is the operator's call. */
+ editorKeep:'30',
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -10448,6 +10537,8 @@ const USER={
    this.excluded=asList(items['chat.memory_excluded']);
    this.memory=items['chat.memory']==='all'?'all':'session';
    this.rememberTab=asFlag(items['ui.remember_tab'],true);
+   this.editorKeep=EDITOR_KEEP[items['ui.editor_keepalive']]===undefined
+     ?'30':String(items['ui.editor_keepalive']);
    this.read=true;
   }catch(e){}
  },
@@ -10471,6 +10562,10 @@ const USER={
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
  setPreset(id){this.preset=id;this.write('chat.preset',id)},
  setRememberTab(on){this.rememberTab=on;this.write('ui.remember_tab',on);rememberTab()},
+ /* Applied to the editor that is open right now as well as written down: a
+    person who has just chosen "off" means this one too. */
+ setEditorKeep(held){this.editorKeep=held;this.write('ui.editor_keepalive',held);
+  if(state.app!=='clarvis')scheduleEditorUnload()},
  setExcluded(list){this.excluded=list;this.write('chat.memory_excluded',list)},
  /* The sampling fields, on blur rather than per keystroke. Everything else
     on this panel already outlived the tab; these did not, so a temperature
@@ -12929,6 +13024,12 @@ async function clarvis(){
  $('#pageTitle').textContent='Clarvis';
  $('#pageSubtitle').textContent='';
  $('#pageActions').innerHTML='';
+ /* **An editor that is already loaded comes back before the reads do.** The
+    four questions below — is code-server up, which workspace, is Clarvis in it,
+    has a window registered — decide what to say *around* the editor, and
+    waiting for them to un-hide a workbench that is running is a second of
+    blank tab for nothing. */
+ showLoadedEditor();
 
  /* Both reads, and both are real. `services()` says whether there is an editor to
     embed at all; `clarvisInstances()` says what the extension inside it is doing.
@@ -12994,6 +13095,70 @@ async function clarvis(){
  await drawEditor(bridge+gate.notice,session,editor);
  if(!windows.length)watchForBridge();
 }
+
+/* ── Keeping the editor loaded ─────────────────────────────────────────────
+   A VS Code workbench takes seconds to start, and the tab was starting one on
+   every visit: the frame lived in `#content`, which is rewritten on every
+   navigation. It now lives in a holder nothing re-parents, and leaving the tab
+   only hides it — a hidden iframe keeps its document, its connection and its
+   open files.
+
+   **For how long is the operator's call, because it is a memory trade.** An
+   editor held open is a workbench sitting in this browser's memory doing
+   nothing; an editor unloaded is five seconds of waiting on the next visit.
+   Settings → Screen offers off, five minutes, half an hour, or as long as the
+   dashboard is open. */
+const EDITOR_KEEP={off:0,'5':5,'30':30,always:Infinity};
+let EDITOR_TIMER=null;
+
+function editorMinutes(){
+ const held=EDITOR_KEEP[USER.editorKeep];
+ return held===undefined?30:held;
+}
+
+/* A workbench that is already running is shown before anything is read: the
+   reads decide what to say *around* the editor, and waiting for them to
+   un-hide one that is running is a second of blank tab for nothing. */
+function showLoadedEditor(){
+ if($('#clarvis-frame'))paintEditorHold();
+}
+
+/* The holder is sized from `.main`'s own box rather than from a copy of its
+   CSS: the tab bar's height, the hidden side rail and the padding are the
+   layout's business, and a second description of them is one that drifts. */
+function paintEditorHold(){
+ const hold=$('#editorHold'),main=$('.main');
+ if(!hold||!main)return;
+ const on=state.app==='clarvis'&&!!hold.firstChild;
+ hold.hidden=!on;
+ if(!on)return void scheduleEditorUnload();
+ clearTimeout(EDITOR_TIMER);EDITOR_TIMER=null;
+ const box=main.getBoundingClientRect();
+ hold.style.left=`${Math.round(box.left)}px`;
+ hold.style.top=`${Math.round(box.top)}px`;
+ hold.style.width=`${Math.round(box.width)}px`;
+ hold.style.height=`${Math.round(box.height)}px`;
+}
+
+function scheduleEditorUnload(){
+ clearTimeout(EDITOR_TIMER);EDITOR_TIMER=null;
+ const hold=$('#editorHold');
+ if(!hold||!hold.firstChild)return;
+ const minutes=editorMinutes();
+ if(minutes===Infinity)return;
+ if(!minutes)return void unloadEditor();
+ EDITOR_TIMER=setTimeout(unloadEditor,minutes*60000);
+}
+
+/* Emptied rather than blanked: an iframe whose `src` is cleared keeps its
+   process around in some browsers, and the next visit rebuilds this markup
+   anyway. */
+function unloadEditor(){
+ const hold=$('#editorHold');
+ if(hold&&state.app!=='clarvis')hold.innerHTML='';
+}
+
+addEventListener('resize',paintEditorHold);
 
 /* How long a window is given to announce itself before its absence is worth
    saying, and how often that is checked. Twenty seconds is past a cold
@@ -13071,9 +13236,25 @@ async function drawEditor(notices,session,editor){
     between them — and pushed the editor down every time one appeared. Below,
     they read as a line under the editor's own status bar, which is where a
     status about the editor belongs. */
- $('#content').innerHTML=`<div class="code-stage"><iframe id="clarvis-frame"
-   class="code-frame" src="${escapeHtml(src)}" title="code-server"></iframe></div>`
-   +`<div id="editorNotes">${notices+missing}</div>`;
+ /* **The frame is rebuilt only when what it points at changes.** Everything
+    else about this screen — the notes, the Bridge's answer, an install that
+    just happened — is written around a workbench that keeps running. Setting
+    `src` to the value it already has would reload it, which is the thing this
+    whole arrangement exists to stop. */
+ const hold=$('#editorHold');
+ const frame=$('#clarvis-frame');
+ if(frame&&frame.dataset.at===src){
+  $('#editorNotes').innerHTML=notices+missing;
+ }else{
+  hold.innerHTML=`<div class="code-stage"><iframe id="clarvis-frame"
+    class="code-frame" data-at="${escapeHtml(src)}" src="${escapeHtml(src)}"
+    title="code-server"></iframe></div>`
+    +`<div id="editorNotes">${notices+missing}</div>`;
+ }
+ /* The editor is not in `#content` any more, and whatever the last screen left
+    there would otherwise sit under it. */
+ $('#content').innerHTML='';
+ paintEditorHold();
  const action=$('#installClarvis');
  if(action)action.onclick=async()=>{
   action.disabled=true;action.textContent='Installing…';
@@ -13373,7 +13554,7 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
  /* Again, after the screen has fetched. The first call paints the bar
     immediately so it is never blank; this one corrects it with whatever the
     screen just learned. Cheap — it reads variables and writes two nodes. */
- globalStatus();syncPanelAvatar()}
+ globalStatus();syncPanelAvatar();paintEditorHold()}
 /* The avatar, written only when it changes.
    `render()` rewrote this on every one of its fifty call sites, and the markup
    is an `<iframe>` whose `srcdoc` is a base64 blob between twenty-six and sixty

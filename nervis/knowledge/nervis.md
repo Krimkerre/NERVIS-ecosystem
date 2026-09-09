@@ -64,8 +64,15 @@ number came from, what it deliberately does not claim. Those paragraphs are
 still there and still say the same thing; they are folded behind a **?** in the
 corner of the card they belong to, and open on a click. A card whose whole body
 is the paragraph keeps it open, because folding that one leaves an empty card.
-Help attached to a particular control — the sentence under a settings switch —
-stays with its control.
+**Settings opens as nine closed sections.** The screen is a list of subjects —
+Ecosystem, Screen, Files, Voice, Privacy, Backup, Unattended work, What NERVIS
+remembers, Supervision — and a subject you are not here for should cost nothing
+to skip. A section you open stays open across a repaint.
+
+A row that carries its own explanation — a settings switch, a settings row —
+gets its own **?** beside it rather than being swept into the card's, because
+a card holding five switches and one mark in its corner says nothing about
+which switch it is explaining. Short captions stay where they are.
 
 ### A peer that has not answered yet
 
@@ -85,6 +92,22 @@ The spoken status line waits for the same thing: nothing is said until every
 service has been read at least once, so the sentence heard is the one that is
 true when it is heard. It names what is down and it quotes no count — "all
 services are up and well", never "all 4".
+
+### The Clarvis tab keeps its editor
+
+The editor is framed in a holder that no navigation rewrites, so leaving the
+tab hides the workbench rather than destroying it — moving or re-creating an
+iframe in the DOM reloads it, which is what made every visit a fresh VS Code
+start. Coming back to an editor that is still loaded takes about **12ms**
+against roughly a second of reads before, and a full workbench start before
+that.
+
+How long it stays loaded after you leave is Settings → Screen → "Keep the
+Clarvis editor loaded": straight away, five minutes, half an hour (the
+default), or as long as the page is open. It is a memory trade — a held editor
+is a workbench sitting in the browser doing nothing — so it is the operator's
+call. Nothing is lost either way: code-server keeps the files and the folder it
+had open. The preference is `ui.editor_keepalive`.
 
 ### Which screen the dashboard opens on
 

@@ -68,11 +68,33 @@ async function drawn(state, session, extension) {
   exported.state.view = "Workspace";
   await exported.clarvis();
   if (exported.stopPolling) exported.stopPolling();
-  // `#content` alone, and deliberately: the page loads its default screen
-  // before a checker can switch views, so reading every sink would pick up an
-  // iframe another screen drew and report it as this one's.
+  // **Two sinks, and the split is the point.** The frame lives in `#editorHold`
+  // — a holder nothing re-parents — because moving an iframe in the DOM reloads
+  // it, and `#content` is rewritten on every navigation: an editor drawn there
+  // started a VS Code workbench on every trip away from the tab. Everything
+  // this file asserts about the frame is therefore read from the holder, and
+  // everything about a *refusal* to draw one is still read from `#content`.
+  const hold = elements.get("sel:#editorHold");
   const content = elements.get("sel:#content");
-  return String((content && content.innerHTML) || "");
+  return String((hold && hold.innerHTML) || "")
+    + String((content && content.innerHTML) || "");
+}
+
+/* Where the frame is, rather than only what it points at: an iframe inside
+   `#content` is an iframe reloaded on every navigation, which is a VS Code
+   workbench started every time somebody looks at another tab and comes back. */
+async function framedIn(state, session, extension) {
+  const page = pageIn(state, session, extension);
+  const { exported, elements } = page;
+  exported.state.app = "clarvis";
+  exported.state.view = "Workspace";
+  await exported.clarvis();
+  if (exported.stopPolling) exported.stopPolling();
+  const read = (selector) => {
+    const node = elements.get(`sel:${selector}`);
+    return String((node && node.innerHTML) || "");
+  };
+  return { hold: read("#editorHold"), content: read("#content") };
 }
 
 async function main() {
@@ -201,6 +223,18 @@ for (const gone of ["unreachable", "stale", "stopped"]) {
     failures.push(`a code-server reported '${gone}' drew no explanation. Saying nothing `
       + "leaves the reader with an empty tab and no idea which process to start.");
   }
+}
+
+/* The editor survives a navigation because nothing rewrites what holds it. */
+const placed = await framedIn("healthy", { open: true, workspace: "/w", proxied: true });
+if (!/id="clarvis-frame"/.test(placed.hold)) {
+  failures.push("the editor was not framed in the holder that survives a "
+    + "navigation, so switching tabs and back restarts the workbench.");
+}
+if (/id="clarvis-frame"/.test(placed.content)) {
+  failures.push("the editor was framed inside the region every navigation "
+    + "rewrites — an iframe moved or re-created in the DOM reloads, which is a "
+    + "VS Code start on every visit.");
 }
 
 if (failures.length) {

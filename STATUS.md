@@ -16423,6 +16423,45 @@ which `files_check.js` had never been added to.
 
 NERVIS 1129 -> 1133.
 
+## The editor stops restarting, and the rest of the prose folds — 2026-09-09
+
+**"It takes a while to reload the code-server tab each time — seems like it
+restarts it each time?"** It did. The frame lived in `#content`, which is
+rewritten on every navigation, and moving or re-creating an `<iframe>` in the
+DOM reloads it — so every trip away from the Clarvis tab cost a full VS Code
+workbench start on the way back. It now lives in `#editorHold`, a child of the
+app shell that nothing ever re-parents, sized from `.main`'s own box so it
+cannot drift from the layout it covers. Leaving the tab hides it; hiding an
+iframe keeps its document, its connection and its open files. Measured in the
+browser: the same frame element survives the round trip, and the editor is back
+on screen in **12ms** — against about a second before the fix, and a workbench
+start before that. The second is `clarvis()`'s four reads, which now decide
+what to say *around* an editor that is already visible rather than gating it.
+
+**How long it stays loaded is a setting**, because it is a memory trade rather
+than a right answer: Settings → Screen offers straight away, five minutes, half
+an hour (the default) or as long as the page is open. `ui.editor_keepalive`,
+exportable, and choosing "straight away" unloads the one that is open now.
+
+**The rest of the prose folded.** Help that belongs to a *row* — the sentence
+under a settings switch, the paragraph in a settings row's right-hand column —
+now gets its own mark beside it rather than being swept into the card's, since
+a card holding five switches and one mark in its corner says nothing about
+which switch it explains. Two bugs found by looking rather than by a test: an
+inline `style="display:block"` beats a stylesheet's `[hidden]` rule, so the
+paragraphs were hidden twice and stayed on screen twice; and marking a card
+"done" on first sight left every card that is drawn empty and filled a moment
+later unfolded for good — each mark is now its own record. Four cards keep
+their text, all of them cards whose whole body *is* the paragraph: folding one
+leaves a title, a question mark and nothing else.
+
+**And Settings opens closed.** Nine sections, all folded — the screen is a list
+of subjects and a subject you are not here for should cost nothing to skip.
+Sections were already foldable and two of them started open, which halved the
+clutter rather than removing it. What somebody opens stays open across a
+repaint, because a screen that shut the section being read every time a poll
+landed would be worse than one that never folded.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
