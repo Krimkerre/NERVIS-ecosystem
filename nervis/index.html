@@ -3033,6 +3033,30 @@ const API={
    }catch(e){return{...row,activity:'unknown',activity_detail:'no answer'}}
   },
 
+  async codeSession(){
+   /* §13.3's "visible connection state". A closed session is a state to
+      render rather than an error, so this never throws for the ordinary case
+      of nobody having opened the editor yet. */
+   try{
+    const r=await fetch('/api/v1/code/session',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return (await r.json()).session||{open:false};
+   }catch(e){}
+   return {open:false,reason:'NERVIS did not answer about the editor session'};
+  },
+
+  async openCodeSession(workspace){
+   /* Opening one is a mutation and carries the page's own token, like every
+      other mutation here. The workspace is *named* rather than inferred: the
+      proxy refuses a session that does not say what it is opening, which is
+      what stops NERVIS becoming an alternate filesystem authority. */
+   const r=await fetch('/api/v1/code/session',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({workspace})});
+   if(r.ok)return (await r.json()).session;
+   let detail='';
+   try{detail=((await r.json()).error||{}).message||''}catch(e){}
+   return {open:false,reason:detail||`NERVIS refused the session (${r.status})`};
+  },
+
   async clarvisInstances(){
    /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
       surface that starts and stops with the editor window, so "not running" is
@@ -11502,8 +11526,42 @@ async function clarvis(){
  const gate=workbenchGate(editor);
  if(gate.blocked){$('#content').innerHTML=bridge+gate.notice;return;}
 
+ /* **The frame is served through NERVIS, not from code-server's own port.**
+    §13.3's proxy is what makes the editor same-origin: one address, NERVIS
+    deciding who reaches it and which workspace they opened, and the browser
+    told who may frame it. Pointing the iframe at `editor.endpoint` again
+    would put it back on a second origin that NERVIS neither authenticates nor
+    sets headers for — which is what this tab did before the proxy existed. */
+ const session=await codeSession();
+ if(!session.open){$('#content').innerHTML=bridge+gate.notice+session.notice;return;}
+
  $('#content').innerHTML=bridge+gate.notice+`<iframe id="clarvis-frame" class="code-frame"
-   src="${escapeHtml(editor.endpoint)}" title="code-server"></iframe>`;
+   src="/code/" title="code-server"></iframe>`;
+}
+
+/* An open session, opening one if the configuration says which workspace, or
+   the banner that says why not.
+
+   **Opened on the operator's behalf only when there is nothing to choose.** One
+   configured root is not a choice, and making somebody click it would be
+   ceremony; two or more is a decision NERVIS does not get to make for them,
+   because the whole point of naming the workspace is that a person named it. */
+async function codeSession(){
+ const held=await API.nervis.codeSession();
+ if(held.open)return held;
+ const roots=held.roots||[];
+ if(!roots.length)return{open:false,notice:banner('No workspace is configured',
+  'The editor is reachable and NERVIS will not open it without being told which directory it '
+  +'may serve. Set <b>NERVIS_CODE_WORKSPACE_ROOTS</b> (or <b>NERVIS_WORKSPACE_PATH</b>) and '
+  +'restart.','info')};
+ if(roots.length>1)return{open:false,notice:banner('Choose a workspace',
+  'More than one workspace root is configured, and which one the editor opens is not NERVIS\'s '
+  +'to decide: '+roots.map(r=>`<b>${escapeHtml(r)}</b>`).join(', ')+'. Open the one you want '
+  +'from the Settings tab.','info')};
+ const opened=await API.nervis.openCodeSession(roots[0]);
+ if(opened.open)return opened;
+ return{open:false,notice:banner('The editor session was refused',
+  escapeHtml(opened.reason||'NERVIS did not say why.'),'warn')};
 }
 
 /* **Stage 9's second exit clause: unsupported combinations are blocked here.**

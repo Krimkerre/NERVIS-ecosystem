@@ -31,6 +31,23 @@ rather than asking the rest of a port nothing is listening on. An absent peer
 costs one connection attempt a pass, whether it has been gone for a second or
 since boot.
 
+### How the Code tab reaches the editor
+
+Through NERVIS, not around it. The tab frames `/code/`, which is NERVIS's own
+reverse proxy in front of code-server, so the editor is same-origin: one
+address, NERVIS deciding who reaches it, and the browser told who may frame it.
+
+Reaching it needs a session, and a session names a workspace — NERVIS will not
+open the editor without being told which directory it may serve, and the
+choices come from configuration rather than from a path somebody types. A
+session ends after thirty minutes idle or eight hours outright, whichever comes
+first, and closing the tab's session stops the editor answering immediately.
+
+What NERVIS does not do is become code-server's security. The editor keeps its
+own login, its own workspace handling and its own gates; the proxy adds a
+boundary in front of them rather than replacing them, which is why signing in
+to code-server still happens inside the frame.
+
 ## Chat, and what it is allowed to do
 
 Chat is an ordinary RAVIS client with one addition: before the model sees

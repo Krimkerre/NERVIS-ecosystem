@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2630 tests, no network, no live service
+.venv/bin/pytest                      # part of 2655 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1053 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1078 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2630 passing across the four, conformance `PASS`.
+Expected: all clean, 2655 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -15990,6 +15990,58 @@ bounded by eviction is not a queue, and saying so would be the kind of
 verdict-padding this matrix exists to make visible.
 
 RAVIS 1033 -> 1035, SIRVIS 479 -> 480, NERVIS 1052 -> 1053.
+
+## §13.3's reverse proxy, and the Code tab moved onto it — 2026-09-09
+
+**M14 was one component short, not four.** code-server management, the Code
+tab, the workspace directory and the capability gate that refuses to frame an
+ungraded editor were all built and live. What was missing was §13.3's proxy —
+and its absence was visible on the screen: the tab embedded code-server at its
+own port, so the editor sat on a second origin NERVIS neither authenticated nor
+set headers for.
+
+`nervis/src/nervis/api/code.py` serves `/code/`; `nervis/src/nervis/code_proxy.py`
+owns the sessions. Every clause of §13.3 is implemented, and the ones worth
+naming here are the ones that were easy to get wrong:
+
+- **A session is per workspace, not per browser.** "Authenticated access and
+  explicit workspace selection" is two requirements in one sentence, and a
+  cookie meaning only "this browser may reach the editor" would satisfy the
+  first while dropping the second. The workspace is checked against configured
+  roots with `Path.resolve` and `relative_to` rather than a string prefix —
+  `/home/me/work-secrets` starts with `/home/me/work`.
+- **The upstream cannot be moved by a request.** Absolute URLs as paths,
+  scheme-relative ones, `..`, encoded dots and backslashes are refused rather
+  than normalised into something safe; a forged `Host` never reaches the route
+  because NERVIS's own allow-list refuses it first.
+- **`Location` is rewritten onto `/code/` when it points inside the editor and
+  dropped when it does not.** An open redirect here would be NERVIS sending its
+  user elsewhere with NERVIS's address in the bar until the moment it lands.
+- **Two timeouts, enforced when presented rather than swept**, so a token is
+  never valid for the gap between its deadline and the next sweep.
+
+**The gate is ten tests driving the real application**, and each was checked by
+disabling the mechanism it names and watching it fail — a pass that only
+happens when the code is right. That harness also caught itself twice: its
+first run reported every mechanism uncaught because it matched `"failed"`
+against pytest's `FAILED`, and a later restore-from-backup put a *patched* file
+back and quietly removed the session check from the proxy. Both are the reason
+the harness now fingerprints each file after restoring it.
+
+**Live, through a real browser.** The tab frames `/code/` same-origin;
+code-server's login renders through it; `GET /code/` answers `302` with
+`location: /code/login` — its own redirect rewritten — carrying
+`frame-ancestors 'self'`, `SAMEORIGIN`, `nosniff` and `no-referrer`; a
+`ws://…/code/` upgrade opened end to end; traversal and relay attempts answered
+`409`. Its own browser and host matrix is published in `NERVIS.md` §13.3 with
+one graded row, which is why `nervis.code_server_proxy@1` moved to `degraded`
+rather than `available`: the coverage is short, not the code.
+
+**What M14 still owes**, stated so it does not read as finished: Clarvis is
+installed by a command the launcher prints rather than by NERVIS, and §13.5's
+settings surface is two settings rather than the six it names.
+
+NERVIS 1053 -> 1078.
 
 ## Starting the thing
 

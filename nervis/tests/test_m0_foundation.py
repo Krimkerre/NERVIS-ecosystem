@@ -168,7 +168,10 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.settings_backup": "available",
         "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
         "nervis.supervision": "unavailable",          # M16, and only when owned
-        "nervis.code_server_proxy": "unavailable",    # gated on M13's spike
+        # Built, with §13.3's ten-test gate passing; degraded until the browser
+        # and host matrix is graded on the *proxied* path rather than on the
+        # directly-embedded editor.
+        "nervis.code_server_proxy": "degraded",
         # §18.2's condition, not a milestone: unavailable on an installation
         # with no voice credential, and flipped to available the moment one is
         # entered. This suite configures none, so this is the unconfigured case.

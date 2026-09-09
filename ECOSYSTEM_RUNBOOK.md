@@ -1283,9 +1283,14 @@ may only add product-specific detail beside the required state.
       stated rather than assumed — see `nervis/src/nervis/api/control.py`'s own
       docstring.*
 - [ ] code-server compatibility is evidenced for every supported matrix cell.
-      *Not closeable yet — `clarvis/docs/code-server-matrix.md` is honest about why.
-      M14 (the code tab: code-server management, reverse proxy, workspace launcher,
-      Clarvis install) carries no status tag in `NERVIS.md` and has not been built.
+      *Still open, and for one reason fewer. §13.3's reverse proxy shipped
+      9 September 2026 — `/code/`, per-workspace sessions and the ten-test
+      security gate — so M14's proxy half is built and the Code tab is served
+      through it rather than from code-server's own port. What is not closed is
+      coverage: the proxied path's own browser and host matrix (`NERVIS.md`
+      §13.3) has one graded row, Chromium on loopback http, and Clarvis is
+      still installed by a command the launcher prints rather than by NERVIS.
+      `clarvis/docs/code-server-matrix.md` is honest about the rest.
       The matrix itself is graded against Clarvis 0.0.1 while the product ships
       0.12.8, and of its 55 cells (51 original + 4 added by a coverage check) 1
       remains `NOT_TESTED`: Bridge teardown under code-server. The other two were
@@ -1301,10 +1306,14 @@ may only add product-specific detail beside the required state.
       code: SIRVIS→RAVIS (`tools/pairwise_check.py`, 13/13 real), RAVIS→Clarvis
       and all-services→NERVIS (`tools/acceptance_run.py --unattended`, run
       twice against the running stack — see below). The fourth,
-      NERVIS→code-server→Clarvis, has no implementation at all: NERVIS's own
-      `nervis.code_server_proxy` capability reports itself `unavailable`
-      because §13.3's proxy is unbuilt, the same M14 gap the code-server item
-      above names. Of §8's 16 required E2E scenarios, `tools/acceptance_run.py`
+      NERVIS→code-server→Clarvis, now has an implementation: §13.3's proxy
+      shipped 9 September 2026 and `nervis.code_server_proxy` reports
+      `degraded` — built, gate passing, one browser graded. The gate is not the
+      pairwise evidence, though. What has been driven end to end is
+      NERVIS→code-server: the login page framed through `/code/`, code-server's
+      own redirect rewritten onto the proxy, a WebSocket upgraded through it.
+      Clarvis's half still needs somebody at a keyboard to sign into the
+      proxied editor and drive the extension. Of §8's 16 required E2E scenarios, `tools/acceptance_run.py`
       proved every one an unattended run can reach — twice, after real
       routing/session security patches (F2–F9) landed since the last full pass
       — but the two needing a person at an editor (Clarvis's contained task

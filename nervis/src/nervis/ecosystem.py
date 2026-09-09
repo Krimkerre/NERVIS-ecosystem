@@ -357,15 +357,25 @@ DECLARED: dict[str, Capability] = {
     # §13.3's work and a different thing from permission to build it.
     "nervis.code_server_proxy@1": Capability(
         version="1.0.0",
-        state=UNAVAILABLE,
+        # **Built, and degraded rather than available — the difference is the
+        # browser.** §13.3's proxy exists and its gate passes: unauthorized,
+        # wrong-origin, CSRF, traversal, open-redirect, malicious upstream,
+        # stale token, WebSocket reconnect, large stream and teardown are each
+        # driven through the real application. What no test can supply is the
+        # last clause of the same paragraph — a *published* browser and host
+        # matrix — and a capability that called itself available on the
+        # strength of its own suite would be making exactly the claim §13.3
+        # separates from it.
+        state=DEGRADED,
         # **Names no milestone, and that is the point.** The reason a peer reads
         # should say what is missing, not which numbered thing to wait for — and
         # a milestone named here goes stale the moment it ships, which is what
         # `test_no_capability_reason_names_a_milestone_that_has_shipped` exists
-        # to catch. It caught this one.
-        reason="the compatibility spike passed; what is unbuilt is §13.3's "
-        "proxy — auth, CSRF, redaction, timeouts and a published browser "
-        "matrix. The Code tab embeds code-server directly meanwhile",
+        # to catch. It caught this one once already.
+        reason="the proxy is built and its security gate passes; the browser "
+        "and host matrix for the proxied path has one graded row — Chromium on "
+        "loopback http — so the coverage rather than the code is what keeps "
+        "this short of available",
     ),
 }
 

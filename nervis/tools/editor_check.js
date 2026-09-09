@@ -36,12 +36,20 @@ const services = (state) => ({
   }],
 });
 
-function pageIn(state) {
+/* The proxy session the tab now opens before it frames anything (§13.3). The
+   default is one already open, because every check below is about the *editor*
+   state and a closed session would make them all pass for the wrong reason —
+   the frame is not drawn without one. `session: null` is the other case, and
+   has its own check further down. */
+function pageIn(state, session = { open: true, workspace: "/w" }) {
   return loadPage({
     fetchImpl: async (url) => {
-      const payload = String(url).includes("/api/v1/services")
-        ? services(state)
-        : { items: [] };
+      const target = String(url);
+      let payload = { items: [] };
+      if (target.includes("/api/v1/services")) payload = services(state);
+      else if (target.includes("/api/v1/code/session")) {
+        payload = { session: session || { open: false, reason: "closed", roots: [] } };
+      }
       return { ok: true, status: 200, json: async () => payload,
                text: async () => JSON.stringify(payload),
                headers: { get: () => "application/json" }, body: null };
@@ -49,8 +57,8 @@ function pageIn(state) {
   });
 }
 
-async function drawn(state) {
-  const page = pageIn(state);
+async function drawn(state, session) {
+  const page = pageIn(state, session);
   const { exported, elements } = page;
   exported.state.app = "clarvis";
   exported.state.view = "Workspace";
@@ -70,6 +78,34 @@ const alive = await drawn("healthy");
 if (!/<iframe/.test(alive)) {
   failures.push("a reachable code-server was not embedded at all, so the checks "
     + "below prove nothing: they would pass against a tab that never draws a frame.");
+}
+
+/* **The frame is served by NERVIS, not by code-server's own port.** Before
+   §13.3's proxy the `src` was the peer's endpoint, which put the editor on a
+   second origin NERVIS neither authenticates nor sets headers for. A revert to
+   that is invisible on screen — the editor still loads — so it is checked
+   here rather than left to be noticed. */
+if (!/src="\/code\/"/.test(alive)) {
+  failures.push("the editor was framed from somewhere other than NERVIS's own "
+    + "/code/ path, which is the proxy that makes it same-origin. §13.3's auth, "
+    + "header and redirect rules apply to nothing if the frame bypasses them.");
+}
+if (/src="http/.test(alive)) {
+  failures.push("the frame's src is an absolute address, so the editor is on a "
+    + "second origin again.");
+}
+
+/* A reachable editor and no session is not a frame. The session is what says
+   who opened the editor and which workspace they opened, and drawing without
+   one would make §13.3's "explicit workspace selection" decorative. */
+const unopened = await drawn("healthy", null);
+if (/<iframe/.test(unopened)) {
+  failures.push("a code-server was framed with no proxy session open, so the "
+    + "editor was reachable without anything having authorised it.");
+}
+if (!/workspace is configured|session was refused|Choose a workspace/.test(unopened)) {
+  failures.push("a tab that could not open a session said nothing about why, "
+    + "which leaves the reader with an empty pane and no next move.");
 }
 
 for (const gone of ["unreachable", "stale", "stopped"]) {

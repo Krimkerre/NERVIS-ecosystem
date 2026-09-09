@@ -149,6 +149,12 @@ class Settings(BaseSettings):
     # is 8080 because that is code-server's own, which is what somebody who
     # installed it and ran it will have.
     code_server_base_url: str = "http://127.0.0.1:8080"
+    # Which directories `/code/`'s proxy will open, comma-separated. Empty
+    # falls back to `workspace_path`, so a deployment that already said where
+    # the workspace is does not have to say it twice — and a deployment that
+    # said neither gets a proxy that refuses to open anything, which is the
+    # right default for a surface whose whole risk is what it exposes.
+    code_workspace_roots: str = ""
     # Runtimes rather than ecosystem members: neither publishes a MEP surface,
     # so the registry can claim reachability about them and nothing more.
     lmstudio_base_url: str = "http://127.0.0.1:1234"

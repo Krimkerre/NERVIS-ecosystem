@@ -42,6 +42,8 @@ from nervis import background, documents, logs, notifications, supervision
 from nervis.api import (
     background_router,
     chat_router,
+    code_proxy_router,
+    code_router,
     commands_router,
     diagnostics_router,
     documents_router,
@@ -60,8 +62,10 @@ from nervis.api import (
 )
 from nervis.api import router as api_router
 from nervis.api.chat_personas import seed_chat_defaults
+from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
 from nervis.api.events import event_frames
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
+from nervis.code_proxy import Sessions as CodeSessions
 from nervis.config import Settings
 from nervis.ecosystem import (
     BUILD_VERSION,
@@ -129,6 +133,12 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(settings_transfer_router)
     api.include_router(commands_router)
     api.include_router(voice_router)
+    api.include_router(code_router)
+    # Mounted last and at its own prefix: `/code/{path:path}` matches anything
+    # under it, so a router registered after it would be shadowed. The one
+    # place in this file where include order is a correctness question rather
+    # than a tidiness one, said here so nobody has to rediscover it.
+    api.include_router(code_proxy_router)
     register_dashboard(api)
     return api
 
@@ -212,6 +222,17 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # a twenty-second timer is a new TCP handshake every three seconds
     # otherwise, against processes on this same machine.
     api.state.probe_client = httpx.AsyncClient()
+    # **The proxy gets its own client, not the probe's.** They carry different
+    # things: a probe presents NERVIS's identity to a peer, and a proxied
+    # request must present the browser's headers and none of NERVIS's. Sharing
+    # one would make that separation a matter of remembering to strip.
+    # Redirects are not followed — §13.3 asks for redirect *rewriting*, which
+    # means the browser must see the redirect rather than have the proxy
+    # resolve it somewhere the browser never learns about.
+    api.state.code_client = httpx.AsyncClient(
+        follow_redirects=False, timeout=CODE_UPSTREAM_TIMEOUT
+    )
+    api.state.code_sessions = CodeSessions()
     api.state.hub = Hub(
         api.state.database,
         retention_days=settings.event_retention_days,
@@ -403,6 +424,7 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(asyncio.CancelledError):
             await task
         await api.state.probe_client.aclose()
+        await api.state.code_client.aclose()
 
 
 async def refresh_registry(api: FastAPI) -> None:

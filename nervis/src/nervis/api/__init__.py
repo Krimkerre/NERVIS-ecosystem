@@ -2,6 +2,8 @@
 
 from nervis.api.background import router as background_router
 from nervis.api.chat import router as chat_router
+from nervis.api.code import proxy as code_proxy_router
+from nervis.api.code import router as code_router
 from nervis.api.commands import router as commands_router
 from nervis.api.diagnostics import router as diagnostics_router
 from nervis.api.documents import router as documents_router
@@ -20,6 +22,8 @@ from nervis.api.traces import router as traces_router
 from nervis.api.voice import router as voice_router
 
 __all__ = [
+    "code_proxy_router",
+    "code_router",
     "background_router",
     "chat_router",
     "commands_router",
