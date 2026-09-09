@@ -157,7 +157,28 @@ async def _direct_providers(request: Request) -> frozenset[str]:
 
 
 def _provider_of(request: Request) -> Callable[[str], str]:
-    """Resolve a model to the health scope its failures belong to.
+    """Resolve a model to the provider that will actually serve it.
+
+    Used for policy, provider health and session attribution — three readers of
+    one question, and the answer has to be the same one execution uses or each
+    of them describes a request that did not happen.
+
+    **The owner map is consulted, and its absence was a policy bypass.** A
+    translated provider's models reach the candidate set as bare ids —
+    `claude-audit-1`, not `ravis/anthropic/claude-audit-1` — and this resolved
+    only the explicit form, falling through to the transparent upstreams for
+    everything else. So the same model answered `anthropic` at execution
+    (`_translating_for` reads `request.state.translated_owners`) and `default`
+    here, and a deny-list naming `anthropic` was compared against `default`,
+    matched nothing, and let the request through. Found by an external audit on
+    9 September 2026; `test_hard_constraints_route.py` holds the reproduction.
+
+    The same wrong answer credited a successful Anthropic call to `default` in
+    the health record, and the accounting path had already been fixed for it
+    separately — `owner_of` below reads the map exactly as this now does, which
+    is the tell that one resolution should have served both.
+
+    Read lazily: the map is put on the request after this closure is built.
 
     Falls back to the single label when nothing is declared, so a deployment
     using the singular settings keeps exactly the health record it had.
@@ -172,6 +193,12 @@ def _provider_of(request: Request) -> Callable[[str], str]:
         addressed = direct_provider(model)
         if addressed is not None and addressed in translating:
             return addressed
+        # Before the transparent upstreams, matching `_translating_for`: a model
+        # a translated provider owns is served by that provider whatever a
+        # transparent catalogue happens to also list.
+        owned = getattr(request.state, "translated_owners", {}).get(model)
+        if owned is not None:
+            return str(owned)
         if not transparents:
             return UPSTREAM_PROVIDER
         built = resolve(transparents, model, filters)

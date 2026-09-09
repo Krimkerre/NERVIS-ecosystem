@@ -174,3 +174,115 @@ def test_the_upstream_is_never_contacted_for_a_refused_request() -> None:
 
     completions = [r for r in upstream.requests if r.url.path.endswith("/chat/completions")]
     assert completions == [], "a policy-refused request still reached the upstream"
+
+
+# ── A denied provider, reached anyway, because two halves disagreed ──────────
+#
+# Found by an external audit on 9 September 2026 and reproduced here before the
+# fix. The application resolves a model to its provider in two places and they
+# did not agree:
+#
+#   - **Execution** reads `request.state.translated_owners`, the map built when
+#     a translated provider's catalogue is folded into the candidates. A bare
+#     `claude-*` id resolves to `anthropic` there.
+#   - **Policy** used `_provider_of`, which resolved an explicit
+#     `ravis/anthropic/<model>` address and otherwise consulted only the
+#     transparent upstreams — so the same bare id resolved to `default`.
+#
+# So a deny-list naming `anthropic` was evaluated against `default`, matched
+# nothing, and the request went to Anthropic. The same resolver feeds provider
+# health and session attribution, which is why the audit also saw a successful
+# Anthropic call credited to `default`.
+
+
+class _FakeTranslated:
+    """A translated provider with a catalogue, a credential and a record."""
+
+    name = "anthropic"
+    has_credential = True
+
+    def __init__(self) -> None:
+        self.completed: list[str] = []
+
+    async def models(self) -> list[str]:
+        return ["claude-audit-1"]
+
+    async def capabilities(self, model: str) -> Any:
+        from ravis.core.capabilities import ModelCapabilities
+
+        known = ModelCapabilities(model_id=model)
+        known.context_window = 200_000
+        return known
+
+    async def complete(self, request: Any) -> Any:
+        from ravis.core.responses import NormalizedResponse
+
+        self.completed.append(request.requested_model)
+        return NormalizedResponse(
+            text="hello", provider=self.name, model=request.requested_model
+        )
+
+
+def _client_with_translated(denied: list[str] | None = None,
+                            ) -> tuple[TestClient, _FakeTranslated]:
+    """The app with one translated provider, and optionally a policy denying it.
+
+    **The deny comes from the operator's policy file, because that is the only
+    place it can come from.** A request may tighten privacy and nothing else —
+    `effective_policy` takes `denied_providers` from the identity's configured
+    policy alone, so a client cannot grant or revoke provider access by asking.
+    This test client presents no credential, so its policy is the one configured
+    for `anonymous`.
+    """
+    import json as _json
+    import tempfile
+    from pathlib import Path
+
+    from ravis.policy import load_policies
+
+    client, _ = _client()
+    adapter = _FakeTranslated()
+    client.app.app.state.translating = {"anthropic": adapter}  # type: ignore[attr-defined]
+    if denied is not None:
+        path = Path(tempfile.mkdtemp()) / "policies.json"
+        path.write_text(_json.dumps(
+            {"applications": {"anonymous": {"denied_providers": denied}}}
+        ))
+        client.app.app.state.policies = load_policies(path)  # type: ignore[attr-defined]
+    return client, adapter
+
+
+def test_a_translated_model_reaches_its_provider_without_a_policy() -> None:
+    """The baseline. A refusal below is only evidence if this succeeds first."""
+    client, adapter = _client_with_translated()
+    with client:
+        answered = _ask(client, "claude-audit-1")
+
+    assert answered.status_code == 200, answered.text
+    assert adapter.completed == ["claude-audit-1"], "the fake provider was not reached"
+
+
+def test_a_denied_provider_is_refused_for_a_bare_model_id() -> None:
+    """**The bypass itself.** `ravis/anthropic/claude-audit-1` was refused and
+    the bare `claude-audit-1` was not, though both execute against the same
+    adapter — because only the first form was one the policy's resolver could
+    read. A deny-list that a client evades by dropping four characters from the
+    model name is not a deny-list.
+    """
+    client, adapter = _client_with_translated(denied=["anthropic"])
+    with client:
+        answered = _ask(client, "claude-audit-1")
+
+    assert answered.status_code == 422, answered.text
+    assert adapter.completed == [], "the denied provider was called anyway"
+    assert "denied" in json.dumps(answered.json())
+
+
+def test_the_explicit_address_stays_refused() -> None:
+    """The half that already worked, kept so a fix cannot trade one for the other."""
+    client, adapter = _client_with_translated(denied=["anthropic"])
+    with client:
+        answered = _ask(client, "ravis/anthropic/claude-audit-1")
+
+    assert answered.status_code == 422, answered.text
+    assert adapter.completed == []

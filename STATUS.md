@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2720 tests, no network, no live service
+.venv/bin/pytest                      # part of 2723 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2720 passing across the four, conformance `PASS`.
+Expected: all clean, 2723 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16593,11 +16593,20 @@ So the marker now goes on every title call, and a refused pin asks
 `ravis/cheap` instead — one extra request, carrying no tokens, on the one path
 whose alternative was paying a frontier model to write six words.
 
-One more thing the probe found on the way, **not yet fixed**: the marker binds
-only to an identified caller. The same request sent anonymously to RAVIS on
-loopback was answered and billed. §9.6.1's protection, and the privacy ladder
-beside it, do not apply to a caller who presents no credential — which is
-anyone on this machine.
+One more thing the probe found on the way, and **the first description of it
+here was wrong**: the same request sent anonymously to RAVIS on loopback was
+answered and billed, which was recorded as the marker being bypassed. Reading
+`_policy_for` afterwards shows it is not. An unidentified caller *may not
+declare* a background call — `may_declare_background` is false without an
+identity — so the marker is refused rather than honoured, `background_declined`
+is set, and the request routes as ordinary work. That is the design, not a hole
+in it.
+
+What is true and smaller: an anonymous local process can spend money through
+RAVIS, governed by whatever policy the operator configures under the application
+id `anonymous`, which on this machine is the empty one. Worth deciding
+deliberately rather than by default. Corrected here rather than quietly, because
+a wrong finding in this file is the thing it exists not to be.
 
 NERVIS 1133 -> 1135.
 
@@ -16712,6 +16721,42 @@ answering" is a trap rather than a convenience.
 
 Measured on this machine before shipping it, read-only: coding 124 → 12,
 clarvis-agent 58 → 11, reasoning 88 → 19, api 494 → 162, draw left alone.
+
+## Batch 3, first finding: a deny-list an application could walk around
+## — 2026-09-09
+
+The audit's highest-severity behavioural finding, reproduced before it was
+fixed. RAVIS answered "which provider serves this model" in two places and the
+two disagreed:
+
+- **Execution** reads `request.state.translated_owners`, the map built when a
+  translated provider's catalogue joins the candidates. A bare `claude-*` id
+  resolves there to `anthropic`.
+- **Policy** used `_provider_of`, which resolved an explicit
+  `ravis/anthropic/<model>` address and otherwise consulted only the transparent
+  upstreams — so the same id resolved to `default`.
+
+So an operator's `denied_providers: ["anthropic"]` was compared against
+`default`, matched nothing, and the request reached Anthropic. A deny-list a
+client evades by dropping four characters from the model name is not a
+deny-list, and the same wrong answer fed provider health and session
+attribution — which is why the audit also saw a successful Anthropic call
+credited to `default`.
+
+**The tell was in the same file.** `owner_of`, a few hundred lines below, reads
+the owner map exactly as `_provider_of` now does — added when *spend* landed
+under the wrong provider. One resolution question, fixed once for accounting and
+left wrong for policy.
+
+Three tests at the route: the provider is reached with no policy (the baseline,
+without which a refusal proves nothing), the bare id is refused once the policy
+denies it, and the explicit address stays refused so a fix cannot trade one form
+for the other. Removing the fix fails the middle one. 1046 tests pass.
+
+The deny had to come from the operator's policy file, which is itself worth
+recording: `effective_policy` takes `denied_providers` from the configured
+identity alone. A request may tighten privacy and nothing else, so no client can
+grant itself a provider by asking.
 
 ## Starting the thing
 
