@@ -46,6 +46,47 @@ restarted — and would do it again after every crash. Resubmitting is the
 operator's call, and the failed row says exactly what happened so the decision
 can be made on evidence.
 
+## Stopping a benchmark, and what bounds one that will not stop
+
+**Cancel takes effect within one generation.** The flag is read before every
+generation — warmups, measured repetitions and tool trials alike — so the
+longest a stop waits is the read already in flight. It was read only between
+whole tests until 9 September 2026, which on a three-repetition spec meant a
+dozen generations, with the twenty-four tool trials starting afterwards
+regardless; pressing cancel bought twenty-five further generations.
+
+**A single generation may not run longer than its budget**, five minutes by
+default and settable per benchmark. The cooperative stop cannot help with a read
+that never returns, and the runtime's own timeout does not close that gap: it
+bounds the interval between chunks, so a model producing one token a second runs
+forever and one producing nothing takes ten minutes to admit it. Past the
+budget the read is cut off, the run fails naming the model and the phase, and
+the model is released.
+
+Mid-generation cancellation is otherwise deliberately absent: killing a running
+read loses the memory readings and partial results that are most of what a run
+ending early is worth.
+
+**A set of tool trials that was cut short publishes no reliability figure.**
+Four attempts and twenty-four are not the same measurement, and that rate
+outlives the run it came from. The raw attempts are kept; the verdict is not,
+because otherwise a good build looks unreliable because somebody cancelled once.
+
+## What a failed benchmark does with the model
+
+It gives it back. Everything after the model is acquired runs inside the block
+that releases it — the memory sample, the log write, the variant confirmation,
+the inventory read, the thermal reading. Until 9 September 2026 those five sat
+*outside* it, so any of them failing left the model resident with nothing to
+reclaim it, and the next run found the machine full because of a run that had
+already given up. The sharpest case was the variant gate: the one check designed
+to stop a run was also the one that leaked a model every time it fired.
+
+**The load ceiling counts loads in flight, not only finished ones.** Two callers
+wanting different cold models used to see an empty table, both pass the check,
+and both load on a manager configured for one — the ceiling failing at exactly
+the moment it exists for.
+
 ## What it will not do
 
 It does not load a model because somebody asked a question. Loading is leases

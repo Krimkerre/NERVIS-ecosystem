@@ -216,6 +216,47 @@ Every routing decision is recorded rather than recomputed, because re-running a
 router later uses a different catalogue and can reach a different answer — an
 explanation you recompute is a guess about the past.
 
+## Where provider credentials live
+
+Keys go to the **platform keyring** — macOS Keychain, or the Secret Service on
+Linux — written through the tool the platform already ships, with the secret on
+standard input so it never appears in the process list. Every write is read back
+and compared before it is trusted, because macOS's interactive parser unquotes
+what it reads and will drop a backslash; a mismatch falls through to the file
+rather than storing a mangled key that would fail later as an authentication
+error.
+
+Only the *name* is kept beside the credential file, so RAVIS can still list what
+it holds without asking the keyring to be searched — client and admin identities
+are matched by walking stored names, and a name that vanished with its value is
+an identity nobody can authenticate with.
+
+Where there is no keyring — Windows, a headless server, or
+`RAVIS_CREDENTIAL_KEYRING=0` — a `0600` file in RAVIS's config directory holds
+them, which is plaintext and is said so rather than promised away. That switch
+means *leave this machine's keyring alone entirely*: not read, not written, not
+deleted from. Reads are file, then keyring, then environment.
+
+Providers with a credential row: Anthropic, DeepSeek, Google AI Studio, OpenAI,
+OpenRouter and xAI. The last two of those were added on 9 September 2026 and
+need nothing but an address, because both speak the OpenAI protocol.
+
+## Which provider a model belongs to
+
+One answer, used by policy, execution, provider health and session attribution.
+It has to be one answer: they described different requests when it was two.
+Until 9 September 2026 a translated provider's model resolved to `anthropic`
+when the request named it in full (`ravis/anthropic/<model>`) and to `default`
+when it named the model plainly — so an operator's deny-list naming `anthropic`
+was compared against `default`, matched nothing, and the request reached
+Anthropic anyway. A deny-list a client evades by dropping four characters is not
+a deny-list.
+
+Provider allow-lists, deny-lists and trusted-provider rules come from the policy
+configured for the calling application, never from the request. A request may
+tighten privacy and nothing else, so no client can grant itself a provider by
+asking.
+
 ## Known limits, as of this writing
 
 The management API is **degraded**: reads work, and pool-membership and

@@ -531,6 +531,40 @@ tab or being on another screen loses the spoken announcement and never the
 written one. Dismissing happens one note at a time; there is deliberately no
 way to clear them all at once.
 
+**A peer answering for the first time "has connected"; one that recovered "is
+back to healthy".** They are different events and the sentence says which. Until
+9 September 2026 both read as a recovery, so starting LM Studio announced that
+it was *back* to healthy — a claim that it had been healthy, stopped, and
+returned, when it had never answered at all. Notes group by the sentence a
+transition earns, so a sweep where one peer connects and another recovers files
+two notes rather than one line that is false about half of them. The same
+distinction is in the spoken announcement.
+
+## Choosing which models a pool may use
+
+The Pools screen opens a picker per pool. **Auto curate** hands every pool back
+to its computed default — which models suit it, worked out from what the
+providers publish, so a pool follows a changing catalogue rather than a snapshot
+somebody took. **"…and keep only open weights"** does that and then removes the
+closed-weight models from each result, saving the narrowing per pool.
+
+Inside one pool's picker, a checkbox hides closed-weight models from view and
+**Narrow to open** removes them from what the pool holds. The two are separate
+on purpose: filtering is exploring, and a view that rewrote a hand-made
+selection as soon as it was ticked would destroy it before its owner decided
+anything.
+
+"Open weights" is matched on the family in the model's id, and anything running
+on this machine counts regardless — a model served by LM Studio or Ollama has
+its weights on the disk by definition. It means the weights are published, not
+that the licence is OSI open source: Llama and Gemma are open-weight under their
+own terms.
+
+**A pool that would end up empty is left alone** by the all-pools button, and
+named in the result. An empty pool refuses every request to it, so a button
+whose worst outcome is "your editor stopped answering" would be a trap. On this
+machine `ravis/draw` is the real case.
+
 ## Starting and stopping services
 
 NERVIS can start and stop services — but only ones it started itself, and only
