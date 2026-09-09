@@ -16,6 +16,12 @@ reachable, what does it say about its own health, and which capabilities does it
 declare. "Healthy" on the dashboard means the service claimed healthy *and*
 answered — never a successful connection alone.
 
+**A peer that is not there is cheap to discover.** A full probe is four reads —
+version, identity, health, capabilities — and the first one failing is what an
+absent service looks like, so the probe stops there rather than asking the rest
+of a port nothing is listening on. An absent peer costs one connection attempt
+a pass, whether it has been absent for a second or since boot.
+
 **"Unreachable" and "stopped" are different findings.** A peer that stopped
 answering on its own — a crash, a network problem — is unreachable. "Stopped"
 is reserved for a peer NERVIS itself shut down. Confirmed live rather than

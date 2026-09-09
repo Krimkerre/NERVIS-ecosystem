@@ -33,6 +33,19 @@ The machines, runtimes, models and instances it knows about; benchmark runs and
 their results with provenance; the job queue; model leases; residency — what is
 loaded right now; and its recommendations with the evidence under them.
 
+## What a crash does to a benchmark
+
+A job that was *running* when the service stopped is marked failed on the next
+start, with the reason "the service stopped while this job was running". A job
+still *queued* is left alone and the worker picks it up, because it never
+started and survives honestly.
+
+**An interrupted benchmark is never re-run on its own.** Re-running it would
+load a model and occupy the machine for minutes on work nobody was told had
+restarted — and would do it again after every crash. Resubmitting is the
+operator's call, and the failed row says exactly what happened so the decision
+can be made on evidence.
+
 ## What it will not do
 
 It does not load a model because somebody asked a question. Loading is leases
