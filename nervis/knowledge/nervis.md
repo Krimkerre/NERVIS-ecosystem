@@ -391,6 +391,14 @@ A window whose editor closed stops renewing its registration, and the screen
 says the lease lapsed rather than quietly showing its last known state as
 current.
 
+**Coming back is registering again, and it is safe to do twice.** NERVIS hands
+out a window's token once, at registration, and never reads it back out — so a
+Bridge that lost its token (a crash, a reload, a laptop waking up) recovers by
+registering the same `instance_id` again. That leaves one row rather than one
+per restart, arms the lease under a new token and retires the old one. While
+the id is still answering the same claim is refused with a 409 instead, so the
+recovery path cannot be used to take a window somebody is looking at.
+
 **Two windows on one code-server, confirmed live rather than assumed.** On 6
 September 2026, two browser tabs open against the same running code-server
 each registered their own distinct instance — different ids, different

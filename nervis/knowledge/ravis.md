@@ -79,6 +79,13 @@ rather than picking a model.
   from reading one and shares no members with the pool above
 - `ravis/clarvis-chat`, `ravis/clarvis-agent` — Clarvis's two roles
 
+A pool's constraint holds when things fail, not only when they are chosen. If
+the local model behind `ravis/local` is unreachable — or accepts the connection
+and never answers — RAVIS refuses the request rather than reaching for a cloud
+model that is configured, eligible and answering. Sending the prompt off the
+machine is the thing that pool exists to prevent, so it is not available as a
+degraded answer.
+
 ## Asking for a picture rather than for words
 
 A model that answers with an image is a model answering an ordinary chat
