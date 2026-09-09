@@ -120,8 +120,21 @@ def test_everything_before_the_question_is_reused_verbatim() -> None:
 def test_the_readings_still_arrive_on_the_question() -> None:
     """The guard on the guards. Every assertion above is satisfied by simply
     never sending the readings at all, which would be a far worse bug than the
-    one being fixed."""
-    sent = _two_turns()
+    one being fixed.
+
+    **Asks about the machine on purpose.** Since 9 September 2026 the reading is
+    gathered only when the question calls for it — chat was volunteering the
+    system status every turn, and three attempts to stop that with instructions
+    failed. So a turn about nothing in particular legitimately carries no
+    reading, and this has to ask for one to be testing what it says it is.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api(frames("first"))
+    opened = turn(client, "is everything running?", system="Be someone.")
+    conversation = opened.headers["x-conversation-id"]
+    _captured(client, sent)
+    turn(client, "are all the services still healthy?", system="Be someone.",
+         conversation_id=conversation)
     asked = json.dumps(sent[-1]["messages"][-1])
 
     assert any(marker in asked for marker in READING_MARKERS), (

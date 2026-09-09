@@ -84,6 +84,7 @@ from nervis.api.chat_reads import (
     _spend_records,
     _traces,
     _wants_results,
+    about_the_machine,
 )
 from nervis.api.chat_titles import (
     _attachment_name,
@@ -779,6 +780,16 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     remote read to say how many models exist.
     """
     services = [entry.as_dict() for entry in request.app.state.registry.all()]
+    # **The whole reading, only when the question is about the machine.** See
+    # `about_the_machine`. The printed line above still goes to the browser on
+    # every turn, so the operator keeps seeing the status; what stops is handing
+    # it to the model as something to talk about. Three attempts to achieve this
+    # with instructions failed outright — see that function's note.
+    if not greeting and not about_the_machine(asked, services):
+        windows = len(request.app.state.instances.live("clarvis"))
+        models = await _catalogue(request)
+        return situation.printed_line(services, windows,
+                                      situation.catalogue_line(models)), ""
     windows = len(request.app.state.instances.live("clarvis"))
     models = await _catalogue(request)
     catalogue = situation.catalogue_line(models)

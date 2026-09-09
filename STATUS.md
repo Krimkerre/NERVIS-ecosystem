@@ -17238,6 +17238,42 @@ so the two cannot disagree. Verified live: greetings clean, and "is everything
 running?", "how is RAVIS?" and "anything gone wrong lately?" all answer as
 before.
 
+## The status nagging, measured properly and only half solved
+## — 2026-09-09
+
+Reported again after the previous fix: *"it still keeps nagging about ravis each
+turn."* It did. Four attempts, three of them instructions, and the honest
+account is that instructions do not work here.
+
+**Measured rather than argued, by dumping what the model is actually handed.**
+The turn context was 14,379 characters and dominated not by the live readings
+but by *recalled conversations* — chat quoting its own earlier answers about
+RAVIS back at itself. A feedback loop: it mentioned RAVIS once, that was stored,
+and recall served it back every turn after. The refusals it kept reporting had
+also stopped happening: **zero in the last four hundred log lines.**
+
+**The whole reading is now gated on the question** (`about_the_machine`), the
+union of every sub-reading gate already in that file plus the plain words for
+asking after something's health. Three things make dropping it safe: NERVIS
+prints its own status line under every reply regardless, the knowledge base
+still answers what exists, and a miss produces "I do not know" rather than a
+wrong answer.
+
+**It did not fix it, and the numbers say so.** Six ordinary turns: one clean.
+With recall switched off as well: three clean. So the readings were not the main
+source, recall is a large part of it, and something remains beyond both — the
+persona opens by defining NERVIS as *"a ring of sensors watching a handful of
+services... and you have opinions about that arrangement."* A model told that
+will talk about services.
+
+Two contributors are the operator's call rather than mine and are left for them.
+The recall pool holds 246 conversations, **28 created this evening by my own
+test scripts** and all about RAVIS status. And the persona's identity is a
+character choice, not a defect.
+
+Recorded rather than closed, because the previous two entries claimed this fixed
+and it was not.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

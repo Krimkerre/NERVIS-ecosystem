@@ -18,12 +18,13 @@ rather than represented by an empty list that reads as "there are none".
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import httpx
 from fastapi import Request
 
-from nervis import bridges, commands
+from nervis import bridges, commands, situation
 from nervis.api.chat_calls import _named, _ravis_read, _sirvis_read
 from nervis.peers import ravis as ravis_peer
 from nervis.registry import RegistryEntry
@@ -334,6 +335,29 @@ async def _runs(request: Request, question: str = "") -> list[dict[str, Any]]:
 # Deliberately broad, because the cost of missing is higher than the cost of
 # including: a question this misses gets no event list, and the services,
 # catalogue and everything else in the reading still travel.
+# Whether the question is about this machine *at all*. **The gate on the whole
+# reading**, added on 9 September 2026 after three attempts to fix the same
+# complaint with instructions.
+#
+# The complaint: chat brought up the system status every turn, unasked. Telling
+# it not to went from nought clean in five, to two in five, to nought in six —
+# an instruction partly obeyed is not a fix, and with a live service list in
+# front of every question this model will talk about it. The reading is now
+# gathered only when the question is about the machine, which is the rule every
+# sub-reading in this file already follows.
+#
+# **Three things make dropping it safe.** NERVIS prints its own status line
+# under every reply regardless, so the operator still sees it. The knowledge
+# base still answers what exists and how it works. And a question that misses
+# this gate gets "I don't know" rather than a wrong answer, which is recovered
+# by asking again in more words.
+STATE_WORDS = (
+    "status", "running", "up", "down", "healthy", "health", "alive", "online",
+    "offline", "working", "broken", "ok", "okay", "fine", "reachable",
+    "service", "services", "system", "systems", "ecosystem", "stack",
+    "machine", "model", "models", "pool", "pools", "everything",
+)
+
 EVENT_WORDS = (
     "event", "happen", "happened", "happening", "log", "logs", "recent",
     "lately", "just now", "wrong", "error", "errors", "fail", "failed",
@@ -482,6 +506,25 @@ async def _runtime_sets(request: Request, question: str) -> list[dict[str, Any]]
         return []
     found = await _sirvis_read(request, "/api/v1/runtime-sets")
     return [item for item in (found.get("items") or []) if isinstance(item, dict)]
+
+
+def about_the_machine(question: str, services: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether this question is asking about the ecosystem at all.
+
+    The union of every gate in this module, so a question that would have
+    triggered any single sub-reading still brings the whole reading with it —
+    the parts are useless without the services and catalogue they sit beside.
+    """
+    asked = question.lower()
+    vocabularies = (
+        STATE_WORDS, EVENT_WORDS, MACHINE_WORDS, SPEND_WORDS, PROVIDER_WORDS,
+        OBSERVATION_WORDS, POLICY_WORDS, RESIDENCY_WORDS, SET_WORDS,
+        RECORD_WORDS, EVIDENCE_WORDS, TRACE_WORDS, QUARANTINE_WORDS,
+        RESULT_WORDS, RUNTIME_WORDS, ROUTING_WORDS, EDITOR_WORDS,
+    )
+    if any(word in asked for vocabulary in vocabularies for word in vocabulary):
+        return True
+    return bool(situation.named_in(question, services))
 
 
 async def _spend_records(request: Request, question: str) -> list[dict[str, Any]]:

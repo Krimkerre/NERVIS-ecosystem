@@ -641,7 +641,19 @@ def _recall(database: Any, conversation_id: str) -> str:
         "failed — describes the moment it was said and may be hours stale. The "
         "ecosystem reading in this message is current and wins wherever the two "
         "disagree. Do not repeat an earlier answer because the question is "
-        "similar: answer from the reading.\n\n" + "\n\n".join(lines)
+        "similar: answer from the reading.\n\n"
+        "**And silence beats a stale reading.** Where the two do not disagree "
+        "because the current reading simply says nothing on the subject, the "
+        "remembered claim does not stand in for it — it is dropped. If a "
+        "service, an error, a refusal or a count appears only below and not in "
+        "this message's reading, it is over and you do not mention it.\n\n"
+        "**These are not topics.** They are here so you can answer a question "
+        "about what was said before, not to tell you what to talk about now. "
+        "Never raise a subject because it appears below: if the person greets "
+        "you, or asks about something else entirely, nothing here is relevant "
+        "and none of it should reach your reply. Reporting the same machine "
+        "observation turn after turn because your own earlier answers are in "
+        "front of you is the specific failure this warns about.\n\n" + "\n\n".join(lines)
     )
 
 
