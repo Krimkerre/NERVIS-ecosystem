@@ -345,8 +345,40 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .side{display:none}
 .app[data-app="clarvis"] .body{grid-template-columns:minmax(0,1fr)}
 .app[data-app="clarvis"] .main{padding:0;min-height:0}
-/* The tab bar is the only thing above it now. */
-.app[data-app="clarvis"] .code-frame{height:calc((100vh - 58px) / var(--code-scale,1))}
+/* The tab bar is the only thing above it now.
+
+   **And whatever NERVIS still has to say goes below it, not on top.** A note
+   above the frame pushed the editor down and sat between the tab bar and a
+   title bar; below, it reads as a line under code-server's own status bar,
+   which is where a status about the editor belongs. `#content` is the column
+   that makes that work: the frame takes what is left after the notes rather
+   than a fixed slice of the viewport, so a note appearing does not push the
+   editor's own status bar off the bottom. */
+.app[data-app="clarvis"] #content{display:flex;flex-direction:column;
+  flex:1 1 auto;min-height:0;
+  /* `#content` carries an 11px grid gap for the screens made of cards. Here
+     the column is an editor and a note that sits against it, and the gap was a
+     strip of background between the editor and the line describing it. */
+  gap:0}
+/* **The stage owns the leftover space; the frame fills the stage.** The frame
+   is laid out `1/scale` larger and scaled back down, so its *layout* height is
+   larger than what it visually occupies — which makes it useless as a flex
+   item: flexbox would shrink the pre-transform box and the scaled result would
+   come up short, leaving a strip of background under the editor. So the flex
+   item is the stage, and the frame is positioned to fill it at the inverse
+   scale. The editor gets exactly the room the notes leave, whatever they are,
+   and nothing scrolls. */
+.app[data-app="clarvis"] .code-stage{flex:1 1 auto;min-height:0;position:relative;
+  overflow:hidden}
+.app[data-app="clarvis"] .code-stage .code-frame{position:absolute;top:0;left:0;
+  width:calc(100% / var(--code-scale,1));height:calc(100% / var(--code-scale,1))}
+/* Notes under the editor: quiet, full width, and never taller than the thing
+   they describe. */
+.app[data-app="clarvis"] #bridgeNote,
+.app[data-app="clarvis"] #editorNotes{flex:0 0 auto}
+.app[data-app="clarvis"] #bridgeNote .banner,
+.app[data-app="clarvis"] #editorNotes .banner{margin:0;border-radius:0;
+  border-left:0;border-right:0;border-bottom:0}
 
 
 
@@ -420,10 +452,20 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .app[data-app="clarvis"] .editor{min-width:0;overflow:auto}
 .app[data-app="clarvis"] .code-server{max-width:100%;overflow:hidden}
 .app[data-app="clarvis"] .terminal{white-space:pre-line;min-width:0;overflow:auto}
-/* The editor fills whatever height is left rather than a fixed 580px, stopping
-   clear of the demo and fault strips pinned to the bottom of the viewport. Flex
-   column, so the Bridge banner keeps its natural height above it. */
-.app[data-app="clarvis"] .main{display:flex;flex-direction:column;overflow:hidden;padding-bottom:80px}
+/* The editor fills whatever height is left rather than a fixed 580px. Flex
+   column, so a note keeps its natural height and the editor takes the rest.
+
+   **The 80px reserved here was for strips that this build does not have.** It
+   was kept clear of "the demo and fault strips pinned to the bottom of the
+   viewport"; nothing is pinned there now — checked against the running page,
+   where the only fixed elements are the background canvas and a hidden toast —
+   so the reserve was eighty pixels of dead space *and* the reason the tab
+   scrolled: `main` grew past the viewport by exactly that much. Bounded to the
+   viewport instead, so what is inside it is what fits in it. A strip that
+   comes back should take its height from this column like everything else
+   rather than have space held for it. */
+.app[data-app="clarvis"] .main{display:flex;flex-direction:column;overflow:hidden;
+  height:calc(100vh - 58px)}
 .app[data-app="clarvis"] .page-head{flex:0 0 auto;margin-bottom:13px}
 .app[data-app="clarvis"] .grid{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
 .app[data-app="clarvis"] .banner{flex:0 0 auto}
@@ -2024,7 +2066,14 @@ const API={
     const med=n=>(e.metrics||{})[n]?Math.round(e.metrics[n].median*100)/100:null;
 
     return{source:'live',live:true,suite:(e.suite||{}).id,version:(e.suite||{}).version,
-     role:e.role,target:e.target_key,samples:e.samples,
+     /* **A run can have no target, and a screen may not take that as a
+        promise.** A run that was interrupted — killed mid-benchmark, which the
+        acceptance run does deliberately — is reconciled with a result carrying
+        no `target_key`, and the run-detail card called `.split` on it and took
+        the whole SIRVIS screen down with a TypeError. Empty here and rendered
+        as absent there: this file's own rule about a figure nobody measured,
+        applied to a field nobody wrote. */
+     role:e.role,target:e.target_key||'',samples:e.samples,
      generation_tok_s:{median:med('generation_tokens_per_second')},
      first_token_s:{median:med('time_to_first_token_seconds')},
      effective_tok_s:{median:null},
@@ -6749,7 +6798,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
   <div class="card narrow${fromSirvis}" id="buildPanel"><h3>Selected build</h3>${cell(`
    <small class="mono dim">click a build on the left. This panel reads <b>GET /api/v1/models/{id}</b> and its measurements from <b>GET /api/v1/evidence?variant=…</b> — both live.</small>`,'sirvis')}</div>
   <div class="card narrow${fromSirvis}"><h3>${escapeHtml(rn.suite)}@${escapeHtml(rn.version)}</h3>${cell(`
-   <div class="trace-step"><b>target</b><span>${escapeHtml(rn.target.split(' · ')[0])}</span></div>
+   <div class="trace-step"><b>target</b><span>${escapeHtml(dash((rn.target||'').split(' · ')[0]))}</span></div>
    <div class="trace-step"><b>generating</b><span>${escapeHtml(rn.generation_tok_s.median)} tok/s</span></div>
    <div class="trace-step"><b>effective</b><span>${escapeHtml(rn.effective_tok_s.median==null?'— not derivable from the envelope':rn.effective_tok_s.median+' tok/s')}</span></div>
    <div class="trace-step"><b>first token</b><span>${escapeHtml(rn.first_token_s.median)} s</span></div>
@@ -11514,10 +11563,18 @@ async function clarvis(){
 
  /* The Bridge is optional by design: Clarvis activates and dies with its editor
     window and never depends on NERVIS. Its absence costs NERVIS visibility, not
-    Clarvis function — so it is a note above the frame, never a reason to hide it. */
- const bridge=windows.length?'':banner('No Clarvis Bridge has registered',
-  'The editor below still works. NERVIS cannot read what this workspace is doing until a '
-  +'window registers — turn on <b>clarvis.bridge.enabled</b> in its settings.','info');
+    Clarvis function — so it is a note above the frame, never a reason to hide it.
+
+    **And on first open it has not had time to be absent.** The editor is framed
+    by this same paint; its extension host starts afterwards, Clarvis activates
+    inside it, and only then does a window register — seconds later. Announcing
+    "no Bridge has registered" at paint time states as a finding something that
+    has not happened yet, which is why a manual refresh always "fixed" it. So
+    the note says what is true at that moment — waiting — and `watchForBridge`
+    replaces it with the real answer either way. */
+ const bridge=windows.length?'':`<div id="bridgeNote">${banner('Waiting for the Clarvis Bridge',
+  'The editor below is starting. A window announces itself once Clarvis activates inside '
+  +'it, which takes a few seconds.','info')}</div>`;
 
  /* **The frame is only drawn when something answered.** An <iframe> pointed at a
     port with nothing on it renders a browser error page inside the dashboard,
@@ -11559,6 +11616,36 @@ async function clarvis(){
  }
 
  await drawEditor(bridge+gate.notice,session,editor);
+ if(!windows.length)watchForBridge();
+}
+
+/* How long a window is given to announce itself before its absence is a finding,
+   and how often that is checked. Twenty seconds is past a cold extension host on
+   a busy machine and well short of a person still waiting to be told something. */
+const BRIDGE_WAIT_MS=2000,BRIDGE_WAIT_TRIES=10;
+
+/* Watch for the Bridge that has not registered *yet*, and end the wait honestly.
+
+   Only the note is rewritten — never the screen. Repainting would reload the
+   iframe underneath somebody who has started using the editor, which is a worse
+   thing to do than the message it would fix. */
+async function watchForBridge(){
+ for(let attempt=0;attempt<BRIDGE_WAIT_TRIES;attempt++){
+  await new Promise(done=>setTimeout(done,BRIDGE_WAIT_MS));
+  /* The reader moved on, or the screen was repainted by something else and this
+     note is not the one on it. Either way this watcher is finished. */
+  const note=$('#bridgeNote');
+  if(state.app!=='clarvis'||!note)return;
+  const inst=await API.nervis.clarvisInstances();
+  if((inst.items||[]).some(c=>c.live)){note.remove();return}
+ }
+ const note=$('#bridgeNote');
+ /* The wait is over and nothing registered. Now it is a finding, and now the
+    advice is worth giving — the same words this note carried before it learned
+    to wait. */
+ if(note&&state.app==='clarvis')note.innerHTML=banner('No Clarvis Bridge has registered',
+  'The editor below still works. NERVIS cannot read what this workspace is doing until a '
+  +'window registers — turn on <b>clarvis.bridge.enabled</b> in its settings.','info');
 }
 
 /* The frame, whatever has to be said above it, and the one action it offers.
@@ -11593,8 +11680,14 @@ async function drawEditor(notices,session,editor){
  const src=session.proxied
   ? `/code/${folder?`?folder=${folder}`:''}`
   : (editor&&editor.endpoint)||'';
- $('#content').innerHTML=notices+missing+`<iframe id="clarvis-frame"
-   class="code-frame" src="${escapeHtml(src)}" title="code-server"></iframe>`;
+ /* **Notes below the editor, not above it.** Above, they sat between NERVIS's
+    tab bar and code-server's title bar — two headers with a message wedged
+    between them — and pushed the editor down every time one appeared. Below,
+    they read as a line under the editor's own status bar, which is where a
+    status about the editor belongs. */
+ $('#content').innerHTML=`<div class="code-stage"><iframe id="clarvis-frame"
+   class="code-frame" src="${escapeHtml(src)}" title="code-server"></iframe></div>`
+   +`<div id="editorNotes">${notices+missing}</div>`;
  const action=$('#installClarvis');
  if(action)action.onclick=async()=>{
   action.disabled=true;action.textContent='Installing…';

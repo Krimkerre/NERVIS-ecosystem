@@ -16127,6 +16127,51 @@ than as somebody's editor about to look empty.
 
 NERVIS 1089 -> 1090.
 
+## The Bridge warning that was never true yet, and the tab that did not fit
+## — 2026-09-09
+
+**Reported: the Clarvis tab always warns that the Bridge has not registered,
+and a manual refresh clears it.** It was a true statement of a false thing. The
+editor is framed by the same paint that reads the registry; its extension host
+starts afterwards, Clarvis activates inside it, and a window registers seconds
+later. Announcing "no Bridge has registered" at paint time reported as a
+finding something that had not happened yet — which is exactly why refreshing
+always "fixed" it.
+
+The note now says what is true at that moment — *waiting* — and `watchForBridge`
+resolves it: every two seconds for twenty, removed the moment a window appears,
+and replaced with the old advice only when the wait ends empty, which is when
+that advice is earned. **Only the note is rewritten, never the screen.**
+Repainting would reload the editor under somebody who has started using it,
+which is worse than the message it would fix.
+
+**Then: put it under the editor, and does everything still fit.** It does now,
+and did not before. Two things were in the way, both older than today:
+
+- `.main` reserved **80px** for "the demo and fault strips pinned to the bottom
+  of the viewport". Nothing is pinned there in this build — checked against the
+  running page, where the only fixed elements are the background canvas and a
+  hidden toast. So it was dead space *and* the reason the tab scrolled: `main`
+  grew past the viewport by exactly that much.
+- `#content` carries an 11px gap for the screens made of cards, which put a
+  strip of background between the editor and the line describing it.
+
+The frame is scaled to 85%, so its layout box is taller than what it occupies
+and it cannot be a flex item: flexbox shrinks the pre-transform box and the
+scaled result comes up short. The flex item is now a stage that owns the
+leftover space, with the frame positioned to fill it at the inverse scale.
+Measured live: the editor takes 923px alone and 873px with a note, the note
+ends exactly at the viewport, and nothing scrolls.
+
+**And a crash the checker caught on the way past.** `recovery_check.js` began
+failing against the live stack — in `sirvis()`, not in anything touched here.
+A run that was interrupted (the acceptance run kills one deliberately) is
+reconciled with a result carrying no `target_key`, and the run-detail card
+called `.split` on it, taking the whole SIRVIS screen down with a TypeError.
+Confirmed present at `HEAD` before assuming it was mine. Empty at the source
+and rendered as absent at the display site, which is this file's own rule about
+a figure nobody measured applied to a field nobody wrote.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

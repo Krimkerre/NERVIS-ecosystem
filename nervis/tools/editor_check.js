@@ -133,6 +133,31 @@ if (!/workspace is configured|session was refused|Choose a workspace/.test(unope
     + "which leaves the reader with an empty pane and no next move.");
 }
 
+/* **On first open the Bridge has not had time to be absent.** The editor is
+   framed by the same paint; its extension host starts afterwards, Clarvis
+   activates inside it, and a window registers seconds later. Declaring "no
+   Bridge has registered" at paint time states as a finding something that has
+   not happened yet — which is why a manual refresh always cleared it. */
+const fresh = await drawn("healthy", { open: true, workspace: "/w", proxied: true });
+if (!/Waiting for the Clarvis Bridge/.test(fresh)) {
+  failures.push("the first paint with no window registered did not say it was "
+    + "waiting, so the tab reports an absence it has not established yet.");
+}
+if (/No Clarvis Bridge has registered/.test(fresh)) {
+  failures.push("the first paint announced the Bridge missing before the editor "
+    + "it is inside had finished loading.");
+}
+
+/* Notes belong under the editor, not above it: above, they sit between NERVIS's
+   tab bar and code-server's title bar and push the editor down; below, they read
+   as a line under the editor's own status bar. */
+const frameAt = fresh.indexOf("<iframe");
+const notesAt = fresh.indexOf('id="editorNotes"');
+if (frameAt === -1 || notesAt === -1 || notesAt < frameAt) {
+  failures.push("the editor's notes were not rendered after the frame, so they "
+    + "sit above the editor rather than under its status bar.");
+}
+
 /* §13.5: an editor running without Clarvis in it is a state this tab can see
    and now fix, and the fix has to be offered where the missing panel would
    have been rather than inside the frame that cannot render it. */
