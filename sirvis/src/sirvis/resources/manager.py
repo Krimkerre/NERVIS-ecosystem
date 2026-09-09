@@ -439,8 +439,21 @@ class ResourceManager:
         against every release that could free the capacity it waits for, so
         bounded queueing belongs above this. Saying so is better than a `wait`
         that silently behaves like `reject`.
+
+        **A load in flight counts against the ceiling.** This compared holdings
+        alone, and a holding is only recorded once `_ensure_loaded` returns — so
+        two callers wanting different cold models both saw an empty table, both
+        passed, and both loaded on a manager configured for one. The ceiling
+        failed at precisely the moment it exists for: two loads competing for
+        the same memory. Counting reservations closes it, and the count is
+        race-free because both this check and the `_loading` entry that follows
+        it happen under one lock. Found by an external audit, 9 September 2026.
+
+        The two tables never overlap — a key already held returns its holding
+        before this is reached, and a key already loading is awaited — so
+        adding their lengths counts each model once.
         """
-        if len(self._holdings) < self._max_loaded:
+        if len(self._holdings) + len(self._loading) < self._max_loaded:
             return
 
         # Unreferenced holdings cannot currently exist — release unloads at
@@ -461,6 +474,12 @@ class ResourceManager:
             return
 
         holders = {key: sorted(h.references) for key, h in self._holdings.items()}
+        # Loading keys are named too: "at capacity, held by {}" reads as a bug
+        # when the capacity is taken by a load that has not finished, and the
+        # reader's next question is always *what is using it*.
+        loading = sorted(self._loading)
         raise ResourceExhaustedError(
-            f"at capacity ({self._max_loaded} models); held by {holders}; policy={policy.value}"
+            f"at capacity ({self._max_loaded} models); held by {holders}"
+            + (f"; loading {loading}" if loading else "")
+            + f"; policy={policy.value}"
         )

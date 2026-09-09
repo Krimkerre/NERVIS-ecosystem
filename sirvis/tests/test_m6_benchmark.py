@@ -807,3 +807,45 @@ async def test_a_full_disk_still_releases_the_model_it_held(tmp_path, monkeypatc
     await _run(runtime, results_root=tmp_path)
 
     assert runtime.unloads == [MODEL]
+
+
+# ── A failure after the model is loaded must still give it back ──────────────
+
+
+async def test_a_failure_after_the_load_still_releases_the_model(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """**The lease was acquired outside the block that releases it.**
+
+    `_execute` took the lease and then did five fallible things before its
+    `try` began — a memory sample, a log write, the variant confirmation, an
+    inventory read and a thermal reading. An exception in any of them skipped
+    the `finally` that releases, so a failed benchmark left a model loaded and
+    holding capacity that nothing would ever reclaim: the next run would find
+    the machine full because of a run that had already given up.
+
+    Found by an external audit on 9 September 2026. The inventory read is used
+    here because it is the plainest of the five — a runtime that answers the
+    load and then stops answering is an ordinary way for this to happen.
+    """
+    class LosesTheRuntimeAfterLoading(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.listed = 0
+
+        async def list_loaded_models(self) -> list[LoadedModel]:
+            self.listed += 1
+            # The first read is the engine's "what was resident before"; the
+            # failure is the one it makes after the model is in memory.
+            if self.listed > 1:
+                raise RuntimeUnavailableError("the runtime stopped answering")
+            return []
+
+    runtime = LosesTheRuntimeAfterLoading()
+
+    outcome, _ = await _run(runtime, results_root=tmp_path)
+
+    assert outcome.state is not RunState.SUCCEEDED, "the failure did not register"
+    assert runtime.loads, "the model was never loaded, so this proves nothing"
+    assert runtime.unloads == [MODEL], (
+        "a benchmark that failed after loading kept the model resident, and the "
+        f"capacity with it: loaded {runtime.loads}, unloaded {runtime.unloads}"
+    )

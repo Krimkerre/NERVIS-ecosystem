@@ -271,6 +271,42 @@ async def test_exhaustion_names_who_is_holding_what() -> None:
         await manager.acquire("newcomer", "other-model", policy=ConflictPolicy.REJECT)
 
 
+async def test_two_cold_loads_at_once_cannot_exceed_the_ceiling() -> None:
+    """**The ceiling counted holdings and ignored loads in flight.**
+
+    `_make_room` compared `len(self._holdings)` against `max_loaded`, and a
+    holding is only recorded once `_ensure_loaded` *returns*. Two callers
+    wanting different cold models therefore both looked at an empty table, both
+    passed the check, and both loaded — on a manager configured for one. The
+    ceiling failed at exactly the moment it exists for: two loads competing for
+    the same memory.
+
+    Found by an external audit on 9 September 2026, which reproduced it against
+    the real LM Studio adapter as well as a fake — the adapter suspends on its
+    inventory read, so this is reachable with what ships rather than with a
+    hypothetical yielding runtime.
+
+    The gate holds both loads open so the race is deterministic rather than a
+    matter of scheduling luck.
+    """
+    runtime = FakeRuntime()
+    runtime.gate = asyncio.Event()
+    manager = _manager(runtime, max_loaded=1)
+
+    first = asyncio.create_task(manager.acquire("a", "model-a", session_id="s1"))
+    second = asyncio.create_task(manager.acquire("b", "model-b", session_id="s2"))
+    await asyncio.sleep(0)  # both reach the capacity check while neither has loaded
+    runtime.gate.set()
+    outcomes = await asyncio.gather(first, second, return_exceptions=True)
+
+    refused = [o for o in outcomes if isinstance(o, ResourceExhaustedError)]
+    assert len(refused) == 1, (
+        f"a ceiling of one admitted {2 - len(refused)} concurrent loads: {outcomes}"
+    )
+    resident = [m.model_key for m in await runtime.list_loaded_models()]
+    assert len(resident) == 1, f"both models were loaded despite the ceiling: {resident}"
+
+
 async def test_preemption_never_takes_a_model_someone_is_holding() -> None:
     """§9: never unload a resource owned by another client, and preemption is
     not an exception to it."""

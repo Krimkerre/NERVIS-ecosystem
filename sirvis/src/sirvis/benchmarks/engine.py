@@ -626,34 +626,47 @@ async def _execute(
     lease = await resources.acquire(
         owner=OWNER, model_key=spec.model_key, configuration=dict(spec.load)
     )
-    load_seconds = None if was_warm else clock() - started
-    if was_warm:
-        outcome.warnings.append((
-            ValidityScope.TIMING,
-            f"{spec.model_key} was already resident, so no load time was measured — "
-            "a warm acquire says nothing about how long this model takes to load",
-        ))
-    outcome.telemetry.append(sampler.sample(AFTER_LOAD))
-    directory.append_log(
-        f"acquired {spec.model_key} (session {lease.session_id}, "
-        f"{'warm' if was_warm else f'loaded in {load_seconds:.2f}s'})"
-    )
-
-    # **The variant gate, with the build actually resident.** §12.2 makes format
-    # and quantization part of evidence identity, and this is the first moment
-    # the runtime can say which build is answering. Raising here rather than
-    # before the load costs one load on a machine that cannot confirm — and
-    # saves every run on a machine that can.
-    outcome.confirmed_variant = _confirmed_variant(
-        runtime, None, spec.model_key, required=True
-    )
-
-    resident = await runtime.list_loaded_models()
-    outcome.effective_configuration = _effective_configuration(spec, resident)
-    outcome.warnings.extend(_configuration_warnings(spec, resident))
-
-    outcome.thermal_before = thermal()
+    # **Everything after the acquire is inside the block that releases it.**
+    # The five steps below — a memory sample, a log write, the variant gate, an
+    # inventory read and a thermal reading — used to sit *above* the `try`, so
+    # an exception in any of them skipped the `finally` and left the model
+    # loaded with nothing left to reclaim it. A failed benchmark took the
+    # machine's capacity with it, and the next run found it full because of a
+    # run that had already given up. Found by an external audit, 9 September
+    # 2026; `test_a_failure_after_the_load_still_releases_the_model` holds the
+    # reproduction.
+    #
+    # The variant gate is the sharpest case: it *is* a refusal — it raises when
+    # the runtime cannot say which build answered — so the one path designed to
+    # stop a run was also the one that leaked a model every time it fired.
     try:
+        load_seconds = None if was_warm else clock() - started
+        if was_warm:
+            outcome.warnings.append((
+                ValidityScope.TIMING,
+                f"{spec.model_key} was already resident, so no load time was measured — "
+                "a warm acquire says nothing about how long this model takes to load",
+            ))
+        outcome.telemetry.append(sampler.sample(AFTER_LOAD))
+        directory.append_log(
+            f"acquired {spec.model_key} (session {lease.session_id}, "
+            f"{'warm' if was_warm else f'loaded in {load_seconds:.2f}s'})"
+        )
+
+        # **The variant gate, with the build actually resident.** §12.2 makes
+        # format and quantization part of evidence identity, and this is the
+        # first moment the runtime can say which build is answering. Raising
+        # here rather than before the load costs one load on a machine that
+        # cannot confirm — and saves every run on a machine that can.
+        outcome.confirmed_variant = _confirmed_variant(
+            runtime, None, spec.model_key, required=True
+        )
+
+        resident = await runtime.list_loaded_models()
+        outcome.effective_configuration = _effective_configuration(spec, resident)
+        outcome.warnings.extend(_configuration_warnings(spec, resident))
+
+        outcome.thermal_before = thermal()
         for test in spec.tests:
             # **Between tests, not mid-inference.** A cancel that killed the
             # task would lose the partial telemetry §11.10 says to keep — how

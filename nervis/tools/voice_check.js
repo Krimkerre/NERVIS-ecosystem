@@ -92,7 +92,26 @@ for (const line of shapes) {
   }
 }
 
-/* 3 · Silence is not the fix — a service that is really down is still named. */
+/* 3 · **What a transition is called depends on where it came from.** Reported
+ * from the room: LM Studio was started for the first time in a session and the
+ * dashboard said "LM Studio is back to healthy, sir" — a sentence that claims it
+ * had been healthy, stopped being healthy, and recovered. It had never answered
+ * at all. `discovering` is this page's word for "no reading yet", so a peer
+ * leaving that state has connected rather than returned. */
+const { spokenChange } = exported;
+if (spokenChange("discovering", "healthy") !== "has connected") {
+  failures.push('a peer answering for the first time was announced as "back to '
+    + `healthy": ${JSON.stringify(spokenChange("discovering", "healthy"))}`);
+}
+if (spokenChange("unreachable", "healthy") !== "is back to healthy") {
+  failures.push("a peer that really did recover lost its recovery wording: "
+    + JSON.stringify(spokenChange("unreachable", "healthy")));
+}
+if (!/not answering|stopped/.test(spokenChange("healthy", "unreachable"))) {
+  failures.push("a peer that stopped answering was not announced as such.");
+}
+
+/* 4 · Silence is not the fix — a service that is really down is still named. */
 if (!/RAVIS is not answering/.test(shapes[2])) {
   failures.push(`an unreachable service was not named: "${shapes[2]}"`);
 }

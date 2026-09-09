@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2723 tests, no network, no live service
+.venv/bin/pytest                      # part of 2725 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 482 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2723 passing across the four, conformance `PASS`.
+Expected: all clean, 2725 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16757,6 +16757,39 @@ The deny had to come from the operator's policy file, which is itself worth
 recording: `effective_policy` takes `denied_providers` from the configured
 identity alone. A request may tighten privacy and nothing else, so no client can
 grant itself a provider by asking.
+
+## Batch 3, SIRVIS: a ceiling that let two through, and a lease that leaked
+## — 2026-09-09
+
+**The resource ceiling counted the wrong thing.** `_make_room` compared held
+models against `max_loaded`, and a holding is only recorded once the load
+*returns* — so two callers wanting different cold models both saw an empty
+table, both passed, and both loaded on a manager configured for one. The ceiling
+failed at exactly the moment it exists for: two loads competing for the same
+memory. Reservations now count, which is race-free because the check and the
+`_loading` entry that follows it happen under one lock. The exhaustion message
+names what is loading as well as what is held, since "at capacity, held by {}"
+reads as a bug rather than an explanation.
+
+**A benchmark that failed after loading kept the model.** The lease was acquired
+*above* the `try` whose `finally` releases it, with five fallible steps in
+between — a memory sample, a log write, the variant gate, an inventory read and
+a thermal reading. Any of them raising skipped the release, so a failed run took
+the machine's capacity with it and the next run found it full because of a run
+that had already given up. The sharpest case was the variant gate: the one path
+designed to *stop* a run was also the one that leaked a model every time it
+fired. Everything after the acquire now sits inside the block.
+
+Both reproduced before they were fixed, both against the fake runtime the M8
+tests already use — the ceiling race with its load gate held open so the timing
+is deterministic rather than lucky. 482 SIRVIS tests pass.
+
+**And a sentence corrected, reported from the room.** Starting LM Studio made
+NERVIS say *"LM Studio is back to healthy, sir"* — which claims it had been
+healthy, stopped, and recovered. It had never answered at all. The wording is
+now chosen from both ends of the transition: leaving `discovering`, a peer *has
+connected*; leaving `unreachable`, it *is back to healthy*. `voice_check.js`
+holds both, and fails if the first collapses into the second.
 
 ## Starting the thing
 

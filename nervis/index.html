@@ -1738,6 +1738,21 @@ const SPOKEN_STATE={
  unauthorized:'is refusing my credential', stopped:'has stopped',
  discovering:'is still negotiating'};
 
+/* **"Back to healthy" is a claim about the past, and it was being made about
+   peers that had never been healthy.** Reported from the room: LM Studio was
+   started for the first time in a session and NERVIS said "LM Studio is back to
+   healthy, sir" — which says it had been healthy, then was not, then recovered.
+   None of that happened; it had simply never answered before.
+
+   `discovering` is NERVIS's word for "no reading yet", and a peer that has just
+   started answering leaves exactly that state. So the sentence is chosen from
+   *both* ends of the transition rather than from the destination alone. */
+function spokenChange(was,state){
+ if(state==='healthy'&&was==='discovering')return 'has connected';
+ if(state==='degraded'&&was==='discovering')return 'has connected, degraded';
+ return SPOKEN_STATE[state]||('is now '+state);
+}
+
 /* Say what changed, if anything did, and if anybody asked to be told.
 
    **On the poll rather than on a screen**, which is the point: the registry is
@@ -1757,7 +1772,7 @@ function announceStates(items){
      the status bar uses, and the reason a machine without Ollama does not
      announce Ollama every time it is opened. */
   if(e.awaiting_first_contact===true)continue;
-  changed.push({label:e.label||e.key,state:e.state});
+  changed.push({label:e.label||e.key,state:e.state,was});
  }
  /* **Attempted on every read, not only the first.** Two paths absorb the
     registry: the poll, which loads voice settings first, and the page-load
@@ -1777,7 +1792,7 @@ function announceStates(items){
  /* One sentence however many moved. Three services falling over together is
     one event to a person and three to a loop. */
  const said=changed.slice(0,3).map(c=>
-   `${c.label} ${SPOKEN_STATE[c.state]||('is now '+c.state)}`).join(', and ');
+   `${c.label} ${spokenChange(c.was,c.state)}`).join(', and ');
  const more=changed.length>3?`, and ${changed.length-3} others`:'';
  SPEECH.announce(`${said}${more}, sir.`);
 }

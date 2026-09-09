@@ -283,7 +283,7 @@ function loadPage({ fetchImpl } = {}) {
   }
   const exported = vm.runInContext(
     "({ APP_CONFIG, state, nervis, ravis, sirvis, clarvis, filesView, dragVerb, " +
-    "menuForEntry, menuForHere, actingOn, pickSpan, sortEntries, API, SOURCE, " +
+    "menuForEntry, menuForHere, actingOn, pickSpan, sortEntries, spokenChange, API, SOURCE, " +
     "SPEECH, counted, unsettled, " +
     "absorbFrame, replyMessage, transportFailure, BUILD, renderMarkdown, " +
     "stopPolling: typeof stopPolling === 'function' ? stopPolling : null })",
