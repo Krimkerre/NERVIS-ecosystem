@@ -503,9 +503,19 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 /* Rooms are the workspace's own structure; a place is a directory somebody
    else owns that NERVIS was pointed at. The line says they are different
    kinds of thing without spending a sentence on it. */
+/* A fold-out lives under the entry it belongs to, indented once and quieter:
+   it is a way into somewhere, not a place in its own right. */
+.subrail{display:flex;flex-direction:column;gap:2px;margin:2px 0 4px 14px;
+  padding-left:8px;border-left:1px solid var(--line)}
+.room.sub{padding:6px 8px;font-size:11px;color:#7d8c9c}
+.room.sub .glyph{width:15px;height:15px;opacity:.75}
+.twist{width:11px;margin-right:-2px;font-style:normal;font-size:9px;line-height:1;
+  color:#5e6e80;cursor:pointer;flex:0 0 auto}
+.twist:hover,.twist.open{color:var(--accent)}
 .rail-split{margin:9px 0 3px;padding-top:8px;border-top:1px solid var(--line);
   color:#5d6d7f;font:9px/1 "SFMono-Regular",Consolas,monospace;letter-spacing:.14em;
   text-transform:uppercase}
+.rail-split.first{margin-top:0;padding-top:0;border-top:0}
 .glyph{width:18px;height:18px;display:block;flex:0 0 auto;fill:none;stroke:currentColor;
   stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
 .room .glyph{width:19px;height:19px}
@@ -528,6 +538,8 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
   color:#6d7d8f;font:10px/1 "SFMono-Regular",Consolas,monospace;letter-spacing:.08em;
   text-transform:uppercase}
 .entry-head span{position:relative}
+.entry-head [data-sort]{cursor:pointer;user-select:none}
+.entry-head [data-sort]:hover{color:var(--accent)}
 /* A grip is six pixels of nothing with a line down the middle: wide enough to
    grab with a mouse, quiet enough not to read as a border. */
 .grip{cursor:col-resize;position:relative;align-self:stretch;min-height:18px;
@@ -538,6 +550,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
   box-shadow:0 0 7px rgba(var(--rgb),.6)}
 .files>.grip{min-height:120px}
 .entry:hover{background:rgba(var(--rgb),.07);border-color:rgba(var(--rgb),.16)}
+.entry.picked{background:rgba(var(--rgb),.13);border-color:rgba(var(--rgb),.34);
+  color:#eaf2fa}
+.entry.picked .glyph{color:var(--accent)}
+.entries:focus{outline:none}
 .entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
   font-variant-numeric:tabular-nums}
@@ -561,6 +577,22 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
   font:inherit}
 .crumbs span{opacity:.45}
 .file-empty{padding:26px 12px;text-align:center;color:#6d7d8f;font-size:12px}
+/* The right-click menu. Positioned in the viewport rather than in the list,
+   because a menu clipped by its own container is a menu whose last item cannot
+   be clicked — and the last item here is the destructive one. */
+.filemenu{position:fixed;z-index:40;min-width:186px;padding:5px;border-radius:5px;
+  border:1px solid rgba(var(--rgb),.35);background:#0c131b;
+  box-shadow:0 18px 44px #000b,0 0 0 1px #0006}
+.filemenu button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;
+  border:0;border-radius:3px;background:none;color:#c3cedb;cursor:pointer;
+  font:12px/1.2 inherit;text-align:left}
+.filemenu button:hover{background:rgba(var(--rgb),.16);color:#eaf2fa}
+.filemenu button.harm:hover{background:rgba(255,107,107,.14);color:#ff9b9b}
+.filemenu button[disabled]{opacity:.4;cursor:default;background:none}
+.filemenu .glyph{width:15px;height:15px;color:var(--accent);opacity:.8}
+.filemenu hr{margin:4px 6px;border:0;border-top:1px solid var(--line)}
+.filemenu .where{padding:6px 9px 3px;color:#5d6d7f;
+  font:9px/1 "SFMono-Regular",Consolas,monospace;letter-spacing:.13em;text-transform:uppercase}
 
 /* ── FOCUS MODE ─────────────────────────────────────────────────────────────
    code-server does have a Zen Mode (workbench.action.toggleZenMode) and it works
@@ -936,6 +968,53 @@ function resolveRoute(route){
    here would be gone before the first paint, since this runs before it. */
 let ROUTE_NOTE='';
 
+/* ── The tab you were on ───────────────────────────────────────────────────
+   Switching between NERVIS's chat and the Clarvis editor and back should not
+   mean finding your way back, so a reload opens where you left off.
+
+   **For as long as the stack has been up, and no longer.** The memory carries
+   NERVIS's own `started_at`, so a freshly started stack does not match it and
+   opens on the dashboard — which is the screen that says what came up and what
+   did not, and the one worth seeing after a start. A browser left open across
+   a restart is the same case and gets the same answer.
+
+   Two things beat the memory, both deliberately: an address with a screen in
+   it, because somebody who pasted a link asked for that screen; and the switch
+   being off. */
+const LAST_TAB_KEY='nervis.tab';
+let NERVIS_BOOT='';
+
+function landing(opened,held,boot,remember){
+ if(opened)return null;
+ if(!remember||!boot||!held||held.boot!==boot)return null;
+ if(!held.app||!held.view)return null;
+ return {app:held.app,view:held.view};
+}
+
+function rememberTab(){
+ if(!NERVIS_BOOT||!USER.rememberTab)return;
+ try{localStorage.setItem(LAST_TAB_KEY,
+   JSON.stringify({app:state.app,view:state.view,boot:NERVIS_BOOT}))}catch(e){}
+}
+
+/* Read after the first paint rather than before it: this costs two local
+   requests and a screen that waited for them would be a blank page for as long
+   as they took, to answer a question about which screen to show. */
+async function restoreLastTab(opened){
+ try{
+  const identity=await fetch(BASE.nervis+'/ecosystem/identity',
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(identity.ok)NERVIS_BOOT=String((await identity.json()).started_at||'');
+ }catch(e){}
+ await USER.load();
+ let held=null;
+ try{held=JSON.parse(localStorage.getItem(LAST_TAB_KEY)||'null')}catch(e){}
+ const where=landing(opened,held,NERVIS_BOOT,USER.rememberTab);
+ if(where&&(where.app!==state.app||where.view!==state.view)){
+  go(where.app,where.view,{replace:true});
+ }else rememberTab();
+}
+
 /* The single navigation entry point.
    Every `state.view=…;render()` in the file went through this, because a
    navigation that does not reach the address bar is exactly the state §25.2
@@ -953,6 +1032,7 @@ function go(app,view,{replace=false}={}){
  /* `replace` for a correction, `push` for a navigation: rewriting an address
     the reader never chose should not cost them a press of Back. */
  if(replace)history.replaceState(null,'',url);else history.pushState(null,'',url);
+ rememberTab();
  render();
 }
 
@@ -987,6 +1067,7 @@ function routeChanged(){
     should not cost them a press of Back. */
  if(target.note)history.replaceState(null,'',
    location.pathname+location.search+hashFor(target.app,target.view));
+ rememberTab();
  render();
 }
 addEventListener('popstate',routeChanged);
@@ -1095,6 +1176,9 @@ const ROOM_ICON={
  'clarvis':'<path d="m5.4 5.6-2.7 2.7 2.7 2.7M10.6 5.6l2.7 2.7-2.7 2.7M9.1 3.6 6.9 12.9"/>',
  /* Anything somebody made themselves. */
  'folder':'<path d="M2.4 12.4V4.1a1 1 0 0 1 1-1h2.9l1.4 1.8h4.9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z"/>',
+ /* This machine: the laptop the workspace is a directory on. Paired with the
+    share below it — one silhouette for here, one for over there. */
+ 'local':'<rect x="3" y="3" width="10" height="6.8" rx="1"/><path d="M1.9 12.8h12.2l-1.3-2.4H3.2z"/>',
  /* Somewhere else NERVIS was given: a box on a network, drawn as the two
     stacked units every NAS has worn since NASes had faces. */
  'share':'<rect x="2.4" y="3" width="11.2" height="4.4" rx="1"/><rect x="2.4" y="8.6" width="11.2" height="4.4" rx="1"/><path d="M4.6 5.2h.01M4.6 10.8h.01"/>',
@@ -3274,6 +3358,22 @@ const API={
    return {items:[],path:path||'',detail:'NERVIS did not answer about the workspace'};
   },
 
+  async fileShare(){
+   /* What Settings stored, if anything. An absent share is the ordinary state
+      — most machines have no NAS — so this answers with an empty object rather
+      than an error nobody should have to catch. */
+   try{
+    const r=await fetch('/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return ((await r.json()).items||{})['files.share']||{};
+   }catch(e){}
+   return {};
+  },
+
+  async saveFileShare(share){
+   return _workspaceDid(await fetch('/api/v1/settings/files.share',
+     {method:'PUT',headers:control_headers(),body:JSON.stringify({value:share})}));
+  },
+
   async workspaceTrash(){
    try{
     const r=await fetch('/api/v1/workspace/trash',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -4057,38 +4157,57 @@ async function filesView(){
  }
  FILES_AT=listing.path||'';
  FILES_PLACE=listing.place||'workspace';
+ forgetSelectionOutside(railKey(FILES_PLACE,FILES_AT));
  /* **The rooms are the workspace's structure, not this listing's.** Standing
     on a share, the listing has no rooms to report — it is somebody else's
-    directory — and reading them from it emptied the rail of the four rooms a
-    person had just navigated away from and now needs to get back to. */
+    directory — so the right-click menu's "copy to" would lose every room a
+    person might want to send the file back to. The rail reads them as folders
+    under the workspace entry; this is for the menu. */
  const rooms=FILES_PLACE==='workspace'
   ?(listing.rooms||[])
   :((await API.nervis.workspaceEntries('','workspace')).rooms||[]);
+ const places=listing.places||[];
+ const folders=await railFolders(places);
  /* **Both actions exist as buttons, not only as gestures.** Drag-and-drop is
     the faster way to put a file here and an undiscoverable one: nothing on
     screen says a drop would work, and somebody who has not tried it has no
     reason to. */
- /* Files go inside a room, so the workspace's own top level offers nothing —
-    but a share's top level is an ordinary directory and takes both. */
- $('#pageActions').innerHTML=(FILES_AT||FILES_PLACE!=='workspace')
-  ?'<button class="btn" id="newFolder">New folder</button>'
-   +'<button class="btn primary" id="addFiles">Add files</button>'
-   +'<input type="file" id="filePicker" multiple hidden>'
-  :'<small class="mono dim">Open a room to add or make something.</small>';
- $('#content').innerHTML=`<div class="card wide files-card"><h3>Workspace</h3>${cell(`
+ $('#pageActions').innerHTML=filesActions();
+ /* **Derived rather than hardcoded, because the card can answer it.** The page
+    fades anything not marked `live` — the glance-level signal for prototype
+    content — and a real directory rendered faded is the screen calling its own
+    data invented. `detail` is set exactly when the read did not happen, which
+    is the one case where this card genuinely has nothing behind it. */
+ const live=listing.detail?'':' live';
+ $('#content').innerHTML=`<div class="card wide${live} files-card"><h3>Workspace</h3>${cell(`
   <div class="files" id="filesPane" style="${filesWidths()}">
-   <div class="rooms" id="roomRail">${roomRail(rooms,listing.places||[])}</div>
+   <div class="rooms" id="roomRail">${roomRail(places,folders)}</div>
    <div class="grip" data-grip="rail" title="Drag to resize"></div>
    <div>
     <div class="crumbs" id="crumbs">${crumbs(FILES_AT)}</div>
     ${listHead()}
-    <div class="entries" id="entries">${entryRows(listing.items)}</div>
-    <small class="mono dim">Drag a row onto a room to move it there, or drop files
-    from anywhere to put them in this one. Deleting keeps a copy for a fortnight.</small>
+    <div class="entries" id="entries">${entryRows(sortEntries(listing.items,FILES_SORT))}</div>
+    <small class="mono dim">Click to select, ⌘ or Shift for several — every verb
+    then acts on the lot. Drag a row onto a room to move it there, or onto a share
+    to copy it; hold Shift to swap. Sort by clicking a column. Drop files from
+    anywhere to put them in this one. Deleting keeps a copy for a fortnight.</small>
    </div>
   </div>`,'nervis')}</div>`;
- wireFiles();
+ wireFiles(rooms,places);
  wireFileActions();
+}
+
+/* Files go inside a room, so the workspace's own top level offers nothing — but
+   a share's top level is an ordinary directory and takes both. Its own function
+   because `filesView` was at the file's complexity ratchet and this is the part
+   that is a decision rather than a rendering. */
+function filesActions(){
+ if(!FILES_AT&&FILES_PLACE==='workspace'){
+  return '<small class="mono dim">Open a room to add or make something.</small>';
+ }
+ return '<button class="btn" id="newFolder">New folder</button>'
+  +'<button class="btn primary" id="addFiles">Add files</button>'
+  +'<input type="file" id="filePicker" multiple hidden>';
 }
 
 /* The two buttons above the list, wired to the same calls the drops use. */
@@ -4117,9 +4236,11 @@ async function filesTrashView(){
  $('#pageActions').innerHTML='';
  const waiting=await API.nervis.workspaceTrash();
  const listing=await API.nervis.workspaceEntries('');
- $('#content').innerHTML=`<div class="card wide files-card"><h3>Workspace</h3>${cell(`
+ const folders=await railFolders(listing.places||[]);
+ const live=listing.detail?'':' live';
+ $('#content').innerHTML=`<div class="card wide${live} files-card"><h3>Workspace</h3>${cell(`
   <div class="files" id="filesPane" style="${filesWidths()}">
-   <div class="rooms" id="roomRail">${roomRail(listing.rooms||[])}</div>
+   <div class="rooms" id="roomRail">${roomRail(listing.places||[],folders)}</div>
    <div class="grip" data-grip="rail" title="Drag to resize"></div>
    <div>
     <div class="crumbs" id="crumbs"><button data-goto="">workspace</button>
@@ -4130,7 +4251,7 @@ async function filesTrashView(){
     Put one back into any room.</small>
    </div>
   </div>`,'nervis')}</div>`;
- wireFiles();
+ wireFiles(listing.rooms||[],listing.places||[]);
  $$('#entries [data-act="restore"]').forEach(button=>{
   button.onclick=async()=>{
    const row=button.closest('.entry');
@@ -4154,21 +4275,91 @@ function trashRows(items){
 
 /* The rooms, in the order they mean something, plus the trash at the bottom
    because it is where things go rather than a place things are kept. */
-/* The rail: the workspace's rooms, then anywhere else NERVIS was given, then
-   the trash. The places are separated because they are a different kind of
-   thing — a room is part of the workspace's structure, a place is a directory
-   somebody else owns and NERVIS was pointed at. */
-function roomRail(rooms,places){
- const here=FILES_PLACE==='workspace'?FILES_AT.split('/')[0]:'';
- const room=name=>`<button class="room${here===name?' on':''}" data-room="${escapeHtml(name)}">`
-  +glyph(ROOM_ICON[name]||ROOM_ICON.folder)+`<span>${escapeHtml(name)}</span></button>`;
+/* Which rail entries are folded open, as `place/path` keys. Kept across
+   renders because a drag ends in a repaint, and a rail that closed itself
+   every time something landed would make the second file harder to file than
+   the first. */
+const railKey=(place,path)=>`${place}/${path}`;
+/* **Folded out is the default, and this remembers what was folded shut.** The
+   rooms are what somebody opening this tab came for, and the folders on a
+   share are what a drag is aimed at — putting either behind a twisty is one
+   click of ceremony on every visit. Kept as the closed set rather than the
+   open one so a share that appears later arrives open like everything else,
+   instead of needing to be seeded the moment it is configured. */
+const FILES_SHUT=new Set();
+
+/* The rail: this machine, then anywhere else NERVIS was given, then the trash.
+   **Every place is one entry that folds open**, the workspace included — its
+   rooms are the folders inside it, so they arrive the same way a share's
+   folders do rather than as a second kind of rail entry with its own rules.
+   That is also what makes a drag from a room to a particular folder on the NAS
+   one gesture instead of a drop, a navigation and a second drop.
+
+   `folders` is a map of already-read children, because the rail is a string and
+   reading inside it would make it a promise. */
+/* **The rail has its own order, and the listing keeps the API's.** Two
+   different questions: a listing is about what a room is *for* — arriving,
+   kept, produced — while the rail is about reaching one, and the two a person
+   reaches for are where they keep things and where they work. Everything under
+   those is alphabetical, so a folder is where the alphabet says it is rather
+   than where its timestamp put it. */
+const RAIL_FIRST=['clarvis','library'];
+const railRank=(name)=>{
+ const at=RAIL_FIRST.indexOf(name);
+ return at<0?RAIL_FIRST.length:at;
+};
+const railOrder=(kids)=>[...kids].sort((a,b)=>
+  railRank(a.name)-railRank(b.name)||a.name.localeCompare(b.name));
+
+function roomRail(places,folders={}){
+ const entry=(place,path,name,icon)=>{
+  const key=railKey(place,path);
+  const kids=folders[key];
+  const open=!FILES_SHUT.has(key);
+  const twist=`<i class="twist${open?' open':''}" data-open="${escapeHtml(key)}"`
+   +` title="Show folders">${open?'▾':'▸'}</i>`;
+  const under=child=>FILES_PLACE===place
+   &&(FILES_AT===child.path||FILES_AT.startsWith(child.path+'/'));
+  return `<button class="room${FILES_PLACE===place&&FILES_AT===path?' on':''}"`
+   +` data-place="${escapeHtml(place)}" data-path="${escapeHtml(path)}">${twist}`
+   +glyph(icon)+`<span>${escapeHtml(name)}</span></button>`
+   +(open&&kids?`<div class="subrail">${railOrder(kids).map(child=>
+     `<button class="room sub${under(child)?' on':''}"`
+     +` data-place="${escapeHtml(place)}" data-path="${escapeHtml(child.path)}">`
+     /* A room keeps its own silhouette in the fold-out, and so does a folder on
+        a share that happens to be named after one — the name is the thing being
+        recognised, not where it lives. */
+     +glyph(ROOM_ICON[child.name]||ROOM_ICON.folder)
+     +`<span>${escapeHtml(child.name)}</span></button>`).join('')}</div>`
+    :'');
+ };
  const elsewhere=(places||[]).filter(name=>name!=='workspace').map(name=>
-  `<button class="room${FILES_PLACE===name?' on':''}" data-place="${escapeHtml(name)}">`
-  +glyph(ROOM_ICON.share)+`<span>${escapeHtml(name)}</span></button>`).join('');
- return rooms.map(room).join('')
+   entry(name,'',name,ROOM_ICON.share)).join('');
+ return '<div class="rail-split first">local</div>'
+  +entry('workspace','','workspace',ROOM_ICON.local)
   +(elsewhere?`<div class="rail-split">elsewhere</div>${elsewhere}`:'')
   +`<button class="room${FILES_AT==='.trash'?' on':''}" data-room=".trash" data-trash="1">`
   +glyph(ROOM_ICON.trash)+'<span>trash</span></button>';
+}
+
+/* The folders under every rail entry that is open, read before the rail is
+   drawn. One request per place, and none for a place folded shut.
+
+   **A place that does not answer folds to empty rather than taking the screen
+   with it.** A share is a mount that can go away between one render and the
+   next, and a rail that threw when the NAS was unplugged would lose the local
+   rooms with it. */
+async function railFolders(places=[]){
+ const found={};
+ for(const place of ['workspace',...places.filter(name=>name!=='workspace')]){
+  const key=railKey(place,'');
+  if(FILES_SHUT.has(key))continue;
+  try{
+   const listing=await API.nervis.workspaceEntries('',place);
+   found[key]=(listing.items||[]).filter(item=>item.kind==='folder');
+  }catch(e){found[key]=[]}
+ }
+ return found;
 }
 
 /* Remembered per browser, because a width somebody dragged is a preference and
@@ -4185,10 +4376,55 @@ function filesWidths(){
  return `--w-rail:${at('rail')}px;--w-size:${at('size')}px;--w-when:${at('when')}px`;
 }
 
+/* **Which column the listing is sorted by.** No column is the API's own order,
+   which is not arbitrary: folders first, the rooms in the order they mean
+   something, then files newest first — what somebody who just saved a file is
+   looking for. A person sorting by name has said that is not what they want
+   this time, and saying it again on every visit would be the screen forgetting.
+
+   Folders stay above files whichever column is chosen. A directory sorted
+   strictly by size puts the folders in the middle of the files, which is a
+   list nobody has ever wanted. */
+const FILES_SORT_KEY='nervis.files.sort';
+let FILES_SORT=storedSort();
+
+function storedSort(){
+ try{
+  const held=JSON.parse(localStorage.getItem(FILES_SORT_KEY)||'{}')||{};
+  if(['name','size','modified'].includes(held.by))return {by:held.by,dir:held.dir<0?-1:1};
+ }catch(e){}
+ return {by:'',dir:1};
+}
+
+function sortEntries(items,sort){
+ if(!sort||!sort.by)return items;
+ const value=item=>{
+  if(sort.by==='name')return String(item.name).toLowerCase();
+  if(sort.by==='size')return item.kind==='folder'?-1:Number(item.bytes)||0;
+  return Number(item.modified)||0;
+ };
+ return [...items].sort((a,b)=>{
+  if((a.kind==='folder')!==(b.kind==='folder'))return a.kind==='folder'?-1:1;
+  const x=value(a),y=value(b);
+  return (x<y?-1:(x>y?1:0))*sort.dir;
+ });
+}
+
+/* Clicking the column already sorted by turns it around, which is what every
+   listing anywhere has done for as long as listings have had headers. */
+function resort(by){
+ FILES_SORT=FILES_SORT.by===by?{by,dir:-FILES_SORT.dir}:{by,dir:1};
+ try{localStorage.setItem(FILES_SORT_KEY,JSON.stringify(FILES_SORT))}catch(e){}
+ return filesView();
+}
+
 function listHead(){
- return `<div class="entry-head"><span></span><span>name</span>
-  <span>size<i class="grip" data-grip="size"></i></span>
-  <span>modified<i class="grip" data-grip="when"></i></span><span></span></div>`;
+ const mark=name=>FILES_SORT.by===name?(FILES_SORT.dir>0?' ▲':' ▼'):'';
+ return `<div class="entry-head"><span></span>
+  <span data-sort="name">name${mark('name')}</span>
+  <span data-sort="size">size${mark('size')}<i class="grip" data-grip="size"></i></span>
+  <span data-sort="modified">modified${mark('modified')}<i class="grip" data-grip="when"></i></span>
+  <span></span></div>`;
 }
 
 /* One handle. The column it sizes grows as the pointer moves *left*, because
@@ -4242,13 +4478,22 @@ function crumbs(path){
  return `<button data-goto="">${escapeHtml(FILES_PLACE)}</button>${trail}`;
 }
 
+/* A repaint of the same directory keeps the selection — a copy leaves the
+   originals where they were and somebody may want to send the same eleven
+   files somewhere else. Any other directory starts empty. */
+function forgetSelectionOutside(where){
+ if(FILES_PICKED_AT===where)return;
+ FILES_PICKED=new Set();FILES_ANCHOR='';FILES_PICKED_AT=where;
+}
+
 function entryRows(items){
  if(!items.length)return '<div class="file-empty">Nothing here yet. Drop a file to put one in.</div>';
  return items.map(item=>{
   const icon=item.kind==='folder'
    ?(ROOM_ICON[item.name]&&!item.path.includes('/')?ROOM_ICON[item.name]:ROOM_ICON.folder)
    :FILE_ICON[fileKind(item.name)];
-  return `<div class="entry" data-kind="${escapeHtml(item.kind)}"
+  return `<div class="entry${FILES_PICKED.has(item.path)?' picked':''}"
+    data-kind="${escapeHtml(item.kind)}"
     data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}"
     draggable="true">${glyph(icon)}
    <b>${escapeHtml(item.name)}</b>
@@ -4296,32 +4541,72 @@ function whenShort(seconds){
    mutations, and the two drags. Its own function because `filesView` would be
    past the file's complexity ratchet with any of it inline — and because this
    is the half that touches the disk, which is worth reading in one place. */
-function wireFiles(){
+function wireFiles(rooms=[],places=[]){
+ $$('#roomRail .twist').forEach(twist=>{
+  twist.onclick=async event=>{
+   /* The twisty is inside the button, so without this a fold-out would also
+      navigate — two things from one click, one of them unasked for. */
+   event.stopPropagation();
+   const key=twist.dataset.open;
+   FILES_SHUT.has(key)?FILES_SHUT.delete(key):FILES_SHUT.add(key);
+   await filesView();
+  };
+ });
  $$('#roomRail .room').forEach(button=>{
+  const where=button.dataset.trash
+   ?null
+   :{place:button.dataset.place||'workspace',path:button.dataset.path||''};
   button.onclick=()=>{
-   if(button.dataset.place){FILES_PLACE=button.dataset.place;FILES_AT=''}
-   else{FILES_PLACE='workspace';FILES_AT=button.dataset.room}
+   if(button.dataset.trash){FILES_AT='.trash'}
+   else{FILES_PLACE=where.place;FILES_AT=where.path}
    filesView();
   };
-  dropOnto(button,()=>button.dataset.place
-    ?{place:button.dataset.place,path:''}
-    :{place:'workspace',path:button.dataset.room});
+  if(where)dropOnto(button,()=>where);
  });
  $$('#crumbs button').forEach(button=>{
   button.onclick=()=>{FILES_AT=button.dataset.goto||'';filesView()};
  });
  const list=$('#entries');
  if(list)dropOnto(list,()=>({place:FILES_PLACE,path:FILES_AT}),{files:true});
+ if(list)list.onclick=event=>{
+  /* The space below the last row is "none of them". */
+  if(event.target.closest&&event.target.closest('.entry'))return;
+  FILES_PICKED=new Set();FILES_ANCHOR='';paintSelection();
+ };
+ if(list)list.oncontextmenu=event=>{
+  /* The row under the pointer, or none when the click landed in the space
+     below the last one — which is a question about this directory rather than
+     about a file. */
+  const row=event.target.closest?event.target.closest('.entry'):null;
+  fileMenu(event,row,rooms,places);
+ };
  wireGrips();
+ $$('.entry-head [data-sort]').forEach(head=>{
+  head.onclick=event=>{
+   /* The resize handle lives inside the header cell it sizes, and a drag that
+      also re-sorted the listing would be two things from one gesture. */
+   if(event.target.classList&&event.target.classList.contains('grip'))return;
+   resort(head.dataset.sort);
+  };
+ });
  $$('#entries .entry').forEach(row=>wireEntry(row));
 }
 
 function wireEntry(row){
  const path=row.dataset.path,name=row.dataset.name;
  row.ondblclick=()=>{if(row.dataset.kind==='folder'){FILES_AT=path;filesView()}};
+ row.onclick=event=>{
+  /* A row's own buttons are verbs, not a selection gesture. */
+  if(event.target.closest&&event.target.closest('[data-act]'))return;
+  pickRow(path,event);
+ };
  row.addEventListener('dragstart',event=>{
+  /* **Dragging an unselected row drags that row**, and dragging a selected one
+     drags everything selected. Anything else would either lose the ten files
+     somebody just picked or quietly carry them when they meant one. */
+  if(!FILES_PICKED.has(path))pickRow(path,{});
   event.dataTransfer.setData('text/nervis-path',
-    JSON.stringify({place:FILES_PLACE,path}));
+    JSON.stringify({place:FILES_PLACE,paths:[...FILES_PICKED]}));
   event.dataTransfer.effectAllowed='copyMove';
   FILES_SHIFT=event.shiftKey;
   row.classList.add('lifting');
@@ -4330,6 +4615,27 @@ function wireEntry(row){
  row.querySelectorAll('[data-act]').forEach(button=>{
   button.onclick=event=>{event.stopPropagation();fileAction(button.dataset.act,path,name)};
  });
+}
+
+/* One click replaces the selection, Cmd or Ctrl adds to it, Shift takes the
+   span from the anchor. Repainted in place rather than by re-rendering: a
+   re-render is a request, and selecting is not a change to anything on disk. */
+function pickRow(path,event){
+ const paths=$$('#entries .entry').map(row=>row.dataset.path);
+ if(event.shiftKey&&FILES_ANCHOR){
+  FILES_PICKED=new Set(pickSpan(paths,FILES_ANCHOR,path));
+ }else if(event.metaKey||event.ctrlKey){
+  FILES_PICKED.has(path)?FILES_PICKED.delete(path):FILES_PICKED.add(path);
+  FILES_ANCHOR=path;
+ }else{
+  FILES_PICKED=new Set([path]);FILES_ANCHOR=path;
+ }
+ paintSelection();
+}
+
+function paintSelection(){
+ $$('#entries .entry').forEach(row=>
+   row.classList.toggle('picked',FILES_PICKED.has(row.dataset.path)));
 }
 
 async function fileAction(what,path,name){
@@ -4349,15 +4655,154 @@ async function fileAction(what,path,name){
     parent?`${parent}/${wanted}`:wanted,{fromPlace:FILES_PLACE}),`renamed to ${wanted}`);
  }
  if(what==='delete'){
-  if(!confirm(`Delete ${name}? A copy stays in the trash for a fortnight.`))return;
-  return finishFileAction(await API.nervis.workspaceDelete(path,FILES_PLACE),
-    `${name} moved to the trash`);
+  const doomed=actingOn(path,FILES_PICKED);
+  const what_=plainly(doomed.length,name);
+  if(!confirm(`Delete ${what_}? A copy stays in the trash for a fortnight.`))return;
+  let refused='';
+  for(const one of doomed){
+   const outcome=await API.nervis.workspaceDelete(one,FILES_PLACE);
+   if(!outcome.ok)refused=outcome.detail||'NERVIS refused that';
+  }
+  return finishFileAction({ok:!refused,detail:refused},`${what_} moved to the trash`);
  }
 }
 
 async function finishFileAction(outcome,said){
  notify(outcome.ok?said:(outcome.detail||'NERVIS refused that'));
  await filesView();
+}
+
+/* Anything that is not the menu closes it: a stale menu floats over a list
+   that has since repainted, and its items would act on a file that has moved.
+   Bound once, at load, rather than per render — a listener added on every
+   navigation is a listener leaked on every navigation. */
+window.addEventListener('click',closeFileMenu);
+window.addEventListener('scroll',closeFileMenu,true);
+window.addEventListener('keydown',event=>{if(event.key==='Escape')closeFileMenu()});
+
+/* Escape clears a selection and Cmd/Ctrl-A takes the whole listing, because
+   both are what every file manager has done for thirty years. Only while the
+   Files tab is the one on screen, and never while somebody is typing. */
+window.addEventListener('keydown',event=>{
+ if(state.view!=='Files')return;
+ const typing=document.activeElement&&/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+ if(typing)return;
+ if(event.key==='Escape'){FILES_PICKED=new Set();FILES_ANCHOR='';paintSelection();return}
+ if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='a'){
+  event.preventDefault();
+  FILES_PICKED=new Set($$('#entries .entry').map(row=>row.dataset.path));
+  paintSelection();
+ }
+});
+
+/* ── The right-click menu ────────────────────────────────────────────────────
+
+   **The same verbs the row buttons run**, through the same `fileAction`, plus
+   the one thing a row cannot offer without becoming a form: send this
+   somewhere. A menu that reimplemented delete would be a second place the
+   confirmation could go missing.
+
+   Only ever one menu, and it closes on anything that is not itself: a click, a
+   scroll, Escape, or another right-click. A stale menu floating over a list
+   that has since repainted is a menu whose items act on a file that has
+   moved. */
+function closeFileMenu(){
+ const open=$('#fileMenu');
+ if(open)open.remove();
+}
+
+function fileMenu(event,row,rooms,places){
+ event.preventDefault();
+ closeFileMenu();
+ const menu=document.createElement('div');
+ menu.className='filemenu';menu.id='fileMenu';
+ /* **Where the file already is, passed in rather than read.** The menu lists
+    every destination except the current one, and computing that from module
+    state made the rule invisible to anything that did not also set the state —
+    which is exactly how a menu offering to copy a file onto itself got past a
+    check that was looking straight at it. */
+ const here=FILES_PLACE==='workspace'?FILES_AT.split('/')[0]:FILES_PLACE;
+ /* Right-clicking outside the selection is aimed at that row, and a menu whose
+    Delete meant ten other files would be a menu that lies about its target. */
+ if(row&&!FILES_PICKED.has(row.dataset.path))pickRow(row.dataset.path,{});
+ menu.innerHTML=row
+  ?menuForEntry(row,rooms,places,here,actingOn(row.dataset.path,FILES_PICKED).length)
+  :menuForHere();
+ document.body.appendChild(menu);
+ /* Flipped rather than clipped when it would run off the edge: a menu opened
+    near the bottom of a long directory is the ordinary case, not the corner. */
+ const box=menu.getBoundingClientRect();
+ const x=Math.min(event.clientX,window.innerWidth-box.width-8);
+ const y=Math.min(event.clientY,window.innerHeight-box.height-8);
+ menu.style.left=`${Math.max(8,x)}px`;
+ menu.style.top=`${Math.max(8,y)}px`;
+ menu.querySelectorAll('[data-act]').forEach(item=>{
+  item.onclick=async()=>{
+   closeFileMenu();
+   if(item.dataset.act==='send')return sendTo(row,item.dataset.place,item.dataset.path);
+   if(item.dataset.act==='refresh')return filesView();
+   if(item.dataset.act==='newfolder')return $('#newFolder')&&$('#newFolder').click();
+   if(item.dataset.act==='addfiles')return $('#addFiles')&&$('#addFiles').click();
+   return fileAction(item.dataset.act,row.dataset.path,row.dataset.name);
+  };
+ });
+}
+
+/* One row: what to do with this file, then where to send it. The destinations
+   are every room and place except the one it is already in — a menu offering
+   to copy a file onto itself is a menu with a wrong answer in it. */
+function menuForEntry(row,rooms,places,here,count=1){
+ const folder=row.dataset.kind==='folder';
+ /* With several rows selected the verbs are about all of them, and a menu that
+    said "Delete" over ten selected files would be describing one of them. */
+ const many=count>1?` ${count} items`:'';
+ const viewable=!folder&&!many&&viewableName(row.dataset.name);
+ const open=folder
+  ?`<button data-act="open">${glyph(ROOM_ICON.folder)}<span>Open</span></button>`
+  :(viewable?`<button data-act="view">${glyph(FILE_ICON.text)}<span>Open in a tab</span></button>`
+            :'<button disabled>Nothing here opens it</button>');
+ const destinations=[
+  ...rooms.filter(name=>name!==here).map(name=>({place:'workspace',path:name,label:name})),
+  ...(places||[]).filter(name=>name!=='workspace'&&name!==here)
+    .map(name=>({place:name,path:'',label:name})),
+ ];
+ return (many?'':open)
+  +(many?'':`<button data-act="rename">${glyph(ICON.Settings)}<span>Rename</span></button>`)
+  +`<button class="harm" data-act="delete">${glyph(ROOM_ICON.trash)}`
+  +`<span>Delete${many}</span></button>`
+  +(destinations.length?`<hr><div class="where">copy${many||' to'}${many?' to':''}</div>`
+    +destinations.map(to=>
+    `<button data-act="send" data-place="${escapeHtml(to.place)}" `
+    +`data-path="${escapeHtml(to.path)}">`
+    +glyph(to.place==='workspace'?(ROOM_ICON[to.label]||ROOM_ICON.folder):ROOM_ICON.share)
+    +`<span>${escapeHtml(to.label)}</span></button>`).join(''):'');
+}
+
+/* Right-clicking the empty space below a listing asks about the *place*, not
+   about a file. */
+function menuForHere(){
+ const inside=FILES_AT||FILES_PLACE!=='workspace';
+ return (inside
+   ?`<button data-act="newfolder">${glyph(ROOM_ICON.folder)}<span>New folder</span></button>`
+    +`<button data-act="addfiles">${glyph(ROOM_ICON.import)}<span>Add files…</span></button><hr>`
+   :'<button disabled>Open a room to add or make something</button><hr>')
+  +`<button data-act="refresh">${glyph(ICON.Runtime)}<span>Refresh</span></button>`;
+}
+
+/* Copy a row to a named destination, which is what the menu's second half is
+   for. Always a copy: the menu is a deliberate act on one file, and a person
+   who wanted it gone from here has Delete a few pixels above. */
+async function sendTo(row,place,path){
+ const sending=actingOn(row.dataset.path,FILES_PICKED);
+ let done=0,last='',refused='';
+ for(const one of sending){
+  const name=one.split('/').pop();
+  const outcome=await API.nervis.workspaceMove(one,path?`${path}/${name}`:name,
+    {fromPlace:FILES_PLACE,toPlace:place,copy:true});
+  if(outcome.ok){done++;last=name}else refused=outcome.detail||'NERVIS refused that';
+ }
+ await finishFileAction({ok:!refused,detail:refused},
+   `${plainly(done,last)} copied to ${path||place}`);
 }
 
 /* One drop target. `where()` is a function rather than a value because the rail
@@ -4377,24 +4822,88 @@ function dropOnto(node,where,opts={}){
  });
 }
 
-/* **Within a place a drag moves; across places it copies.** Dragging a
-   document onto the NAS to have it there should not empty the room it came
-   from — and a move across a mount is a copy and a delete anyway, which is a
-   thing to be deliberate about at 38ms a write. Hold Shift to move instead. */
+/* **Between places a drag copies; within one it moves.** Working between a
+   laptop and a NAS, the ordinary intention is "have this in both" — and a drag
+   that emptied the local room would be a surprise costing 38ms a write to
+   undo. Within a single place the intention is the opposite: a file dragged
+   from one room to another was being *filed*, not duplicated. Hold Shift to
+   swap either. */
 async function dropMove(from,into){
- const name=from.path.split('/').pop();
- if(!into||(from.place===into.place&&from.path===`${into.path}/${name}`))return;
- const copying=from.place!==into.place&&!FILES_SHIFT;
- const outcome=await API.nervis.workspaceMove(from.path,
-   into.path?`${into.path}/${name}`:name,
-   {fromPlace:from.place,toPlace:into.place,copy:copying});
- await finishFileAction(outcome,
-   `${name} ${copying?'copied':'moved'} to ${into.place}${into.path?'/'+into.path:''}`);
+ if(!into)return;
+ const copying=dragVerb(from.place,into.place,FILES_SHIFT)==='copy';
+ const tally=await moveEach(from,into,copying);
+ /* Nothing done and nothing refused is a drop onto the folder the files are
+    already in, which is not an event. */
+ if(!tally.done&&!tally.refused)return;
+ await finishFileAction({ok:!tally.refused,detail:tally.refused},
+   `${plainly(tally.done,tally.last)} ${copying?'copied':'moved'} to ${placed(into)}`);
 }
 
-/* Whether the last drag was held with Shift, which is what turns a copy across
-   places into a move. Read at drop time from the event that started it. */
+/* One request per file and one message for the lot: a toast per file buries
+   the one that failed under nine that did not. */
+async function moveEach(from,into,copying){
+ let done=0,last='',refused='';
+ for(const path of from.paths){
+  const name=path.split('/').pop();
+  const to=into.path?`${into.path}/${name}`:name;
+  if(from.place===into.place&&path===to)continue;
+  const outcome=await API.nervis.workspaceMove(path,to,
+    {fromPlace:from.place,toPlace:into.place,copy:copying});
+  if(outcome.ok){done++;last=name}else refused=outcome.detail||'NERVIS refused that';
+ }
+ return {done,last,refused};
+}
+
+/* "eleven items", or the file's own name when there is one of it: a message
+   reading "1 items" is a message written by a machine. */
+const plainly=(done,name)=>done===1?name:`${done} items`;
+const placed=(into)=>`${into.place}${into.path?'/'+into.path:''}`;
+
+/* **Which verb a drag means**, as a function rather than a line inside a
+   handler — the rule is the interesting part and a handler is not somewhere a
+   check can reach.
+
+   Between places it copies: working between a laptop and a NAS the ordinary
+   intention is "have this in both", and a drag that emptied the local room
+   would cost 38ms a write to undo. Within one place it moves: a file dragged
+   from one room to another was being filed, not duplicated. Shift swaps
+   whichever the two ends imply. */
+function dragVerb(fromPlace,toPlace,shift){
+ return (fromPlace!==toPlace)!==!!shift?'copy':'move';
+}
+
+/* Whether the drag was held with Shift, which swaps whichever verb the two
+   ends imply. Read from the event that started it, because a drop event does
+   not carry the modifier reliably across platforms. */
 let FILES_SHIFT=false;
+
+/* **What is selected, and where it was selected.** Filing is a plural act —
+   somebody clearing out `import` is moving eleven things, not one eleven
+   times — so a click selects, Cmd/Ctrl adds, Shift takes the span, and every
+   verb below acts on the selection when the row it was aimed at is part of it.
+
+   The selection is remembered with the directory it belongs to and dropped on
+   the way out of it: paths from the room you just left would still match rows
+   in the room you arrived in if a name repeated, which is a delete aimed at
+   the wrong file. */
+let FILES_PICKED=new Set(),FILES_PICKED_AT='',FILES_ANCHOR='';
+
+/* Which rows a verb is about: the selection when the row belongs to it, and
+   this row alone otherwise. A function rather than a line inside each handler
+   because "Delete on an unselected row deletes that row, not the selection" is
+   the rule people get wrong, and a rule inside a handler is one nothing can
+   check. */
+function actingOn(path,picked){
+ return picked&&picked.has(path)&&picked.size>1?[...picked]:[path];
+}
+
+/* Shift-click takes everything between the anchor and here, in the order the
+   rows are on screen — which is the order a person means by "these". */
+function pickSpan(paths,from,to){
+ const a=paths.indexOf(from),b=paths.indexOf(to);
+ if(a<0||b<0)return [to];
+ return paths.slice(Math.min(a,b),Math.max(a,b)+1);
+}
 
 /* Files dragged in from another application. Uploaded one at a time and
    reported once: a toast per file would bury the one that failed. */
@@ -6479,6 +6988,85 @@ async function tracesView(){
    test §14 actually specifies. Flipping payload capture or a supervision mode is
    a mutation: it needs an actor, an audit record and a revalidated capability,
    and none of that exists to be called yet. */
+/* Where NERVIS is pointed at a NAS, and the one card on this screen that both
+   reads and writes a real stored setting.
+
+   **The launcher reads the same row.** `files.share` is stored once, in the
+   database every other setting lives in; `tools/run.py` opens it read-only
+   before it starts anything and mounts what it finds. A second copy in a
+   launcher variable would be the same fact in two places, and the pair drifts
+   the first time somebody edits the convenient one.
+
+   Empty means empty: nothing is mounted and no place appears in Files, which
+   is every machine that was never told about a share. */
+async function shareSection(){
+ const share=await API.nervis.fileShare();
+ const listing=await API.nervis.workspaceEntries('','workspace');
+ const reachable=(listing.places||[]).includes(share.name||'nas');
+ const state=!share.url
+  ?'<span class="chip">none configured</span>'
+  :(reachable?'<span class="chip">mounted and reachable</span>'
+             :'<span class="chip warn">configured, not mounted</span>');
+ /* Derived, not hardcoded: with no address this is an empty state and has no
+    source to claim. With one, it is reporting what the launcher found. */
+ const live=share.url?' live':'';
+ return `<div class="card wide${live}"><h3>Network share</h3>${cell(`
+  <div class="trace-step"><b>state</b><span>${state}</span></div>
+  <div class="trace-step"><b>address</b><span><input id="shareUrl" class="mono"
+    placeholder="smb://synology.local/nervis" value="${escapeHtml(share.url||'')}"
+    style="width:100%;background:#0e151d;border:1px solid var(--line);border-radius:4px;
+    padding:6px 8px;color:inherit;font:inherit"></span></div>
+  <div class="trace-step"><b>called</b><span><input id="shareName" class="mono"
+    placeholder="nas" value="${escapeHtml(share.name||'')}"
+    style="width:160px;background:#0e151d;border:1px solid var(--line);border-radius:4px;
+    padding:6px 8px;color:inherit;font:inherit"> in the Files tab</span></div>
+  <div class="trace-step"><b></b><span><button class="btn primary" id="saveShare">Save</button>
+   <button class="btn" id="clearShare">Forget it</button></span></div>
+  <small class="mono dim">Mounted by the launcher on <b>start</b>, using the password in your
+  Keychain — nothing is stored here but the address. An empty address mounts nothing.
+  The workspace itself stays local: a 64KB write measured <b>38ms</b> on a LAN share against
+  <b>0.09ms</b> locally, so a share is somewhere to put things rather than somewhere to
+  work from.</small>`,'nervis')}</div>`;
+}
+
+/* **Which screen a reload opens on**, as a switch rather than a rule nobody
+   was told about. Somebody moving between NERVIS's chat and the Clarvis editor
+   is going back and forth all day, and landing on the overview every time is a
+   navigation they did not ask for — but so is landing on yesterday's screen
+   after a restart, when what changed is precisely what came up. So the memory
+   lasts one run of the stack, and a fresh start opens the dashboard. */
+function screenSection(){
+ return `<div class="card wide${USER.read?' live':''}"><h3>Where you land</h3>${cell(`
+  <label class="adv-toggle"><input type="checkbox"${USER.rememberTab?' checked':''}
+    onchange="USER.setRememberTab(this.checked)"> Open on the tab I used last
+   <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;
+    letter-spacing:0">for as long as the stack has been up: the memory carries
+    NERVIS's own start time, so a freshly started stack opens on the overview —
+    the screen that says what came up and what did not. A link with a screen in
+    it always wins, because somebody who pasted one asked for that screen.
+    </small></label>`,'nervis')}</div>`;
+}
+
+/* Saving is a mutation and carries the page's own token, like every other one.
+   Wired after the screen is drawn, because the screen is a string until then. */
+function wireShareCard(){
+ const save=$('#saveShare'),forget=$('#clearShare');
+ if(save)save.onclick=async()=>{
+  const url=($('#shareUrl').value||'').trim();
+  const name=($('#shareName').value||'').trim()||'nas';
+  const outcome=await API.nervis.saveFileShare(url?{url,name}:{});
+  notify(outcome.ok
+    ?(url?'Saved — it will be mounted at the next start':'Share forgotten')
+    :(outcome.detail||'NERVIS refused that'));
+  if(outcome.ok)await settingsView();
+ };
+ if(forget)forget.onclick=async()=>{
+  const outcome=await API.nervis.saveFileShare({});
+  notify(outcome.ok?'Share forgotten':(outcome.detail||'NERVIS refused that'));
+  if(outcome.ok)await settingsView();
+ };
+}
+
 async function settingsView(){
  heading('Settings','Endpoints, ownership, privacy and retention. Some of these are boundaries, not preferences.');
  const s=await API.nervis.settings();
@@ -6543,6 +7131,8 @@ async function settingsView(){
    <div class="table-row head five"><span>Service</span><span>Endpoint</span><span>Ownership</span><span>NERVIS may</span><span>Test</span></div>
    ${s.services.map(([name,url,mode])=>`<div class="table-row five"><span>${escapeHtml(name)}</span><span class="mono" style="opacity:.7">${escapeHtml(url||'in-process')}</span><span class="mono">${escapeHtml(mode)}</span><span style="opacity:.75">${escapeHtml(MAY[mode]==null?'':MAY[mode])}</span><span><button class="btn" onclick="healthTest('${jsAttr(String(name).toLowerCase())}')">Test</button></span></div>`).join('')}
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>`)
+  + section('Screen', screenSection())
+  + section('Files', await shareSection())
   + section('Voice', await voiceSection())
   + section('Privacy and retention', `<div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
@@ -6564,6 +7154,7 @@ async function settingsView(){
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
    <div class="table-row"><span>observed only</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.observed.join(' · '))}</span></div>
    <small class="mono dim">${escapeHtml(s.supervision.observed.length)} of ${escapeHtml(s.supervision.observed.length+s.supervision.restartable.length)} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>`, false);
+ wireShareCard();
 }
 
 
@@ -9674,6 +10265,10 @@ const asFlag=(v,fallback)=>v===undefined?fallback:v!==false;
 const USER={
  name:'', system:'', brief:true, pages:true, mode:'', preset:'cp_nervis', params:{}, hydrated:false,
  excluded:[], memory:'session',
+ /* Whether a page load opens on the tab this browser was last on. `read` is
+    whether any of this came from the service, which is what the card that
+    shows it keys its liveness off. */
+ rememberTab:true, read:false,
  async load(){
   try{
    const r=await fetch(BASE.nervis+'/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -9695,12 +10290,21 @@ const USER={
    this.params=asMap(items['chat.params']);
    this.excluded=asList(items['chat.memory_excluded']);
    this.memory=items['chat.memory']==='all'?'all':'session';
+   this.rememberTab=asFlag(items['ui.remember_tab'],true);
+   this.read=true;
   }catch(e){}
  },
 
+ /* **With the page's control token**, because a setting is a value the
+    *launcher* also reads — `files.share` is mounted before anything starts —
+    so a write nobody had to prove came from this page would be a way to hand
+    the next start an address of somebody else's choosing. This sent no token
+    for as long as the route took none, and the route started taking one the
+    day the share moved into Settings: every preference here was quietly 403ing
+    until the header came back. */
  async write(key,value){
   try{await fetch(BASE.nervis+'/api/v1/settings/'+encodeURIComponent(key),{method:'PUT',
-    headers:{'content-type':'application/json'},body:JSON.stringify({value})})}catch(e){}
+    headers:control_headers(),body:JSON.stringify({value})})}catch(e){}
  },
  setName(value){this.name=value;this.write('user.display_name',value)},
  setBrief(on){this.brief=on;this.write('chat.brief',on)},
@@ -9709,6 +10313,7 @@ const USER={
     nothing, records nothing — the same category as the Focus toggle. */
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
  setPreset(id){this.preset=id;this.write('chat.preset',id)},
+ setRememberTab(on){this.rememberTab=on;this.write('ui.remember_tab',on);rememberTab()},
  setExcluded(list){this.excluded=list;this.write('chat.memory_excluded',list)},
  /* The sampling fields, on blur rather than per keystroke. Everything else
     on this panel already outlived the tab; these did not, so a temperature
@@ -12992,6 +13597,8 @@ $$('.tab').forEach(t=>t.onclick=()=>{setZen(false);go(t.dataset.app,APP_CONFIG[t
     from the moment it is on screen rather than only after the first click. */
  history.replaceState(null,'',location.pathname+location.search
    +hashFor(state.app,state.view));
+ /* After the first paint, and only when the address named nothing. */
+ restoreLastTab(opened);
 })();
 
 render();

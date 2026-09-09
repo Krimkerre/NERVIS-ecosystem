@@ -85,7 +85,7 @@ async def read_settings(request: Request) -> dict[str, Any]:
     return {"items": {row["key"]: _decoded(row["value"]) for row in rows}}
 
 
-@router.put("/settings/{key}")
+@router.put("/settings/{key}", dependencies=[Depends(require_control)])
 async def write_setting(key: str, request: Request) -> dict[str, Any]:
     """Store one setting.
 
@@ -93,6 +93,13 @@ async def write_setting(key: str, request: Request) -> dict[str, Any]:
     JSON `null` and storing nothing are different requests. A bare body cannot
     express that difference, and "the setting is explicitly off" is exactly the
     case a settings screen needs.
+
+    **The page's own token, like every other mutation here.** This route had
+    none, which was survivable while a setting only described NERVIS to itself
+    — and stopped being so when `files.share` arrived: that value is read by
+    the *launcher*, before anything starts, and mounted. A write nobody had to
+    prove they came from this page would be a way to hand the next start an
+    address of somebody else's choosing.
     """
     body = await _json_body(request)
     if "value" not in body:

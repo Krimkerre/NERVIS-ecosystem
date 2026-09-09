@@ -65,11 +65,54 @@ async function main() {
     name, path: name, kind: "folder", bytes: 0, modified: 1e9, readable: false,
   }))));
 
-  /* The rail, in meaning order. Read as the order the room buttons appear in,
-     because that is the order somebody's eye goes down. */
-  const rail = [...top.matchAll(/data-room="([^"]+)"/g)].map((m) => m[1]);
-  if (rail.join(",") !== "import,library,export,clarvis,.trash") {
-    failures.push(`the rooms were not in the order they mean something: ${rail.join(", ")}`);
+  /* **The workspace is one rail entry that folds**, the same shape a share is,
+     and it starts open — its rooms are what somebody opening this tab came for,
+     and a twisty in front of them is ceremony on every visit. */
+  if (!/class="room[^"]*" data-place="workspace" data-path=""/.test(top)) {
+    failures.push("the rail lost its workspace entry, so there is nothing to "
+      + "click to get back to the top of it.");
+  }
+  const subs = [...top.matchAll(/class="room sub[^"]*" data-place="workspace" data-path="([^"]*)"/g)]
+    .map((m) => m[1]);
+  /* **The rail's order is not the listing's.** A listing is about what a room
+     is for — arriving, kept, produced — and reads in that order. The rail is
+     about reaching one, so the two a person reaches for sit on top and the
+     rest is alphabetical, which is where somebody looks for a folder they
+     made themselves. */
+  if (subs.join(",") !== "clarvis,library,export,import") {
+    failures.push("the rail folded the rooms out in the wrong order: "
+      + `${subs.join(", ") || "none of them"}`);
+  }
+  if (!/data-room="\.trash"/.test(top)) {
+    failures.push("the trash left the rail, so a deleted file has nowhere to be found.");
+  }
+  /* Every place folds, because a drag to a particular folder on a share should
+     be one gesture rather than a drop, a navigation and a second drop. */
+  if (!/class="twist open"/.test(top)) {
+    failures.push("rail entries offered no way to fold open, so reaching a "
+      + "subfolder means navigating away from what you are dragging.");
+  }
+
+  /* **What a drag means, which is the rule and not the gesture.** Between a
+     laptop and a NAS the ordinary intention is "have this in both", so a drag
+     across places copies; within one place it moves, because a file dragged
+     between rooms was being filed rather than duplicated. Shift swaps either.
+     Checked here because the alternative — a drag that quietly emptied the
+     room it came from — is a data-loss surprise nothing else would catch. */
+  const { exported: rules } = pageWith(listing("", []));
+  const verb = (from, to, shift) => rules.dragVerb(from, to, shift);
+  const expected = [
+    ["workspace", "nas", false, "copy"],
+    ["workspace", "nas", true, "move"],
+    ["workspace", "workspace", false, "move"],
+    ["workspace", "workspace", true, "copy"],
+  ];
+  for (const [from, to, shift, want] of expected) {
+    const got = verb(from, to, shift);
+    if (got !== want) {
+      failures.push(`a drag from ${from} to ${to}${shift ? " with Shift" : ""} `
+        + `would ${got}, and should ${want}.`);
+    }
   }
 
   const inside = await drawn(listing("library", FILES));
@@ -101,6 +144,32 @@ async function main() {
       + "the tab would open a tab that downloads.");
   }
 
+  /* **The header sorts as well as resizes.** Both live in the same cell, so the
+     two gestures have to stay apart — and a listing whose sort put the folders
+     in among the files by size is a listing nobody has ever wanted. */
+  if (!/data-sort="name"/.test(inside) || !/data-sort="size"/.test(inside)
+      || !/data-sort="modified"/.test(inside)) {
+    failures.push("a column header offered no way to sort by it, so a room of "
+      + "two hundred files can only be read in the order it was written.");
+  }
+  const sorted = (by, dir) => rules.sortEntries(FILES, { by, dir })
+    .map((item) => item.name);
+  if (sorted("size", 1)[0] !== "papers" || sorted("size", -1)[0] !== "papers") {
+    failures.push("sorting by size put a file above a folder, which reads as "
+      + "the folders having gone missing into the middle of the list.");
+  }
+  const bySize = sorted("size", 1).slice(1);
+  if (bySize[0] !== "art.svg" || bySize[bySize.length - 1] !== "clip.mp4") {
+    failures.push(`sorting by size gave ${bySize.join(", ")}, which is not by size.`);
+  }
+  if (sorted("name", -1).slice(1).join(",") !== "paper.pdf,page.html,clip.mp4,art.svg") {
+    failures.push("a second click on a column did not turn the order around.");
+  }
+  if (rules.sortEntries(FILES, { by: "", dir: 1 }) !== FILES) {
+    failures.push("an unsorted listing was reordered anyway, losing the API's "
+      + "own order — rooms by what they are for, files newest first.");
+  }
+
   /* The header carries the handles that make the columns resizable, and says
      which column is which — a row of numbers with no header is a row of
      numbers. */
@@ -111,6 +180,76 @@ async function main() {
   if ([...inside.matchAll(/class="grip"/g)].length < 2) {
     failures.push("fewer than two resize handles: the widths that suit one room "
       + "are not the ones that suit another.");
+  }
+
+  /* **The right-click menu runs the same verbs as the row**, and offers the one
+     a row cannot: send this somewhere. What it must never grow is a second
+     delete with its own confirmation, or a download that copies a file into
+     another folder on the same disk. */
+  const row = (kind, name) => ({ dataset: { kind, name, path: `library/${name}` } });
+  const forFile = rules.menuForEntry(
+    row("file", "paper.pdf"), ROOMS, ["workspace", "nas"], "library");
+  const forFolder = rules.menuForEntry(
+    row("folder", "papers"), ROOMS, ["workspace", "nas"], "library");
+  const forHere = rules.menuForHere();
+
+  if (!/data-act="view"/.test(forFile) || !/data-act="rename"/.test(forFile)
+      || !/data-act="delete"/.test(forFile)) {
+    failures.push("the menu on a file lost one of the verbs the row offers.");
+  }
+  if (/data-act="download"/.test(forFile) || />Download</.test(forFile)) {
+    failures.push("the menu grew a download, which the row deliberately does not have.");
+  }
+  if (!/data-act="open"/.test(forFolder)) {
+    failures.push("the menu on a folder offered no way to open it.");
+  }
+  /* Copy-to lists every room and place except the one the file is already in:
+     a menu offering to copy a file onto itself has a wrong answer in it. */
+  const sends = [...forFile.matchAll(/data-act="send" data-place="([^"]*)" data-path="([^"]*)"/g)]
+    .map((m) => m[2] || m[1]);
+  if (!sends.includes("nas")) {
+    failures.push("the menu offered no way to send a file to a configured share, "
+      + "which is the one thing a row cannot do without becoming a form.");
+  }
+  if (sends.includes("library")) {
+    failures.push("the menu offered to copy a file into the room it is already in.");
+  }
+  /* **Filing is a plural act**, so the verbs act on the selection when the row
+     they were aimed at belongs to it — and on that row alone when it does not.
+     The second half is the one that matters: a Delete on an unselected row
+     that quietly took ten other files with it is the worst bug this screen
+     could have. */
+  const picked = new Set(["library/a.pdf", "library/b.pdf"]);
+  if (rules.actingOn("library/a.pdf", picked).length !== 2) {
+    failures.push("a verb aimed at a selected row acted on that row alone, so "
+      + "selecting ten files and deleting them means doing it ten times.");
+  }
+  const outside = rules.actingOn("library/c.pdf", picked);
+  if (outside.length !== 1 || outside[0] !== "library/c.pdf") {
+    failures.push("a verb aimed at an unselected row acted on the selection "
+      + "instead: Delete would take files the pointer was never on.");
+  }
+  /* Shift-click reads in screen order, whichever end it started from. */
+  const span = rules.pickSpan(["a", "b", "c", "d"], "d", "b");
+  if (span.join(",") !== "b,c,d") {
+    failures.push(`a shift-click upwards selected ${span.join(",")}, not the span.`);
+  }
+  /* With several rows chosen the menu is about all of them — and Rename and
+     Open are not verbs a set of files has. */
+  const forMany = rules.menuForEntry(
+    row("file", "paper.pdf"), ROOMS, ["workspace", "nas"], "library", 3);
+  if (!/Delete 3 items/.test(forMany)) {
+    failures.push("the menu said Delete over three selected files, which names "
+      + "one of them and takes all three.");
+  }
+  if (/data-act="rename"/.test(forMany) || /data-act="view"/.test(forMany)) {
+    failures.push("the menu offered Rename or Open for a set of files, and "
+      + "both are verbs exactly one file has.");
+  }
+
+  if (!/data-act="refresh"/.test(forHere)) {
+    failures.push("right-clicking the empty space offered no way to re-read the "
+      + "directory, which is what a person does when something changed outside NERVIS.");
   }
 
   /* An unconfigured workspace is a state to render, not an empty table. */

@@ -35,6 +35,7 @@ then actually gone.
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
@@ -63,7 +64,45 @@ TRASH_SECONDS = 14 * 24 * 60 * 60.0
 HOME = "workspace"
 
 
-def places(settings: Any) -> dict[str, Path]:
+#: Where the Settings screen stores the share it was pointed at, and what the
+#: launcher reads before it starts anything: `{"url": …, "name": …, "path": …}`.
+#: Absent or empty means there is nothing to mount and nothing to show, which
+#: is every machine that was never told about one.
+SHARE_SETTING = "files.share"
+
+
+def stored_share(database: Any) -> dict[str, str]:
+    """The share somebody typed into Settings, or nothing.
+
+    Read from the same key/value table every other stored setting lives in, so
+    the launcher and the service are reading one answer rather than two copies
+    of a configuration that can disagree.
+    """
+    try:
+        row = database.connection.execute(
+            "SELECT value FROM setting WHERE key = ?", (SHARE_SETTING,)
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - a missing table is "nothing configured"
+        return {}
+    if row is None:
+        return {}
+    try:
+        held = json.loads(row["value"])
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    url = str(held.get("url") or "").strip()
+    if not url:
+        return {}
+    name = str(held.get("name") or "").strip() or "nas"
+    # The mountpoint macOS will use, unless somebody said otherwise: the share's
+    # last segment under `/Volumes`.
+    where = str(held.get("path") or "").strip() or f"/Volumes/{url.rstrip('/').rsplit('/', 1)[-1]}"
+    return {"url": url, "name": name, "path": where}
+
+
+def places(settings: Any, database: Any = None) -> dict[str, Path]:
     """Every root the Files tab may reach, by name.
 
     **The containment argument survives having more than one root**, and it is
@@ -81,7 +120,15 @@ def places(settings: Any) -> dict[str, Path]:
     home = str(getattr(settings, "workspace_path", "") or "").strip()
     if home:
         found[HOME] = Path(home).expanduser()
-    for pair in str(getattr(settings, "file_places", "") or "").split(","):
+    configured = str(getattr(settings, "file_places", "") or "")
+    share = stored_share(database) if database is not None else {}
+    if share:
+        # Stored last, so a place typed into Settings can be overridden by one an
+        # operator put in the environment rather than the other way round: the
+        # environment is the deliberate, per-deployment answer.
+        configured = f"{configured},{share['name']}={share['path']}" if configured \
+            else f"{share['name']}={share['path']}"
+    for pair in configured.split(","):
         name, _, where = pair.partition("=")
         name, where = name.strip(), where.strip()
         if not name or not where or name == HOME:
@@ -94,7 +141,7 @@ def places(settings: Any) -> dict[str, Path]:
 
 def _root(request: Request, place: str = "") -> Path:
     """One named place, or the refusal that says why there is not one."""
-    known = places(request.app.state.settings)
+    known = places(request.app.state.settings, request.app.state.database)
     if not known:
         raise InvalidConfigurationError(
             "NERVIS has no workspace configured, so there are no files to manage. "
@@ -217,7 +264,7 @@ async def list_entries(request: Request) -> dict[str, Any]:
         # Rooms are the *workspace's* structure. A share is somebody else's
         # directory and NERVIS has no opinion about what is in it.
         "rooms": list(ROOMS) if place == HOME else [],
-        "places": sorted(places(request.app.state.settings)),
+        "places": sorted(places(request.app.state.settings, request.app.state.database)),
         "detail": "",
     }
 

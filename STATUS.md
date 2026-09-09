@@ -16258,6 +16258,103 @@ workspaces, one shadowing the other, with nothing reporting anything.
 
 NERVIS 1100 -> 1129.
 
+## Pointing NERVIS at a NAS from its own Settings, and right-clicking a file
+## — 2026-09-09
+
+**The share moved from a launcher variable into NERVIS's Settings screen**, on
+the operator's own reasoning: an empty setting should mount nothing, and a
+setting is where you say so. `files.share` is stored in the same key/value
+table every other setting lives in; the Settings screen writes it and
+`tools/run.py` opens the database read-only before starting anything and mounts
+what it finds. Two copies of one fact would have drifted the first time
+somebody edited the convenient one. Proved with no environment variables at
+all: saving the address made the next start mount the share and the Files tab
+list it as a place.
+
+**That made `PUT /api/v1/settings/{key}` need the page's control token**, which
+it had never required. Survivable while a setting only described NERVIS to
+itself; not once `files.share` became a value the *launcher* reads and mounts
+before anything starts — a write nobody had to prove came from this page would
+be a way to hand the next start an address of somebody else's choosing. Four
+tests wrote settings without a token and now present one.
+
+**Rail entries fold open**, so a file goes from a room to a particular folder
+on the share in one drag rather than a drop, a navigation and a second drop.
+
+**Copy became the default between places, move within one.** Working between a
+laptop and a NAS the ordinary intention is "have this in both"; within one
+place a file dragged between rooms is being filed, not duplicated. Shift swaps
+either. The rule moved out of the drag handler into `dragVerb()` precisely so a
+check could reach it — a drag that quietly emptied the room it came from is the
+one bug here with data loss behind it, and it is now asserted in all four
+combinations.
+
+**Right-click**, the same verbs as the row plus the one a row cannot hold:
+copy this to any other room or share, by name. And the check caught a real
+defect while being written — `menuForEntry` read the current location from
+module state, so the rule "never offer the room the file is already in" was
+invisible to anything that did not also set that state. The location is now a
+parameter, which is what made the wrong answer visible.
+
+**The rail became one entry per place, and every one folds out.** "local" is
+the workspace — its rooms are the folders inside it, arriving the same way a
+share's do rather than as a second kind of rail entry with its own rules — and
+"elsewhere" is each configured share. Both start folded out, because the rooms
+are what somebody opening this tab came for and a twisty in front of them is
+ceremony on every visit. The open set became a *closed* set for the same
+reason: a share configured later then arrives open like everything else instead
+of needing to be seeded the moment it exists. The rail also has its own order —
+clarvis and library on top, the rest alphabetical — which is a different
+question from the listing's: one is about reaching a folder, the other about
+what a room is for.
+
+**Several files at once.** Click selects, ⌘/Ctrl adds, Shift takes the span, ⌘A
+takes the listing, Escape clears. Every verb then acts on the selection when the
+row it was aimed at belongs to it, and on that row alone when it does not —
+which is the half worth checking, because a Delete on an unselected row that
+quietly took ten others with it is the worst thing this screen could do. That
+rule is `actingOn()`, a function rather than a line inside three handlers,
+precisely so a check can reach it; the same for `pickSpan()`, which reads a
+shift-click in screen order whichever end it started from. Dragging, deleting
+and "copy to" are all plural now, and each reports once rather than once per
+file — a toast per file buries the one that failed.
+
+**The column headers sort.** Name, size or modified, clicked again to turn it
+around, remembered per browser. Folders stay above files whichever column is
+chosen, because a directory sorted strictly by size puts the folders in the
+middle of the files. No column is the API's own order, which is not arbitrary:
+rooms in the order they mean something, then files newest first, which is what
+somebody who just saved something is looking for.
+
+**A regression found while building the toggle below, not by a test.** Making
+`PUT /api/v1/settings/{key}` require the control token — right, and the reason
+is in this entry — silently broke every preference the chat panel writes:
+`USER.write()` had never sent the header, because the route had never asked for
+one, and it swallows its own errors. Reply length, PDF pages, the system
+prompt, presets, sampling parameters: all 403ing since that commit, with
+nothing on screen saying so. The header is back, and it was found by pointing a
+real browser at a real service rather than by the suite, which is worth saying
+plainly.
+
+**The dashboard reopens on the tab you were on.** Somebody moving between
+NERVIS's chat and the Clarvis editor is going back and forth all day, and
+landing on the overview every time is a navigation they did not ask for. So a
+page load with no screen in its address opens where the browser left off — for
+as long as the stack has been up. The memory carries NERVIS's own `started_at`,
+so a fresh start does not match it and opens on the overview, which is the
+screen that says what came up and what did not; a browser left open across a
+restart is the same case and gets the same answer. Two things beat the memory,
+both deliberately: an address that names a screen, because somebody who pasted
+a link asked for it, and the switch being off — Settings → Screen. The decision
+is `landing()`, one function, so the router check can assert all four cases
+rather than trusting the description.
+
+**The Files card also stopped being faded.** The page dims any card not marked
+`live` — the glance-level signal for prototype content — and a real directory
+rendered faded is the screen calling its own data invented. It derives the mark
+from whether the read happened rather than hardcoding it, which keeps the
+liveness ratchet at its ceiling of 49 instead of spending the last two.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

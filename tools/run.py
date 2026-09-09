@@ -49,6 +49,7 @@ import platform
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -894,6 +895,38 @@ FILE_MOUNTS = [
 ]
 
 
+def configured_share() -> str:
+    """The share NERVIS was pointed at on its Settings screen, or nothing.
+
+    **Read out of NERVIS's own database rather than kept here.** A share typed
+    into Settings and a share named in a launcher variable are two places to
+    say one thing, and the pair drifts the first time somebody edits the
+    convenient one. The screen writes `files.share`; this reads it; an empty or
+    absent value means there is nothing to mount, which is every machine that
+    was never told about a NAS.
+
+    Read-only and forgiving: the database may not exist yet on a first run, and
+    a launcher that refused to start over a missing settings table would be
+    trading a feature nobody configured for the whole stack.
+    """
+    database = ROOT / "nervis" / "nervis.db"
+    if not database.is_file():
+        return ""
+    try:
+        with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=2) as held:
+            row = held.execute(
+                "SELECT value FROM setting WHERE key = 'files.share'"
+            ).fetchone()
+    except sqlite3.Error:
+        return ""
+    if not row:
+        return ""
+    try:
+        return str((json.loads(row[0]) or {}).get("url") or "").strip()
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
 def mount_share(url: str) -> str:
     """Mount one share, or say why not. Empty means it is there.
 
@@ -925,7 +958,9 @@ def mount_share(url: str) -> str:
 
 def start() -> int:
     ensure_venv()
-    for url in FILE_MOUNTS:
+    for url in dict.fromkeys([*FILE_MOUNTS, configured_share()]):
+        if not url:
+            continue
         trouble = mount_share(url)
         print(f"  share: {trouble or f'{url} mounted'}")
     # **Before anything is up.** The admin credential has to exist in RAVIS's

@@ -57,6 +57,18 @@ then the library, then import, then export. **The workspace directory itself is
 not searched**: a layout with one place a stray file can sit and still work is a
 layout that is only advice, and the loose file is where everything ends up.
 
+### Which screen the dashboard opens on
+
+A page load with no screen in its address opens on the tab this browser was
+last on — so moving between NERVIS's chat and the Clarvis editor does not mean
+finding the way back each time. **The memory lasts one run of the stack**: it
+carries NERVIS's own `started_at`, so a freshly started stack does not match it
+and opens on the overview, which is the screen that says what came up and what
+did not. A link with a screen in it always wins, because somebody who pasted
+one asked for that screen. Settings → Screen → "Open on the tab I used last"
+turns it off; the preference is `ui.remember_tab` and travels with a settings
+backup.
+
 ### The Files tab
 
 A file manager over the workspace, so moving something does not mean leaving
@@ -74,14 +86,43 @@ the same disk. What the tab offers instead is *Open* — a PDF, an image or a
 text file opens in a browser tab. HTML and SVG never do: anything shown inline
 runs on NERVIS's own address, and both can carry script.
 
-**It can also reach places outside the workspace**, when an operator names them
-(`NERVIS_FILE_PLACES="nas=/Volumes/nervis"`). A mounted NAS share is what this
-is for: drag a document from a room onto it to copy it there, or drag one back
-to move it in. Within a place a drag moves; across places it copies, because
-dragging a document onto a share to *have* it there should not empty the room
-it came from. The launcher can mount the share first
-(`NERVIS_FILE_MOUNTS="smb://synology.local/nervis"`), which it does before
-anything starts.
+**It can also reach a network share.** Point NERVIS at one on the Settings
+screen — Files → Network share — and it appears in the tab under "elsewhere",
+alongside the rooms. The launcher mounts it at every start, using the password
+already in the operator's Keychain; nothing but the address is stored. An empty
+address mounts nothing and shows nothing, which is every machine that was never
+told about a share.
+
+**The rail is one entry per place, and every one folds open.** "local" is the
+workspace and its rooms are the folders inside it; "elsewhere" is each share
+that was configured. Both start folded out, so a file can be dragged from a
+room straight into a particular folder on the share in one gesture. The rail
+has its own order — clarvis and library on top, everything else alphabetical —
+because reaching for a folder is a different question from what a room is for,
+which is the order the listing keeps.
+
+**Several files at once.** Click selects, ⌘/Ctrl adds, Shift takes the span,
+⌘A takes the listing and Escape clears it. Every verb then acts on the
+selection when the row it was aimed at is part of it, and on that row alone
+when it is not — so dragging, deleting and "copy to" are all plural, and a
+right-click on an unselected row is about that row.
+
+**The column headers sort the listing**: name, size or modified, clicked again
+to turn it around, remembered per browser. Folders stay above files whichever
+column is chosen. Unsorted is the API's own order — folders first, rooms in the
+order they mean something, then files newest first.
+
+**Right-clicking a file** offers the same verbs as its row — open, rename,
+delete — plus the one a row cannot hold: copy it to any other room or share,
+listed by name. Right-clicking the space below the listing asks about the
+directory instead: new folder, add files, or re-read it after something changed
+outside NERVIS.
+
+**Between places a drag copies; within one it moves.** Working between a laptop
+and a NAS the ordinary intention is "have this in both", and a drag that emptied
+the local room would be a surprise. Within a single place the intention is the
+opposite: a file dragged from one room to another is being filed, not
+duplicated. Holding Shift swaps whichever the two ends imply.
 
 **The workspace itself stays local, on purpose.** Measured on a LAN share: a
 64KB write took 38ms against 0.09ms locally, while listing and `stat` were

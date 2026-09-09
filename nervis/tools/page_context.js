@@ -282,7 +282,8 @@ function loadPage({ fetchImpl } = {}) {
     throw new Error(`the inline script threw on load: ${failure.message}`);
   }
   const exported = vm.runInContext(
-    "({ APP_CONFIG, state, nervis, ravis, sirvis, clarvis, filesView, API, SOURCE, " +
+    "({ APP_CONFIG, state, nervis, ravis, sirvis, clarvis, filesView, dragVerb, " +
+    "menuForEntry, menuForHere, actingOn, pickSpan, sortEntries, API, SOURCE, " +
     "absorbFrame, replyMessage, transportFailure, BUILD, renderMarkdown, " +
     "stopPolling: typeof stopPolling === 'function' ? stopPolling : null })",
     context,

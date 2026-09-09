@@ -44,6 +44,21 @@ def settings(tmp_path: Any) -> Settings:
     )
 
 
+def _control(client: TestClient) -> dict[str, str]:
+    """The page's own token, which every settings write now carries.
+
+    `files.share` is read by the *launcher* and mounted before anything starts,
+    so a write nobody had to prove came from this page would be a way to hand
+    the next start an address of somebody else's choosing.
+    """
+    return {"x-nervis-control": client.app.state.control_token}  # type: ignore[attr-defined]
+
+
+def _put_setting(client: TestClient, path: str, body: dict) -> Any:
+    """One stored setting, written the way the dashboard writes it."""
+    return client.put(path, json=body, headers=_control(client))
+
+
 def _client(settings: Settings) -> TestClient:
     return TestClient(create_app(settings))
 
@@ -306,7 +321,7 @@ def test_the_root_redirects_to_one_address(settings: Settings) -> None:
 def test_a_setting_round_trips_with_its_type(settings: Settings) -> None:
     client = _client(settings)
 
-    client.put("/api/v1/settings/refresh_seconds", json={"value": 5})
+    client.put("/api/v1/settings/refresh_seconds", json={"value": 5}, headers=_control(client))
 
     assert client.get("/api/v1/settings").json()["items"]["refresh_seconds"] == 5
 
@@ -320,8 +335,9 @@ def test_storing_null_is_different_from_storing_nothing(settings: Settings) -> N
     """
     client = _client(settings)
 
-    stored = client.put("/api/v1/settings/telemetry", json={"value": None})
-    missing = client.put("/api/v1/settings/telemetry", json={})
+    stored = client.put("/api/v1/settings/telemetry", json={"value": None},
+        headers=_control(client))
+    missing = client.put("/api/v1/settings/telemetry", json={}, headers=_control(client))
 
     assert stored.status_code == 200
     assert missing.status_code == 422
@@ -340,7 +356,8 @@ def test_a_refusal_uses_the_published_envelope(settings: Settings) -> None:
     A consumer written against the runbook branches on `error.code`, and would
     not find it in the default shape.
     """
-    body = _client(settings).put("/api/v1/settings/x", json={}).json()
+    client = _client(settings)
+    body = client.put("/api/v1/settings/x", json={}, headers=_control(client)).json()
 
     assert body["error"]["code"] == "INVALID_CONFIGURATION"
     assert body["error"]["request_id"]

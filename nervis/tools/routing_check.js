@@ -87,6 +87,39 @@ if (!carried || carried.app !== "ravis" || carried.view !== "Routes") {
   failures.push(`a fragment carrying a token lost the route: ${JSON.stringify(carried)}`);
 }
 
+/* 5 · **Where a page load lands when the address named nothing.** The tab you
+ * were on is remembered for one run of the stack: a fresh start opens the
+ * dashboard, which is the screen that says what came up and what did not, and
+ * a pasted link always beats the memory. Checked here because every one of
+ * these failures looks like the router being wrong about something else — a
+ * link that opens the wrong screen, or a restart that hides what broke. */
+const BOOT = "2026-09-09T10:09:53Z";
+const held = { app: "clarvis", view: "Editor", boot: BOOT };
+const landed = (opened, memory, boot, remember) =>
+  run(`landing(${JSON.stringify(opened)},${JSON.stringify(memory)},`
+    + `${JSON.stringify(boot)},${JSON.stringify(remember)})`);
+
+const back = landed(null, held, BOOT, true);
+if (!back || back.app !== "clarvis" || back.view !== "Editor") {
+  failures.push("a reload did not reopen the tab it was left on, so moving "
+    + "between the chat and the editor means finding the way back each time.");
+}
+if (landed(null, held, "2026-09-09T18:00:00Z", true)) {
+  failures.push("a freshly started stack reopened yesterday's screen instead "
+    + "of the dashboard — which is the screen that says what came up.");
+}
+if (landed({ app: "ravis", view: "Routes" }, held, BOOT, true)) {
+  failures.push("the memory overrode an address that named a screen, so a "
+    + "pasted link opens somewhere else.");
+}
+if (landed(null, held, BOOT, false)) {
+  failures.push("the switch was off and the tab was reopened anyway.");
+}
+if (landed(null, null, BOOT, true) || landed(null, held, "", true)) {
+  failures.push("a page load with nothing remembered, or with no start time to "
+    + "compare against, landed somewhere other than the dashboard.");
+}
+
 if (!checked) {
   console.error("no screens were checked — that is a fault in this check.");
   process.exit(1);

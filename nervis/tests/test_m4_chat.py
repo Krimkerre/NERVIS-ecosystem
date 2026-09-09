@@ -45,6 +45,21 @@ from nervis.registry import RegistryState
 from nervis.storage import prepare_database
 
 
+def _control(client: TestClient) -> dict[str, str]:
+    """The page's own token, which every settings write now carries.
+
+    `files.share` is read by the *launcher* and mounted before anything starts,
+    so a write nobody had to prove came from this page would be a way to hand
+    the next start an address of somebody else's choosing.
+    """
+    return {"x-nervis-control": client.app.state.control_token}  # type: ignore[attr-defined]
+
+
+def _put_setting(client: TestClient, path: str, body: dict) -> Any:
+    """One stored setting, written the way the dashboard writes it."""
+    return client.put(path, json=body, headers=_control(client))
+
+
 def frames(*deltas: str, done: bool = True, reasoning: int = 0) -> list[bytes]:
     """One RAVIS SSE stream, as bytes on the wire."""
     lines: list[bytes] = []
@@ -1945,7 +1960,8 @@ def test_nervis_is_told_what_to_call_you() -> None:
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
-    client.put("/api/v1/settings/user.display_name", json={"value": "Mathias"})
+    client.put("/api/v1/settings/user.display_name", json={"value": "Mathias"},
+        headers=_control(client))
 
     turn(client, "hello")
 
@@ -1973,7 +1989,7 @@ def test_clearing_the_persona_stays_cleared() -> None:
     store keeps them apart on purpose."""
     settings = Settings(database_path=str(_shared_db()), _env_file=None)  # type: ignore[call-arg]
     first = TestClient(create_app(settings))
-    first.put("/api/v1/settings/chat.system", json={"value": ""})
+    first.put("/api/v1/settings/chat.system", json={"value": ""}, headers=_control(first))
 
     second = TestClient(create_app(settings))
 
@@ -2022,7 +2038,7 @@ def test_deleting_the_shipped_presets_leaves_them_deleted() -> None:
     """Same rule as the persona: absent and empty are different states."""
     database = _shared_db()
     settings = Settings(database_path=str(database), _env_file=None)  # type: ignore[call-arg]
-    TestClient(create_app(settings)).put("/api/v1/settings/chat.presets", json={"value": []})
+    _put_setting(TestClient(create_app(settings)), "/api/v1/settings/chat.presets", {"value": []})
 
     second = TestClient(create_app(settings))
 
@@ -2166,7 +2182,7 @@ def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
     secret = turn(client, "the thing I did not want remembered")
     barred = secret.headers["x-conversation-id"]
     ordinary = turn(client, "something unremarkable").headers["x-conversation-id"]
-    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"}, headers=_control(client))
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
@@ -2177,7 +2193,8 @@ def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
     assert "did not want remembered" in before
     assert "something unremarkable" in before
 
-    client.put("/api/v1/settings/chat.memory_excluded", json={"value": [barred]})
+    client.put("/api/v1/settings/chat.memory_excluded", json={"value": [barred]},
+        headers=_control(client))
     client.post("/api/v1/chat", json={"content": "hello again"})
     after = sent[-1]["messages"][0]["content"]
 
@@ -2200,7 +2217,7 @@ def test_the_conversation_being_had_is_never_recalled_into_itself() -> None:
 
     client = an_api(frames("sure"))
     held = turn(client, "a line only in this conversation").headers["x-conversation-id"]
-    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"}, headers=_control(client))
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
@@ -2217,8 +2234,9 @@ def test_an_unreadable_exclusion_list_does_not_bar_everything() -> None:
     somebody meant to bar is visibly still listed on the screen that bars it."""
     client = an_api(frames("sure"))
     turn(client, "recallable")
-    client.put("/api/v1/settings/chat.memory", json={"value": "all"})
-    client.put("/api/v1/settings/chat.memory_excluded", json={"value": "not a list"})
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"}, headers=_control(client))
+    client.put("/api/v1/settings/chat.memory_excluded", json={"value": "not a list"},
+        headers=_control(client))
 
     sent: list[dict[str, Any]] = []
 
