@@ -236,6 +236,9 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .price-row label{display:flex;align-items:center;gap:7px;flex:1 1 220px;min-width:180px;
   font:9px/1.4 "SFMono-Regular",monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .price-row input[type=range]{flex:1;accent-color:var(--accent);min-width:110px}
+.picker-open{display:flex;align-items:center;gap:5px;font-size:10px;color:#8ba3ba;
+  white-space:nowrap;cursor:pointer;user-select:none}
+.picker-open input{accent-color:var(--accent);margin:0}
 .picker-search{flex:1 1 180px;min-width:140px;background:rgba(255,255,255,.04);color:inherit;
   border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 7px;font-family:inherit}
 /* Bounded and scrollable, because this list is four hundred rows for OpenRouter
@@ -9293,6 +9296,26 @@ async function ravisRoutes(){
    learned once. What differs is what the list contains: a provider's picker
    offers its whole catalogue, and a pool's offers only what already satisfies
    that pool's invariants, because everything else is not a choice. */
+/* **Which families publish their weights.** A filter, not a licence audit: the
+   list names families whose weights are downloadable, which is the question
+   somebody ticking "open weights only" is actually asking — can this model be
+   run somewhere other than its vendor's API. It says nothing about *which*
+   licence, and several of these are open-weight under terms that are not OSI
+   open source (Llama's community licence, Gemma's terms). The control is worded
+   "open weights" for that reason.
+ 
+   Matched on the id, because that is all a catalogue publishes. Anything on
+   this machine counts regardless: a model served by LM Studio or Ollama is one
+   whose weights are on the disk by definition. */
+const OPEN_WEIGHT_FAMILIES=['llama','qwen','gemma','mistral','mixtral','ministral',
+ 'magistral','devstral','deepseek','granite','phi-','nemotron','olmo','hunyuan',
+ 'glm-','kimi','minimax','yi-','gpt-oss','falcon','dbrx','smollm','exaone',
+ 'internlm','aya','wizardlm','dolphin','hermes','nous-','solar-','jamba','tulu',
+ 'starcoder','codegemma','codellama','stable-code','openhermes','zephyr','vicuna'];
+
+const isOpenWeight=(id,local)=>local
+  ||OPEN_WEIGHT_FAMILIES.some(family=>String(id).toLowerCase().includes(family));
+
 const POOLEDIT={
  state:{},
 
@@ -9321,7 +9344,7 @@ const POOLEDIT={
      tier:Object.fromEntries((d.items||[]).map(i=>[i.id,i.tier||''])),
      price:Object.fromEntries((d.items||[]).map(i=>[i.id,i.price_per_million])),
      on:new Set((d.items||[]).filter(i=>i.selected).map(i=>i.id)),
-     narrowed:d.narrowed, defaultTier:d.default_tier||'', q:'', ceiling:null};
+     narrowed:d.narrowed, defaultTier:d.default_tier||'', q:'', ceiling:null, openOnly:false};
    this.explain(key,d);
    this.render(key);
   }catch(e){list.innerHTML='<div class="picker-empty">RAVIS is not reachable.</div>'}
@@ -9409,12 +9432,27 @@ const POOLEDIT={
  matching(key){
   const st=this.state[key];
   if(!st)return[];
-  if(!st.q)return st.all;
-  return st.all.filter(id=>{
+  const open=st.openOnly
+   ?st.all.filter(id=>isOpenWeight(id,!st.remote.has(id)))
+   :st.all;
+  if(!st.q)return open;
+  return open.filter(id=>{
    if(id.toLowerCase().includes(st.q))return true;
    const placement=st.remote.has(id)?'remote cloud api':'local on-machine';
    return (placement+' '+(st.tier[id]||'')).includes(st.q);
   });
+ },
+
+ /* **The view narrows; the selection does not.** Ticking a box here changes
+    what is on screen and nothing about which models the pool holds — a filter
+    that silently unticked everything it hid would destroy a hand-made selection
+    with a checkbox, which is the same mistake `tickWithinPrice` exists to avoid
+    making on the slider. */
+ setOpenOnly(key,on){
+  const st=this.state[key];
+  if(!st)return;
+  st.openOnly=!!on;
+  this.render(key);
  },
 
  paintPrice(key){
@@ -9532,6 +9570,8 @@ function poolRow(x,inv){
    <div class="picker-head">
     <input class="picker-search mono" placeholder="filter this pool\u2019s candidates\u2026"
       oninput="POOLEDIT.search('${jsAttr(key)}',this.value)">
+    <label class="picker-open mono" title="Models whose weights are published, so they can be run somewhere other than their vendor's API. Matched on the family in the id, and everything on this machine counts. Open weights, not necessarily an OSI licence — Llama and Gemma are open-weight under their own terms.">
+      <input type="checkbox" onchange="POOLEDIT.setOpenOnly('${jsAttr(key)}',this.checked)"> open weights only</label>
     <span class="mono dim" id="${domId('pmc',key)}">loading\u2026</span>
     <button class="btn" onclick="POOLEDIT.checkAll('${jsAttr(key)}',true)">All</button>
     <button class="btn" onclick="POOLEDIT.checkAll('${jsAttr(key)}',false)">None</button>
@@ -10201,14 +10241,15 @@ async function ravisCredentials(){
   <div class="card full${liveClass(Boolean(payload))}"><h3>Provider keys</h3>${cell(`
    ${items.map(row).join('')}
    ${items.some(i=>i.routable===false)?`<small class="mono dim" style="display:block;margin-top:6px"><b>Unroutable</b> means the key would be stored and never sent: no adapter and no declared upstream carries that provider. Until M10 connected the store, <b>every</b> row was unroutable — a key typed here was written to a 0600 file, reported as configured, and read by nothing. Declare an upstream with that <span class="mono">kind</span> to make one reachable.</small>`:''}
-   <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes only from RAVIS's own file: a key in an environment variable or the Keychain was put there by something else, so the row may still read configured afterwards, from the lower source.</small>
+   <small class="mono dim">the field is empty because RAVIS has no endpoint that returns a credential — not because it is hiding one. Saving replaces whatever was there. <b>Remove</b> deletes what RAVIS itself stored, in the keyring and in its own file: a key in an environment variable, or one you put in the keyring under another service, was placed there by something else, so the row may still read configured afterwards, from the lower source.</small>
    ${explains('where these are written, and why the voice key is not among them',`
-    <div class="trace-step"><b>written to</b><span class="mono">~/.config/ravis/credentials.json</span></div>
-    <div class="trace-step"><b>permissions</b><span>0600 — owner only</span></div>
-    <div class="trace-step"><b>also read from</b><span>macOS Keychain, then environment</span></div>
+    <div class="trace-step"><b>written to</b><span>this machine's keyring — macOS Keychain, or Secret Service on Linux</span></div>
+    <div class="trace-step"><b>verified</b><span>read back and compared before the file's copy is dropped</span></div>
+    <div class="trace-step"><b>where there is no keyring</b><span class="mono">~/.config/ravis/credentials.json</span>, 0600 — owner only</div>
+    <div class="trace-step"><b>also read from</b><span>the file, then the keyring, then environment</span></div>
     <div class="trace-step"><b>read back by any endpoint</b><span>never</span></div>
     <div class="trace-step"><b>Fish Audio key</b><span><a href="#" onclick="go('nervis','Settings');return false" style="color:inherit"><b>NERVIS &rarr; Settings</b></a></span></div>
-    <small class="mono dim">the same protection as the SSH private key sitting next to it — encryption at rest would need a key RAVIS can read unattended, which anyone with the same file access could read too.<br><br>every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: §18.2 keeps voice credentials in NERVIS's own storage, and the deciding reason is the privacy gate — whether a sentence may reach a cloud voice depends on <i>which model produced it</i>, a fact NERVIS holds and RAVIS would have to be told.</small>`)}`,'ravis')}</div>
+    <small class="mono dim">the keyring is the write target as of 9 September 2026; before that a key typed here went to the file, and the specification said the opposite — "never stored in plaintext" — which an external audit caught. Only the <b>name</b> is kept beside the file, so RAVIS can still list what it holds without asking the keyring to be searched. A machine with no keyring — Windows, a headless server, or <span class="mono">RAVIS_CREDENTIAL_KEYRING=0</span> — keeps the file, with the same protection as the SSH private key sitting next to it.<br><br>every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: §18.2 keeps voice credentials in NERVIS's own storage, and the deciding reason is the privacy gate — whether a sentence may reach a cloud voice depends on <i>which model produced it</i>, a fact NERVIS holds and RAVIS would have to be told.</small>`)}`,'ravis')}</div>
 
   ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`
    <div class="trace-step"><b>${loose.map(i=>escapeHtml(i.name)).join(', ')}</b><span>readable by other accounts on this machine</span></div>

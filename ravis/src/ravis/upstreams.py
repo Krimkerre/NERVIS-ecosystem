@@ -76,6 +76,11 @@ KIND_ENDPOINTS: dict[str, tuple[str, str]] = {
     # address, exactly like the two below it.
     "openai": ("https://api.openai.com", "/v1"),
     "openrouter": ("https://openrouter.ai/api", "/v1"),
+    # Two more that need nothing but an address, for the same reason OpenAI
+    # needs nothing: both publish the OpenAI protocol, so §6's transparent path
+    # forwards to them unchanged and there is no wire format to keep up with.
+    "deepseek": ("https://api.deepseek.com", "/v1"),
+    "xai": ("https://api.x.ai", "/v1"),
 }
 
 

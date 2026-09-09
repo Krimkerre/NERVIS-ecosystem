@@ -1,7 +1,8 @@
 """Which providers an operator has turned off (M10).
 
 Separate from `credentials.py` on purpose, and in a separate file on disk. The
-credential file is mode `0600` and holds nothing but secrets; whether a provider
+credential store holds nothing but secrets — the keyring, or a `0600` file on a
+machine without one; whether a provider
 is enabled is ordinary configuration that a person may want to read, diff or
 check into a dotfiles repository. Mixing the two would either over-protect the
 boring half or under-protect the secret half.

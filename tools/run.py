@@ -551,16 +551,39 @@ def _default_upstreams() -> dict[str, str]:
         {"name": "lmstudio", "base_url": LM_STUDIO, "kind": "lmstudio"},
         {"name": "ollama", "base_url": f"http://127.0.0.1:{OLLAMA_PORT}", "kind": "ollama"},
     ]
-    try:
-        stored = json.loads(
-            (pathlib.Path.home() / ".config" / "ravis" / "credentials.json").read_text()
-        )
-    except (OSError, ValueError):
-        stored = {}
     for kind in TRANSPARENT_KINDS:
-        if kind in stored:
+        if kind in _stored_credential_names():
             upstreams.append({"name": kind, "kind": kind})
     return {"RAVIS_UPSTREAMS": json.dumps(upstreams)}
+
+
+def _stored_credential_names() -> set[str]:
+    """Every credential name RAVIS holds, wherever it put the value.
+
+    **Both stores, and the second one is why this exists.** This read
+    `credentials.json` alone, which was the whole store until credentials moved
+    to the platform keyring — and the migration that moved them emptied that
+    file, so the next start declared no hosted upstream at all. RAVIS kept
+    answering, because Anthropic and Google are translated adapters registered
+    unconditionally; OpenAI and OpenRouter simply stopped existing, silently,
+    with the keys still configured and reported as configured.
+
+    Names only. The launcher has no business reading a secret, and does not:
+    the keyring index holds names by design, and the file's values are ignored.
+    """
+    found: set[str] = set()
+    config = pathlib.Path.home() / ".config" / "ravis"
+    try:
+        held = json.loads((config / "credentials.json").read_text())
+        found.update(held if isinstance(held, dict) else {})
+    except (OSError, ValueError):
+        pass
+    try:
+        indexed = json.loads((config / "credentials.keyring.json").read_text())
+        found.update(indexed if isinstance(indexed, list) else [])
+    except (OSError, ValueError):
+        pass
+    return found
 
 
 def _with_results(env: dict[str, str]) -> dict[str, str]:
@@ -1107,7 +1130,7 @@ def stop() -> int:
 # knows its own address. A credential for one of these is only usable if the
 # upstream is *declared* — RAVIS persists the key and not the declaration — which
 # is why `_default_upstreams` reads this list rather than trusting the store.
-TRANSPARENT_KINDS = ("openrouter", "openai")
+TRANSPARENT_KINDS = ("openrouter", "openai", "deepseek", "xai")
 
 
 def status(quiet: bool = False) -> dict[str, bool]:

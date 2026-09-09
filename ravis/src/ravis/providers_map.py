@@ -128,8 +128,9 @@ def _translating_rows(
     well — the diagnostic disagreeing with the router about what exists.
 
     **Where the credential comes from is part of the answer.** The gate read the
-    settings field alone, so a key typed into the Credentials screen — which is
-    where M10 puts it, in a 0600 file — produced no row either. The store is
+    settings field alone, so a key typed into the Credentials screen — which
+    M10 stores, in the keyring or the file behind it — produced no row either.
+    The store is
     consulted here in the same order `credential_for` uses on the request path,
     because a diagnostic that disagrees with the request path is worse than no
     diagnostic at all. Reading a local file is not contacting an upstream, so

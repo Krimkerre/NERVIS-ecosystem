@@ -683,7 +683,12 @@ CHAT_FAMILIES: tuple[str, ...] = (
     # price, and the pool's job is to be the sane default rather than the best
     # possible answer regardless of the bill.
     "claude-haiku", "gemini-2.5-flash", "gpt-5-mini", "gpt-4o-mini",
-    "deepseek-chat", "qwen-plus", "ministral-14b",
+    # `deepseek-chat` is the id DeepSeek's own API published when this list was
+    # written; `deepseek-v4-*` is what it publishes now, and a family string
+    # that names last year's id admits nothing. Both are kept: OpenRouter still
+    # carries `deepseek/deepseek-chat`, so dropping the old one would remove a
+    # provider's models to fix another's.
+    "deepseek-chat", "deepseek-v4", "qwen-plus", "ministral-14b",
     # The capable middle, reached when nothing above it is available.
     "claude-sonnet", "gpt-5", "gemini-2.5-pro", "gpt-4.1", "gpt-4o",
     "mistral-large", "command-r", "nova-pro",

@@ -45,7 +45,7 @@ router = APIRouter(prefix="/api/v1/providers", tags=["management"])
 # The providers RAVIS knows how to reach. Listed rather than discovered so the
 # screen can show a row for a provider that has *no* credential yet — which is
 # the only row that matters when someone is trying to add one.
-KNOWN_PROVIDERS = ("anthropic", "google", "openai", "openrouter")
+KNOWN_PROVIDERS = ("anthropic", "deepseek", "google", "openai", "openrouter", "xai")
 
 # What to call each provider on a screen.
 #
@@ -59,9 +59,15 @@ KNOWN_PROVIDERS = ("anthropic", "google", "openai", "openrouter")
 # and a different credential shape entirely.
 PROVIDER_LABELS = {
     "anthropic": "Anthropic",
+    # Both speak the OpenAI protocol, so neither needs an adapter — only an
+    # address and a row to type a key into. `xai` rather than `x` or `grok`:
+    # the id is a path segment in `ravis/<provider>/<model>` and half an
+    # environment variable name, and "x" is too short to read as a provider.
+    "deepseek": "DeepSeek",
     "google": "Google AI Studio",
     "openai": "OpenAI",
     "openrouter": "OpenRouter",
+    "xai": "xAI",
 }
 
 # How many matched ids a filter preview returns. The screen needs enough to see

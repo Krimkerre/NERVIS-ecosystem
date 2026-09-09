@@ -10,13 +10,17 @@ a redaction, and the value comes out only through an explicit `reveal()` that a
 reviewer can grep for. `json.dumps` raises on it rather than serialising it,
 which is the right failure — loud, at the boundary, in a test.
 
-**The store is a file, and the file is the portable part.** A credential has to
-be enterable, and it has to be enterable on every OS RAVIS runs on — so the
-writable backend is a JSON file at mode `0600` in the user's config directory,
-which is what the AWS CLI, Docker, `gh` and npm all do. Stdlib only: a native
-credential-vault dependency buys encryption at rest and costs a build
-requirement on three platforms, and the file is protected by the same filesystem
-permissions that protect the private keys already sitting next to it.
+**The store is the platform's keyring, and the file is what portability costs.**
+A credential has to be enterable on every OS RAVIS runs on, and not every OS has
+a keyring RAVIS can reach without a dependency — so the keyring is written where
+one exists and a JSON file at mode `0600` carries the rest, which is what the
+AWS CLI, Docker, `gh` and npm all do. Stdlib only either way: the keyring is
+reached through the tool the platform already ships, and the file is protected
+by the same permissions that protect the private keys already beside it.
+
+*The file used to be the only writable backend, and this paragraph used to argue
+for that as a considered choice. It was — right up until the reason underneath
+it turned out to be false; see the note below on `security -i`.*
 
 **A platform keyring is written first, and the file is what happens when there
 is none.** This was the other way round until 9 September 2026, on the stated
@@ -504,8 +508,17 @@ class CredentialStore:
         return completed.returncode == 0
 
     def _from_keyring_forget(self, name: str) -> None:
-        """Remove this store's own keyring item, if the platform has one."""
-        if not self._keychain:
+        """Remove this store's own keyring item, if the platform has one.
+
+        **Gated on the same switch as writing, and that omission cost a key.**
+        `RAVIS_CREDENTIAL_KEYRING=0` means "do not touch this machine's keyring",
+        and a delete touches it as surely as a write does — but this checked only
+        whether a keyring existed, so a `forget()` from a store that was never
+        allowed to write there could still remove an item somebody's own machine
+        depended on. An OpenAI key went missing that way, on the machine this was
+        built on, with no copy left to restore from.
+        """
+        if not self._keychain or not self._keyring_writes:
             return
         if sys.platform == "darwin" and shutil.which(SECURITY_BIN):
             command = [SECURITY_BIN, "delete-generic-password",

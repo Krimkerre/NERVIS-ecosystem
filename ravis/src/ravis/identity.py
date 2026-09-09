@@ -199,7 +199,8 @@ def _presented_credential(headers: dict[str, str]) -> str:
 
 
 # The prefix marking a stored credential as a *client* identity rather than a
-# provider key. Both live in the same 0600 file and they are entirely different
+# provider key. Both live in the same store — the keyring, or the file where
+# there is none — and they are entirely different
 # things — one authenticates RAVIS to a provider, the other authenticates a
 # caller to RAVIS — so the namespace is separated rather than left to whoever
 # names the next credential.

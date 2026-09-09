@@ -12,6 +12,7 @@ import json
 import pytest
 
 from ravis.credentials import (
+    KEYRING_SWITCH,
     CredentialSource,
     CredentialStatus,
     CredentialStore,
@@ -595,3 +596,27 @@ def test_the_real_keychain_takes_a_credential_without_it_reaching_argv(tmp_path)
     finally:
         real_subprocess.run(["/usr/bin/security", "delete-keychain", keychain],
                             capture_output=True, check=False)
+
+
+def test_the_switch_stops_deletions_too(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**`RAVIS_CREDENTIAL_KEYRING=0` means do not touch the keyring — at all.**
+
+    It gated writing and not forgetting, so a store that was never permitted to
+    put anything in the keyring could still take something out of it. The switch
+    exists so a test run cannot reach the operator's own machine; a delete
+    reaches it exactly as far as a write does.
+    """
+    keyring = _FakeKeyring()
+    keyring.items["openai"] = "a-key-somebody-needs"
+    _with_keyring(monkeypatch, keyring)
+    monkeypatch.setenv(KEYRING_SWITCH, "0")
+    store = _file_store(tmp_path, keychain=True, environment={KEYRING_SWITCH: "0"})
+
+    store.forget("openai")
+
+    assert keyring.items == {"openai": "a-key-somebody-needs"}, (
+        "the switch was off and the keyring item was removed anyway"
+    )
+    assert keyring.cleared == []

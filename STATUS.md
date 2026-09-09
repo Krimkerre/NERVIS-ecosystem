@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2718 tests, no network, no live service
+.venv/bin/pytest                      # part of 2719 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2718 passing across the four, conformance `PASS`.
+Expected: all clean, 2719 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16627,6 +16627,59 @@ the same way — with a counterexample the fix has to catch.
   have passed. The first request is now held open while the assertion looks for
   a second. Proved with a counterexample that dispatches every step at once *in
   order*, so the existing order assertion cannot take the credit.
+
+## DeepSeek and xAI, and a conformance suite that phones a paid provider
+## — 2026-09-09
+
+**Two providers, added where the pattern already was.** Both speak the OpenAI
+protocol, so neither needs an adapter — only an address, a row on the
+Credentials screen and a kind the launcher can declare: `KNOWN_PROVIDERS`,
+`PROVIDER_LABELS`, `KIND_ENDPOINTS`, `TRANSPARENT_KINDS`. Verified against the
+running stack rather than asserted: both report `configured=True routable=True`,
+and their catalogues come back real — DeepSeek 3 models, xAI 12.
+
+**Auto-curate takes them**, checked by pressing the button rather than reading
+the code: after `POST /pools/curate`, `deepseek-v4-flash` is in `ravis/fast`,
+`deepseek-v4-pro` in `ravis/performance`, and the grok models in `chat`,
+`coding` and `clarvis-chat`. That surfaced one gap — `CHAT_FAMILIES` named
+`deepseek-chat`, the id DeepSeek's API published when the list was written, and
+its models are `deepseek-v4-*` now. Both names are kept: OpenRouter still
+carries `deepseek/deepseek-chat`.
+
+**The pool picker can hide closed-weight models.** A checkbox beside its search
+box, filtering on the family in the id, with everything on this machine counting
+regardless — a model served by LM Studio or Ollama has its weights on the disk
+by definition. Worded *open weights* rather than *open source* on purpose: Llama
+and Gemma are open-weight under their own terms, not OSI licences. It narrows
+the view and never the selection, for the same reason the price slider does not
+tick anything on its own.
+
+**A launcher regression the credential migration caused**, found while adding
+the two providers: `_default_upstreams()` read `credentials.json` to decide
+which hosted upstreams to declare, and the keyring migration emptied that file.
+The next start declared no hosted upstream at all — RAVIS kept answering
+because Anthropic and Google are translated adapters registered unconditionally,
+so OpenAI and OpenRouter simply stopped existing, with their keys still
+configured and still reported as configured. It reads both stores now, names
+only.
+
+**And a credential of the operator's was destroyed by this work.** `forget()`
+gated its keyring delete on whether a keyring existed, not on
+`RAVIS_CREDENTIAL_KEYRING` — so a store that was never permitted to *write* to
+the machine's keyring could still remove an item from it, and an OpenAI key went
+with a test run. There was no copy: the file entry had moved to the keyring and
+the migration backup was deleted once the migration verified clean. The switch
+now gates deletion the same way it gates writing, proved by a test that fails
+without it. The key was re-entered by hand.
+
+**Recorded, not fixed: `test_clarvis_conformance` calls the real Anthropic
+API.** The suite builds the real application against a fixture upstream, and the
+application registers the translating adapters unconditionally — so on a machine
+with credentials configured, `ravis/clarvis-chat` prefers `claude-haiku` over
+the fixture's own `chat-only-model`, sends it a request the fixture shaped, and
+records `anthropic 400: messages: at least one message is required`. It fails
+identically on a clean tree, takes three and a half minutes doing it, and spends
+money. §14.5 says no test reaches a live model; this one does.
 
 ## Starting the thing
 
