@@ -16462,6 +16462,39 @@ clutter rather than removing it. What somebody opens stays open across a
 repaint, because a screen that shut the section being read every time a poll
 landed would be worse than one that never folded.
 
+## The webview service-worker error is the preview browser, not the editor
+## — 2026-09-09
+
+Seen in the Clarvis tab: *"Error loading webview: Could not register service
+worker … An unknown error occurred when fetching the script."* Chased to the
+end, because a webview failing is the Clarvis panel failing, and the tab exists
+for that panel.
+
+**Not NERVIS's proxy.** The failing URL names port 8080 — code-server's own
+address — so the frame was not proxied at all when it happened, which is the
+default (`code_proxy_enabled` is off).
+
+**Not code-server.** Opened directly at `http://127.0.0.1:8080` in a top-level
+tab, with no NERVIS in the picture, the same error appears. Fetched from the
+page itself, the script answers `200` with `text/javascript`, with and without
+its session cookie.
+
+**The browser.** Registering a *deliberately missing* path, and a file served
+as HTML, and the real script all fail with the same sentence — where Chrome
+distinguishes those precisely ("bad HTTP response code (404)", "unsupported
+MIME type"). Reproduced on both origins, `:8080` and NERVIS's own `:8790`. An
+identical generic failure for three different responses means registration is
+refused before the response matters: service workers are disabled in the
+embedded preview browser these checks run in.
+
+So there is nothing to fix here, and nothing was changed. Worth writing down
+because the next person to see that toast will otherwise spend the same hour on
+the proxy's headers. **Unverified**: whether the operator's own Chrome
+registers it — the browser extension was not connected, and this could not be
+checked from here. The one-line check is `navigator.serviceWorker.register`
+against that script in their own console, or simply opening a Clarvis panel and
+seeing it render.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

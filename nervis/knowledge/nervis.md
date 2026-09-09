@@ -109,6 +109,14 @@ is a workbench sitting in the browser doing nothing — so it is the operator's
 call. Nothing is lost either way: code-server keeps the files and the folder it
 had open. The preference is `ui.editor_keepalive`.
 
+**The "could not register service worker" toast** in the editor is the
+browser, not code-server and not the proxy. It appears with the editor opened
+directly at its own address and no NERVIS involved, and registering a missing
+path or a file served as HTML fails with the identical message — which means
+registration is refused before the response matters. The script itself answers
+`200` with `text/javascript`. Some embedded browsers disable service workers;
+in an ordinary one the webviews render.
+
 ### Which screen the dashboard opens on
 
 A page load with no screen in its address opens on the tab this browser was
