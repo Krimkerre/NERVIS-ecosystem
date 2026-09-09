@@ -156,8 +156,11 @@ commit. Endpoint groups:
 /api/v1/downloads              /api/v1/events
 ```
 
-List responses return `{items, next_cursor, snapshot_revision}` and accept `limit` and
-`cursor`. Detail responses return the entity plus `snapshot_revision`. Any path or state
+List responses return `{items, next_cursor, snapshot_revision}`. **The envelope is common;
+the paging is not** — `/api/v1/benchmark-runs` and `/api/v1/evidence` accept `limit` and
+`cursor`, while the inventory and Runtime Set lists return the whole collection and answer
+`next_cursor: null`. A caller that passes `limit` to those gets everything, which is worth
+knowing before writing a loop around it. Detail responses return the entity plus `snapshot_revision`. Any path or state
 change requires a versioned contract change **before** consumer work begins.
 
 **One deletion exists: `DELETE /api/v1/benchmark-results/{result_id}`.** It removes the
@@ -225,7 +228,7 @@ of reads and writes alike.
 The CSRF token this asked for is deliberately not built. It defends an *ambient* credential —
 a cookie the browser attaches by itself — and SIRVIS has none: every mutation carries a
 runtime-scoped token in an `Authorization` header, which a cross-origin page cannot set
-without a preflight measured against an allowlist that is empty by default. The credential
+without a preflight measured against an allowlist holding `http://127.0.0.1:8790` and `http://localhost:8790` by default — NERVIS's two dashboard addresses, and nothing else. The credential
 does the token's work one layer earlier. `/ecosystem/events` is the shared heartbeat route and
 carries no data yet; it gets these rules when §16 item 9 makes it a real stream.
 

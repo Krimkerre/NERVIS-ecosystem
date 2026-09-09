@@ -228,7 +228,7 @@ preflights") true of the server rather than only of the browser.
 require one. What a CSRF token defends is an *ambient* credential — a cookie the browser
 attaches by itself — and RAVIS has none: every privileged call carries a bearer credential
 in an `Authorization` header, which a cross-origin page cannot set without a preflight that
-consults an allowlist empty by default. Adding a token would defend a vector this design
+consults an allowlist holding `http://127.0.0.1:8790` and `http://localhost:8790` by default — the two addresses NERVIS serves its dashboard from, and nothing else. Adding a token would defend a vector this design
 does not have, while implying the header requirement was insufficient. `Host`, `Origin`,
 the content-type rule and the credential are the controls; the token was a fifth name for
 work three of them already do.
@@ -1099,10 +1099,23 @@ exactly where a well-meaning "enrich the request" feature would land: content pa
 RAVIS is never treated as instruction to RAVIS, and no route decision is ever influenced by the
 *content* of a message — only by its declared capabilities, its pool and its policy.
 
-**Credentials** live in macOS Keychain. **Never store provider API keys in plaintext in SQLite**,
-and never let them traverse NERVIS, SIRVIS, Clarvis telemetry, route explanations or events.
-Without secure storage, providers needing credentials are simply unavailable — **never fall back
-to plaintext.**
+**Credentials go to the platform keyring** — macOS Keychain through `security -i`, Linux's
+Secret Service through `secret-tool`, both taking the secret on standard input so it never
+reaches `argv` and never appears in `ps`. **Every keyring write is read back and compared before
+it is believed**, because macOS's interactive parser unquotes what it reads and drops a
+backslash from a credential containing one; a write that does not survive its own read-back is
+treated as no write at all. The *name* is recorded in an index beside the credential file — never
+the value — because client and admin identities are matched by walking stored names, and a name
+that vanished with its value is an identity nobody can authenticate with.
+
+**Where there is no keyring — Windows, a headless server, a container — the file is the answer**,
+created `0600` inside a `0700` directory, holding the secret as text. `RAVIS_CREDENTIAL_KEYRING=0`
+chooses it deliberately, which is also how this repository's own test suite avoids writing into
+the operator's login keychain. Reads are unaffected by that switch and stay file, then keyring,
+then environment.
+
+**Never store provider API keys in SQLite**, and never let them traverse NERVIS, SIRVIS, Clarvis
+telemetry, route explanations or events.
 
 ---
 
@@ -1167,8 +1180,7 @@ Canonical v1 mutations:
 POST /api/v1/profiles/{profile_id}/activate
 POST /api/v1/evidence/refresh
 POST /api/v1/route-tests
-POST /api/v1/providers/{provider_id}/enable
-POST /api/v1/providers/{provider_id}/disable
+PUT  /api/v1/providers/{name}/enabled     {"enabled": true｜false}
 ```
 
 **Runtime control has no RAVIS endpoint until an ownership contract adds one.** Mutations accept
@@ -1363,7 +1375,13 @@ it. Where one of them tightens a §14 rule, the tighter rule wins.
 13. Hard constraints are evaluated before scoring.
 14. Privacy constraints cannot be overridden by score.
 15. Unsupported capabilities never silently disappear.
-16. API credentials are never stored in plaintext.
+16. API credentials are never written into SQLite and never travel to a peer, a trace, a route
+    explanation or an event. They are written to the platform keyring where the machine has one,
+    verified by reading back what was stored; where it has none, to a `0600` file, which is
+    plaintext and is said so rather than promised away. *This rule read "never stored in
+    plaintext" until 9 September 2026 while `credentials.py` wrote the file on every platform —
+    an external audit found it, and the keyring write was built rather than the promise
+    weakened.*
 17. SIRVIS is optional. 18. Clarvis is optional. 19. NERVIS is optional.
 20. Every dynamic route must be explainable.
 21. Every provider call requires bounded timeout behaviour.
@@ -1408,7 +1426,7 @@ and §20.1 maps these milestones onto its stages.
 | **M16** AUTOMATED VERIFIED | Policy engine — application policies, privacy, provider allow/deny, model exclusions, §9.6.1 background-call class. **`ClientApplication` regains `may_declare_background_calls` and `max_privacy_level` here**: both were set on every identity and enforced nowhere, and a field describing an unenforced trust boundary reads as protection, so they were removed rather than left looking live. **Also: a tiebreak that knows about reasoning overhead.** `ravis/auto` breaks a tie on smallest-build-is-cheapest, which on this machine selects a reasoning distill that spends most of a small `max_tokens` budget on reasoning tokens before emitting any content. RAVIS cannot know this from advertised metadata — LM Studio publishes no reasoning flag — so it needs SIRVIS M22b's measurement, not a name-pattern guess. **Also: pool versions and revisions**, which §4.1 makes the advertise-when condition for `ravis.virtual_profiles@1` — the capability is `degraded` until they exist | Each hard constraint provably excludes a top-ranked candidate; a declared background call never selects a paid provider under the default profile; a pool carries a revision a consumer can pin |
 | **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS | — |
 | **M18** AUTOMATED VERIFIED | Two halves, scheduled apart. **M18a — read-only management API:** the `/api/v1` reads (`pools`, `policies`, `providers`, `models`, `profiles`, `route-decisions`, `usage`), which is what makes a route decision visible while it is being debugged. **M18b — events and tracing surfaces** for NERVIS | Does not affect Clarvis wire compatibility; M18a exposes no mutation and no credential |
-| **M19** IMPLEMENTED | Production observations — rolling latency, TTFT and error rate, sampled from real traffic. **Throughput is not part of this**: `observations.py`'s rolling windows and `HealthRegistry.error_rate()` are real and tested, and nothing in `src/ravis` tracks a production throughput figure — the row originally claimed one, corrected 3 Sep after an audit found no supporting code | — |
+| **M19** AUTOMATED VERIFIED | Production observations — rolling latency, TTFT and error rate, sampled from real traffic. **Throughput is not part of this**: `observations.py`'s rolling windows and `HealthRegistry.error_rate()` are real and tested, and nothing in `src/ravis` tracks a production throughput figure — the row originally claimed one, corrected 3 Sep after an audit found no supporting code | — |
 | **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — |
 | **M21** | Replay and evaluation — request replay, routing comparison | — |
 | **M22** | Advanced routing — escalation, shadow routing, outcome scoring | — |
@@ -1433,7 +1451,7 @@ and §20.1 maps these milestones onto its stages.
 | Stage 7 — events and tracing | M18b |
 | **Stage 11 — pools for unattended work** | M28 (`ravis/free-api`), built alongside NERVIS M25 so background thinking had somewhere to run that costs nothing. **M26 (`ravis/background`) is unbuilt and its purpose is now served by M28** — whether it closes as superseded or keeps a distinct meaning for a machine with a resident local model is an open decision, recorded here rather than resolved silently |
 | Stage 10 — whole-ecosystem hardening | M19 + M20 |
-| **Unscheduled — blocked on M14, M15 and M16** | M25b (serverless GPU as a routing candidate). M25a may land at any time, because a directly-addressed upstream is not a routing decision |
+| **Unscheduled — blocked on M14's residency vocabulary** | M25b (serverless GPU as a routing candidate). **M15 and M16 are no longer blockers** — both are AUTOMATED VERIFIED, and the paragraphs below that said otherwise were stale. M25a may land at any time, because a directly-addressed upstream is not a routing decision |
 | **Unscheduled — wanted only with a second machine** | M27 (multi-source evidence). Blocked on nothing; the work is not worth doing until a second host actually serves models — see §20.3 |
 | **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
 
@@ -1458,13 +1476,20 @@ would produce a router that spends money badly:
   machine, where COLD means seconds from disk. Scaled-to-zero means minutes and
   costs money to wake. A router that treats the two alike picks badly for
   reasons it cannot explain.
-- **Cost (M15).** Billing is per GPU-second. `ravis.usage_cost@1` is `degraded`
-  precisely because RAVIS counts requests and knows no prices, so this would be
-  real spend with no visibility — §14's rule about estimates and invoices,
-  running in the other direction.
-- **Policy (M16).** §9.6.1's background-call class and the privacy ladder are
-  what stop a declared background call reaching a paid remote provider. Until
-  they exist there is no mechanism, only an intention.
+- **Cost (M15) — the unit, not the mechanism.** M15 shipped: `ravis.usage_cost@1`
+  is `available`, prices come from a published book, and REPORTED, ESTIMATED and
+  UNKNOWN are kept apart rather than collapsed to a number. What serverless adds
+  is a unit nothing reports — a GPU-second price and a count of how many were
+  spent — so this is an accounting gap on top of a working engine rather than an
+  absent engine. *(This paragraph said the opposite until 9 September 2026, long
+  after M15 was AUTOMATED VERIFIED; an external audit found it.)*
+- **Policy (M16) — built, and pointed at the wrong thing.** §9.6.1's
+  background-call class and the privacy ladder shipped and are AUTOMATED
+  VERIFIED: `_privacy_refusals` and the background refusal run before ranking,
+  so a declared background call already cannot reach a paid remote provider.
+  What serverless needs is for those rules to *see* a scaled-to-zero endpoint as
+  the paid remote provider it is, which depends on the residency value above —
+  not on the policy engine being written.
 
 **Evidence is the open design question, not a dependency.** SIRVIS keys evidence
 by variant and pins it to a machine snapshot — chip, memory, thermal — and a

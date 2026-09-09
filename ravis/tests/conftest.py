@@ -8,12 +8,14 @@ on any machine.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ravis.config import Settings
+from ravis.credentials import KEYRING_SWITCH
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +60,22 @@ def settings() -> Settings:
 
 
 ADMIN_SECRET = "an-admin-secret-for-tests"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_keyring_writes_from_the_suite() -> Any:
+    """**The suite never writes to this machine's keyring.**
+
+    `as_administrator` below stores a credential through the *app's* real
+    store, and once that store began writing to the platform keyring, running
+    the tests put `ravis/admin.tests` into the operator's login keychain — found
+    on the machine this was written on, and removed by hand. A test that reaches
+    outside its `tmp_path` can damage the machine it is checking, so the switch
+    is thrown for the whole session rather than per fixture.
+    """
+    os.environ[KEYRING_SWITCH] = "0"
+    yield
+    os.environ.pop(KEYRING_SWITCH, None)
 
 
 def as_administrator(store: Any) -> dict[str, str]:

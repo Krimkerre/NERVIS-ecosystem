@@ -412,3 +412,186 @@ def test_a_keychain_that_answers_is_still_preferred_over_the_environment(
 
     assert secret.reveal() == "from-the-keychain"
     assert secret.source is CredentialSource.KEYCHAIN
+
+
+# ── 4. The keyring is the write target, and every write is read back ─────────
+#
+# The store wrote the file and treated the keyring as read-only until 9
+# September 2026, on the stated grounds that a secret could only reach
+# `security` through `argv`. That was false — `security -i` reads commands from
+# stdin — and an external audit's finding about the specification's
+# "never stored in plaintext" promise is what sent somebody to check.
+#
+# These fake the platform tools rather than the store's own methods, so
+# `_write_command`, `_piped` and the read-back all run for real. The exception
+# is the last test, which uses the actual `security` binary against a throwaway
+# keychain and skips everywhere else.
+
+
+class _FakeKeyring:
+    """A keyring made of a dict, driven through the real subprocess seam."""
+
+    def __init__(self, *, mangle: str = "") -> None:
+        self.items: dict[str, str] = {}
+        self.mangle = mangle
+        self.cleared: list[str] = []
+
+    def which(self, binary: str) -> str | None:
+        return "/fake/secret-tool" if binary.endswith("secret-tool") else None
+
+    def run(self, command, **kwargs):  # type: ignore[no-untyped-def]
+        import subprocess as sp
+
+        verb = command[1]
+        account = command[command.index("account") + 1] if "account" in command else ""
+        if verb == "store":
+            self.items[account] = kwargs.get("input", "") + self.mangle
+            return sp.CompletedProcess(command, 0, "", "")
+        if verb == "lookup":
+            held = self.items.get(account)
+            return sp.CompletedProcess(command, 0 if held else 1, held or "", "")
+        self.cleared.append(account)
+        self.items.pop(account, None)
+        return sp.CompletedProcess(command, 0, "", "")
+
+
+def _with_keyring(monkeypatch: pytest.MonkeyPatch, keyring: _FakeKeyring) -> None:
+    import ravis.credentials as module
+
+    monkeypatch.setattr(module.sys, "platform", "linux")
+    monkeypatch.setattr(module.shutil, "which", keyring.which)
+    monkeypatch.setattr(module.subprocess, "run", keyring.run)
+
+
+def test_a_stored_credential_goes_to_the_keyring_and_not_into_the_file(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file is what happens when there is no keyring, not the first choice."""
+    keyring = _FakeKeyring()
+    _with_keyring(monkeypatch, keyring)
+    store = _file_store(tmp_path, keychain=True)
+
+    status = store.store("anthropic", VALUE)
+
+    assert status.source is CredentialSource.KEYCHAIN
+    assert keyring.items == {"anthropic": VALUE}
+    assert not (tmp_path / "credentials.json").exists(), (
+        "a credential in the keyring must not also sit in the file — and with "
+        "nothing ever written there, the file is not created at all"
+    )
+
+
+def test_a_credential_already_in_the_file_stops_being_in_the_file(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**The upgrade case, and the one that can silently do nothing.**
+
+    Every credential saved by an older build is in the file. Re-saving one now
+    puts it in the keyring — and the file is read *first*, so leaving the old
+    copy behind would mean the new value is written somewhere the store never
+    looks. The symptom would be a key that changes on screen and not in effect.
+    """
+    keyring = _FakeKeyring()
+    _with_keyring(monkeypatch, keyring)
+    store = _file_store(tmp_path, keychain=True)
+    (tmp_path / "credentials.json").write_text(json.dumps({"anthropic": "the-old-key"}))
+
+    store.store("anthropic", VALUE)
+
+    assert json.loads((tmp_path / "credentials.json").read_text()) == {}, (
+        "the file's copy must go, or it shadows the keyring on the next read"
+    )
+    assert store.resolve("anthropic").reveal() == VALUE
+
+
+def test_a_keyring_that_mangles_the_value_is_not_believed(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**The reason the write is read back.**
+
+    macOS's `security -i` unquotes what it parses and drops a backslash from a
+    credential containing one. Stored silently, that fails much later as an
+    authentication error against a provider, which is the most expensive way to
+    learn about a storage bug. A write that does not survive its own read-back
+    is treated as no write at all.
+    """
+    keyring = _FakeKeyring(mangle="-corrupted")
+    _with_keyring(monkeypatch, keyring)
+    store = _file_store(tmp_path, keychain=True)
+
+    status = store.store("anthropic", VALUE)
+
+    assert status.source is CredentialSource.FILE, "a mangled write must fall back"
+    assert json.loads((tmp_path / "credentials.json").read_text()) == {"anthropic": VALUE}
+    assert store.resolve("anthropic").reveal() == VALUE, "and the value must be intact"
+
+
+def test_a_host_with_no_keyring_still_stores_the_credential(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows, a server with no session bus, a minimal container. The file is
+    the answer there and nothing about that changed.
+
+    **The absence is faked rather than assumed.** Written to trust the host, this
+    test found the real `security` on the machine it was written on and wrote a
+    credential into the operator's own login keychain — a test that reaches
+    outside its tmp_path is a test that can damage the machine it audits.
+    """
+    import ravis.credentials as module
+
+    monkeypatch.setattr(module.sys, "platform", "linux")
+    monkeypatch.setattr(module.shutil, "which", lambda _binary: None)
+    store = _file_store(tmp_path, keychain=True)
+
+    status = store.store("anthropic", VALUE)
+
+    assert status.source is CredentialSource.FILE
+    assert store.resolve("anthropic").reveal() == VALUE
+
+
+def test_forgetting_removes_the_item_the_store_itself_wrote(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A credential deleted from the screen must not come back from the keyring
+    on the next read — which it would, since the keyring is now where it went."""
+    keyring = _FakeKeyring()
+    _with_keyring(monkeypatch, keyring)
+    store = _file_store(tmp_path, keychain=True)
+    store.store("anthropic", VALUE)
+
+    status = store.forget("anthropic")
+
+    assert keyring.cleared == ["anthropic"]
+    assert keyring.items == {}
+    assert not status.configured
+
+
+def test_the_real_keychain_takes_a_credential_without_it_reaching_argv(tmp_path) -> None:
+    """The one test that runs the actual tool, on the platform that has it.
+
+    Everything above proves the store's logic against a fake. This proves the
+    command shape is one `security` accepts — the part a fake cannot establish,
+    and the part that was wrong in the docstring for months.
+    """
+    import shutil as real_shutil
+    import subprocess as real_subprocess
+
+    if not real_shutil.which("/usr/bin/security"):
+        pytest.skip("no macOS Keychain on this host")
+
+    keychain = str(tmp_path / "throwaway.keychain-db")
+    real_subprocess.run(["/usr/bin/security", "create-keychain", "-p", "t", keychain],
+                        capture_output=True, check=True)
+    try:
+        real_subprocess.run(["/usr/bin/security", "unlock-keychain", "-p", "t", keychain],
+                            capture_output=True, check=True)
+        store = _file_store(tmp_path, keychain=True, keychain_path=keychain)
+
+        status = store.store("anthropic", VALUE)
+
+        assert status.source is CredentialSource.KEYCHAIN
+        assert store.resolve("anthropic").reveal() == VALUE
+        assert not (tmp_path / "credentials.json").exists()
+    finally:
+        real_subprocess.run(["/usr/bin/security", "delete-keychain", keychain],
+                            capture_output=True, check=False)

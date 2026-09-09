@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2710 tests, no network, no live service
+.venv/bin/pytest                      # part of 2716 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1133 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2710 passing across the four, conformance `PASS`.
+Expected: all clean, 2716 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16506,6 +16506,71 @@ Nothing to fix, and nothing was changed. Worth writing down because the next
 person to see that toast will otherwise spend the same hour on the proxy's
 headers — and because a check run in a browser that quietly forbids a whole API
 is a check that can only produce a false finding.
+
+## An external audit, and the first thing it found that was ours to build
+## — 2026-09-09
+
+An outside model audited the ecosystem against the specifications and came back
+with 13 documentation findings and 10 behavioural ones. Every one was checked
+against the code here before anything was touched, and every one held — no
+false positives in 23.
+
+**Nine of the thirteen were documents describing code that had moved on**, and
+for those the edit *is* the fix: M25b still called M15's cost engine and M16's
+policy "no mechanism, only an intention" long after both were AUTOMATED
+VERIFIED; M19 sat at IMPLEMENTED with passing assertions for everything it
+claims; `ravis.management@1`'s degradation reason described an authorization
+bypass that `_may_write` had already closed; the provider toggle was documented
+as two POSTs and shipped as one PUT; both services documented an Origin
+allowlist "empty by default" while defaulting to NERVIS's two addresses;
+SIRVIS promised `limit` and `cursor` on every list when the inventory takes
+neither; NERVIS named a pool (`ravis/background`) that is unbuilt while using
+`ravis/free-api`; and it promised background questions "open a chat session",
+which is a notification and nothing more.
+
+**Two were not documentation problems at all**, and the distinction is the whole
+lesson. §16 item 16 said "API credentials are never stored in plaintext" while
+`credentials.py` wrote a `0600` JSON file on every platform. The first pass here
+rewrote the rule to match the file — which is lowering the bar to whatever the
+code does, the exact failure that produced the drift in the first place. The
+operator stopped it: *"you're editing docs, but not implementing the fix… that's
+recipe for disaster repeatal."* Both edits were reverted and the code was built
+instead.
+
+**The keyring write, and the false comment that had prevented it.**
+`credentials.py` explained that Keychain was read-only because `security` takes
+the password in `argv` and "there is no stdin form". That is untrue: `security
+-i` reads whole commands from standard input, verified here against a throwaway
+keychain. Linux's `secret-tool store` reads the secret from stdin outright.
+Windows has neither and keeps the file. A justification nobody re-checked had
+been holding a security decision in place.
+
+Three things the build found that the design did not:
+
+- **macOS mangles what it stores.** `security -i` unquotes what it parses and
+  drops a backslash. A silently corrupted credential surfaces as an
+  authentication failure against a provider, days later. So every keyring write
+  is read back and compared, and a mismatch falls through to the file.
+- **A value that moves must leave its name behind.** Identities are matched by
+  walking `names(prefix)` and comparing each value to the presented token. The
+  first version removed the file entry on a successful keyring write, so the
+  name disappeared, so no bearer token matched anything — `test_management_api`
+  caught it as a 403 within a minute. Names now live in an index beside the
+  credential file; values never do.
+- **The suite was writing to the operator's login keychain.** `as_administrator`
+  stores through the *app's* real store, so running the tests put
+  `ravis/admin.tests` into the login keychain — found on this machine and
+  removed by hand, twice. `RAVIS_CREDENTIAL_KEYRING=0` now exists for exactly
+  this, thrown session-wide in `ravis/tests/conftest.py`, and it is a real operator switch
+  too: a shared or headless box has nobody to answer a keyring prompt.
+
+Only then were §16 item 16 and the storage paragraph rewritten — to what the
+code now does, which is the order that keeps a specification worth believing.
+The second policy finding (M4's title marker, which the code deliberately omits
+when reusing the answering model) is untouched: it needs the same treatment and
+has not had it.
+
+RAVIS 1035 -> 1041.
 
 ## Starting the thing
 

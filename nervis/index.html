@@ -3143,7 +3143,7 @@ const API={
     levels:['NORMAL','LOCAL_PREFERRED','TRUSTED_PROVIDERS','LOCAL_ONLY'],
     never_overridden_by_score:true,
     request_logging:'metadata only',persist_content:false},
-   credentials:{mutable:true,store:'RAVIS credential file (0600), then Keychain, then environment',
+   credentials:{mutable:true,store:'platform keyring where there is one, else a 0600 file; read file, then keyring, then environment',
     surface:'RAVIS → Credentials',
     note:'entered in the dashboard, written by RAVIS, never readable back through any endpoint'},
    /* The four that do have an endpoint, each named so a control can cite it. */
