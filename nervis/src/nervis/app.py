@@ -632,7 +632,22 @@ WRITTEN_STATE = {
     "unauthorized": ("is refusing NERVIS's credential", "are refusing NERVIS's credential"),
     "stopped": ("has stopped", "have stopped"),
     "discovering": ("is still negotiating", "are still negotiating"),
+    # **Not a state, a transition.** A peer leaving `discovering` has answered
+    # for the first time; it has not *recovered*, because it was never healthy
+    # to begin with. Reported from the room after starting LM Studio and being
+    # told it "is back to healthy, sir" — a sentence describing a history that
+    # did not happen. Keyed separately from `healthy` so both sentences survive:
+    # a peer that really did come back still says so.
+    "connected": ("has connected", "have connected"),
+    "connected_degraded": ("has connected, degraded", "have connected, degraded"),
 }
+
+
+def _reads_as(state: str, was: str) -> str:
+    """Which sentence this transition earns, read from both of its ends."""
+    if was == "discovering" and state in {"healthy", "degraded"}:
+        return "connected" if state == "healthy" else "connected_degraded"
+    return state
 
 
 def _listed(labels: list[str]) -> str:
@@ -667,6 +682,16 @@ def _grouped(changes: list[tuple[str, str]]) -> dict[str, list[str]]:
     for label, state in changes:
         grouped.setdefault(state, []).append(label)
     return grouped
+
+
+def _phrase_keys(worth: list["_Noteworthy"]) -> list[tuple[str, str]]:
+    """Each transition as (label, the sentence it earns) rather than (label, state).
+
+    Grouping stays by sentence, so "RAVIS and SIRVIS have connected" and "LM
+    Studio is back to healthy" are two notes in one sweep — which they are, and
+    a single line claiming all three recovered would be false about two of them.
+    """
+    return [(one.label, _reads_as(one.state, one.was)) for one in worth]
 
 
 @dataclass(frozen=True)
@@ -755,10 +780,17 @@ def _file_notes(api: FastAPI, worth: list[_Noteworthy]) -> None:
     database = getattr(api.state, "database", None)
     if database is None or not worth:
         return
-    by_state = _grouped([(one.label, one.state) for one in worth])
+    by_state = _grouped(_phrase_keys(worth))
     for state, labels in by_state.items():
-        moved = [one for one in worth if one.state == state]
+        # Matched on the sentence, because that is what the group is keyed by
+        # now. Matching on `one.state` would find nothing for a "connected"
+        # group and file a note reading "state moved from  to connected".
+        moved = [one for one in worth if _reads_as(one.state, one.was) == state]
         froms = sorted({one.was for one in moved})
+        # The reason names the states, never the sentence key: "moved from
+        # discovering to connected" would be describing this function's own
+        # vocabulary rather than the registry's.
+        reached = " and ".join(sorted({one.state for one in moved})) or state
         with contextlib.suppress(Exception):
             notifications.post(
                 database,
@@ -770,7 +802,7 @@ def _file_notes(api: FastAPI, worth: list[_Noteworthy]) -> None:
                 # twenty seconds ago" is the reason anybody wants to know now.
                 # Several services rarely move *from* the same state, so the
                 # sentence names each origin it saw rather than picking one.
-                reason=(f"state moved from {' and '.join(froms)} to {state}"),
+                reason=(f"state moved from {' and '.join(froms)} to {reached}"),
                 # The details differ per service, so they are labelled. One
                 # unlabelled blob would leave a reader guessing which sentence
                 # belonged to which name.

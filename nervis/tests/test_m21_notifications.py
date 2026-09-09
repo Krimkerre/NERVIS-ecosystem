@@ -409,3 +409,55 @@ def test_an_ordinary_tick_leaves_the_window_closed(client: TestClient) -> None:
     before = {e.key: RegistryState.STALE for e in api.state.registry.all()}
     app_module._announce_transitions(api, before)
     assert client.get("/api/v1/notifications").json()["unread"] > 0
+
+
+def test_a_peer_answering_for_the_first_time_has_not_come_back(client: TestClient) -> None:
+    """**"Back to healthy" is a claim about a past that did not happen.**
+
+    Reported from the room: LM Studio was started for the first time in a
+    session and the centre said it *is back to healthy* — which asserts it had
+    been healthy, stopped, and recovered. It had never answered at all.
+    `discovering` is NERVIS's word for "no reading yet", so leaving it is a
+    connection rather than a recovery, and the note now reads from both ends of
+    the transition.
+
+    Both sentences are checked in one place, because the failure mode of the fix
+    is collapsing them: a peer that genuinely did come back must still say so.
+    """
+    from nervis import app as app_module
+
+    connected = app_module._reads_as("healthy", "discovering")
+    recovered = app_module._reads_as("healthy", "unreachable")
+
+    assert connected != recovered, (
+        "a first connection and a recovery produce the same sentence"
+    )
+    assert app_module.WRITTEN_STATE[connected][0] == "has connected"
+    assert app_module.WRITTEN_STATE[recovered][0] == "is back to healthy"
+    assert app_module._phrase_for(["LM Studio"], connected) == "LM Studio has connected"
+    assert app_module._phrase_for(["RAVIS", "SIRVIS"], connected) == (
+        "RAVIS and SIRVIS have connected"
+    )
+
+
+def test_a_connection_and_a_recovery_in_one_sweep_are_two_notes(
+    client: TestClient,
+) -> None:
+    """They are two different events and one sentence cannot carry both.
+
+    The grouping is by sentence rather than by destination state now, which is
+    the whole reason this holds: both peers reached `healthy`, and only one of
+    them came back.
+    """
+    from nervis import app as app_module
+
+    worth = [
+        app_module._Noteworthy(label="LM Studio", state="healthy", was="discovering",
+                               detail="", usable=True),
+        app_module._Noteworthy(label="RAVIS", state="healthy", was="unreachable",
+                               detail="", usable=True),
+    ]
+
+    grouped = app_module._grouped(app_module._phrase_keys(worth))
+
+    assert grouped == {"connected": ["LM Studio"], "healthy": ["RAVIS"]}

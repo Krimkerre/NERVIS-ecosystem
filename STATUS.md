@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2725 tests, no network, no live service
+.venv/bin/pytest                      # part of 2727 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 482 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1135 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1137 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2725 passing across the four, conformance `PASS`.
+Expected: all clean, 2727 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16790,6 +16790,21 @@ healthy, stopped, and recovered. It had never answered at all. The wording is
 now chosen from both ends of the transition: leaving `discovering`, a peer *has
 connected*; leaving `unreachable`, it *is back to healthy*. `voice_check.js`
 holds both, and fails if the first collapses into the second.
+
+**The written note said it too, and that is the copy somebody reads tomorrow.**
+The notification centre grouped transitions by their destination state, so it
+could not tell a first connection from a recovery either — and it applies to
+every peer, RAVIS and SIRVIS included, not only to a runtime somebody starts by
+hand. Notes now group by the *sentence* a transition earns, which also means a
+sweep where one peer connects and another recovers files two notes rather than
+one line that is false about half of them. Two tests hold it: the two sentences
+must differ, and the grouping must split them. Removing the distinction fails
+both.
+
+One bug caught while writing it, before it shipped: the loop that assembles a
+note's reason matched on the raw state, so a "connected" group would have found
+no members and filed *"state moved from  to connected"* — a sentence about this
+function's own vocabulary, with a hole in it.
 
 ## Starting the thing
 
