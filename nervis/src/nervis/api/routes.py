@@ -25,7 +25,7 @@ from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from nervis import documents
+from nervis import documents, workspace
 from nervis.api.control import require_control
 from nervis.errors import InvalidConfigurationError, NotFoundError
 from nervis.negotiation import Operation, negotiate
@@ -325,9 +325,10 @@ async def list_workspace(request: Request) -> dict[str, Any]:
     workspace is configured: the screen needs to say *"turn this on"*, and a 404
     would make an unconfigured install look broken.
     """
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
-    if not root:
+    place_root = workspace.imported(request.app.state.settings)
+    if place_root is None:
         return {"items": [], "workspace": "", "detail": "no workspace is configured"}
+    root = str(place_root)
 
     # Scoped to the conversation, so a fresh session starts with nothing. A file
     # handed over to ask one question is not a library the person is building.
@@ -351,9 +352,9 @@ async def forget_workspace_attachments(request: Request) -> dict[str, Any]:
     removed a conversation has said what they want to happen to the file they
     handed it.
     """
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    place_root = workspace.imported(request.app.state.settings)
     conversation = str(request.query_params.get("conversation_id") or "")
-    gone = documents.forget_attachments(Path(root), conversation) if root else 0
+    gone = documents.forget_attachments(place_root, conversation) if place_root else 0
     return {"deleted": gone}
 
 
@@ -371,12 +372,13 @@ async def upload_to_workspace(name: str, request: Request) -> Any:
     filename came from a file picker, and `../../.ssh/authorized_keys` is a
     perfectly ordinary thing for a file to be called.
     """
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
-    if not root:
+    place_root = workspace.imported(request.app.state.settings)
+    if place_root is None:
         raise InvalidConfigurationError(
             "NERVIS has no workspace configured, so it cannot accept a file. "
             "Set NERVIS_WORKSPACE_PATH to the directory chat may read and write."
         )
+    root = str(place_root)
     conversation = str(request.query_params.get("conversation_id") or "")
     place = documents.attachment_dir(Path(root), conversation)
     if place is None:

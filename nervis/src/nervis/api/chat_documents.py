@@ -21,7 +21,7 @@ from pathlib import Path
 
 from fastapi import Request
 
-from nervis import documents
+from nervis import documents, workspace
 from nervis.workspace import OutsideWorkspaceError
 
 _NAMES_A_FILE = re.compile(
@@ -32,19 +32,24 @@ _NAMES_A_FILE = re.compile(
 )
 
 
-def _target(root: Path, question: str, conversation_id: str) -> tuple[Path, str, bool] | str | None:
+def _target(
+    places: list[Path], imported_root: Path, question: str, conversation_id: str
+) -> tuple[Path, str, bool] | str | None:
     """Which file to read and where from, or a refusal, or nothing.
 
     Three outcomes because the question has three answers: a file to open, a
     thing to tell the model when the person clearly meant a document and there
     is none, and silence for an ordinary sentence that named no file at all.
 
-    **Two places, and the order is the point.** This conversation's attachments
-    come first, because *"this pdf"* means the one just handed over. The
-    workspace root holds what chat was asked to *write*, which is a different
-    kind of file and stays reachable by name.
+    **Two rooms, and the order is the point.** This conversation's attachments
+    come first, because *"this pdf"* means the one just handed over, and they
+    live in the import room. What chat was asked to *write* is in the export
+    room — a different kind of file, reachable by name.
     """
-    attachments = documents.attachment_dir(root, conversation_id)
+    # Attachments hang off the import room whatever the search order is: they
+    # arrived through chat, and where they are is a fact rather than a
+    # preference.
+    attachments = documents.attachment_dir(imported_root, conversation_id)
     found = _NAMES_A_FILE.search(question or "")
     named = (found.group(1) or found.group(2)) if found else ""
 
@@ -52,7 +57,7 @@ def _target(root: Path, question: str, conversation_id: str) -> tuple[Path, str,
     # not be overridden by a newer file just because the sentence also contains
     # the word "the pdf".
     if named:
-        return _holding(root, attachments, named), named, False
+        return _holding(places, attachments, named), named, False
     if attachments is not None:
         chosen = _attachment(attachments, question)
         if chosen:
@@ -93,16 +98,31 @@ def _target(root: Path, question: str, conversation_id: str) -> tuple[Path, str,
     return None
 
 
-def _holding(root: Path, attachments: Path | None, named: str) -> Path:
+def _holding(places: list[Path], attachments: Path | None, named: str) -> Path:
     """Which directory a named file should be read from.
 
-    The conversation's attachments if it is there, the workspace root otherwise
-    — so the root's refusal is the one the person sees when the file is nowhere,
-    and "there is no notes.md in the workspace" stays the wording it had.
+    **Searched in order of how specifically the file was meant.** The
+    conversation's own attachments first — *"summarise report.pdf"* right after
+    handing one over means that one. Then the rooms in `places`: what somebody
+    put there to be read, then what chat wrote.
+
+    Falls back to the first room, so the refusal a person sees names the place
+    they would have put the file: "there is no notes.md in the workspace" stays
+    the wording it had.
     """
-    if attachments is not None and (attachments / Path(named).name).is_file():
+    wanted = Path(named).name
+    if attachments is not None and (attachments / wanted).is_file():
         return attachments
-    return root
+    for place in places:
+        if (place / wanted).is_file():
+            return place
+    return places[0]
+
+
+#: Where a named file is looked for, in order. The workspace root is
+#: deliberately not among them: files live in rooms, and a search that fell back
+#: to the directory above them would make the layout advisory — the one place a
+#: stray file could sit and still work is the one place it would then sit.
 
 
 #: A word for the thing somebody attached.
@@ -269,11 +289,21 @@ def _document(
     empty reading would make all three look like the model deciding not to
     mention the file.
     """
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
-    if not root:
+    # Two rooms: what somebody handed over, and what chat wrote. Both are
+    # inside the workspace and neither is the workspace, which is why this asks
+    # for each by name rather than reading the directory above them.
+    settings = request.app.state.settings
+    imported_root = workspace.imported(settings)
+    exported_root = workspace.exported(settings)
+    kept = workspace.library(settings)
+    if imported_root is None or exported_root is None or kept is None:
         return "", (), True
-
-    target = _target(Path(root), question, conversation_id)
+    # Order of specificity: this conversation's own attachments, then the shelf
+    # somebody keeps files on, then what arrived through chat, then what chat
+    # wrote. A file asked for by name is usually one of the first two.
+    target = _target(
+        [kept, imported_root, exported_root], imported_root, question, conversation_id
+    )
     if target is None:
         return "", (), True
     if isinstance(target, str):

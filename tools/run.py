@@ -393,6 +393,15 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # decision worth making deliberately.
             workspace = ROOT / "workspace"
             workspace.mkdir(exist_ok=True)
+            # **Three rooms, made here so they exist before anything looks.**
+            # What somebody handed NERVIS, what NERVIS produced, and the folder
+            # the editor opens are three different things, and one directory
+            # holding all of them was a heap that had to be read to be
+            # understood. NERVIS creates each on demand too; making them at
+            # start means the editor's folder is there to be opened rather than
+            # created by the first person to try.
+            for room in ("import", "export", "library", "clarvis"):
+                (workspace / room).mkdir(exist_ok=True)
             env["NERVIS_WORKSPACE_PATH"] = str(workspace)
             # No allow-list: NERVIS serves the dashboard and the dashboard's own
             # API from one origin, so nothing it answers is ever cross-origin.

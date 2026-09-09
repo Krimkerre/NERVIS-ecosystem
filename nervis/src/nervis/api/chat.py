@@ -37,7 +37,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
-from nervis import commands, documents, knowledge, proposals, situation, transcript
+from nervis import commands, documents, knowledge, proposals, situation, transcript, workspace
 from nervis import recall as memory
 from nervis.api.chat_calls import (
     _forwarded,
@@ -168,7 +168,15 @@ async def delete_conversation(conversation_id: str, request: Request) -> dict[st
 
 
 def _workspace_root(request: Request) -> str:
-    return str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    """Where attachments are, which is the import room rather than the workspace.
+
+    Every caller of this asks about an *attachment* — its name, its title, the
+    file somebody handed over — and those live under the room they arrived in.
+    Returning the workspace root would look at the directory above them and
+    find nothing.
+    """
+    place = workspace.imported(request.app.state.settings)
+    return str(place) if place is not None else ""
 
 
 @router.post("")
@@ -230,10 +238,10 @@ async def send(request: Request) -> Any:
     # the attachment under `conversation_id`, and runs before `_document`
     # does on exactly the turn that just attached it — "save it" in the same
     # breath as "here's the file" is the ordinary order, not an edge case.
-    root_for_attachments = str(getattr(request.app.state.settings, "workspace_path", "") or "")
-    if root_for_attachments:
+    imported_root = workspace.imported(request.app.state.settings)
+    if imported_root is not None:
         documents.reconcile_attachments(
-            Path(root_for_attachments), str(body.get("attachment_id") or ""), conversation_id,
+            imported_root, str(body.get("attachment_id") or ""), conversation_id,
         )
 
     request_id = getattr(request.state, "request_id", "") or uuid.uuid4().hex
@@ -1127,12 +1135,16 @@ def _saved_pictures(request: Request, urls: list[str]) -> str:
     browser renders now and what it renders after a reload — the reply NERVIS
     stores is the only record either has, so the link has to live in it.
     """
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
-    if not root:
+    # A picture the model produced is something NERVIS made, so it goes to the
+    # export room — and the link below carries that room, because the reply is
+    # the only record of where the file went.
+    place = workspace.exported(request.app.state.settings)
+    if place is None:
         return (
             "\n\n_The model returned an image and NERVIS has no workspace"
             " configured, so there was nowhere to save it._"
         )
+    root = str(place)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     lines = []
     for index, url in enumerate(urls, start=1):
@@ -1141,7 +1153,10 @@ def _saved_pictures(request: Request, urls: list[str]) -> str:
         except (ValueError, OSError) as failure:
             lines.append(f"_An image could not be saved ({failure})._")
             continue
-        lines.append(f"![{name}](/api/v1/documents/{quote(name)})")
+        # The room is part of the name in the link: `read_document` resolves a
+        # path inside the workspace, and a bare filename would point at the
+        # workspace root where this file is not.
+        lines.append(f"![{name}](/api/v1/documents/{quote(f'{workspace.EXPORT}/{name}')})")
     return "\n\n" + "\n\n".join(lines)
 
 

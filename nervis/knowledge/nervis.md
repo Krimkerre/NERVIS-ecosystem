@@ -31,6 +31,32 @@ rather than asking the rest of a port nothing is listening on. An absent peer
 costs one connection attempt a pass, whether it has been gone for a second or
 since boot.
 
+### Where files go in the workspace
+
+Four rooms, and which one a file is in says how it got there.
+
+- **`import/`** — what arrived through chat. Uploads land here, filed under the
+  conversation they were attached to, and swept after a fortnight, because a
+  file handed over to ask one question is not a collection somebody is keeping.
+- **`library/`** — what somebody keeps. Files put there by hand, belonging to
+  no conversation, that nothing sweeps. This is the room to drop a document in
+  when the point is to have it around.
+- **`export/`** — what NERVIS produced. A reply saved as a document, a
+  conversation exported to PDF, an annotated copy, a picture a model drew.
+- **`clarvis/`** — what the editor opens. A coding task handed to Clarvis is
+  written here, because it exists to be opened there.
+
+Each can be pointed somewhere else on its own
+(`NERVIS_WORKSPACE_IMPORT_PATH`, `NERVIS_WORKSPACE_LIBRARY_PATH`,
+`NERVIS_WORKSPACE_EXPORT_PATH`, `NERVIS_CODE_WORKSPACE_ROOTS`), and a deployment
+that only set `NERVIS_WORKSPACE_PATH` gets all four without saying anything
+further.
+
+Asked for a file by name, chat looks in this conversation's attachments first,
+then the library, then import, then export. **The workspace directory itself is
+not searched**: a layout with one place a stray file can sit and still work is a
+layout that is only advice, and the loose file is where everything ends up.
+
 ### How the Code tab reaches the editor
 
 By default, at code-server's own address — the same way it always did.

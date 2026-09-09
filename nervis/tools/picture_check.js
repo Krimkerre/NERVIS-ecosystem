@@ -22,7 +22,7 @@ const { loadPage } = require("./page_context.js");
 const { exported } = loadPage();
 const render = exported.renderMarkdown;
 
-const SAVED = "![image-20260907-143012-1.png](/api/v1/documents/image-20260907-143012-1.png)";
+const SAVED = "![image-20260907-143012-1.png](/api/v1/documents/export/image-20260907-143012-1.png)";
 
 /* Every one of these is a link a model could write. None may become an image,
    and none may become a clickable destination. */
@@ -31,6 +31,11 @@ const REFUSED = [
   ["a protocol-relative host", "![x](//example.invalid/pixel.png)"],
   ["a path outside the endpoint", "![x](/api/v1/workspace/files/a.png)"],
   ["a traversal in the name", "![x](/api/v1/documents/../../etc/passwd.png)"],
+  /* One room, from the set the workspace actually has. A picture link is the
+     one thing this page renders straight into an <img>, so the path it accepts
+     stays a closed list rather than "a path". */
+  ["a room the workspace does not have", "![x](/api/v1/documents/elsewhere/a.png)"],
+  ["two rooms deep", "![x](/api/v1/documents/export/nested/a.png)"],
   ["a query string", "![x](/api/v1/documents/a.png?to=example.invalid)"],
   ["a suffix that is not an image", "![x](/api/v1/documents/report.pdf)"],
   ["a javascript destination", "![x](javascript:alert(1))"],
@@ -40,10 +45,10 @@ const REFUSED = [
 const failures = [];
 
 const shown = render(SAVED);
-if (!/<img src="\/api\/v1\/documents\/image-20260907-143012-1\.png"/.test(shown)) {
+if (!/<img src="\/api\/v1\/documents\/export\/image-20260907-143012-1\.png"/.test(shown)) {
   failures.push(`the saved picture did not render as an image: ${shown}`);
 }
-if (!/<a href="\/api\/v1\/documents\/image-20260907-143012-1\.png" download=/.test(shown)) {
+if (!/<a href="\/api\/v1\/documents\/export\/image-20260907-143012-1\.png" download="image-20260907-143012-1\.png"/.test(shown)) {
   failures.push(`the saved picture had no download link: ${shown}`);
 }
 

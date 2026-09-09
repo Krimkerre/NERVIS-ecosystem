@@ -38,7 +38,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from nervis import background, documents, logs, notifications, supervision
+from nervis import background, documents, logs, notifications, supervision, workspace
 from nervis.api import (
     background_router,
     chat_router,
@@ -947,7 +947,9 @@ def _ask_ravis(api: FastAPI) -> Any:
 
 def _expire_attachments(api: FastAPI) -> None:
     """Drop attachment directories nothing has touched in a fortnight."""
-    root = str(getattr(api.state.settings, "workspace_path", "") or "").strip()
+    # Attachments expire from the room they arrived in.
+    place = workspace.imported(api.state.settings)
+    root = str(place) if place is not None else ""
     if not root:
         return
     gone = documents.prune_attachments(Path(root), now=time.time())

@@ -21,7 +21,9 @@ def _saved(client: TestClient, tmp_path: Path, conversation: str, name: str) -> 
         "conversation_id": conversation,
     })
     assert ran.status_code == 200, ran.text
-    return (tmp_path / name).read_bytes()
+    # The export room: a document chat wrote is something NERVIS produced, and
+    # the workspace keeps those apart from what it was handed.
+    return (tmp_path / "export" / name).read_bytes()
 
 
 def _font_names(data: bytes) -> set[str]:
@@ -115,7 +117,7 @@ def test_exporting_a_conversation_ignores_the_template_attachment(tmp_path: Path
         "conversation_id": conversation,
     })
     assert ran.status_code == 200, ran.text
-    written = (tmp_path / "transcript.pdf").read_bytes()
+    written = (tmp_path / "export" / "transcript.pdf").read_bytes()
 
     # render_conversation's own dark palette (layout.PAPER), not the light
     # template's — and definitely not the template's own Times-Roman, since a

@@ -131,7 +131,10 @@ def test_the_task_is_written_where_clarvis_reads(client: TestClient) -> None:
     assert answer.status_code == 200
     assert answer.json()["file"]["name"] == handoff.TASK_FILE
 
-    root = Path(client.app.state.settings.workspace_path)  # type: ignore[attr-defined]
+    # The editor's own room: the task exists to be opened in Clarvis, and
+    # Clarvis opens `workspace/clarvis`. Written anywhere else it is a file
+    # nobody reads.
+    root = Path(client.app.state.settings.workspace_path) / "clarvis"  # type: ignore[attr-defined]
     waiting = handoff.waiting(root)
     assert waiting is not None
     assert waiting.task == "add a retry to the uploader when the API returns 429"

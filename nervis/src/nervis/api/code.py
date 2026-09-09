@@ -35,6 +35,7 @@ from fastapi import APIRouter, Request, Response, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 from websockets.exceptions import ConnectionClosed
 
+from nervis import workspace
 from nervis.api.control import require_control
 from nervis.code_extension import ExtensionError, binary, due, install, installed, offered
 from nervis.code_proxy import COOKIE, Sessions
@@ -534,12 +535,13 @@ def _workspace_roots(request: Request) -> list[str]:
     becoming an alternate filesystem authority, and a caller-supplied root
     would be precisely that with an extra step.
     """
-    settings = request.app.state.settings
-    declared = str(getattr(settings, "code_workspace_roots", "") or "")
-    if declared:
-        return [root for root in declared.split(",") if root.strip()]
-    single = str(getattr(settings, "workspace_path", "") or "")
-    return [single] if single else []
+    # **The editor gets a room in the workspace, not the workspace** — handing
+    # it the whole directory put an editor over the files chat had been given
+    # and the files chat had written. Defined in `workspace.editor_rooms` rather
+    # than here, because the Clarvis handoff writes its task file into the same
+    # place and a handoff written where the editor never looks is a file nobody
+    # reads.
+    return workspace.editor_rooms(request.app.state.settings)
 
 
 def refuse_unless_open(request: Request) -> None:

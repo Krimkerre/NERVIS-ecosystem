@@ -157,6 +157,13 @@ if (frameAt === -1 || notesAt === -1 || notesAt < frameAt) {
   failures.push("the editor's notes were not rendered after the frame, so they "
     + "sit above the editor rather than under its status bar.");
 }
+/* And the words have to match the place. A note under the editor that says
+   "the editor below" is a small wrongness the reader has to correct for every
+   time they read it — and it was there for exactly as long as it took somebody
+   to look. */
+if (/editor below/i.test(fresh)) {
+  failures.push("a note rendered under the editor called it 'the editor below'.");
+}
 
 /* §13.5: an editor running without Clarvis in it is a state this tab can see
    and now fix, and the fix has to be offered where the missing panel would

@@ -11573,8 +11573,8 @@ async function clarvis(){
     the note says what is true at that moment — waiting — and `watchForBridge`
     replaces it with the real answer either way. */
  const bridge=windows.length?'':`<div id="bridgeNote">${banner('Waiting for the Clarvis Bridge',
-  'The editor below is starting. A window announces itself once Clarvis activates inside '
-  +'it, which takes a few seconds.','info')}</div>`;
+  'Clarvis connects to NERVIS a few seconds after the editor above loads it. Nothing here '
+  +'needs doing.','info')}</div>`;
 
  /* **The frame is only drawn when something answered.** An <iframe> pointed at a
     port with nothing on it renders a browser error page inside the dashboard,
@@ -11619,10 +11619,20 @@ async function clarvis(){
  if(!windows.length)watchForBridge();
 }
 
-/* How long a window is given to announce itself before its absence is a finding,
-   and how often that is checked. Twenty seconds is past a cold extension host on
-   a busy machine and well short of a person still waiting to be told something. */
-const BRIDGE_WAIT_MS=2000,BRIDGE_WAIT_TRIES=10;
+/* How long a window is given to announce itself before its absence is worth
+   saying, and how often that is checked. Twenty seconds is past a cold
+   extension host on a busy machine and well short of a person still waiting to
+   be told something.
+
+   **The watching does not stop when the wording changes.** A fresh code-server
+   asks for a password first, and Clarvis cannot activate until somebody has
+   typed it — which is a minute, not twenty seconds. Stopping at the deadline
+   left the note saying "no Bridge has registered" over an editor where one
+   registered thirty seconds later, and only a reload cleared it: the same bug
+   this note was rewritten to fix, moved twenty seconds later. So the deadline
+   changes what the note *says*, and the checking continues at a slower pace
+   for as long as the tab is open. */
+const BRIDGE_WAIT_MS=2000,BRIDGE_WAIT_TRIES=10,BRIDGE_SETTLED_MS=5000;
 
 /* Watch for the Bridge that has not registered *yet*, and end the wait honestly.
 
@@ -11630,22 +11640,22 @@ const BRIDGE_WAIT_MS=2000,BRIDGE_WAIT_TRIES=10;
    iframe underneath somebody who has started using the editor, which is a worse
    thing to do than the message it would fix. */
 async function watchForBridge(){
- for(let attempt=0;attempt<BRIDGE_WAIT_TRIES;attempt++){
-  await new Promise(done=>setTimeout(done,BRIDGE_WAIT_MS));
+ for(let attempt=0;;attempt++){
+  const early=attempt<BRIDGE_WAIT_TRIES;
+  await new Promise(done=>setTimeout(done,early?BRIDGE_WAIT_MS:BRIDGE_SETTLED_MS));
   /* The reader moved on, or the screen was repainted by something else and this
      note is not the one on it. Either way this watcher is finished. */
   const note=$('#bridgeNote');
   if(state.app!=='clarvis'||!note)return;
   const inst=await API.nervis.clarvisInstances();
   if((inst.items||[]).some(c=>c.live)){note.remove();return}
+  /* The wait is over and nothing has registered. Now the absence is worth
+     saying and the advice is worth giving — but it is still not a verdict, so
+     the checking carries on and the note goes the moment one appears. */
+  if(attempt===BRIDGE_WAIT_TRIES-1)note.innerHTML=banner('No Clarvis Bridge has registered',
+   'The editor above still works. NERVIS cannot read what this workspace is doing until a '
+   +'window registers — turn on <b>clarvis.bridge.enabled</b> in its settings.','info');
  }
- const note=$('#bridgeNote');
- /* The wait is over and nothing registered. Now it is a finding, and now the
-    advice is worth giving — the same words this note carried before it learned
-    to wait. */
- if(note&&state.app==='clarvis')note.innerHTML=banner('No Clarvis Bridge has registered',
-  'The editor below still works. NERVIS cannot read what this workspace is doing until a '
-  +'window registers — turn on <b>clarvis.bridge.enabled</b> in its settings.','info');
 }
 
 /* The frame, whatever has to be said above it, and the one action it offers.
@@ -12274,13 +12284,22 @@ function mdParagraph(lines,at){
    string is make the browser show an image already sitting in the workspace,
    same-origin and read-only, which is a thing the person can see in the files
    list anyway. */
-const MD_PICTURE=/^!\[([\w.\-]{0,120})\]\(\/api\/v1\/documents\/([\w.\-]{1,120}\.(?:png|jpe?g|gif|webp))\)$/i;
+/* The name may carry one workspace room — `export/image-….png` — because that
+   is where a saved picture is and the link has to say so. One segment, from a
+   fixed set: this pattern decides what the page will render as an image, and
+   an open-ended path here would be the place to widen it by accident. */
+const MD_PICTURE=/^!\[([\w.\-]{0,120})\]\(\/api\/v1\/documents\/((?:export\/|import\/)?[\w.\-]{1,120}\.(?:png|jpe?g|gif|webp))\)$/i;
 function mdPicture(lines,at){
  const found=MD_PICTURE.exec((lines[at]||'').trim());
  if(!found)return null;
  const src='/api/v1/documents/'+found[2];
- return {consumed:1,html:`<figure class="md"><img src="${src}" alt="${found[1]||found[2]}">`
-   +`<figcaption>${found[2]}<a href="${src}" download="${found[2]}">Download</a></figcaption></figure>`};
+ /* The room is part of the address and not part of the name. A caption reading
+    `export/image-….png` describes where the file is rather than what it is,
+    and `download="export/…"` hands the browser a filename with a separator in
+    it, which it sanitises into something nobody chose. */
+ const shown=found[2].split('/').pop();
+ return {consumed:1,html:`<figure class="md"><img src="${src}" alt="${found[1]||shown}">`
+   +`<figcaption>${shown}<a href="${src}" download="${shown}">Download</a></figcaption></figure>`};
 }
 
 /* Whichever block starts here. Ordered by how specific the opener is, and

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 class OutsideWorkspaceError(Exception):
@@ -72,3 +73,91 @@ def resolve_in_workspace(root: Path, candidate: str) -> Resolved:
             f"{candidate!r} is outside the workspace; chat reads and writes only inside it"
         )
     return Resolved(path=target, shown=str(target.relative_to(base)) if target != base else ".")
+
+
+#: The rooms inside the workspace. Names rather than a free-form layout,
+#: because two of them are referred to by every reply that links a file and a
+#: renamed room breaks links stored in conversations nobody is going to edit.
+IMPORT = "import"
+EXPORT = "export"
+#: Files a person keeps, as distinct from files that arrived. `import` means
+#: "came through chat, belongs to a conversation, swept after a fortnight";
+#: something somebody put on a shelf to be read whenever should not inherit
+#: that, and the root is not the answer either — a layout with one place a
+#: stray file can sit and still work is a layout that is only advice.
+LIBRARY = "library"
+
+
+def room(settings: Any, which: str, chosen: str) -> Path | None:
+    """Where files of one kind live, created on demand, or None with no workspace.
+
+    **The specific setting wins; the room's name is the fallback.** A deployment
+    that only ever set `NERVIS_WORKSPACE_PATH` gets every room without being
+    told to configure a layout, and one that wants a room somewhere else — an
+    import directory on another disk, say — says so without moving the rest.
+
+    `chosen` is passed in rather than looked up from `which`, and that is not
+    ceremony: building the setting's name with an f-string made three fields
+    that nothing statically reads, which is precisely what
+    `tools/check_dead_code.py` exists to catch — it caught these. A name a
+    reader cannot grep for is a name a tool cannot check.
+
+    Returns None rather than raising when nothing is configured: "no workspace"
+    is an ordinary state with a sentence of its own at every call site, and it
+    is not this function's to phrase.
+    """
+    root = str(getattr(settings, "workspace_path", "") or "").strip()
+    if not root:
+        return None
+    place = Path(chosen.strip()) if chosen.strip() else Path(root) / which
+    place = place.expanduser()
+    place.mkdir(parents=True, exist_ok=True)
+    return place
+
+
+def imported(settings: Any) -> Path | None:
+    """Where a file somebody handed NERVIS goes."""
+    return room(settings, IMPORT, settings.workspace_import_path)
+
+
+def exported(settings: Any) -> Path | None:
+    """Where a file NERVIS produced goes."""
+    return room(settings, EXPORT, settings.workspace_export_path)
+
+
+def library(settings: Any) -> Path | None:
+    """Where a file somebody keeps lives — theirs to fill, nothing sweeps it."""
+    return room(settings, LIBRARY, settings.workspace_library_path)
+
+
+def editor_rooms(settings: object) -> list[str]:
+    """Every directory the embedded editor may open, most-specific first.
+
+    **One definition, because two things depend on it and they must agree.**
+    The proxy decides what a session may open, and the Clarvis handoff writes a
+    task file where the editor will find it — a handoff written to a directory
+    the editor never opens is a file nobody reads, and that is precisely what
+    happens if these drift apart.
+
+    Configured roots win outright. Otherwise the editor gets its own room in
+    the workspace rather than the workspace itself: a folder full of somebody's
+    uploaded PDFs is not a project.
+    """
+    declared = str(getattr(settings, "code_workspace_roots", "") or "")
+    if declared:
+        return [root.strip() for root in declared.split(",") if root.strip()]
+    root = str(getattr(settings, "workspace_path", "") or "").strip()
+    if not root:
+        return []
+    named = str(getattr(settings, "code_workspace_subdirectory", "") or "").strip()
+    return [str(Path(root) / named) if named else root]
+
+
+def editor_room(settings: object) -> Path | None:
+    """The directory the editor opens, created on demand, or None if there is none."""
+    rooms = editor_rooms(settings)
+    if not rooms:
+        return None
+    place = Path(rooms[0]).expanduser()
+    place.mkdir(parents=True, exist_ok=True)
+    return place

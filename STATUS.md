@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2667 tests, no network, no live service
+.venv/bin/pytest                      # part of 2677 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1090 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1100 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2667 passing across the four, conformance `PASS`.
+Expected: all clean, 2677 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16171,6 +16171,42 @@ called `.split` on it, taking the whole SIRVIS screen down with a TypeError.
 Confirmed present at `HEAD` before assuming it was mine. Empty at the source
 and rendered as absent at the display site, which is this file's own rule about
 a figure nobody measured applied to a field nobody wrote.
+
+## Four rooms in the workspace — 2026-09-09
+
+**Asked for: `import` for what arrives through chat, `export` for what chat
+produces, `clarvis` for the editor. Everything used to go in one directory** —
+an uploaded PDF, a PDF chat wrote, a generated picture and the editor's folder,
+all mixed, so the place had to be read to be understood.
+
+Each room is a setting of its own that defaults to the obvious subdirectory, so
+a deployment that only ever set `NERVIS_WORKSPACE_PATH` gets the layout without
+describing one. Uploads and their per-conversation attachment tree go to
+`import`; saved replies, exported conversations, annotated copies and generated
+pictures go to `export`; the picture links stored in replies carry the room,
+because a bare name resolves to a directory the file is not in.
+
+**`clarvis` is where the Clarvis handoff writes**, not `export`. A task file
+exists to be opened in the editor, and the editor opens `workspace/clarvis` —
+written anywhere else it is a file nobody reads, which is a failure with no
+error attached to it. `workspace.editor_rooms` is the single definition of that
+directory, used by the proxy's session gate and by the handoff, because two
+answers to "where does the editor look" is exactly how a handoff goes missing.
+
+**Then a fourth room, and it replaced something worse.** Files had been kept in
+the workspace directly, so the name search fell back to the workspace root to
+keep them findable. Asked to keep the root clean, the honest reading is that a
+layout with one place a stray file can sit and still work is a layout that is
+only advice — the loose file is where everything ends up. So `library` is the
+room for a file somebody keeps: no conversation, no fortnight sweep, searched
+by name — and the root is not searched at all. Search order is attachments,
+library, import, export.
+
+The nine loose files already in the workspace moved to `export` (every one is a
+save or an annotate output) and the existing `.attachments` tree moved under
+`import`, so nothing that was reachable stopped being reachable.
+
+NERVIS 1090 -> 1100.
 
 ## Starting the thing
 

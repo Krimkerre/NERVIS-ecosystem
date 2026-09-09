@@ -3017,7 +3017,11 @@ def test_a_named_file_reaches_the_reading(tmp_path: Path) -> None:
     reads it inside the configured workspace, and the content arrives fenced
     like every other retrieved thing — the model never chooses what is opened,
     which is what makes reading one safe at all."""
-    (tmp_path / "notes.md").write_text("Revenue fell in Q3.", encoding="utf-8")
+    # The library: a file somebody keeps and names, as distinct from one
+    # attached to a conversation. The workspace root is not searched — a layout
+    # with one place a stray file works from is a layout that is only advice.
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "notes.md").write_text("Revenue fell in Q3.", encoding="utf-8")
     sent: list[dict[str, Any]] = []
     client = an_api(workspace_path=str(tmp_path))
     _with_models(client, sent, ["qwen/qwen3-4b-2507"])
@@ -3113,7 +3117,8 @@ def test_saving_a_reply_writes_the_file_and_nothing_the_caller_supplied(tmp_path
     })
 
     assert ran.status_code == 200, ran.text
-    written = (tmp_path / "summary.pdf").read_bytes()
+    # The export room, because a saved reply is something NERVIS produced.
+    written = (tmp_path / "export" / "summary.pdf").read_bytes()
     assert written.startswith(b"%PDF-1.4")
     assert b"smuggle" not in written
 
@@ -3768,7 +3773,7 @@ def test_the_export_writes_every_turn_not_just_the_last_reply(tmp_path: Path) ->
 
     assert ran.status_code == 200, ran.text
     assert "turn(s)" in ran.json()["file"]["detail"]
-    written = (tmp_path / "chat.pdf").read_bytes()
+    written = (tmp_path / "export" / "chat.pdf").read_bytes()
     assert written.startswith(b"%PDF-1.4")
     # Both questions are in it, which is the difference from saving one reply.
     assert b"(why is ravis slow)" in written

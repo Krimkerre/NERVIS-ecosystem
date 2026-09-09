@@ -106,7 +106,8 @@ def test_pressing_annotate_writes_the_original_pages_with_the_comment_beside_its
 
     assert ran.status_code == 200, ran.text
     pages = [p.extract_text() or "" for p in
-             PdfReader(io.BytesIO((tmp_path / "blueprint-annotated.pdf").read_bytes())).pages]
+             PdfReader(io.BytesIO(
+                 (tmp_path / "export" / "blueprint-annotated.pdf").read_bytes())).pages]
     assert len(pages) == 2, "the comment is in the margin, not on a page of its own"
     assert "Alpha section" in pages[0]
     assert "Bravo section" in pages[1] and "Needs a tide table." in pages[1]
@@ -162,7 +163,8 @@ def test_the_newest_anchored_reply_wins_over_a_newer_reply_that_only_describes_t
 
     assert ran.status_code == 200, ran.text
     pages = [p.extract_text() or "" for p in
-             PdfReader(io.BytesIO((tmp_path / "blueprint-annotated.pdf").read_bytes())).pages]
+             PdfReader(io.BytesIO(
+                 (tmp_path / "export" / "blueprint-annotated.pdf").read_bytes())).pages]
     assert "Needs a tide table." in pages[1]
     assert not any("Press the Annotate button" in p for p in pages)
 
@@ -269,7 +271,7 @@ def test_the_inline_copy_of_a_pdf_is_text_with_comments_under_the_passages(
     })
 
     assert ran.status_code == 200, ran.text
-    text = (tmp_path / "blueprint-inline.md").read_text()
+    text = (tmp_path / "export" / "blueprint-inline.md").read_text()
     assert "Bravo section" in text and "**Comment:** Needs a tide table." in text
     assert text.index("Bravo section") < text.index("**Comment:**")
 

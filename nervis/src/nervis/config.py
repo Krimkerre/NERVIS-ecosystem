@@ -99,6 +99,21 @@ class Settings(BaseSettings):
     # does not do it, and the capability says so rather than the first request
     # discovering it.
     workspace_path: str = ""
+    # **The workspace has four rooms, and which one a file is in says how it
+    # got there.** `import` arrived through chat and belongs to a conversation;
+    # `export` is what NERVIS produced; `library` is what somebody keeps, which
+    # nothing sweeps; `clarvis` is what the editor opens.
+    #
+    # Everything used to go in one directory: an uploaded PDF, a PDF chat
+    # wrote, a generated picture and the editor's own folder, all mixed.
+    # Separating them makes the place readable without reading the files.
+    #
+    # Each is empty by default and means the obvious subdirectory of
+    # `workspace_path`, so a deployment that set one path still gets all four
+    # and nobody has to configure a layout to get a sensible one.
+    workspace_import_path: str = ""
+    workspace_export_path: str = ""
+    workspace_library_path: str = ""
 
     # Where the launcher writes each service's stdout and stderr — §11.3's
     # fourth and last data source. Empty means no adapter exists, which is the
@@ -155,6 +170,10 @@ class Settings(BaseSettings):
     # said neither gets a proxy that refuses to open anything, which is the
     # right default for a surface whose whole risk is what it exposes.
     code_workspace_roots: str = ""
+    # Which subdirectory of the workspace the editor gets when the roots above
+    # say nothing. Named rather than assumed for the same reason the two above
+    # are: the editor's folder is a room in the workspace, not the workspace.
+    code_workspace_subdirectory: str = "clarvis"
     # §13.5's remaining four. **The tab is on by default** because a NERVIS
     # with code-server running and the tab switched off is a stranger surprise
     # than one that offers a tab and says the editor is absent — and the tab

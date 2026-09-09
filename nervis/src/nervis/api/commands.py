@@ -43,6 +43,7 @@ from nervis import (
     style,
     transcript,
     visual_check,
+    workspace,
 )
 from nervis.api.chat_calls import _forwarded
 from nervis.errors import InvalidConfigurationError
@@ -163,8 +164,17 @@ async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[
     with the Bridge stopped. The person opens Clarvis, reads the task, edits it
     if they want to, and approves it there.
     """
-    root = _workspace(request)
-    written = handoff.write(Path(root), task, conversation=conversation_id)
+    # **Written into the editor's own room, not the export room.** This file
+    # exists to be opened in Clarvis; the export room is where things NERVIS
+    # produced for a *person* go, and a task written there is one the editor
+    # never sees.
+    place = workspace.editor_room(request.app.state.settings)
+    if place is None:
+        raise InvalidConfigurationError(
+            "NERVIS has no workspace configured, so it cannot hand a task to Clarvis. "
+            "Set NERVIS_WORKSPACE_PATH to the directory the editor opens."
+        )
+    written = handoff.write(place, task, conversation=conversation_id)
     _audit(request, task, "written", f"handed to Clarvis as {handoff.TASK_FILE}",
            verb="hand over")
     return {
@@ -467,7 +477,11 @@ async def _write_document(request: Request, named: str, conversation_id: str) ->
         raise InvalidConfigurationError("this conversation has no reply to save yet")
     return await _write_into_workspace(
         request, root, named, written[-1].content,
-        template_style=_template_style(root, conversation_id),
+        # The template is an *attachment*, so it is looked for in the import
+        # room. `root` here is the export room — where the saved file goes —
+        # and looking for the template there finds nothing, which reads as
+        # "there was no template" rather than as looking in the wrong place.
+        template_style=_template_style(_attachments_root(request), conversation_id),
     )
 
 
@@ -489,7 +503,7 @@ async def _annotate_document(
     which is text and so may be written as either.
     """
     root = _workspace(request)
-    place = documents.attachment_dir(Path(root), conversation_id)
+    place = documents.attachment_dir(Path(_attachments_root(request)), conversation_id)
     found = documents.list_files(place) if place is not None else []
     if place is None or not found:
         raise InvalidConfigurationError("nothing is attached to this conversation to annotate")
@@ -529,6 +543,17 @@ async def _annotate_document(
     )
 
 
+def _attachments_root(request: Request) -> str:
+    """The room attachments arrive in, which is not the room documents go to.
+
+    Two rooms and two verbs: a file somebody handed over is read from `import`,
+    and a file chat produces is written to `export`. Every lookup here that
+    ends in `attachment_dir` wants the first one.
+    """
+    place = workspace.imported(request.app.state.settings)
+    return str(place) if place is not None else ""
+
+
 def _template_style(root: str, conversation_id: str) -> style.StyleProfile | None:
     """This conversation's newest attachment's own look, if it is a PDF.
 
@@ -548,8 +573,14 @@ def _template_style(root: str, conversation_id: str) -> style.StyleProfile | Non
 
 
 def _workspace(request: Request) -> str:
-    """Where chat may write, or a refusal naming the setting that turns it on."""
-    root = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    """Where chat may write, or a refusal naming the setting that turns it on.
+
+    The export room: a file written here is one NERVIS produced — a document it
+    was asked to save, a conversation rendered to PDF — which is a different
+    thing from a file somebody handed it, and the two used to land in one heap.
+    """
+    place = workspace.exported(request.app.state.settings)
+    root = str(place) if place is not None else ""
     if not root:
         raise InvalidConfigurationError(
             "NERVIS has no workspace configured, so it cannot write a file. "

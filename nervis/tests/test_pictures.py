@@ -163,14 +163,16 @@ def test_a_drawn_picture_becomes_a_file_and_a_link(tmp_path: Path) -> None:
 
     answered = turn(client, "draw me a red circle", system="Be someone.")
 
-    written = [item.name for item in tmp_path.iterdir() if item.suffix == ".png"]
+    written = [item.name for item in (tmp_path / "export").iterdir() if item.suffix == ".png"]
     assert len(written) == 1, written
-    assert f"](/api/v1/documents/{written[0]})" in answered.text
+    # The link carries the room, because that is where the file is: a bare
+    # name points at the workspace root and resolves to nothing.
+    assert f"](/api/v1/documents/export/{written[0]})" in answered.text
 
     stored = client.get(
         f"/api/v1/chat/conversations/{answered.headers['x-conversation-id']}"
     ).json()
-    assert f"](/api/v1/documents/{written[0]})" in stored["items"][-1]["content"]
+    assert f"](/api/v1/documents/export/{written[0]})" in stored["items"][-1]["content"]
 
 
 def test_the_link_reaches_the_browser_before_the_stream_ends(tmp_path: Path) -> None:
@@ -195,9 +197,9 @@ def test_a_drawn_picture_is_served_back_to_be_looked_at(tmp_path: Path) -> None:
     client = an_api(workspace_path=str(tmp_path))
     _drawing(client, sent, "data:image/png;base64," + base64.b64encode(PNG).decode())
     turn(client, "draw me a red circle", system="Be someone.")
-    name = next(item.name for item in tmp_path.iterdir() if item.suffix == ".png")
+    name = next(item.name for item in (tmp_path / "export").iterdir() if item.suffix == ".png")
 
-    served = client.get(f"/api/v1/documents/{name}")
+    served = client.get(f"/api/v1/documents/export/{name}")
 
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/png"
@@ -215,7 +217,7 @@ def test_a_drawn_picture_keeps_the_format_it_was_drawn_in(tmp_path: Path) -> Non
 
     turn(client, "draw me a red circle", system="Be someone.")
 
-    assert [item.suffix for item in tmp_path.iterdir() if item.is_file()] == [".webp"]
+    assert [item.suffix for item in (tmp_path / "export").iterdir() if item.is_file()] == [".webp"]
 
 
 def test_asking_a_text_profile_to_draw_is_told_where_drawing_lives(
@@ -270,4 +272,4 @@ def test_a_reply_with_no_picture_gains_no_link(tmp_path: Path) -> None:
     answered = turn(client, "say hello", system="Be someone.")
 
     assert "/api/v1/documents/" not in answered.text
-    assert [item.name for item in tmp_path.iterdir() if item.is_file()] == []
+    assert [item.name for item in (tmp_path / "export").iterdir() if item.is_file()] == []
