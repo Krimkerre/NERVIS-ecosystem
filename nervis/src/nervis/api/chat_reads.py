@@ -324,6 +324,24 @@ async def _runs(request: Request, question: str = "") -> list[dict[str, Any]]:
 # were preferred" and benchmark results are marked SUSPECT for thermal pressure
 # — both are facts about the hardware that chat could not read, so it could
 # repeat the consequence and never explain the cause.
+# What has been happening. **The one reading that reads as news**, and the one
+# chat kept volunteering: asked nothing more than "hello", it would report that
+# RAVIS had turned down a few routes by policy. A policy refusal is routine, and
+# announcing it unprompted is what the operator asked to stop. Saying so in the
+# prompt helped and was not reliable — two greetings in five still leaked — so
+# the list is now gathered only when the question is about activity at all.
+#
+# Deliberately broad, because the cost of missing is higher than the cost of
+# including: a question this misses gets no event list, and the services,
+# catalogue and everything else in the reading still travel.
+EVENT_WORDS = (
+    "event", "happen", "happened", "happening", "log", "logs", "recent",
+    "lately", "just now", "wrong", "error", "errors", "fail", "failed",
+    "failing", "refus", "warning", "broke", "broken", "crash", "issue",
+    "problem", "status", "going on", "up to", "activity", "trouble",
+    "quiet", "busy", "news",
+)
+
 MACHINE_WORDS = (
     "memory", "ram", "thermal", "hot", "throttl", "swap", "disk", "machine",
     "hardware", "cpu", "gpu", "slow", "pressure", "space",

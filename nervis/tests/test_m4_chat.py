@@ -4296,3 +4296,64 @@ def test_the_persona_reacts_when_asked_rather_than_unprompted() -> None:
     assert "When the person *asks* about the" in DEFAULT_PERSONA
     assert "nosy roommate" in DEFAULT_PERSONA, "the character was thrown out with the tic"
     assert "unasked-for status report" in DEFAULT_PERSONA
+
+
+def test_a_greeting_carries_no_event_list() -> None:
+    """**The reading that reads as news, and the one chat kept volunteering.**
+
+    Asked nothing more than "hello", chat would report that RAVIS had turned
+    down a few routes by policy. A policy refusal is routine; announcing it
+    unprompted is what the operator asked to stop. Saying so in the prompt
+    helped and was not reliable — two greetings in five still leaked — so the
+    list is gathered only when the question is about activity.
+    """
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    client.app.state.hub.emit(  # type: ignore[attr-defined]
+        event_type="ravis.route.refused", severity="warning",
+        subject={"type": "service", "id": "ravis"},
+        data={"detail": "refused by policy"},
+    )
+
+    turn(client, "good evening", system="Be someone.")
+
+    assert "refused by policy" not in told(sent[0]), (
+        "a greeting was handed the event list, which is what it then talks about"
+    )
+
+
+def test_asking_what_happened_still_gets_the_events() -> None:
+    """The guard on the gate. Removing the temptation must not remove the
+    answer."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    client.app.state.hub.emit(  # type: ignore[attr-defined]
+        event_type="ravis.route.refused", severity="warning",
+        subject={"type": "service", "id": "ravis"},
+        data={"detail": "refused by policy"},
+    )
+
+    turn(client, "anything gone wrong lately?", system="Be someone.")
+
+    assert "refused by policy" in told(sent[0])
+
+
+def test_naming_a_service_gets_its_events_without_an_activity_word() -> None:
+    """"How is RAVIS?" carries no activity word and its events are exactly the
+    answer. The first, narrower gate missed this and the redaction test caught
+    it within a minute — so the same matcher the reading already uses to go deep
+    on one service decides this too, and the two cannot disagree."""
+    sent: list[dict[str, Any]] = []
+    client = an_api()
+    _capture_into(client, sent)
+    client.app.state.hub.emit(  # type: ignore[attr-defined]
+        event_type="ravis.upstream.failed", severity="error",
+        subject={"type": "service", "id": "ravis"},
+        data={"detail": "rejected by the upstream"},
+    )
+
+    turn(client, "how is ravis?", system="Be someone.")
+
+    assert "rejected by the upstream" in told(sent[0])

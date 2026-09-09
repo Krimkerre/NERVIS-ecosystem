@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2790 tests, no network, no live service
+.venv/bin/pytest                      # part of 2793 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1158 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1161 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2790 passing across the four, conformance `PASS`.
+Expected: all clean, 2793 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17211,15 +17211,32 @@ passed without the fix. Rewritten to read the refusal from `unmet_by`, where
 the reason is actually stated. Verified live: `ravis/local` now answers with
 `qwen2.5vl:3b`, and embeddings still run on `nomic-embed-text`.
 
-**And chat stopped volunteering the system status.** Reported: *"it keeps
+**And chat stopped volunteering the system status — in two passes, because
+the first one did not hold.** Reported: *"it keeps
 bringing up the system status every few messages... it doesn't need to do that
 unless asked."* The persona was the cause — it told the model to *react* to
 anything from the ecosystem "like a nosy roommate reading over their shoulder",
 and the readings arrive with every turn, so it reacted to them constantly. Both
 ends now agree: the block calls itself reference rather than news and says not
-to open with a status report, and the persona is nosy when asked. Verified over
-four ordinary turns (cat names, pasta, rain, favourite number) with no status
-volunteered, and two direct questions still answered exactly as before.
+to open with a status report, and the persona is nosy when asked. That fixed
+ordinary questions — four turns on cat names, pasta, rain and favourite numbers,
+all clean.
+
+**Greetings were not fixed, and only a live retry showed it.** "Hello" got a
+policy-refusal report every time: with nothing else asked, the readings are the
+only thing in front of the model. Stating the greeting case explicitly took it
+from nought in five to two in five, which is an instruction being *mostly*
+obeyed and not a fix. So the **event list** — the one part of the reading that
+reads as news — is now gathered only when the question is about activity or
+names a service; everything else still travels every turn. Five greetings in
+six came out clean after that.
+
+The first version of that gate was too narrow and a test caught it inside a
+minute: "how is RAVIS?" carries no activity word and its events are exactly the
+answer. It now also fires on the same service matcher the reading already uses,
+so the two cannot disagree. Verified live: greetings clean, and "is everything
+running?", "how is RAVIS?" and "anything gone wrong lately?" all answer as
+before.
 
 ## Starting the thing
 

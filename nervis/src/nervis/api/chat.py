@@ -63,6 +63,7 @@ from nervis.api.chat_reads import (
     CATALOGUE_TTL_SECONDS,
     DEFAULT_CHAT_POOL,
     EVENT_SAMPLE,
+    EVENT_WORDS,
     FACTS_TIMEOUT_SECONDS,
     RATE_LIMIT_PAUSE_SECONDS,
     _decisions,
@@ -784,7 +785,24 @@ async def _situation(request: Request, greeting: bool, asked: str = "") -> tuple
     printed = situation.printed_line(services, windows, catalogue)
     if greeting:
         return printed, ""
-    events = request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
+    # **Only when the question is about activity.** See `EVENT_WORDS`: the
+    # event list is the part of the reading that reads as news, and chat kept
+    # answering "hello" with a report that RAVIS had refused a few routes.
+    # Everything else in the reading still travels every turn -- this is the one
+    # piece that invites narration.
+    # ...**or when the question names a service.** "How is RAVIS?" carries no
+    # activity word at all and its events are exactly the answer, which the
+    # redaction test caught within a minute of the first, narrower gate. The
+    # same matcher the reading already uses to go deep on one service decides
+    # it, so the two cannot disagree about what counts as naming one.
+    wants_events = any(word in asked.lower() for word in EVENT_WORDS) or bool(
+        situation.named_in(asked, services)
+    )
+    events = (
+        request.app.state.hub.query(latest=True, limit=EVENT_SAMPLE)
+        if wants_events
+        else []
+    )
     jobs = await _jobs(request, asked)
     runtime = await _runtime(request, asked)
     decisions = await _decisions(request, asked)

@@ -582,8 +582,15 @@ anything in them needs saying. Chat used to volunteer the system status every
 few messages — the persona told it to *react* to anything from the ecosystem
 "like a nosy roommate reading over their shoulder", and with a fresh service
 list in front of every question it duly did. The block now says what it is for,
-and the persona is nosy when asked rather than unprompted. Asking still works
-exactly as before.
+and the persona is nosy when asked rather than unprompted.
+
+Saying so was not enough on its own — greetings still leaked two times in five,
+because with nothing else asked the readings are the only thing in front of the
+model. So the **event list**, the one part that reads as news, is now gathered
+only when the question is about activity or names a service. Everything else in
+the reading still travels every turn. Greetings came out clean five times in
+six after that, and "is everything running?", "how is RAVIS?" and "anything
+gone wrong lately?" all answer exactly as before.
 
 **The thinking is now shown, folded.** A reply that carries reasoning draws a
 collapsed line above the answer — *"thought it through — N words"* — which opens
