@@ -160,6 +160,20 @@ class Settings(BaseSettings):
     # than one that offers a tab and says the editor is absent — and the tab
     # already says exactly that when it is.
     code_tab_enabled: bool = True
+    # Whether the Code tab frames the editor through NERVIS's own proxy
+    # (`/code/`) or at code-server's own address.
+    #
+    # **Off by default, and the reason is the editor's data rather than the
+    # proxy's quality.** VS Code's web build keeps its state — secrets,
+    # history, settings, trust decisions — in the browser's IndexedDB, which is
+    # scoped to an *origin*. Framing the same editor through NERVIS changes
+    # that origin, so a workspace that had provider keys in it opens with none
+    # of them: nothing is deleted, and everything is invisible. That happened
+    # to a real operator on the day the proxy shipped, which is why this is a
+    # setting rather than a silent improvement. A new deployment can turn it on
+    # and lose nothing; an existing one moves its keys deliberately or not at
+    # all.
+    code_proxy_enabled: bool = False
     # Where code-server is, when it is not on `PATH`. Empty means "look on
     # PATH", which is the same order `tools/run.py` uses.
     code_server_binary: str = ""

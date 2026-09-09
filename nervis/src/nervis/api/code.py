@@ -318,6 +318,11 @@ async def read_session(request: Request) -> dict[str, object]:
     state = sessions(request).state(request.cookies.get(COOKIE, ""))
     if not state.get("open"):
         state["roots"] = _workspace_roots(request)
+    # **The tab has to know which way it is framing before it frames.** Told
+    # here rather than read from a second endpoint, because the page asks this
+    # one anyway and a screen that had to combine two answers to decide one
+    # thing is a screen that can show a mixture of them.
+    state["proxied"] = bool(getattr(request.app.state.settings, "code_proxy_enabled", False))
     return {"session": state}
 
 

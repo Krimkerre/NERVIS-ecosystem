@@ -33,11 +33,19 @@ since boot.
 
 ### How the Code tab reaches the editor
 
-Through NERVIS, not around it. The tab frames `/code/`, which is NERVIS's own
-reverse proxy in front of code-server, so the editor is same-origin: one
-address, NERVIS deciding who reaches it, and the browser told who may frame it.
+By default, at code-server's own address — the same way it always did.
 
-Reaching it needs a session, and a session names a workspace — NERVIS will not
+NERVIS also has a reverse proxy in front of the editor (`/code/`), which makes
+it same-origin: one address, NERVIS deciding who reaches it, and the browser
+told who may frame it. It is off unless `NERVIS_CODE_PROXY_ENABLED` says
+otherwise, and the reason is worth knowing before turning it on. **VS Code's
+web build keeps its state in the browser, scoped to the address it was served
+from** — API keys, chat history, settings, trust decisions. Serving the same
+editor through NERVIS changes that address, so an editor that had keys in it
+opens with none of them. Nothing is deleted; it is all still under the old
+address, and opening that address directly shows it again.
+
+Reaching it through the proxy needs a session, and a session names a workspace — NERVIS will not
 open the editor without being told which directory it may serve, and the
 choices come from configuration rather than from a path somebody types. A
 session ends after thirty minutes idle or eight hours outright, whichever comes

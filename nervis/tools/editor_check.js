@@ -41,7 +41,7 @@ const services = (state) => ({
    state and a closed session would make them all pass for the wrong reason —
    the frame is not drawn without one. `session: null` is the other case, and
    has its own check further down. */
-function pageIn(state, session = { open: true, workspace: "/w" },
+function pageIn(state, session = { open: true, workspace: "/w", proxied: true },
                 extension = { configured: false }) {
   return loadPage({
     fetchImpl: async (url) => {
@@ -50,7 +50,9 @@ function pageIn(state, session = { open: true, workspace: "/w" },
       if (target.includes("/api/v1/services")) payload = services(state);
       else if (target.includes("/api/v1/code/extension")) payload = { extension };
       else if (target.includes("/api/v1/code/session")) {
-        payload = { session: session || { open: false, reason: "closed", roots: [] } };
+        payload = {
+          session: session || { open: false, proxied: true, reason: "closed", roots: [] },
+        };
       }
       return { ok: true, status: 200, json: async () => payload,
                text: async () => JSON.stringify(payload),
@@ -104,10 +106,24 @@ if (/src="http/.test(alive)) {
     + "second origin again.");
 }
 
+/* **Not proxying frames the editor's own address, and that is not a bug.**
+   VS Code's web state lives in the browser's IndexedDB, scoped to an origin, so
+   moving an existing editor behind the proxy hides its keys and history rather
+   than migrating them. The default therefore keeps the old address, and the tab
+   still has to draw an editor there. */
+const direct = await drawn("healthy", { open: false, proxied: false, roots: [] });
+if (!/src="http:\/\/127\.0\.0\.1:8080"/.test(direct)) {
+  failures.push("with the proxy off the editor was not framed at its own address, "
+    + "so an editor whose browser-side state belongs to that origin shows none of it.");
+}
+if (/No workspace is configured/.test(direct)) {
+  failures.push("the unproxied tab demanded a proxy session, which it does not use.");
+}
+
 /* A reachable editor and no session is not a frame. The session is what says
    who opened the editor and which workspace they opened, and drawing without
    one would make §13.3's "explicit workspace selection" decorative. */
-const unopened = await drawn("healthy", null);
+const unopened = await drawn("healthy", { open: false, proxied: true, roots: [] });
 if (/<iframe/.test(unopened)) {
   failures.push("a code-server was framed with no proxy session open, so the "
     + "editor was reachable without anything having authorised it.");
@@ -120,7 +136,7 @@ if (!/workspace is configured|session was refused|Choose a workspace/.test(unope
 /* §13.5: an editor running without Clarvis in it is a state this tab can see
    and now fix, and the fix has to be offered where the missing panel would
    have been rather than inside the frame that cannot render it. */
-const stale = await drawn("healthy", { open: true, workspace: "/w" },
+const stale = await drawn("healthy", { open: true, workspace: "/w", proxied: true },
   { configured: true, identifier: "krimkerre.clarvis", offered: "0.13.0",
     installed: "0.12.8", due: "the editor has krimkerre.clarvis 0.12.8" });
 if (!/id="installClarvis"/.test(stale)) {
@@ -135,7 +151,7 @@ if (!/<iframe/.test(stale)) {
 /* And the opposite, which is the ordinary case: current, so nothing is said.
    A tab that announced good news every visit would train the reader past the
    place the real message appears. */
-const current = await drawn("healthy", { open: true, workspace: "/w" },
+const current = await drawn("healthy", { open: true, workspace: "/w", proxied: true },
   { configured: true, identifier: "krimkerre.clarvis", offered: "0.13.0",
     installed: "0.13.0", due: "" });
 if (/id="installClarvis"/.test(current)) {

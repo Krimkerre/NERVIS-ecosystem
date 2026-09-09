@@ -838,6 +838,18 @@ The gate's ten tests are `nervis/tests/test_m14_code_proxy.py`, each driving the
 real application. Each was checked by disabling the mechanism it names and
 confirming it fails.
 
+**The proxy is opt-in, and the reason is the editor's data rather than the
+proxy's quality.** VS Code's web build keeps its state — secrets, chat history,
+settings, workspace-trust decisions — in the browser's IndexedDB
+(`vscode-web-db`, `vscode-web-state-db-*`), which is scoped to an **origin**.
+Framing the same editor through NERVIS changes that origin, so an editor that
+had provider keys in it opens with none of them: nothing is deleted, and
+everything is invisible. That happened to a real operator on the day the proxy
+shipped — they opened the tab and reported their API keys gone — and it is the
+reason `code_proxy_enabled` defaults to **false**. A deployment that starts on
+the proxy loses nothing; an existing one moves its keys deliberately, or not at
+all. The old address still holds them, and opening it directly is the recovery.
+
 **The header the editor cannot work without.** code-server refuses any request
 whose `Origin` does not match its own host — its CSRF defence — and behind a
 proxy those never match: the origin is NERVIS's, the host is the upstream's. It

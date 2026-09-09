@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2666 tests, no network, no live service
+.venv/bin/pytest                      # part of 2667 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1089 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1090 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2666 passing across the four, conformance `PASS`.
+Expected: all clean, 2667 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16093,6 +16093,39 @@ Twelve new tests, each checked by disabling the mechanism it names.
 `clarvis()` hit the dashboard's complexity ratchet at 14 and was split.
 
 NERVIS 1078 -> 1089.
+
+## The proxy hid an operator's API keys, and is now opt-in — 2026-09-09
+
+**Reported an hour after it shipped: "checked the clarvis tab, lost my api
+keys."** Nothing had been deleted. VS Code's web build keeps its state —
+secrets, chat history, settings, workspace-trust decisions — in the browser's
+IndexedDB (`vscode-web-db`, `vscode-web-state-db-*`), and IndexedDB is scoped to
+an **origin**. There is no server-side store: confirmed by looking, since
+`User/globalStorage` holds no `state.vscdb` at all.
+
+Framing the editor through `/code/` moved it from code-server's own origin to
+NERVIS's. The keys stayed exactly where they were, under the old address, and
+the new one opened with an empty box — which to the person looking at it is
+indistinguishable from having lost them.
+
+**`code_proxy_enabled` now defaults to false.** The proxy is built, gated and
+live; what it is not is a thing to switch on underneath somebody. A deployment
+that starts on it loses nothing; an existing one moves its editor state
+deliberately or leaves it alone. The tab reads which way to frame from the
+session state, so one endpoint decides it rather than a screen combining two
+answers — and `proxied` travels with every refusal that helper returns, because
+dropping it would fall through to framing the editor's own address, which looks
+like it worked on an origin the deployment did not choose.
+
+**What this cost was not the code.** Every gate passed, the workbench rendered
+end to end in a browser, and the defect was in none of that: it was a
+consequence of the change that no test on either side of the boundary could
+see, because both sides were correct. The tell was available and unread — my
+own reproduction had shown Restricted Mode and an empty Recent list, which is
+what a fresh origin looks like, and I read it as a fresh *container* rather
+than as somebody's editor about to look empty.
+
+NERVIS 1089 -> 1090.
 
 ## Starting the thing
 

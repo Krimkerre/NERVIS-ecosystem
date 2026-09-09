@@ -93,6 +93,11 @@ def an_app(tmp_path: Path, editor: FakeEditor, **overrides: Any) -> TestClient:
         **{
             "code_server_base_url": UPSTREAM,
             "code_workspace_roots": str(tmp_path),
+            # Opted in explicitly: the proxy ships off, because moving an
+            # existing editor behind it changes the origin its browser-side
+            # state belongs to. Every test here is about the proxy, so every
+            # test here turns it on.
+            "code_proxy_enabled": True,
             **overrides,
         },
     )
@@ -749,3 +754,16 @@ def test_an_install_that_fails_says_what_the_editor_said(tmp_path: Path) -> None
 
         assert answered.status_code == 409
         assert "not compatible" in answered.json()["error"]["message"]
+
+
+def test_the_session_state_says_which_way_the_tab_should_frame(tmp_path: Path) -> None:
+    """The page asks one endpoint and gets one answer.
+
+    Without this the tab would have to combine two reads to decide one thing,
+    and a screen that can show a mixture of two answers eventually does.
+    """
+    with an_app(tmp_path, FakeEditor()) as client:
+        assert client.get("/api/v1/code/session").json()["session"]["proxied"] is True
+
+    with an_app(tmp_path, FakeEditor(), code_proxy_enabled=False) as client:
+        assert client.get("/api/v1/code/session").json()["session"]["proxied"] is False
