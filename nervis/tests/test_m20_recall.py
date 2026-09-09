@@ -11,10 +11,13 @@ log line as an instruction — only in a longer loop, and wearing NERVIS's name.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from tests.test_m4_chat import _control, an_api, frames, turn
 
 from nervis import chat as store
 from nervis import recall
@@ -244,3 +247,53 @@ def test_a_title_containing_the_separator_cannot_split_the_header() -> None:
 
     assert header.count(" | ") == 0
     assert unquote(header.split(":", 1)[1]) == "pools | and | pipes"
+
+
+def test_a_request_with_no_persona_gets_no_recall() -> None:
+    """**Recall belongs to NERVIS's assistant, not to every caller.**
+
+    Found live, by accident, while checking something else. A request carrying
+    no persona correctly received no clock and no live readings — NERVIS does
+    not inject its own ecosystem awareness into a plain client of RAVIS's API —
+    but it still received the recalled conversations, because that line sat
+    outside the guard.
+
+    The result was the exact failure the reading order was arranged to prevent.
+    Asked "how many models are routable", the model answered **15** three times
+    running: a figure quoted from a remembered conversation recorded in an
+    earlier session, while RAVIS's catalogue was still warming. The true answer
+    was 649. With no fresh reading present, nothing could contradict the memory.
+
+    It is also the larger of the two egress mistakes. The readings describe the
+    machine; recall carries the contents of the operator's *other conversations*,
+    and handing those to a caller who asked for none of NERVIS's extras is worse
+    than handing over a service list.
+    """
+    sent: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "messages" in body:
+            sent.append(body)
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(frames("noted"))))
+
+    client = an_api(frames("sure"))
+    turn(client, "a memorable thing about badgers", system="Be someone.")
+    client.put("/api/v1/settings/chat.memory", json={"value": "all"}, headers=_control(client))
+    client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=httpx.MockTransport(capture)
+    )
+
+    client.post("/api/v1/chat", json={"content": "tell me about badgers"})
+    without_persona = json.dumps(sent[-1]["messages"])
+
+    client.post("/api/v1/chat",
+                json={"content": "tell me about badgers", "system": "Be someone."})
+    with_persona = json.dumps(sent[-1]["messages"])
+
+    assert "memorable thing about badgers" not in without_persona, (
+        "a plain client with no persona was handed another conversation's contents"
+    )
+    assert "memorable thing about badgers" in with_persona, (
+        "recall stopped working for NERVIS's own assistant, which is who it is for"
+    )

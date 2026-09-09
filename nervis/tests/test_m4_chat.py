@@ -2217,14 +2217,14 @@ def test_a_conversation_can_be_kept_out_of_the_pool_for_good() -> None:
     )
 
     # With nothing barred, both earlier conversations are recallable.
-    client.post("/api/v1/chat", json={"content": "hello"})
+    client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
     before = told(sent[-1])
     assert "did not want remembered" in before
     assert "something unremarkable" in before
 
     client.put("/api/v1/settings/chat.memory_excluded", json={"value": [barred]},
         headers=_control(client))
-    client.post("/api/v1/chat", json={"content": "hello again"})
+    client.post("/api/v1/chat", json={"content": "hello again", "system": "Be someone."})
     after = told(sent[-1])
 
     assert "did not want remembered" not in after
@@ -2278,7 +2278,7 @@ def test_an_unreadable_exclusion_list_does_not_bar_everything() -> None:
     client.app.state.probe_client = httpx.AsyncClient(  # type: ignore[attr-defined]
         transport=httpx.MockTransport(capture)
     )
-    client.post("/api/v1/chat", json={"content": "hello"})
+    client.post("/api/v1/chat", json={"content": "hello", "system": "Be someone."})
 
     assert "recallable" in told(sent[-1])
 

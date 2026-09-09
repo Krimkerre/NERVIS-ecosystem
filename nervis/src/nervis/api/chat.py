@@ -560,7 +560,27 @@ def _turn_context(
     parts: list[str] = []
     if wanted:
         parts.append(_clock(database, conversation_id, now or datetime.now().astimezone()))
-    if _memory_scope(database) == "all":
+    # **Under the same condition as the readings, which it was not until now.**
+    # Found by accident while checking something else: a request carrying no
+    # persona got no clock and no live readings -- correctly, since NERVIS does
+    # not inject its own ecosystem awareness into a plain client of RAVIS's API
+    # -- but *did* get the recalled conversations, because this line sat outside
+    # the guard. Asked how many models were routable, the model answered "15"
+    # three times running: a figure quoted out of a remembered conversation from
+    # an earlier session, when RAVIS's catalogue was still warming. The true
+    # answer was 649, and nothing fresh was present to contradict the memory.
+    #
+    # That is the failure the reading order was already arranged to prevent --
+    # memory outranking measurement -- reappearing in the one case where the
+    # measurement is absent entirely. Recall and the readings are the same kind
+    # of thing: extras NERVIS adds to its own assistant. They belong under one
+    # condition, not two.
+    #
+    # It is an egress point as well. Recall carries the contents of the
+    # operator's *other* conversations, and handing those to a plain API client
+    # that asked for none of NERVIS's extras is a larger version of the same
+    # mistake the guard above exists to prevent.
+    if wanted and _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
     if wanted:
         parts.append(situation)

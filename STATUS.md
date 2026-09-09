@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2773 tests, no network, no live service
+.venv/bin/pytest                      # part of 2774 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1146 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1147 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2773 passing across the four, conformance `PASS`.
+Expected: all clean, 2774 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17055,6 +17055,37 @@ regression would pass every test in the file while costing real money.
 
 Verified live: chat answers a services question from the reading in its new
 position, and the catalogue line is still present in the block byte for byte.
+
+## A stale figure quoted as current, found by a bad probe — 2026-09-09
+
+Reported that chat had claimed there was no routable-model total when the line
+was plainly in the reading. Asked to look at it. **There was no bug in the
+total**, and the probe was the fault: the readings are only sent alongside a
+persona, and the raw `curl` used to test sent none. The browser always sends
+one, and through it chat quotes `models: 649 models routable, 22 of them on
+this machine` exactly. Checked the falsifier before naming a cause — the same
+question under the *old* prompt arrangement gave the same wrong answer, which
+ruled out the caching change as the culprit.
+
+**The probe did expose a real one, next to it.** The guard that withholds
+NERVIS's extras from a plain API client covered the clock and the readings and
+not the recalled conversations, which went out regardless. So a request with no
+persona received the operator's *other conversations* and no fresh figures at
+all. Asked how many models were routable it answered **15**, three times
+running — a number quoted from a conversation recorded in an earlier session,
+while RAVIS's catalogue was still warming. The true answer was 649. Nothing
+current was present to contradict the memory.
+
+That is precisely the failure the reading order was arranged to prevent —
+memory outranking measurement — reappearing in the one case where the
+measurement is absent entirely. It is also the larger of the two egress
+mistakes: the readings describe the machine, while recall carries the contents
+of other conversations. Recall now sits under the same condition as the
+readings.
+
+Verified live on both paths: a plain client now answers *"Unable to
+determine"* rather than a confident stale figure, and the browser path answers
+649. Probed by removing the guard again, which fails the new test.
 
 ## Starting the thing
 

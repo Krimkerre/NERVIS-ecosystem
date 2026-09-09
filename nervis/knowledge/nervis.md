@@ -514,6 +514,18 @@ continued — never the newest turn, whose prefix nothing will ever repeat, and
 never a one-off request, because writing a cache entry costs 25% more than an
 ordinary read and a question with no follow-up would never earn it back.
 
+**Both the readings and the recall need a persona to be sent at all.** A
+request carrying no persona, no name and no house style gets neither: §7 makes
+NERVIS a plain client of RAVIS's published API, and a gateway that silently
+prepends its own paragraphs to every request is not one. Until 9 September 2026
+that guard covered the clock and the readings but not the recalled
+conversations, which went out regardless — so a caller with no persona received
+the contents of the operator's *other* conversations and no fresh figures at
+all. Asked how many models were routable, chat answered **15** three times
+running, quoting a remembered reading from an earlier session while RAVIS's
+catalogue was still warming; the true answer was 649, and nothing current was
+present to correct it. Recall is now under the same condition as the readings.
+
 A nudge — NERVIS speaking first about a silence — deliberately keeps its
 instruction in the system prompt. It is an instruction to the assistant rather
 than data, and a single unprompted turn has no conversation to cache anyway.
