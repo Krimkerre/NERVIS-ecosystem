@@ -3057,6 +3057,27 @@ const API={
    return {open:false,reason:detail||`NERVIS refused the session (${r.status})`};
   },
 
+  async codeExtension(){
+   /* What the editor holds versus what the configured package offers. A read,
+      so it is safe on every render of the tab that shows it. */
+   try{
+    const r=await fetch('/api/v1/code/extension',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return (await r.json()).extension||{configured:false};
+   }catch(e){}
+   return {configured:false,detail:'NERVIS did not answer about the extension'};
+  },
+
+  async installCodeExtension(){
+   /* Takes no arguments on purpose: what is installed is what the setting
+      names, so the page cannot choose a file and neither can anything else
+      that reaches this route. */
+   const r=await fetch('/api/v1/code/extension',{method:'POST',headers:control_headers()});
+   if(r.ok)return {ok:true,...(await r.json()).extension};
+   let detail='';
+   try{detail=((await r.json()).error||{}).message||''}catch(e){}
+   return {ok:false,detail:detail||`NERVIS refused the install (${r.status})`};
+  },
+
   async clarvisInstances(){
    /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
       surface that starts and stops with the editor window, so "not running" is
@@ -11535,8 +11556,54 @@ async function clarvis(){
  const session=await codeSession();
  if(!session.open){$('#content').innerHTML=bridge+gate.notice+session.notice;return;}
 
- $('#content').innerHTML=bridge+gate.notice+`<iframe id="clarvis-frame" class="code-frame"
-   src="/code/" title="code-server"></iframe>`;
+ await drawEditor(bridge+gate.notice,session);
+}
+
+/* The frame, whatever has to be said above it, and the one action it offers.
+
+   Its own function because `clarvis()` reached the file's complexity ratchet
+   when the session and the extension joined it — and this is the right seam
+   anyway: everything above decides *whether* to draw an editor, everything
+   here draws one. */
+async function drawEditor(notices,session){
+ /* **The editor can be running with no Clarvis in it**, which is a state the
+    tab can see and — since §13.5 — one it can fix. Shown above the frame
+    rather than inside it: what is missing is the panel the frame would have
+    rendered, so saying so inside it is saying it where it cannot be read. */
+ const missing=extensionNotice(await API.nervis.codeExtension());
+
+ /* **The folder is named, because the session named it.** code-server opens
+    whatever it had open last, which is its own state and not NERVIS's — and a
+    session that says "workspace X" while the editor shows Y is the kind of
+    quiet disagreement this dashboard exists not to have. Asking for the
+    authorised workspace makes the two say the same thing. */
+ const folder=encodeURIComponent(session.workspace||'');
+ $('#content').innerHTML=notices+missing+`<iframe id="clarvis-frame"
+   class="code-frame" src="/code/${folder?`?folder=${folder}`:''}" title="code-server"></iframe>`;
+ const action=$('#installClarvis');
+ if(action)action.onclick=async()=>{
+  action.disabled=true;action.textContent='Installing…';
+  const put=await API.nervis.installCodeExtension();
+  /* Repainted rather than patched: the install changes what the *editor*
+     holds, and the frame has to be reloaded for the panel to appear. */
+  if(put.ok){await clarvis()}else{action.disabled=false;action.textContent='Install Clarvis';
+   notify(put.detail||'The install was refused')}
+ };
+}
+
+/* What to say about the extension, or nothing when there is nothing to say.
+
+   Silence is the ordinary case: a configured, current Clarvis needs no line,
+   and a tab that announced "everything is fine" on every visit would train
+   the reader to skip the place the real message appears. */
+function extensionNotice(extension){
+ if(!extension||extension.configured===false)return '';
+ if(extension.detail)return banner('The Clarvis package could not be read',
+  escapeHtml(extension.detail),'info');
+ if(!extension.due)return '';
+ return banner('Clarvis is not in this editor',
+  escapeHtml(extension.due)+' <button id="installClarvis" class="btn">Install Clarvis</button>',
+  'info');
 }
 
 /* An open session, opening one if the configuration says which workspace, or

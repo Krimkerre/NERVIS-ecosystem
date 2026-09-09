@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from websockets.exceptions import ConnectionClosed
 
 from nervis.api.control import require_control
+from nervis.code_extension import ExtensionError, binary, due, install, installed, offered
 from nervis.code_proxy import COOKIE, Sessions
 from nervis.errors import InvalidConfigurationError, NervisError, RefusedError, UnauthorizedError
 
@@ -54,6 +55,27 @@ HOP_BY_HOP = frozenset({
 #: NERVIS's own credentials, which stop at NERVIS. The editor has no use for
 #: them and an upstream that logged its request headers would be logging them.
 OURS = frozenset({"x-nervis-control", "authorization"})
+
+#: What a reverse proxy tells the upstream about the hop in front of it — and
+#: what a *client* may not tell it. code-server decides whether to allow a
+#: request by comparing the browser's `Origin` against its own idea of the
+#: host, and it takes `X-Forwarded-Host` over `Host` when one is present. So
+#: these are set from what NERVIS actually received, and anything the caller
+#: sent under these names is dropped first: a header that decides an origin
+#: check is not one a request gets to supply.
+FORWARDED = frozenset({
+    "x-forwarded-host", "x-forwarded-proto", "x-forwarded-for",
+    "x-forwarded-port", "x-forwarded-prefix", "forwarded",
+})
+
+#: Headers the WebSocket client writes itself. Forwarding the browser's copies
+#: alongside them produces a handshake with two of each, which is a protocol
+#: error rather than a merge — and `host` must be the *library's*, derived from
+#: the upstream URI, not the one `_forward` rewrites for httpx.
+SOCKET_OWNED = frozenset({
+    "host", "upgrade", "connection", "sec-websocket-key", "sec-websocket-version",
+    "sec-websocket-extensions", "sec-websocket-protocol", "sec-websocket-accept",
+})
 
 #: Sent on every proxied response. Deliberately *not* a full `default-src`
 #: policy: code-server serves its own scripts, styles and workers, and a policy
@@ -76,6 +98,18 @@ UPSTREAM_TIMEOUT = 60.0
 
 def sessions(request: Request | WebSocket) -> Sessions:
     return request.app.state.code_sessions  # type: ignore[no-any-return]
+
+
+def _enabled(request: Request | WebSocket) -> None:
+    """Refuse everything here when the operator turned the tab off.
+
+    §13.5's first setting, and it governs the *proxy* rather than only the tab.
+    A switch that hid a screen while leaving the route serving would be the
+    kind of off that is not off — the surface it exists to close is the one
+    something other than the dashboard can reach.
+    """
+    if not getattr(request.app.state.settings, "code_tab_enabled", True):
+        raise RefusedError("the Code tab is switched off in this deployment")
 
 
 def _configured(request: Request | WebSocket) -> str:
@@ -140,21 +174,42 @@ def _target(base: str, path: str, query: str) -> str:
     return f"{joined}?{query}" if query else joined
 
 
-def _forward(headers: Any, upstream: str) -> dict[str, str]:
+def _forward(
+    headers: Any, upstream: str, public_host: str = "", scheme: str = "http"
+) -> dict[str, str]:
     """The request headers code-server should see.
 
     Hop-by-hop headers stop here by the specification; NERVIS's own credentials
-    stop here because they are NERVIS's. `host` is rewritten to the upstream's
-    own authority so that anything code-server derives from it — a redirect, an
-    absolute asset URL, a cookie domain — is derived from where it actually
-    lives rather than from where NERVIS is.
+    stop here because they are NERVIS's. `host` becomes the upstream's own
+    authority, because that is the connection being opened.
+
+    **And the browser's authority is then handed over separately, which is the
+    whole reason the editor works through this at all.** code-server refuses a
+    request whose `Origin` does not match its host — its CSRF defence — and
+    through a proxy those never match by construction: the origin is NERVIS's
+    and the host is the upstream's. It resolves that the way a reverse proxy is
+    expected to, by reading `X-Forwarded-Host`. Without it the WebSocket
+    upgrade is answered `403`, the workbench renders an empty frame, and its
+    only complaint is a timeout on its own side — a symptom three layers away
+    from the cause, and exactly how this was found.
+
+    The forwarded values come from what NERVIS received, never from what the
+    caller sent: any `X-Forwarded-*` arriving is dropped first. NERVIS's own
+    `Host` allow-list has already vetted the value being passed on, so what
+    reaches the editor is a host this deployment admits rather than a string
+    somebody chose.
     """
     kept = {
         name: value
         for name, value in headers.items()
-        if name.lower() not in HOP_BY_HOP and name.lower() not in OURS
+        if name.lower() not in HOP_BY_HOP
+        and name.lower() not in OURS
+        and name.lower() not in FORWARDED
     }
     kept["host"] = urlsplit(upstream).netloc
+    if public_host:
+        kept["x-forwarded-host"] = public_host
+        kept["x-forwarded-proto"] = scheme
     # The editor's own cookie travels; NERVIS's does not. code-server has no
     # use for a session token that authorises reaching it, and forwarding one
     # puts a credential in another application's logs.
@@ -228,6 +283,7 @@ async def open_session(request: Request) -> Response:
     already applies it to every request; the control token is, because it is
     per-route by design.
     """
+    _enabled(request)
     require_control(request)
     _graded(request)
     body = await request.json() if await request.body() else {}
@@ -256,6 +312,9 @@ async def read_session(request: Request) -> dict[str, object]:
     what the editor may reach. The configured roots are the whole menu, so the
     choice is the operator's and the options are configuration's.
     """
+    if not getattr(request.app.state.settings, "code_tab_enabled", True):
+        return {"session": {"open": False, "reason": "the Code tab is switched off "
+                            "in this deployment", "roots": []}}
     state = sessions(request).state(request.cookies.get(COOKIE, ""))
     if not state.get("open"):
         state["roots"] = _workspace_roots(request)
@@ -272,6 +331,58 @@ async def close_session(request: Request) -> Response:
     return answer
 
 
+@router.get("/extension")
+async def read_extension(request: Request) -> dict[str, Any]:
+    """What the editor holds, what the package offers, and whether they differ.
+
+    Answers rather than raises when something is missing: no binary, no
+    configured package and an unreadable one are all states the tab has to
+    render, and a 500 would make "you have not configured this" look like a
+    fault in NERVIS.
+    """
+    settings = request.app.state.settings
+    package = str(getattr(settings, "clarvis_vsix_path", "") or "")
+    if not package:
+        return {"extension": {"configured": False,
+                              "detail": "no Clarvis package is configured"}}
+    try:
+        executable = binary(str(getattr(settings, "code_server_binary", "") or ""))
+        wanted = offered(package)
+        held = installed(executable).get(wanted.identifier, "")
+        return {"extension": {
+            "configured": True,
+            "identifier": wanted.identifier,
+            "offered": wanted.version,
+            "installed": held,
+            "due": due(executable, package),
+        }}
+    except ExtensionError as failure:
+        return {"extension": {"configured": True, "detail": str(failure)}}
+
+
+@router.post("/extension", status_code=201)
+async def install_extension(request: Request) -> dict[str, Any]:
+    """Put the configured package in the editor, or say why not.
+
+    A mutation, so it carries the page's own token like every other mutation
+    here — and it takes no arguments at all. What is installed is what the
+    setting names; a request that could choose the file would be a request that
+    could install anything.
+    """
+    _enabled(request)
+    require_control(request)
+    settings = request.app.state.settings
+    package = str(getattr(settings, "clarvis_vsix_path", "") or "")
+    if not package:
+        raise InvalidConfigurationError("no Clarvis package is configured to install")
+    try:
+        executable = binary(str(getattr(settings, "code_server_binary", "") or ""))
+        put = install(executable, package)
+    except ExtensionError as failure:
+        raise RefusedError(str(failure)) from failure
+    return {"extension": {"identifier": put.identifier, "installed": put.version}}
+
+
 @proxy.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
@@ -283,13 +394,16 @@ async def forward(path: str, request: Request) -> Response:
     cross-origin mutation before any route is reached, and the editor's own
     requests are same-origin because that is what proxying them here achieves.
     """
+    _enabled(request)
     _graded(request)
     sessions(request).holding(request.cookies.get(COOKIE, ""))
     base = _configured(request)
     url = _target(base, path, request.url.query)
     client: httpx.AsyncClient = request.app.state.code_client
     status, upstream_headers, stream, response = await _relay(
-        client, request.method, url, _forward(request.headers, base), await request.body()
+        client, request.method, url,
+        _forward(request.headers, base, request.headers.get("host", ""), request.url.scheme),
+        await request.body(),
     )
 
     async def body() -> AsyncIterator[bytes]:
@@ -318,6 +432,7 @@ async def bridge(path: str, websocket: WebSocket) -> None:
     as an editor that has stopped responding for no stated reason.
     """
     try:
+        _enabled(websocket)
         _graded(websocket)
         sessions(websocket).holding(websocket.cookies.get(COOKIE, ""))
         base = _configured(websocket)
@@ -329,9 +444,25 @@ async def bridge(path: str, websocket: WebSocket) -> None:
         return
 
     upstream = "ws" + target[len("http"):]
+    # **The browser's headers travel, or nothing works.** code-server checks its
+    # own session cookie on the *upgrade*, so a socket opened without headers
+    # gets no cookie, is never authorised, and the handshake simply never
+    # completes — the workbench then renders an empty frame and reports
+    # `ETIMEDOUT` from its own side, which reads as a network fault rather than
+    # as a proxy that forgot to say who was asking. Found exactly that way.
+    headers = {
+        name: value
+        for name, value in _forward(
+            websocket.headers, base, websocket.headers.get("host", ""),
+            "https" if websocket.url.scheme == "wss" else "http",
+        ).items()
+        if name.lower() not in SOCKET_OWNED
+    }
     await websocket.accept()
     try:
-        async with websockets.connect(upstream, open_timeout=UPSTREAM_TIMEOUT) as peer:
+        async with websockets.connect(
+            upstream, additional_headers=headers, open_timeout=UPSTREAM_TIMEOUT
+        ) as peer:
             await _pump(websocket, peer)
     except (OSError, ConnectionClosed, asyncio.TimeoutError):
         # The editor is gone or never answered. 1011 is "the server hit a

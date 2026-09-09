@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2655 tests, no network, no live service
+.venv/bin/pytest                      # part of 2666 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 480 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1078 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1089 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2655 passing across the four, conformance `PASS`.
+Expected: all clean, 2666 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -16042,6 +16042,57 @@ installed by a command the launcher prints rather than by NERVIS, and §13.5's
 settings surface is two settings rather than the six it names.
 
 NERVIS 1053 -> 1078.
+
+## The rest of M14, and the empty frame the proxy caused — 2026-09-09
+
+**Reported rather than found: "clarvis tab shows the login, but after that
+empty."** The proxy shipped hours earlier and had been verified as far as the
+login page. Past it, nothing.
+
+Every asset loaded. Every request answered 200. The workbench's own management
+WebSocket was answered **403 by code-server**, and its only complaint was
+`ETIMEDOUT` from the browser's side — a symptom three layers from its cause, in
+a component that reports a timeout for a refusal.
+
+**code-server compares `Origin` against its host and refuses when they differ.**
+That is its CSRF defence, and behind a proxy the two never match by
+construction: the origin is NERVIS's, the host is the upstream's. It resolves
+this the way a reverse proxy is expected to, by preferring `X-Forwarded-Host` —
+which this proxy never sent. It now sends the authority NERVIS was itself asked
+on, on both the request and the upgrade path, and drops any `X-Forwarded-*`
+arriving from a caller first: a header that decides an origin check is not one
+a request supplies.
+
+**Reproduced without the operator's credential.** A throwaway
+password-protected code-server on another port, a password generated for it,
+and a second NERVIS pointed at that — so the failure could be driven end to end
+in a real browser without anyone's password being handled. Both instances were
+stopped and the password deleted afterwards. The workbench now renders in full
+through `/code/`: explorer, editor, and the Clarvis panel live inside it.
+
+**An edit of mine silently did not apply, and two rounds of testing went to a
+fix that was never on disk.** `cd nervis && python3 - <<PY` — the `cd` failed
+because the shell was already there, `&&` skipped the patch, and the lint and
+tests chained after it ran anyway and passed against unchanged code. Nothing
+reported a failure at any point. The lesson is not "check the cd": it is that a
+tool run that reports success on a file it never wrote is indistinguishable
+from one that worked, unless the *file* is checked afterwards.
+
+**§13.5 is built too.** `code_tab_enabled` closes the route rather than only
+hiding the tab; `code_server_binary` falls back to `PATH`; `code_workspace_roots`
+is the menu a session chooses from; `clarvis_vsix_path` names the package and
+`clarvis_auto_install` (off by default) installs it at startup. NERVIS installs
+and updates the extension itself now — reading the offered version out of the
+`.vsix` rather than off its filename, refusing any package that is not
+`krimkerre.clarvis`, using `--force` so update does not mean uninstall-first,
+and surfacing code-server's own words when it refuses. The tab offers the
+action only when the versions differ, and the frame asks for the workspace the
+session authorised so the two cannot disagree.
+
+Twelve new tests, each checked by disabling the mechanism it names.
+`clarvis()` hit the dashboard's complexity ratchet at 14 and was split.
+
+NERVIS 1078 -> 1089.
 
 ## Starting the thing
 

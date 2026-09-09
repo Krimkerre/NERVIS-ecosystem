@@ -35,6 +35,9 @@ from nervis.errors import UnauthorizedError
 #: failure here start with a question about the fixture.
 UPSTREAM = "http://127.0.0.1:65000"
 
+#: Upgrade headers the fake editor saw, newest last.
+SEEN_HEADERS: list[dict[str, str]] = []
+
 
 class FakeEditor:
     """code-server, as far as the proxy can tell, plus a record of what it saw.
@@ -305,6 +308,42 @@ def test_websocket_reconnect_a_dropped_socket_can_be_opened_again(
                 assert socket.receive_text() == f"echo:{attempt}"
 
 
+def test_the_browser_s_headers_reach_the_editor_on_the_upgrade(
+    tmp_path: Path, editor_socket: str
+) -> None:
+    """**The handshake carries the cookie, or the editor never authorises it.**
+
+    code-server checks its own session on the upgrade, and a socket opened with
+    no headers is one it will not complete. The symptom is not an error: the
+    workbench renders an empty frame and reports `ETIMEDOUT` from its own side,
+    which reads as a network fault. So what is asserted here is that the
+    editor's own cookie arrives — and that NERVIS's does not, which is the same
+    rule the request path follows.
+    """
+    editor = FakeEditor()
+    with an_app(tmp_path, editor, code_server_base_url=editor_socket) as client:
+        open_session(client, tmp_path)
+        client.cookies.set("code-server-session", "theirs")
+
+        with client.websocket_connect("/code/socket") as socket:
+            socket.send_text("hello")
+            assert socket.receive_text() == "echo:hello"
+
+    seen = SEEN_HEADERS[-1]
+    assert "code-server-session=theirs" in seen.get("cookie", "")
+    assert COOKIE not in seen.get("cookie", "")
+    # **The browser's own authority, handed over separately.** code-server
+    # compares `Origin` against its host and refuses the upgrade when they
+    # differ — which through a proxy they always do. Without this the editor
+    # answers 403, the workbench renders an empty frame, and the only visible
+    # complaint is a timeout on the browser's side.
+    assert seen["x-forwarded-host"] == "testserver"
+    assert seen["x-forwarded-proto"] == "http"
+    # The library writes these itself; a forwarded copy makes two of each.
+    assert seen.get("sec-websocket-key") is not None
+    assert seen["host"] == editor_socket.split("//", 1)[1]
+
+
 def test_a_websocket_without_a_session_never_reaches_the_editor(
     tmp_path: Path, editor_socket: str
 ) -> None:
@@ -403,6 +442,26 @@ def test_nervis_s_own_credentials_never_reach_the_editor(tmp_path: Path) -> None
         assert "authorization" not in sent
 
 
+def test_a_client_cannot_choose_the_forwarded_host(tmp_path: Path) -> None:
+    """The header that decides an origin check is not one a request supplies.
+
+    NERVIS's own `Host` allow-list has already vetted what gets passed on, so
+    what reaches the editor is a host this deployment admits. A caller-supplied
+    `X-Forwarded-Host` that survived would let anything able to reach the port
+    tell code-server that an origin it should refuse is one it should trust.
+    """
+    editor = FakeEditor()
+    with an_app(tmp_path, editor) as client:
+        open_session(client, tmp_path)
+
+        client.get("/code/", headers={"x-forwarded-host": "evil.example",
+                                      "x-forwarded-proto": "https"})
+
+        sent = editor.seen[-1].headers
+        assert sent["x-forwarded-host"] == "testserver"
+        assert sent["x-forwarded-proto"] == "http"
+
+
 def test_the_editor_s_own_cookies_do_reach_it(tmp_path: Path) -> None:
     """The other half: code-server keeps its own session, and a proxy that ate
     every cookie would log the user out on every request."""
@@ -483,27 +542,31 @@ def editor_socket() -> Iterator[str]:
     loop = asyncio.new_event_loop()
     ready = threading.Event()
     port: list[int] = []
+    # **Shut down by resolving a future rather than by stopping the loop.**
+    # Stopping it mid-`serve` leaves the server's own `close` half-run as a
+    # coroutine nobody awaits, which pytest reports as an unraisable exception
+    # against whichever test happened to be running — a fixture's mess
+    # attributed to somebody else's assertion.
+    finished: list[asyncio.Future[None]] = []
 
     async def echo(socket: Any) -> None:
+        # What the upgrade carried, for the test that asserts on it. Recorded
+        # at the editor rather than read out of NERVIS: whether a header
+        # arrived is a question only the far end can answer.
+        SEEN_HEADERS.append({k.lower(): v for k, v in socket.request.headers.raw_items()})
         async for message in socket:
             await socket.send(f"echo:{message}")
 
     async def serve() -> None:
         async with websockets.serve(echo, "127.0.0.1", 0) as server:
             port.append(server.sockets[0].getsockname()[1])
+            finished.append(asyncio.get_running_loop().create_future())
             ready.set()
-            await asyncio.Future()
+            await finished[0]
 
     def run() -> None:
-        # `run_until_complete` on a future that never resolves means stopping
-        # the loop raises out of it; the server's own shutdown then runs in
-        # `serve`'s `finally`. Swallowed here rather than left to escape into a
-        # thread nobody is watching, which pytest reports as an unraisable
-        # exception from whichever test happened to be running at the time.
         try:
             loop.run_until_complete(serve())
-        except RuntimeError:
-            pass
         finally:
             loop.close()
 
@@ -511,5 +574,178 @@ def editor_socket() -> Iterator[str]:
     thread.start()
     ready.wait(timeout=5)
     yield f"http://127.0.0.1:{port[0]}"
-    loop.call_soon_threadsafe(loop.stop)
+    loop.call_soon_threadsafe(lambda: finished[0].set_result(None))
     thread.join(timeout=5)
+
+
+# ── §13.5: the settings, and the extension NERVIS may install ───────────────
+
+
+def test_the_tab_being_switched_off_closes_the_proxy_too(tmp_path: Path) -> None:
+    """**Off has to mean the route, not only the screen.**
+
+    A switch that hid a tab while leaving `/code/` serving would be off in the
+    one place that cannot reach the editor anyway and on in the place anything
+    else can.
+    """
+    editor = FakeEditor()
+    with an_app(tmp_path, editor, code_tab_enabled=False) as client:
+        opened = client.post(
+            "/api/v1/code/session", json={"workspace": str(tmp_path)}, headers=control(client)
+        )
+        proxied = client.get("/code/")
+        state = client.get("/api/v1/code/session").json()["session"]
+
+        assert opened.status_code == 409
+        assert proxied.status_code in {401, 409}
+        assert state["open"] is False
+        assert "switched off" in state["reason"]
+        assert editor.seen == []
+
+
+def a_vsix(path: Path, *, publisher: str = "krimkerre", name: str = "clarvis",
+           version: str = "0.13.0") -> Path:
+    """A real `.vsix` — a zip with the extension's own manifest inside it.
+
+    Real rather than mocked because the thing under test is reading a version
+    out of the artefact instead of off its filename, and a fake that handed
+    back a version would skip exactly that.
+    """
+    import zipfile
+
+    package = path / f"{name}-{version}.vsix"
+    with zipfile.ZipFile(package, "w") as bundle:
+        bundle.writestr(
+            "extension/package.json",
+            f'{{"publisher": "{publisher}", "name": "{name}", "version": "{version}"}}',
+        )
+    return package
+
+
+def test_the_offered_version_is_read_from_the_package_not_its_name(
+    tmp_path: Path,
+) -> None:
+    """A rebuild that keeps the filename changes everything except the filename."""
+    from nervis.code_extension import offered
+
+    package = a_vsix(tmp_path, version="0.13.0")
+    renamed = tmp_path / "clarvis-9.9.9.vsix"
+    package.rename(renamed)
+
+    assert offered(str(renamed)).version == "0.13.0"
+    assert offered(str(renamed)).identifier == "krimkerre.clarvis"
+
+
+def test_a_package_that_is_not_clarvis_is_refused(tmp_path: Path) -> None:
+    """NERVIS installs one extension. A setting that could name any `.vsix` and
+    a verb that installed whatever it found would be a way to put arbitrary
+    software into the editor by editing a config line."""
+    from nervis.code_extension import ExtensionError, install
+
+    other = a_vsix(tmp_path, publisher="someone", name="else")
+
+    with pytest.raises(ExtensionError) as refused:
+        install("/bin/echo", str(other))
+
+    assert "krimkerre.clarvis" in str(refused.value)
+
+
+def test_an_unreadable_package_says_so_rather_than_raising_a_zip_error(
+    tmp_path: Path,
+) -> None:
+    """The message a person can act on, rather than the one the library chose."""
+    from nervis.code_extension import ExtensionError, offered
+
+    broken = tmp_path / "broken.vsix"
+    broken.write_bytes(b"not a zip")
+
+    with pytest.raises(ExtensionError) as refused:
+        offered(str(broken))
+
+    assert "not a readable .vsix" in str(refused.value)
+
+
+def test_what_is_due_says_which_of_the_two_reasons_it_is(tmp_path: Path) -> None:
+    """"Not installed" and "an older version is installed" call for different
+    words on a screen, so the answer is the reason rather than a boolean."""
+    from nervis.code_extension import due
+
+    package = a_vsix(tmp_path, version="0.13.0")
+
+    # A stand-in for the editor's CLI: `--list-extensions` is the only read the
+    # decision needs, and a fake shell script keeps the subprocess real.
+    editor = tmp_path / "code-server"
+    editor.write_text("#!/bin/sh\nexit 0\n")
+    editor.chmod(0o755)
+    assert "is not installed" in due(str(editor), str(package))
+
+    editor.write_text("#!/bin/sh\necho krimkerre.clarvis@0.12.8\n")
+    assert "0.12.8" in due(str(editor), str(package))
+
+    editor.write_text("#!/bin/sh\necho krimkerre.clarvis@0.13.0\n")
+    assert due(str(editor), str(package)) == ""
+
+
+def test_the_extension_route_reports_configured_offered_and_installed(
+    tmp_path: Path,
+) -> None:
+    """What the tab renders. Three facts, and the difference between them."""
+    package = a_vsix(tmp_path, version="0.13.0")
+    editor_cli = tmp_path / "code-server"
+    editor_cli.write_text("#!/bin/sh\necho krimkerre.clarvis@0.12.8\n")
+    editor_cli.chmod(0o755)
+    with an_app(tmp_path, FakeEditor(), clarvis_vsix_path=str(package),
+                code_server_binary=str(editor_cli)) as client:
+        body = client.get("/api/v1/code/extension").json()["extension"]
+
+        assert body["configured"] is True
+        assert body["identifier"] == "krimkerre.clarvis"
+        assert body["offered"] == "0.13.0"
+        assert body["installed"] == "0.12.8"
+        assert "0.12.8" in body["due"]
+
+
+def test_nothing_configured_is_a_state_rather_than_an_error(tmp_path: Path) -> None:
+    """A tab that has not been configured gets an answer it can render, not a
+    500 that reads as NERVIS being broken."""
+    with an_app(tmp_path, FakeEditor()) as client:
+        body = client.get("/api/v1/code/extension").json()["extension"]
+
+        assert body["configured"] is False
+        assert "no Clarvis package" in body["detail"]
+
+
+def test_installing_needs_the_page_s_own_token_and_takes_no_arguments(
+    tmp_path: Path,
+) -> None:
+    """The mutation carries the control token; what it installs is what the
+    setting names, so a request cannot choose the file."""
+    package = a_vsix(tmp_path)
+    calls = tmp_path / "calls.txt"
+    editor_cli = tmp_path / "code-server"
+    editor_cli.write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+    editor_cli.chmod(0o755)
+    with an_app(tmp_path, FakeEditor(), clarvis_vsix_path=str(package),
+                code_server_binary=str(editor_cli)) as client:
+        assert client.post("/api/v1/code/extension").status_code == 403
+
+        answered = client.post("/api/v1/code/extension", headers=control(client))
+
+        assert answered.status_code == 201
+        assert answered.json()["extension"]["identifier"] == "krimkerre.clarvis"
+        assert "--install-extension" in calls.read_text()
+        assert "--force" in calls.read_text(), "update must not need an uninstall first"
+
+
+def test_an_install_that_fails_says_what_the_editor_said(tmp_path: Path) -> None:
+    """code-server's own words. "Exit status 1" is not something to act on."""
+    package = a_vsix(tmp_path)
+    editor_cli = tmp_path / "code-server"
+    editor_cli.write_text('#!/bin/sh\necho "Extension is not compatible" >&2\nexit 1\n')
+    editor_cli.chmod(0o755)
+    with an_app(tmp_path, FakeEditor(), clarvis_vsix_path=str(package),
+                code_server_binary=str(editor_cli)) as client:
+        answered = client.post("/api/v1/code/extension", headers=control(client))
+
+        assert answered.status_code == 409
+        assert "not compatible" in answered.json()["error"]["message"]

@@ -155,6 +155,21 @@ class Settings(BaseSettings):
     # said neither gets a proxy that refuses to open anything, which is the
     # right default for a surface whose whole risk is what it exposes.
     code_workspace_roots: str = ""
+    # §13.5's remaining four. **The tab is on by default** because a NERVIS
+    # with code-server running and the tab switched off is a stranger surprise
+    # than one that offers a tab and says the editor is absent — and the tab
+    # already says exactly that when it is.
+    code_tab_enabled: bool = True
+    # Where code-server is, when it is not on `PATH`. Empty means "look on
+    # PATH", which is the same order `tools/run.py` uses.
+    code_server_binary: str = ""
+    # The Clarvis package NERVIS may install into that editor.
+    clarvis_vsix_path: str = ""
+    # Whether to install or update it at startup. **Off by default**: putting
+    # software into an editor somebody else manages is not a thing to do
+    # because a default said so. An operator who wants it says so, and the
+    # Code tab offers the same action on demand either way.
+    clarvis_auto_install: bool = False
     # Runtimes rather than ecosystem members: neither publishes a MEP surface,
     # so the registry can claim reachability about them and nothing more.
     lmstudio_base_url: str = "http://127.0.0.1:1234"

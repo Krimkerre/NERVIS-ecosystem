@@ -838,13 +838,25 @@ The gate's ten tests are `nervis/tests/test_m14_code_proxy.py`, each driving the
 real application. Each was checked by disabling the mechanism it names and
 confirming it fails.
 
+**The header the editor cannot work without.** code-server refuses any request
+whose `Origin` does not match its own host — its CSRF defence — and behind a
+proxy those never match: the origin is NERVIS's, the host is the upstream's. It
+resolves this the way a reverse proxy is expected to, by preferring
+`X-Forwarded-Host`, so NERVIS sends the authority it was itself asked on. The
+failure without it is worth recording because it points nowhere near its cause:
+the HTML and every asset load, the WebSocket upgrade is answered `403`, the
+workbench renders an *empty frame*, and the only complaint is `ETIMEDOUT` from
+the browser's own side. Any `X-Forwarded-*` arriving from a caller is dropped
+before NERVIS sets its own — a header that decides an origin check is not one a
+request supplies.
+
 **Supported browser and host matrix (the proxied path).** Graded live against a
 running stack, not inferred from the direct-embed matrix, which measures a
 different arrangement.
 
 | Host | Browser | Result | Evidence |
 | --- | --- | --- | --- |
-| macOS 26 (Darwin 27), loopback `http://127.0.0.1:8790`, code-server 4.135.0 | Chromium 152 | `PASS` | The Code tab framed `/code/` same-origin; code-server's login rendered through it; `GET /code/` answered `302` with `location: /code/login` — its own redirect rewritten onto the proxy rather than sent absolute — carrying `frame-ancestors 'self'`, `SAMEORIGIN`, `nosniff` and `no-referrer`; a `ws://…/code/` upgrade opened end to end; `..%2f..%2fetc/passwd` and an absolute URL as a path both answered `409` |
+| macOS 26 (Darwin 27), loopback `http://127.0.0.1:8790`, code-server 4.135.0 | Chromium 152 | `PASS` | **The full workbench, signed in and rendering through the proxy** — file explorer, editor, and the Clarvis panel active inside it — reached by logging in to a throwaway password-protected code-server rather than the operator's own. Before that: the login page framed same-origin; `GET /code/` answered `302` with `location: /code/login`, its own redirect rewritten onto the proxy rather than sent absolute, carrying `frame-ancestors 'self'`, `SAMEORIGIN`, `nosniff` and `no-referrer`; `..%2f..%2fetc/passwd` and an absolute URL as a path both answered `409` |
 | Same host, Firefox | — | `NOT_TESTED` | No second browser was driven |
 | Same host, Safari | — | `NOT_TESTED` | No second browser was driven |
 | Non-loopback host, `https` | — | `NOT_TESTED` | The deployment this ships as binds `127.0.0.1`; the `Secure` cookie attribute follows the scheme and has not been exercised over TLS |
@@ -877,6 +889,19 @@ policy.
 
 Enable Code tab; code-server binary and path; workspace roots; Clarvis VSIX path; automatic
 Clarvis install and update.
+
+**Built, 9 September 2026.** `code_tab_enabled` (default on) closes `/code/` itself rather
+than only hiding the tab — a switch that hid a screen while the route kept serving would be
+off in the one place that cannot reach the editor anyway. `code_server_binary` falls back to
+`PATH`, the same order `tools/run.py` uses. `code_workspace_roots` is the menu the session
+offers, and falls back to `workspace_path`. `clarvis_vsix_path` names the package;
+`clarvis_auto_install` (default **off**) installs or updates it at startup, because putting
+software into an editor somebody else manages is not a thing to do because a default said so.
+`nervis/src/nervis/code_extension.py` reads the offered version out of the `.vsix` itself
+rather than off its filename, refuses any package that is not `krimkerre.clarvis`, and
+installs with `--force` so update does not mean uninstall-first. `GET /api/v1/code/extension`
+reports configured, offered, installed and what is due; `POST` installs and takes no
+arguments, so a request cannot choose the file.
 
 The Code tab may open Clarvis, RAVIS, SIRVIS or NERVIS source with Clarvis installed — making
 NERVIS self-hosting as a development environment. Useful, and a pleasingly unnecessary amount of
@@ -1153,7 +1178,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M11** AUTOMATED VERIFIED | API Inspector — RAVIS request stages, normalized request, route, provider metadata, final response | One request inspectable end to end; credentials never displayed; content follows privacy settings; transparent vs translated distinguished honestly |
 | **M12** AUTOMATED VERIFIED | AI diagnostics — trace packet builder, redaction, RAVIS analysis request, local-only option | A trace can be analyzed; **the user sees exactly what will be sent**; local-only policy enforced; analysis failure does not alter logs |
 | **M13** LIVE VERIFIED | code-server spike — **do not build the integration yet** | An exit report covering every capability in `CLARVIS.md` §7.1, graded `PASS` / `PASS_WITH_LIMITATION` / `FAIL` / `NOT_TESTED` — the runbook §6.2 Stage 9 vocabulary, which CLARVIS.md §7.1 also uses. **`NOT_TESTED` is the value this report most needs**: an untested combination that has to be graded pass or fail gets guessed or dropped |
-| **M14** IMPLEMENTED | Code tab *(only if M13 succeeds)* — code-server management, reverse proxy, workspace launcher, Clarvis install | Code tab loads; Clarvis activates; the WebSocket survives; the workspace opens; the Clarvis panel renders; the terminal works; the proxy security suite passes. **§13.3's proxy shipped 9 September 2026** — `/code/`, its session store and its ten-test gate — and the tab is served through it rather than from code-server's own port. What remains is not code: the browser and host matrix has one graded row (§13.3), Clarvis is installed by a command the launcher prints rather than by NERVIS, and §13.5's settings surface is `code_server_base_url` and `code_workspace_roots` rather than the six that section names |
+| **M14** IMPLEMENTED | Code tab *(only if M13 succeeds)* — code-server management, reverse proxy, workspace launcher, Clarvis install | Code tab loads; Clarvis activates; the WebSocket survives; the workspace opens; the Clarvis panel renders; the terminal works; the proxy security suite passes. **§13.3's proxy and §13.5's settings both shipped 9 September 2026** — `/code/` with its session store and ten-test gate, and the tab served through it rather than from code-server's own port; `code_tab_enabled` (which closes the route, not only the screen), `code_server_binary`, `code_workspace_roots`, `clarvis_vsix_path` and `clarvis_auto_install`, with NERVIS installing and updating the extension itself rather than printing a command to copy. What remains is coverage rather than code: the proxied path's browser and host matrix (§13.3) has one graded row |
 | **M15** IMPLEMENTED | Browser Clarvis compatibility — **address only issues found in M13**, no speculative porting | The existing VSIX stays one artifact if possible; VS Code stable and VSCodium still pass regression; the code-server path passes the agreed matrix |
 | **M16** AUTOMATED VERIFIED | Service supervision — ownership modes, start, stop, restart, PID verification | Only managed services are controlled; **external services are never killed**; crash recovery works; a restart does not create a duplicate process |
 | **M17** IMPLEMENTED | Unified diagnostics — cross-service trace, health overlay, log correlation, benchmark/runtime context | A Clarvis → RAVIS → provider trace is visible; SIRVIS runtime evidence links where available; a broken link still produces a partial trace |

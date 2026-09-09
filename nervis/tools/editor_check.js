@@ -41,12 +41,14 @@ const services = (state) => ({
    state and a closed session would make them all pass for the wrong reason —
    the frame is not drawn without one. `session: null` is the other case, and
    has its own check further down. */
-function pageIn(state, session = { open: true, workspace: "/w" }) {
+function pageIn(state, session = { open: true, workspace: "/w" },
+                extension = { configured: false }) {
   return loadPage({
     fetchImpl: async (url) => {
       const target = String(url);
       let payload = { items: [] };
       if (target.includes("/api/v1/services")) payload = services(state);
+      else if (target.includes("/api/v1/code/extension")) payload = { extension };
       else if (target.includes("/api/v1/code/session")) {
         payload = { session: session || { open: false, reason: "closed", roots: [] } };
       }
@@ -57,8 +59,8 @@ function pageIn(state, session = { open: true, workspace: "/w" }) {
   });
 }
 
-async function drawn(state, session) {
-  const page = pageIn(state, session);
+async function drawn(state, session, extension) {
+  const page = pageIn(state, session, extension);
   const { exported, elements } = page;
   exported.state.app = "clarvis";
   exported.state.view = "Workspace";
@@ -85,10 +87,17 @@ if (!/<iframe/.test(alive)) {
    second origin NERVIS neither authenticates nor sets headers for. A revert to
    that is invisible on screen — the editor still loads — so it is checked
    here rather than left to be noticed. */
-if (!/src="\/code\/"/.test(alive)) {
+if (!/src="\/code\/(\?[^"]*)?"/.test(alive)) {
   failures.push("the editor was framed from somewhere other than NERVIS's own "
     + "/code/ path, which is the proxy that makes it same-origin. §13.3's auth, "
     + "header and redirect rules apply to nothing if the frame bypasses them.");
+}
+/* The session names a workspace; the frame has to ask for that one. code-server
+   otherwise opens whatever it had open last, and the tab would say "workspace X"
+   above an editor showing Y. */
+if (!/src="\/code\/\?folder=/.test(alive)) {
+  failures.push("the frame did not ask for the workspace the session authorised, "
+    + "so the editor opens its own last folder and the two disagree.");
 }
 if (/src="http/.test(alive)) {
   failures.push("the frame's src is an absolute address, so the editor is on a "
@@ -106,6 +115,31 @@ if (/<iframe/.test(unopened)) {
 if (!/workspace is configured|session was refused|Choose a workspace/.test(unopened)) {
   failures.push("a tab that could not open a session said nothing about why, "
     + "which leaves the reader with an empty pane and no next move.");
+}
+
+/* §13.5: an editor running without Clarvis in it is a state this tab can see
+   and now fix, and the fix has to be offered where the missing panel would
+   have been rather than inside the frame that cannot render it. */
+const stale = await drawn("healthy", { open: true, workspace: "/w" },
+  { configured: true, identifier: "krimkerre.clarvis", offered: "0.13.0",
+    installed: "0.12.8", due: "the editor has krimkerre.clarvis 0.12.8" });
+if (!/id="installClarvis"/.test(stale)) {
+  failures.push("an editor holding an older Clarvis than the configured package "
+    + "offered no way to update it, so the tab can see the problem and not fix it.");
+}
+if (!/<iframe/.test(stale)) {
+  failures.push("an out-of-date extension hid the editor. The editor works; it is "
+    + "the panel inside it that is missing.");
+}
+
+/* And the opposite, which is the ordinary case: current, so nothing is said.
+   A tab that announced good news every visit would train the reader past the
+   place the real message appears. */
+const current = await drawn("healthy", { open: true, workspace: "/w" },
+  { configured: true, identifier: "krimkerre.clarvis", offered: "0.13.0",
+    installed: "0.13.0", due: "" });
+if (/id="installClarvis"/.test(current)) {
+  failures.push("a current Clarvis still drew an install button.");
 }
 
 for (const gone of ["unreachable", "stale", "stopped"]) {

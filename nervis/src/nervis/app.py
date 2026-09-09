@@ -65,6 +65,7 @@ from nervis.api.chat_personas import seed_chat_defaults
 from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
 from nervis.api.events import event_frames
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
+from nervis.code_extension import ensure as ensure_clarvis
 from nervis.code_proxy import Sessions as CodeSessions
 from nervis.config import Settings
 from nervis.ecosystem import (
@@ -390,6 +391,23 @@ def _register_correlation(api: FastAPI) -> None:
         return response
 
 
+def _install_clarvis(api: FastAPI) -> None:
+    """One automatic install or update at startup, reported once.
+
+    Logged rather than returned because nothing is waiting for it: the Code tab
+    reads the extension state live, so the outcome reaches a person through the
+    screen and this line is for whoever is reading the log.
+    """
+    settings = api.state.settings
+    package = str(getattr(settings, "clarvis_vsix_path", "") or "")
+    if not package:
+        logger.info("clarvis_auto_install is on and no clarvis_vsix_path is set")
+        return
+    outcome = ensure_clarvis(str(getattr(settings, "code_server_binary", "") or ""), package)
+    if outcome:
+        logger.info("%s", outcome)
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     """Keep the registry warm while the service is up.
@@ -416,6 +434,14 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     # case rather than an unusual one — and it only became possible when Stage 7
     # gave the page a real stream to hold.
     api.state.stopping = asyncio.Event()
+    # **§13.5's automatic install, off unless asked for, and never fatal.** Run
+    # in a thread because it shells out to code-server's CLI, which takes
+    # seconds — blocking the event loop here would delay every route on a
+    # service that has not finished starting. A failure is logged and dropped:
+    # a missing binary or an unreadable package is a reason for the Code tab to
+    # say something, not a reason for NERVIS not to start.
+    if getattr(api.state.settings, "clarvis_auto_install", False):
+        asyncio.create_task(asyncio.to_thread(_install_clarvis, api))
     try:
         yield
     finally:

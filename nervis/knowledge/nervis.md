@@ -48,6 +48,15 @@ own login, its own workspace handling and its own gates; the proxy adds a
 boundary in front of them rather than replacing them, which is why signing in
 to code-server still happens inside the frame.
 
+NERVIS can also put Clarvis in that editor rather than telling somebody a
+command to run: point `NERVIS_CLARVIS_VSIX_PATH` at the package and the Code tab
+offers to install or update it whenever the version in the editor is not the
+version the package holds. Turning on `NERVIS_CLARVIS_AUTO_INSTALL` does it at
+startup instead; it is off by default, because putting software into an editor
+somebody else manages is not something to do because a default said so. And
+`NERVIS_CODE_TAB_ENABLED=false` closes the whole thing — the route, not only
+the tab.
+
 ## Chat, and what it is allowed to do
 
 Chat is an ordinary RAVIS client with one addition: before the model sees
