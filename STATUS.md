@@ -17433,10 +17433,10 @@ that never releases fails another.
 Asked for before the first live handoff run: tasks NERVIS hands to Clarvis
 should land under `workspace/clarvis`, in a subfolder — and then, the part that
 mattered, **a new folder for every task**, because otherwise Clarvis would open
-a new task onto the previous task's `plan.md`.
+a new task onto the previous task's plan.md.
 
 That reason is Clarvis's own layout, checked rather than assumed: it keeps
-`plan.md` and its build state at the root of whatever folder it has open, and
+plan.md and its build state at the root of whatever folder it has open, and
 reads `clarvis-task.md` from the same root. So each task now gets
 `clarvis/nervis-tasks/<date>-<time>-<first words>/clarvis-task.md`, and that
 folder is opened in Clarvis as the task's workspace. **Nothing on the Clarvis
@@ -17444,7 +17444,7 @@ side changed** — it already reads the root of the open folder, which is exactl
 where the file now sits.
 
 **The first attempt was wrong and never committed.** It put a single
-`nervis-tasks/clarvis-task.md` beside the project and taught Clarvis to read from
+nervis-tasks/clarvis-task.md beside the project and taught Clarvis to read from
 that subfolder — which would have kept every task's plan in one place, the very
 thing the operator was trying to prevent. Both halves were reverted before
 anything shipped, which is why Clarvis needs no release.
