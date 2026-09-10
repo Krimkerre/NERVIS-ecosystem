@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from nervis import commands, handoff
+from nervis import code_proxy, commands, handoff, workspace
 from nervis.app import create_app
 from nervis.config import Settings
 
@@ -153,6 +153,14 @@ def test_the_task_is_written_where_clarvis_reads(client: TestClient) -> None:
     assert waiting is not None
     assert waiting.task == "add a retry to the uploader when the API returns 429"
     assert waiting.conversation == "cv_ab12"
+
+    # The same folder, absolute, is what the page opens in the Code tab — so it
+    # has to be exactly this folder, and one the editor session will accept.
+    opened = Path(answer.json()["file"]["workspace"])
+    assert opened.is_absolute()
+    assert opened == (room / folder).resolve()
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    code_proxy.Sessions().open(str(opened), workspace.editor_rooms(settings))
 
 
 def test_the_file_says_who_wrote_it(tmp_path: Path) -> None:

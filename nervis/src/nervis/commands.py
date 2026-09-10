@@ -606,8 +606,8 @@ def _handoff_proposal(question: str, clarvis: Mapping[str, Any] | None) -> Propo
     # window open beforehand could be looking at it. The check described a
     # layout that no longer exists.
     del clarvis
-    detail = ("This goes into a new folder of its own under nervis-tasks/ — "
-              "open that folder in Clarvis to read and approve it.")
+    detail = ("This goes into a new folder of its own under nervis-tasks/, and "
+              "pressing it opens that folder in the Code tab for Clarvis to read.")
     ready = True
     return Proposal(
         operation=operation.id, service=operation.service, target=task,

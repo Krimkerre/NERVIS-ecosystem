@@ -17465,8 +17465,7 @@ the per-task folder fails six.
 Also cleared two lint errors in yesterday's probe-loop test, committed as clean
 after linting only `src/`.
 
-## Chat said the task was handed over, and nothing had been written
-## — 2026-09-10
+## Chat said the task was handed over, and nothing had been written — 2026-09-10
 
 The first live handoff attempt. The operator asked *"Can you hand a small coding
 task to clarvis? I'd like it to make me a pomodoro timer"*, agreed a spec over
@@ -17495,6 +17494,41 @@ question-mark rejection fails the polite one.
 What is not fixed: a phrasing the matcher still misses will again produce no
 button, and the model may again claim otherwise. Chat's own knowledge now says
 plainly that no button means nothing was handed over.
+
+## Hand over opens the task's folder in the Code tab — 2026-09-10
+
+Asked for straight after the per-task folders: pressing Hand over should open
+the new folder in the editor, rather than leave the person to find it. Built for
+the editor's own address, which is how this machine runs it — the proxy is off
+by default. The server's answer now carries the task folder as an absolute path;
+the page keeps it, switches to the Code tab, and frames code-server at its usual
+address with that folder asked for. Same origin, so the editor's saved keys,
+history and settings are all still there. The folder is kept for the life of
+the page, because the frame is rebuilt whenever its address changes and
+forgetting it would reload the editor back to its old folder on the next visit.
+
+**A second fault, found while wiring it.** The page had no case for the handoff
+offer at all. Pressing the button fell through to the SIRVIS job wording and
+would have reported "nothing was started" for a task the server had just
+written. No press had ever exercised it — the earlier failure was chat claiming
+a handoff with no button to press. It has its own handler now.
+
+Checked. The handoff API test asserts the returned folder is absolute, is
+exactly the task's folder, and is accepted by the editor session's own root
+check. The editor page check presses Hand over through the page's own offer
+handler and asserts the line it leaves, the tab it lands on, and the framed
+address by value, with a folder name holding a space and a hash. Two probes:
+removing the dispatch line fails three assertions, and an address that ignores
+the folder fails one. Live, after a restart: the real handler wrote the task,
+the page landed on the Code tab, and the frame pointed at code-server's own
+address with the new folder. Code-server keeps the folder through its login
+redirect. The test folder went to the Trash afterwards.
+
+Not seen: the editor opening that folder with Clarvis offering the task. The
+browser this was checked in is not logged in to code-server, and the password
+is not something to type on the operator's behalf — that step is the live run
+with the operator. Not built: with the proxy on, the tab still opens its
+configured workspace, and the task's folder is opened by hand.
 
 ## Starting the thing
 

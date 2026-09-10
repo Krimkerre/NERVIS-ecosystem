@@ -17,6 +17,7 @@
  *   node tools/editor_check.js
  */
 
+const vm = require("node:vm");
 const { loadPage } = require("./page_context.js");
 
 /* One `/api/v1/services` answer holding a code-server row in a given state,
@@ -54,6 +55,10 @@ function pageIn(state, session = { open: true, workspace: WORKSPACE, proxied: tr
       let payload = { items: [] };
       if (target.includes("/api/v1/services")) payload = services(state);
       else if (target.includes("/api/v1/code/extension")) payload = { extension };
+      else if (target.includes("/api/v1/commands/run")) {
+        payload = { file: { name: "clarvis-task.md", folder: "nervis-tasks/2026-09-10-fix-it",
+                            workspace: WORKSPACE, detail: "waiting" } };
+      }
       else if (target.includes("/api/v1/code/session")) {
         payload = {
           session: session || { open: false, proxied: true, reason: "closed", roots: [] },
@@ -102,8 +107,49 @@ async function framedIn(state, session, extension) {
   return { hold: read("#editorHold"), content: read("#content") };
 }
 
+/* Pressing Hand over on a chat offer, through the page's own `runOffer`, and
+   then drawing whatever tab that left the page on. */
+async function handedOver() {
+  const page = pageIn("healthy", { open: false, proxied: false, roots: [] });
+  const { context, exported, elements } = page;
+  vm.runInContext("CHAT_SESSION.messages=[{role:'assistant',text:'ok',offer:"
+    + "{operation:'nervis.clarvis.task',service:'nervis',target:'fix it',ready:true}}]",
+    context);
+  await vm.runInContext("runOffer(0)", context);
+  const done = vm.runInContext("CHAT_SESSION.messages[0].offer.done", context);
+  const landed = `${exported.state.app}/${exported.state.view}`;
+  await exported.clarvis();
+  if (exported.stopPolling) exported.stopPolling();
+  const hold = elements.get("sel:#editorHold");
+  return { done: String(done), landed, html: String((hold && hold.innerHTML) || "") };
+}
+
 async function main() {
 const failures = [];
+
+/* **A Hand over opens its task's own folder, on the editor's own address.**
+   Each task is written into a new folder, and Clarvis reads the task from
+   whichever folder its window has open — so the press has to reach the frame
+   by value, or Clarvis opens on the previous task's folder and offers nothing.
+   The address stays code-server's own, because its saved keys belong to that
+   origin. The fixture folder carries a space and a hash, so a frame that
+   forgets to encode it fails here too. */
+const handed = await handedOver();
+if (/SIRVIS|nothing was/.test(handed.done)) {
+  failures.push(`pressing Hand over reported ${JSON.stringify(handed.done)} for a task `
+    + "NERVIS had written — the offer ran through the SIRVIS job wording.");
+}
+if (handed.landed !== "clarvis/Workspace") {
+  failures.push(`a Hand over left the page on ${handed.landed}, not the Code tab.`);
+}
+const handedSrc = /src="(http[^"]*)"/.exec(handed.html);
+const handedFolder = handedSrc && new URL(handedSrc[1]).searchParams.get("folder");
+if (!handedSrc || !handedSrc[1].startsWith("http://127.0.0.1:8080")
+    || handedFolder !== WORKSPACE) {
+  failures.push("after a Hand over the editor was framed at "
+    + `${handedSrc ? JSON.stringify(handedSrc[1]) : "no address"}, not code-server's own `
+    + `address asking for ${JSON.stringify(WORKSPACE)} — so Clarvis opens without the task.`);
+}
 
 const alive = await drawn("healthy");
 if (!/<iframe/.test(alive)) {

@@ -183,6 +183,11 @@ async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[
             "name": handoff.TASK_FILE,
             # The task's own folder: what to open in Clarvis as its workspace.
             "folder": written.folder,
+            # The same folder, absolute, so the page can open exactly this one in
+            # the Code tab. Resolved the way `handoff.write` resolved it for its
+            # containment check, so the editor session's root check compares
+            # like with like.
+            "workspace": str((place / written.folder).expanduser().resolve(strict=False)),
             "detail": (
                 f"waiting in {written.folder}/ — open that folder in Clarvis "
                 "to read and approve it"

@@ -197,8 +197,9 @@ doing when a second machine really serves models — not before.
 
 **Built.** Describe a coding task in chat,
 press the button, and NERVIS writes it into the shared workspace as a file —
-in a new folder of its own under `clarvis/nervis-tasks/`, which you open in
-Clarvis as that task's workspace, so every task keeps its own plan.
+in a new folder of its own under `clarvis/nervis-tasks/`, so every task keeps
+its own plan. Pressing the button also switches to the Code tab and opens that
+folder in the editor, as that task's own workspace.
 Clarvis picks it up with the same flow it uses for its own plans, shows you the
 task before anything runs so you can edit it, and every tool call still asks
 permission the way it always did. Progress comes back as events Clarvis already
@@ -226,12 +227,15 @@ task to clarvis?"* produced no button because that phrasing was not recognised,
 and chat told the person the task had been written anyway. The phrasing is
 recognised now; if a request ever produces no button, nothing was handed over.
 
-One honest limit. Both programs have to be pointed at the same folder, and
-NERVIS usually cannot tell whether they are: Clarvis keeps its workspace path
-private by default, which is the right default. So the offer refuses when no
-editor has registered, refuses when Clarvis publishes a folder label that
-disagrees, and otherwise says plainly that it cannot confirm the task lands
-where the editor is looking.
+**Where it opens, since 10 September 2026.** The editor opens at its usual
+address with the task's folder attached, so its saved keys, history and
+settings are all still there — only which folder is open changes, and only
+because the button was pressed. Clarvis then shows the task and waits for you
+to start it. The offer no longer checks for an open editor window first: each
+task's folder is new, so no window open beforehand could be looking at it.
+One limit: if the editor is set up behind NERVIS's own proxy (off by default),
+the tab opens its configured workspace instead, and you open the task's folder
+yourself.
 
 ## Thinking when nobody is watching — built, 1 September
 

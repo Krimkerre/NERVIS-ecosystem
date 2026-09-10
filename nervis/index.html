@@ -12049,6 +12049,30 @@ async function runFileOffer(offer){
  render();
 }
 
+/* Handing a task to Clarvis, and opening the folder it went into (M27).
+
+   **The press is what opens it.** Each task gets a new folder of its own, and
+   Clarvis reads the task from whichever folder its window has open — so the
+   step after writing it used to be "go to the Code tab and open that folder",
+   by hand, with a path to find. Pressing Hand over already says the person
+   wants this task in Clarvis; the tab does the opening.
+
+   Still a file and a folder and nothing more (`CLARVIS.md` §6.7): NERVIS opens
+   a folder in its own editor frame, and Clarvis shows the task and waits for
+   "Start it" exactly as it does for a plan somebody wrote by hand.
+
+   No download link, unlike `runFileOffer`: the documents endpoint serves the
+   export room, and this file is in the editor's. */
+async function runHandoffOffer(offer){
+ offer.done='writing the task…';
+ render();
+ const out=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.remote_id||'');
+ if(!out.file){offer.done=`nothing was handed over — ${out.error}`;return render();}
+ offer.done=`handed to Clarvis · waiting in ${out.file.folder}/, opening it in the Code tab`;
+ EDITOR_FOLDER=out.file.workspace;
+ go('clarvis','Workspace');
+}
+
 async function runCommand(operation,target,reason,conversationId){
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
@@ -12174,6 +12198,11 @@ async function runOffer(index){
     shape — a file, not a job — so it is handled before the SIRVIS wording
     below rather than sharing a sentence with a queue it never touches. */
  if(WRITES_A_FILE.includes(offer.operation))return runFileOffer(offer);
+ /* Handing a task to Clarvis writes a file too, but what comes after it is a
+    place rather than a download. Without this line it fell through to the
+    SIRVIS wording below and reported "nothing was started" for a task that had
+    been written. */
+ if(offer.operation==='nervis.clarvis.task')return runHandoffOffer(offer);
  const stopping=offer.operation==='sirvis.benchmark.cancel';
  /* "submitting" rather than "queueing": at this point the request has been
     sent and nothing yet knows whether it will wait or start, and naming one of
@@ -13328,6 +13357,22 @@ async function clarvis(){
    dashboard is open. */
 const EDITOR_KEEP={off:0,'5':5,'30':30,always:Infinity};
 let EDITOR_TIMER=null;
+/* The folder the last Hand over asked the editor to open, for as long as this
+   page is open. Kept rather than used once: the frame is rebuilt whenever its
+   address changes, so forgetting it after one paint would reload the editor
+   back to its previous folder on the next visit to the tab. */
+let EDITOR_FOLDER='';
+
+/* The editor's own address, naming the folder a Hand over asked for.
+
+   The same origin as ever — only the query differs — so the editor's saved
+   keys, history and settings are all still there. With nothing handed over it
+   is the address unchanged, and code-server opens what it had open last. */
+function directAddress(editor){
+ const endpoint=(editor&&editor.endpoint)||'';
+ if(!endpoint||!EDITOR_FOLDER)return endpoint;
+ return `${endpoint}${endpoint.includes('?')?'&':'?'}folder=${encodeURIComponent(EDITOR_FOLDER)}`;
+}
 
 function editorMinutes(){
  const held=EDITOR_KEEP[USER.editorKeep];
@@ -13443,12 +13488,13 @@ async function drawEditor(notices,session,editor){
     So the proxy is opt-in, and a deployment that has not opted in keeps
     framing the address its editor's data already belongs to.
 
-    The folder is named only on the proxied path, where the session chose it.
-    On the editor's own origin NERVIS is not the one deciding what is open. */
+    On the proxied path the session chose the folder. On the editor's own
+    origin NERVIS names one only when a Hand over asked for it — otherwise what
+    is open is the editor's own business. */
  const folder=encodeURIComponent(session.workspace||'');
  const src=session.proxied
   ? `/code/${folder?`?folder=${folder}`:''}`
-  : (editor&&editor.endpoint)||'';
+  : directAddress(editor);
  /* **Notes below the editor, not above it.** Above, they sat between NERVIS's
     tab bar and code-server's title bar — two headers with a message wedged
     between them — and pushed the editor down every time one appeared. Below,

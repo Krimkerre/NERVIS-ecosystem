@@ -45,8 +45,8 @@ Four rooms, and which one a file is in says how it got there.
   conversation exported to PDF, an annotated copy, a picture a model drew.
 - **`clarvis/`** — what the editor opens. A coding task handed to Clarvis is
   written here, into a new folder of its own under `nervis-tasks/` — one per
-  task, opened in Clarvis as that task's own workspace, so one task's plan and
-  notes never mix with another's.
+  task, opened in the Code tab the moment Hand over is pressed, as that task's
+  own workspace, so one task's plan and notes never mix with another's.
 
 Each can be pointed somewhere else on its own
 (`NERVIS_WORKSPACE_IMPORT_PATH`, `NERVIS_WORKSPACE_LIBRARY_PATH`,
