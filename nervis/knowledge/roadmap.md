@@ -217,6 +217,15 @@ The task file says it came from NERVIS, so whoever approves it knows to read it
 with the right amount of suspicion — and Clarvis leads with that rather than
 tucking it at the end.
 
+**How to ask for one.** Say it the way you would to a person — *get Clarvis to
+add a retry*, *hand this to Clarvis: add a retry*, *can you ask Clarvis to add a
+retry?* — and a Hand over button appears under the reply. **Nothing is written
+until that button is pressed**, and until then the task is not in the workspace
+and Clarvis does not have it. On 10 September 2026 *"Can you hand a small coding
+task to clarvis?"* produced no button because that phrasing was not recognised,
+and chat told the person the task had been written anyway. The phrasing is
+recognised now; if a request ever produces no button, nothing was handed over.
+
 One honest limit. Both programs have to be pointed at the same folder, and
 NERVIS usually cannot tell whether they are: Clarvis keeps its workspace path
 private by default, which is the right default. So the offer refuses when no

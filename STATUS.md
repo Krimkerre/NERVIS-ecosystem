@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2825 tests, no network, no live service
+.venv/bin/pytest                      # part of 2830 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1170 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1175 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2825 passing across the four, conformance `PASS`.
+Expected: all clean, 2830 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17464,6 +17464,37 @@ the per-task folder fails six.
 
 Also cleared two lint errors in yesterday's probe-loop test, committed as clean
 after linting only `src/`.
+
+## Chat said the task was handed over, and nothing had been written
+## — 2026-09-10
+
+The first live handoff attempt. The operator asked *"Can you hand a small coding
+task to clarvis? I'd like it to make me a pomodoro timer"*, agreed a spec over
+three more turns, and was told the task was "written up and sitting in the
+workspace now — Clarvis has it registered". The Clarvis room was empty.
+Checked rather than assumed: no task file anywhere on disk, no handoff command
+in NERVIS's log, and no handoff offer ever accepted. **Nothing had happened.**
+
+**Two faults, and the second is the one that matters.** The matcher only knew
+"get / have / ask / tell Clarvis to …", so "hand … to Clarvis" produced no offer.
+And chat, with no button to point at, claimed the work was done — despite the
+standing instruction, present on that very turn, never to say an operation
+happened unless NERVIS's own reading says so. That instruction did not hold, the
+third time this week a model has read past one.
+
+So the fix is structural rather than a sterner sentence: the phrasing people
+actually use now produces a real offer, and a model pointing at a real button
+has nothing to invent. "Hand / give / send / pass … to Clarvis" is recognised,
+with the task taken from what follows, and a polite trailing question mark no
+longer disqualifies a request — "can you get Clarvis to add a retry?" is a
+request, while "get Clarvis to what?" is still refused on the question word
+rather than on the mark. The verbatim sentence is a test. Two probes: dropping
+the new pattern fails three phrasing tests, and restoring the blanket
+question-mark rejection fails the polite one.
+
+What is not fixed: a phrasing the matcher still misses will again produce no
+button, and the model may again claim otherwise. Chat's own knowledge now says
+plainly that no button means nothing was handed over.
 
 ## Starting the thing
 

@@ -70,6 +70,37 @@ def test_the_ways_people_hand_something_over(said: str) -> None:
     assert offer is not None and offer.target == "add a retry"
 
 
+@pytest.mark.parametrize(("said", "task"), [
+    # The sentence that was actually typed, verbatim. It produced no offer, and
+    # chat then claimed the task had been written.
+    ("Can you hand a small coding task to clarvis? "
+     "I'd like it to make me a pomodoro timer",
+     "I'd like it to make me a pomodoro timer"),
+    ("hand this to clarvis: add a retry to the uploader", "add a retry to the uploader"),
+    ("send a task to clarvis \u2014 add a retry", "add a retry"),
+    ("can you get clarvis to add a retry?", "add a retry"),
+])
+def test_the_ways_people_actually_phrase_it(said: str, task: str) -> None:
+    """**The object first and Clarvis after, and a polite question mark.**
+
+    Only "get / have / ask / tell clarvis to …" used to register. The first case
+    here is what the operator really typed on 10 September 2026: no offer was
+    made, and chat — with no button to point at — said the task was written and
+    Clarvis had it. Nothing had been written.
+    """
+    offer = commands.propose(said, [], clarvis=OPEN_EDITOR)
+    assert offer is not None, f"no offer for {said!r}"
+    assert offer.operation == "nervis.clarvis.task"
+    assert offer.target == task
+
+
+def test_asking_to_hand_something_over_with_nothing_to_hand_is_not_an_offer() -> None:
+    """With no task after it there is nothing to write down, and an offer for an
+    empty task is a button that does nothing useful. Chat asks what the task is."""
+    offer = commands.propose("can you hand a coding task to clarvis?", [], clarvis=OPEN_EDITOR)
+    assert offer is None
+
+
 def test_a_question_about_clarvis_is_not_a_handoff() -> None:
     """The same trap M23's learning had: this operation takes the rest of the
     sentence as its content, so a question mark makes the content a question."""

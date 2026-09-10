@@ -555,6 +555,26 @@ HANDOFF = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: *hand a task to clarvis…*, *send this to clarvis…*, *give it to clarvis…* —
+#: the object first and Clarvis after, with the task in whatever follows.
+#:
+#: **Missing until 10 September 2026, and its absence made chat lie.** Asked
+#: *"Can you hand a small coding task to clarvis? I'd like it to make me a
+#: pomodoro timer"*, nothing matched, so no offer was made — and the model, with
+#: no button to point at, told the person the task was "written up and sitting
+#: in the workspace, Clarvis has it registered". Nothing had been written. The
+#: standing instruction against claiming an operation happened was in front of
+#: it and did not hold, which is why the fix is a real offer rather than a
+#: sterner sentence: a model pointing at an actual button has nothing to invent.
+#:
+#: The gap between the verb and "to clarvis" is bounded and cannot cross a
+#: sentence, so "send the report, then tell me what clarvis did" is not read as
+#: a handoff with a stray tail.
+HANDED_TO = re.compile(
+    r"\b(?:hand|give|send|pass)\b[^.?!\n]{0,40}?\bto\s+clarvis\b[\s?.!:,;\u2014-]*(?P<task>\S.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _handoff_proposal(question: str, clarvis: Mapping[str, Any] | None) -> Proposal | None:
     """*"Get Clarvis to add a retry to the uploader"* — an offer to write it down.
@@ -565,11 +585,17 @@ def _handoff_proposal(question: str, clarvis: Mapping[str, Any] | None) -> Propo
     is looking is the failure this whole design is trying to avoid, and the
     honest answer when NERVIS cannot tell is to say so on the button.
     """
-    said = HANDOFF.search(question)
+    said = HANDOFF.search(question) or HANDED_TO.search(question)
     if not said:
         return None
     task = " ".join(said.group("task").split()).strip(" .")
-    if len(task) < 3 or QUESTION_MARK.search(task) or task.lower() in _FILLER:
+    # **A trailing question mark is manners, a question word is a question.**
+    # "Can you get clarvis to add a retry?" is a request with a question mark on
+    # it; "get clarvis to what?" is a question. Rejecting on the mark alone
+    # refused the first to catch the second, so the task is judged on what it
+    # says once the mark is off.
+    task = task.rstrip("?").strip()
+    if len(task) < 3 or ASKING.search(task) or task.lower() in _FILLER:
         return None
     operation = BY_ID["nervis.clarvis.task"]
     # **Always ready, and the reason changed on 10 September 2026.** This used to
