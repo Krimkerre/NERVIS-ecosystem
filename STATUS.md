@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2823 tests, no network, no live service
+.venv/bin/pytest                      # part of 2826 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1168 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1171 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2823 passing across the four, conformance `PASS`.
+Expected: all clean, 2826 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17396,6 +17396,37 @@ already degraded the source by then — the state proves nothing at that point.
 Only the detail line separates them: one names the newest record, the other
 names the share, and an operator reading it needs to know which went stale. The
 assertion moved to the wording and now fails when it should.
+
+## A model call awaited inside the health-probe loop — 2026-09-10
+
+The last of the audit's four behavioural findings, and the one whose severity
+only became clear after measuring the things around it.
+
+**Three of the four suspects were innocent, and the comments defending them were
+right.** Event retention, attachment expiry and notification pruning are bounded
+DELETEs against indexed columns; a second scheduler for a millisecond of work is
+machinery nobody should maintain. The log rotation looked worse — `shutil.copy2`
+on a large file, synchronous, on the event loop — and measuring settled it: 50 MB
+copied in **0.01s** on this filesystem, against a 16 MB cap it will never reach.
+An assumption corrected by a measurement rather than by argument.
+
+**The fourth asks a model a question.** M25's unattended thought was `await`ed
+inline, so the health probes stopped for as long as the answer took. Live on this
+machine, where `background.enabled` is on at a fifteen-minute interval: a service
+falling over during a thought went unnoticed until the thought finished, which is
+the one moment a health reading matters most.
+
+It is now started beside the loop rather than inside it. **That cost the feature
+its overlap guard**, which is the part worth writing down: while the thought was
+awaited, "has the interval elapsed" was the whole of the protection, because the
+loop could not come round again until it returned. Started as a task it can, so a
+thought outliving its own interval would be joined by a second. A handle on the
+app state replaces the interval, and shutdown cancels it — an outstanding model
+call would otherwise hold the process open exactly the way the event stream used
+to.
+
+Three tests, both properties probed: awaiting inline again fails one, a guard
+that never releases fails another.
 
 ## Starting the thing
 

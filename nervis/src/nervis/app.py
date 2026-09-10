@@ -458,6 +458,15 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        # The unattended thought, if one is in flight. It is no longer awaited
+        # by the loop above, so cancelling that task no longer reaches it — and
+        # an outstanding model call would hold the shutdown open exactly the way
+        # the event stream used to.
+        thinking: asyncio.Task[None] | None = getattr(api.state, _THINKING, None)
+        if thinking is not None:
+            thinking.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await thinking
         await api.state.probe_client.aclose()
         await api.state.code_client.aclose()
 
@@ -881,11 +890,20 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # quietly emptied the centre.
         with contextlib.suppress(Exception):
             notifications.prune_dismissed(api.state.database)
-        # M25, on the same timer and guarded by its own interval. A second task
-        # would be a scheduler for something that runs twice an hour at most,
-        # and this one already wakes often enough to notice.
+        # M25, on the same timer and guarded by its own interval — a second
+        # *scheduler* would be machinery for something that runs twice an hour
+        # at most, and this loop already wakes often enough to notice.
+        #
+        # **Started rather than awaited, which is the part that was wrong.**
+        # Everything else on this timer is a bounded DELETE or a handful of
+        # `stat` calls; this one asks a model a question, and awaiting it here
+        # stops the health probes for as long as the answer takes. Found by the
+        # external audit; live on the machine it was written for, where
+        # background thinking runs every fifteen minutes. A service falling over
+        # during a thought went unnoticed until the thought finished — which is
+        # the one moment the reading matters most.
         with contextlib.suppress(Exception):
-            await _think_if_due(api)
+            _start_thought_if_due(api)
         # §11.3's rotation bounds, applied rather than merely published. "No
         # ecosystem service may quietly fill the disk with diagnostics" is not a
         # setting somebody reads, and on the machine this was written for the
@@ -897,10 +915,33 @@ async def _refresh_periodically(api: FastAPI) -> None:
         await asyncio.sleep(_next_interval(api))
 
 
+#: The unattended run in flight, if there is one. See `_start_thought_if_due`:
+#: the interval stopped being an overlap guard the moment the thought stopped
+#: being awaited, and this is what replaced it.
+_THINKING = "background_task"
+
 #: When the last unattended run happened, so the interval can be honoured
 #: without a second timer. Held on the app rather than in the database: it is a
 #: fact about this process, and a restart legitimately starts the clock again.
 _LAST_THOUGHT = "background_last_run"
+
+
+def _start_thought_if_due(api: FastAPI) -> None:
+    """Run one unattended thought beside the probe loop rather than inside it.
+
+    **Its own overlap guard, because the interval is no longer one.** While the
+    thought was awaited, the loop could not come round again until it finished,
+    so "has the interval elapsed" was the whole of the protection. Started as a
+    task, the loop keeps ticking, and a thought that outlives its own interval
+    would otherwise be joined by a second. The handle is what prevents that.
+
+    Kept on the app rather than in a set: there is at most one of these, and a
+    task nobody can name is a task nobody can cancel at shutdown.
+    """
+    running: asyncio.Task[None] | None = getattr(api.state, _THINKING, None)
+    if running is not None and not running.done():
+        return
+    setattr(api.state, _THINKING, asyncio.create_task(_think_if_due(api)))
 
 
 async def _think_if_due(api: FastAPI) -> None:
