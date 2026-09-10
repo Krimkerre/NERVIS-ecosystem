@@ -47,18 +47,31 @@ const services = (state) => ({
    goes missing. */
 const WORKSPACE = "/w space#1";
 
+/* Every handoff the page sent and every outcome it recorded, so a check can say
+   what reached NERVIS rather than what the screen implies. */
+const RUNS = [];
+const OUTCOMES = [];
+/* A task the fixture treats as too vague to name — NERVIS's answer when neither
+   the model nor the person gave the folder a name. */
+const VAGUE = "fix it";
+
 function pageIn(state, session = { open: true, workspace: WORKSPACE, proxied: true },
                 extension = { configured: false }) {
   return loadPage({
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, init) => {
       const target = String(url);
       let payload = { items: [] };
       if (target.includes("/api/v1/services")) payload = services(state);
       else if (target.includes("/api/v1/code/extension")) payload = { extension };
       else if (target.includes("/api/v1/commands/run")) {
-        payload = { file: { name: "clarvis-task.md", folder: "nervis-tasks/2026-09-10-fix-it",
-                            workspace: WORKSPACE, detail: "waiting" } };
+        const sent = JSON.parse((init && init.body) || "{}");
+        RUNS.push(sent);
+        payload = sent.target === VAGUE && !sent.name
+          ? { needs_name: "What should this task's folder be called?" }
+          : { file: { name: "clarvis-task.md", folder: "nervis-tasks/pomodoro-timer",
+                      workspace: WORKSPACE, detail: "waiting" } };
       }
+      else if (target.includes("/api/v1/proposals/outcome")) OUTCOMES.push(target);
       else if (target.includes("/api/v1/code/session")) {
         payload = {
           session: session || { open: false, proxied: true, reason: "closed", roots: [] },
@@ -113,7 +126,7 @@ async function handedOver() {
   const page = pageIn("healthy", { open: false, proxied: false, roots: [] });
   const { context, exported, elements } = page;
   vm.runInContext("CHAT_SESSION.messages=[{role:'assistant',text:'ok',offer:"
-    + "{operation:'nervis.clarvis.task',service:'nervis',target:'fix it',ready:true}}]",
+    + "{operation:'nervis.clarvis.task',service:'nervis',target:'make me a pomodoro timer',ready:true}}]",
     context);
   await vm.runInContext("runOffer(0)", context);
   const done = vm.runInContext("CHAT_SESSION.messages[0].offer.done", context);
@@ -122,6 +135,24 @@ async function handedOver() {
   if (exported.stopPolling) exported.stopPolling();
   const hold = elements.get("sel:#editorHold");
   return { done: String(done), landed, html: String((hold && hold.innerHTML) || "") };
+}
+
+/* Pressing Hand over on a task too vague to name, then naming it in the card. */
+async function askedForAName() {
+  const page = pageIn("healthy", { open: false, proxied: false, roots: [] });
+  const { context, exported } = page;
+  RUNS.length = 0;
+  OUTCOMES.length = 0;
+  vm.runInContext("CHAT_SESSION.messages=[{role:'assistant',text:'ok',offer:"
+    + `{operation:'nervis.clarvis.task',service:'nervis',target:'${VAGUE}',`
+    + "action:'Hand over',proposal_id:'pr_1',ready:true}}]", context);
+  await vm.runInContext("runOffer(0)", context);
+  const firstStop = String(exported.state.app);
+  const card = String(vm.runInContext("offerRow(CHAT_SESSION.messages[0].offer, 0)", context));
+  vm.runInContext("$('#offerName0').value='Pomodoro Timer'", context);
+  await vm.runInContext("handOverNamed(0)", context);
+  return { firstStop, card, landed: `${exported.state.app}/${exported.state.view}`,
+           runs: RUNS.slice(), outcomes: OUTCOMES.length };
 }
 
 async function main() {
@@ -149,6 +180,29 @@ if (!handedSrc || !handedSrc[1].startsWith("http://127.0.0.1:8080")
   failures.push("after a Hand over the editor was framed at "
     + `${handedSrc ? JSON.stringify(handedSrc[1]) : "no address"}, not code-server's own `
     + `address asking for ${JSON.stringify(WORKSPACE)} — so Clarvis opens without the task.`);
+}
+
+/* **A task nobody could name is asked about, not opened.** The folder's name is
+   what the editor shows and what the task is found by later, so when NERVIS has
+   none it asks — and the card has to put that question with somewhere to
+   answer it, send the answer, and count the whole exchange as one yes. */
+const named = await askedForAName();
+if (named.firstStop === "clarvis" || !named.runs.length || named.runs[0].name) {
+  failures.push("a task NERVIS could not name was opened, or sent with a name nobody "
+    + "gave — the first press has to stop and ask.");
+}
+if (!/id="offerName0"/.test(named.card) || !/folder be called/.test(named.card)) {
+  failures.push("NERVIS asked for a folder name and the card showed no question, or no "
+    + "field to answer it in.");
+}
+const sentName = named.runs.length > 1 ? named.runs[named.runs.length - 1].name : undefined;
+if (sentName !== "Pomodoro Timer" || named.landed !== "clarvis/Workspace") {
+  failures.push(`after naming the folder the page sent ${JSON.stringify(sentName)} and `
+    + `landed on ${named.landed} — the typed name has to reach NERVIS and the task open.`);
+}
+if (named.outcomes !== 1) {
+  failures.push(`one decision was recorded ${named.outcomes} times: pressing Hand over `
+    + "and then naming the folder is one yes.");
 }
 
 const alive = await drawn("healthy");

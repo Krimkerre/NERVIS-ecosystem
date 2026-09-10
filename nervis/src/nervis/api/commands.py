@@ -46,6 +46,7 @@ from nervis import (
     workspace,
 )
 from nervis.api.chat_calls import _forwarded
+from nervis.api.chat_titles import _title_from
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -109,6 +110,29 @@ VISUAL_CHECK_FALLBACK_POOL = "ravis/vision"
 VISUAL_CHECK_TIMEOUT_SECONDS = 30.0
 VISUAL_CHECK_MAX_TOKENS = 60
 
+# The folder a handed-over task goes into is named by the same kind of call that
+# titles a conversation, marked `background` on the same free pool for the same
+# reason: an aside nobody asked a hosted model to run. A shorter timeout, because
+# the person is waiting on the button that asked.
+FOLDER_NAME_POOL = "ravis/cheap"
+# **Not the title's 24.** Replayed against the running RAVIS on 10 September
+# 2026 with this exact prompt: at 24 tokens `ravis/cheap` answered 502, and the
+# two live presses before it came back empty after 15 and 10 seconds; at 400 it
+# routed to `qwen2.5vl:3b` and answered `pomodoro-timer` in 3.1 seconds. The
+# name itself is a handful of tokens — this is a ceiling, not a spend.
+FOLDER_NAME_MAX_TOKENS = 400
+FOLDER_NAME_TIMEOUT_SECONDS = 15.0
+FOLDER_NAME_PROMPT = (
+    "Name the project folder for this coding task: one to three plain words, "
+    "lowercase, joined by hyphens, like pomodoro-timer or uploader-retry. Reply "
+    "with the name alone. If the task does not say clearly enough what is being "
+    "built or changed to name it, reply UNCLEAR.\n\nTask: "
+)
+NAME_QUESTION = (
+    "What should this task's folder be called? A couple of words is plenty — "
+    "like pomodoro-timer."
+)
+
 
 @router.post("/run")
 async def run(request: Request) -> dict[str, Any]:
@@ -142,7 +166,8 @@ async def run(request: Request) -> dict[str, Any]:
         "nervis.document.annotate.inline":
             lambda: _annotate_document(request, target, conversation, "inline"),
         "nervis.conversation.export": lambda: _export_conversation(request, target, conversation),
-        "nervis.clarvis.task": lambda: _hand_over(request, target, conversation),
+        "nervis.clarvis.task":
+            lambda: _hand_over(request, target, conversation, str(body.get("name") or "")),
         "nervis.knowledge.learn":
             lambda: _learn(request, target, str(body.get("prompted_by") or "")),
     }
@@ -155,7 +180,9 @@ async def run(request: Request) -> dict[str, Any]:
     return await _submit_benchmark(request, target)
 
 
-async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[str, Any]:
+async def _hand_over(
+    request: Request, task: str, conversation_id: str, name: str
+) -> dict[str, Any]:
     """Write a coding task where Clarvis will find it (M27).
 
     **This writes a file and nothing else.** It does not start a run, resolve a
@@ -174,7 +201,26 @@ async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[
             "NERVIS has no workspace configured, so it cannot hand a task to Clarvis. "
             "Set NERVIS_WORKSPACE_PATH to the directory the editor opens."
         )
-    written = handoff.write(place, task, conversation=conversation_id)
+    # **A folder name somebody can read, or a question.** The folder is what the
+    # editor shows in its title bar and what the task is found by later, so it is
+    # named for what the task is — `pomodoro-timer` — by a background model call.
+    # A name the person typed is used as it stands. When neither gives one,
+    # nothing is written and the card asks: a guessed name is a folder somebody
+    # has to rename underneath an open editor.
+    #
+    # **A task that says nothing about what it is does not reach the model.**
+    # "fix it" has no name in it to find, and the small model that answers this
+    # pool names it `fix-it` rather than saying so — so the vagueness is judged
+    # here, from the words, and the person is asked straight away.
+    if name.strip():
+        chosen = handoff.folder_name(name)
+    elif handoff.says_what_it_is(task):
+        chosen = await _suggest_folder_name(request, task)
+    else:
+        chosen = ""
+    if not chosen:
+        return {"needs_name": NAME_QUESTION}
+    written = handoff.write(place, task, name=chosen, conversation=conversation_id)
     _audit(request, task, "written", f"handed to Clarvis in {written.folder}/",
            verb="hand over")
     return {
@@ -194,6 +240,59 @@ async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[
             ),
         },
     }
+
+
+async def _suggest_folder_name(request: Request, task: str) -> str:
+    """A short folder name for a task, from a RAVIS background call — or nothing.
+
+    Nothing means ask. Every failure lands there on purpose — no credential, no
+    RAVIS, a refusal, a timeout, an answer that is not a name — because the
+    alternative in each case is a guessed name, and the person is at the button.
+    """
+    settings = request.app.state.settings
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+        return ""
+    client: httpx.AsyncClient = request.app.state.probe_client
+    payload = {
+        "model": FOLDER_NAME_POOL,
+        "max_tokens": FOLDER_NAME_MAX_TOKENS,
+        "metadata": {"background": True},
+        "messages": [{"role": "user", "content": FOLDER_NAME_PROMPT + task[:600]}],
+    }
+    try:
+        response = await client.post(
+            entry.declaration.base_url + "/v1/chat/completions",
+            json=payload,
+            headers=_forwarded(
+                getattr(request.state, "request_id", ""),
+                getattr(request.state, "trace_id", ""),
+                settings.ravis_client_credential,
+            ),
+            timeout=FOLDER_NAME_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            return ""
+        return _folder_name_from(response.json())
+    except (httpx.HTTPError, ValueError):
+        return ""
+
+
+def _folder_name_from(body: dict[str, Any]) -> str:
+    """The folder name in a completion, or nothing when what came back is not one.
+
+    Read with the title reader, which already strips a reasoning model's thinking
+    and refuses a sentence. On top of that: `UNCLEAR` is the model saying it
+    cannot name the task, more than four words is a description rather than a
+    name, and a name made only of generic words (`fix-it`) names nothing.
+    """
+    line = _title_from(body)
+    if not line or "unclear" in line.lower():
+        return ""
+    name = handoff.folder_name(line)
+    if len(name.split("-")) > 4 or not handoff.says_what_it_is(name):
+        return ""
+    return name
 
 
 async def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any]:

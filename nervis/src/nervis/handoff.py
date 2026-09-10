@@ -28,10 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-#: Where a handed-over task is written. One file, overwritten rather than
-#: accumulated: a queue of tasks nobody read is a queue, and this is a handoff.
-#: A second task before the first is picked up replaces it, which is what the
-#: person who typed it meant.
+#: The brief, at the root of the task's own folder — where Clarvis reads it,
+#: since that folder is opened as the task's workspace.
 TASK_FILE = "clarvis-task.md"
 
 #: Where tasks go, inside the folder the editor opens: **one new folder per
@@ -45,6 +43,12 @@ TASK_FILE = "clarvis-task.md"
 #: exactly as it always has — which is why nothing on the Clarvis side changed.
 #: Visible rather than a dot-folder, because NERVIS's Files tab refuses
 #: dot-segments and these are folders a person opens.
+#:
+#: **Each folder is named for its task** — `pomodoro-timer` — rather than a
+#: timestamp and the task's first six words, which is what it was until
+#: `2026-09-10-21-15-make-me-a-pomodor-timer` turned up in the editor's title
+#: bar. The name is chosen before this module is called; when nobody could
+#: choose one, the person is asked rather than handed a guess.
 TASK_FOLDER = "nervis-tasks"
 
 #: The marker Clarvis matches on. Deliberately in the body rather than only in
@@ -90,32 +94,72 @@ class Task:
                 "conversation": self.conversation}
 
 
-def _new_task_folder(root: Path, asked_on: str, task: str) -> Path:
-    """A folder nothing has used yet: when it was asked, then its first few words.
+def folder_name(text: str) -> str:
+    """A folder name from a few words: lowercase, hyphenated, at most 40 characters.
 
-    Sorts by date in any file listing and says what it is at a glance. A second
-    task in the same minute with the same opening words gets a number rather
-    than landing in the first one's folder, which is the whole point of having
-    folders.
+    Empty when nothing nameable is left — punctuation, or nothing at all — which
+    callers read as "ask for a name" rather than inventing one.
     """
-    stamp = re.sub(r"[^0-9]+", "-", asked_on).strip("-")
-    slug = "-".join(re.findall(r"[a-z0-9]+", task.lower())[:6])[:40].strip("-") or "task"
+    return "-".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))[:40].strip("-")
+
+
+#: Words that say nothing about *what* a task is. "fix it", "do the thing" and
+#: "make me an app" are made only of these, and a folder named from them —
+#: `fix-it` — tells nobody anything later. Measured, not supposed: asked to name
+#: "fix it" or answer UNCLEAR, the local model RAVIS picked answered `fix-it`.
+GENERIC_WORDS = frozenset((
+    "a", "an", "the", "it", "its", "this", "that", "these", "those", "me", "my",
+    "us", "our", "you", "your", "i", "we", "he", "she", "they", "please", "can",
+    "could", "would", "will", "should", "shall", "may", "might", "must", "to",
+    "for", "of", "on", "in", "at", "into", "with", "and", "or", "but", "so", "some",
+    "something", "anything", "stuff", "thing", "things", "one", "ones", "fix", "do",
+    "make", "change", "update", "add", "remove", "improve", "build", "create",
+    "write", "help", "look", "check", "test", "tests", "bug", "bugs", "issue",
+    "issues", "error", "errors", "code", "task", "tasks", "work", "small", "little",
+    "quick", "new", "again", "now", "just", "project", "app", "tool", "script",
+    "feature",
+))
+
+
+def says_what_it_is(text: str) -> bool:
+    """Whether some words say what a task is, rather than only that there is one.
+
+    True when at least one word is neither generic nor a lone number or letter —
+    "pomodoro timer" does, "fix it" does not.
+    """
+    words = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    return any(len(w) > 1 and not w.isdigit() and w not in GENERIC_WORDS for w in words)
+
+
+def _new_task_folder(root: Path, name: str) -> Path:
+    """A folder nothing has used yet, under the name the task was given.
+
+    A name already taken — an earlier task called the same, or anything else
+    sitting there — gets a number rather than landing in that folder, which is
+    the whole point of having folders.
+    """
     parent = root / TASK_FOLDER
-    candidate = parent / f"{stamp}-{slug}"
+    candidate = parent / name
     number = 2
     while candidate.exists() or candidate.is_symlink():
-        candidate = parent / f"{stamp}-{slug}-{number}"
+        candidate = parent / f"{name}-{number}"
         number += 1
     return candidate
 
 
-def write(root: Path, task: str, *, conversation: str = "", today: str = "") -> Task:
-    """Write the brief into a new folder of its own, opened in Clarvis as its workspace."""
+def write(
+    root: Path, task: str, *, name: str = "", conversation: str = "", today: str = ""
+) -> Task:
+    """Write the brief into a new folder of its own, opened in Clarvis as its workspace.
+
+    `name` is the folder's name. Without one the task's own words stand in, which
+    is what a direct caller gets; the handoff route always supplies one.
+    """
     cleaned = " ".join(str(task or "").split())[:MAX_TASK].strip()
     if len(cleaned) < 3:
         raise ValueError("a handed-over task needs something to say")
     asked_on = today or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    folder = _new_task_folder(root, asked_on, cleaned)
+    folder = _new_task_folder(root, folder_name(name) or folder_name(cleaned) or "task")
     # **Checked after symlinks are followed, and spelled out here rather than
     # imported.** `nervis.workspace.still_inside` is the same four lines, but
     # §6.7 keeps this module free of every `nervis` import — a module that

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2830 tests, no network, no live service
+.venv/bin/pytest                      # part of 2850 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1175 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1195 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2830 passing across the four, conformance `PASS`.
+Expected: all clean, 2850 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17529,6 +17529,52 @@ browser this was checked in is not logged in to code-server, and the password
 is not something to type on the operator's behalf — that step is the live run
 with the operator. Not built: with the proxy on, the tab still opens its
 configured workspace, and the task's folder is opened by hand.
+
+## Named task folders, and Clarvis plans a handed-over task — 2026-09-10
+
+The first live handoff after the Code tab change worked end to end and showed
+two things the operator did not want. The folder was called
+2026-09-10-21-15-make-me-a-pomodor-timer, and Clarvis offered "Start it", which
+would have run the one-line brief as a job straight away — when what was wanted
+was Clarvis's own interview, to flesh the idea out first.
+
+**Folders are named for the task.** Pressing Hand over asks RAVIS, as a
+background call on the free pool, for a short name — pomodoro-timer — and the
+task goes into nervis-tasks/ under that name, with a number added if it is
+taken. If the task says nothing about what it is ("fix it", "can you fix this
+bug?"), or the call fails, or what comes back is not a name, nothing is written
+and the card asks what to call the folder. A typed name is used as it stands.
+
+**Found by replaying the call, not by reading it.** The first live presses came
+back empty after 15 and 10 seconds. Replayed against the running RAVIS with the
+same prompt: at the 24-token budget copied from conversation titles the pool
+answered 502; at 400 it routed to qwen2.5vl:3b and answered pomodoro-timer in
+3.1 seconds. The same replay showed that model naming "fix it" as fix-it rather
+than answering UNCLEAR, so vagueness is now judged from the words before any
+call is made, and a suggested name made only of generic words is refused. The
+replay loaded qwen2.5vl:3b without asking first; it was unloaded afterwards.
+
+**Clarvis 0.13.0 plans the task instead of offering to run it.** A handed-over
+task starts the planning interview with the task pre-typed in the answer box
+for the first question: change it or send it, and the interview, analysis and
+plan sign-off follow as for any project. The task file is removed once the
+first answers are saved, so a window closed at the first question offers the
+task again. The Start it path is gone.
+
+Checked. NERVIS: tests for the named folder, the question when nothing names
+it, a vague task never reaching the model, the model's answer read as a name or
+nothing, and a suggestion reaching the folder. The editor page check presses
+Hand over on a vague task, finds the question and the field, types a name, and
+asserts the name reached NERVIS, the Code tab opened, and the decision was
+recorded once. Three probes each fail their check: the page ignoring the
+question, UNCLEAR accepted as a name, and vagueness not judged before the model.
+Clarvis: 1,319 tests pass; a probe that stops passing the task to the first
+question fails the new interview test; installed in code-server and VS Code and
+byte-compared against the fresh build, with 0.12.9 as the control.
+
+Not seen live: a suggested name through the button since the budget fix, which
+loads a 5.5 GB model and so waits for the operator's say-so; and Clarvis's
+interview starting in the editor, which needs the operator's logged-in browser.
 
 ## Starting the thing
 

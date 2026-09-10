@@ -11827,6 +11827,7 @@ function offerRow(offer,index){
  const candidates=offerCandidates(offer,index);
  if(!offer.ready)
   return `<div style="margin-top:7px"><div class="mono dim" style="font-size:11px">${escapeHtml(offer.detail||'this cannot be prepared')}</div>${candidates}</div>`;
+ if(offer.asking)return askedName(offer,index);
  /* No token gate on this button. It used to require one pasted into this tab
     and was reported as "forbidden, scope needed" — the API being exactly right
     and the product being wrong. NERVIS holds its own `benchmark`-scoped
@@ -12064,16 +12065,55 @@ async function runFileOffer(offer){
    No download link, unlike `runFileOffer`: the documents endpoint serves the
    export room, and this file is in the editor's. */
 async function runHandoffOffer(offer){
+ offer.asking='';
  offer.done='writing the task…';
  render();
- const out=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.remote_id||'');
+ const out=await runCommand(offer.operation,offer.target,'',CHAT_SESSION.remote_id||'',offer.name||'');
+ /* NERVIS had no name it could stand behind for the task's folder, so the card
+    asks for one, and nothing has been written yet. */
+ if(out.needs_name){offer.done='';offer.asking=out.needs_name;return render();}
  if(!out.file){offer.done=`nothing was handed over — ${out.error}`;return render();}
  offer.done=`handed to Clarvis · waiting in ${out.file.folder}/, opening it in the Code tab`;
  EDITOR_FOLDER=out.file.workspace;
  go('clarvis','Workspace');
 }
 
-async function runCommand(operation,target,reason,conversationId){
+/* The Hand over card, once NERVIS has asked what to call the task's folder.
+
+   Its own renderer because it is a different card: a question and a field
+   rather than a proposal, and nothing has been written yet — the button here is
+   what writes it. What is typed is kept on the offer as it is typed, so a
+   repaint of the conversation does not wipe the field. */
+function askedName(offer,index){
+ return `<div style="margin-top:8px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+   <span class="mono dim" style="font-size:11px;flex-basis:100%">${escapeHtml(offer.asking)}</span>
+   <input class="mono" id="offerName${index}" style="width:220px" placeholder="pomodoro-timer"
+     value="${escapeHtml(offer.name||'')}" oninput="nameTyped(${index},this.value)"
+     onkeydown="if(event.key==='Enter')handOverNamed(${index})">
+   <button class="btn primary" onclick="handOverNamed(${index})">${escapeHtml(offer.action||'Hand over')}</button>
+   <button class="mode-chip" onclick="declineOffer(${index})">No thanks</button>
+  </div>`;
+}
+
+function nameTyped(index,value){
+ const offer=(CHAT_SESSION.messages[index]||{}).offer;
+ if(offer)offer.name=value;
+}
+
+/* The second press, with the folder named. Straight to the handoff rather than
+   back through `runOffer`: the first press already said yes and was recorded as
+   accepted, and going round again would count one decision twice. */
+function handOverNamed(index){
+ const offer=(CHAT_SESSION.messages[index]||{}).offer;
+ if(!offer||offer.done)return;
+ const field=$(`#offerName${index}`);
+ if(field)offer.name=field.value;
+ offer.name=(offer.name||'').trim();
+ if(!offer.name)return field&&field.focus();
+ return runHandoffOffer(offer);
+}
+
+async function runCommand(operation,target,reason,conversationId,name){
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
     headers:{'content-type':'application/json'},
@@ -12084,8 +12124,10 @@ async function runCommand(operation,target,reason,conversationId){
        reply to a file takes its content from NERVIS's own store rather than
        from this body — the browser says *which* conversation, never *what* to
        write, or the endpoint would write whatever any caller asked it to. */
+    /* `name` only for a handoff whose folder the person named. */
     body:JSON.stringify(Object.assign({operation,target},
-      reason?{reason}:{}, conversationId?{conversation_id:conversationId}:{}))});
+      reason?{reason}:{}, conversationId?{conversation_id:conversationId}:{},
+      name?{name}:{}))});
   const payload=await r.json().catch(()=>({}));
   if(!r.ok)return{error:((payload.error||{}).message)||('NERVIS answered HTTP '+r.status)};
   return payload;

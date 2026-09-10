@@ -198,11 +198,15 @@ doing when a second machine really serves models — not before.
 **Built.** Describe a coding task in chat,
 press the button, and NERVIS writes it into the shared workspace as a file —
 in a new folder of its own under `clarvis/nervis-tasks/`, so every task keeps
-its own plan. Pressing the button also switches to the Code tab and opens that
-folder in the editor, as that task's own workspace.
-Clarvis picks it up with the same flow it uses for its own plans, shows you the
-task before anything runs so you can edit it, and every tool call still asks
-permission the way it always did. Progress comes back as events Clarvis already
+its own plan. The folder is named for the task — `pomodoro-timer` — and if the
+task is too vague to name, the button asks you what to call it before anything
+is written. Pressing it also switches to the Code tab and opens that folder in
+the editor, as that task's own workspace.
+Clarvis then starts its planning interview with your task already typed into
+the first answer: change it or send it as it is, and it asks questions to flesh
+the task out before writing a plan for you to approve. Nothing is built until
+you approve that plan, and every tool call still asks permission the way it
+always did. Progress comes back as events Clarvis already
 publishes.
 
 **The reason it is shaped that way is that it needs no new permissions at all.**

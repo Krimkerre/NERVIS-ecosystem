@@ -696,6 +696,17 @@ same gates; **with the Bridge disabled the whole flow is unchanged**, because no
 depends on the Bridge; and §9's rule holds — the file is evidence of what somebody asked for,
 never an instruction Clarvis follows unreviewed.
 
+**Changed on 10 September 2026: planned, not offered as a build.** The first live handoff was
+the one line *"make me a pomodoro timer"*, and "Start it" would have run it as a job there and
+then — while what the person wanted was to be asked what it meant first. A handed-over task now
+starts the planning interview (M9) with the task pre-typed in the answer box for its first
+question: the person changes it or sends it as it is, the interview fleshes it out, and the
+plan they sign off is what gets built. §9's rule is kept by that shape rather than by a warning —
+a brief from another program is never an answer until somebody in the editor sends it. The task
+file is removed once the first answers are saved, so a window closed at the first question
+offers it again rather than losing it. The exit's *"offered as a build"* reads *"planned through
+the interview"* from here on; the other clauses stand.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same

@@ -144,6 +144,7 @@ def test_a_task_for_clarvis_lands_where_the_editor_opens(tmp_path: Path) -> None
             "operation": "nervis.clarvis.task",
             "target": "add a retry to the uploader",
             "conversation_id": "cv_ab12",
+            "name": "uploader retry",
         })
 
         assert ran.status_code == 200, ran.text

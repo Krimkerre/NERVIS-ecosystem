@@ -25,6 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nervis import code_proxy, commands, handoff, workspace
+from nervis.api import commands as api_commands
 from nervis.app import create_app
 from nervis.config import Settings
 
@@ -140,11 +141,12 @@ def test_the_task_is_written_where_clarvis_reads(client: TestClient) -> None:
         "operation": "nervis.clarvis.task",
         "target": "add a retry to the uploader when the API returns 429",
         "conversation_id": "cv_ab12",
+        "name": "Uploader retry",
     })
     assert answer.status_code == 200
     assert answer.json()["file"]["name"] == handoff.TASK_FILE
     folder = answer.json()["file"]["folder"]
-    assert folder.startswith("nervis-tasks/"), folder
+    assert folder == "nervis-tasks/uploader-retry", folder
 
     # Inside the editor's own room, in the task's own folder — which is what is
     # opened in Clarvis, and where Clarvis reads `clarvis-task.md` from.
@@ -161,6 +163,91 @@ def test_the_task_is_written_where_clarvis_reads(client: TestClient) -> None:
     assert opened == (room / folder).resolve()
     settings = client.app.state.settings  # type: ignore[attr-defined]
     code_proxy.Sessions().open(str(opened), workspace.editor_rooms(settings))
+
+
+def test_a_task_nobody_named_is_asked_about_and_not_written(client: TestClient) -> None:
+    """**Asked, not guessed.** No name typed and none suggested — this app has no
+    RAVIS, which is one of the ways a suggestion fails — so nothing is written, and
+    the answer is a question for the card to put to the person."""
+    answer = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.clarvis.task", "target": "fix it",
+    })
+    assert answer.status_code == 200, answer.text
+    assert "folder be called" in answer.json()["needs_name"]
+    assert "file" not in answer.json()
+    room = Path(client.app.state.settings.workspace_path) / "clarvis"  # type: ignore[attr-defined]
+    assert not list(room.glob(f"{handoff.TASK_FOLDER}/*")), "a folder was made before it had a name"
+
+
+def test_a_typed_name_of_only_punctuation_is_asked_about_again(client: TestClient) -> None:
+    """A name the person typed is theirs — so one that leaves nothing to name a
+    folder with is asked about again, not quietly replaced by a suggestion."""
+    answer = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.clarvis.task", "target": "make me a pomodoro timer", "name": "!!!",
+    })
+    assert "needs_name" in answer.json()
+
+
+def test_the_suggested_name_is_the_folder(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wire from the suggestion to the folder, with only the model call
+    replaced — and a second task given the same name gets a number, not the
+    first one's folder."""
+    async def suggested(*_: Any) -> str:
+        return "pomodoro-timer"
+
+    monkeypatch.setattr(api_commands, "_suggest_folder_name", suggested)
+    asked = {"operation": "nervis.clarvis.task", "target": "make me a pomodor timer"}
+    first = client.post("/api/v1/commands/run", json=asked)
+    second = client.post("/api/v1/commands/run", json=asked)
+    assert first.json()["file"]["folder"] == "nervis-tasks/pomodoro-timer"
+    assert second.json()["file"]["folder"] == "nervis-tasks/pomodoro-timer-2"
+
+
+@pytest.mark.parametrize(("said", "named"), [
+    ("pomodoro-timer", "pomodoro-timer"),
+    ("Pomodoro Timer", "pomodoro-timer"),
+    ("<think>they want a timer</think>\npomodoro-timer", "pomodoro-timer"),
+    ("UNCLEAR", ""),
+    ("fix-it", ""),
+    ("Unclear - it does not say what to fix", ""),
+    ("a small timer app that counts down work sessions", ""),
+    ("", ""),
+])
+def test_what_the_model_says_is_read_as_a_name_or_nothing(said: str, named: str) -> None:
+    """`UNCLEAR`, thinking with nothing after it, and a sentence are all "ask"."""
+    body = {"choices": [{"message": {"content": said}}]}
+    assert api_commands._folder_name_from(body) == named
+
+
+def test_a_vague_task_is_asked_about_without_asking_a_model(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"fix it" has no name in it. The model that answers this pool names it
+    `fix-it` anyway, so the words are judged first and no call is made."""
+    async def must_not_be_called(*_: Any) -> str:
+        raise AssertionError("a task with nothing to name it by reached the model")
+
+    monkeypatch.setattr(api_commands, "_suggest_folder_name", must_not_be_called)
+    answer = client.post("/api/v1/commands/run", json={
+        "operation": "nervis.clarvis.task", "target": "can you fix this bug?",
+    })
+    assert "needs_name" in answer.json()
+
+
+@pytest.mark.parametrize(("text", "says"), [
+    ("make me a pomodoro timer", True),
+    ("add a retry to the uploader when the API returns 429", True),
+    ("pomodoro-timer", True),
+    ("fix it", False),
+    ("can you fix this bug?", False),
+    ("do the thing", False),
+    ("fix-it", False),
+    ("make me an app", False),
+])
+def test_whether_words_say_what_a_task_is(text: str, says: bool) -> None:
+    assert handoff.says_what_it_is(text) is says
 
 
 def test_the_file_says_who_wrote_it(tmp_path: Path) -> None:
@@ -202,8 +289,8 @@ def test_a_second_task_gets_its_own_folder_and_leaves_the_first_alone(tmp_path: 
     would share a plan — the second would open onto the first one's. This used to
     be "a second task replaces an unread one"; now neither touches the other.
 
-    Same minute and same words on purpose, which is the one case that could
-    otherwise produce the same folder name.
+    Same words and no name on purpose, which is the case that produces the same
+    folder name.
     """
     first = handoff.write(tmp_path, "fix the export bug", today="2026-09-10 22:15 UTC")
     second = handoff.write(tmp_path, "fix the export bug", today="2026-09-10 22:15 UTC")
@@ -268,18 +355,20 @@ def test_the_operation_is_in_the_closed_set() -> None:
     assert commands.BY_ID["nervis.clarvis.task"].service == "nervis"
 
 
-def test_each_task_folder_is_named_by_when_and_what(tmp_path: Path) -> None:
+def test_each_task_folder_is_named_for_its_task(tmp_path: Path) -> None:
     """The folder a person opens in Clarvis, so it has to say what it is.
 
-    Written out as literals on purpose: the date first so a listing sorts by
-    when, then the task's first words so it can be told apart at a glance, and
-    the task file at the folder's root — where Clarvis reads it, since the folder
-    is opened as the workspace. Nothing at the top of `nervis-tasks/` itself, and
-    nothing at the top of the editor room.
+    Written out as literals on purpose: the name it was given, made safe for a
+    folder — or without one, the task's own words — and the task file at the
+    folder's root, where Clarvis reads it since the folder is opened as the
+    workspace. Nothing at the top of `nervis-tasks/` itself, and nothing at the
+    top of the editor room.
     """
-    written = handoff.write(tmp_path, "Fix the export bug, please!", today="2026-09-10 22:15 UTC")
+    written = handoff.write(tmp_path, "make me a pomodor timer", name="Pomodoro Timer!")
+    unnamed = handoff.write(tmp_path, "Fix the export bug, please!")
 
-    assert written.folder == "nervis-tasks/2026-09-10-22-15-fix-the-export-bug-please"
+    assert written.folder == "nervis-tasks/pomodoro-timer"
+    assert unnamed.folder == "nervis-tasks/fix-the-export-bug-please"
     assert (tmp_path / written.folder / "clarvis-task.md").is_file()
     assert not (tmp_path / "clarvis-task.md").exists()
     assert not (tmp_path / "nervis-tasks" / "clarvis-task.md").exists()

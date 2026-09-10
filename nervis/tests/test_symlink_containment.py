@@ -73,11 +73,11 @@ def test_a_link_planted_at_the_next_task_folder_is_stepped_around(tmp_path: Path
     (root / handoff.TASK_FOLDER).mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
-    (root / handoff.TASK_FOLDER / "2026-09-10-22-15-fix-it").symlink_to(outside)
+    (root / handoff.TASK_FOLDER / "fix-it").symlink_to(outside)
 
     written = handoff.write(root, "fix it", today="2026-09-10 22:15 UTC")
 
-    assert written.folder == "nervis-tasks/2026-09-10-22-15-fix-it-2"
+    assert written.folder == "nervis-tasks/fix-it-2"
     assert not any(outside.iterdir()), "the task was written through the planted link"
 
 
