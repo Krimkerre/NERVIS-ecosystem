@@ -476,7 +476,7 @@ class EvidenceStore:
         # Reasoning shares, keyed by runtime key and read across every role.
         # Separate from `_records` because they are gathered by a different
         # question — see `_absorb_shares`.
-        self._shares: dict[str, float] = {}
+        self._shares: dict[str, tuple[float, float | None]] = {}
         # Declared context ceilings from SIRVIS's inventory, keyed by runtime
         # key. §13 lists "model fit" among what RAVIS asks SIRVIS for, and a
         # context ceiling is the most basic fit fact there is — without it a
@@ -626,6 +626,16 @@ class EvidenceStore:
         degradation it performs apply here exactly as they do to capability
         claims. A measurement that has aged out establishes nothing, whether it
         was going to admit a build or order one.
+
+        **The last line used to be the exception to that paragraph.** The
+        fallback read `_shares` directly — a flat map of build to number, built
+        in the same walk as the records and carrying nothing but the value. So a
+        build whose every record had aged out returned None from `record_for`,
+        fell through, and handed back the stale share anyway. Routing then
+        ordered candidates on a measurement the same object was simultaneously
+        refusing to admit, and the source never degraded, so nothing said so.
+        Found by the external audit. The share now carries its age and is held
+        to the same window.
         """
         # The role-scoped record first, because a share measured under the role
         # RAVIS actually asks about is the most specific answer available.
@@ -634,7 +644,21 @@ class EvidenceStore:
             direct = record.measured_share(MEASUREMENT_REASONING_SHARE)
             if direct is not None:
                 return direct
-        return self._shares.get(runtime_key)
+        held = self._shares.get(runtime_key)
+        if held is None:
+            return None
+        share, age = held
+        if age is not None and age > self._max_age:
+            # Degraded for the reason `record_for` degrades: SIRVIS answered and
+            # what it said has expired, which sends an operator to the clock
+            # rather than to SIRVIS.
+            self._state = SourceState.DEGRADED
+            self._detail = (
+                f"the reasoning share for {runtime_key} is {int(age)}s old, past "
+                f"the {int(self._max_age)}s staleness window"
+            )
+            return None
+        return share
 
     def claims_for(self, runtime_key: str) -> list[CapabilityClaim]:
         """What this build's evidence establishes, as capability claims.
@@ -831,14 +855,17 @@ class EvidenceStore:
         # — it is a property of the build's generation and equally true whichever
         # role asked. That read existed to work around the role filter. The
         # filter is gone, so the round trip is too.
-        shares: dict[str, float] = {}
+        shares: dict[str, tuple[float, float | None]] = {}
         for item in payload["items"]:
             if isinstance(item, Mapping):
                 key = by_variant.get(str((item.get("target") or {}).get("variant") or ""), "")
                 share = _measured_share(item.get("metrics"))
                 if key and share is not None:
-                    # Newest wins, and the API returns newest first.
-                    shares.setdefault(key, share)
+                    # **The age travels with it**, because the reader applies the
+                    # same staleness window `record_for` does and cannot apply it
+                    # to a bare number. Newest wins, and the API returns newest
+                    # first.
+                    shares.setdefault(key, (share, _age(item.get("age_seconds"))))
             record = _read_record(item, by_variant)
             if record is None:
                 continue

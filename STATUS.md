@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2820 tests, no network, no live service
+.venv/bin/pytest                      # part of 2823 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1168 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2820 passing across the four, conformance `PASS`.
+Expected: all clean, 2823 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17372,6 +17372,30 @@ worth keeping. Making the guard refuse *every* symlink failed nothing — the
 component was an ordinary name. The link-as-final-component case is exactly what
 a blanket ban would break, and it was the case missing. Both shapes are covered
 now. Five probes across the two repositories, each failing the test it should.
+
+## An expired measurement that went on ordering candidates — 2026-09-10
+
+The third of the audit's four behavioural findings, and the same shape as the
+price book: a docstring describing a rule the last line of the method broke.
+
+`reasoning_share` says the staleness window applies "exactly as it does to
+capability claims", and it does go through `record_for` first — which correctly
+returns None for an aged-out record and degrades the source while doing it. Then
+it fell through to `_shares`, a flat map of build to number built in the same
+walk over the payload and carrying nothing but the value. So a build whose every
+record had expired returned None from `record_for`, fell through, and handed
+back its stale share anyway. Routing ordered candidates on a measurement the
+same object was simultaneously refusing to admit, and nothing said so.
+
+The share now carries the age off the item it came from and is held to the same
+window, degrading with a line that names the *share* rather than the record.
+
+**A probe found a vacuous assertion, not a bug.** The test for the degradation
+passed with that degradation removed, because `record_for` runs first and has
+already degraded the source by then — the state proves nothing at that point.
+Only the detail line separates them: one names the newest record, the other
+names the share, and an operator reading it needs to know which went stale. The
+assertion moved to the wording and now fails when it should.
 
 ## Starting the thing
 

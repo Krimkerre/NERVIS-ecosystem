@@ -907,3 +907,80 @@ def test_which_roles_a_build_has_been_measured_for_is_reported() -> None:
     assert fit["clarvis-agent"] == "SUPPORTED"
     assert fit["chat"] == "UNKNOWN", "measured for the role, silent about fitness"
     assert "general" not in fit, "a role nobody ran does not appear"
+
+
+# ── 8. The share the staleness window could not reach ────────────────────────
+
+
+def _with_share(age: float, share: float = 0.9) -> dict[str, Any]:
+    """One item carrying a reasoning share, aged as the caller asks."""
+    item = record(age=age)
+    # The shape `_measured_share` accepts: a median, `direction: "lower"` so a
+    # ranking cannot be inverted silently, and MEASURED provenance — §13.3
+    # forbids reading an inferred share as an established one.
+    item["metrics"]["reasoning_token_share"] = {
+        "median": share,
+        "direction": "lower",
+        "samples": 5,
+        "provenance": {"kind": "MEASURED", "method": "sirvis.reasoning_share.v1"},
+    }
+    return item
+
+
+def test_a_reasoning_share_past_the_window_stops_being_believed() -> None:
+    """**The last line of `reasoning_share` was the exception to its own
+    docstring.** Found by the external audit.
+
+    That docstring says the staleness window applies "exactly as it does to
+    capability claims", and the method did go through `record_for` first — which
+    correctly returns None for an aged-out record. Then it fell through to
+    `_shares`, a flat map of build to number built in the same walk and carrying
+    nothing but the value. So a build whose every record had expired handed back
+    its stale share anyway, and routing ordered candidates on a measurement the
+    same object was simultaneously refusing to admit.
+    """
+    store = store_with(
+        payload(_with_share(age=90 * 24 * 3600), variants={GGUF: "var_gguf"}),
+        max_age_seconds=30 * 24 * 3600,
+    )
+
+    assert store.record_for(GGUF) is None, "the fixture is wrong — the record must be stale"
+    assert store.reasoning_share(GGUF) is None, (
+        "an expired reasoning share is still ordering candidates"
+    )
+
+
+def test_a_share_inside_the_window_is_still_believed() -> None:
+    """The guard on the guard: refusing every share would pass the test above
+    and quietly remove the tiebreak M16 exists for."""
+    store = store_with(
+        payload(_with_share(age=10 * 24 * 3600), variants={GGUF: "var_gguf"}),
+        max_age_seconds=30 * 24 * 3600,
+    )
+
+    assert store.reasoning_share(GGUF) == 0.9
+
+
+def test_an_expired_share_says_it_was_the_share_that_expired() -> None:
+    """Silence is the half that made this hard to see: `record_for` degrades on
+    expiry precisely so a route explanation cannot report a healthy source
+    beside a missing measurement, and the fallback reported neither.
+
+    **Asserted on the wording rather than the state, because the state proves
+    nothing here.** `record_for` runs first and has already degraded the source
+    by the time the fallback is reached — a probe that removed the fallback's
+    own degradation failed nothing at all. Only the detail line distinguishes
+    them: one names the newest *record*, the other names the *share*, and an
+    operator reading it needs to know which measurement went stale.
+    """
+    store = store_with(
+        payload(_with_share(age=90 * 24 * 3600), variants={GGUF: "var_gguf"}),
+        max_age_seconds=30 * 24 * 3600,
+    )
+
+    store.reasoning_share(GGUF)
+
+    assert store.state is SourceState.DEGRADED
+    assert "reasoning share" in store.detail, (
+        "the source degraded without saying which measurement expired"
+    )
