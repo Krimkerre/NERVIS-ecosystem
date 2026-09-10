@@ -64,25 +64,21 @@ def test_a_link_inside_the_tree_is_allowed(tmp_path: Path) -> None:
     assert still_inside(root, root / "alias.txt")
 
 
-def test_the_handover_file_is_not_written_through_a_link(tmp_path: Path) -> None:
-    """`handoff.py` writes one fixed filename. The name cannot traverse; what is
-    at it can.
-
-    The check is spelled out inside that module rather than imported, because
-    §6.7 keeps it free of every `nervis` import — see the note there.
-    """
+def test_a_link_planted_at_the_next_task_folder_is_stepped_around(tmp_path: Path) -> None:
+    """Task folders are new by construction, so a link cannot be waiting at the
+    task file itself — but one could be waiting at the folder name the next task
+    would take. It is treated as taken, and the task goes into the next free name
+    inside the workspace rather than through the link."""
     root = tmp_path / "handover"
-    root.mkdir()
-    outside = tmp_path / "outside.md"
-    outside.write_text("untouched", encoding="utf-8")
-    (root / handoff.TASK_FILE).symlink_to(outside)
+    (root / handoff.TASK_FOLDER).mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / handoff.TASK_FOLDER / "2026-09-10-22-15-fix-it").symlink_to(outside)
 
-    with pytest.raises(ValueError, match="outside"):
-        handoff.write(root, "please look at the failing test", conversation="c1")
+    written = handoff.write(root, "fix it", today="2026-09-10 22:15 UTC")
 
-    assert outside.read_text(encoding="utf-8") == "untouched", (
-        "the handover was written straight through the link"
-    )
+    assert written.folder == "nervis-tasks/2026-09-10-22-15-fix-it-2"
+    assert not any(outside.iterdir()), "the task was written through the planted link"
 
 
 def test_a_conversation_s_attachments_cannot_be_moved_out(tmp_path: Path) -> None:
@@ -108,3 +104,23 @@ def test_an_ordinary_attachment_directory_still_works(tmp_path: Path) -> None:
 
     assert place is not None and place.is_dir()
     assert place.name == "c1"
+
+
+def test_the_handover_folder_is_not_a_way_out_either(tmp_path: Path) -> None:
+    """**One more path segment, and one more place for a link.** Moving the task
+    into its own folder added a directory NERVIS names but does not control the
+    contents of — a `nervis-tasks` link pointing elsewhere would carry the file
+    out with it. Checked before the folder is created, because `mkdir` on a link
+    either succeeds silently or fails in a way that reads like a disk fault."""
+    root = tmp_path / "handover"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (root / handoff.TASK_FOLDER).symlink_to(elsewhere)
+
+    with pytest.raises(ValueError, match="outside"):
+        handoff.write(root, "please look at the failing test")
+
+    assert not (elsewhere / handoff.TASK_FILE).exists(), (
+        "the handover was written through a linked folder"
+    )

@@ -175,13 +175,18 @@ async def _hand_over(request: Request, task: str, conversation_id: str) -> dict[
             "Set NERVIS_WORKSPACE_PATH to the directory the editor opens."
         )
     written = handoff.write(place, task, conversation=conversation_id)
-    _audit(request, task, "written", f"handed to Clarvis as {handoff.TASK_FILE}",
+    _audit(request, task, "written", f"handed to Clarvis in {written.folder}/",
            verb="hand over")
     return {
         "handoff": written.as_dict(),
         "file": {
             "name": handoff.TASK_FILE,
-            "detail": "waiting for Clarvis — open the editor to read and approve it",
+            # The task's own folder: what to open in Clarvis as its workspace.
+            "folder": written.folder,
+            "detail": (
+                f"waiting in {written.folder}/ — open that folder in Clarvis "
+                "to read and approve it"
+            ),
         },
     }
 

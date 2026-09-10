@@ -572,32 +572,17 @@ def _handoff_proposal(question: str, clarvis: Mapping[str, Any] | None) -> Propo
     if len(task) < 3 or QUESTION_MARK.search(task) or task.lower() in _FILLER:
         return None
     operation = BY_ID["nervis.clarvis.task"]
-    registered = bool(clarvis and clarvis.get("registered"))
-    label = str((clarvis or {}).get("workspace_label") or "")
-    mine = str((clarvis or {}).get("nervis_workspace") or "")
-
-    # **Three answers, and only one of them is a refusal.** No editor at all is
-    # a task nobody will read. A label that disagrees is a task landing in the
-    # wrong project. No label — `CLARVIS.md` §6.1's default, where the raw path
-    # and name are private and `workspace_id` is salted — is not knowing, and
-    # not knowing is said rather than resolved either way.
-    if not registered:
-        detail = ("no Clarvis window has registered, so nothing would read this. "
-                  "Open the editor and ask again.")
-        ready = False
-    elif label and mine and label != mine:
-        detail = (f"Clarvis has {label} open and NERVIS writes into {mine}, so this "
-                  "would be written where that window is not looking")
-        ready = False
-    elif label:
-        detail = f"Clarvis has {label} open, which is where this would be written"
-        ready = True
-    else:
-        detail = ("Clarvis does not publish which workspace it has open — the path "
-                  "is private by default — so NERVIS cannot confirm this lands where "
-                  "that window is looking. It will be written into NERVIS's own "
-                  "workspace either way.")
-        ready = True
+    # **Always ready, and the reason changed on 10 September 2026.** This used to
+    # refuse unless a Clarvis window was already open on the folder NERVIS writes
+    # into, and compared that window's workspace label. Each task now gets a new
+    # folder of its own, opened in Clarvis as that task's workspace — so the
+    # window that reads it is opened *after* the handoff, by design, and no
+    # window open beforehand could be looking at it. The check described a
+    # layout that no longer exists.
+    del clarvis
+    detail = ("This goes into a new folder of its own under nervis-tasks/ — "
+              "open that folder in Clarvis to read and approve it.")
+    ready = True
     return Proposal(
         operation=operation.id, service=operation.service, target=task,
         summary=operation.summary.format(target=_heading_of(task)),

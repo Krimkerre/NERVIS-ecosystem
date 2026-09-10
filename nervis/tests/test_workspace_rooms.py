@@ -148,7 +148,9 @@ def test_a_task_for_clarvis_lands_where_the_editor_opens(tmp_path: Path) -> None
 
         assert ran.status_code == 200, ran.text
 
-    assert (tmp_path / "workspace" / "clarvis" / "clarvis-task.md").is_file()
+    folder = ran.json()["file"]["folder"]
+    assert folder.startswith("nervis-tasks/"), folder
+    assert (tmp_path / "workspace" / "clarvis" / folder / "clarvis-task.md").is_file()
 
 
 def test_a_file_on_the_shelf_is_found_by_name(tmp_path: Path) -> None:

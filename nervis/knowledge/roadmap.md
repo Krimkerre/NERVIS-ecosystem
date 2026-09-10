@@ -196,7 +196,9 @@ doing when a second machine really serves models — not before.
 ## Handing a coding task to Clarvis — built, 2 September
 
 **Built.** Describe a coding task in chat,
-press the button, and NERVIS writes it into the shared workspace as a file.
+press the button, and NERVIS writes it into the shared workspace as a file —
+in a new folder of its own under `clarvis/nervis-tasks/`, which you open in
+Clarvis as that task's workspace, so every task keeps its own plan.
 Clarvis picks it up with the same flow it uses for its own plans, shows you the
 task before anything runs so you can edit it, and every tool call still asks
 permission the way it always did. Progress comes back as events Clarvis already

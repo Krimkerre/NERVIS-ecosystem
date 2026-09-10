@@ -34,7 +34,7 @@ class _App:
 
 
 def _never_finishes(started: asyncio.Event) -> Any:
-    async def _think(api: Any) -> None:
+    async def _think(_api: Any) -> None:
         started.set()
         await asyncio.sleep(3600)
 
@@ -86,7 +86,7 @@ async def test_a_finished_thought_lets_the_next_one_start(
 ) -> None:
     """The guard on the guard: refusing forever would pass the test above and
     quietly switch the feature off after its first run."""
-    async def _quick(api: Any) -> None:
+    async def _quick(_api: Any) -> None:
         return None
 
     monkeypatch.setattr(app_module, "_think_if_due", _quick)

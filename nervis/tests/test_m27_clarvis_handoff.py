@@ -77,46 +77,28 @@ def test_a_question_about_clarvis_is_not_a_handoff() -> None:
         assert commands.propose(asked, [], clarvis=OPEN_EDITOR) is None
 
 
-# ── The destination, checked as far as it can be ────────────────────────────
+# ── The destination: a new folder per task ───────────────────────────────────
 
 
-def test_no_editor_means_nothing_would_read_it() -> None:
-    offer = commands.propose("get clarvis to fix it", [], clarvis={"registered": False})
-    assert offer is not None
-    assert not offer.ready
-    assert "no Clarvis window has registered" in offer.detail
+def test_the_offer_is_ready_without_a_window_already_open() -> None:
+    """**The check this replaced described a layout that no longer exists.**
 
-
-def test_a_label_that_disagrees_is_refused() -> None:
-    """The case a label exists to catch: a task landing in the wrong project."""
-    offer = commands.propose("get clarvis to fix it", [], clarvis={
-        "registered": True, "workspace_label": "other", "nervis_workspace": "coding",
-    })
-    assert offer is not None and not offer.ready
-    assert "not looking" in offer.detail
-
-
-def test_a_label_that_agrees_says_where_it_lands() -> None:
-    offer = commands.propose("get clarvis to fix it", [], clarvis={
-        "registered": True, "workspace_label": "coding", "nervis_workspace": "coding",
-    })
-    assert offer is not None and offer.ready
-    assert "coding" in offer.detail
-
-
-def test_without_a_label_the_offer_says_it_cannot_tell() -> None:
-    """**The clause this milestone had to correct.**
-
-    It read *a mismatch is refused at proposal time*, which is unachievable:
-    `CLARVIS.md` §6.1 keeps the raw workspace path and name private by default
-    and salts `workspace_id`, so NERVIS cannot compare directories. Saying so is
-    the honest answer; claiming alignment would be a guarantee nothing checked.
+    It refused unless a Clarvis window was already open on the folder NERVIS
+    writes into, and compared that window's workspace label. Each task now gets a
+    new folder of its own, opened in Clarvis as that task's workspace — so the
+    window that reads it is opened after the handoff by design, and demanding one
+    beforehand would refuse every task.
     """
-    offer = commands.propose("get clarvis to fix it", [], clarvis=OPEN_EDITOR)
-    assert offer is not None
-    assert offer.ready, "not knowing is not a reason to refuse"
-    assert "cannot confirm" in offer.detail
-    assert "private by default" in offer.detail
+    editors = (
+        {"registered": False},
+        OPEN_EDITOR,
+        {"registered": True, "workspace_label": "other", "nervis_workspace": "coding"},
+    )
+    for editor in editors:
+        offer = commands.propose("get clarvis to fix it", [], clarvis=editor)
+        assert offer is not None and offer.ready, f"refused with {editor}"
+        assert "new folder of its own" in offer.detail
+        assert "nervis-tasks/" in offer.detail
 
 
 # ── What is written ─────────────────────────────────────────────────────────
@@ -130,12 +112,13 @@ def test_the_task_is_written_where_clarvis_reads(client: TestClient) -> None:
     })
     assert answer.status_code == 200
     assert answer.json()["file"]["name"] == handoff.TASK_FILE
+    folder = answer.json()["file"]["folder"]
+    assert folder.startswith("nervis-tasks/"), folder
 
-    # The editor's own room: the task exists to be opened in Clarvis, and
-    # Clarvis opens `workspace/clarvis`. Written anywhere else it is a file
-    # nobody reads.
-    root = Path(client.app.state.settings.workspace_path) / "clarvis"  # type: ignore[attr-defined]
-    waiting = handoff.waiting(root)
+    # Inside the editor's own room, in the task's own folder — which is what is
+    # opened in Clarvis, and where Clarvis reads `clarvis-task.md` from.
+    room = Path(client.app.state.settings.workspace_path) / "clarvis"  # type: ignore[attr-defined]
+    waiting = handoff.waiting(room / folder)
     assert waiting is not None
     assert waiting.task == "add a retry to the uploader when the API returns 429"
     assert waiting.conversation == "cv_ab12"
@@ -148,13 +131,14 @@ def test_the_file_says_who_wrote_it(tmp_path: Path) -> None:
     still says what it is — and one somebody wrote themselves and happened to
     name this is not claimed as another program's work.
     """
-    handoff.write(tmp_path, "fix the export bug")
-    text = (tmp_path / handoff.TASK_FILE).read_text(encoding="utf-8")
+    written = handoff.write(tmp_path, "fix the export bug")
+    folder = tmp_path / written.folder
+    text = (folder / handoff.TASK_FILE).read_text(encoding="utf-8")
     assert handoff.MARKER in text
     assert "read it before approving" in text
 
-    (tmp_path / handoff.TASK_FILE).write_text("# mine, actually", encoding="utf-8")
-    assert handoff.waiting(tmp_path) is None
+    (folder / handoff.TASK_FILE).write_text("# mine, actually", encoding="utf-8")
+    assert handoff.waiting(folder) is None
 
 
 def test_a_handoff_with_no_conversation_stops_at_the_timestamp(tmp_path: Path) -> None:
@@ -166,19 +150,29 @@ def test_a_handoff_with_no_conversation_stops_at_the_timestamp(tmp_path: Path) -
     conversation rather than in the editor" — which is the provenance line this
     whole design exists to get right.
     """
-    handoff.write(tmp_path, "fix the export bug", today="2026-09-01 22:21 UTC")
-    waiting = handoff.waiting(tmp_path)
+    written = handoff.write(tmp_path, "fix the export bug", today="2026-09-01 22:21 UTC")
+    waiting = handoff.waiting(tmp_path / written.folder)
     assert waiting is not None
     assert waiting.asked_on == "2026-09-01 22:21 UTC"
     assert waiting.conversation == ""
 
 
-def test_a_second_task_replaces_an_unread_one(tmp_path: Path) -> None:
-    """A queue of tasks nobody read is a queue, and this is a handoff."""
-    handoff.write(tmp_path, "first thing")
-    handoff.write(tmp_path, "second thing")
-    waiting = handoff.waiting(tmp_path)
-    assert waiting is not None and waiting.task == "second thing"
+def test_a_second_task_gets_its_own_folder_and_leaves_the_first_alone(tmp_path: Path) -> None:
+    """**The reason for folders at all.** Clarvis keeps `plan.md` and its build
+    state at the root of the folder it has open, so two tasks sharing a folder
+    would share a plan — the second would open onto the first one's. This used to
+    be "a second task replaces an unread one"; now neither touches the other.
+
+    Same minute and same words on purpose, which is the one case that could
+    otherwise produce the same folder name.
+    """
+    first = handoff.write(tmp_path, "fix the export bug", today="2026-09-10 22:15 UTC")
+    second = handoff.write(tmp_path, "fix the export bug", today="2026-09-10 22:15 UTC")
+
+    assert first.folder != second.folder, "two tasks were written into one folder"
+    kept = handoff.waiting(tmp_path / first.folder)
+    assert kept is not None and kept.task == "fix the export bug", "the first task was disturbed"
+    assert handoff.waiting(tmp_path / second.folder) is not None
 
 
 def test_an_empty_task_is_refused(tmp_path: Path) -> None:
@@ -233,3 +227,20 @@ def test_the_operation_is_in_the_closed_set() -> None:
     other act, with a confirmation in front of it."""
     assert "nervis.clarvis.task" in commands.BY_ID
     assert commands.BY_ID["nervis.clarvis.task"].service == "nervis"
+
+
+def test_each_task_folder_is_named_by_when_and_what(tmp_path: Path) -> None:
+    """The folder a person opens in Clarvis, so it has to say what it is.
+
+    Written out as literals on purpose: the date first so a listing sorts by
+    when, then the task's first words so it can be told apart at a glance, and
+    the task file at the folder's root — where Clarvis reads it, since the folder
+    is opened as the workspace. Nothing at the top of `nervis-tasks/` itself, and
+    nothing at the top of the editor room.
+    """
+    written = handoff.write(tmp_path, "Fix the export bug, please!", today="2026-09-10 22:15 UTC")
+
+    assert written.folder == "nervis-tasks/2026-09-10-22-15-fix-the-export-bug-please"
+    assert (tmp_path / written.folder / "clarvis-task.md").is_file()
+    assert not (tmp_path / "clarvis-task.md").exists()
+    assert not (tmp_path / "nervis-tasks" / "clarvis-task.md").exists()

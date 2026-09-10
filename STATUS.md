@@ -17428,6 +17428,43 @@ to.
 Three tests, both properties probed: awaiting inline again fails one, a guard
 that never releases fails another.
 
+## One folder per handed-over task — 2026-09-10
+
+Asked for before the first live handoff run: tasks NERVIS hands to Clarvis
+should land under `workspace/clarvis`, in a subfolder — and then, the part that
+mattered, **a new folder for every task**, because otherwise Clarvis would open
+a new task onto the previous task's `plan.md`.
+
+That reason is Clarvis's own layout, checked rather than assumed: it keeps
+`plan.md` and its build state at the root of whatever folder it has open, and
+reads `clarvis-task.md` from the same root. So each task now gets
+`clarvis/nervis-tasks/<date>-<time>-<first words>/clarvis-task.md`, and that
+folder is opened in Clarvis as the task's workspace. **Nothing on the Clarvis
+side changed** — it already reads the root of the open folder, which is exactly
+where the file now sits.
+
+**The first attempt was wrong and never committed.** It put a single
+`nervis-tasks/clarvis-task.md` beside the project and taught Clarvis to read from
+that subfolder — which would have kept every task's plan in one place, the very
+thing the operator was trying to prevent. Both halves were reverted before
+anything shipped, which is why Clarvis needs no release.
+
+The proposal no longer demands an already-open Clarvis window on a matching
+folder. That check described a layout that no longer exists: the window that
+reads a task is opened *after* the handoff, onto a folder created by it, so no
+window open beforehand could be looking at it. The reply names the task's folder
+instead, so the person knows what to open.
+
+A second task in the same minute with the same words gets a numbered folder
+rather than the first one's, and a symlink planted at the next folder name is
+stepped around rather than written through. The Code tab's editor is allowed to
+open a task folder inside the editor room and still refuses anything outside it.
+Two probes: collapsing every task into one folder fails two tests, and dropping
+the per-task folder fails six.
+
+Also cleared two lint errors in yesterday's probe-loop test, committed as clean
+after linting only `src/`.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

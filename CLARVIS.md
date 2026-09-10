@@ -672,7 +672,7 @@ intact.
 
 ### E-C8 IMPLEMENTED — Receiving a task from NERVIS *(paired with NERVIS M27)*
 
-Recognise a handoff file NERVIS wrote into the workspace, and say so when offering it.
+Recognise a handoff file NERVIS wrote into the workspace — `clarvis-task.md` at the root of the task's own folder under `nervis-tasks/`, which is opened as that task's workspace — and say so when offering it.
 
 **This is not §6.7's remote-control contract and must not become one.** NERVIS writes a file
 into a directory it can already write to; Clarvis reads it with the flow that already reads
