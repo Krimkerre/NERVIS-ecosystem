@@ -2921,21 +2921,13 @@ A third thing surfaced from the corrected reply: even with a real offer it said
 the same failure in a smaller form. The instruction now says **this** reply and
 forbids the other.
 
-### A window manager, recorded as a stretch — 1 Sep
+### A window manager, recorded as a stretch on 1 Sep — dropped for good, 11 Sep
 
-NERVIS **M26**, unscheduled. Qtile is configured in Python and NERVIS is already
-an HTTP service, so the join is a request from a widget rather than an
-integration layer: a group housing the dashboard is a `Match` rule, a bar widget
-reads `/api/v1/services`, a keybinding drops into chat.
+NERVIS M26 was a Qtile window manager joined to the dashboard. The owner dropped
+it on 11 September 2026 and does not want it proposed again, so its spec row and
+its roadmap section were removed; this entry is kept only as the record of that.
 
-Whether NERVIS may *move windows* is explicitly not part of it. The command
-graph would allow it; if it is ever wanted it arrives as operations in §12's
-closed set behind a confirmation, not as an assistant holding a window manager.
-Its exit also says the ecosystem must still run headless — the same install has
-to work with no window manager at all, so nothing here may become a dependency
-of the services.
-
-**And the deployment question it raised is already answered in the code.**
+**The deployment question that came up alongside it is already answered in the code.**
 Running NERVIS and RAVIS on a machine with no GPU, without SIRVIS, works by
 design: `sirvis_base_url` empty is a supported configuration, which §13.4
 requires — provider metadata and RAVIS's own observations carry routing, with

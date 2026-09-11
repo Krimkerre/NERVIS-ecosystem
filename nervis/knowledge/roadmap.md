@@ -139,18 +139,7 @@ provider not known to be free. That is the same baked-in answer in another
 place, and it resolves to a local model on exactly the machine where local is
 the wrong choice. The plan says not to use it for this.
 
-## A window manager, as a stretch idea
-
-Qtile is a tiling window manager configured in Python, and NERVIS is already an
-HTTP service — so joining them is a request from a widget rather than an
-integration layer. A workspace that houses the dashboard is a matching rule and
-nothing more; a bar showing ecosystem health reads the same endpoint the
-dashboard reads; a keybinding drops into chat.
-
-Whether NERVIS may *move windows* is a separate decision and deliberately not
-part of it. The window manager would allow it; that would arrive as operations
-in the closed set with a confirmation, the same as everything else, rather than
-as an assistant holding a window manager.
+## Running without every service
 
 **The ecosystem does not need every service to run.** RAVIS works with no
 benchmarking service at all — provider metadata and its own observations carry
