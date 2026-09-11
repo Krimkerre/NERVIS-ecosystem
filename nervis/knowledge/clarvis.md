@@ -36,6 +36,13 @@ ticks nothing off. Chat remembers what was missing for three days, so it cannot
 explain the gap away. Added 11 September 2026 in Clarvis 0.14.0, after a pomodoro
 build tried to reinstall Python when tkinter was missing.
 
+**Stop means stop, even while it is asking.** Pressing Stop while Clarvis waits
+on a question — "Do it / Skip this step", or "fold this into master?" at the end
+of a run — cancels the question and ends there: the step does not start, even if
+"Do it" was pressed at the same moment, and work already done stays on its
+branch. Before Clarvis 0.13.2 (11 September 2026) a stop only took effect once
+somebody answered.
+
 ## How it chooses a model
 
 Chat and the agent are **separate roles with separate settings** — provider and

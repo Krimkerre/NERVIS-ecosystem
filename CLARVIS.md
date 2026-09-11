@@ -723,6 +723,17 @@ text ended the run — they are read as calls. And answers about the project had
 called a never-committed tree "clean" — both corrected. Starting a build no longer switches
 Unattended back to Agent; asking before each step in Agent mode is intentional.
 
+**11 September 2026 — Stop releases a question waiting on screen (Clarvis 0.13.2).** Stop pressed
+while a run waited on "Do it / Skip this step" did nothing until someone answered: it cut the run's
+signal, but the run was parked on the question and its buttons stayed in the panel. Stop over the
+end-of-run "fold this into master?" question found nothing running and said "Nothing to stop". Step
+approval had moved from a modal into the chat on 15 August, and Stop was never wired to the new
+place a run could wait. Stop now cancels whichever question is waiting. A step whose question comes
+back after Stop ends the run rather than starting — a "Do it" that raced the stop included — and is
+not reported as skipped. A waiting landing question counts as something to stop even with no run in
+progress, and the work stays on its branch. Switching to Unattended still answers a waiting step
+"Do it". Covered by `stopDecision.test.ts`; not yet seen in a live run.
+
 **11 September 2026 — a missing dependency is a question, in every mode (Clarvis 0.14.0).** The
 next build from a handoff stalled on something no plan could have known: the interview chose
 Python with tkinter, and this computer's Python was built without it. The command said so in one
