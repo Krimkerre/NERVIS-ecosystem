@@ -43,6 +43,13 @@ of a run — cancels the question and ends there: the step does not start, even 
 branch. Before Clarvis 0.13.2 (11 September 2026) a stop only took effect once
 somebody answered.
 
+**Typing during a run steers it.** A message typed while Clarvis is working waits
+for the current step to finish, then reaches the model with that step's results,
+framed to take priority over what it was about to do — so "no, use the other
+library" changes course at the next step. Before Clarvis 0.14.1 (11 September
+2026) those messages were logged and never delivered, and the run carried on the
+old way.
+
 ## How it chooses a model
 
 Chat and the agent are **separate roles with separate settings** — provider and
