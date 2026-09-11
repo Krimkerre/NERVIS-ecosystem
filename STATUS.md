@@ -17776,6 +17776,34 @@ VS Code and both bundles match the fresh build, with 0.13.1 as the control. Not
 seen live: pressing Stop over either question in the editor — the next run that
 asks is the check.
 
+## Messages typed during a run reach the model, Clarvis 0.14.1 — 2026-09-11
+
+Typing to Clarvis while a run is going is meant to change its course. The
+message waits for the current step to finish, then goes to the model with that
+step's tool results, framed as a correction that takes priority. It never
+arrived. Both of Clarvis's model connections — Anthropic's API and the
+OpenAI-compatible one — sent only the tool results on that turn and dropped the
+text beside them. So "no, use the other library" was logged as a redirect, taken
+off the queue and never read, and the run carried on the old way. The feature,
+added 13 August, was tested where its wording is built and never where it is
+sent.
+
+Fixed in Clarvis 0.14.1. Anthropic now gets the message as text after the tool
+results in the same turn, and OpenAI-compatible providers get it as a separate
+user message after the last tool result — the order each one requires. A step
+nobody interrupted still sends the results alone.
+
+It went in after 0.13.2 and 0.14.0, all three from sessions sharing one working
+tree, so this build is also the first installed one carrying 0.13.2's two-line
+follow-up.
+
+Checked: Clarvis's check passes on the committed tree, 1,357 tests with lint and
+types, including four new ones covering both message shapes and the empty case;
+with the two added lines removed, both redirect tests fail. 0.14.1 was built
+from a clean worktree at the pushed commit and is installed in code-server and
+VS Code; both bundles match the fresh build, with 0.14.0 as the control. Not
+seen live: typing during a run in the editor — the next redirect is the check.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

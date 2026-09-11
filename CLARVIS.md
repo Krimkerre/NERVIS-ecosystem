@@ -745,6 +745,16 @@ answers, along with the project's files two levels deep and the language the pla
 that only announced its step is asked, once, to carry it out. Both milestone briefs now say a step
 whose check did not pass is never ticked or reworded — left as it is, with the reason said.
 
+**11 September 2026 — a message typed during a run reaches the model (Clarvis 0.14.1).** Typing
+while a run is going is meant to redirect it: the message waits for the current step to finish,
+then goes to the model with that step's tool results, framed so it outranks the plan in flight.
+It never arrived. A turn carrying tool results went to Anthropic as `tool_result` blocks alone and
+to OpenAI-compatible providers as `role: 'tool'` messages alone, so the redirect was logged, taken
+off the queue and never read, and the run carried on the old way. It now goes as text after the
+results in the same turn for Anthropic, and as a user message after the last tool message for
+OpenAI-compatible providers — the order each requires — while a step nobody interrupted sends the
+results alone, as before. Covered by `toolResultTurn.test.ts`; not yet seen in a live run.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same

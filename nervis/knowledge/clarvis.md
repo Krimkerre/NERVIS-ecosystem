@@ -83,7 +83,7 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.12.8**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.14.1**, 29 commands, 23 settings, VS Code ^1.93.
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
 the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its
