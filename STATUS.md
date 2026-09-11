@@ -17879,6 +17879,51 @@ commit byte for byte, with 0.15.0 as the control. Not seen live: Stop in the
 editor on 0.15.1. Left for the user: the pomodoro plan, which that run rewrote
 for curses, and the merge question the stopped run left asking.
 
+## Clarvis's agent builds on Claude Sonnet 5, bought directly — 2026-09-11
+
+Asked why the pomodoro plan change was so poor, RAVIS's own session table said
+which model Clarvis's agent had used: all seven agent sessions from 5 to 11
+September, tonight's included, ran on qwen/qwen3-coder-30b-a3b-instruct through
+OpenRouter. ravis/clarvis-agent lists Claude Sonnet first among its coding
+families and had never once selected it.
+
+Two rules collided. Anthropic's model catalogue publishes no tool support, and
+the Anthropic adapter deliberately never assumes it, so every Claude model bought
+directly stayed UNKNOWN for tools and the pool, which requires tools, refused
+them. OpenRouter's copies of the same models advertise tools and qualified, but
+the reseller rule ranked them behind every model nobody resells: it asked only
+whether the maker is a usable provider, never whether the maker's own copy could
+serve the request. GPT-5 mini fell the same way — its direct copy carries no
+context window or tool claim, and its OpenRouter copy was demoted. Qwen, which
+nobody sells directly, won every time.
+
+Fixed in RAVIS. A resold copy now drops behind its maker only when a copy the
+maker serves directly survived the pool's and the request's constraints; RAVIS
+maps each candidate to the provider serving it to ask that. And the operator,
+offered Sonnet bought directly, Sonnet through OpenRouter, or keeping Qwen, chose
+Sonnet directly from Anthropic and declared Claude Sonnet 5 tool-capable in
+ravis/operator-capabilities.json, which the launcher now gives RAVIS as its
+capabilities file. Only Sonnet 5: declaring every Sonnet build would tie them on
+the pool's preference, and with no published price for Anthropic's own models the
+tie falls to alphabetical order, which picks the oldest. The declaration is
+recorded at configured provenance, the operator's word rather than a measurement.
+RAVIS's Anthropic translation already carries tool calls both ways, streamed ones
+included, and structured replies.
+
+Not changed: ravis/measured-capabilities.json is still not given to the running
+stack. Loading it would admit local models to pools that require tools, and
+sending work to a local model is a decision to ask for first.
+
+Checked: ruff and mypy clean; RAVIS's full suite passes, 2,866 tests across the
+four packages. One new test reproduces the Qwen pick, and then the OpenRouter
+Sonnet pick once the owner map is given; another has a declared direct Sonnet win
+with the reseller kept reachable. Live, after a restart: RAVIS reports
+claude-sonnet-5's tool support as SUPPORTED at configured provenance, and one
+request of a few tokens to ravis/clarvis-agent was answered by claude-sonnet-5,
+with openai/gpt-5-mini and qwen3-coder-30b as its fallbacks. Not seen live: a
+Clarvis build on Sonnet 5. A Clarvis session used within the last hour keeps its
+model until it has been idle for an hour.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
