@@ -87,7 +87,9 @@ free, and on somebody else's hardware, so nothing is loaded onto this machine.
 If that pool answers nothing, this machine's own models are the fallback.
 Free tiers are logged and trained on; to keep all of it here, set the pool to
 `ravis/private` or `ravis/local`. **Name conversations** is a switch in the
-same section and is on by default — it does not depend on the thinking switch.
+same section and is on by default — it does not depend on the thinking switch,
+and it is not held to that work's interval or runs a day: a title is written
+after each conversation's first reply, every time, and is never counted as a run.
 
 ### A peer that has not answered yet
 

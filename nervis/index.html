@@ -7789,7 +7789,7 @@ async function backgroundSection(){
        <small class="mono dim">it may notice things and write them into Notifications — it may never run an operation</small></span></label>
    <div style="margin-top:9px">${triggers}</div>
    <div class="filter-row" style="margin-top:10px;align-items:center">
-     <span class="mono dim">every</span>
+     <span class="mono dim">thinking runs every</span>
      <input class="mono" style="width:56px" value="${escapeHtml(b.interval_minutes)}"
        onchange="setBackground({interval_minutes:this.value})"${b.enabled?'':' disabled'}>
      <span class="mono dim">min, at most</span>
@@ -7822,7 +7822,7 @@ function backgroundRoute(b){
    <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer;margin-top:9px">
      <input type="checkbox"${b.titles?' checked':''} onchange="setBackground({titles:this.checked})">
      <span><b>Name conversations</b><br>
-       <small class="mono dim">a short title written in the background after the first reply — off keeps the first six words</small></span></label>`;
+       <small class="mono dim">a short title written after each conversation's first reply — not on the schedule below and never counted in its runs; off keeps the first six words</small></span></label>`;
 }
 
 /* The ledger, newest first. Its own function because the card crossed the

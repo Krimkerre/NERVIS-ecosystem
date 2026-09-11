@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2856 tests, no network, no live service
+.venv/bin/pytest                      # part of 2857 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1201 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1202 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2856 passing across the four, conformance `PASS`.
+Expected: all clean, 2857 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17600,7 +17600,12 @@ overrule a private choice. Titles are a switch in that section, on by default
 and independent of the thinking switch; the pool field stays usable while
 thinking is off, and says that ravis/free-api is logged and trained on and that
 ravis/private or ravis/local keeps everything on this machine. The title budget
-is 400.
+is 400. Titles share only the pool and their own switch with unattended thinking:
+never its interval, its daily ceiling or its switch, and writing one adds
+nothing to the ledger those runs are counted from — a test pins that with
+thinking off and the day's runs used up, and a probe that holds titles to the
+schedule fails it. The card says so, and its schedule row now reads as
+thinking's.
 
 Checked. New tests: the route's order and its private cases; titles asking the
 pool first, the operator's pool obeyed, falling back through the loaded model

@@ -3538,7 +3538,8 @@ def test_an_upload_with_no_conversation_is_refused(tmp_path: Path) -> None:
 # ── A title reuses the model that answered, and does not load a second ─────
 
 def _title_payloads(
-    served: str, *, refuse: int = 0, blank: int = 0, pool: str = "", titles: bool = True
+    served: str, *, refuse: int = 0, blank: int = 0, pool: str = "", titles: bool = True,
+    prepare: Any = None,
 ) -> list[dict[str, Any]]:
     """Run `_generate_title` against a fake RAVIS and return what it posted.
 
@@ -3576,6 +3577,8 @@ def _title_payloads(
     entry = app.state.registry.get("ravis")
     assert entry is not None and entry.is_usable, "the fake registry must offer a usable RAVIS"
     background.configure(app.state.database, titles=titles, **({"pool": pool} if pool else {}))
+    if prepare is not None:
+        prepare(app.state.database)
 
     request = SimpleNamespace(app=app)
     asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
@@ -3647,6 +3650,25 @@ def test_every_title_call_carries_the_background_marker() -> None:
 def test_titles_switched_off_ask_nothing() -> None:
     """Settings → Unattended work → Name conversations, off: no call at all."""
     assert _title_payloads(served="anthropic/claude-haiku-4.5", titles=False) == []
+
+
+def test_titles_are_not_held_to_the_thinking_schedule() -> None:
+    """**A title is written after a reply, every time.** Unattended thinking has
+    an interval, a daily ceiling and its own switch; none of them is a title's.
+    Thinking off and today's ceiling used up still leaves a title asked for — and
+    writing one adds nothing to the ledger those runs are counted from."""
+    held: list[Any] = []
+
+    def spend_the_day(database: Any) -> None:
+        background.configure(database, enabled=False, daily_runs=1, interval_minutes=1440)
+        background.record(database, trigger="daily_digest", prompted_by="x", outcome="noted")
+        held.append(database)
+
+    posted = _title_payloads(served="", prepare=spend_the_day)
+
+    assert background.may_run(held[0], background.settings(held[0])), "the day was not spent"
+    assert [one["model"] for one in posted] == ["ravis/free-api"]
+    assert background.ran_today(held[0]) == 1, "a title was counted as an unattended run"
 
 
 def test_a_conversation_that_opened_with_more_than_six_words_is_still_titled() -> None:

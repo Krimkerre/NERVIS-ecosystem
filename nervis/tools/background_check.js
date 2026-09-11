@@ -99,6 +99,13 @@ async function main() {
   if (!/ravis\/private or ravis\/local/.test(card)) {
     failures.push("the card does not say how to keep background work on this machine.");
   }
+  if (!/never counted in its runs/.test(card) || !/thinking runs every/.test(card)) {
+    failures.push(
+      "the card does not say that titles sit outside the thinking schedule. The " +
+      "title switch sits above the interval and the daily runs, and without saying " +
+      "so it reads as though a title waits for, and uses up, one of those runs."
+    );
+  }
   posted.length = 0;
   await vm.runInContext("setBackground({titles:false})", context);
   if (!posted.length || posted[0].titles !== false) {

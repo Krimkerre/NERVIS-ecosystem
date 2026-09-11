@@ -178,6 +178,11 @@ async def _generate_title(
     private picks `ravis/private` or `ravis/local` there; somebody who wants none
     switches titles off there.
 
+    **Only the pool and the switch are shared with unattended thinking** — not
+    its switch, its interval or its daily ceiling, and nothing here is written to
+    the ledger those runs are counted from. A title is part of a conversation
+    somebody is having, so it is written after the first reply, every time.
+
     **Every failure is silent, and every call is marked `background`.** An
     untitled conversation is a smaller failure than a title billed to a frontier
     model (NERVIS.md §7): the marker makes RAVIS refuse any model that costs
