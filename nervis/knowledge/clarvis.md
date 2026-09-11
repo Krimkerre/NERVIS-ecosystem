@@ -52,6 +52,13 @@ of a run — cancels the question and ends there: the step does not start, even 
 branch. Before Clarvis 0.13.2 (11 September 2026) a stop only took effect once
 somebody answered.
 
+Stop also ends whatever a command started. A program Clarvis launched to check
+its work — a timer that never exits, a server — used to keep running after Stop,
+and the run sat waiting on it. Now Stop and the ten-minute limit end everything
+the command started, and a check that leaves a program running has it stopped,
+with the model told to check it in a way that finishes. Fixed in Clarvis 0.15.1,
+11 September 2026.
+
 **Typing during a run steers it.** A message typed while Clarvis is working waits
 for the current step to finish, then reaches the model with that step's results,
 framed to take priority over what it was about to do — so "no, use the other
@@ -106,7 +113,7 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.15.0**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.15.1**, 29 commands, 23 settings, VS Code ^1.93.
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
 the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its

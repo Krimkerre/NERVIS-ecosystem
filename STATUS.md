@@ -17847,6 +17847,46 @@ in the editor side of Clarvis and have no unit tests — the next "continue
 building" in the pomodoro project is the live check. Left for the user: the
 stray main.py now on that project's master.
 
+## Stop stops what a command started, Clarvis 0.15.1 — 2026-09-11
+
+The first live run of 0.15.0 in the pomodoro project worked as far as the new
+question: python3 found tkinter missing, "Find another way" got a proposal back,
+and "Change the plan like that" started a run that rewrote the plan and wrote
+src/main.py. It then ran cd src && python3 main.py — a stub that prints a line
+and loops for ever — and Stop did nothing visible; Ctrl+C in the browser cannot
+reach a command Clarvis runs. The timer process was found running on its own, its
+parent shell gone. runCommand killed the shell it had spawned and nothing else,
+the Python process that shell launched lived on with the output pipe open, and a
+command counted as finished only once every copy of its output had closed. The
+ten-minute limit's kill had the same blind spot. Ending that Python process by
+hand let the stop complete at once.
+
+Fixed in Clarvis 0.15.1. A command runs as the leader of its own process group,
+and Stop and the time limit stop the whole group. A command counts as finished
+when it exits: whatever it left running in its group is stopped, the model is
+told a check has to end on its own, and output still open two seconds later is
+closed. Windows has no process groups and keeps the old behaviour.
+
+The plan change that run made was poor, and is not fixed here: it swapped
+tkinter for curses, claimed without checking that this computer lacks curses too,
+kept checks about closing a window, and wrote a main.py that loops instead of a
+timer. That is the agent model's judgement rather than Clarvis's flow.
+
+Checked: Clarvis's check passes, 1,365 tests with types and lint, one of them
+stopping a real backgrounded process. Reproduced outside the editor against
+0.15.0 and the new code with the same command shape: after Stop at 1.5 seconds
+the old code was still waiting at 6 with the program running, and the new code
+finished at once with nothing left; a command that exits leaving the program
+running kept the old code waiting, and the new code finished immediately and told
+the model. Three probes each fail — two unit tests, and without its own process
+group the run still finishes but the program survives the stop. A first attempt
+at that last probe could not find the code it was meant to run and so proved
+nothing either way; it was rerun with the path fixed. 0.15.1 is installed in
+code-server and VS Code, both installed bundles match the package built from its
+commit byte for byte, with 0.15.0 as the control. Not seen live: Stop in the
+editor on 0.15.1. Left for the user: the pomodoro plan, which that run rewrote
+for curses, and the merge question the stopped run left asking.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

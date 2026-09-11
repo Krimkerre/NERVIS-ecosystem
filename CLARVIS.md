@@ -781,6 +781,18 @@ every other line, tick and result stays — and then builds the unfinished miles
 building" while that proposal stands asks the same question instead of starting a run. Any step
 announcement in a reply with no tool calls now gets the one nudge to carry it out.
 
+**11 September 2026 — Stop stops what a command started (Clarvis 0.15.1).** The first live run of
+0.15.0 got as far as changing the plan, then ran `cd src && python3 main.py` — a stub that prints a
+line and loops for ever. Stop did nothing visible, and Ctrl+C in the browser could not reach it.
+Clarvis killed the shell it had spawned and nothing else: the Python process that shell launched
+lived on with the output pipe open, and a command counted as finished only once every copy of its
+output had closed, so the run waited on it — and would have waited past the ten-minute limit, whose
+kill had the same blind spot. Ending that one Python process by hand let the stop complete at once.
+A command now runs as the leader of its own process group, and Stop and the time limit stop the
+whole group. A command counts as finished when it exits: whatever it left running in its group is
+stopped, the model is told a check has to end on its own, and output still open two seconds later
+is closed. Windows has no process groups and keeps the old behaviour.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same
