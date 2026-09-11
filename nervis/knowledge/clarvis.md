@@ -66,6 +66,14 @@ library" changes course at the next step. Before Clarvis 0.14.1 (11 September
 2026) those messages were logged and never delivered, and the run carried on the
 old way.
 
+**It identifies itself to RAVIS.** Started by the ecosystem launcher, the editor
+gives Clarvis a credential RAVIS knows as clarvis, so Clarvis gets its own six
+hundred requests a minute instead of sharing sixty with every unnamed caller —
+the NERVIS dashboard open in a browser uses about twenty-four of those on its
+own. The credential is only ever sent to the RAVIS on this machine. In desktop
+VS Code, which the launcher does not start, Clarvis stays unnamed unless a key
+is stored. Added in Clarvis 0.15.2, 12 September 2026.
+
 ## How it chooses a model
 
 Chat and the agent are **separate roles with separate settings** — provider and
@@ -113,7 +121,7 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.15.1**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.15.2**, 29 commands, 23 settings, VS Code ^1.93.
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
 the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its

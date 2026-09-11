@@ -17924,6 +17924,39 @@ with openai/gpt-5-mini and qwen3-coder-30b as its fallbacks. Not seen live: a
 Clarvis build on Sonnet 5. A Clarvis session used within the last hour keeps its
 model until it has been idle for an hour.
 
+## Clarvis names itself to RAVIS, Clarvis 0.15.2 — 2026-09-12
+
+What looked like a flood of refused requests was history. RAVIS's access log
+keeps appending across restarts, and its roughly 2,000 refused version reads date
+from before NERVIS's probe presented its credential. A live one-minute count found
+30 requests and no refusals: 24 from the NERVIS dashboard, which reads route
+decisions, usage and observations from RAVIS directly as an unnamed caller, and 6
+from NERVIS's own named probe. The real risk was smaller and still worth closing:
+Clarvis also called RAVIS unnamed, so it shared the anonymous sixty requests a
+minute with the dashboard. None of its 224 recorded completions had been refused;
+two model-list reads had.
+
+The launcher now mints a client credential for Clarvis the way it does for NERVIS
+— cached at 0600 under .run and stored in RAVIS as client.clarvis on every start —
+and starts code-server with it in CLARVIS_RAVIS_CREDENTIAL. Clarvis 0.15.2
+presents a key stored in the editor first and that credential as the fallback,
+only to a RAVIS on a loopback address and only for a ravis/ model. Everything
+code-server runs can read its environment; the credential names a caller to a
+loopback-only service and is not administrative. Desktop VS Code is not started by
+the launcher, so Clarvis stays unnamed there unless a key is stored.
+
+Checked: Clarvis's check passes, 1,367 tests with types and lint, two of them for
+where the credential must not go. 0.15.2 is installed in code-server and VS Code,
+and both installed bundles match the package built from its commit. After a
+restart the launcher reported both credentials stored, the token file is 0600, and
+code-server's process carries the variable. RAVIS answered its sessions listing as
+the anonymous application with no token and with a made-up one, and as a separate
+named application with Clarvis's token. That comparison is the check that can tell:
+RAVIS treats an unknown token as anonymous rather than refusing it, and its
+credential listing deliberately hides client names. Not seen live: a Clarvis
+request arriving as clarvis, which needs the editor tab reloaded so Clarvis's
+extension host starts with the new environment.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

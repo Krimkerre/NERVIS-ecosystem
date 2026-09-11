@@ -793,6 +793,18 @@ whole group. A command counts as finished when it exits: whatever it left runnin
 stopped, the model is told a check has to end on its own, and output still open two seconds later
 is closed. Windows has no process groups and keeps the old behaviour.
 
+**12 September 2026 — Clarvis names itself to RAVIS (Clarvis 0.15.2).** RAVIS gives an unnamed
+caller sixty requests a minute and a named one six hundred, and every unnamed caller on the machine
+shares the sixty. Measured on 11 September, the NERVIS dashboard open in a browser reads RAVIS
+directly about twenty-four times a minute, and Clarvis called RAVIS unnamed — so a build had roughly
+thirty-six a minute before RAVIS turned it away. None of Clarvis's 224 recorded completions had been
+refused, but two model-list reads had. The ecosystem launcher now mints a client credential for
+Clarvis the way it does for NERVIS, stores it in RAVIS as `client.clarvis`, and starts code-server
+with it in `CLARVIS_RAVIS_CREDENTIAL`. Clarvis presents a key stored in the editor first and that
+credential only as the fallback — and only to a RAVIS on a loopback address, for a `ravis/` model,
+so it cannot be sent to another host or another provider. Desktop VS Code is not started by the
+launcher, so there Clarvis stays unnamed unless a key is stored.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same
