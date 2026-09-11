@@ -345,11 +345,20 @@ and privacy controls.
 **Background calls.** NERVIS chat generates conversation titles (§7.2), and may later add
 summaries or suggestions. Each is a RAVIS background call and must carry RAVIS's declared
 marker (RAVIS §9.6.1) rather than arriving as an ordinary completion on the user's chosen
-profile. **The title still names the model that just answered**, because a pool is a request
-for RAVIS to choose and choosing is what puts a second build in memory to write six words —
-and the marker costs nothing there, since a local model is free and §9.6.1 refuses only what
-is not. Where that model is hosted the marker refuses the call outright, no tokens billed, and
-the title goes to `ravis/cheap` instead. *The marker was sent only on the unnamed path until
+profile. **Every background call walks one route**, set under Settings → Unattended work: the
+pool chosen there (`ravis/free-api` by default — free, remote, and loading nothing on this
+machine), then for a title the model that just answered (already in memory), then
+`ravis/local`. A title is switched on or off in the same place, independently of unattended
+thinking, and the same route serves a handed-over task's folder name, the layout glance on a
+saved PDF and unattended thinking itself. Privacy is the pool's to express: `ravis/free-api`
+is logged and trained on, and an operator who does not want that picks `ravis/private` or
+`ravis/local` — the fallback never leaves the machine, so it cannot overrule that choice. The
+marker still makes RAVIS refuse any step that would cost money, a hosted model that answered
+the conversation included. *Changed on 11 September 2026: titles went to the model that
+answered and then `ravis/cheap`, which on this machine loaded a local reasoning build to write
+six words and produced none; and a title was only ever attempted for an opening of six words or
+fewer, because the stand-in the titler recognised was not the one conversations were created
+with — 121 of 223 conversations had never been titled.* *The marker was sent only on the unnamed path until
 9 September 2026, so a conversation answered by a frontier model had its title billed to that
 model — the failure this paragraph names. An external audit found it.* An untitled conversation is a smaller failure than a title billed to a frontier
 model.

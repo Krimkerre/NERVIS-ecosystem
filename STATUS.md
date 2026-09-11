@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2850 tests, no network, no live service
+.venv/bin/pytest                      # part of 2856 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1195 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1201 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2850 passing across the four, conformance `PASS`.
+Expected: all clean, 2856 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17575,6 +17575,48 @@ byte-compared against the fresh build, with 0.12.9 as the control.
 Not seen live: a suggested name through the button since the budget fix, which
 loads a 5.5 GB model and so waits for the operator's say-so; and Clarvis's
 interview starting in the editor, which needs the operator's logged-in browser.
+
+## Background work follows one pool, and titles work again — 2026-09-11
+
+Checking why conversations kept their stand-in names turned up two faults.
+Of 223 stored conversations, 121 had opened with more than six words and not
+one of them had ever been titled: a new conversation is created named with its
+first six words and "…", while the titler only replaced the 48-character
+stand-in, so every longer opening looked hand-named and was skipped. The
+shorter ones were attempted and about four in ten still failed — titles went to
+the model that answered and then ravis/cheap, a local-first pool, with a
+24-token budget. Replayed against the running RAVIS, ravis/free-api answered
+nothing at 24 tokens three times in three, and a name in 1.5 seconds at 400.
+
+The operator's rule, already settled for unattended thinking, is that
+background work goes to ravis/free-api first and local models only as a
+fallback. Titles and handoff folder naming had not been following it, and the
+folder naming built the night before had copied the local-first pool. Now every
+background call walks one route: the pool chosen under Settings → Unattended
+work, then (for a title) the model that just answered, then ravis/local.
+Unattended thinking gained that local fallback too, and the PDF layout check no
+longer falls back to ravis/vision, which could reach a hosted model and
+overrule a private choice. Titles are a switch in that section, on by default
+and independent of the thinking switch; the pool field stays usable while
+thinking is off, and says that ravis/free-api is logged and trained on and that
+ravis/private or ravis/local keeps everything on this machine. The title budget
+is 400.
+
+Checked. New tests: the route's order and its private cases; titles asking the
+pool first, the operator's pool obeyed, falling back through the loaded model
+to local on a refusal or an empty answer, each model tried once, the marker on
+every step, nothing asked with titles off, and a long-opening conversation
+titled while a typed name is left alone; unattended thinking falling back after
+a 429; the layout check's new order. The Unattended work page check asserts the
+pool and title switch are live while thinking is off, the privacy sentence, and
+the switch writing. Five probes each fail their tests: only the short stand-in
+counting, no local step on the route, titles ignoring the switch, thinking with
+no fallback, and the pool field disabled again.
+
+Not seen live: a title written through the new route. It needs a chat turn,
+which creates a conversation and may load a model, so the operator's next
+conversation is the live check. The 121 old conversations keep their stand-ins
+until somebody replies in them.
 
 ## Starting the thing
 

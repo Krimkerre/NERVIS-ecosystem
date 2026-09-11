@@ -77,6 +77,18 @@ gets its own **?** beside it rather than being swept into the card's, because
 a card holding five switches and one mark in its corner says nothing about
 which switch it is explaining. Short captions stay where they are.
 
+### Where background work goes
+
+Everything NERVIS asks a model for on the side — a conversation's title, a
+handed-over task's folder name, the quick layout check on a saved PDF, and the
+thinking it does when nobody is watching — goes to one pool, set under
+**Settings → Unattended work**. It is `ravis/free-api` unless you change it:
+free, and on somebody else's hardware, so nothing is loaded onto this machine.
+If that pool answers nothing, this machine's own models are the fallback.
+Free tiers are logged and trained on; to keep all of it here, set the pool to
+`ravis/private` or `ravis/local`. **Name conversations** is a switch in the
+same section and is on by default — it does not depend on the thinking switch.
+
 ### A peer that has not answered yet
 
 The launcher starts five services at once and NERVIS is one of them, so its

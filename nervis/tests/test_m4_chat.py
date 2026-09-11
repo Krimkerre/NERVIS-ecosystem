@@ -25,12 +25,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from nervis import bridges, commands, situation
+from nervis import background, bridges, commands, situation
 from nervis import chat as store
 from nervis.api.chat import _completion_payload, _house_system, _turn_context
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import (
-    TITLE_POOL,
     _first_user_message,
     _generate_title,
     _title_from,
@@ -3538,28 +3537,35 @@ def test_an_upload_with_no_conversation_is_refused(tmp_path: Path) -> None:
 
 # ── A title reuses the model that answered, and does not load a second ─────
 
-def _title_payloads(served: str, *, refuse: int = 0) -> list[dict[str, Any]]:
+def _title_payloads(
+    served: str, *, refuse: int = 0, blank: int = 0, pool: str = "", titles: bool = True
+) -> list[dict[str, Any]]:
     """Run `_generate_title` against a fake RAVIS and return what it posted.
 
     `refuse` is how many of the first calls answer `422` — RAVIS's own reply
-    when a background-marked request names a model policy will not pay for.
+    when a background-marked request names a model policy will not pay for —
+    and `blank` how many after those answer 200 with nothing in them, which is
+    what a reasoning model cut off at the budget looks like.
     """
     posted: list[dict[str, Any]] = []
 
     class _Reply:
-        def __init__(self, status_code: int) -> None:
+        def __init__(self, status_code: int, content: str) -> None:
             self.status_code = status_code
+            self.content = content
 
-        @staticmethod
-        def json() -> dict[str, Any]:
-            return {"choices": [{"message": {"content": "A short name"}}]}
+        def json(self) -> dict[str, Any]:
+            return {"choices": [{"message": {"content": self.content}}]}
 
     class _Client:
         @staticmethod
         async def post(url: str, **kwargs: Any) -> Any:
             del url
             posted.append(kwargs["json"])
-            return _Reply(422 if len(posted) <= refuse else 200)
+            count = len(posted)
+            if count <= refuse:
+                return _Reply(422, "")
+            return _Reply(200, "" if count <= refuse + blank else "A short name")
 
     client = an_api()
     app = client.app
@@ -3569,6 +3575,7 @@ def _title_payloads(served: str, *, refuse: int = 0) -> list[dict[str, Any]]:
     app.state.probe_client = _Client()
     entry = app.state.registry.get("ravis")
     assert entry is not None and entry.is_usable, "the fake registry must offer a usable RAVIS"
+    background.configure(app.state.database, titles=titles, **({"pool": pool} if pool else {}))
 
     request = SimpleNamespace(app=app)
     asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
@@ -3577,75 +3584,87 @@ def _title_payloads(served: str, *, refuse: int = 0) -> list[dict[str, Any]]:
     return posted
 
 
-def test_a_title_asks_for_the_model_that_just_answered() -> None:
-    """**Because the alternative loads a second model.** Naming a pool is a
-    request for RAVIS to choose, and choosing is what put two builds in memory
-    for one turn: the answer came from one and the title from another. Observed
-    on this machine — chat served by `anthropic/claude-haiku-4.5`, the title
-    routed to `ravis/cheap`, which has a $0 ceiling and so admits only local
-    models, and the size tiebreak loaded `exaone-deep-2.4b` to write six words.
-    """
+def test_a_title_asks_the_background_pool_first() -> None:
+    """**Not the model that answered, and not a local pool.** Titles are
+    background work, and background work goes to the pool chosen under Settings
+    → Unattended work — `ravis/free-api` by default, which costs nothing and
+    loads nothing on this machine. Observed before: chat served by a hosted
+    model, the title routed to `ravis/cheap`, and a 2.4B reasoning build loaded
+    to write six words and produce none of them."""
     posted = _title_payloads(served="anthropic/claude-haiku-4.5")
 
-    assert posted, "a title should have been requested"
-    assert posted[0]["model"] == "anthropic/claude-haiku-4.5"
+    assert [one["model"] for one in posted] == ["ravis/free-api"]
+
+
+def test_the_operators_pool_is_the_one_asked() -> None:
+    """Somebody who wants titles private picks the pool, and the title obeys."""
+    posted = _title_payloads(served="", pool="ravis/private")
+
+    assert posted[0]["model"] == "ravis/private"
+
+
+def test_a_pool_that_answers_nothing_falls_back_to_the_loaded_model_then_local() -> None:
+    """The model that just answered is in memory already, so it is the cheapest
+    fallback there is; this machine's own pool comes last."""
+    served = "ravis/ollama/llama3.2:3b"
+
+    once = [one["model"] for one in _title_payloads(served=served, refuse=1)]
+    twice = [one["model"] for one in _title_payloads(served=served, refuse=2)]
+
+    assert once == ["ravis/free-api", served]
+    assert twice == ["ravis/free-api", served, "ravis/local"]
+
+
+def test_an_empty_answer_is_a_reason_to_fall_back() -> None:
+    """A reasoning model cut off at the budget answers 200 with nothing in it.
+    That is not a title, and it is not the end of the route either."""
+    posted = _title_payloads(served="", blank=1)
+
+    assert [one["model"] for one in posted] == ["ravis/free-api", "ravis/local"]
+
+
+def test_nothing_answering_tries_each_model_once_and_stops() -> None:
+    """The falsifier for the walk: a route nothing answers ends, rather than
+    asking the same models again."""
+    posted = _title_payloads(served="", refuse=9)
+
+    assert [one["model"] for one in posted] == ["ravis/free-api", "ravis/local"]
 
 
 def test_every_title_call_carries_the_background_marker() -> None:
-    """**NERVIS.md §7's rule, which this used to break on the pinned path.**
-
-    The marker was sent only when nothing had been served, on the reading that
-    it "cannot be sent alongside a named model". Measured against the running
-    RAVIS, that is half true, and the half it gets wrong is the expensive one: a
-    marker on a *local* model changes nothing, because `_is_paid` reads a local
-    model as free — while a marker on a *hosted* one refuses the call, which is
-    precisely the protection §7 asks for. Without it, a conversation answered by
-    a frontier model had its title billed to that model.
-    """
+    """**NERVIS.md §7's rule, on every step of the route.** The marker makes
+    RAVIS refuse a model that costs money — a hosted one that answered the
+    conversation included — so no step of the walk can bill a frontier model
+    for a title."""
     for served in ("anthropic/claude-haiku-4.5", ""):
-        posted = _title_payloads(served=served)
+        posted = _title_payloads(served=served, refuse=9)
 
-        assert posted[0]["metadata"] == {"background": True}, (
+        assert posted and all(one["metadata"] == {"background": True} for one in posted), (
             f"a title call for {served or 'no known model'} went out unmarked"
         )
 
 
-def test_a_refused_pin_asks_the_free_pool_rather_than_giving_up() -> None:
-    """The refusal *is* the answer to "may this model write it for nothing".
-
-    RAVIS answers `422 refused by policy` — no tokens billed — and the title
-    then goes to the pool, which admits only models that cost nothing. One extra
-    request, on the one path whose alternative was paying a frontier model to
-    write six words.
-    """
-    posted = _title_payloads(served="anthropic/claude-haiku-4.5", refuse=1)
-
-    assert len(posted) == 2, "a refused pin must be retried against the pool"
-    assert posted[0]["model"] == "anthropic/claude-haiku-4.5"
-    assert posted[1]["model"] == TITLE_POOL
-    assert posted[1]["metadata"] == {"background": True}, (
-        "the second call is still background work and still must say so"
-    )
+def test_titles_switched_off_ask_nothing() -> None:
+    """Settings → Unattended work → Name conversations, off: no call at all."""
+    assert _title_payloads(served="anthropic/claude-haiku-4.5", titles=False) == []
 
 
-def test_a_refusal_with_no_model_named_is_not_retried() -> None:
-    """The falsifier for the retry. With nothing served the first call already
-    *is* the pool, so trying it again would be the same request twice — and a
-    refusal there is a policy that admits nothing, which asking twice will not
-    change."""
-    posted = _title_payloads(served="", refuse=1)
+def test_a_conversation_that_opened_with_more_than_six_words_is_still_titled() -> None:
+    """**121 of 223 conversations were never titled.** A new conversation is
+    named `opening_title` — six words and "…" — and the titler only replaced a
+    `placeholder_title`, so every longer opening looked hand-named. A name
+    somebody did type must still be left alone."""
+    from nervis.api.chat_titles import opening_title
 
-    assert len(posted) == 1
+    database = an_api().app.state.database
+    opening = "can you compare the MLX and GGUF builds of gemma for tool calls"
+    conversation = store.start_conversation(database, profile="p", title=opening_title(opening))
+    store.append(database, conversation, store.Message(
+        message_id=store.new_id(), role="user", content=opening))
 
-
-def test_with_nothing_served_the_marker_and_the_cheap_pool_still_apply() -> None:
-    """The falsifier for the two above. When NERVIS does not know what answered
-    — an interrupted first turn, a store that recorded no model — RAVIS has to
-    choose, and §9.6.1's protection is exactly what that case needs."""
-    posted = _title_payloads(served="")
-
-    assert posted[0]["model"] == TITLE_POOL
-    assert posted[0]["metadata"] == {"background": True}
+    assert _first_user_message(database, conversation) == opening
+    store.rename(database, conversation, "My gemma notes")
+    assert _first_user_message(database, conversation) == ""
 
 
 def test_the_sentence_that_missed_three_ways_now_opens_the_document() -> None:

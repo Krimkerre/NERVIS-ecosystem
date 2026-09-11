@@ -1024,50 +1024,71 @@ def _ask_ravis(api: FastAPI) -> Any:
     testable without a network — and so the one place that spends money is a
     named seam rather than a line in the middle of a loop.
 
-    **No background marker.** §9.6.1's marker means "must be free", which
-    resolves to a local model — and loading a local model is exactly how
-    unattended work starts competing with the conversation somebody is having.
-    That is the trade M25 names, and it is why the pool is configuration.
+    **The chosen pool, then this machine's own** — `background.route`'s order,
+    with `think` supplying the pool. `ravis/free-api` by default costs nothing
+    and cannot take the memory chat needs; a free tier that is rate-limited or
+    down should cost a slower note from a local model, not no note. A pool that
+    answered with nothing is treated like one that failed.
+
+    **No background marker.** §9.6.1's marker means "must be free", which admits
+    a local model whatever the operator chose — the pool is the decision here,
+    made under Settings → Unattended work.
     """
     async def ask(pool: str, session: str, brief: str, facts: str) -> tuple[str, str, str]:
-        settings = api.state.settings
-        entry = api.state.registry.get("ravis")
-        if not settings.ravis_client_credential or entry is None or not entry.is_usable:
-            raise RuntimeError("RAVIS is not reachable with a credential")
-        answer = await api.state.probe_client.post(
-            entry.declaration.base_url + "/v1/chat/completions",
-            json={
-                "model": pool,
-                "messages": [
-                    {"role": "system", "content": brief},
-                    {"role": "user", "content": facts},
-                ],
-                "max_tokens": 300,
-                "user": session,
-            },
-            headers={
-                "content-type": "application/json",
-                "x-request-id": new_request_id(),
-                "authorization": f"Bearer {settings.ravis_client_credential}",
-            },
-            timeout=90.0,
-        )
-        if answer.status_code >= 400:
-            raise RuntimeError(f"RAVIS answered HTTP {answer.status_code}")
-        body = answer.json()
-        text = str(
-            ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-        )
-        used = body.get("usage") or {}
-        total = used.get("total_tokens")
-        # Tokens rather than currency. NERVIS counts requests and does not know
-        # prices — §14's rule about estimates and invoices — so a figure in money
-        # here would be one NERVIS was asserting rather than measuring.
-        cost = f"{total:,} tokens" if isinstance(total, int) else "not reported"
-        return text, str(body.get("model") or pool), cost
+        failures: list[str] = []
+        for model in dict.fromkeys(m for m in (pool, background.LOCAL_POOL) if m):
+            try:
+                text, served, cost = await _asked_once(api, model, session, brief, facts)
+            except Exception as failure:  # noqa: BLE001 - any failure moves to the fallback
+                failures.append(f"{model}: {failure}")
+                continue
+            if text.strip():
+                return text, served, cost
+            failures.append(f"{model} returned nothing")
+        raise RuntimeError("; ".join(failures))
 
     return ask
 
+
+async def _asked_once(
+    api: FastAPI, model: str, session: str, brief: str, facts: str
+) -> tuple[str, str, str]:
+    """One model's reply to the brief, or an exception saying why there is none."""
+    settings = api.state.settings
+    entry = api.state.registry.get("ravis")
+    if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+        raise RuntimeError("RAVIS is not reachable with a credential")
+    answer = await api.state.probe_client.post(
+        entry.declaration.base_url + "/v1/chat/completions",
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": brief},
+                {"role": "user", "content": facts},
+            ],
+            "max_tokens": 300,
+            "user": session,
+        },
+        headers={
+            "content-type": "application/json",
+            "x-request-id": new_request_id(),
+            "authorization": f"Bearer {settings.ravis_client_credential}",
+        },
+        timeout=90.0,
+    )
+    if answer.status_code >= 400:
+        raise RuntimeError(f"RAVIS answered HTTP {answer.status_code}")
+    body = answer.json()
+    text = str(
+        ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    )
+    used = body.get("usage") or {}
+    total = used.get("total_tokens")
+    # Tokens rather than currency. NERVIS counts requests and does not know
+    # prices — §14's rule about estimates and invoices — so a figure in money
+    # here would be one NERVIS was asserting rather than measuring.
+    cost = f"{total:,} tokens" if isinstance(total, int) else "not reported"
+    return text, str(body.get("model") or model), cost
 
 def _expire_attachments(api: FastAPI) -> None:
     """Drop attachment directories nothing has touched in a fortnight."""

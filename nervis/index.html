@@ -7782,15 +7782,13 @@ async function backgroundSection(){
 
  return `<div class="card wide${liveClass(live)}"><h3>Unattended work
    <span class="chip${b.enabled?'':' dim'}">${b.enabled?'on':'off'}</span></h3>${cell(`
-   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer">
+   ${backgroundRoute(b)}
+   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer;margin-top:12px">
      <input type="checkbox"${b.enabled?' checked':''} onchange="setBackground({enabled:this.checked})">
      <span><b>Let NERVIS think when nobody is watching</b><br>
        <small class="mono dim">it may notice things and write them into Notifications — it may never run an operation</small></span></label>
    <div style="margin-top:9px">${triggers}</div>
    <div class="filter-row" style="margin-top:10px;align-items:center">
-     <span class="mono dim">pool</span>
-     <input class="mono" style="width:150px" value="${escapeHtml(b.pool)}"
-       onchange="setBackground({pool:this.value})"${b.enabled?'':' disabled'}>
      <span class="mono dim">every</span>
      <input class="mono" style="width:56px" value="${escapeHtml(b.interval_minutes)}"
        onchange="setBackground({interval_minutes:this.value})"${b.enabled?'':' disabled'}>
@@ -7804,6 +7802,27 @@ async function backgroundSection(){
      <span>Trigger</span><span>What prompted it</span><span>Outcome</span><span>Model · cost</span></div>${rows}`
     :'<div class="mono dim" style="margin-top:11px">nothing has run yet</div>'}`,'nervis')}
    <small class="mono dim"><b>Nothing it produces is an act.</b> Every output is a note in Notifications — it may observe, draft and ask, and an operation still needs the same confirmation it needs when you are watching. <b>Every run is recorded</b>, including the ones that decided there was nothing to say, with what prompted it and what it cost. <b>Turning a trigger off stops future runs of it</b> and leaves the notes it already filed alone. <b>${escapeHtml(b.contention||'')}</b></small></div>`;
+}
+
+/* Where every background call goes, and whether conversations get titles.
+
+   First in the card and never disabled, because neither belongs to the switch
+   below it: the pool decides where titles, handoff folder names, the PDF layout
+   check and unattended thinking all ask first, and a title is part of a
+   conversation somebody is having rather than thinking nobody asked for. The
+   privacy sentence sits here because this field is the answer to it. */
+function backgroundRoute(b){
+ return `<div class="filter-row" style="align-items:center">
+     <span class="mono dim">pool for background work</span>
+     <input class="mono" style="width:150px" value="${escapeHtml(b.pool)}"
+       onchange="setBackground({pool:this.value})">
+     <span class="mono dim">then this machine's own models</span>
+   </div>
+   <small class="mono dim" style="display:block;margin-top:4px">asked first by conversation titles, handoff folder names, the PDF layout check and the thinking below. ravis/free-api costs nothing but is logged and trained on — choose ravis/private or ravis/local to keep all of it on this machine.</small>
+   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer;margin-top:9px">
+     <input type="checkbox"${b.titles?' checked':''} onchange="setBackground({titles:this.checked})">
+     <span><b>Name conversations</b><br>
+       <small class="mono dim">a short title written in the background after the first reply — off keeps the first six words</small></span></label>`;
 }
 
 /* The ledger, newest first. Its own function because the card crossed the

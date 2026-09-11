@@ -31,6 +31,7 @@ that would make this contend with the chat it is supposed to run beside.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -45,6 +46,10 @@ ENABLED = "background.enabled"
 POOL = "background.pool"
 INTERVAL = "background.interval_minutes"
 CEILING = "background.daily_runs"
+#: Whether conversations get a model-written title. Not behind `ENABLED`: that
+#: switch is about thinking nobody asked for, and a title is part of a
+#: conversation somebody is having — so it defaults on, and uses the same pool.
+TITLES = "background.titles"
 
 DEFAULTS = {
     ENABLED: "0",
@@ -63,6 +68,7 @@ DEFAULTS = {
     # not know prices — §14's rule about estimates and invoices — so a spend cap
     # here would be a number NERVIS was asserting rather than measuring.
     CEILING: "12",
+    TITLES: "1",
 }
 
 #: What may prompt a run, and what each one is for. Every trigger is individually
@@ -84,6 +90,7 @@ class Settings:
     interval_minutes: int
     daily_runs: int
     triggers: dict[str, bool]
+    titles: bool = True
 
     def wants(self, trigger: str) -> bool:
         return self.enabled and self.triggers.get(trigger, False)
@@ -94,6 +101,7 @@ class Settings:
             "pool": self.pool,
             "interval_minutes": self.interval_minutes,
             "daily_runs": self.daily_runs,
+            "titles": self.titles,
             "triggers": [
                 {"name": name, "about": about, "on": self.triggers.get(name, False)}
                 for name, about in TRIGGERS.items()
@@ -124,11 +132,42 @@ def settings(database: Database) -> Settings:
         pool=read_setting(database, POOL, DEFAULTS[POOL]),
         interval_minutes=_number(read_setting(database, INTERVAL, DEFAULTS[INTERVAL]), 30),
         daily_runs=_number(read_setting(database, CEILING, DEFAULTS[CEILING]), 12),
+        titles=read_setting(database, TITLES, DEFAULTS[TITLES]) == "1",
         triggers={
             name: read_setting(database, f"background.trigger.{name}", "1") == "1"
             for name in TRIGGERS
         },
     )
+
+
+#: Every background call's fallback when the chosen pool answers nothing: this
+#: machine's own models. Never a pool that could leave the machine, so an
+#: operator who chose `ravis/private` or `ravis/local` for privacy is not
+#: overruled by the fallback.
+LOCAL_POOL = "ravis/local"
+
+
+def route(config: Settings, *between: str) -> tuple[str, ...]:
+    """The models a background call tries, in order, each once.
+
+    The pool chosen under Settings → Unattended work first — `ravis/free-api`
+    unless somebody changed it, which costs nothing and loads nothing here —
+    then whatever the caller already has in memory (the model that just
+    answered a conversation), then this machine's own. Every background call
+    goes through here: unattended thinking, conversation titles, a handed-over
+    task's folder name, and the layout glance on a saved PDF.
+    """
+    return tuple(dict.fromkeys(m for m in (config.pool, *between, LOCAL_POOL) if m))
+
+
+#: The settings that are one stored value each, and how each is stored.
+_WRITTEN_AS: dict[str, tuple[str, Callable[[Any], str]]] = {
+    "enabled": (ENABLED, lambda value: "1" if value else "0"),
+    "titles": (TITLES, lambda value: "1" if value else "0"),
+    "pool": (POOL, lambda value: str(value).strip()),
+    "interval_minutes": (INTERVAL, lambda value: str(_number(value, 30))),
+    "daily_runs": (CEILING, lambda value: str(_number(value, 12))),
+}
 
 
 def configure(database: Database, **values: Any) -> Settings:
@@ -139,14 +178,9 @@ def configure(database: Database, **values: Any) -> Settings:
     out weeks later from a bill.
     """
     for key, value in values.items():
-        if key in ("enabled",):
-            write_setting(database, ENABLED, "1" if value else "0")
-        elif key == "pool":
-            write_setting(database, POOL, str(value))
-        elif key == "interval_minutes":
-            write_setting(database, INTERVAL, str(_number(value, 30)))
-        elif key == "daily_runs":
-            write_setting(database, CEILING, str(_number(value, 12)))
+        if key in _WRITTEN_AS:
+            name, written = _WRITTEN_AS[key]
+            write_setting(database, name, written(value))
         elif key.startswith("trigger."):
             name = key.split(".", 1)[1]
             if name not in TRIGGERS:

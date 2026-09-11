@@ -300,3 +300,61 @@ def test_there_is_no_endpoint_that_starts_a_run(tmp_path: Any) -> None:
     with TestClient(create_app(settings)) as client:
         for path in ("/api/v1/background/run", "/api/v1/background/now"):
             assert client.post(path, json={}).status_code == 404
+
+
+# ── Where every background call goes ────────────────────────────────────────
+
+
+def test_titles_are_on_by_default_and_not_behind_the_thinking_switch(database: Any) -> None:
+    """A title is part of a conversation somebody is having, not thinking nobody
+    asked for — so it defaults on while unattended work defaults off."""
+    config = background.settings(database)
+    assert config.titles is True and config.enabled is False
+    assert background.configure(database, titles=False).titles is False
+    assert background.settings(database).as_dict()["titles"] is False
+
+
+def test_the_route_is_the_chosen_pool_then_this_machine(database: Any) -> None:
+    """Free and remote first by default; a private choice is never overruled by
+    a fallback that could leave the machine."""
+    loaded = "ravis/ollama/llama3.2:3b"
+    assert background.route(background.settings(database)) == ("ravis/free-api", "ravis/local")
+    assert background.route(background.settings(database), loaded) == (
+        "ravis/free-api", loaded, "ravis/local")
+    background.configure(database, pool="ravis/private")
+    assert background.route(background.settings(database)) == ("ravis/private", "ravis/local")
+    background.configure(database, pool="ravis/local")
+    assert background.route(background.settings(database)) == ("ravis/local",)
+
+
+def test_unattended_thinking_falls_back_to_this_machine() -> None:
+    """A free tier that is rate-limited should cost a slower note, not no note."""
+    from nervis.app import _ask_ravis
+    from test_m4_chat import an_api
+
+    asked: list[str] = []
+
+    class _Reply:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"model": "ravis/ollama/llama3.2:3b",
+                    "choices": [{"message": {"content": REPLY}}],
+                    "usage": {"total_tokens": 42}}
+
+    class _Client:
+        @staticmethod
+        async def post(url: str, **kwargs: Any) -> Any:
+            del url
+            asked.append(kwargs["json"]["model"])
+            return _Reply(429 if len(asked) == 1 else 200)
+
+    app = an_api().app
+    app.state.settings.ravis_client_credential = "secret"
+    app.state.probe_client = _Client()
+    text, _, cost = asyncio.run(_ask_ravis(app)("ravis/free-api", "s", "brief", FACTS))
+
+    assert asked == ["ravis/free-api", "ravis/local"]
+    assert text == REPLY and cost == "42 tokens"

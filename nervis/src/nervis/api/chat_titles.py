@@ -24,8 +24,8 @@ import httpx
 from ecosystem_protocol import new_request_id
 from fastapi import Request
 
+from nervis import background, documents
 from nervis import chat as store
-from nervis import documents
 from nervis.api.chat_calls import _forwarded
 from nervis.registry import RegistryEntry
 
@@ -127,8 +127,8 @@ def _first_user_message(database: Any, conversation_id: str) -> str:
     `store.append` writes the first message's opening as a stand-in, so "has a
     title" cannot mean "leave it alone" — that would make the placeholder
     permanent and this whole path dead. The test is exact rather than a
-    heuristic: the stored title either *is* `placeholder_title` of the first
-    message, or somebody typed it.
+    heuristic: the stored title either *is* one of the two stand-ins made from
+    the first message, or somebody typed it.
     """
     opening = ""
     for message in store.messages(database, conversation_id):
@@ -142,36 +142,23 @@ def _first_user_message(database: Any, conversation_id: str) -> str:
          if row["conversation_id"] == conversation_id),
         "",
     )
-    if stored and stored != store.placeholder_title(opening):
+    # **Either stand-in counts.** A new conversation is created named
+    # `opening_title` — the first six words and "…" — while `append` fills an
+    # unnamed one with `placeholder_title`. Checking only the second made every
+    # conversation that opened with more than six words look hand-named, so it
+    # was never titled: 121 of 223 on this machine, on 11 September 2026.
+    if stored and stored not in (store.placeholder_title(opening), opening_title(opening)):
         return ""
     return opening
 
 
-# Where a title goes when the model that answered is not known.
-#
-# **The model that answered is asked first, and this is the fallback.** Naming
-# `ravis/cheap` used to be the whole policy, on the reading that a title is not
-# worth money — and in a local deployment that reading has a cost the accounting
-# does not show. `ravis/cheap` has a $0 ceiling, so it admits only local models,
-# and the size tiebreak picked a 2.4B build that was not the one already in
-# memory. Two models resident to answer one question and name it, and the second
-# one loaded to produce twenty-four tokens that were then discarded, because it
-# was a reasoning build that spent the budget thinking.
-#
-# Reusing the answering model costs a fraction of a cent on a hosted route and
-# nothing at all on a local one, since it is already loaded. That is a better
-# trade than a free call that loads a second model.
-TITLE_POOL = "ravis/cheap"
-
-# Short, because a title is a title. A model that needs more than this is
-# writing a summary, and NERVIS.md §7 asks for a title.
-#
-# It is also the reason a reasoning model cannot do this job: the budget goes on
-# thinking and the answer never arrives. `_title_from` throws the truncation
-# away rather than storing it, so the conversation keeps its stand-in — which is
-# the correct outcome and still a wasted call. Reusing the answering model does
-# not change that; it means the failure needs no second model in memory.
-TITLE_MAX_TOKENS = 24
+# **Room to finish, not a length for the title.** This was 24, on the reading
+# that a title is short — and the budget is what a reasoning model spends
+# before it writes anything. Replayed against the running RAVIS on 11 September
+# 2026: `ravis/free-api` answered with nothing, cut off at the limit, three
+# times in three at 24; at 400 the same pool answered in 1.5 seconds. The title
+# itself is still a handful of tokens, and `_title_from` still refuses a sentence.
+TITLE_MAX_TOKENS = 400
 
 TITLE_PROMPT = (
     "Write a short title, at most six words, for a conversation that begins "
@@ -184,82 +171,62 @@ async def _generate_title(
 ) -> None:
     """Title a conversation with a RAVIS background call (NERVIS.md §7, RAVIS §9.6.1).
 
-    **Every failure here is silent, and deliberately so.** NERVIS.md is explicit
-    that *an untitled conversation is a smaller failure than a title billed to a
-    frontier model*, so this refuses rather than degrades: no credential, no
-    RAVIS, a refusal, an empty answer — each leaves the conversation untitled
-    and nothing else happens. A retry loop or a fallback to a paid route would
-    invert the very tradeoff the specification states.
+    **Where it asks is the operator's choice.** `background.route` walks the pool
+    chosen under Settings → Unattended work (`ravis/free-api` unless changed),
+    then the model that just answered — already in memory, so a local one costs
+    no second load — then this machine's own models. Somebody who wants titles
+    private picks `ravis/private` or `ravis/local` there; somebody who wants none
+    switches titles off there.
 
-    The marker is what makes it cheap, and the marker is only honoured because
-    `_forwarded` now carries a credential. Sent unconditionally: if RAVIS
-    declines to honour it, RAVIS says so in the route explanation and the call
-    is ordinary work — which is RAVIS's decision to report, not NERVIS's to
-    guess at.
+    **Every failure is silent, and every call is marked `background`.** An
+    untitled conversation is a smaller failure than a title billed to a frontier
+    model (NERVIS.md §7): the marker makes RAVIS refuse any model that costs
+    money — a hosted one that answered the conversation included — with a 422
+    and no tokens billed, and the walk moves on. No credential, no RAVIS, or
+    nothing usable from any step leaves the stand-in, which is already right.
     """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if not settings.ravis_client_credential or entry is None or not entry.is_usable:
         return
+    database = request.app.state.database
+    config = background.settings(database)
+    if not config.titles:
+        return
+    for model in background.route(config, served):
+        title = await _title_by(request, entry, model, opening, trace_id)
+        if title:
+            break
+    else:
+        return
+    if store.exists(database, conversation_id):
+        store.rename(database, conversation_id, title)
+
+
+async def _title_by(
+    request: Request, entry: RegistryEntry, model: str, opening: str, trace_id: str
+) -> str:
+    """One model's title for a conversation, or nothing when it had none to give."""
     client: httpx.AsyncClient = request.app.state.probe_client
-    # **The marker goes on every title call, and RAVIS decides what that means.**
-    # It used to be sent only when NERVIS had no model to name, on the reading
-    # that a marker cannot accompany a named model — which is half true, and the
-    # half it gets wrong is the expensive one:
-    #
-    #   - Named a *local* model, the marker changes nothing. §9.6.1 refuses a
-    #     provider "not known to be free", and `_is_paid` reads a local model as
-    #     free because the hardware is already paid for. So the pin holds, the
-    #     resident build writes the title, and no second model is loaded — the
-    #     whole reason this path names the served model at all.
-    #   - Named a *hosted* model, the marker refuses the call outright: 422,
-    #     `refused by policy`, no tokens billed. Which is exactly right, and is
-    #     what was missing. Without the marker, a conversation answered by a
-    #     frontier model had its title billed to that model — the specific thing
-    #     NERVIS.md §7 calls a worse failure than having no title at all.
-    #
-    # Both were measured against the running RAVIS rather than reasoned about,
-    # because the comment this replaces was reasoned about and was wrong.
-    marked = {"background": True}
     payload = {
-        # The model that just answered, by name — not a pool. A pool is a
-        # request for RAVIS to choose, and choosing is what put a second model
-        # in memory: the answer from one build and the title from another, both
-        # resident, for one turn of conversation.
-        "model": served or TITLE_POOL,
+        "model": model,
         "max_tokens": TITLE_MAX_TOKENS,
         "messages": [{"role": "user", "content": TITLE_PROMPT + opening[:600]}],
-        "metadata": marked,
+        "metadata": {"background": True},
     }
-    headers = _forwarded(new_request_id(), trace_id, settings.ravis_client_credential)
+    headers = _forwarded(
+        new_request_id(), trace_id, request.app.state.settings.ravis_client_credential
+    )
     try:
         response = await client.post(
             entry.declaration.base_url + "/v1/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=TITLE_TIMEOUT_SECONDS,
+            json=payload, headers=headers, timeout=TITLE_TIMEOUT_SECONDS,
         )
-        # **A refused pin is not a failed title.** The refusal *is* the answer to
-        # "may this model write it for free", and the answer was no — so ask the
-        # pool, which admits only models that cost nothing. One extra request,
-        # only on the path where the alternative was paying a frontier model to
-        # write six words, and it carries no tokens of its own.
-        if response.status_code == 422 and served:
-            response = await client.post(
-                entry.declaration.base_url + "/v1/chat/completions",
-                json={**payload, "model": TITLE_POOL},
-                headers=_forwarded(new_request_id(), trace_id,
-                                   settings.ravis_client_credential),
-                timeout=TITLE_TIMEOUT_SECONDS,
-            )
         if response.status_code >= 400:
-            return
-        body = response.json()
+            return ""
+        return _title_from(response.json())
     except (httpx.HTTPError, ValueError):
-        return
-    title = _title_from(body)
-    if title and store.exists(request.app.state.database, conversation_id):
-        store.rename(request.app.state.database, conversation_id, title)
+        return ""
 
 
 # How a model starts a sentence *about* the task instead of doing it. Every one

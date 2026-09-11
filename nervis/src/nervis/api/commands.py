@@ -34,6 +34,7 @@ from fastapi import APIRouter, Request
 
 from nervis import (
     annotate,
+    background,
     chat,
     commands,
     documents,
@@ -88,38 +89,35 @@ BENCHMARK_SPECIFICATION: dict[str, Any] = {
 
 JOBS_CAPABILITY = "sirvis.benchmarks.jobs"
 
-# **This one model first, the pool only if it cannot be reached.** The pool
-# `ravis/vision` admits anything that can see, which is right for the pool and
-# wrong for this caller: asked to name a layout defect in one word followed by
-# a sentence, a small captioning model answered with a paragraph about a page
-# it was not shown, while `qwen2.5vl:3b` followed the format exactly — both
-# measured here, against the same deliberately broken page. So the operator's
-# own choice is named rather than left to a tiebreak that ranks on cost and
-# stable order, neither of which knows which model can follow an instruction.
-#
-# The pool stays as the fallback, unchanged for every other caller of it: a
-# machine without this model pulled still gets a glance from whatever can see,
-# rather than none at all.
+# **The chosen background pool first, then this one model, then this machine's
+# own** (`background.route`). `qwen2.5vl:3b` is the operator's measured choice
+# of a local model: asked to name a layout defect in one word followed by a
+# sentence, a small captioning model answered with a paragraph about a page it
+# was not shown, while this one followed the format exactly. It used to be asked
+# first with `ravis/vision` behind it; now the pool picked under Settings →
+# Unattended work goes first like every other background call, this model is the
+# first fallback, and the last is local — never `ravis/vision`, which can reach a
+# hosted model and would overrule an operator who chose a private pool.
 #
 # Marked `background` for the same reason a title generation is (§9.6.1): this
 # is an aside the person did not directly ask a hosted model to run, not the
 # primary reply, and RAVIS refuses to spend a non-free provider's money on a
 # call that declares itself one.
 VISUAL_CHECK_MODEL = "ravis/ollama/qwen2.5vl:3b"
-VISUAL_CHECK_FALLBACK_POOL = "ravis/vision"
 VISUAL_CHECK_TIMEOUT_SECONDS = 30.0
 VISUAL_CHECK_MAX_TOKENS = 60
 
-# The folder a handed-over task goes into is named by the same kind of call that
-# titles a conversation, marked `background` on the same free pool for the same
-# reason: an aside nobody asked a hosted model to run. A shorter timeout, because
-# the person is waiting on the button that asked.
-FOLDER_NAME_POOL = "ravis/cheap"
-# **Not the title's 24.** Replayed against the running RAVIS on 10 September
+# The folder a handed-over task goes into is named by a background call, and
+# goes where every background call goes (`background.route`): the pool chosen
+# under Settings → Unattended work, then this machine's own models. A shorter
+# timeout than a title's, because the person is waiting on the button that asked.
+# **400, the same room a title gets.** Replayed against the running RAVIS on 10 September
 # 2026 with this exact prompt: at 24 tokens `ravis/cheap` answered 502, and the
 # two live presses before it came back empty after 15 and 10 seconds; at 400 it
-# routed to `qwen2.5vl:3b` and answered `pomodoro-timer` in 3.1 seconds. The
-# name itself is a handful of tokens — this is a ceiling, not a spend.
+# routed to `qwen2.5vl:3b` and answered `pomodoro-timer` in 3.1 seconds; the
+# next day `ravis/free-api` did the same — nothing at 24, `pomodoro-timer` in
+# 1.5 seconds at 400. The name itself is a handful of tokens — this is a
+# ceiling, not a spend.
 FOLDER_NAME_MAX_TOKENS = 400
 FOLDER_NAME_TIMEOUT_SECONDS = 15.0
 FOLDER_NAME_PROMPT = (
@@ -246,16 +244,28 @@ async def _suggest_folder_name(request: Request, task: str) -> str:
     """A short folder name for a task, from a RAVIS background call — or nothing.
 
     Nothing means ask. Every failure lands there on purpose — no credential, no
-    RAVIS, a refusal, a timeout, an answer that is not a name — because the
-    alternative in each case is a guessed name, and the person is at the button.
+    RAVIS, every model on the route refusing, timing out or answering with
+    something that is not a name — because the alternative in each case is a
+    guessed name, and the person is at the button.
     """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if not settings.ravis_client_credential or entry is None or not entry.is_usable:
         return ""
+    for model in background.route(background.settings(request.app.state.database)):
+        name = await _folder_name_by(request, entry, model, task)
+        if name:
+            return name
+    return ""
+
+
+async def _folder_name_by(
+    request: Request, entry: RegistryEntry, model: str, task: str
+) -> str:
+    """One model's folder name for a task, or nothing when it had none to give."""
     client: httpx.AsyncClient = request.app.state.probe_client
     payload = {
-        "model": FOLDER_NAME_POOL,
+        "model": model,
         "max_tokens": FOLDER_NAME_MAX_TOKENS,
         "metadata": {"background": True},
         "messages": [{"role": "user", "content": FOLDER_NAME_PROMPT + task[:600]}],
@@ -267,7 +277,7 @@ async def _suggest_folder_name(request: Request, task: str) -> str:
             headers=_forwarded(
                 getattr(request.state, "request_id", ""),
                 getattr(request.state, "trace_id", ""),
-                settings.ravis_client_credential,
+                request.app.state.settings.ravis_client_credential,
             ),
             timeout=FOLDER_NAME_TIMEOUT_SECONDS,
         )
@@ -781,9 +791,8 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
     someone their file did not save when it did would be worse than the
     missed glance.
 
-    The named model is asked first and the pool only if that came back with
-    nothing, which covers the machine that never pulled it as well as the one
-    where Ollama is simply not up.
+    The chosen background pool is asked first, then the named model, then this
+    machine's own — each only if the one before came back with nothing.
     """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
@@ -792,7 +801,8 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
     snapshot = visual_check.first_page(pdf_bytes)
     if snapshot is None:
         return None
-    for model in (VISUAL_CHECK_MODEL, VISUAL_CHECK_FALLBACK_POOL):
+    config = background.settings(request.app.state.database)
+    for model in background.route(config, VISUAL_CHECK_MODEL):
         answered, defect = await _looked_over(request, entry, snapshot, model)
         if answered:
             return defect

@@ -32,7 +32,7 @@ const LEDGER = [
 ];
 
 let state = {
-  enabled: false, pool: "ravis/auto", interval_minutes: 30, daily_runs: 12,
+  enabled: false, titles: true, pool: "ravis/auto", interval_minutes: 30, daily_runs: 12,
   ran_today: 3, why_not: "unattended work is switched off",
   triggers: [
     { name: "service_health", about: "a service has been unwell", on: true },
@@ -77,7 +77,7 @@ async function main() {
   /* ── Every other control is inert while it is off ──────────────────────── */
 
   const inert = (card.match(/<input[^>]*>/g) || []).filter(
-    tag => !/type="checkbox"[^>]*onchange="setBackground\(\{enabled/.test(tag));
+    tag => !/onchange="setBackground\(\{(enabled|titles|pool)/.test(tag));
   const live = inert.filter(tag => !/disabled/.test(tag));
   if (live.length) {
     failures.push(
@@ -86,6 +86,24 @@ async function main() {
     );
   }
 
+  /* ── The pool and titles are live whatever the switch says ────────────── */
+  const route = (card.match(/<input[^>]*>/g) || []).filter(
+    tag => /setBackground\(\{(titles|pool)/.test(tag));
+  if (route.length !== 2 || route.some(tag => /disabled/.test(tag))) {
+    failures.push(
+      "the pool and the title switch are not both offered and usable while thinking " +
+      "is off. They govern titles, handoff folder names and the layout check too, " +
+      "none of which that switch turns on."
+    );
+  }
+  if (!/ravis\/private or ravis\/local/.test(card)) {
+    failures.push("the card does not say how to keep background work on this machine.");
+  }
+  posted.length = 0;
+  await vm.runInContext("setBackground({titles:false})", context);
+  if (!posted.length || posted[0].titles !== false) {
+    failures.push("the title switch does not write.");
+  }
   /* ── The switch writes ─────────────────────────────────────────────────── */
 
   posted.length = 0;
@@ -152,7 +170,8 @@ async function main() {
   }
   console.log(
     "unattended work holds: off by default and saying why, every other control " +
-    "inert until it is on, the switch writing, the ledger showing failed and " +
+    "inert until it is on while the pool and title switch stay live, the switch " +
+    "writing, the ledger showing failed and " +
     "unusable runs with model and cost, the contention gap stated, no way to " +
     "start a run, and a dark NERVIS reported rather than drawn as off"
   );
