@@ -17703,6 +17703,48 @@ message, and a refused turn not stored. Five probes each fail their test. Not se
 live: a chat turn that explores gpt-5.6-sol again — the operator's next
 conversation is the check.
 
+## Clarvis stops at a missing dependency, 0.14.0 — 2026-09-11
+
+The second build from a handoff, a pomodoro timer, stalled on tkinter. The
+interview chose Python with tkinter, and the Pythons this machine runs — pyenv's
+3.11.15 and Homebrew's 3.14 — were built without it; only the system's old
+/usr/bin/python3 has Tk. The first milestone's check failed with "No module named
+'_tkinter'" and the run read past it: steps were ticked as "cannot be tested", the
+next milestone ran pyenv install and pyenv global — refused only by the sandbox,
+because no gate rule named pyenv — and then the plan was rewritten around the gap.
+"continue building" got back a reply that only announced its step, and the run
+ended there. Asked afterwards, chat said tkinter ships with Python and needs no
+installing, and described a src/main.go the project does not have.
+
+Tkinter was the trigger. The fault was that nothing treated a missing piece of the
+machine as a question for the person whose machine it is. Fixed in Clarvis 0.14.0.
+A failed command whose output says something is missing — a Python module or one of
+Python's own parts, a Node package, a Ruby gem, a Go module, a program the shell
+cannot find, a system library or header, Apple's command line tools — now stops the
+run and asks, in every mode including Unattended: install it into this project
+(offered only where that is possible), I'll install it myself, find another way, or
+stop. Every answer but finding another way ends the run with nothing ticked, landed
+or offered for review; finding another way carries on under an instruction not to
+install anything, change the machine, edit the plan or tick a step. Changing the
+machine's languages and tools — pyenv, asdf, nvm, rustup, conda, pipx, uv's Python
+installs, brew upgrade, apt and their like — is a new gate category, toolchain, that
+always asks. Chat's facts now carry what was found missing (for three days), the
+project's files two levels deep, and the language the plan chose. A reply that only
+announces its step is asked, once, to carry it out. Both milestone briefs now say
+never to tick a step whose check did not pass: leave it unticked, keep its wording,
+say why.
+
+Checked: Clarvis's check passes on top of the Stop fix (0.13.2) — 1,353 tests with
+types and lint, run in a clean worktree holding exactly what is committed — and 13
+probes each break one piece of this and each fails its test. 0.14.0 is installed in
+code-server and VS Code, and both installed bundles match the fresh build of that
+commit byte for byte, with 0.13.2 as the control.
+ Not seen live: the question in the editor — the next build that
+meets a missing dependency is the live check. Left for the user to decide, and not
+done: making tkinter available on this machine (Homebrew's python-tk, or rebuilding
+pyenv's Python against Tcl/Tk), and the pomodoro project's first two milestones,
+which are still ticked although their checks never ran.
+
 ## Stop lets go of a question on screen, Clarvis 0.13.2 — 2026-09-11
 
 Pressing Stop while Clarvis waited on "Do it / Skip this step" did nothing until

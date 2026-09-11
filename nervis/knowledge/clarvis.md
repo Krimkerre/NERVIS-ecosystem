@@ -25,6 +25,17 @@ at all.
 and reversed, and there are commands for exactly that: review the run, show the
 last summary, undo it.
 
+**It stops at what is missing.** When a command fails because something is not on
+this computer — a Python module such as tkinter, a package, a program, a system
+library — Clarvis stops and asks what to do, in every mode including Unattended:
+install it into the project (only offered when that is possible), install it
+yourself, find another way, or stop. It never reinstalls a language or changes
+how the computer is set up on its own, and the commands that would (pyenv, nvm,
+conda, brew upgrade and the like) always ask first. A run that stopped this way
+ticks nothing off. Chat remembers what was missing for three days, so it cannot
+explain the gap away. Added 11 September 2026 in Clarvis 0.14.0, after a pomodoro
+build tried to reinstall Python when tkinter was missing.
+
 ## How it chooses a model
 
 Chat and the agent are **separate roles with separate settings** — provider and

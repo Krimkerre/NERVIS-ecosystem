@@ -67,7 +67,7 @@ regression requirement, not an ecosystem proposal.
 | Privileged behaviour lives in the extension host. The webview is presentation and message input — **not an authority boundary** — talking to the host over a narrow `postMessage` bridge. | `src/panels/`, `src/extension.ts` |
 | Clarvis's own file, read, search and edit tools stay inside the opened workspace, resolving and checking paths including escape and symlink cases. `isInside()` probes the real filesystem for case sensitivity rather than inferring it from `process.platform` — a fix for a real macOS containment escape on case-sensitive APFS. | `src/agent/`, `docs/build-log.md` |
 | Commands are separately approval-gated and OS-sandboxed. Network is denied by default and opened only for gate categories that cannot work without it. **The command boundary is more nuanced than tool containment and must keep being stated honestly.** | `src/agent/tools/sandbox*.ts`, `src/agent/Gate.ts` |
-| Risky, destructive and outward-facing operations stop at approval gates. Anything outside the workspace is **refused**, not made approvable. A sensitive-file read gate (`.env`, credentials, private keys) fires in every mode. | `src/agent/Gate.ts`, `src/agent/sensitivePath.ts` |
+| Risky, destructive and outward-facing operations stop at approval gates, and so does changing this computer's languages and tools. Anything outside the workspace is **refused**, not made approvable. A sensitive-file read gate (`.env`, credentials, private keys) fires in every mode, and so does the question a command's missing dependency raises. | `src/agent/Gate.ts`, `src/agent/sensitivePath.ts`, `src/agent/missingDependency.ts` |
 | Clarvis acts only when asked. Unsolicited observation never becomes a code change. | `plan.md` §4 |
 | `ModelProvider` abstracts completion, streaming, tool support and model listing. Providers include direct cloud, local hosts, and arbitrary OpenAI-compatible endpoints. | `src/model/ModelProvider.ts`, `src/model/OpenAiCompatibleProvider.ts` |
 | **Chat and coding/agent roles use independently configured providers and models.** | settings `clarvis.chat.provider` / `clarvis.chat.model` and `clarvis.agent.provider` / `clarvis.agent.model` |
@@ -722,6 +722,28 @@ draft is emptied before it is closed. "Continue" after a stopped milestone ran a
 text ended the run — they are read as calls. And answers about the project had no file list and
 called a never-committed tree "clean" — both corrected. Starting a build no longer switches
 Unattended back to Agent; asking before each step in Agent mode is intentional.
+
+**11 September 2026 — a missing dependency is a question, in every mode (Clarvis 0.14.0).** The
+next build from a handoff stalled on something no plan could have known: the interview chose
+Python with tkinter, and this computer's Python was built without it. The command said so in one
+line — `No module named '_tkinter'` — and the run read past it. It tried to reinstall the
+machine's Python with pyenv (no rule named pyenv, so nothing asked first), ticked steps whose
+checks had never run, rewrote the plan to call them untestable, and chat later described the
+project as written in Go. Tkinter was the trigger, not the fault: a missing piece of the machine
+was treated as something to work around, when it is a question for the person whose machine it
+is. Now a failed command whose output says something is missing — a Python module or one of
+Python's own parts, a Node package, a Ruby gem, a Go module, a program, a system library or
+header, Apple's command line tools — stops the run and asks, in Agent and Unattended alike, the
+way the deny-list does: install it into this project (offered only where that is possible), I'll
+install it myself, find another way, or stop. Installing it yourself, stopping, or closing the
+question ends the run with nothing ticked and nothing offered for landing or review; finding
+another way carries on under an instruction not to install anything, change the machine, edit the
+plan or tick a step. Changing the machine's languages and tools — pyenv, asdf, nvm, rustup, conda,
+pipx, brew upgrade, apt and their like — is a gate category of its own, toolchain, that always
+asks and cannot be undone. What was found missing is remembered for three days and given to chat's
+answers, along with the project's files two levels deep and the language the plan chose. A reply
+that only announced its step is asked, once, to carry it out. Both milestone briefs now say a step
+whose check did not pass is never ticked or reworded — left as it is, with the reason said.
 
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
