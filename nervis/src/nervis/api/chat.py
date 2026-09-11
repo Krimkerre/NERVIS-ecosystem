@@ -1006,6 +1006,7 @@ async def _relay(
     # has to guess, which is how a reply lands in the wrong one.
     yield f": conversation {conversation_id}\n\n".encode()
 
+    refused = ""
     try:
         async with client.stream(
             "POST",
@@ -1022,6 +1023,7 @@ async def _relay(
             started = True
             async for line in response.aiter_lines():
                 text, done = _delta(line)
+                refused = refused or _refusal_of(line)
                 # Appended unconditionally: `"".join` treats an empty string as
                 # nothing, so the guard bought a branch and no behaviour.
                 collected.append(text)
@@ -1056,7 +1058,11 @@ async def _relay(
         # indication that anything had happened. An empty assistant turn that
         # finished says "it answered with nothing", which is true and is what a
         # screen needs in order to explain it.
-        if started and keep:
+        # **A refusal is not an empty answer.** RAVIS reports a failure inside
+        # a stream it already began, so `started` is true and nothing was
+        # collected — and storing that turn is what put "the model returned an
+        # empty message" in the conversation for a request OpenAI had refused.
+        if started and keep and not refused:
             store.append(
                 database,
                 conversation_id,
@@ -1077,6 +1083,20 @@ async def _relay(
         # duration bounds every other. Emitted whether or not the turn was
         # stored: an interrupted answer still took the time it took.
         _close_turn(request, conversation_id, request_id, trace_id, model, interrupted)
+
+
+def _refusal_of(line: str) -> str:
+    """The message of an error frame inside the stream, or "" for any other line."""
+    if not line.startswith("data:"):
+        return ""
+    try:
+        frame = json.loads(line[5:].strip())
+    except ValueError:
+        return ""
+    error = frame.get("error") if isinstance(frame, dict) else None
+    if not error:
+        return ""
+    return str(error.get("message") if isinstance(error, dict) else error) or "refused"
 
 
 def _delta(line: str) -> tuple[str, bool]:

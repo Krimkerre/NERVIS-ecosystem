@@ -663,7 +663,8 @@ class _Call:
 
     def body_for(self, model: str) -> bytes:
         """The request body addressed to one particular model."""
-        return _with_model(self.body, self.payload, model, self._ttl(model))
+        body = _with_model(self.body, self.payload, model, self._ttl(model))
+        return _for_openai(body) if _is_openai(self.target_for(model)) else body
 
     def finish(self) -> None:
         """Attach the attempt history to the recorded decision (§9.7).
@@ -1409,6 +1410,34 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
     return chain
 
 
+def _is_openai(url: str) -> bool:
+    """Whether an attempt goes to OpenAI itself, not to an upstream speaking its protocol."""
+    return httpx.URL(url).host == "api.openai.com"
+
+
+def _for_openai(body: bytes) -> bytes:
+    """`max_tokens`, spelled the way OpenAI's current models require.
+
+    **OpenAI renamed the field, and its newer models refuse the old name.** Found
+    live, 11 September 2026: `gpt-5.6-sol` answered a NERVIS chat turn with
+    "Unsupported parameter: 'max_tokens' is not supported with this model. Use
+    'max_completion_tokens' instead." OpenAI accepts the new name on its chat
+    models, so for OpenAI the old one is renamed. DeepSeek, xAI, OpenRouter and
+    the local runtimes speak this protocol too and are left alone — not all of
+    them know the new name. A client that already sent it keeps what it sent.
+    """
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return body
+    if not isinstance(payload, dict) or "max_completion_tokens" in payload:
+        return body
+    if "max_tokens" not in payload:
+        return body
+    payload["max_completion_tokens"] = payload.pop("max_tokens")
+    return json.dumps(payload).encode()
+
+
 def _with_model(body: bytes, payload: dict[str, Any], model: str,
                 ttl_seconds: int = 0) -> bytes:
     """Rewrite the `model` field — and, for a local runtime, how long it stays.
@@ -1855,8 +1884,26 @@ def _refuse(call: _Call, model: str, started: float, status: int, detail: bytes)
     mean yielding an error frame *and* a stream.
     """
     failure_class = classify_response(status, detail) or FailureClass.UNKNOWN
-    call.chain.failed(model, started, failure_class, f"HTTP {status}")
+    call.chain.failed(model, started, failure_class, f"HTTP {status}: {_message_of(detail)}")
     raise _TryNext(detail)
+
+
+def _message_of(body: bytes) -> str:
+    """An upstream error's own sentence, short, for the attempt record.
+
+    **The reason, not just the status.** The log said `gpt-5.6-sol
+    (invalid_request)` and nothing else, so why OpenAI refused could only be
+    found by spending a request to reproduce it. The error's message is neither
+    a prompt nor a completion, which is what `Attempt` keeps out.
+    """
+    try:
+        found = json.loads(body)
+    except ValueError:
+        found = None
+    error = found.get("error") if isinstance(found, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    text = str(message) if message else body.decode("utf-8", "replace")
+    return " ".join(text.split())[:200]
 
 
 def _stream_failed(
@@ -1876,8 +1923,20 @@ def _sse_error(detail: bytes) -> bytes:
 
     A stream that stops without `[DONE]` leaves a client waiting for more, so
     even a failure ends the stream the way the protocol says to end it.
+
+    **One line, whatever the upstream sent.** An SSE `data:` field ends at a
+    newline, and OpenAI pretty-prints its error bodies — eight newlines in a
+    plain 401. Wrapped as they came, only `data: {` reached the client, no frame
+    parsed, NERVIS showed "the model returned an empty message" and stored an
+    empty reply, for a request OpenAI had refused in plain words (11 September
+    2026). JSON is re-serialised compactly; anything else has its breaks folded.
     """
-    return b"data: " + detail.strip() + b"\n\ndata: [DONE]\n\n"
+    text = detail.strip()
+    try:
+        text = json.dumps(json.loads(text)).encode()
+    except ValueError:
+        text = b" ".join(text.split())
+    return b"data: " + text + b"\n\ndata: [DONE]\n\n"
 
 
 def _exhausted_body(chain: AttemptChain) -> bytes:

@@ -290,6 +290,8 @@ The model that would ordinarily have won stays first in the fallback list, which
 matters more here than usual — an untried model is exactly the one most likely
 to fail.
 
+**An exploratory pick that refuses a setting no longer costs the reply.** On 11 September 2026 exploration picked `gpt-5.6-sol`, OpenAI refused the request because that model only accepts `max_completion_tokens`, and chat showed "the model returned an empty message". RAVIS now sends OpenAI the name it wants, treats "this model does not support that parameter" as a reason to try the next model rather than a bad request, and reports a failed stream as the error it was — so the usual pick answers instead, and a real refusal reads as one.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2857 tests, no network, no live service
+.venv/bin/pytest                      # part of 2863 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1202 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1203 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2857 passing across the four, conformance `PASS`.
+Expected: all clean, 2863 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -17663,6 +17663,45 @@ fail their test; 0.13.1 is installed in code-server and VS Code and both bundles
 match the fresh build, with 0.13.0 as the control. Not seen live: any of it in the
 editor — the next build is the live check. The existing pomodoro-timer folder still
 has no commits.
+
+## A chat turn that "returned an empty message" — 2026-09-11
+
+Starting a new handoff from NERVIS chat, the reply read "The model returned an
+empty message". It had not. Read from RAVIS's route decision, its log and its
+access log: the chat pool's exploration picked gpt-5.6-sol, OpenAI refused the
+request with a 400, and three faults turned that into a blank turn.
+
+RAVIS forwarded max_tokens, and OpenAI's newer models only take
+max_completion_tokens ("Unsupported parameter: 'max_tokens' is not supported with
+this model"). RAVIS then classified the 400 as an invalid request, which never
+falls back, so Claude Haiku and Gemini Flash were never tried. And having already
+begun the stream, RAVIS reported the failure inside it — with OpenAI's
+pretty-printed error body, eight newlines in it, wrapped as one data line. Only
+"data: {" reached the page: nothing parsed, the page said the model returned an
+empty message, and NERVIS stored an empty assistant turn.
+
+Fixed. RAVIS renames max_tokens to max_completion_tokens for requests going to
+api.openai.com only; the other upstreams that speak the protocol get what was
+sent. A 400 saying one model does not support a parameter is a new failure class,
+unsupported parameter, that may fall back to the next candidate — a genuinely
+malformed request still stops, as before. An error reported inside a stream is
+one line of compact JSON. The attempt record and "no upstream attempt succeeded"
+now carry the upstream's own sentence, so the next refusal says why in the log.
+NERVIS no longer stores a refused turn as an empty answer; the refusal still
+reaches the page.
+
+The reason was established by replaying the request against OpenAI through
+RAVIS, which it refused without charge, and an unauthenticated request confirmed
+OpenAI's error bodies are multi-line. An earlier guess — that reasoning_effort was
+the objection — was wrong and is not what was fixed.
+
+Checked: RAVIS's full suite and mypy, NERVIS's full suite and lint, dead code and
+imports all pass. New tests: the classification and a routed fallback past
+OpenAI's exact refusal, the rename for OpenAI and not for another upstream, a
+pretty-printed error body becoming one frame, the reason in the exhausted
+message, and a refused turn not stored. Five probes each fail their test. Not seen
+live: a chat turn that explores gpt-5.6-sol again — the operator's next
+conversation is the check.
 
 ## Starting the thing
 

@@ -131,8 +131,9 @@ def test_the_real_stream_records_usage_from_a_split_frame() -> None:
     callers. So this one sends genuinely split chunks through the application
     and reads what reached the ledger.
     """
-    from ravis.cost import Price
     from tests.test_fallback import ScriptedUpstream, _app_with
+
+    from ravis.cost import Price
 
     head, tail = _split_at(WHOLE, WHOLE.index(b'"usage"') + 4)
     upstream = ScriptedUpstream(

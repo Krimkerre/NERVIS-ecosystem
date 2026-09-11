@@ -297,6 +297,58 @@ def test_every_other_terminal_class_keeps_its_policy_even_from_a_pool() -> None:
     assert chain.next_target() is None
 
 
+def test_a_parameter_one_model_refuses_is_not_the_requests_fault() -> None:
+    """OpenAI's words for `gpt-5.6-sol`, which stopped a chain with two models
+    untried. They classify as the model's objection, and a pool moves on."""
+    from ravis.reliability.failures import FailureClass, classify_response
+
+    said = (b'{"error": {"message": "Unsupported parameter: \'max_tokens\' is not supported '
+            b'with this model.", "type": "invalid_request_error", '
+            b'"code": "unsupported_parameter"}}')
+    assert classify_response(400, said) is FailureClass.UNSUPPORTED_PARAMETER
+    tools = b'{"error": {"message": "unsupported parameter: \'tools\'"}}'
+    assert classify_response(400, tools) is FailureClass.TOOL_INCOMPATIBILITY
+
+    chain = a_chain(from_pool=True)
+    assert chain.next_target() == "first"
+    chain.failed(
+        "first", 0.0, FailureClass.UNSUPPORTED_PARAMETER, "HTTP 400: Unsupported parameter"
+    )
+    assert chain.next_target() == "second"
+
+
+def test_an_exhausted_chain_names_each_attempts_reason() -> None:
+    """The log said `gpt-5.6-sol (invalid_request)` and nothing more, so why
+    OpenAI refused could only be found by reproducing it."""
+    from ravis.reliability.failures import FailureClass
+
+    chain = a_chain(from_pool=False)
+    assert chain.next_target() == "first"
+    chain.failed("first", 0.0, FailureClass.INVALID_REQUEST, "HTTP 400: Unsupported value")
+
+    assert chain.next_target() is None
+    assert "HTTP 400: Unsupported value" in chain.exhausted_message()
+
+
+def test_a_pretty_printed_error_body_is_one_sse_frame() -> None:
+    """OpenAI's error bodies carry newlines; a `data:` field ends at one. The
+    frame has to be a single line a client can parse, or the refusal vanishes."""
+    import json
+
+    from ravis.api.openai.chat import _message_of, _sse_error
+
+    body = (b'{\n    "error": {\n        "message": "Unsupported value: reasoning_effort",\n'
+            b'        "type": "invalid_request_error"\n    }\n}\n')
+    frame = _sse_error(body)
+    first = frame.split(b"\n\n")[0]
+
+    assert first.startswith(b"data: ") and b"\n" not in first
+    message = json.loads(first[len(b"data: "):])["error"]["message"]
+    assert message == "Unsupported value: reasoning_effort"
+    assert frame.endswith(b"data: [DONE]\n\n")
+    assert _message_of(body) == "Unsupported value: reasoning_effort"
+
+
 # ── Conversation, where the soft preferences point the wrong way ─────────────
 
 

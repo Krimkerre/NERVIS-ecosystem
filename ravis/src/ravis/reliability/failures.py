@@ -86,6 +86,13 @@ class FailureClass(Enum):
     TOOL_INCOMPATIBILITY = "tool_incompatibility"
     CONTEXT_OVERFLOW = "context_overflow"
     CONTENT_REFUSAL = "content_refusal"
+    # A request this particular model cannot take as written — a parameter it
+    # does not accept, a value it does not allow. Not an invalid request: OpenAI
+    # refused `gpt-5.6-sol` with "Unsupported parameter: 'max_tokens' is not
+    # supported with this model" for a body Claude Haiku and Gemini would have
+    # served (11 September 2026). The next candidate is a different model, which
+    # is the whole reason it may be tried.
+    UNSUPPORTED_PARAMETER = "unsupported_parameter"
     # A success status carrying something that is not a usable response: a 200
     # with an error object in its body, or a stream that closes without a single
     # byte. §10's list does not name this, and it is added rather than folded
@@ -126,6 +133,11 @@ _POLICIES: dict[FailureClass, FailurePolicy] = {
     # and a fallback would only spend a second model's time to say so again.
     FailureClass.INVALID_REQUEST: FailurePolicy(False, False, HealthScope.NONE),
     FailureClass.TOOL_INCOMPATIBILITY: FailurePolicy(False, False, HealthScope.NONE),
+    # One model's objection to a parameter is evidence about that model only, so
+    # another candidate is worth trying. Not retried against the same target —
+    # it would object again — and no circuit: the same model serves requests
+    # without that parameter perfectly well.
+    FailureClass.UNSUPPORTED_PARAMETER: FailurePolicy(False, True, HealthScope.NONE),
     # §10 says context is handled by *routing* to a larger-context model, or by
     # rejecting — and explicitly not by silent truncation. Pre-flight filtering
     # (M6) is where the routing happens; an overflow that survives it means the
@@ -191,6 +203,13 @@ _BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
         FailureClass.TOOL_INCOMPATIBILITY,
         ("does not support tools", "tools are not supported", "function calling is not",
          "unsupported parameter: 'tools'"),
+    ),
+    # After the tools entry, so "unsupported parameter: 'tools'" stays a tool
+    # incompatibility. OpenAI's own codes first, then its wording.
+    (
+        FailureClass.UNSUPPORTED_PARAMETER,
+        ("unsupported_parameter", "unsupported_value", "unsupported parameter",
+         "unsupported value", "is not supported with this model"),
     ),
     (FailureClass.LOCAL_OOM, ("out of memory", "insufficient memory", "failed to allocate")),
     # "model unloaded or unavailable" is what the configured LM Studio answers

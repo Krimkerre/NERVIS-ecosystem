@@ -922,7 +922,8 @@ still satisfy the original hard constraints **and the pool capability invariants
 
 **Failure classification:** timeout, connection failure, rate limit, provider overload, model
 unavailable, local OOM, invalid request, authentication, tool incompatibility, context
-overflow, content refusal.
+overflow, content refusal — and, added on 11 September 2026, unsupported parameter: a request
+one model cannot take as written, which may fall back to the next candidate.
 
 **Retry budget:** max attempts, max total latency, max total monetary cost.
 

@@ -94,6 +94,8 @@ class ScriptedUpstream:
         self.break_after = break_after or {}
         self.frames = frames if frames is not None else FRAMES
         self.served: list[str] = []
+        # The bodies as they arrived, for the tests about what was forwarded.
+        self.bodies: list[dict[str, Any]] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
@@ -107,6 +109,7 @@ class ScriptedUpstream:
         payload = json.loads(request.content or b"{}")
         model = payload.get("model", "")
         self.served.append(model)
+        self.bodies.append(payload)
         refused = self._refusal(model, request)
         if refused is not None:
             return refused
@@ -164,7 +167,7 @@ def _app_with(upstream: ScriptedUpstream, **overrides: Any) -> TestClient:
     """
     settings = Settings(
         database_path=":memory:",
-        upstream_base_url="http://upstream.invalid",
+        upstream_base_url=overrides.pop("upstream_base_url", "http://upstream.invalid"),
         model_capabilities=upstream.catalogue,
         _env_file=None,  # type: ignore[call-arg]
         **overrides,
@@ -1060,7 +1063,7 @@ def test_a_chain_that_times_out_everywhere_says_so_per_model() -> None:
 
     assert response.status_code == 502
     failure = response.json()["error"]["message"]
-    assert "coder-a (timeout)" in failure and "coder-b (timeout)" in failure
+    assert "coder-a (timeout" in failure and "coder-b (timeout" in failure
 
 
 def test_a_directly_named_model_that_times_out_is_not_replaced() -> None:
@@ -1124,3 +1127,34 @@ def test_a_bare_500_is_not_chased_across_the_pool() -> None:
     assert response.status_code == 500
     assert upstream.served == ["coder-a"]
     assert response.json() == {"error": "boom"}
+
+
+def test_a_model_that_refuses_a_parameter_is_fallen_back_from() -> None:
+    """**One model's objection is not the request's fault.** Found live, 11
+    September 2026: OpenAI refused `gpt-5.6-sol` over `max_tokens`, and the
+    chain stopped with two models untried that would have answered."""
+    refusal = {"error": {
+        "message": "Unsupported parameter: 'max_tokens' is not supported with this model.",
+        "type": "invalid_request_error", "param": "max_tokens", "code": "unsupported_parameter",
+    }}
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, refusal)})
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={"model": AGENT_POOL, "max_tokens": 64})
+
+        assert upstream.served == ["coder-a", "coder-b"]
+        assert response.status_code == 200
+
+
+def test_openai_is_sent_max_completion_tokens_and_others_what_was_sent() -> None:
+    """OpenAI's current models refuse `max_tokens`; upstreams that merely speak
+    its protocol are not promised to know the new name."""
+    for base_url, kept, dropped in (
+        ("https://api.openai.com/v1", "max_completion_tokens", "max_tokens"),
+        ("http://upstream.invalid", "max_tokens", "max_completion_tokens"),
+    ):
+        upstream = ScriptedUpstream(TWO_CODERS)
+        with _app_with(upstream, upstream_base_url=base_url) as client:
+            client.post("/v1/chat/completions", json={"model": "coder-a", "max_tokens": 64})
+
+        sent = upstream.bodies[-1] if upstream.bodies else {}
+        assert sent.get(kept) == 64 and dropped not in sent, (base_url, sent)

@@ -329,7 +329,9 @@ class AttemptChain:
         "all upstream attempts failed" without either is a message that sends
         the reader to the logs.
         """
-        tried = ", ".join(f"{a.model} ({a.outcome})" for a in self._attempts) or "nothing"
+        tried = ", ".join(
+            f"{a.model} ({a.outcome}{' — ' + a.detail if a.detail else ''})" for a in self._attempts
+        ) or "nothing"
         return f"No upstream attempt succeeded. Tried: {tried}. {self._stopped}".strip()
 
     def _budget_spent(self) -> bool:
@@ -372,7 +374,8 @@ class AttemptChain:
 
         Every other class keeps its policy. An invalid request really would fail
         the same way everywhere, and spending a second model's time to prove it
-        is what the flag exists to prevent.
+        is what the flag exists to prevent — which is why one model refusing a
+        *parameter* is its own class, `UNSUPPORTED_PARAMETER`, rather than this.
         """
         if failure_class is FailureClass.AUTHENTICATION and self.from_pool:
             return True

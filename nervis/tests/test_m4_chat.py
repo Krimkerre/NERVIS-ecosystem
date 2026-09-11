@@ -2512,6 +2512,23 @@ def test_a_ravis_refusal_mid_stream_is_reported_as_itself() -> None:
     assert "circuit open after 3 consecutive failures" in answered.text
 
 
+def test_a_refusal_mid_stream_is_not_stored_as_an_empty_answer() -> None:
+    """**A refusal is not an answer with nothing in it.** Found live, 11
+    September 2026: RAVIS reported OpenAI's 400 inside a stream it had begun,
+    NERVIS stored an empty assistant turn, and the conversation read "the model
+    returned an empty message". The refusal still reaches the page."""
+    refusal = json.dumps({"error": {"message": "Unsupported value: reasoning_effort",
+                                    "type": "invalid_request_error"}})
+    client = an_api([f"data: {refusal}\n\n".encode(), b"data: [DONE]\n\n"])
+
+    answered = turn(client, "say ok")
+    conversation = answered.text.split(": conversation ", 1)[1].split("\n", 1)[0].strip()
+
+    assert "Unsupported value: reasoning_effort" in answered.text
+    roles = [m.role for m in store.messages(client.app.state.database, conversation)]
+    assert roles == ["user"], f"a refused turn was stored as an answer: {roles}"
+
+
 def test_the_gap_is_given_in_seconds_rather_than_rounded_away() -> None:
     """It used to say "less than a minute ago", and a model asked a question
     fifty seconds after the previous one answered "you asked this fifty seconds
