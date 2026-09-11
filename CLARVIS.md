@@ -707,6 +707,22 @@ file is removed once the first answers are saved, so a window closed at the firs
 offers it again rather than losing it. The exit's *"offered as a build"* reads *"planned through
 the interview"* from here on; the other clauses stand.
 
+**11 September 2026 — the first build from a handoff stalled, and why.** The interview and the
+plan worked; the build never reached a finished project. Seven faults, each found in the run's
+own log and fixed in Clarvis 0.13.1. A milestone check (`python timer.py 5`) waited on the clock
+while Python held its output back, looked hung, and was stopped — commands now run unbuffered,
+and milestone briefs say a check must finish in seconds. A stopped run committed nothing and a
+freshly initialised repository had no first commit, so every later run treated the project's
+files as the user's and nothing was ever committed — a stopped run now commits what it wrote,
+and accepting the git offer makes an empty first commit. The "fold this into master?" question
+took any typed reply as a merge — it now takes only its own buttons, and anything else is read
+as a message. Closing the unsaved plan draft left a copy named after its first heading — the
+draft is emptied before it is closed. "Continue" after a stopped milestone ran as a one-off job
+— it now picks the plan back up at its unfinished milestone. Tool calls a model wrote out as
+text ended the run — they are read as calls. And answers about the project had no file list and
+called a never-committed tree "clean" — both corrected. Starting a build no longer switches
+Unattended back to Agent; asking before each step in Agent mode is intentional.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same

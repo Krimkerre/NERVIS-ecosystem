@@ -17623,6 +17623,47 @@ which creates a conversation and may load a model, so the operator's next
 conversation is the live check. The 121 old conversations keep their stand-ins
 until somebody replies in them.
 
+## The first build from a handoff, and Clarvis 0.13.1 — 2026-09-11
+
+The handoff worked end to end: chat's Hand over wrote nervis-tasks/pomodoro-timer,
+the Code tab opened it, and Clarvis ran its interview and wrote an approved plan
+with three milestones. The build never reached a finished project. Read from the
+run's own log, the task folder and RAVIS's route decisions, seven faults:
+
+A milestone check ran python timer.py 5 — minutes, by the plan's own CLI step —
+while Python held its output back because it was writing to a pipe, so the
+terminal stayed blank and the run was stopped as hung. Milestone 1 never
+finished, so nothing was ticked and no later milestone was offered.
+
+Nothing was ever committed. Accepting the git offer ran `git init` with no first
+commit; a stopped run commits nothing; and a run never commits files that
+existed before it started. So timer.py, written by the stopped run, was "the
+user's" to every run after it.
+
+"Fold this into master?" took any typed reply as a merge: "that last command
+failed" merged. Closing the unsaved plan draft left a file named after the plan's heading, byte
+identical to plan.md. "continue from plan.md.. fix timer.py" ran as a one-off job
+outside the plan. The agent pool's model, qwen3-coder-30b-a3b-instruct via
+OpenRouter, once wrote a tool call into its reply as text and the run ended after
+0 steps. And asked about the project, chat said plan.md did not exist and the
+working tree was clean — its facts carried no file list, and "working tree
+clean, plus 3 untracked" read as clean.
+
+All fixed in Clarvis 0.13.1: unbuffered command output and a brief rule that a
+check finishes in seconds; a stopped run commits what it wrote and the git offer
+makes an empty first commit; that question takes only its own buttons; the draft
+is emptied before it closes; "continue" picks the plan back up at its unfinished
+milestone; text-form tool calls are read as calls; the facts list the folder and
+say "never committed". Starting a build now keeps Unattended rather than forcing
+Agent. Agent mode asking before each step is intentional — Unattended is full
+auto.
+
+Checked: Clarvis's check passes, 1,329 tests with lint and types; six probes each
+fail their test; 0.13.1 is installed in code-server and VS Code and both bundles
+match the fresh build, with 0.13.0 as the control. Not seen live: any of it in the
+editor — the next build is the live check. The existing pomodoro-timer folder still
+has no commits.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
