@@ -454,6 +454,14 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     if not binary:
         return []
     extra, port, _ = code_server_settings()
+    # **Clarvis's RAVIS credential, in the environment its extension host inherits.**
+    # Read by Clarvis and presented only to this machine's RAVIS (see
+    # `clarvis_ravis_credential`). Everything code-server runs can read its
+    # environment — terminals and other extensions included — which is the same
+    # user on the same machine, and the token names a caller to a loopback-only
+    # service; it is not an administrative credential.
+    environment = dict(os.environ)
+    environment["CLARVIS_RAVIS_CREDENTIAL"] = clarvis_ravis_credential()
     return [(
         "code-server",
         [binary, *extra],
@@ -470,7 +478,7 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # so the marker only has to rule out PID *reuse*, never somebody else's
         # code-server.
         "code-server",
-        dict(os.environ),
+        environment,
         f"http://127.0.0.1:{port}/healthz",
     )]
 
@@ -682,7 +690,29 @@ def nervis_ravis_credential() -> str:
     `client.`, and both halves have to know the same string. This writes it
     once at `0600` and hands it to both sides on every start.
     """
-    cached = RUN / "nervis-ravis.token"
+    return _cached_client_secret("nervis-ravis.token")
+
+
+def clarvis_ravis_credential() -> str:
+    """The secret Clarvis presents to RAVIS, handed over through code-server's environment.
+
+    **Why Clarvis needs one too.** Every unnamed caller on this machine shares
+    RAVIS's sixty requests a minute. Measured on 11 September 2026, the dashboard
+    open in a browser reads RAVIS directly about twenty-four times a minute on its
+    own, which left a Clarvis build roughly thirty-six before RAVIS turned it away.
+    Named, Clarvis gets six hundred of its own.
+
+    Clarvis reads it from `CLARVIS_RAVIS_CREDENTIAL` and presents it only to a RAVIS
+    on this machine, for a `ravis/` model, and only when no key is stored in the
+    editor — see Clarvis's `src/model/ravisCredential.ts`. RAVIS knows it as the
+    client `clarvis`.
+    """
+    return _cached_client_secret("clarvis-ravis.token")
+
+
+def _cached_client_secret(filename: str) -> str:
+    """A client secret minted once, cached at `0600` under `.run`, reused on every start."""
+    cached = RUN / filename
     try:
         existing = cached.read_text(encoding="utf-8").strip()
         if existing:
@@ -750,22 +780,27 @@ def teach_ravis_the_admin_credential() -> str:
 
 
 def teach_ravis_the_credential() -> str:
-    """Store NERVIS's credential in RAVIS, so the two agree on it.
+    """Store NERVIS's and Clarvis's credentials in RAVIS, so each side agrees on its own.
 
-    Idempotent: a PUT replaces, and the value is the same one every time because
-    it is cached. Failure is reported and not fatal — an unnamed NERVIS still
-    works, it is merely rate-limited like any other anonymous caller, and a
-    launcher that refused to finish over a rate limit would be worse than the
-    problem it was fixing.
+    Idempotent: a PUT replaces, and each value is the same one every time because
+    it is cached. Failure is reported and not fatal — an unnamed caller still
+    works, it is merely rate-limited like any other anonymous one, and a launcher
+    that refused to finish over a rate limit would be worse than the problem it
+    was fixing.
 
     Returns a short description of what happened, for the start banner.
     """
-    secret = nervis_ravis_credential()
+    clients = (("nervis", nervis_ravis_credential), ("clarvis", clarvis_ravis_credential))
+    return "; ".join(f"{name} {_teach_ravis(name, minted())}" for name, minted in clients)
+
+
+def _teach_ravis(name: str, secret: str) -> str:
+    """Store one `client.<name>` credential in RAVIS, and say what happened."""
     if not secret:
         return "could not be minted"
     body = json.dumps({"secret": secret}).encode("utf-8")
     request = urllib.request.Request(
-        f"http://127.0.0.1:{RAVIS_PORT}/api/v1/providers/credentials/client.nervis",
+        f"http://127.0.0.1:{RAVIS_PORT}/api/v1/providers/credentials/client.{name}",
         data=body, method="PUT",
         headers={
             "content-type": "application/json",
@@ -1001,7 +1036,7 @@ def start() -> int:
     running = status(quiet=True)
     if all(running.values()):
         print("Already running.")
-        print(f"  NERVIS's RAVIS credential: {teach_ravis_the_credential()}")
+        print(f"  Named callers to RAVIS: {teach_ravis_the_credential()}")
         print(f"Dashboard: {DASHBOARD}")
         webbrowser.open(dashboard_url())
         return 0
@@ -1032,7 +1067,7 @@ def start() -> int:
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
     print(f"\nRAVIS admin credential (§15.1): {planted}")
-    print(f"NERVIS is a named caller to RAVIS: {teach_ravis_the_credential()}")
+    print(f"Named callers to RAVIS: {teach_ravis_the_credential()}")
 
     if ollama_binary():
         if responds(f"http://127.0.0.1:{OLLAMA_PORT}/"):
