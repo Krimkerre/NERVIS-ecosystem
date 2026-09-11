@@ -17703,6 +17703,37 @@ message, and a refused turn not stored. Five probes each fail their test. Not se
 live: a chat turn that explores gpt-5.6-sol again — the operator's next
 conversation is the check.
 
+## Stop lets go of a question on screen, Clarvis 0.13.2 — 2026-09-11
+
+Pressing Stop while Clarvis waited on "Do it / Skip this step" did nothing until
+someone answered. Stop cut the run's signal, but the run was parked on the
+unanswered question: the buttons stayed in the panel, and the stop only took
+effect once one was pressed. Stop over the end-of-run "fold this into master?"
+question was worse. That question is asked after the run has finished, so Stop
+found nothing running, said "Nothing to stop", and left it up. Read from the
+code and its history: step approval moved out of a modal and into the chat on
+15 August, and Stop was never wired to the new place a run could wait.
+
+Fixed in Clarvis 0.13.2. Stop cancels whichever question is waiting. A step
+whose question comes back after Stop ends the run instead of starting, a "Do it"
+that raced the stop included, and is not reported as "Skipped". A waiting
+question counts as something to stop even with no run in progress, so the
+landing question is dropped and the work stays on its branch. Switching to
+Unattended still answers a waiting step "Do it", as before. A two-line follow-up
+commit makes the chat act on the tested decision instead of re-reading its
+input; behaviour is identical, and it ships in the next build after 0.14.0.
+
+The working tree was shared with two other sessions at the time (the
+missing-dependency fix, 0.14.0, and an interjections fix still to land), so
+only this change's hunks were lifted into a clean worktree, checked there, and
+committed as exactly the tree that was checked.
+
+Checked: Clarvis's check passes on the change alone, 1,335 tests with lint and
+types; two probes each fail their test; 0.13.2 is installed in code-server and
+VS Code and both bundles match the fresh build, with 0.13.1 as the control. Not
+seen live: pressing Stop over either question in the editor — the next run that
+asks is the check.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
