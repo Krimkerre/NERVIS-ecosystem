@@ -33,6 +33,7 @@ from ravis.policy import (
     PrivacyLevel,
     RoutingPolicy,
     background_marked,
+    direct_owners,
     effective_policy,
     load_policies,
     policy_exclusions,
@@ -578,3 +579,15 @@ def test_a_pool_keeps_the_reseller_as_a_fallback_and_ranks_it_last() -> None:
     order = [decision.selected, *decision.fallbacks]
     assert "vendor/model-a" in order, "the reseller must remain reachable"
     assert order.index("model-a-direct") < order.index("vendor/model-a")
+
+
+def test_direct_owners_names_the_provider_that_serves_each_candidate() -> None:
+    """The map the engine asks "can the maker serve this request?" with. A resold
+    copy is attributed to the aggregator that serves it, never to its maker, and
+    a provider that is not usable right now owns nothing."""
+    candidates = _caps("anthropic/claude-sonnet-5", "claude-sonnet-5", "mistral-local")
+    provider_of = _serving({"claude-sonnet-5": "anthropic", "mistral-local": "lmstudio"})
+
+    owned = direct_owners(candidates, provider_of, {"anthropic", "openrouter"})
+
+    assert owned == {"claude-sonnet-5": "anthropic", "anthropic/claude-sonnet-5": "openrouter"}

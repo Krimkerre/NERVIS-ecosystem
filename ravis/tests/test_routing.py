@@ -700,3 +700,72 @@ def test_the_drawing_pool_is_not_named_for_the_thing_it_makes() -> None:
     images exists, and is deliberately not called `ravis/image`."""
     assert "ravis/draw" in POOLS_BY_ID
     assert "ravis/image" not in POOLS_BY_ID
+
+
+def _no_tool_claim(name: str) -> ModelCapabilities:
+    """A maker's own copy as Anthropic's catalogue describes it: long, able to be
+    asked for a shape, and silent about tools."""
+    known = ModelCapabilities(model_id=name, context_window=1_000_000)
+    known.record(
+        CapabilityClaim(
+            capability=Capability.STRUCTURED_OUTPUT,
+            state=CapabilityState.SUPPORTED,
+            provenance=Provenance.ADVERTISED,
+        )
+    )
+    return known
+
+
+def _sonnet_or_qwen(direct_sonnet: ModelCapabilities) -> dict[str, ModelCapabilities]:
+    return {
+        "claude-sonnet-5": direct_sonnet,
+        "anthropic/claude-sonnet-5": _model(
+            "anthropic/claude-sonnet-5", tools=True, context=1_000_000
+        ),
+        "qwen/qwen3-coder-30b-a3b-instruct": _model(
+            "qwen/qwen3-coder-30b-a3b-instruct", tools=True, context=262_144
+        ),
+    }
+
+
+RESOLD_SONNET = {"anthropic/claude-sonnet-5": "anthropic"}
+SERVED_BY = {
+    "claude-sonnet-5": "anthropic",
+    "anthropic/claude-sonnet-5": "openrouter",
+    "qwen/qwen3-coder-30b-a3b-instruct": "openrouter",
+}
+
+
+def test_a_reseller_is_not_ranked_behind_a_maker_copy_the_pool_refused() -> None:
+    """Found live on 11 September 2026: every Clarvis agent session since 5
+    September went to Qwen. Anthropic's catalogue says nothing about tools, so the
+    pool refused Anthropic's own Sonnet — and OpenRouter's Sonnet, which can call
+    tools, was still ranked behind everything nobody resells."""
+    candidates = _sonnet_or_qwen(_no_tool_claim("claude-sonnet-5"))
+    engine = RoutingEngine()
+    remote = frozenset(candidates)
+
+    before = engine.select(
+        "ravis/clarvis-agent", candidates, remote_models=remote, resold=RESOLD_SONNET
+    )
+    after = engine.select(
+        "ravis/clarvis-agent", candidates, remote_models=remote, resold=RESOLD_SONNET,
+        direct_owners=SERVED_BY,
+    )
+
+    assert before.selected == "qwen/qwen3-coder-30b-a3b-instruct", "the defect, reproduced"
+    assert after.selected == "anthropic/claude-sonnet-5"
+
+
+def test_the_maker_still_comes_first_once_its_own_copy_can_serve() -> None:
+    """The reseller rule is unchanged where it was right: with Anthropic's Sonnet
+    declared tool-capable, the direct copy wins and OpenRouter's stays a fallback."""
+    candidates = _sonnet_or_qwen(_model("claude-sonnet-5", tools=True, context=1_000_000))
+
+    decision = RoutingEngine().select(
+        "ravis/clarvis-agent", candidates, remote_models=frozenset(candidates),
+        resold=RESOLD_SONNET, direct_owners=SERVED_BY,
+    )
+
+    assert decision.selected == "claude-sonnet-5"
+    assert "anthropic/claude-sonnet-5" in decision.fallbacks, "the reseller stays reachable"

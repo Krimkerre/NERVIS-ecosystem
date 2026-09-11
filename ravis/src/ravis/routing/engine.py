@@ -114,6 +114,7 @@ class RoutingEngine:
         reasoning_share: Mapping[str, float] | None = None,
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
         explore: Exploration | None = None,
+        direct_owners: Mapping[str, str] | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -181,6 +182,7 @@ class RoutingEngine:
                 role_evidence,
                 resold or {},
                 explore,
+                direct_owners,
             )
 
         target = direct_target(requested)
@@ -293,6 +295,7 @@ class RoutingEngine:
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
         resold: Mapping[str, str] | None = None,
         explore: Exploration | None = None,
+        direct_owners: Mapping[str, str] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -355,7 +358,7 @@ class RoutingEngine:
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
-            expected_session_requests, reasoning, resold,
+            expected_session_requests, reasoning, resold, direct_owners,
         )
 
         if not eligible:
@@ -549,6 +552,7 @@ def _rank(
     expected_session_requests: int | None = None,
     reasoning: Mapping[str, float] | None = None,
     resold: Mapping[str, str] | None = None,
+    direct_owners: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -597,6 +601,7 @@ def _rank(
         and (not chosen or model in chosen)
     ]
     pressured = memory.under_pressure
+    demoted = _demoted_resellers(members, resold or {}, direct_owners)
 
     def key(model: str) -> tuple[float | str, ...]:
         # **Session affinity leads every other term (§12.1).** Sticky routing
@@ -658,7 +663,11 @@ def _rank(
         # 404. An explicit address is still *refused* — that is a person asking
         # a question, and an answer naming the cheaper route is worth more than
         # a silent substitution.
-        reseller = 1.0 if model in (resold or {}) else 0.0
+        #
+        # **Only behind a maker's copy that can serve this request.** See
+        # `_demoted_resellers`: ranking OpenRouter's Claude behind an Anthropic
+        # copy the pool had just refused handed every agent session to Qwen.
+        reseller = 1.0 if model in demoted else 0.0
         terms: list[float | str] = [affinity, load, reseller, *_preference_terms(
             pool, policy, model, candidates, remote, observed or {})]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
@@ -714,6 +723,28 @@ def _rank(
         return (*lead, thinking, *_cost_rank(model, candidates, remote))
 
     return sorted(members, key=key)
+
+
+def _demoted_resellers(
+    members: list[str], resold: Mapping[str, str], direct_owners: Mapping[str, str] | None
+) -> frozenset[str]:
+    """The aggregator copies to rank behind their maker's own.
+
+    Only where the maker's own can serve: a resold copy is demoted when at least
+    one candidate its maker serves directly survived every constraint that
+    `members` already applied. Otherwise the aggregator is the only route that
+    works, and ranking it last hands the request to whatever nobody resells —
+    which, on 11 September 2026, was every Clarvis agent session going to Qwen
+    while the pool preferred Claude Sonnet and Anthropic's copies were refused
+    for a capability their catalogue does not publish.
+
+    `None` keeps the rule as it was before the owner map existed, so a caller
+    that cannot say who serves what still gets the maker-first order.
+    """
+    if direct_owners is None:
+        return frozenset(resold)
+    serving = {direct_owners[model] for model in members if model in direct_owners}
+    return frozenset(model for model, vendor in resold.items() if vendor in serving)
 
 
 def _explore_pick(

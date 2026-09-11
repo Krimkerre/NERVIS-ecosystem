@@ -245,6 +245,37 @@ def resold_models(
     return resold
 
 
+def direct_owners(
+    candidates: Mapping[str, ModelCapabilities],
+    provider_of: Callable[[str], str],
+    direct_providers: Collection[str],
+) -> dict[str, str]:
+    """The usable provider that serves each candidate, for the ones that have one.
+
+    **The other half of the reseller rule, and the half it was missing.**
+    `resold_models` knows that an aggregator's copy has a maker who sells
+    directly; it cannot know whether the maker's own copy can serve *this*
+    request. Found live on 11 September 2026: Anthropic's catalogue publishes no
+    tool support, so `ravis/clarvis-agent` excluded every Claude model bought at
+    the source — and still ranked OpenRouter's working copies behind every model
+    nobody resells. Every Clarvis agent session since 5 September went to
+    `qwen/qwen3-coder-30b-a3b-instruct`, with Claude Sonnet first in the pool's
+    own preference.
+
+    The engine reads this map to ask, per request, whether any copy from the
+    maker survived the pool's and the request's constraints. The aggregator is a
+    usable provider too, so its own copies appear here under its name; no resold
+    copy names an aggregator as its maker, so that costs nothing.
+    """
+    direct = {name for name in direct_providers if name}
+    owned: dict[str, str] = {}
+    for model in candidates:
+        provider = provider_of(model)
+        if provider in direct:
+            owned[model] = provider
+    return owned
+
+
 def policy_exclusions(
     policy: RoutingPolicy,
     candidates: Mapping[str, ModelCapabilities],

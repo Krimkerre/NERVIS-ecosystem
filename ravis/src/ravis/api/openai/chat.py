@@ -53,6 +53,7 @@ from ravis.policy import (
     ApplicationPolicies,
     PrivacyLevel,
     RoutingPolicy,
+    direct_owners,
     effective_policy,
     policy_refusals,
     resold_models,
@@ -892,6 +893,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         ),
         # Ranked rather than refused inside a pool; see `_rank`.
         resold=resold_models(candidates, _provider_of(request), direct),
+        # Who serves each directly bought candidate, so a resold copy is only
+        # ranked behind a maker's copy that survived this request's constraints.
+        direct_owners=direct_owners(candidates, _provider_of(request), direct),
     )
     # Recorded rather than recomputed. Re-running the router later would use a
     # different catalogue, residency and memory reading, and could reach a

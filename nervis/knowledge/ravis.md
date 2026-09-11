@@ -77,6 +77,20 @@ not a ban — the aggregator's copy stays in the chain as a fallback, because a
 vendor catalogue can advertise a model whose endpoint answers 404, and a ban
 there would leave no route at all.
 
+**But only when the maker's own copy can actually serve the request.** Until
+11 September 2026 the aggregator's copy was pushed to the back even when the
+vendor's own copy had just been refused. Anthropic's model catalogue says nothing
+about tool support, so Clarvis's agent pool, which requires tools, refused every
+Claude model bought directly from Anthropic — and still ranked OpenRouter's
+Claude, which can call tools, behind everything nobody resells. Every Clarvis
+build from 5 to 11 September ran on Qwen3 Coder 30B, although that pool prefers
+Claude Sonnet first. Now a resold copy only drops behind its maker when one of
+the maker's own copies passed the same checks. On the same day the operator
+declared Claude Sonnet 5 tool-capable, in the operator-capabilities file the
+launcher gives RAVIS, so Clarvis's builds go to Sonnet 5 bought directly from
+Anthropic. That declaration is the operator's word, recorded at configured
+provenance, not a measurement.
+
 **A slow chatbot is a bad chatbot, so chat now weighs speed — last.** Until
 9 September 2026 the conversational pool ignored measured response times
 entirely: `ravis/fast` ranked on latency, `ravis/chat` did not, so two models

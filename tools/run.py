@@ -367,6 +367,14 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # give 32,768, and route long documents away from a runtime that
             # could hold them. Set only as a default, like everything else here.
             env.setdefault("RAVIS_OLLAMA_DEFAULT_CONTEXT", str(OLLAMA_CONTEXT))
+            # **What the operator has declared about models nothing has measured.**
+            # A hosted vendor's catalogue can leave out a capability its API has —
+            # Anthropic's publishes no tool support — and a pool that requires tools
+            # then refuses every one of that vendor's models. The file says who
+            # declared what, and why. Set only as a default, like the rest.
+            env.setdefault(
+                "RAVIS_MODEL_CAPABILITIES_PATH", str(ROOT / "ravis" / "operator-capabilities.json")
+            )
         if package == "sirvis":
             # The same wiring for the second producer. A benchmark mints its own
             # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
