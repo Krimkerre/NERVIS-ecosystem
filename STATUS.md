@@ -17804,6 +17804,49 @@ from a clean worktree at the pushed commit and is installed in code-server and
 VS Code; both bundles match the fresh build, with 0.14.0 as the control. Not
 seen live: typing during a run in the editor — the next redirect is the check.
 
+## "Find another way" leads to a plan that builds, Clarvis 0.15.0 — 2026-09-11
+
+The first live check of 0.14.1, in the pomodoro project with milestones 1 and 2
+unticked again. Clarvis ran python main.py, found tkinter missing and asked, as
+designed. The answer was "Find another way". The model said the plan could not
+work without tkinter and that it would re-read the plan, then ended its turn —
+and the run still counted as a finished milestone. It committed a stray main.py
+at the top of the project, a second copy of src/main.py, with the model's
+sentence as the commit subject, and offered to fold it into master; the merge put
+it there. "Continue building" then got back the step, its check and "Result: not
+run yet" copied out of plan.md, and nothing else. The nudge for a reply that only
+announces a step needed the announcement to be the whole reply, so this one went
+through. And nothing led from that answer to a plan that could be built: nothing
+in Clarvis changes an approved plan.
+
+Fixed in Clarvis 0.15.0. A run that found something missing and never got past
+it — the command that found it never succeeded afterwards — is blocked whatever
+the answer was: nothing is ticked, landed or offered for review. Told to find
+another way when the plan depends on the missing piece, the model proposes the
+smallest change to the plan that avoids it and stops. Clarvis keeps the proposal
+with the missing-dependency record and offers three answers: change the plan
+like that, I'll install it myself, or leave it for now. Changing the plan starts
+a run that rewrites only what depended on the missing piece, keeping every other
+line, tick and result, and then builds the unfinished milestone. "Continue
+building" while that proposal stands asks the same question instead of starting
+another run. Any step announcement in a reply with no tool calls now gets the one
+nudge.
+
+A slip on the way: the first attempt to commit passed the file list as a single
+word, the commit failed, and the unguarded script went on to package and
+force-install the unchanged 0.14.1 under a 0.15.0 file name. Nothing was lost —
+the change was still in the working tree — and the retry, with every step
+guarded, committed, built and installed 0.15.0.
+
+Checked: Clarvis's check passes, 1,362 tests with types and lint, and 7 probes
+each break one piece of this and each fails its test. 0.15.0 is installed in
+code-server and VS Code, both installed bundles match the package built from its
+commit byte for byte, and the 0.14.1 build the slip installed differs as the
+control. Not tested: the offer and the plan-changing run themselves, which live
+in the editor side of Clarvis and have no unit tests — the next "continue
+building" in the pomodoro project is the live check. Left for the user: the
+stray main.py now on that project's master.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

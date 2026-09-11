@@ -36,6 +36,15 @@ ticks nothing off. Chat remembers what was missing for three days, so it cannot
 explain the gap away. Added 11 September 2026 in Clarvis 0.14.0, after a pomodoro
 build tried to reinstall Python when tkinter was missing.
 
+If you answer "find another way" and the plan cannot work without the missing
+piece, Clarvis suggests the smallest change to the plan that avoids it and asks
+before touching anything: change the plan like that, install it yourself, or
+leave it. Say yes and it rewrites only the parts of the plan that needed it,
+keeps every other line and tick, and carries on building. While it is stuck,
+nothing is merged or ticked off, and "continue building" asks the same question
+again rather than running into the same wall. Added in Clarvis 0.15.0, the same
+evening.
+
 **Stop means stop, even while it is asking.** Pressing Stop while Clarvis waits
 on a question — "Do it / Skip this step", or "fold this into master?" at the end
 of a run — cancels the question and ends there: the step does not start, even if
@@ -97,7 +106,7 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.14.1**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.15.0**, 29 commands, 23 settings, VS Code ^1.93.
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
 the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its

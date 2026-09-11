@@ -766,6 +766,21 @@ results in the same turn for Anthropic, and as a user message after the last too
 OpenAI-compatible providers — the order each requires — while a step nobody interrupted sends the
 results alone, as before. Covered by `toolResultTurn.test.ts`; not yet seen in a live run.
 
+**11 September 2026 — "find another way" leads somewhere (Clarvis 0.15.0).** The first live run of
+0.14.1 met the missing tkinter and asked, as designed. The answer was "Find another way"; the model
+said the plan could not work without tkinter and stopped — and the run still ended as a finished
+milestone: it committed a stray main.py, offered to merge it, and the merge put it on master.
+"Continue building" then got back the step and its check copied out of plan.md and nothing else,
+which the nudge for a bare announcement let through. Now a run that found something missing and
+never got past it — the command that found it never succeeded afterwards — is blocked whatever the
+answer was: nothing is ticked, landed or offered for review. Told to find another way when the plan
+depends on the missing piece, the model proposes the smallest change to the plan that avoids it and
+stops, and Clarvis offers three answers: change the plan like that, I'll install it myself, or leave
+it for now. Changing the plan starts a run that rewrites only what depended on the missing piece —
+every other line, tick and result stays — and then builds the unfinished milestone. "Continue
+building" while that proposal stands asks the same question instead of starting a run. Any step
+announcement in a reply with no tool calls now gets the one nudge to carry it out.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same
