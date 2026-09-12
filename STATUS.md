@@ -18145,6 +18145,45 @@ retried, which models are chosen and in what order, trials through a translated
 adapter and through an OpenAI-compatible upstream, OpenRouter's 404 read as a
 tool refusal, and a refused forced choice asked again unforced on both paths.
 
+## RAVIS keeps its spending across restarts, and the dashboard reads RAVIS through NERVIS — 2026-09-12
+
+The spend screen emptied whenever RAVIS restarted. Usage records were held only
+in memory, on the reasoning that they are diagnostic rather than business state,
+and the monthly budget is computed from the same records — so a restart was
+enough to make a month's spending read as none. RAVIS now writes each record to
+its database, in a new usage_record table, and reads the newest back when it
+starts. Records older than ninety days are dropped; the budget reads thirty. A
+record holds no prompt and no reply.
+
+The dashboard page read RAVIS straight from the browser, as an anonymous caller.
+NERVIS's own service already presented its credential; the page did not, and a
+page cannot safely hold one. Measured before the change: the overview alone made
+about 27 reads a minute, and RAVIS gives every anonymous caller on the machine
+one allowance of 60 a minute between them, so two open tabs and any other caller
+would have tipped it over. Nothing had been refused yet. The page's RAVIS reads
+now go through NERVIS at /api/v1/relay/ravis/: reads only, RAVIS's management
+and ecosystem paths only, never its chat gateway. NERVIS presents its own
+credential and hands back RAVIS's answer unchanged, a refusal included. A RAVIS
+that did not answer is marked, so the page still says unreachable or slow rather
+than "answered HTTP 502". The places that show RAVIS's address still show the
+real one.
+
+Live, after committing 2e0c5fc and restarting: a direct Claude Haiku request was
+recorded at an estimated $0.000034, the new table held that one row, and after a
+second full restart the same record was still listed. Seventy reads through the
+relay in six seconds were all answered; seventy direct anonymous reads drew
+seventeen refusals. The reloaded dashboard sent no request to RAVIS directly —
+twelve RAVIS reads in twenty seconds, all through NERVIS, all answered — and
+counted RAVIS as live while the anonymous allowance was used up.
+
+Checked: ruff and mypy clean in both packages; RAVIS's and NERVIS's full suites
+pass; the page's script parses. New tests: the ledger read back after a restart
+with every field intact and a record past retention dropped; the relay
+presenting NERVIS's credential and passing a 429 through untouched; an
+unreachable, slow or unregistered RAVIS marked for the page; only management
+and ecosystem paths relayable; the route refusing the gateway and any verb but
+GET.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
