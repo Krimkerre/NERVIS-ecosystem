@@ -902,6 +902,22 @@ Measure `normalization_ms`, `capability_ms`, `policy_ms`, `scoring_ms`, `total_r
 Background refresh keeps provider models, pricing, health, SIRVIS evidence and local host state
 current. **Routing reads cached snapshots**, never live lookups.
 
+**Measured 12 September 2026, and not met.** `tools/load_test.py` puts a private RAVIS in front
+of a stand-in model and subtracts the stand-in's own latency: RAVIS adds 16.1 ms at the median
+and 17.3 ms at P95 with one caller, and 6.1 / 63.8 ms with ten. It stops keeping up at roughly
+100–180 requests a second while using under a core, which is the signature of work waited on
+inside the event loop rather than of computation. Timing each step in-process found two live
+lookups on the routing path the sentence above rules out. `_direct_providers` asks each hosted
+vendor for its model list on every request, which is a dictionary lookup only while the last
+listing *succeeded*: a failed listing is never cached, so a vendor with a missing or refused key,
+an outage or no network is asked again on every routed request — 165 ms of a 173 ms route with
+the internet reachable, 2.85 ms against a closed port. And `read_memory` runs `vm_stat` as a
+subprocess on every routed request, 6–8 ms, blocking the loop. Outside routing, the same suite
+found the live RAVIS spending 46 ms more on a request that presents a key (59.7 against 13.4 ms):
+every client and admin credential is in the keychain, and identifying a caller runs `security`
+for each of them on every request, inside the loop — anonymous requests mixed with named ones
+went from 64 to 157 ms at five callers. None of the three is fixed yet.
+
 **A context window is what the runtime serves, not what the architecture allows.** Ollama
 publishes the architecture's maximum at `/api/show` and loads the model at its own default;
 believing the first number routed a 25,000-token request to a model holding 4,096, which

@@ -576,7 +576,28 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.16.0
+## SIRVIS — 0.17.0
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **A model browser (M11).** `GET /api/v1/catalog` searches Hugging Face's public API for GGUF
+  or MLX builds without a token, and `GET /api/v1/catalog/{repo}` lists one version per
+  quantization with its size — split files counted together, projector files left out — and
+  marks the versions LM Studio already has. Installed models are read from both of LM Studio's
+  listings, because `lms ls --variants` omits every model downloaded by link, the only kind this
+  release downloads. A repository Hugging Face does not have answers `MODEL_NOT_FOUND`, not
+  `CATALOG_UNAVAILABLE`: Hugging Face reports a missing model as 401 "Invalid username or
+  password", and that was first read as the catalogue being down.
+- **Downloads that survive a restart.** `POST /api/v1/downloads` hands the download to LM Studio
+  and records the job in SIRVIS's own table, which a background watcher advances until it
+  completes or fails. The disk is checked first: a download that does not fit is refused with
+  `DISK_SPACE`, and one that would leave under 20 GB free or use more than half the free space
+  is held until confirmed. A version already installed is recorded as already present, a gated
+  model is shown but not offered, and starting a download needs the admin scope. There is no
+  cancel or pause, because LM Studio publishes neither. Two new capabilities, `sirvis.catalog.read`
+  and `sirvis.downloads`.
+
+### 0.16.0
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio
 

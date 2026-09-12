@@ -250,6 +250,12 @@ output, credentials and machine details are redacted by default.
 NERVIS owns **general system and dashboard telemetry**: CPU, GPU where measurable, RAM, swap,
 disk, network, thermal state, and per-process memory, CPU and PID where practical.
 
+**Measured 12 September 2026: reading it stalls NERVIS.** `read_system` calls `sample_system()`
+— a scan of every process plus an `osascript` thermal query — straight from an `async` route, so
+NERVIS answers nothing else while it runs. With ten readers at once, `/api/v1/health` took 3.9 ms
+at the median on its own and 203.6 ms interleaved with `/api/v1/system`, which the System screen
+reads whenever it draws. Not fixed yet.
+
 ```text
 RAVIS 182 MB · SIRVIS 294 MB · NERVIS 165 MB · code-server 812 MB · LM Studio 38.4 GB
 ```

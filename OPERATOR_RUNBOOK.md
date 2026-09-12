@@ -151,6 +151,10 @@ remembered:
   pairwise state grades in `clarvis/docs/code-server-matrix.md` (§13.4), and the
   `IMPLEMENTED` / `AUTOMATED VERIFIED` / `LIVE VERIFIED` / `BLOCKED` state on every milestone row
   in `NERVIS.md`, `RAVIS.md`, `SIRVIS.md` and `CLARVIS.md`.
+- **Load**: `ravis/.venv/bin/python tools/load_test.py` — correctness with many callers at once,
+  §9.8's overhead budget, the anonymous rate limit, and the dashboard's reads against the running
+  NERVIS. It calls no real model and spends nothing, and it exits non-zero while the overhead
+  budget is unmet (see §9.8 in `RAVIS.md`).
 - **Compatibility matrix**: `python3 tools/check_compatibility.py` prints what this NERVIS
   supports its peers at and fails if any peer ships outside that window — printed rather than
   filed, because a table in a document is a copy that goes stale.

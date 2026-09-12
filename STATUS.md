@@ -18339,6 +18339,89 @@ gated models, both capabilities, a hidden model as not found, and installed
 paths read from both of LM Studio's listings; new NERVIS
 tests cover the admin credential and a disk warning reaching the page.
 
+## The load test: RAVIS and NERVIS with many requests at once — 2026-09-12
+
+Stage 10 names a load suite, and nothing had run one against the model path: the
+30 August pass loaded NERVIS's hub and read surfaces and deliberately left chat
+completions alone, because driving them means spending money or loading a model.
+`tools/load_test.py` does it with neither. Parts 1 and 2 start a private RAVIS —
+its own database, no keys, no peers, the hosted vendors' addresses and every proxy
+pointed at a closed port — in front of a stand-in model that waits 0.1 s and
+repeats what it was sent, and measure what RAVIS adds by subtracting the
+stand-in's own latency at the same concurrency. Part 3 reads the running NERVIS
+and RAVIS, read-only, inside the limits the dashboard shares. The verdicts were
+fixed before the first run.
+
+Result on commit 512abad: 4 of 6 checks pass.
+
+- **Correct under load — passes.** 5,180 requests through RAVIS at up to 200 at
+  once, streamed and not, anonymous and named: every one got its own answer back
+  and none failed. RAVIS's database recorded both `anonymous` and the test's
+  named client, so the named row was genuinely named.
+- **Refusal — passes.** 100 requests without a key at once: exactly 60 answered,
+  40 refused with RATE_LIMITED, and the same caller served again once the minute
+  had passed.
+- **NERVIS — passes.** 350 dashboard reads at up to 50 at once, including the
+  relay to RAVIS: none failed.
+- **§9.8's overhead budget — fails.** RAVIS adds 16.1 ms at the median and 17.3 ms
+  at P95 with one caller, against 5 and 20; with ten callers 6.1 / 63.8 ms, and
+  2.9 / 46.5 on a repeat. It stops keeping up at roughly 100–180 requests a
+  second while using under a core.
+- **Recovery straight after 200 at once — fails, narrowly.** One caller at a time
+  took 123.4 ms right after the burst against 120.8 ms before, 0.6 ms past the
+  2 ms allowed; a repeat gave 123.6. A follow-up that waited showed it passing
+  off: 121.0 before, 124.3 right after, 121.5 sixty-five seconds later. Cause not
+  identified.
+
+What the failures are made of, measured step by step in-process and on the live
+services:
+
+- **A hosted vendor whose model list fails is asked again on every request.**
+  `_direct_providers` relies on each adapter's five-minute cache, but a failed
+  listing is never cached. The first run's private RAVIS had no keys, so every
+  request fetched Anthropic's and Google's model lists over the internet and was
+  refused: 165 ms of a 173 ms route. Against a closed port the same lookups cost
+  2.85 ms. All eight providers answer on this machine today, so the live RAVIS
+  pays this only while a key is missing or refused, a vendor is down or the
+  network is gone — and then on every routed request.
+- **Every routed request runs `vm_stat`.** `read_memory` spawns it for free
+  memory on macOS, 6–8 ms, and waits for it inside the event loop, which is why
+  RAVIS saturates at a fraction of a core.
+- **A caller that presents a key costs 46 ms more, and holds everyone else up.**
+  On the live RAVIS the model list took 13.4 ms without a key and 59.7 ms with
+  the admin key. All nine stored credentials are in the keychain and the
+  credential file is empty, so identifying a caller runs `security` once for each
+  of the three client and admin names, on every request, inside the event loop.
+  With five callers at once, anonymous requests took 64 ms on their own and
+  157 ms mixed with named ones. NERVIS and the launcher became named callers with
+  today's credential fixes, so the dashboard's relayed reads pay it: 49 ms each
+  one at a time, 179 ms with ten at once.
+- **NERVIS's system read stalls NERVIS.** /api/v1/system lists every process and
+  runs `osascript` for the thermal state inside an async route. With ten readers,
+  health took 3.9 ms alone and 203.6 ms interleaved with system; in the full run
+  every read sat at about 86 ms with ten at once and 348 ms with fifty.
+
+None of the four is fixed yet.
+
+Two mistakes in the first run, both the test's own:
+
+- **The private RAVIS was not isolated.** It sent roughly 5,700 unauthenticated
+  model-list requests each to Anthropic and Google — no key, prompt or data — and
+  those were most of the 180 ms first blamed on RAVIS. The vendors' addresses and
+  every proxy variable now point at a closed port; during the second run the
+  private RAVIS held 258 connections, every one to 127.0.0.1.
+- **One shared httpx pool gave out before RAVIS did.** The stand-in alone went
+  from 104 ms to 983 ms at 100 callers with its own CPU under 1%. Each caller now
+  has its own connection, and every row prints the test program's CPU beside the
+  service's.
+
+Memory: the private RAVIS went from 64 MB to 85 MB under the burst and held
+there for the few minutes the test ran; NERVIS from 101.2 to 101.5 MB. Whether
+either keeps growing is the long-running test's question.
+
+Checked: ruff and mypy clean on the tool. No test counts change — like
+`tools/acceptance_run.py`, it is a procedure run against real processes.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

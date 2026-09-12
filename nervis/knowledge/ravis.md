@@ -458,6 +458,17 @@ provider-configuration writes exist, but authorization on a loopback bind is not
 finished. Cost figures are estimates from published prices unless the provider
 reported them; a record says which.
 
+**RAVIS adds more delay than its target, measured on 12 September 2026.** A load
+test found that with one caller RAVIS adds about 16 ms to each request, against a
+target of 5 ms, and that it stops keeping up at roughly 100 to 180 requests a
+second. Three causes were measured, none fixed yet: it runs a system command to
+read free memory on every request; it asks a hosted provider for its model list
+again on every request whenever that provider's last answer failed (a missing or
+refused key, an outage, no network); and a caller that presents a key waits about
+46 ms while RAVIS checks each stored client and admin key in the keychain, holding
+up everyone else's requests while it does. It stays correct under load: 5,180
+requests at up to 200 at once all got their own answers.
+
 **Embeddings are also degraded, and narrowly so on purpose.** `POST
 /v1/embeddings` forwards to one configured local runtime — Ollama's
 `nomic-embed-text` by default — with no routing between candidates and no
