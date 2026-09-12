@@ -176,6 +176,8 @@ def _absorb(inventory: Inventory, record: dict[str, Any], runtime_key: str,
         runtime_key=build_key,
         display_name=base_key,
         declared_context=_number(record.get("max_context_length")),
+        # The size on disk, when the runtime's CLI reported it (`with_sizes`).
+        installed_size_bytes=_number(record.get("size_bytes")),
     )
     inventory.installed.setdefault(build_key, installed)
 

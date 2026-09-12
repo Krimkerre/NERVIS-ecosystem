@@ -211,7 +211,8 @@ class LocalModel:
 
     @staticmethod
     def derive(variant: ModelVariant, runtime: str, runtime_key: str, display_name: str,
-               declared_context: int | None) -> LocalModel:
+               declared_context: int | None,
+               installed_size_bytes: int | None = None) -> LocalModel:
         """Identity is the variant plus the runtime that holds it and its key.
 
         Including `runtime_key` is what stops two builds with identical display
@@ -229,6 +230,7 @@ class LocalModel:
                 if declared_context is not None
                 else Claim(None, Provenance.UNKNOWN)
             ),
+            installed_size_bytes=installed_size_bytes,
         )
 
     def as_dict(self) -> dict[str, Any]:

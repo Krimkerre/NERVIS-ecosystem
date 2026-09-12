@@ -1056,8 +1056,11 @@ On a Mac, NERVIS can be started from a menu bar app instead of the start and sto
 it is installed in Applications as NERVIS, built by `nervis/packaging/macos/build_app.sh`, which
 keeps that copy up to date. It does not start at login: opening it starts the stack. Its menu shows how many
 notifications are unread, a way to open the dashboard, whether SIRVIS, RAVIS, NERVIS, CLARVIS, code-server,
-LM Studio and Ollama are running — CLARVIS only while an editor window has it open — CPU, GPU and memory use, and **Quit NERVIS and stop the stack**. Clicking LM Studio in that menu
-opens LM Studio.
+LM Studio and Ollama are running — CLARVIS only while an editor window has it open — CPU, GPU and memory use, and **Quit NERVIS and stop the stack**. LM Studio's entry opens a list:
+Open LM Studio, and every installed model. Clicking a model loads it through SIRVIS; it gets a tick and
+stays loaded until you click it again or quit NERVIS. Before loading a model that probably won't fit in
+the memory free at the time, the menu asks. A model loaded any other way shows a dash and is left alone,
+and SIRVIS loads at most two models at once.
 
 The NERVIS mark in the menu bar has a pupil that is solid while the whole stack is running, faint
 when part of it is not, and blinks while there are unread notifications; reading them on the

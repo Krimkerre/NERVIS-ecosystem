@@ -38,14 +38,23 @@ added under System Settings → General → Login Items. It has
 no window and no Dock icon. The NERVIS mark appears in the menu bar and the stack starts; its
 menu shows the number of unread notifications when there are any, **Open NERVIS dashboard**,
 each service — CLARVIS among them, running while an editor window has its Bridge on — and
-LM Studio and Ollama as running or not (clicking LM Studio opens it), CPU, GPU and memory use, and **Quit
+LM Studio and Ollama as running or not (LM Studio's entry opens LM Studio and lists its installed
+models), CPU, GPU and memory use, and **Quit
 NERVIS and stop the stack**. The pupil in the mark is solid while the whole stack answers, faint
 when part of it does not, and blinks while NERVIS has unread notifications. GPU use is the figure
 the graphics driver publishes; Activity Monitor's GPU History is the place to compare it.
 
 It runs `tools/run.py` and holds no code of its own, so an update needs a restart and never a
 rebuild — only moving the repository does, because the app records where the repository is when
-it is built. Its log is `.run/menubar.log`. Opening a second copy does nothing, and quitting it
+it is built. Its log is `.run/menubar.log`.
+
+**Loading a model from it goes through SIRVIS**, which owns every load and unload. Clicking a model in
+LM Studio's list loads it under a SIRVIS lease that the app renews every ten minutes; it is ticked, and
+clicking it again unloads it. Quitting NERVIS — or `tools/run.py stop` — releases those leases before
+the stack stops, because SIRVIS releases nothing when it shuts down. A model whose file, with a fifth
+more room to work, is larger than the memory free at that moment is loaded only after a dialog says so.
+A model loaded any other way — by RAVIS, a benchmark or LM Studio itself — is shown with a dash and is
+not the menu's to unload. SIRVIS loads at most two models at once and says so when asked for a third. Opening a second copy does nothing, and quitting it
 stops the stack first however the quit arrives, an ordinary `kill` included.
 
 ---

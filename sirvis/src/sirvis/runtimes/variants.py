@@ -227,6 +227,31 @@ def installed_paths(binary: str | None = None) -> frozenset[str] | None:
     return frozenset(paths)
 
 
+def installed_sizes(binary: str | None = None) -> dict[str, int] | None:
+    """Every installed model's size on disk, under the plain key LM Studio lists it by.
+
+    **The variants listing names too few models to size them all.** It carries a size
+    per build but lists only models installed through LM Studio's catalogue — 7 builds
+    against 19 models on 12 September 2026 — so sizes read from it alone left thirteen
+    of twenty models unsized. The plain listing (`lms ls --json`) names every model once,
+    with the size of the variant LM Studio has selected rather than all its variants
+    added together: the same day it gave `google/gemma-4-e4b` 6,326,918,619 bytes, the
+    5.9 GB of its selected Q4_K_M build, where the two builds together are over 12 GB.
+    `None` when the listing cannot be read.
+    """
+    rows = _run(binary, ["ls", "--json"])
+    if rows is None:
+        return None
+    sizes: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key, size = str(row.get("modelKey") or ""), _int(row.get("sizeBytes"))
+        if key and size is not None:
+            sizes[key] = size
+    return sizes
+
+
 def _int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 

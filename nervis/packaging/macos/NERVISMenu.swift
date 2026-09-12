@@ -76,6 +76,32 @@ struct StackReport: Decodable {
     }
 }
 
+/// One answer from `tools/run.py models --json`: LM Studio's installed models as SIRVIS
+/// knows them, for the LM Studio submenu.
+struct ModelsReport: Decodable {
+    struct Model: Decodable {
+        let key: String
+        let name: String
+        let format: String
+        let quantization: String
+        let sizeBytes: Double?
+        let loaded: Bool
+        /// Loaded from this menu, so the menu may unload it. A model loaded by anything
+        /// else is shown as loaded and left alone.
+        let heldByMenu: Bool
+    }
+
+    let available: Bool
+    let models: [Model]
+    let maxLoaded: Int?
+
+    static func decode(_ data: Data) -> ModelsReport? {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(ModelsReport.self, from: data)
+    }
+}
+
 // MARK: - Running the launcher
 
 /// Runs `work` on the main thread, served by the run loop rather than the main dispatch
@@ -124,10 +150,19 @@ final class Launcher: @unchecked Sendable {
     /// `start` or `stop`, with its output written to .run/menubar.log. Not piped:
     /// `start` leaves detached services behind, and a pipe one of them inherited would
     /// never reach its end, so reading it would wait for ever.
-    func run(_ command: String, then done: @escaping @Sendable (Int32) -> Void) {
+    func run(_ arguments: [String], then done: @escaping @Sendable (Int32) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = self.runNow([command], capture: false)
+            let result = self.runNow(arguments, capture: false)
             onMainRunLoop { done(result.code) }
+        }
+    }
+
+    /// A launcher command whose answer is read back — `models`, `load`, `unload`. None of
+    /// them starts a process, so their output can be piped (see `run` for why that matters).
+    func capture(_ arguments: [String], then done: @escaping @Sendable (Int32, Data) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = self.runNow(arguments, capture: true)
+            onMainRunLoop { done(result.code, result.data) }
         }
     }
 
@@ -363,6 +398,15 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let cpuMeter = CPUMeter()
     private(set) var cpuPercent: Int?
     private(set) var gpuPercent: Int?
+    /// LM Studio's installed models, read every thirty seconds and whenever the menu opens.
+    var models: ModelsReport?
+    /// The model being loaded or unloaded right now, drawn as working and not clickable.
+    private var modelBusy: String?
+    private var modelsRefreshing = false
+    private var menuOpen = false
+    private var menuStale = false
+    private var ticks = 0
+    private var renewTimer: Timer?
 
     init(launcher: Launcher) {
         self.launcher = launcher
@@ -403,12 +447,27 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startStack() {
         starting = true
         refresh()
-        launcher.run("start") { [weak self] _ in
+        launcher.run(["start"]) { [weak self] _ in
             MainActor.assumeIsolated { self?.startFinished() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated { self?.tick() }
         }
+        // The owner chose that a model loaded from the menu stays loaded until it is
+        // unloaded there or NERVIS quits. SIRVIS's lease lasts an hour, so the app renews
+        // the menu's leases every ten minutes while it runs; if the app dies, they lapse
+        // within the hour and SIRVIS unloads the models by itself.
+        renewTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.launcher.run(["renew"]) { _ in } }
+        }
+    }
+
+    /// Every ten seconds the stack; every thirty the models, which cost SIRVIS a look at
+    /// LM Studio's CLI and change far less often.
+    private func tick() {
+        ticks += 1
+        refresh()
+        if ticks % 3 == 0 { refreshModels() }
     }
 
     private func startFinished() {
@@ -422,11 +481,22 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         phase = .running
         refresh()
+        refreshModels()
     }
 
-    /// Asked each time the menu opens, so what it shows is at most a second old.
+    /// The menu is drawn from the last readings — at most ten seconds old — and is not
+    /// rebuilt while it is open: rebuilding would snap shut a submenu somebody is reading,
+    /// such as LM Studio's list of models. Fresh readings are asked for as it opens, and
+    /// whatever they change is drawn once it closes.
     func menuWillOpen(_ menu: NSMenu) {
+        menuOpen = true
         refresh()
+        refreshModels()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuOpen = false
+        if menuStale { rebuildMenu() }
     }
 
     func refresh() {
@@ -459,7 +529,7 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func stopThenTerminate() {
-        launcher.run("stop") { [weak self] _ in
+        launcher.run(["stop"]) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.phase = .stopped
                 NSApp.reply(toApplicationShouldTerminate: true)
@@ -483,6 +553,140 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openApplication(_ sender: NSMenuItem) {
         guard let app = sender.representedObject as? URL else { return }
         NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    static let gibibyte = 1_073_741_824.0
+    /// Room a model needs beyond its file — context and working memory — when the menu
+    /// judges whether it probably fits in the memory free right now.
+    static let loadHeadroom = 1.2
+
+    /// LM Studio's submenu: open the app, then every installed model, loadable through SIRVIS.
+    private func lmStudioMenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: MenuBar.lmStudio) {
+            let open = NSMenuItem(title: "Open LM Studio", action: #selector(openApplication(_:)), keyEquivalent: "")
+            open.representedObject = app
+            open.target = self
+            submenu.addItem(open)
+        }
+        submenu.addItem(NSMenuItem.sectionHeader(title: "Load through SIRVIS"))
+        guard let models, models.available else {
+            let sirvisUp = report?.stack.first { $0.name == "SIRVIS" }?.answering == true
+            submenu.addItem(note(sirvisUp ? "Reading the installed models…" : "SIRVIS is not running"))
+            return submenu
+        }
+        if models.models.isEmpty { submenu.addItem(note("No models installed")) }
+        models.models.forEach { submenu.addItem(modelItem($0)) }
+        submenu.addItem(.separator())
+        submenu.addItem(note("✓ loaded from this menu, click to unload · – loaded by something else"))
+        return submenu
+    }
+
+    /// One model: click to load, a tick and click to unload when this menu loaded it, a dash
+    /// and no click when something else did, and "loading…" while SIRVIS works on it.
+    private func modelItem(_ model: ModelsReport.Model) -> NSMenuItem {
+        let font = NSFont.menuFont(ofSize: 0)
+        let size = model.sizeBytes.map { String(format: "%.1f GB", $0 / MenuBar.gibibyte) } ?? ""
+        let details = [model.format.uppercased(), model.quantization, size].filter { !$0.isEmpty }
+        let title = NSMutableAttributedString(string: model.name, attributes: [.font: font])
+        let working = modelBusy == model.key
+        let trailing = working ? (model.heldByMenu ? "unloading…" : "loading…") : details.joined(separator: " · ")
+        if !trailing.isEmpty {
+            title.append(NSAttributedString(string: "   " + trailing,
+                attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: font]))
+        }
+        let item = NSMenuItem(title: model.name, action: nil, keyEquivalent: "")
+        item.attributedTitle = title
+        item.representedObject = model.key
+        item.target = self
+        if working {
+            item.isEnabled = false
+        } else if model.heldByMenu {
+            item.state = .on
+            item.action = #selector(unloadModel(_:))
+            item.toolTip = "Loaded from this menu. Click to unload it."
+        } else if model.loaded {
+            item.state = .mixed
+            item.isEnabled = false
+            item.toolTip = "Loaded by something else, which this menu leaves alone."
+        } else {
+            item.action = #selector(loadModel(_:))
+            item.isEnabled = modelBusy == nil
+            item.toolTip = "Load through SIRVIS."
+        }
+        return item
+    }
+
+    @objc private func loadModel(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let model = models?.models.first(where: { $0.key == key }),
+              fitsOrConfirmed(model) else { return }
+        change(model, ["load", key])
+    }
+
+    @objc private func unloadModel(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let model = models?.models.first(where: { $0.key == key }) else { return }
+        change(model, ["unload", key])
+    }
+
+    /// "Ask me first", as the owner chose: a model whose file, with room to work, is larger
+    /// than the memory free right now loads only after a dialog says so. A model of unknown
+    /// size, or a moment when NERVIS cannot say what is free, loads without asking — there is
+    /// nothing to judge with, and refusing would lock the menu exactly when a figure is missing.
+    private func fitsOrConfirmed(_ model: ModelsReport.Model) -> Bool {
+        guard let size = model.sizeBytes, let free = report?.system?.memoryAvailableBytes,
+              size * MenuBar.loadHeadroom > free else { return true }
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "\(model.name) probably won't fit in free memory"
+        alert.informativeText = String(
+            format: "Its file is %.1f GB, and with room to work it needs about %.1f GB. %.1f GB is free right now. "
+                + "Loading it anyway can make the Mac swap and slow everything down until it is unloaded.",
+            size / MenuBar.gibibyte, size * MenuBar.loadHeadroom / MenuBar.gibibyte, free / MenuBar.gibibyte)
+        alert.addButton(withTitle: "Load Anyway")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func change(_ model: ModelsReport.Model, _ arguments: [String]) {
+        modelBusy = model.key
+        redraw()
+        launcher.capture(arguments) { [weak self] code, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.modelBusy = nil
+                if code != 0 { self.explain(data, model: model, loading: arguments.first == "load") }
+                self.refreshModels()
+            }
+        }
+    }
+
+    /// SIRVIS's own words when it would not do what was asked — two models already loaded,
+    /// the runtime not answering — rather than a click that silently did nothing.
+    private func explain(_ data: Data, model: ModelsReport.Model, loading: Bool) {
+        let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = loading ? "SIRVIS did not load \(model.name)" : "SIRVIS did not unload \(model.name)"
+        alert.informativeText = (answer?["error"] as? String)
+            ?? "The launcher gave no reason; .run/menubar.log may say more."
+        alert.runModal()
+    }
+
+    func refreshModels() {
+        guard !modelsRefreshing, phase != .stopping, phase != .stopped else { return }
+        modelsRefreshing = true
+        launcher.capture(["models", "--json"]) { [weak self] _, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.modelsRefreshing = false
+                if let fresh = ModelsReport.decode(data) { self.models = fresh }
+                self.redraw()
+            }
+        }
     }
 
     @objc private func quit() {
@@ -539,6 +743,15 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func redraw() {
         updateBlinking()
         statusItem?.button?.toolTip = "NERVIS — \(headline)" + (unread > 0 ? " · \(unreadText)" : "")
+        if menuOpen {
+            menuStale = true
+        } else {
+            rebuildMenu()
+        }
+    }
+
+    func rebuildMenu() {
+        menuStale = false
         menu.removeAllItems()
         menu.addItem(NSMenuItem.sectionHeader(title: headline))
         if unread > 0 {
@@ -588,15 +801,10 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem()
         item.attributedTitle = title
         item.isEnabled = true
-        // LM Studio is an app on this Mac, and its row opens it, as the owner asked. Found by
-        // bundle identifier, so it opens wherever it is installed; a Mac without it gets a row
-        // that does nothing, like every other row.
-        if service.name == "LM Studio",
-           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: MenuBar.lmStudio) {
-            item.representedObject = app
-            item.action = #selector(openApplication(_:))
-            item.target = self
-            item.toolTip = "Open LM Studio"
+        // LM Studio's row opens a submenu: the app itself, and the installed models, each
+        // loaded through SIRVIS rather than straight into LM Studio (SIRVIS.md §9).
+        if service.name == "LM Studio" {
+            item.submenu = lmStudioMenu()
         }
         return item
     }
@@ -658,13 +866,22 @@ enum Preview {
         Thread.sleep(forTimeInterval: 1)
         bar.sampleMachine()
         bar.report = StackReport.decode(result.data)
+        bar.models = ModelsReport.decode(launcher.runNow(["models", "--json"], capture: true).data)
         bar.phase = .running
         bar.redraw()
-        for item in bar.menu.items {
-            if item.isSeparatorItem { print("────"); continue }
+        printItems(bar.menu.items, indent: "  ")
+    }
+
+    @MainActor
+    private static func printItems(_ items: [NSMenuItem], indent: String) {
+        for item in items {
+            if item.isSeparatorItem { print("\(indent)────"); continue }
             let title = item.attributedTitle?.string ?? item.title
+            let mark = item.state == .on ? "✓ " : item.state == .mixed ? "– " : ""
             let opens = item.toolTip.map { "  → \($0)" } ?? ""
-            print(item.isSectionHeader ? "[\(title)]" : "  \(title)\(item.isEnabled ? "" : "  (disabled)")\(opens)")
+            let enabled = item.isEnabled ? "" : "  (disabled)"
+            print(item.isSectionHeader ? "\(indent)[\(title)]" : "\(indent)\(mark)\(title)\(enabled)\(opens)")
+            if let submenu = item.submenu { printItems(submenu.items, indent: indent + "      ") }
         }
     }
 }

@@ -46,6 +46,7 @@ from sirvis.runtimes.variants import (
     InstalledVariant,
     LoadedVariant,
     confirm,
+    installed_sizes,
     installed_variants,
     loaded_variants,
 )
@@ -105,6 +106,41 @@ def add_unpublished(published: list[dict[str, Any]],
     return published + added
 
 
+def with_sizes(published: list[dict[str, Any]],
+               builds: list[InstalledVariant] | None,
+               sizes: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    """The catalogue, with each entry's size on disk when the CLI names its build.
+
+    **The HTTP catalogue carries no size and the CLI does**, per build — so until
+    12 September 2026 every installed model reached `/api/v1/models` with
+    `installed_size_bytes: null`, and nothing could say whether one would fit in
+    memory before loading it. An entry is matched to its build exactly as
+    `add_unpublished` decides a build is already described: by its qualified key,
+    or by family, format and quantization together. Failing that, an entry takes the
+    size the CLI's plain listing gives its exact key (`installed_sizes`), which names
+    the models the build listing leaves out. An entry neither matches is left without
+    a size rather than borrowing a sibling's, because a GGUF and an MLX of the same
+    weights are different sizes.
+    """
+    if not builds and not sizes:
+        return published
+    by_key = {build.model_key: build for build in builds or []}
+    by_shape = {
+        (build.family, build.runtime_format, build.quantization): build for build in builds or []
+    }
+    sized = []
+    for entry in published:
+        key = str(entry.get("id") or "")
+        shape = (_family_of(key), str(entry.get("compatibility_type") or ""),
+                 str(entry.get("quantization") or ""))
+        build = by_key.get(key) or by_shape.get(shape)
+        size = build.size_bytes if build else None
+        if size is None and sizes:
+            size = sizes.get(key)
+        sized.append({**entry, "size_bytes": size} if size is not None else entry)
+    return sized
+
+
 def _as_lms_argument(value: Any, field: str) -> str:
     """One caller-supplied value, as the argv token it will become — or a
     refusal when `lms` would read it as one of its own options.
@@ -162,6 +198,7 @@ def _as_entry(build: InstalledVariant) -> dict[str, Any]:
         "quantization": build.quantization,
         "state": "not-loaded",
         "max_context_length": build.max_context,
+        "size_bytes": build.size_bytes,
     }
 
 
@@ -234,9 +271,10 @@ class LMStudioAdapter:
         if not isinstance(entries, list):
             raise RuntimeUnavailableError("model list was not a list")
         published = [entry for entry in entries if isinstance(entry, dict)]
+        builds = self._local_builds()
         return [
             {**entry, "runtime_key": RUNTIME_KEY}
-            for entry in add_unpublished(published, self._local_builds())
+            for entry in add_unpublished(with_sizes(published, builds, self._local_sizes()), builds)
         ]
 
     def confirm_variant(self, model_key: str) -> LoadedVariant | None:
@@ -499,6 +537,14 @@ class LMStudioAdapter:
             return None
         binary = self._resolve_lms()
         return installed_variants(binary) if binary else None
+
+    def _local_sizes(self) -> dict[str, int] | None:
+        """Installed sizes from the CLI's plain listing, for a runtime on this machine only,
+        for the reason `_local_builds` gives."""
+        if not _is_local(self.base_url):
+            return None
+        binary = self._resolve_lms()
+        return installed_sizes(binary) if binary else None
 
     def _run_lms(
         self,

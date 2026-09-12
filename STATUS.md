@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2934 tests, no network, no live service
+.venv/bin/pytest                      # part of 2939 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 511 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1213 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 512 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1217 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2934 passing across the four, conformance `PASS`.
+Expected: all clean, 2939 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -209,11 +209,11 @@ carries an as-built note saying what exists and what does not.
 | 8 | **RAVIS M21, M22, M23** | Request replay, advanced routing (escalation, shadow routing, outcome scoring) and the Responses API: none started. RAVIS correctly does not advertise `/v1/responses` |
 | 9 | **RAVIS M25a, M25b, M27** | Serverless GPUs as an upstream and as a routing candidate, and more than one SIRVIS: none started. M27 needs a second machine, and M25b has an open question about evidence identity in `RAVIS.md` |
 | 10 | **RAVIS M17 and M26 — perhaps closable rather than buildable** | M17's dashboard is NERVIS's twelve RAVIS screens, which lack only Profiles, a Models page, estimated savings and a live Clarvis compatibility page. M26's background pool may be superseded by `ravis/free-api` (M28). Both are the owner's call |
-| 11 | **Specified for SIRVIS and not built** | Four `/api/v1` paths and a sessions list (§4.2); most of the command line — models, runtime, compare, recommend (§18); Discover filters beyond format and size, and the installed view's Compare, Inspect, Find variants, Reveal and Delete (§8); randomized and balanced run order (§11.7); the fit classes, and recording installed sizes (§14.2); most of its events, and spans (§15.3); capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4); Playground, Pareto, regressions and result comparison (§16) |
+| 11 | **Specified for SIRVIS and not built** | Four `/api/v1` paths and a sessions list (§4.2); most of the command line — models, runtime, compare, recommend (§18); Discover filters beyond format and size, and the installed view's Compare, Inspect, Find variants, Reveal and Delete (§8); randomized and balanced run order (§11.7); the fit classes (§14.2); most of its events, and spans (§15.3); capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4); Playground, Pareto, regressions and result comparison (§16) |
 | 12 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
 | 13 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
-| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; the launcher has no automated tests |
+| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
@@ -18935,6 +18935,58 @@ Installed as `/Applications/NERVIS.app`, copied from the build with `ditto`: the
 verifies and the binary is identical to the build's. `nervis/packaging/macos/build_app.sh` now
 refreshes that copy whenever it builds, and replaces it only when it carries this app's bundle
 identifier. It does not open at login — the owner opens it when they want the stack.
+
+## LM Studio's models in the menu bar, loaded through SIRVIS — 2026-09-12
+
+The owner asked for LM Studio's entry in the menu bar app to show the installed models and to load
+them through SIRVIS, and chose how two things behave: a model loaded from the menu stays loaded until
+it is unloaded there or NERVIS quits, and a model that probably will not fit in free memory is asked
+about first.
+
+**How it loads.** LM Studio's entry opens a submenu: Open LM Studio, then every installed model with
+its format, quantization and size. Clicking one runs `tools/run.py load`, which opens a SIRVIS runtime
+session for it — policy `reject`, SIRVIS's default one-hour lease, and the runtime-scoped token the
+launcher already mints for the dashboard — and records the session in `.run/menubar-sessions.json`.
+The app renews those leases every ten minutes, so a model stays loaded while the app runs and lapses
+within the hour if the app dies. A model loaded from the menu is ticked and unloads with a second click;
+one loaded by anything else — RAVIS, a benchmark, LM Studio by itself — shows a dash and is not the
+menu's to release (SIRVIS.md §9). A refusal from SIRVIS, such as two models already loaded, comes back
+in a dialog in its own words.
+
+**Ask first.** Before loading, the app compares the model's size plus a fifth, for context and working
+memory, with the memory NERVIS reads as free. When that is larger, a dialog names both figures and loads
+only on Load Anyway. With no size or no reading it loads without asking, because there is nothing to
+judge with. The menu is no longer rebuilt while it is open — a rebuild would snap a submenu shut under
+the pointer — so it draws from readings at most ten seconds old and redraws when it closes.
+
+**SIRVIS records installed sizes now** (0.19.2). `/api/v1/models` returned `installed_size_bytes: null`
+for all 20 installed builds, because LM Studio's HTTP catalogue carries no sizes, so the fit estimator
+of §14.2 and the Runtime Set fit check had nothing to work with. Each catalogue entry now takes its
+build's size from `lms ls --variants --json`, by key or by family, format and quantization, and
+otherwise the size the plain `lms ls --json` gives its exact key. The variants listing alone sized 7
+of the 20, since it names only models installed through LM Studio's catalogue; the plain listing
+covers the rest, and gives a model's selected variant rather than its variants added together —
+`google/gemma-4-e4b` reads 5.9 GB there, its Q4_K_M build. A Runtime Set can now be refused or found
+plausible rather than always reading unknown.
+
+**Found on the way: SIRVIS releases no lease when it shuts down.** Its lifespan stops the queue, the
+download watcher and the event pump and nothing else, while the stop in `tools/run.py` carried a comment
+saying SIRVIS released its leases on shutdown. A model loaded through SIRVIS would have stayed in LM
+Studio after the stack stopped, held by nobody. The launcher now releases the menu's own sessions before
+it stops anything, and the comment is corrected. Nothing does the same for other clients; that is in
+Next.
+
+Verified live: the stack restarted onto the new SIRVIS; `tools/run.py models --json` listed 20 models,
+every one with a size and none loaded; and the app's menu, printed from that answer, showed LM Studio's
+submenu with Open LM Studio and all 20 models with format, quantization and size. **Not seen live yet:
+loading and unloading a model from the menu** — that is left to the owner's own click, since a model is
+never loaded without asking first.
+
+SIRVIS 0.19.1 → 0.19.2, NERVIS 0.28.1 → 0.28.2.
+
+Checked: ruff and mypy clean in SIRVIS and NERVIS; SIRVIS's full suite passes, 512 tests with the new one
+for sizes; NERVIS's full suite passes, 1217 with four new for the launcher's model commands; the app
+builds, and the build refreshed its copy in Applications; and the commit went through the dashboard hook.
 
 ## Starting the thing
 

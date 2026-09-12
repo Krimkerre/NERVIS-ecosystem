@@ -1034,13 +1034,14 @@ already-loaded models. Always distinguish measured from estimated.
 **As built, 12 September 2026: the six classes are names, not an estimator.**
 `sirvis/src/sirvis/core/recommendations.py` defines `IDEAL` through `UNKNOWN` as constants and
 nothing ever assigns one but the default, so every recommendation's `fit` is `UNKNOWN`, marked
-`basis: estimate`. The input the arithmetic would need is missing: `installed_size_bytes`
-(`sirvis/src/sirvis/core/models.py`) is declared and never filled in, and the live
-`GET /api/v1/models` returned it empty for all 20 installed builds. A Runtime Set gets a narrower
+`basis: estimate`. The input the arithmetic would need arrived on 12 September 2026 (0.19.2): `installed_size_bytes`
+(`sirvis/src/sirvis/core/models.py`) is now filled in from LM Studio's CLI — per build where its
+variants listing names one, otherwise from its plain listing — where until then the live
+`GET /api/v1/models` returned it empty for all 20 installed builds. Nothing assigns the six classes yet. A Runtime Set gets a narrower
 check, `estimate_fit` in `sirvis/src/sirvis/core/runtime_sets.py`: `REFUSED` when the members'
 weights alone exceed the machine's memory, `PLAUSIBLE` when they do not, and `UNKNOWN` when any
-member's size is missing — which, with no sizes recorded, is every set; a live read of one answered
-exactly that. It names what it leaves out, starting with KV cache, runtime overhead and OS memory.
+member's size is missing — which, before sizes were recorded, was every set; a live read of one
+answered exactly that. With sizes recorded, a set can now be refused or found plausible. It names what it leaves out, starting with KV cache, runtime overhead and OS memory.
 Discover's *runs on this Mac* (§8, `sirvis/src/sirvis/catalog.py`) is a separate estimate made
 from a repository's parameter count, and uses none of these classes.
 

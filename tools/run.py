@@ -1157,6 +1157,9 @@ def stop() -> int:
         print("Nothing recorded as running.")
         return 0
     print("Stopping…")
+    # The menu bar app's models first, while SIRVIS can still be asked to unload them.
+    if responds(f"http://127.0.0.1:{SIRVIS_PORT}/ecosystem/health", 1.0):
+        _release_menu_sessions()
     for name, record in sorted(recorded.items()):
         raw_pid = record.get("pid", 0)
         pid = raw_pid if isinstance(raw_pid, int) else 0
@@ -1165,7 +1168,10 @@ def stop() -> int:
             print(f"  {name} was not running")
             continue
         # Ask first. A service killed outright can leave a half-written SQLite
-        # journal, and SIRVIS releases its model leases on shutdown (§9).
+        # journal. This used to add that SIRVIS releases its model leases on
+        # shutdown; it does not — its lifespan stops the queue, the download
+        # watcher and the event pump and nothing else — which is why the menu bar
+        # app's sessions are released above, before anything stops.
         if WINDOWS:
             subprocess.run(["taskkill", "/PID", str(pid), "/T"], capture_output=True, check=False)
         else:
@@ -1336,6 +1342,202 @@ def _bridges_text(windows: int | None) -> str:
     return f"answering in {windows} editor window{'s' if windows > 1 else ''}"
 
 
+# ── Models, for the menu bar app's LM Studio menu ─────────────────────────────
+#
+# The owner asked for LM Studio's entry in the menu bar app to list the installed
+# models and load them *through SIRVIS*, which owns every load and unload
+# (SIRVIS.md §9), and chose two behaviours on 12 September 2026: a model loaded from
+# the menu stays loaded until it is unloaded there or NERVIS quits, and a model that
+# probably will not fit in free memory is asked about first (the app does that part).
+
+#: The sessions the menu bar app opened, by model key: renewed while the app runs,
+#: released when a model is unloaded from the menu, and released before the stack stops.
+MENU_SESSIONS = RUN / "menubar-sessions.json"
+
+
+def _sirvis_call(method: str, path: str, body: dict[str, object] | None = None,
+                 timeout: float = 10.0) -> tuple[int, object]:
+    """One JSON call to SIRVIS: (HTTP status, parsed body). Status 0 when unreachable.
+
+    **Presents the dashboard's runtime token** (`dashboard_token`). The menu bar app
+    is the same person's other window onto the same stack, and a second credential
+    would be one more that nobody can account for. It is read and sent here, never
+    printed. A write carries a JSON content type even with no body, because SIRVIS
+    requires one on every mutation as a CSRF defence (§4.5).
+    """
+    headers = {"authorization": f"Bearer {dashboard_token()}", "accept": "application/json"}
+    if method != "GET":
+        headers["content-type"] = "application/json"
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{SIRVIS_PORT}{path}", data=data, headers=headers, method=method
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as reply:
+            return reply.status, _parsed(reply.read())
+    except urllib.error.HTTPError as failure:
+        return failure.code, _parsed(failure.read())
+    except Exception:  # noqa: BLE001 - an unreachable SIRVIS is an answer, not a crash
+        return 0, None
+
+
+def _parsed(raw: bytes) -> object:
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _refusal(status: int, answer: object) -> str:
+    """SIRVIS's own words for a refusal, or what can be said without them."""
+    if status == 0:
+        return "SIRVIS is not answering"
+    error = answer.get("error") if isinstance(answer, dict) else None
+    message = error.get("message") if isinstance(error, dict) else error
+    return str(message) if message else f"SIRVIS answered HTTP {status}"
+
+
+def _menu_sessions() -> dict[str, str]:
+    try:
+        stored = json.loads(MENU_SESSIONS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(key): str(value) for key, value in stored.items()} if isinstance(stored, dict) else {}
+
+
+def _save_menu_sessions(sessions: dict[str, str]) -> None:
+    RUN.mkdir(parents=True, exist_ok=True)
+    MENU_SESSIONS.write_text(json.dumps(sessions, indent=1) + "\n", encoding="utf-8")
+
+
+def _model_row(model: dict[str, object], loaded_keys: set[str], held: dict[str, str]) -> dict[str, object]:
+    """One installed model as the menu shows it."""
+    key = str(model.get("runtime_key") or "")
+    variant = model.get("variant") if isinstance(model.get("variant"), dict) else {}
+    return {
+        "key": key,
+        "name": key.split("/")[-1],
+        "format": str(variant.get("runtime_format") or ""),
+        "quantization": str(variant.get("quantization") or ""),
+        "size_bytes": model.get("installed_size_bytes"),
+        "loaded": key in loaded_keys or bool(model.get("is_loaded")),
+        "held_by_menu": key in held,
+    }
+
+
+def models_report() -> dict[str, object]:
+    """LM Studio's installed models as SIRVIS knows them, for the menu bar app.
+
+    Each carries its size, whether it is loaded, and whether the menu holds it. A
+    model the menu loaded can be unloaded from it; one loaded by anything else —
+    RAVIS, a benchmark, LM Studio by itself — is shown as loaded and left alone,
+    because releasing another client's lease is not the menu's to do (§9). A session
+    the menu recorded that SIRVIS no longer has is forgotten here.
+    """
+    status, models = _sirvis_call("GET", "/api/v1/models", timeout=15.0)
+    if status != 200 or not isinstance(models, dict):
+        return {"available": False, "models": [], "max_loaded": None}
+    _, residency = _sirvis_call("GET", "/api/v1/runtime/residency", timeout=15.0)
+    residency = residency if isinstance(residency, dict) else {}
+    live = {str(lease.get("session_id")) for lease in residency.get("leases", []) if isinstance(lease, dict)}
+    held = {key: session for key, session in _menu_sessions().items() if session in live}
+    _save_menu_sessions(held)
+    loaded_keys = {str(h.get("model_key")) for h in residency.get("holdings", []) if isinstance(h, dict)}
+    loaded_keys |= {str(key) for key in residency.get("foreign", [])}
+    rows = [
+        _model_row(model, loaded_keys, held)
+        for model in models.get("items", [])
+        if isinstance(model, dict) and model.get("runtime_key")
+    ]
+    rows.sort(key=lambda row: str(row["name"]).lower())
+    return {"available": True, "models": rows, "max_loaded": residency.get("max_loaded")}
+
+
+def load_model(key: str) -> dict[str, object]:
+    """Load one model through SIRVIS, under a lease the menu bar app keeps renewing.
+
+    `reject` rather than SIRVIS's default policy, which today refuses the same way
+    but is named `wait` (§9's 4 Sep amendment): the menu should never appear to be
+    queued behind something. Allowed fifteen minutes, because a large model's first
+    load from disk takes minutes and the request only answers when it is loaded.
+    """
+    if not key:
+        return {"ok": False, "error": "name a model to load"}
+    held = _menu_sessions()
+    if key in held:
+        return {"ok": True, "session_id": held[key], "already": True}
+    status, answer = _sirvis_call(
+        "POST", "/api/v1/runtime/sessions",
+        {"models": [{"model_id": key}], "policy": "reject"}, timeout=900.0,
+    )
+    session = answer.get("session_id") if isinstance(answer, dict) else None
+    if status != 200 or not session:
+        return {"ok": False, "error": _refusal(status, answer)}
+    held[key] = str(session)
+    _save_menu_sessions(held)
+    return {"ok": True, "session_id": session}
+
+
+def unload_model(key: str) -> dict[str, object]:
+    """Release the menu's session on one model; SIRVIS unloads it if nobody else holds it."""
+    held = _menu_sessions()
+    session = held.get(key)
+    if session is None:
+        return {"ok": False, "error": "this model was not loaded from the menu, so the menu leaves it alone"}
+    status, answer = _sirvis_call("DELETE", f"/api/v1/runtime/sessions/{session}", timeout=120.0)
+    if status not in (200, 404):
+        return {"ok": False, "error": _refusal(status, answer)}
+    del held[key]
+    _save_menu_sessions(held)
+    return {"ok": True}
+
+
+def renew_models() -> dict[str, object]:
+    """Renew every session the menu holds. A lapsed one (404) is forgotten; one SIRVIS
+    could not be asked about is kept for the next try."""
+    kept = {
+        key: session for key, session in _menu_sessions().items()
+        if _sirvis_call("POST", f"/api/v1/runtime/sessions/{session}/renew")[0] in (200, 0)
+    }
+    _save_menu_sessions(kept)
+    return {"ok": True, "renewed": len(kept)}
+
+
+def _release_menu_sessions() -> None:
+    """Unload what the menu bar app loaded, before the stack stops.
+
+    SIRVIS releases nothing when it shuts down, so a model loaded from the menu would
+    otherwise stay in LM Studio after the stack stopped, held by nobody. The owner
+    chose "until I unload it or quit", so the launcher releases the menu's sessions
+    first — its own, and never another client's.
+    """
+    for key in list(_menu_sessions()):
+        result = unload_model(key)
+        print(f"  released {key} for the menu bar" if result["ok"] else f"  could not release {key}: {result['error']}")
+
+
+def _run_models() -> int:
+    print(json.dumps(models_report()))
+    return 0
+
+
+def _answer(result: dict[str, object]) -> int:
+    print(json.dumps(result))
+    return 0 if result.get("ok") else 1
+
+
+def _run_load() -> int:
+    return _answer(load_model(sys.argv[2] if len(sys.argv) > 2 else ""))
+
+
+def _run_unload() -> int:
+    return _answer(unload_model(sys.argv[2] if len(sys.argv) > 2 else ""))
+
+
+def _run_renew() -> int:
+    return _answer(renew_models())
+
+
 def _run_status() -> int:
     if "--json" in sys.argv[2:]:
         print(json.dumps(status_report()))
@@ -1344,11 +1546,14 @@ def _run_status() -> int:
     return 0
 
 
-COMMANDS = {"start": start, "stop": stop, "status": _run_status}
+COMMANDS = {
+    "start": start, "stop": stop, "status": _run_status,
+    "models": _run_models, "load": _run_load, "unload": _run_unload, "renew": _run_renew,
+}
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
     if action not in COMMANDS:
-        print(f"usage: {Path(__file__).name} [start|stop|status [--json]]", file=sys.stderr)
+        print(f"usage: {Path(__file__).name} [start|stop|status [--json]|models|load KEY|unload KEY|renew]", file=sys.stderr)
         raise SystemExit(2)
     raise SystemExit(COMMANDS[action]())

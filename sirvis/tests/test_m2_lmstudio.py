@@ -336,6 +336,45 @@ def test_nothing_is_added_when_the_cli_cannot_be_asked() -> None:
     assert add_unpublished(catalogue, []) == catalogue
 
 
+def test_each_catalogue_entry_takes_its_own_builds_size_and_no_other() -> None:
+    """The HTTP catalogue carries no size, so every installed model reached
+    `/api/v1/models` with `installed_size_bytes: null` until 12 September 2026 and
+    nothing could say whether one would fit before loading it. The CLI does know,
+    per build. An entry takes the size of the build it describes — by its qualified
+    key, or by family, format and quantization — and an entry no build matches keeps
+    none, because a GGUF and an MLX of the same weights are different sizes."""
+    from dataclasses import replace
+
+    from sirvis.core.inventory import build_inventory
+    from sirvis.runtimes.lmstudio import add_unpublished, with_sizes
+
+    builds = [
+        replace(_build("google/gemma-4-e4b@q4_k_m", "gguf", "Q4_K_M"), size_bytes=4_800_000_000),
+        replace(_build("google/gemma-4-e4b@4bit", "mlx", "4bit"), size_bytes=4_100_000_000),
+    ]
+    catalogue = [
+        {"id": "google/gemma-4-e4b", "compatibility_type": "gguf", "quantization": "Q4_K_M"},
+        {"id": "google/gemma-4-e4b@4bit", "compatibility_type": "mlx", "quantization": "4bit"},
+        {"id": "other/model", "compatibility_type": "gguf", "quantization": "Q8_0"},
+        {"id": "other/model@8bit", "compatibility_type": "mlx", "quantization": "8bit"},
+    ]
+    # The plain listing: every model once, by its plain key. A build match wins over it.
+    plain = {"google/gemma-4-e4b": 1, "other/model": 900_000_000}
+
+    sized = with_sizes(catalogue, builds, plain)
+
+    assert [entry.get("size_bytes") for entry in sized] == [
+        4_800_000_000, 4_100_000_000, 900_000_000, None]
+    # A qualified key never borrows its plain sibling's size.
+    assert "size_bytes" not in sized[3]
+    assert with_sizes(catalogue, None) == catalogue
+    # And the size reaches the domain, for a published entry and an added one alike.
+    records = add_unpublished(sized[:1], builds)
+    inventory = build_inventory(records)
+    assert sorted(m.installed_size_bytes for m in inventory.installed.values()) == [
+        4_100_000_000, 4_800_000_000]
+
+
 def test_a_remote_runtime_is_not_described_by_this_machines_cli() -> None:
     """The CLI reads *this* laptop's disk. An adapter pointed at LM Studio on
     another host must not be handed these builds — that is one machine's

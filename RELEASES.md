@@ -313,7 +313,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.1
+## NERVIS — 0.28.2
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **LM Studio's entry in the menu bar app lists the installed models, and loads one through SIRVIS.**
+  A model loaded that way is ticked, stays loaded until it is clicked again or NERVIS quits, and the menu
+  asks before loading one that probably won't fit in free memory. A model loaded any other way is shown
+  with a dash and left alone. `tools/run.py` gains `models`, `load`, `unload` and `renew` for it.
+- **Stopping the stack unloads what the menu loaded.** SIRVIS releases no lease when it shuts down, so a
+  model loaded through it would have stayed in LM Studio, held by nobody; the launcher now releases the
+  menu's own sessions first. A comment in the launcher that said SIRVIS released them is corrected.
+
+### 0.28.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -920,7 +932,16 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.1
+## SIRVIS — 0.19.2
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **Installed models carry their size.** `/api/v1/models` reported `installed_size_bytes: null` for every
+  model, because LM Studio's HTTP catalogue has no sizes. SIRVIS now takes each build's size from LM
+  Studio's own CLI listing, matched by its key or by family, format and quantization, and leaves a model
+  without a size rather than give it a sibling's — a GGUF and an MLX of the same weights differ.
+
+### 0.19.1
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 
