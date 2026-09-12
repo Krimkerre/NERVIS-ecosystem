@@ -17953,9 +17953,12 @@ code-server's process carries the variable. RAVIS answered its sessions listing 
 the anonymous application with no token and with a made-up one, and as a separate
 named application with Clarvis's token. That comparison is the check that can tell:
 RAVIS treats an unknown token as anonymous rather than refusing it, and its
-credential listing deliberately hides client names. Not seen live: a Clarvis
-request arriving as clarvis, which needs the editor tab reloaded so Clarvis's
-extension host starts with the new environment.
+credential listing deliberately hides client names. Seen live on 12 September:
+after the editor tab was reloaded, a hello typed into Clarvis reached RAVIS under
+the application clarvis, and Clarvis's extension host carries the variable. That
+chat turn went to gemini-2.5-flash-lite: Clarvis's chat sends tools, Anthropic's
+own Claude Haiku is not declared tool-capable, and OpenRouter's copy of Haiku ranks
+behind it because Anthropic serves a qualifying model, Sonnet 5, directly.
 
 ## Starting the thing
 
