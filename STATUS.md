@@ -17960,6 +17960,29 @@ chat turn went to gemini-2.5-flash-lite: Clarvis's chat sends tools, Anthropic's
 own Claude Haiku is not declared tool-capable, and OpenRouter's copy of Haiku ranks
 behind it because Anthropic serves a qualifying model, Sonnet 5, directly.
 
+## Clarvis's chat goes to Claude Haiku, bought directly — 2026-09-12
+
+Clarvis's first chat turn as the named caller clarvis went to
+gemini-2.5-flash-lite. Clarvis's chat sends tools; Anthropic's own Claude Haiku
+carried no tool claim and was refused, and OpenRouter's Haiku ranked behind every
+model nobody resells because Anthropic serves a qualifying model, Sonnet 5,
+directly. Asked, the operator declared Claude Haiku 4.5
+(claude-haiku-4-5-20251001, the only Haiku build in Anthropic's catalogue)
+tool-capable in ravis/operator-capabilities.json beside Sonnet 5, at configured
+provenance.
+
+What else it reaches: any pool that prefers Claude Haiku and receives a request
+carrying tools, ravis/chat among them. Builds are unchanged, because
+ravis/clarvis-agent's coding families do not include Haiku, and so is background
+work, because ravis/free-api admits nothing with a price above zero.
+
+Checked: ravis doctor reads two declared models from the file. Live, after a
+restart: RAVIS reports claude-haiku-4-5-20251001's tool support as SUPPORTED at
+configured provenance, and one request of a few tokens to ravis/clarvis-chat
+carrying a tool definition was answered by claude-haiku-4-5-20251001, with
+gemini-2.5-flash-lite and gemini-2.5-flash as its fallbacks. Not seen live: a chat
+turn typed into Clarvis after the reload.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
