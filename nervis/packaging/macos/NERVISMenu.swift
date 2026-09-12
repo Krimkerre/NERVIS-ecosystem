@@ -242,12 +242,49 @@ final class Launcher: @unchecked Sendable {
         return path.isEmpty ? nil : path
     }
 
-    /// A fresh log each launch, holding this session's starts, stops and status errors.
+    static let startedLine = "NERVIS menu bar app started"
+    static let exitedLine = "NERVIS menu bar app exiting"
+
+    /// Opens this run's part of the log, and says whether the run before it ended by quitting.
+    ///
+    /// **Appended, not started afresh.** The log used to be rewritten at every launch, which
+    /// erased the one thing worth reading after the app vanished: how the last run ended. On
+    /// 12 September 2026 it was found not running with the stack still up, no crash report and
+    /// nothing in the system log, and the next launch had already wiped its log. Now each run
+    /// records its quit, and a launch that finds the last run never recorded one says so. A
+    /// log past half a megabyte is moved to `menubar.previous.log` first, so it cannot grow
+    /// for ever.
     private func startLog() {
-        try? FileManager.default.createDirectory(
-            at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let manager = FileManager.default
+        try? manager.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let before = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        let lastRun = before.components(separatedBy: Launcher.startedLine).last ?? ""
+        if before.utf8.count > 512_000 {
+            let older = log.deletingLastPathComponent().appendingPathComponent("menubar.previous.log")
+            if manager.fileExists(atPath: older.path) {
+                _ = try? manager.replaceItemAt(older, withItemAt: log)
+            } else {
+                try? manager.moveItem(at: log, to: older)
+            }
+        }
+        record("\(Launcher.startedLine) for \(repository.path)")
+        if !before.isEmpty && !lastRun.contains(Launcher.exitedLine) {
+            record("the previous run ended without quitting — killed, force-quit or crashed; "
+                + "its last lines are just above, or in menubar.previous.log")
+        }
+    }
+
+    /// One timestamped line in the app's log.
+    func record(_ line: String) {
         let stamp = ISO8601DateFormatter().string(from: Date())
-        try? Data("NERVIS menu bar app started \(stamp) for \(repository.path)\n".utf8).write(to: log)
+        let data = Data("\(stamp) \(line)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: log) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else {
+            try? data.write(to: log)
+        }
     }
 }
 
@@ -456,7 +493,14 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Handed to the run loop rather than called here: a quit started inside this
         // dispatch block would wait for the stack with the main queue held (see
         // `onMainRunLoop`).
-        terminate.setEventHandler { onMainRunLoop { MainActor.assumeIsolated { NSApp.terminate(nil) } } }
+        terminate.setEventHandler { [weak self] in
+            onMainRunLoop {
+                MainActor.assumeIsolated {
+                    self?.launcher.record("told to quit by a signal (SIGTERM)")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         terminate.resume()
         terminationSignal = terminate
         launcher.prepare { [weak self] in
@@ -542,6 +586,7 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .starting, .running: break
         }
         phase = .stopping
+        launcher.record("quit requested — releasing the menu's models and stopping the stack first")
         timer?.invalidate()
         redraw()
         if !starting { stopThenTerminate() }
@@ -549,8 +594,9 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func stopThenTerminate() {
-        launcher.run(["stop"]) { [weak self] _ in
+        launcher.run(["stop"]) { [weak self] code in
             MainActor.assumeIsolated {
+                self?.launcher.record("\(Launcher.exitedLine); the stack's stop finished with status \(code)")
                 self?.phase = .stopped
                 NSApp.reply(toApplicationShouldTerminate: true)
             }

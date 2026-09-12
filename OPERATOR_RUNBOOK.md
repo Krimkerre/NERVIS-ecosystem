@@ -48,7 +48,8 @@ the graphics driver publishes; Activity Monitor's GPU History is the place to co
 
 It runs `tools/run.py` and holds no code of its own, so an update needs a restart and never a
 rebuild — only moving the repository does, because the app records where the repository is when
-it is built. Its log is `.run/menubar.log`.
+it is built. Its log is `.run/menubar.log`, kept across launches: it records each start and each quit, and a launch
+that finds the previous run never quit — killed, force-quit or crashed — says so.
 
 **Loading a model from it goes through SIRVIS**, which owns every load and unload. Clicking a model in
 LM Studio's list loads it under a SIRVIS lease that the app renews every ten minutes; it is ticked, and

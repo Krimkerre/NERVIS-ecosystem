@@ -313,7 +313,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.4
+## NERVIS — 0.28.5
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The menu bar app's log keeps its history and records how each run ends.** It was rewritten at every
+  launch, which erased the record of a run that vanished. Now each run appends, logs its quit, and a
+  launch that finds the previous run never quit says so in the log (`.run/menubar.log`, with the older
+  part moved to `menubar.previous.log` past half a megabyte).
+
+### 0.28.4
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
