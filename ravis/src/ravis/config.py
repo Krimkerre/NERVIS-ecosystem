@@ -269,6 +269,16 @@ class Settings(BaseSettings):
     # blob. Entries in `model_capabilities` win, so an operator can override one
     # model without editing the file.
     model_capabilities_path: str = ""
+    # §13.3's OBSERVED_BY_RAVIS: RAVIS trying a hosted model's tool support itself when
+    # no catalogue, measurement or declaration has said. See `trials.py`. Hosted models
+    # only, a few per pass under a daily ceiling, each result kept for a month.
+    capability_trials: bool = True
+    capability_trials_per_pass: int = 3
+    capability_trials_per_day: int = 40
+    capability_trial_max_age_days: float = 30.0
+    # Long enough for catalogues to warm and the first requests to be served before RAVIS
+    # spends anything on its own account.
+    capability_trial_start_delay_seconds: float = 60.0
 
     # ── §10 reliability: circuit breakers, retries and fallback ─────────────
     # Three consecutive failures, not one: a single failure is ordinary — a

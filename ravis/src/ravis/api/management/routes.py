@@ -95,7 +95,10 @@ async def _candidates(request: Request) -> dict[str, Any]:
     what every deployment written before M8 is.
     """
     transparents = getattr(request.app.state, "transparents", {})
-    evidence = getattr(request.app.state, "evidence", None)
+    # SIRVIS's measurements with RAVIS's own trials beside them (see `trials.py`).
+    evidence = getattr(request.app.state, "capability_evidence", None) or getattr(
+        request.app.state, "evidence", None
+    )
     if transparents:
         candidates = await merged_candidates(transparents, evidence)
         translated, _ = await translated_candidates(
@@ -849,7 +852,10 @@ async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[
     translating = getattr(request.app.state, "translating", {})
     if not transparents and not translating:
         return {}, frozenset()
-    evidence = getattr(request.app.state, "evidence", None)
+    # SIRVIS's measurements with RAVIS's own trials beside them (see `trials.py`).
+    evidence = getattr(request.app.state, "capability_evidence", None) or getattr(
+        request.app.state, "evidence", None
+    )
     candidates = await merged_candidates(transparents, evidence) if transparents else {}
     # Translated providers too, or this screen describes a different candidate
     # set than the router uses — and the router is the one that answers.

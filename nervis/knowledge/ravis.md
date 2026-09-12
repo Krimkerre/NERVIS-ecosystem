@@ -415,6 +415,20 @@ Known and written down rather than fixed automatically: routing to unproven
 models to collect timings spends real money, which is a decision rather than a
 default.
 
+**Whether a hosted model can call tools is tried on purpose, since 12 September
+2026.** Anthropic, OpenAI and Google publish no tool support in their
+catalogues, so their models bought directly sat at unknown and every pool that
+requires tools refused them — Clarvis's builds went to a smaller model until
+the operator declared Claude Sonnet 5 and Haiku by hand. RAVIS now sends such a
+model one small request carrying one tool it must call. A call counts as tool
+support, a provider refusing tools counts as none, and anything else — a
+timeout, a rate limit — counts as nothing and is tried again hours later. It is
+bounded: hosted models only, never a local one, only models a tool-requiring
+pool would otherwise admit, three per pass and forty a day, each result kept a
+month, and every trial on the spend screen. The result ranks above a
+catalogue's word and below SIRVIS's measurements and the operator's own
+declarations. The capability_trials setting switches it off.
+
 ## Known limits, as of this writing
 
 The management API is **degraded**: reads work, and pool-membership and

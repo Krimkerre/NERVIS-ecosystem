@@ -89,10 +89,16 @@ class Provenance(str, Enum):
     `CONFIGURED` sits above measurement deliberately: an operator overriding a
     capability has said something about their own deployment that RAVIS cannot
     observe, and silently out-voting them would be the wrong kind of clever.
+
+    `OBSERVED` is RAVIS having tried the model itself — §13.3's OBSERVED_BY_RAVIS,
+    the tool trial in `trials.py`. One live request is better evidence than a flag in
+    a catalogue and weaker than SIRVIS's repeated, controlled measurement, so it sits
+    between them, and below an operator's declaration like everything else.
     """
 
     DEFAULT = "DEFAULT"
     ADVERTISED = "ADVERTISED"
+    OBSERVED = "OBSERVED"
     MEASURED = "MEASURED"
     CONFIGURED = "CONFIGURED"
 
@@ -100,8 +106,9 @@ class Provenance(str, Enum):
 _TRUST_ORDER = {
     Provenance.DEFAULT: 0,
     Provenance.ADVERTISED: 1,
-    Provenance.MEASURED: 2,
-    Provenance.CONFIGURED: 3,
+    Provenance.OBSERVED: 2,
+    Provenance.MEASURED: 3,
+    Provenance.CONFIGURED: 4,
 }
 
 

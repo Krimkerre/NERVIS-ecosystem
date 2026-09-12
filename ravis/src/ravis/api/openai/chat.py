@@ -791,7 +791,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     engine: RoutingEngine = request.app.state.routing_engine
     registry: ModelRegistry = request.app.state.model_registry
     health: HealthRegistry = request.app.state.health
-    evidence = getattr(request.app.state, "evidence", None)
+    # SIRVIS's measurements with RAVIS's own trials beside them (see `trials.py`).
+    evidence = getattr(request.app.state, "capability_evidence", None) or getattr(
+        request.app.state, "evidence", None
+    )
     transparents: dict[str, TransparentUpstream] = getattr(
         request.app.state, "transparents", {}
     )

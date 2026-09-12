@@ -1057,6 +1057,15 @@ staleness policy. SIRVIS recommendations are **advisory inputs** — RAVIS remai
 eligibility and ranking. On absence, version mismatch or corruption, mark the source degraded
 and fall back to configured evidence or unknown values. **Never fabricate a benchmark score.**
 
+**OBSERVED_BY_RAVIS is RAVIS's own trial of a hosted model** (added 12 September 2026). Hosted
+providers that publish no tool support — Anthropic, OpenAI and Google — leave their models UNKNOWN, and
+SIRVIS cannot measure an API. RAVIS sends such a model one request carrying one tool it is required to
+call: a call records SUPPORTED, a provider refusing tools records UNSUPPORTED, and any other failure
+records nothing and is retried hours later. Hosted models only, only models a tool-requiring pool would
+otherwise admit, a few per pass under a daily ceiling, results kept thirty days, and every trial recorded
+as usage. In code the provenance is `OBSERVED`, ranked above `ADVERTISED` and below `MEASURED` and
+`CONFIGURED`.
+
 ## 13.4 Optionality
 
 Without SIRVIS, RAVIS still operates using provider metadata, its own observations,

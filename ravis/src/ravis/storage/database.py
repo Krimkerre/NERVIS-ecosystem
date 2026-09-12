@@ -96,6 +96,25 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE routing_session ADD COLUMN requests INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        6,
+        "capability trials: RAVIS's own tool-call test of hosted models (§13.3)",
+        """
+        -- One row per model and capability RAVIS has tried itself, the provenance
+        -- §13.3 calls OBSERVED_BY_RAVIS. Hosted models only: a trial against a local
+        -- runtime would load a model, which RAVIS never does on its own account.
+        -- Holds the outcome and when it was reached, never the prompt or the reply.
+        CREATE TABLE IF NOT EXISTS capability_trial (
+            model      TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            state      TEXT NOT NULL,
+            detail     TEXT NOT NULL DEFAULT '',
+            provider   TEXT NOT NULL DEFAULT '',
+            tried_at   REAL NOT NULL,
+            PRIMARY KEY (model, capability)
+        );
+        """,
+    ),
 ]
 
 

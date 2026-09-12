@@ -74,6 +74,7 @@ from ravis.routing import RoutingEngine
 from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.storage import prepare_database
 from ravis.transparent import adapter_for, build_transparents
+from ravis.trials import CombinedEvidence, TrialStore, run_trials_periodically
 from ravis.upstream import Upstream, create_client, upstream_from
 from ravis.upstreams import DEFAULT_NAME, UpstreamSpec
 
@@ -138,6 +139,7 @@ def _lifespan(settings: Settings) -> Any:
             _refresh_evidence_periodically(api, settings.models_cache_ttl_seconds)
         )
         recorder = asyncio.create_task(_flush_observations_periodically(api))
+        trials = asyncio.create_task(run_trials_periodically(api, settings))
         # Runbook Stage 7. Borrows the upstream client rather than opening a
         # pool of its own, and is cancelled like the others — a publisher that
         # outlived the app would hold the process open on a queue nobody reads.
@@ -150,6 +152,7 @@ def _lifespan(settings: Settings) -> Any:
             refresher.cancel()
             evidence_refresher.cancel()
             recorder.cancel()
+            trials.cancel()
             publisher.cancel()
             # Bounded, on the way out. The last thing RAVIS publishes about a
             # request is the event that closes its span, and a fire-and-forget
@@ -342,6 +345,12 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         role=settings.sirvis_evidence_role,
         max_age_seconds=settings.sirvis_evidence_max_age_seconds,
     )
+    # RAVIS's own trials of hosted models' tool support, and the one store the candidate
+    # builders read: SIRVIS's measurements with those trials beside them. See `trials.py`.
+    api.state.trials = TrialStore(
+        api.state.database, max_age_seconds=settings.capability_trial_max_age_days * 86400.0
+    )
+    api.state.capability_evidence = CombinedEvidence(api.state.evidence, api.state.trials)
     api.state.adapter = (
         primary.adapter
         if primary
