@@ -57,3 +57,17 @@ codesign --force --sign - "$app"
 
 echo "Built $app"
 echo "  starts the stack in $repo"
+
+# Keep the copy in Applications in step with the build, so a change to the menu reaches
+# the app the owner actually opens. Only a copy that is this app — the same bundle
+# identifier — is replaced; anything else called NERVIS.app there is left alone. A copy
+# that is running keeps running the old build until it is next opened.
+installed="/Applications/NERVIS.app"
+if [ -d "$installed" ]; then
+  if [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$installed/Contents/Info.plist" 2>/dev/null)" = "local.nervis.menubar" ]; then
+    ditto "$app" "$installed"
+    echo "  and refreshed $installed"
+  else
+    echo "  left $installed alone: it is not this app" >&2
+  fi
+fi

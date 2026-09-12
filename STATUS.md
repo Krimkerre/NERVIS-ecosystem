@@ -199,30 +199,29 @@ carries an as-built note saying what exists and what does not.
 
 | # | What | Where it stands |
 |---|---|---|
-| 1 | **Stage 10 — whole-ecosystem hardening** | The load test ran on 12 September (`tools/load_test.py`). Still to do: the four-hour long-running test (`tools/soak_test.py` — built, never run its full length, and started by the owner, overnight); rollback and recovery rehearsed as one sequence; upgrade, downgrade and backup suites; runbook §8's scenarios 13 to 16 scored; the four unchecked items in runbook §15; and a frozen release candidate — the repository has no tags yet. Its milestones are rows 3 to 5 |
+| 1 | **Stage 10 — whole-ecosystem hardening** | The load test ran on 12 September (`tools/load_test.py`). Still to do: the four-hour long-running test (`tools/soak_test.py` — built, never run its full length, and started by the owner, overnight); rollback and recovery rehearsed as one sequence; upgrade, downgrade and backup suites; runbook §8's scenarios 13 to 16 scored; the four unchecked items in runbook §15; and a frozen release candidate — the repository has no tags yet. Its milestones are rows 3 and 4 |
 | 2 | **Stage 9 — the Code tab's exit, as written** | Re-grade the code-server matrix on the Clarvis that ships, through NERVIS's own proxy, including Bridge teardown when a browser tab closes. Needs a real browser session. NERVIS's proxy capability stays degraded until its Firefox, Safari and https rows are graded |
-| 3 | **The menu bar app's last live checks (NERVIS M19)** | Built on 12 September as one app for the whole stack, replacing the planned SIRVIS.app and RAVIS.app. Not yet seen live: its Open dashboard and Quit clicks, and a quit of the real stack with the build that fixed the hang on quit. It is not installed into Applications and does not open at login |
-| 4 | **RAVIS M20 — concurrency awareness** | Nothing counts active requests, queue depth or provider congestion, or reads rate limits; only memory pressure reaches routing. Throughput above about a hundred callers was never profiled, and RAVIS meets its 5 ms routing budget only narrowly |
-| 5 | **Clarvis's release regression (E-C7)** | Rollback to the previous package was verified live. The comparison with RAVIS and the Bridge switched off, upgrade and recovery were not, and the release bar in Clarvis's own plan still has open boxes |
-| 6 | **A Clarvis → RAVIS → provider trace, seen whole** | The last clause of NERVIS M17 and of Clarvis E-C4, and the reason NERVIS's diagnostics capability reads degraded. Needs one agent turn in a real editor window. Clarvis sends RAVIS only a trace header and a session id — not the request and workspace ids `CLARVIS.md` §6.5 asks for — and its Anthropic adapter sends neither |
-| 7 | **SIRVIS M15b — what the recommendation engine left out** | Runtime Set recommendations, and expected memory, performance and quality as named outputs. Mapped to Stage 4, which closed without it; asking for it is refused as unsupported |
-| 8 | **SIRVIS M5, M17, M18, M19, M20** | Client libraries, configuration sweeps, quality suites, GGUF-against-MLX comparison and analytics: none started. The recommendation engine says so itself — "no coding suite yet (M18)" |
-| 9 | **RAVIS M21, M22, M23** | Request replay, advanced routing (escalation, shadow routing, outcome scoring) and the Responses API: none started. RAVIS correctly does not advertise `/v1/responses` |
-| 10 | **RAVIS M25a, M25b, M27** | Serverless GPUs as an upstream and as a routing candidate, and more than one SIRVIS: none started. M27 needs a second machine, and M25b has an open question about evidence identity in `RAVIS.md` |
-| 11 | **RAVIS M17 and M26 — perhaps closable rather than buildable** | M17's dashboard is NERVIS's twelve RAVIS screens, which lack only Profiles, a Models page, estimated savings and a live Clarvis compatibility page. M26's background pool may be superseded by `ravis/free-api` (M28). Both are the owner's call |
-| 12 | **Specified for SIRVIS and not built** | Four `/api/v1` paths and a sessions list (§4.2); most of the command line — models, runtime, compare, recommend (§18); Discover filters beyond format and size, and the installed view's Compare, Inspect, Find variants, Reveal and Delete (§8); randomized and balanced run order (§11.7); the fit classes, and recording installed sizes (§14.2); most of its events, and spans (§15.3); capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4); Playground, Pareto, regressions and result comparison (§16) |
-| 13 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
-| 14 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
-| 15 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
-| 16 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; the launcher has no automated tests |
-| 17 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
+| 3 | **RAVIS M20 — concurrency awareness** | Nothing counts active requests, queue depth or provider congestion, or reads rate limits; only memory pressure reaches routing. Throughput above about a hundred callers was never profiled, and RAVIS meets its 5 ms routing budget only narrowly |
+| 4 | **Clarvis's release regression (E-C7)** | Rollback to the previous package was verified live. The comparison with RAVIS and the Bridge switched off, upgrade and recovery were not, and the release bar in Clarvis's own plan still has open boxes |
+| 5 | **A Clarvis → RAVIS → provider trace, seen whole** | The last clause of NERVIS M17 and of Clarvis E-C4, and the reason NERVIS's diagnostics capability reads degraded. Needs one agent turn in a real editor window. Clarvis sends RAVIS only a trace header and a session id — not the request and workspace ids `CLARVIS.md` §6.5 asks for — and its Anthropic adapter sends neither |
+| 6 | **SIRVIS M15b — what the recommendation engine left out** | Runtime Set recommendations, and expected memory, performance and quality as named outputs. Mapped to Stage 4, which closed without it; asking for it is refused as unsupported |
+| 7 | **SIRVIS M5, M17, M18, M19, M20** | Client libraries, configuration sweeps, quality suites, GGUF-against-MLX comparison and analytics: none started. The recommendation engine says so itself — "no coding suite yet (M18)" |
+| 8 | **RAVIS M21, M22, M23** | Request replay, advanced routing (escalation, shadow routing, outcome scoring) and the Responses API: none started. RAVIS correctly does not advertise `/v1/responses` |
+| 9 | **RAVIS M25a, M25b, M27** | Serverless GPUs as an upstream and as a routing candidate, and more than one SIRVIS: none started. M27 needs a second machine, and M25b has an open question about evidence identity in `RAVIS.md` |
+| 10 | **RAVIS M17 and M26 — perhaps closable rather than buildable** | M17's dashboard is NERVIS's twelve RAVIS screens, which lack only Profiles, a Models page, estimated savings and a live Clarvis compatibility page. M26's background pool may be superseded by `ravis/free-api` (M28). Both are the owner's call |
+| 11 | **Specified for SIRVIS and not built** | Four `/api/v1` paths and a sessions list (§4.2); most of the command line — models, runtime, compare, recommend (§18); Discover filters beyond format and size, and the installed view's Compare, Inspect, Find variants, Reveal and Delete (§8); randomized and balanced run order (§11.7); the fit classes, and recording installed sizes (§14.2); most of its events, and spans (§15.3); capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4); Playground, Pareto, regressions and result comparison (§16) |
+| 12 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
+| 13 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
+| 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
+| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; the launcher has no automated tests |
+| 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
 
 | # | What | Why it waits |
 |---|---|---|
 | 1 | **NERVIS M11's content stages** | Recording prompts and responses in the API Inspector is a privacy decision — retention, redaction, where they live on disk — before it is a coding one |
-| 2 | **RAVIS's Idempotency-Key** | Left out on purpose: four of the five writes are full replacements, so a replay cache would change nothing observable. The exception is the catalogue refresh in row 16 of Next |
+| 2 | **RAVIS's Idempotency-Key** | Left out on purpose: four of the five writes are full replacements, so a replay cache would change nothing observable. The exception is the catalogue refresh in row 15 of Next |
 | 3 | **Deferred by decision** | A waiting queue above SIRVIS's resource manager; Parquet telemetry; a pull event stream; web research in chat; WWAH as a second consumer; RAVIS's embeddings staying degraded; SIRVIS's CSRF token; the runbook §13 clause about rerouting queued requests |
 
 **Decisions only the owner can make**, each recorded where it came up:
@@ -235,7 +234,7 @@ carries an as-built note saying what exists and what does not.
 - whether a tool refusal should ever fall back to another model;
 - whether route decisions should survive a restart;
 - whether the page checks should stop executing the page's code in Node's `vm` and parse it instead (F1);
-- whether the SIRVIS, RAVIS, NERVIS and Clarvis lists in rows 12 to 15 of Next are still wanted, or should be struck from the specifications;
+- whether the SIRVIS, RAVIS, NERVIS and Clarvis lists in rows 11 to 14 of Next are still wanted, or should be struck from the specifications;
 - what to do with artefacts tracked in git that nothing reads: `results/` (65 files, against `.gitignore`'s own rule), two `sirvis.db.v8.bak` companion files, `AUDIT-REPORT.html` and its PDF, and `nervis-build-ladder.html`.
 
 ### The protocol package, extracted when the second consumer arrived
@@ -18816,7 +18815,7 @@ pytest and a parse check, and not these. Found by running every one, then bisect
   was right; the fakes carry headers now.
 
 None of the five was something a person would see. Nothing yet makes these checks part of
-every commit to the page; that is in row 17 of Next.
+every commit to the page; that is in row 16 of Next.
 
 **Clarvis's own documents** — its current-state milestone count, the code-server matrix's
 version line, the verification guide's test count and two plan notes — were corrected in
@@ -18922,6 +18921,20 @@ new, for a lapsed Bridge not counting; the app's menu, printed from a real statu
 SIRVIS, RAVIS, NERVIS, CLARVIS and code-server in that order and marks LM Studio as opening LM
 Studio; the running app was replaced with this build without touching the stack; and the commit went
 through the dashboard hook.
+
+## The menu bar app, seen working and installed — 2026-09-12
+
+The owner opened the dashboard from the menu bar app and quit it from its menu. Checked
+afterwards: the app had exited; its log shows the launcher stopping NERVIS, Ollama, RAVIS, SIRVIS
+and code-server and reporting Stopped; `tools/run.py status` read all five as not running; no
+service process was left; and ports 8721, 8731, 8790, 8080 and 11434 were free. LM Studio, which
+the app does not own, was still answering. That was the last unseen clause, so NERVIS M19 is LIVE
+VERIFIED, and its row leaves the Next table.
+
+Installed as `/Applications/NERVIS.app`, copied from the build with `ditto`: the signature
+verifies and the binary is identical to the build's. `nervis/packaging/macos/build_app.sh` now
+refreshes that copy whenever it builds, and replaces it only when it carries this app's bundle
+identifier. It does not open at login — the owner opens it when they want the stack.
 
 ## Starting the thing
 

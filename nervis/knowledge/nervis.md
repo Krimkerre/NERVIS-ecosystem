@@ -1052,9 +1052,9 @@ quietly.
 
 ## The menu bar app
 
-On a Mac, NERVIS can be started from a menu bar app instead of the start and stop scripts. It is
-built once with `nervis/packaging/macos/build_app.sh` and opened from
-`nervis/packaging/macos/build/NERVIS.app`. Opening it starts the stack. Its menu shows how many
+On a Mac, NERVIS can be started from a menu bar app instead of the start and stop scripts. On this Mac
+it is installed in Applications as NERVIS, built by `nervis/packaging/macos/build_app.sh`, which
+keeps that copy up to date. It does not start at login: opening it starts the stack. Its menu shows how many
 notifications are unread, a way to open the dashboard, whether SIRVIS, RAVIS, NERVIS, CLARVIS, code-server,
 LM Studio and Ollama are running — CLARVIS only while an editor window has it open — CPU, GPU and memory use, and **Quit NERVIS and stop the stack**. Clicking LM Studio in that menu
 opens LM Studio.

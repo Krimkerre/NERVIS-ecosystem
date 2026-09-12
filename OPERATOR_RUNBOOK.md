@@ -31,8 +31,10 @@ the dashboard reports their state rather than controlling it. "Nothing is routin
 runtime is running" look identical on the dashboard and have different fixes — check which one
 it actually is before touching anything.
 
-**On a Mac, the menu bar app does the same with a click.** Build it once with
-`nervis/packaging/macos/build_app.sh` and open `nervis/packaging/macos/build/NERVIS.app`. It has
+**On a Mac, the menu bar app does the same with a click.** Build it with
+`nervis/packaging/macos/build_app.sh` and copy `nervis/packaging/macos/build/NERVIS.app` into
+Applications once; every later build refreshes that copy. It does not open at login unless it is
+added under System Settings → General → Login Items. It has
 no window and no Dock icon. The NERVIS mark appears in the menu bar and the stack starts; its
 menu shows the number of unread notifications when there are any, **Open NERVIS dashboard**,
 each service — CLARVIS among them, running while an editor window has its Bridge on — and
