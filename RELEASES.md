@@ -313,7 +313,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.6
+## NERVIS — 0.28.7
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Hand over opens the task's folder with the editor proxy on, too.** With NERVIS's code-server proxy
+  switched on, the Code tab stayed on its configured folder and the task's folder had to be opened by
+  hand; the page now opens the editor session on the task's folder, which NERVIS still checks against
+  the configured roots.
+- **Exporting a conversation refuses rather than write half of it.** An old conversation reopened and
+  typed into can have a record that lacks its start, and its export quietly held only the later turns.
+  The page now compares the messages you wrote with NERVIS's record first, writes nothing when the
+  record holds fewer, and says how many would be missing. A message NERVIS turned away when it was sent
+  does not count against the record.
+
+### 0.28.6
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -786,7 +800,34 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.3
+## RAVIS — 0.23.4
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Saving a provider key that has not changed no longer re-downloads that provider's model list.**
+  A changed key still refreshes the list straight away; the same key saved again within a minute of
+  the last successful refresh reports the count from that refresh without a network call. The audit
+  record says which happened.
+- **A local LM Studio model is judged by the context it is loaded with, not the larger number it
+  advertises.** A model that is not loaded counts at LM Studio's default load context, 8,192 on this
+  machine, so a long prompt is no longer routed to a model that would open too small and cut it
+  short. Visible change: a model that is not loaded no longer qualifies for `ravis/agent` (32,768) or
+  `ravis/long-context` (131,072) until it is loaded that large; with nothing but a small model loaded,
+  the long-context pool has no local member. `measured-capabilities.json` no longer carries the
+  advertised windows it had copied, and a test keeps any capability file from declaring a window
+  nobody measured or chose.
+- **Clarvis's tool check goes to a model that answers without loading.** Clarvis asks whether the
+  agent can use tools with a one-tool, one-token request and waits ten seconds; RAVIS now recognises
+  that shape and sends it to a loaded or hosted model ahead of the pool's favourite, instead of
+  loading a model for a one-word test. With only unloaded local models it is still answered as before.
+  Ordinary agent work still goes to the best model.
+- **"Prefer this machine" can no longer be outranked.** With the `LOCAL_PREFERRED` privacy level,
+  requests could still go to a hosted model to avoid loading a local one, to stay on a conversation's
+  last model, because a pool favoured hosted or fast models, or while trying out an alternative. The
+  preference now comes first in every one of those decisions, and the route explanation says when it
+  decided the pick.
+
+### 0.23.3
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

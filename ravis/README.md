@@ -83,9 +83,20 @@ says what a cold model will get on load. Raise that setting if you raised Ollama
 default — leaving it low costs a local model a long-context pool, and raising it wrongly
 costs somebody their document.
 
+LM Studio is read the same way since 12 September 2026: a loaded model's window is what it
+was loaded with (`loaded_context_length`), and one that is not loaded is reported at LM
+Studio's default load context, 8,192, capped by the build's maximum — RAVIS never asks for a
+larger load, so the maximum describes nothing it will be served. There is no setting for a
+different LM Studio default yet.
+
 [`measured-capabilities.json`](measured-capabilities.json) is that somebody, for this
-machine. It is derived from `clarvis/docs/benchmarks.md` — executed tool-call trials from
-`clarvis-firstrun/tools/suite2.py`, not a vendor flag.
+machine — for tool support. It is derived from `clarvis/docs/benchmarks.md` — executed
+tool-call trials from `clarvis-firstrun/tools/suite2.py`, not a vendor flag. It declares no
+context windows: the ones it once carried were LM Studio's advertised maxima, and a declared
+window replaces the runtime's figure outright. A test fails if any shipped capability file
+declares a window without a `_context_window` note starting `measured:` or `operator:`. So
+the preflight below passes for `ravis/clarvis-agent` only with a model loaded at its 131,072
+minimum.
 
 ```bash
 RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 RAVIS_MODEL_CAPABILITIES_PATH=measured-capabilities.json .venv/bin/ravis preflight clarvis

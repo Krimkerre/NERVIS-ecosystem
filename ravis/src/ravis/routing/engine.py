@@ -377,7 +377,10 @@ class RoutingEngine:
         # switched on, to spend one request learning about something else
         # instead. Keeping the two apart is what lets the reason below tell the
         # truth about which of the two happened.
-        trying = _explore_pick(eligible, explore, observed or {})
+        trying = _explore_pick(
+            eligible, explore, observed or {}, probe=requirements.tool_probe,
+            remote=remote, prefers_local=policy.prefers_local,
+        )
         decision.selected = trying or eligible[0]
         # §10 requires every fallback candidate to satisfy the original hard
         # constraints and the pool invariants. Taking them from the ranked
@@ -398,6 +401,8 @@ class RoutingEngine:
                 policy.prefers_cheap,
                 _reasoning_note(eligible, reasoning or {}, requirements.output_budget),
                 remote,
+                _probe_note(eligible, requirements, residency, remote, policy),
+                _locality_note(eligible, remote, policy),
             )
         )
         return decision
@@ -604,7 +609,15 @@ def _rank(
     demoted = _demoted_resellers(members, resold or {}, direct_owners)
 
     def key(model: str) -> tuple[float | str, ...]:
-        # **Session affinity leads every other term (§12.1).** Sticky routing
+        # **A tool probe's reach is consulted before everything but privacy
+        # (§8.7).** Zero for every candidate of every request that is not a
+        # probe, so ordinary traffic sorts exactly as it did before this term
+        # existed. For a probe it puts every candidate that answers without a
+        # model load ahead of every one that needs a load — ahead of session
+        # affinity and of the pool's own preference, for the reasons
+        # `_probe_avoids` gives, and behind `_privacy_lean`, which leads `terms`.
+        probe = 1.0 if _probe_avoids(model, requirements, residency, remote) else 0.0
+        # **Session affinity leads every term below (§12.1).** Sticky routing
         # exists for consistency, prompt caching, context continuity and reduced
         # model-load churn, and a preference that any other term can outvote
         # delivers none of those — the model would change the first time a
@@ -668,8 +681,14 @@ def _rank(
         # `_demoted_resellers`: ranking OpenRouter's Claude behind an Anthropic
         # copy the pool had just refused handed every agent session to Qwen.
         reseller = 1.0 if model in demoted else 0.0
-        terms: list[float | str] = [affinity, load, reseller, *_preference_terms(
-            pool, policy, model, candidates, remote, observed or {})]
+        # **The privacy lean leads the whole key, and nothing else may.** See
+        # `_privacy_lean`: every term consulted before it is one more way for a
+        # `LOCAL_PREFERRED` request to leave this machine, and five of them were.
+        terms: list[float | str] = [
+            *_privacy_lean(policy, model, remote),
+            probe, affinity, load, reseller,
+            *_preference_terms(pool, policy, model, candidates, remote, observed or {}),
+        ]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
         # **Speed, after the preference rather than before it.** "Nobody likes a
         # slow chatbot" — but among models a pool considers equally right for
@@ -748,7 +767,12 @@ def _demoted_resellers(
 
 
 def _explore_pick(
-    eligible: list[str], explore: Exploration | None, observed: Mapping[str, float]
+    eligible: list[str],
+    explore: Exploration | None,
+    observed: Mapping[str, float],
+    probe: bool = False,
+    remote: frozenset[str] = frozenset(),
+    prefers_local: bool = False,
 ) -> str:
     """The model this request will try instead of the winner, or `""`.
 
@@ -769,8 +793,24 @@ def _explore_pick(
     promoting a model and then explaining the choice as though it had won on
     merit would be the same class of untruth as the cold-start line that was
     removed from this file a day earlier.
+
+    **Never on a tool probe (§8.7).** A probe exists to be answered by whatever
+    is cheapest to reach, and the ranking has just put that first; a pick from
+    further down is the one remaining way it could land on a cold model anyway.
+    Nor would it buy a timing worth having — a one-token reply says little about
+    how fast a model answers the requests that follow.
+
+    **Never off this machine for a request that prefers it (§14).** This runs
+    after ranking, so `_privacy_lean` leading the key does not reach it: the
+    hosted candidates sit straight below the local ones, and a roll rescaled
+    across the alternatives landed on them — one turn in twelve of a
+    `LOCAL_PREFERRED` conversation sent away to take a timing. And an explored
+    pick is recorded as the session's model like any other. So when the winner
+    is local, hosted alternatives are not explored; local ones still are. When
+    the winner is hosted, nothing local was eligible, and exploring among hosted
+    models sends the request nowhere it was not already going.
     """
-    if explore is None or explore.rate <= 0 or not eligible:
+    if explore is None or explore.rate <= 0 or not eligible or probe:
         return ""
     if explore.roll >= explore.rate:
         return ""
@@ -781,6 +821,11 @@ def _explore_pick(
     # exploration in three silently did nothing, and the two tests that caught it
     # only did so because they asserted the answer *changed*.
     alternatives = eligible[1:]
+    # The privacy line from the docstring. Filtered rather than truncated at the
+    # first hosted model, so it does not depend on the ranking having grouped
+    # them — though `_privacy_lean` guarantees that it has.
+    if prefers_local and eligible[0] not in remote:
+        alternatives = [model for model in alternatives if model not in remote]
     if not alternatives:
         return ""
     unmeasured = [model for model in alternatives if model not in observed]
@@ -841,6 +886,58 @@ def _default_exclusion(pool: VirtualModelPool) -> str:
     return "not among this pool's default members — tick it to include it"
 
 
+def _privacy_lean(policy: RoutingPolicy, model: str, remote: frozenset[str]) -> list[float]:
+    """`LOCAL_PREFERRED`'s term, or nothing, and why it is consulted first (§14).
+
+    §14's rule — *privacy constraints can never be overridden by score* — holds
+    by construction for the levels that exclude, because a refused candidate
+    never reaches `_rank`. `LOCAL_PREFERRED` is the one level that ranks
+    instead, so its protection is entirely its position in the key: any term
+    consulted before it can send a request off this machine against a level the
+    caller's identity asked for. Five terms could, and each was the budget-lean
+    bug `_preference_terms` records, again. §12.2's load brake sent a one-shot
+    request to a hosted model to spare a cold local one its load, and did the
+    same for a long session under memory pressure. Session affinity held a
+    conversation on a hosted model when a local one qualified. A tool probe's
+    preference for whatever needs no load had a special case of its own to stay
+    behind privacy, and still handed the tie it left to those two. And a pool's
+    `prefer_remote` and `prefer_fast` ranked ahead of it inside
+    `_preference_terms`.
+
+    **Ahead of session affinity too, and deliberately.** Affinity buys a warm
+    prompt cache, a consistent voice and fewer reloads (§12.1), and those are
+    real — but they are score, and §12.1 itself lists a policy change among the
+    reasons to break it. What settles it is that a chat request is stateless:
+    every turn re-sends the whole conversation, so each turn held on a hosted
+    model exports the entire history again, plus whatever is new. A
+    `LOCAL_PREFERRED` session becomes sticky to a hosted model through a turn no
+    local model could take (a circuit open, a runtime restarting), an
+    exploration, or one of the pulls above — so affinity leading would turn a
+    moment's outage into a whole conversation sent away. Coming home costs a
+    cache miss and perhaps a load, which is exactly what the level is for.
+
+    **Under memory pressure this means paying a load.** That was already the
+    outcome for every application RAVIS had not measured yet — pressure ranks
+    residency behind the preference terms, and privacy was one of them — so the
+    brake only made measured and unmeasured applications disagree about it.
+
+    **Inside each group every other term still decides.** Every local
+    candidate scores zero here and every hosted one scores one, so among local
+    models affinity, the brake, the probe and the pool's preference order them
+    exactly as before, and the same holds among hosted ones when nothing local
+    is eligible. Nothing is excluded: a hosted model stays in the fallback chain,
+    behind the local ones (§9.2). Exploration runs after ranking and so cannot
+    be reached from here; `_explore_pick` holds the same line for itself.
+
+    **Empty rather than zero for every other policy**, so no other request's key
+    changes shape, and the rule `_preference_terms` keeps — a term is present
+    only when something asked for it — holds here too.
+    """
+    if not policy.prefers_local:
+        return []
+    return [0.0 if model not in remote else 1.0]
+
+
 def _preference_terms(
     pool: VirtualModelPool,
     policy: RoutingPolicy,
@@ -869,24 +966,21 @@ def _preference_terms(
         terms.append(0.0 if model in remote else 1.0)
     if pool.prefer_fast:
         terms.append(_speed_rank(model, observed, pool.speed_bucket_ms))
-    # **Privacy before money, and both stated in the order they are applied.**
-    #
-    # These three terms carried two claims that the order underneath them
-    # contradicted. A budget lean was said to sit "behind privacy, which is
-    # never traded for money" while being appended *before* `prefers_local`, and
+    # **`LOCAL_PREFERRED`'s term is no longer in this list, and why is worth
+    # keeping.** It sat here, and these terms carried two claims the order
+    # underneath contradicted. A budget lean was said to sit "behind privacy,
+    # which is never traded for money" while being appended *before* it, and
     # "ahead of the pool's own cost preference" while being appended *after*
     # `pool.prefer_cheap`. Earlier terms dominate a tuple sort, so both were
     # exactly inverted: an account approaching its budget would move a request
-    # off-device to save a fraction of a cent, against a privacy level the
-    # caller's identity had asked for.
+    # off-device to save a fraction of a cent.
     #
-    # §14's rule 14 -- a privacy constraint is never overridden by score -- is
-    # enforced structurally for the levels that *exclude*, before ranking ever
-    # happens. `LOCAL_PREFERRED` is the one level that ranks instead of
-    # excluding, which is precisely why its position here is the whole of its
-    # protection.
-    if policy.prefers_local:
-        terms.append(0.0 if model not in remote else 1.0)
+    # Moving privacy up this list fixed that instance and left the class.
+    # `prefer_remote` and `prefer_fast` above were still ahead of it, and the
+    # probe, affinity and load-brake terms were ahead of this whole list in
+    # `_rank` — each a way off the machine that the budget fix had not looked
+    # for. It lives in `_privacy_lean` now, consulted before every one of them.
+    #
     # A budget being approached leans cheaper without refusing anything (§14's
     # two middle bands), and leads the pool's own cost preference: a budget is a
     # fact about the account, `prefer_cheap` is a fact about what the pool is
@@ -1063,6 +1157,126 @@ def _pays_a_load(model: str, residency: ResidencySnapshot, remote: frozenset[str
     return residency_rank(residency.state_of(model)) >= _COLD_REACH
 
 
+def _probe_avoids(
+    model: str,
+    requirements: RequestRequirements,
+    residency: ResidencySnapshot,
+    remote: frozenset[str],
+) -> bool:
+    """Whether a tool probe should rank this candidate behind the others (§8.7).
+
+    §8.7: *RAVIS must not route a tiny tool probe to a cold or unsupported
+    candidate and thereby make the pool appear incapable.* Unsupported was
+    already impossible — a tools-bearing request excludes every model that
+    cannot call them before anything is ranked. Cold was the default: the pool's
+    declared preference outranks residency, so a probe to `ravis/clarvis-agent`
+    went to the preferred coder whether or not it was loaded. Clarvis gives the
+    probe ten seconds (`AbortSignal.timeout(10_000)` in `supportsTools`), against
+    the fourteen-second load §12.2 uses as its example, so the probe times out or
+    lands on a model being loaded, and the agent is reported as unable to call
+    tools.
+
+    **Why this outranks session affinity and the pool's preference.** Every
+    candidate still in the ranking can call tools — that is what eligibility
+    means for a request carrying one — so any of them answers the probe
+    truthfully on the pool's behalf. The choice changes only how long the answer
+    takes, and nothing a preference buys (a stronger model, a continued
+    conversation, a cached prompt) exists in a one-token reply. Affinity's own
+    case for itself includes "reduced model-load churn", which argues for this.
+
+    **A hosted candidate needs no load, so it ranks with a resident one** —
+    whatever the caller's privacy level. This used to score a hosted candidate
+    as cold under `LOCAL_PREFERRED`, so a probe would not leave the machine to
+    spare itself a load. That kept this term from moving it, and not the two
+    behind: the hosted candidate tied the cold local one, and session affinity
+    or the short-session brake broke the tie off the machine. `_privacy_lean`
+    now leads the key, so every local candidate is already ahead of every
+    hosted one. Within each of those groups the special case gave every member
+    it touched the same score, so removing it reorders nothing: a resident local
+    model still wins a probe, and a cold one is still paid for rather than the
+    request leaving.
+
+    **Nothing is excluded and nothing is refused.** When every candidate is
+    avoided they all tie, and the probe routes exactly as it did before. A
+    residency preference never excludes (§9.2), and refusing the probe would
+    turn a preference into a constraint and leave the pool looking incapable for
+    as long as nothing happens to be loaded — the outcome §8.7 exists to stop.
+
+    Unknown residency counts as cold, by `_pays_a_load`'s rule and for its
+    reason. Reusing it rather than restating it keeps this and §12.2's tradeoff
+    from disagreeing about what a load is.
+    """
+    return requirements.tool_probe and _pays_a_load(model, residency, remote)
+
+
+def _probe_note(
+    eligible: list[str],
+    requirements: RequestRequirements,
+    residency: ResidencySnapshot,
+    remote: frozenset[str],
+    policy: RoutingPolicy,
+) -> str:
+    """Say so when a request was treated as a tool probe, and what that did.
+
+    Said on every probe rather than only when it moved something, unlike
+    `_reasoning_note`. Probes are rare — one per model per client session — and
+    "why did the probe land there?" is exactly what an operator asks when an
+    agent reports it cannot call tools, so the answer belongs on the decision
+    whichever way it went. Two sentences, because the two outcomes send a reader
+    to different places: one was steered, the other could not be.
+
+    Reads `eligible[0]` as the selection, which holds because `_explore_pick`
+    never explores on a probe.
+    """
+    if not requirements.tool_probe or not eligible:
+        return ""
+    recognised = "recognised as a one-tool, one-token capability probe (§8.7)"
+    if not _probe_avoids(eligible[0], requirements, residency, remote):
+        return (
+            f"{recognised}, so candidates that answer without a model load were ranked "
+            "ahead of any that must be loaded — a probe left waiting on a load can time "
+            "out and make the pool look unable to call tools"
+        )
+    why = (
+        "every candidate needs a model load or would leave this machine, which the "
+        "privacy level prefers it not to"
+        if policy.prefers_local
+        else "every candidate needs a model load"
+    )
+    return (
+        f"{recognised}, but {why}, so it was routed as usual rather than refused — "
+        "preferring what is loaded ranks candidates and never excludes one (§9.2)"
+    )
+
+
+def _locality_note(eligible: list[str], remote: frozenset[str], policy: RoutingPolicy) -> str:
+    """Say what `LOCAL_PREFERRED` did, whenever a hosted candidate was in the running.
+
+    Silent when every eligible candidate is local, because the lean then ordered
+    nothing. Otherwise said on every decision rather than only when it changed
+    the winner, for `_probe_note`'s reason: "why did this pay a load instead of
+    going hosted?" and "why did this leave the machine?" are both what an
+    operator asks, and telling whether the lean moved anything would mean
+    ranking everything a second time without it.
+
+    Reads `eligible[0]` as the selection. An exploration carries its own reason
+    and never reaches this.
+    """
+    if not policy.prefers_local or not any(model in remote for model in eligible):
+        return ""
+    if eligible[0] in remote:
+        return (
+            "the privacy level prefers this machine, but no local candidate was eligible, "
+            "so a hosted one was used — that level ranks candidates and never excludes one "
+            "(§14)"
+        )
+    return (
+        "the privacy level prefers this machine, so every local candidate was ranked "
+        "ahead of every hosted one, before session affinity, load cost, speed, price or "
+        "the pool's own preference was weighed (§14)"
+    )
+
+
 # What `_reach_rank` returns for a cold local model, and for an unknown one.
 _COLD_REACH = 2.0
 
@@ -1132,6 +1346,8 @@ def _selection_reason(
     budget_leans_cheap: bool = False,
     reasoning_note: str = "",
     remote: frozenset[str] = frozenset(),
+    probe_note: str = "",
+    locality_note: str = "",
 ) -> str:
     """Say honestly why the winner won.
 
@@ -1148,6 +1364,15 @@ def _selection_reason(
         else "first eligible candidate in stable order"
     )
     parts = [basis]
+    # The privacy lean, then the probe, straight after the basis and in the
+    # order the key consults them: either can put a less-preferred model first,
+    # and the reader should meet that reason before the lines about residency and
+    # memory that follow. It matters most for the lean, whose typical win — a
+    # cold local model over a hosted one, for a client whose sessions are one
+    # request long — reads as §12.2 misfiring unless something ahead of that
+    # line says what outranked it.
+    parts.append(locality_note)
+    parts.append(probe_note)
 
     # §12.2's tradeoff, said out loud when it changed anything. §9.7 wants an
     # explanation that separates facts from estimates, and "we declined to load

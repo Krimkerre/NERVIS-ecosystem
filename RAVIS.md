@@ -625,6 +625,15 @@ For `ravis/clarvis-agent` the pool contract is `tools = required/supported`. **R
 route a tiny tool probe to a cold or unsupported candidate and thereby make the pool appear
 incapable.** This is the single sharpest wire-level constraint in the integration.
 
+**Implemented (12 Sep) as a ranking term for probes only.** A request is a probe by its shape —
+exactly one tool and `max_tokens` ≤ 1 — never by its content. For a probe, every candidate that
+can answer without a load (resident, or hosted) ranks ahead of every one that needs a load, ahead
+of session affinity and pool preference, and exploration is off; every other request ranks as
+before. When only cold local candidates are eligible the probe is still routed, not refused:
+residency ranks and never excludes (§9.2), and a refusal would itself make the pool look
+incapable. `LOCAL_PREFERRED` still leads, so a probe is never sent off the machine to dodge a load
+(§14). The route explanation names the probe.
+
 ## 8.8 Conformance harness
 
 ```text
@@ -954,6 +963,11 @@ believing the first number routed a 25,000-token request to a model holding 4,09
 evaluated 2,050 of them and answered confidently. `/api/ps` reports the window a resident
 model actually has, and that is what the adapter reports — capped by the architecture, and
 falling back to Ollama's default for a model not yet loaded rather than to its maximum.
+LM Studio is read the same way: `loaded_context_length` for a model it reports as loaded, and
+otherwise its default load context (8,192, the `defaultContextLength` its own settings hold and
+every on-demand load in its logs used), capped by `max_context_length`. RAVIS never asks for a
+larger load — a request for a model that is not loaded is served by LM Studio's on-demand load
+at that default — so the build's maximum describes nothing RAVIS will actually be served.
 
 ---
 
@@ -1165,7 +1179,10 @@ provider, and more than one period at a time, are not built.
 missing-usage tests prevent double counting.
 
 **Privacy levels:** `NORMAL`, `LOCAL_PREFERRED`, `TRUSTED_PROVIDERS`, `LOCAL_ONLY`. Privacy
-constraints can never be overridden by score.
+constraints can never be overridden by score. `LOCAL_PREFERRED`, the one level that ranks rather
+than excludes, is consulted before session affinity, load cost, the tool-probe term, speed, price
+and pool preference, and exploration never leaves the machine for it (12 Sep: five of those terms
+sat ahead of it and each could move a request off-device).
 
 **Request logging** defaults to metadata only. Do not persist prompt or response content by
 default.

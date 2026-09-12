@@ -68,6 +68,39 @@ RAVIS is told the same number by the launcher so the two cannot disagree. A
 document larger than that is now refused with *"context window 32768 < estimated
 N tokens needed"* rather than quietly truncated.
 
+The same holds for LM Studio since 12 September 2026. LM Studio lists the most
+each model build allows — 32,768 for `qwen2.5-coder-7b` — while a model it loads
+on demand opens at its own default, which is 8,192 on this machine. RAVIS now
+takes a loaded model's window from what it was loaded with, and counts a model
+that is not loaded at 8,192, capped by the build's maximum. **So a local LM Studio
+model that is not loaded no longer qualifies for a pool that needs more than
+8,192** — `ravis/agent` asks for 32,768 and `ravis/long-context` for 131,072, which
+leaves the long-context pool with no local model at all — until one is loaded that
+large, and a
+model loaded from the menu bar app opens at the same default. Unlike Ollama there
+is no setting yet to tell RAVIS a different LM Studio default.
+
+**Clarvis's "can this model use tools?" check goes to a model that answers
+without loading** (since 12 September 2026). Clarvis asks once per session with a
+tiny request — one tool, a one-token answer — and gives it ten seconds; a model
+that has to load first can take longer than that and make the whole agent look
+unable to use tools. RAVIS now recognises that check by its shape and sends it to
+a model already loaded, or a hosted one, ahead of the pool's favourite. With
+nothing loaded and nothing hosted it is still answered, by the usual pick. Real
+agent work still goes to the best model.
+
+**"Prefer this machine" now comes before everything else in the ranking**
+(since 12 September 2026). `LOCAL_PREFERRED` is the one privacy level that
+ranks instead of excluding, so where it sits in the order is its whole
+protection — and five things sat ahead of it: keeping a conversation on its last
+model, avoiding a load in a short session, a pool that favours hosted or fast
+models, and the tool check above; trying out an alternative model could also
+land on a hosted one. Any of them could send a request off the machine when a
+local model could have taken it. The preference now leads, the alternative tried
+out stays local when the winner is local, and the route explanation says when
+this preference decided the pick. One visible consequence: a conversation that
+had drifted to a hosted model comes back to a local one on its next turn.
+
 **Never a reseller when the maker is reachable.** An aggregator like OpenRouter
 sells other companies' models with a margin on top. When the vendor's own
 provider is configured and usable, its models rank ahead of the aggregator's
@@ -284,6 +317,13 @@ deleted from. Reads are file, then keyring, then environment.
 Providers with a credential row: Anthropic, DeepSeek, Google AI Studio, OpenAI,
 OpenRouter and xAI. The last two of those were added on 9 September 2026 and
 need nothing but an address, because both speak the OpenAI protocol.
+
+Saving a key also refreshes that provider's model list, so a new key's models
+appear straight away. Since 12 September 2026 saving the *same* key again does
+not: when the stored key did not change and the list was last refreshed
+successfully less than a minute ago, RAVIS reports the count it already has
+instead of fetching again. A double click, or a save retried after a timeout, no
+longer repeats a network call.
 
 ## Trying a model on purpose, so it can be measured at all
 

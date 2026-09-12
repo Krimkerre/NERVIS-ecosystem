@@ -44,8 +44,13 @@ def _adapter(
     *,
     native_status: int = 200,
     configured: dict[str, dict[str, str]] | None = None,
+    **options: Any,
 ) -> LmStudioAdapter:
-    """An adapter over a canned LM Studio, or over something pretending to be one."""
+    """An adapter over a canned LM Studio, or over something pretending to be one.
+
+    `options` reach the constructor untouched, so a test can hand the adapter a
+    setting without a second copy of this transport.
+    """
 
     def handle(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/v0/models":
@@ -60,6 +65,7 @@ def _adapter(
         upstream=Upstream(base_url="http://lmstudio.invalid", declared_key=""),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
         configured_capabilities=configured,
+        **options,
     )
 
 
@@ -88,10 +94,6 @@ async def test_advertised_tool_use_is_recorded_as_advertised_not_measured() -> N
 
     assert known.state_of(Capability.TOOLS) is CapabilityState.SUPPORTED
     assert known.claims[Capability.TOOLS].provenance is Provenance.ADVERTISED
-
-
-async def test_the_declared_context_ceiling_is_carried_across() -> None:
-    assert (await _adapter([GGUF_ENTRY]).capabilities(GGUF)).context_window == 1048576
 
 
 async def test_a_vision_type_supports_vision() -> None:
@@ -269,3 +271,90 @@ async def test_a_failed_read_is_not_cached() -> None:
 
     assert known.state_of(Capability.TOOLS) is CapabilityState.UNKNOWN
     assert calls[0] == 2
+
+
+# ── 6. The window a model is served with, not the one it advertises ─────────
+
+# The build STATUS.md recorded, as SIRVIS's recording of this machine's LM Studio
+# 0.4.21 reports it (`sirvis/tests/conftest_lmstudio.py`): advertised at 32,768,
+# loaded at 8,192.
+CODER = "qwen2.5-coder-7b-instruct"
+CODER_LOADED = {
+    "id": CODER,
+    "type": "llm",
+    "compatibility_type": "mlx",
+    "state": "loaded",
+    "loaded_context_length": 8192,
+    "max_context_length": 32768,
+}
+
+# LM Studio's default load window, as this machine's LM Studio holds it. Written
+# out rather than imported, so these tests state the number instead of agreeing
+# with whatever the constant happens to be.
+LMSTUDIO_DEFAULT = 8192
+
+
+async def test_a_loaded_model_reports_the_window_it_was_loaded_with() -> None:
+    """The recorded defect, with the recorded numbers.
+
+    RAVIS believed the advertised 32,768, the agent pool's 32,768 minimum
+    admitted the model on the strength of it, and LM Studio JIT-loaded further
+    copies to cover a window the running one did not have.
+    """
+    known = await _adapter([CODER_LOADED]).capabilities(CODER)
+
+    assert known.context_window == 8192
+    assert not known.meets_context(32768), "the agent pool's minimum must not admit it"
+
+
+async def test_a_cold_model_is_reported_at_the_default_it_will_be_loaded_with() -> None:
+    """Replaces the test that carried the ceiling across, which pinned the defect.
+
+    The GGUF granite advertises a million tokens. Nothing has it loaded, so the
+    first request loads it at LM Studio's default — and a long prompt routed on
+    the ceiling would reach a model holding a hundredth of that.
+    """
+    known = await _adapter([GGUF_ENTRY]).capabilities(GGUF)
+
+    assert known.context_window == LMSTUDIO_DEFAULT
+
+
+async def test_a_ceiling_below_the_default_still_caps_a_cold_model() -> None:
+    """A default larger than the build can address is not a window."""
+    entry = {"id": "e", "type": "embeddings", "state": "not-loaded", "max_context_length": 2048}
+
+    assert (await _adapter([entry]).capabilities("e")).context_window == 2048
+
+
+async def test_a_loaded_length_is_believed_only_while_the_model_is_loaded() -> None:
+    """A length left behind on an unloaded entry would over-report.
+
+    Never seen on a live payload — the field has only appeared on loaded
+    entries — and that is the reason to guard it: over-reporting is the
+    direction that routes a long prompt to a model too small for it.
+    """
+    entry = {**CODER_LOADED, "state": "not-loaded", "loaded_context_length": 32768}
+
+    assert (await _adapter([entry]).capabilities(CODER)).context_window == LMSTUDIO_DEFAULT
+
+
+async def test_a_cold_model_with_no_published_ceiling_stays_unknown() -> None:
+    """A default narrows a window RAVIS knows; it does not invent one it does not."""
+    entry = {"id": "bare", "type": "llm", "state": "not-loaded"}
+
+    assert (await _adapter([entry]).capabilities("bare")).context_window is None
+
+
+async def test_a_deployment_can_say_its_lmstudio_default_is_different() -> None:
+    """The default is a setting inside LM Studio that its API does not publish."""
+    adapter = _adapter([GGUF_ENTRY], default_context=4096)
+
+    assert (await adapter.capabilities(GGUF)).context_window == 4096
+
+
+async def test_an_operator_declared_window_still_outranks_the_runtime() -> None:
+    """§9.5: CONFIGURED sits above what LM Studio reports, windows included —
+    the way back for an operator who knows better than the catalogue."""
+    adapter = _adapter([CODER_LOADED], configured={CODER: {"context_window": "32768"}})
+
+    assert (await adapter.capabilities(CODER)).context_window == 32768

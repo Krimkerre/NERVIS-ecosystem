@@ -55,13 +55,51 @@ _ADVERTISED = "advertised by LM Studio at /api/v0/models"
 # How long one read of the catalogue answers for. The routing path asks for
 # every candidate's capabilities on every request, so without this a single
 # chat completion costs one GET per installed model — 20 of them on the
-# developer's machine. The fields read here are properties of a *build* and do
-# not change while it sits on disk, so a short window costs nothing real.
+# developer's machine. Most fields read here are properties of a *build* and do
+# not change while it sits on disk, so a short window costs them nothing real.
 #
-# Residency also lives in this payload and does change, which is why the
-# residency probe in `runtime/lmstudio.py` reads the endpoint itself rather than
-# sharing this cache.
+# **One field read here does change: `loaded_context_length`** (see
+# `_served_window`), so a load or an unload reaches routing up to a minute late.
+# A model loaded since the last read keeps its cold default for that minute,
+# which under-reports and is safe; a model unloaded since keeps the window it
+# was loaded with, which over-reports if that was larger than the default. The
+# Ollama adapter caches `/api/ps` for the same minute and accepts the same
+# trade, and a shorter window would put a catalogue GET back on most requests.
+#
+# Residency lives in this payload too, which is why the residency probe in
+# `runtime/lmstudio.py` reads the endpoint itself rather than sharing this cache.
 CATALOGUE_TTL_SECONDS = 60.0
+
+# LM Studio's word, in `state`, for a model in memory right now — the same
+# vocabulary `runtime/lmstudio.py` maps to HOT.
+STATE_LOADED = "loaded"
+
+#: The window LM Studio opens a model with when a request arrives for one that
+#: is not loaded.
+#:
+#: **Not the build's ceiling, which is the bug this constant exists for.**
+#: `/api/v0/models` publishes `max_context_length` for every build and
+#: `loaded_context_length` only for a model in memory. What a cold model will
+#: get is LM Studio's own `defaultContextLength` setting — `lms load --help`
+#: says the same of its flag, "If not provided, the default value will be
+#: used" — and nothing in the HTTP API reports that setting.
+#:
+#: **8,192 is what this machine's LM Studio does, read rather than guessed**, on
+#: 12 September 2026. Its settings hold `defaultContextLength` as a custom
+#: 8,192; all 91 llama.cpp loads its server logs record, 20 August to
+#: 12 September, opened `n_ctx_slot = 8192`; and a load triggered by RAVIS's own
+#: routing call put `exaone-deep-2.4b`, whose ceiling is 32,768, in memory at
+#: 8,192 (STATUS.md, the §16 item 12 run). One record points the other way —
+#: M9's extra copies of `qwen2.5-coder-7b-instruct` at 32,768 — and it does not
+#: say what loaded them. LM Studio's vision builds ignore a requested length and
+#: load at their own (`gemma-4-e2b` at 131,072), so for those this under-reports.
+#:
+#: **Under-reporting is the chosen direction, as it is for Ollama** (RAVIS.md
+#: §9.8's closing paragraph): it costs a cold model a long-context pool until
+#: something loads it. Over-reporting routes a long prompt to a model that will
+#: be opened at a fraction of it — the silent truncation RAVIS.md §10 forbids.
+#: A deployment whose LM Studio default differs passes its own `default_context`.
+DEFAULT_CONTEXT = 8192
 
 
 class LmStudioAdapter(GenericOpenAiAdapter):
@@ -76,12 +114,17 @@ class LmStudioAdapter(GenericOpenAiAdapter):
         self,
         *args: Any,
         catalogue_ttl_seconds: float = CATALOGUE_TTL_SECONDS,
+        default_context: int = DEFAULT_CONTEXT,
         clock: Any = time.monotonic,
         **kwargs: Any,
     ) -> None:
         kwargs.setdefault("name", "lmstudio")
         super().__init__(*args, **kwargs)
         self._ttl = catalogue_ttl_seconds
+        # A parameter rather than a read of the constant, the same shape as the
+        # Ollama adapter's, because the figure is a setting inside LM Studio and
+        # a deployment that changed it has to be able to say so.
+        self._default_context = default_context
         self._clock = clock
         self._catalogue: dict[str, dict[str, Any]] = {}
         self._fetched_at: float | None = None
@@ -105,7 +148,7 @@ class LmStudioAdapter(GenericOpenAiAdapter):
             )
         entry = await self._describe(model)
         if entry is not None:
-            _absorb(known, entry)
+            _absorb(known, entry, self._default_context)
         # Nothing per token. Not an estimate and not a default — a model
         # running on hardware the operator already owns bills nothing for a
         # token, and it is the strongest argument a router has for reaching
@@ -166,13 +209,52 @@ class LmStudioAdapter(GenericOpenAiAdapter):
         return self._catalogue
 
 
-def _absorb(known: ModelCapabilities, entry: dict[str, Any]) -> None:
+def _absorb(known: ModelCapabilities, entry: dict[str, Any], default_context: int) -> None:
     """Record what LM Studio says about one model, at ADVERTISED provenance."""
     _absorb_tools(known, entry)
     _absorb_modality(known, entry)
-    context = entry.get("max_context_length")
-    if isinstance(context, int) and context > 0:
-        known.context_window = context
+    window = _served_window(entry, default_context)
+    if window is not None:
+        known.context_window = window
+
+
+def _served_window(entry: dict[str, Any], default_context: int) -> int | None:
+    """The context this model will actually be served with.
+
+    **What LM Studio loaded, not what the build allows** — the correction the
+    Ollama adapter already makes, for the same reason (RAVIS.md §9.8's closing
+    paragraph). This used to report `max_context_length`, the build's ceiling:
+    `qwen2.5-coder-7b-instruct` advertised 32,768 while loaded at 8,192, so the
+    agent pool's 32,768 minimum admitted it on the strength of a configuration
+    that was not running, and LM Studio loaded further copies to cover the
+    difference (STATUS.md, "A model's advertised context is not the context it
+    is loaded with").
+
+    A loaded model's window is `loaded_context_length`. A cold model has none
+    yet, and the one it will get is `DEFAULT_CONTEXT`, so that is reported. Both
+    are capped by the ceiling: a window larger than the build can address is not
+    a window, and `min` keeps the answer inside what is true either way.
+
+    **The loaded length is believed only on an entry in state `loaded`.** It has
+    only ever been seen there. A version that left it on an unloaded entry would
+    over-report, the dangerous direction; a model still `loading` is reported at
+    the default for the seconds that takes, the safe one.
+
+    **Unknown stays unknown.** No ceiling and nothing loaded is `None`, as it
+    was: this adapter answers for upstreams that may not be LM Studio at all,
+    and a default is a correction to a window RAVIS knows, not a claim about one
+    it does not.
+    """
+    ceiling = _positive(entry.get("max_context_length"))
+    loaded = _positive(entry.get("loaded_context_length"))
+    if entry.get("state") == STATE_LOADED and loaded is not None:
+        return loaded if ceiling is None else min(loaded, ceiling)
+    return None if ceiling is None else min(ceiling, default_context)
+
+
+def _positive(value: Any) -> int | None:
+    """A context length out of the payload, or `None` for anything that is not one."""
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def _absorb_tools(known: ModelCapabilities, entry: dict[str, Any]) -> None:

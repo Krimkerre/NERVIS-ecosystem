@@ -3798,6 +3798,22 @@ const API={
 
   async _conversationMock(){return{conversation_id:'',title:'',messages:[]}},
 
+  /* GET /api/v1/chat/conversations/{id} — NERVIS's own record of one
+     conversation, which is what an export is written from. Not `conversation()`
+     above: that is this browser's copy of the one on screen, and the two differ
+     exactly when a conversation was continued under a record that does not hold
+     its beginning. `{items}` when NERVIS answered; `{status}` and no items when
+     it did not, with 0 for no answer at all. */
+  async conversationRecord(id){
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/chat/conversations/'+encodeURIComponent(id),
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{status:r.status};
+    const body=await r.json();
+    return{items:Array.isArray(body.items)?body.items:[]};
+   }catch(e){return{status:0}}
+  },
+
   /* GET /ecosystem/events — SSE. Frames are MEP envelopes exactly as the runbook
      §4.4 defines them; `privacy.redactions` records what the *producer* removed
      before sending, so the dashboard can say what it is not showing rather than
@@ -10963,8 +10979,12 @@ const CHAT_STORE={
    /* Route ids are kept — §7.2 names them explicitly. They are what lets a
       stored reply still explain why that model answered, provided the decision
       is still in RAVIS's in-memory window. */
+   /* And `stored:false`, only where it is set. Dropped, a message NERVIS turned
+      away would come back from a reopen unmarked, and count against an export
+      as a turn NERVIS lost. */
    messages:session.messages.map(m=>({role:m.role,text:m.text,
-     served:m.served||null,route_decision_id:m.route_decision_id||null})),
+     served:m.served||null,route_decision_id:m.route_decision_id||null,
+     ...(m.stored===false?{stored:false}:{})})),
    params:{system:session.system,temperature:session.temperature,
      max_tokens:session.max_tokens,top_p:session.top_p,profile:session.profile}});
   this.write(list.slice(0,50));
@@ -12438,7 +12458,54 @@ function handOverNamed(index){
  return runHandoffOffer(offer);
 }
 
+/* What the person wrote and NERVIS took, as opposed to everything else a
+   conversation shows. The greeting and a nudge are NERVIS speaking first and
+   are never stored; an attached file is a row on screen rather than a turn (and
+   loses its `kind` when the browser copy is saved, which is why a missing
+   `text` counts too); and a message NERVIS turned away carries `stored:false`
+   from `sendChat` — it was never in the record, so it cannot be missing from
+   it. */
+const wroteTurn=m=>m.role==='user'&&m.kind!=='attachment'&&!!m.text&&m.stored!==false;
+
+/* Why an export would leave out turns this screen shows, or '' when it would not.
+
+   **The export is faithful to NERVIS's record, and the record can be missing
+   the start.** Conversations stored before `remote_id` existed carry no server
+   id, so reopening one and typing makes NERVIS begin a fresh record — the turns
+   from before the reopen are on screen and in nothing an export reads. The 404
+   recovery in `streamReply` forks the same way, on purpose. The export then
+   wrote the half NERVIS held, and a transcript's whole value is being complete.
+
+   **The browser has the missing text and must not supply it.** The command
+   endpoint takes *which* conversation, never *what* to write, or it would write
+   whatever any caller sent. So the page compares before asking, and refuses
+   with the count rather than writing half a file.
+
+   Only the person's own messages are counted, and only the ones NERVIS took:
+   it stores one as soon as it accepts the turn, so that is the count both
+   copies should agree on. **A message it turned away is not counted.** The first
+   version counted it, and one bad moment — RAVIS down for a second — made the
+   conversation impossible to export ever again, over a message that was never
+   part of the conversation NERVIS holds. */
+async function exportGap(conversationId){
+ if(!conversationId)return '';
+ const record=await API.nervis.conversationRecord(conversationId);
+ if(record.status===404)return 'NERVIS no longer holds this conversation, so there is nothing of it to export';
+ if(!record.items)return `NERVIS did not say how much of this conversation it holds (${record.status?'HTTP '+record.status:'no answer'}), so an export could be missing part of it`;
+ const shown=CHAT_SESSION.messages.filter(wroteTurn).length;
+ const held=record.items.filter(m=>m.role==='user').length;
+ if(held>=shown)return '';
+ return `NERVIS's record of this conversation holds ${held} of the ${shown} message${shown===1?'':'s'} `
+   +`you wrote in it, and an export is written from that record rather than this screen, so the file `
+   +`would be missing ${shown-held}`;
+}
+
 async function runCommand(operation,target,reason,conversationId,name){
+ /* **An export is checked before it is asked for**, here rather than in the
+    offer's handler, because a plan runs its steps through this same function —
+    a check in one caller would still write half a file from the other. */
+ const gap=operation==='nervis.conversation.export'?await exportGap(conversationId):'';
+ if(gap)return{error:gap};
  try{
   const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
     headers:{'content-type':'application/json'},
@@ -12742,12 +12809,15 @@ function transportFailure(e){
  return{aborted,failed:aborted?'':'NERVIS is not reachable: '+e.message};
 }
 
-/* The user's turn and the placeholder the stream paints into. */
+/* The user's turn and the placeholder the stream paints into. The turn is
+   returned so the send can mark it afterwards without assuming where it sits. */
 function stageTurn(text){
  CHAT_SESSION.busy=true;
- CHAT_SESSION.messages.push({role:'user',text,at:new Date().toISOString()});
+ const turn={role:'user',text,at:new Date().toISOString()};
+ CHAT_SESSION.messages.push(turn);
  if(CHAT_SESSION.messages.length===1)CHAT_SESSION.title=text.slice(0,42);
  CHAT_SESSION.messages.push({role:'assistant',text:'',pending:true});
+ return turn;
 }
 
 /* **Through NERVIS since M4, and streamed.** This used to POST straight to
@@ -12766,7 +12836,9 @@ async function streamReply(stop,extra){
       thinking" message is built from it. `profile` rides along so the renderer
       can tell a deliberate deliberation from an ordinary turn. */
    thinking:'',profile:CHAT_SESSION.profile||'',
-   conversationId:CHAT_SESSION.remote_id||'',reasoning:0,failed:'',aborted:false};
+   conversationId:CHAT_SESSION.remote_id||'',reasoning:0,failed:'',aborted:false,
+   /* Whether NERVIS took the turn at all — set where its answer starts. */
+   reached:false};
  const node=()=>document.getElementById('streaming');
  const paint=()=>{const el=node();if(el)el.innerHTML='<b>'+escapeHtml(speakerName())+'</b>'+renderMarkdown(acc.reply)+
    pendingTail(acc.reply);scrollChatToEnd()};
@@ -12811,7 +12883,15 @@ async function streamReply(stop,extra){
    return streamReply(stop,extra);
   }
   if(!r.ok)acc.failed=await refusalMessage(r);
-  else for await(const item of sseFrames(r.body))absorbFrame(item,acc,paint);
+  else{
+   /* **An answer that streams is a turn NERVIS took.** It stores the question
+      before it opens the stream, so from here the message is in its record —
+      even if the model then refuses mid-stream or the connection drops. An
+      error answer before this point, or no answer at all, is a message NERVIS
+      turned away or never saw, and `sendChat` marks it so. */
+   acc.reached=true;
+   for await(const item of sseFrames(r.body))absorbFrame(item,acc,paint);
+  }
  }catch(e){Object.assign(acc,transportFailure(e))}
  return acc;
 }
@@ -12836,7 +12916,7 @@ async function sendChat(){
  if(!text||CHAT_SESSION.busy)return;
  box.value='';
  IDLE.spoke();
- stageTurn(text);
+ const turn=stageTurn(text);
  /* Waiting on a model looks different from receiving one, and both look
     different from talking. An avatar that sits still through all three is a
     picture rather than an instrument. */
@@ -12860,6 +12940,12 @@ async function sendChat(){
     made before typing has somewhere to be written. */
  persistPrivate();
  CHAT_SESSION.messages.pop();
+ /* **A message NERVIS never took is marked, and kept.** It is on screen and it
+    happened, but it is not in NERVIS's record, so an export must not count it
+    as a turn the record lost. There is no retry control: trying again is typing
+    it again, which is a new message NERVIS does take — so a retry that works is
+    counted once, as that new message. */
+ if(!outcome.reached)turn.stored=false;
  const reply=withExtras(outcome);
  CHAT_SESSION.messages.push(reply);
  await attachRouteDecision(outcome);
@@ -13727,7 +13813,12 @@ let EDITOR_TIMER=null;
 /* The folder the last Hand over asked the editor to open, for as long as this
    page is open. Kept rather than used once: the frame is rebuilt whenever its
    address changes, so forgetting it after one paint would reload the editor
-   back to its previous folder on the next visit to the tab. */
+   back to its previous folder on the next visit to the tab.
+
+   Read on both paths. On the editor's own address it goes straight into the
+   query (`directAddress`); through NERVIS's proxy it is the workspace the
+   editor session is opened on (`codeSession`), because there the session is
+   what names the folder. */
 let EDITOR_FOLDER='';
 
 /* The editor's own address, naming the folder a Hand over asked for.
@@ -13855,9 +13946,15 @@ async function drawEditor(notices,session,editor){
     So the proxy is opt-in, and a deployment that has not opted in keeps
     framing the address its editor's data already belongs to.
 
-    On the proxied path the session chose the folder. On the editor's own
-    origin NERVIS names one only when a Hand over asked for it — otherwise what
-    is open is the editor's own business. */
+    On the proxied path the session chose the folder — and after a Hand over
+    the session was opened on the task's folder, so the two still agree. On the
+    editor's own origin NERVIS names one only when a Hand over asked for it —
+    otherwise what is open is the editor's own business.
+
+    **Encoded, because a folder is text somebody else chose.** The configured
+    root can hold a space, a `#` or an `&`, and a raw `#` ends the query at the
+    browser while a raw `&` starts a second parameter. Encoded, the whole path
+    arrives as the one `folder` value and nothing in it can add to the address. */
  const folder=encodeURIComponent(session.workspace||'');
  const src=session.proxied
   ? `/code/${folder?`?folder=${folder}`:''}`
@@ -13923,7 +14020,23 @@ async function codeSession(){
  const held=await API.nervis.codeSession();
  /* Not proxying means no session to hold: the editor is framed at its own
     address and authorises its own callers, as it did before `/code/` existed. */
- if(!held.proxied||held.open)return held;
+ if(!held.proxied)return held;
+ /* **A Hand over names the folder, and through the proxy the session is what
+    names it.** The frame asks for the session's workspace by value, so with a
+    session already open on the configured root this framed the root — Clarvis
+    opened on a folder with no task in it, and the task's folder was opened by
+    hand. So the session is opened on the task's folder instead.
+
+    Still not a path the page gets to choose: NERVIS checks it against the
+    configured roots exactly as it checks a root, the handoff wrote it inside
+    the editor's room, and one that is not inside a root is refused with the
+    reason on screen. And it is the choice two or more roots ask a person for —
+    they made it by pressing Hand over on that task.
+
+    Compared with the open session first, so a later visit to the tab is not a
+    second session. */
+ if(EDITOR_FOLDER&&held.workspace!==EDITOR_FOLDER)return openHandedOver();
+ if(held.open)return held;
  const roots=held.roots||[];
  /* `proxied` travels with every answer below. Losing it would make a tab that
     could not open a session fall through to framing the editor's own address —
@@ -13936,10 +14049,28 @@ async function codeSession(){
   'More than one workspace root is configured, and which one the editor opens is not NERVIS\'s '
   +'to decide: '+roots.map(r=>`<b>${escapeHtml(r)}</b>`).join(', ')+'. Open the one you want '
   +'from the Settings tab.','info')};
- const opened=await API.nervis.openCodeSession(roots[0]);
+ return openedOn(roots[0]);
+}
+
+/* A session opened on one named workspace, or the banner that says why not. */
+async function openedOn(workspace){
+ const opened=await API.nervis.openCodeSession(workspace);
  if(opened.open)return{...opened,proxied:true};
  return{open:false,proxied:true,notice:banner('The editor session was refused',
   escapeHtml(opened.reason||'NERVIS did not say why.'),'warn')};
+}
+
+/* The session for the folder a Hand over asked for.
+
+   **Kept in NERVIS's spelling afterwards.** NERVIS resolves the path before it
+   authorises it, and the handoff answers with the resolved path already — but
+   if the two ever differed, comparing the page's spelling with the session's
+   would open a fresh session on every visit to the tab. Taking the session's
+   spelling makes the next comparison ask the question it means. */
+async function openHandedOver(){
+ const opened=await openedOn(EDITOR_FOLDER);
+ if(opened.open&&opened.workspace)EDITOR_FOLDER=opened.workspace;
+ return opened;
 }
 
 /* **Stage 9's second exit clause: unsupported combinations are blocked here.**

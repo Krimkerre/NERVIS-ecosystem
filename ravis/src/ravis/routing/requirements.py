@@ -57,6 +57,14 @@ class RequestRequirements:
     # by a build that thinks at length, so the reasoning tiebreak stays dormant
     # rather than guessing a ceiling nobody asked for.
     output_budget: int | None = None
+    # Whether this request is a capability probe rather than work (§8.7).
+    #
+    # Not a requirement either, and carried here for the same reason as
+    # `output_budget`: ranking needs a fact about *this request*, and this is
+    # the object that crosses into the engine. It eliminates nothing — every
+    # candidate that could serve the request can answer the probe — it only
+    # changes which of them is cheapest to ask. See `is_tool_probe`.
+    tool_probe: bool = False
 
     def describe(self) -> list[str]:
         """The requirements, in the words a route explanation will show."""
@@ -132,6 +140,9 @@ def analyse(request: NormalizedRequest) -> RequestRequirements:
     # the output ceiling is the same kind of promise pointing the other way: the
     # number the client set is the number ranking reasons about.
     requirements.output_budget = request.max_output_tokens
+    # Recognised once, here, so the ranking and the explanation read one answer
+    # rather than each re-deriving it from the request and drifting apart.
+    requirements.tool_probe = is_tool_probe(request)
     return requirements
 
 
@@ -145,6 +156,43 @@ def _require(requirements: RequestRequirements, capability: Capability, why: str
 #: thinks by default, and a conversational pool wants an answer rather than ten
 #: seconds of deliberation about "good morning".
 NO_REASONING = "none"
+
+
+#: The largest answer a tools-bearing request can ask for and still be a probe.
+#:
+#: One, because that is the probe §8.7 describes — "a one-tool, one-token
+#: request" — and the one Clarvis actually sends (`supportsTools` in
+#: `clarvis/src/model/OpenAiCompatibleProvider.ts`: `max_tokens: 1`, a single
+#: `noop` tool, the message `ping`). A tool call cannot fit in one token, so a
+#: request that allows no more is asking a question, not doing the work.
+PROBE_OUTPUT_TOKENS = 1
+
+
+def is_tool_probe(request: NormalizedRequest) -> bool:
+    """Whether this request is asking *whether* a model can call tools (§8.7).
+
+    Recognised by shape, never by content. §14 rules out a route decision being
+    influenced by what a message says, and a probe does not need it: one tool
+    and room for one token is a capability question on its face.
+
+    **Exactly one tool, not "any tools".** A one-token request carrying an
+    agent's whole toolset is something else — a prompt-cache warm-up sends the
+    real conversation and the real tools with `max_tokens: 1`, and wants the
+    model it is about to use, so steering it to whatever happens to be loaded
+    would warm the wrong cache. §8.7's own words are "one-tool, one-token", and
+    the narrow reading is the one that cannot catch real work.
+
+    A boolean is refused as a count even though Python calls it an int:
+    `max_tokens: true` is nonsense for the upstream to reject, not a probe for
+    RAVIS to steer.
+    """
+    budget = request.max_output_tokens
+    return (
+        len(request.tools) == 1
+        and isinstance(budget, int)
+        and not isinstance(budget, bool)
+        and 0 < budget <= PROBE_OUTPUT_TOKENS
+    )
 
 
 def _estimate_context(request: NormalizedRequest) -> int:

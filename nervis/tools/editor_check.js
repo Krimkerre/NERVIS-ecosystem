@@ -47,6 +47,27 @@ const services = (state) => ({
    goes missing. */
 const WORKSPACE = "/w space#1";
 
+/* The folder a Hand over answers with: inside that workspace, and chosen to break
+   an address that interpolates it raw. The `#` would end the query early, the `&`
+   would start a second `folder` parameter and the `?` a query of its own — so a
+   frame that forgets to encode it asks for the wrong folder, or for two, and
+   `onlyFolder` below says so. */
+const TASK = `${WORKSPACE}/nervis-tasks/a&folder=/etc?x=1`;
+
+/* Every workspace the page asked NERVIS to open an editor session on. */
+const OPENED = [];
+
+/* The folder a framed address asks for, if that is the only thing it asks — read
+   the way a browser reads the attribute: entities decoded, then the URL parsed.
+   A second parameter, or a folder cut short at a `#`, means a path wrote its own
+   query into the address, and the answer is null. */
+function onlyFolder(src) {
+  const url = new URL(src.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"),
+    "http://nervis.invalid");
+  const names = [...url.searchParams.keys()];
+  return names.length === 1 && names[0] === "folder" ? url.searchParams.get("folder") : null;
+}
+
 /* Every handoff the page sent and every outcome it recorded, so a check can say
    what reached NERVIS rather than what the screen implies. */
 const RUNS = [];
@@ -69,10 +90,18 @@ function pageIn(state, session = { open: true, workspace: WORKSPACE, proxied: tr
         payload = sent.target === VAGUE && !sent.name
           ? { needs_name: "What should this task's folder be called?" }
           : { file: { name: "clarvis-task.md", folder: "nervis-tasks/pomodoro-timer",
-                      workspace: WORKSPACE, detail: "waiting" } };
+                      workspace: TASK, detail: "waiting" } };
       }
       else if (target.includes("/api/v1/proposals/outcome")) OUTCOMES.push(target);
       else if (target.includes("/api/v1/code/session")) {
+        /* Opening a session is remembered, as NERVIS's session store remembers
+           it: the next read answers with the workspace just opened. Without that
+           a second visit to the tab would look like a session nobody opened. */
+        if (init && init.method === "POST") {
+          const asked = JSON.parse(init.body || "{}").workspace;
+          OPENED.push(asked);
+          session = { open: true, workspace: asked, proxied: true };
+        }
         payload = {
           session: session || { open: false, proxied: true, reason: "closed", roots: [] },
         };
@@ -137,6 +166,29 @@ async function handedOver() {
   return { done: String(done), landed, html: String((hold && hold.innerHTML) || "") };
 }
 
+/* The same press with NERVIS's proxy on, and an editor session already open on
+   the configured root — the state the tab is in on any visit before a Hand over.
+   The tab is then visited once more, which must not open another session. */
+async function handedOverProxied() {
+  OPENED.length = 0;
+  const page = pageIn("healthy", { open: true, workspace: WORKSPACE, proxied: true });
+  const { context, exported, elements } = page;
+  vm.runInContext("CHAT_SESSION.messages=[{role:'assistant',text:'ok',offer:"
+    + "{operation:'nervis.clarvis.task',service:'nervis',target:'make me a pomodoro timer',ready:true}}]",
+    context);
+  await vm.runInContext("runOffer(0)", context);
+  await exported.clarvis();
+  // `go()` repaints without waiting, so its own draw of this tab can still be
+  // settling; a turn of the event loop lets it finish before anything is read.
+  await new Promise((tick) => setTimeout(tick, 0));
+  const hold = elements.get("sel:#editorHold");
+  const html = String((hold && hold.innerHTML) || "");
+  const opened = OPENED.slice();
+  await exported.clarvis();
+  if (exported.stopPolling) exported.stopPolling();
+  return { html, opened, again: OPENED.length - opened.length };
+}
+
 /* Pressing Hand over on a task too vague to name, then naming it in the card. */
 async function askedForAName() {
   const page = pageIn("healthy", { open: false, proxied: false, roots: [] });
@@ -174,12 +226,34 @@ if (handed.landed !== "clarvis/Workspace") {
   failures.push(`a Hand over left the page on ${handed.landed}, not the Code tab.`);
 }
 const handedSrc = /src="(http[^"]*)"/.exec(handed.html);
-const handedFolder = handedSrc && new URL(handedSrc[1]).searchParams.get("folder");
 if (!handedSrc || !handedSrc[1].startsWith("http://127.0.0.1:8080")
-    || handedFolder !== WORKSPACE) {
+    || onlyFolder(handedSrc[1]) !== TASK) {
   failures.push("after a Hand over the editor was framed at "
     + `${handedSrc ? JSON.stringify(handedSrc[1]) : "no address"}, not code-server's own `
-    + `address asking for ${JSON.stringify(WORKSPACE)} — so Clarvis opens without the task.`);
+    + `address asking for ${JSON.stringify(TASK)} alone — so Clarvis opens without the task.`);
+}
+
+/* **And the same press through NERVIS's proxy.** There the frame asks for the
+   session's workspace, so the page has to open the session on the task's folder:
+   framing the configured root, as it did, opened Clarvis on a folder with no task
+   in it. Checked by what reached NERVIS, then by the address — by value, and as
+   its only parameter — and a second visit must keep the session it has. */
+const proxied = await handedOverProxied();
+if (!proxied.opened.length || proxied.opened.some((asked) => asked !== TASK)) {
+  failures.push("with the proxy on, a Hand over opened editor sessions on "
+    + `${JSON.stringify(proxied.opened)}, not on the task's folder ${JSON.stringify(TASK)} — `
+    + "so the session, and the frame that follows it, name a folder with no task in it.");
+}
+const proxiedSrc = /src="([^"]*)"/.exec(proxied.html);
+if (!proxiedSrc || !proxiedSrc[1].startsWith("/code/?") || onlyFolder(proxiedSrc[1]) !== TASK) {
+  failures.push("with the proxy on, a Hand over framed "
+    + `${proxiedSrc ? JSON.stringify(proxiedSrc[1]) : "nothing"}, not NERVIS's /code/ asking for `
+    + `${JSON.stringify(TASK)} as its only parameter — Clarvis opens on the wrong folder, or a `
+    + "path wrote its own query into the proxied address.");
+}
+if (proxied.again !== 0) {
+  failures.push(`visiting the Code tab again after a proxied Hand over opened ${proxied.again} `
+    + "more session(s); the one already open on the task's folder should have been kept.");
 }
 
 /* **A task nobody could name is asked about, not opened.** The folder's name is

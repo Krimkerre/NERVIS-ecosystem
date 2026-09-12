@@ -134,3 +134,46 @@ def test_the_checked_in_measured_file_is_loadable_and_declares_tools() -> None:
     # packagings, opposite measured outcomes.
     assert declared["lmstudio-community/granite-4.0-h-tiny"]["tools"] == "SUPPORTED"
     assert declared["mlx-community/granite-4.0-h-tiny"]["tools"] == "UNSUPPORTED"
+
+
+# ── A declared window has to say where it came from ─────────────────────────
+
+# How a declared `context_window` may be accounted for, as the first word of
+# its model's `_context_window` note: somebody measured it, or the operator
+# chose it. There is deliberately no third word for "the catalogue said so".
+WINDOW_SOURCES = ("measured:", "operator:")
+
+
+def test_no_shipped_capability_file_declares_a_window_it_cannot_account_for() -> None:
+    """An advertised window must not be able to pass as a declaration.
+
+    A declared `context_window` replaces the window an adapter reads from the
+    runtime outright (`apply_configured`) — a number has no provenance ordering
+    to lose on. `measured-capabilities.json` copied LM Studio's advertised
+    `max_context_length` into ten declarations, so loading it restored the
+    defect the LM Studio adapter was fixed for: `qwen2.5-coder-7b-instruct`
+    routed as 32,768 while loaded at 8,192 (STATUS.md).
+
+    Whether a model is local cannot be told from its id, so the rule holds for
+    every model in every shipped file: a window is declared only beside a
+    `_context_window` note beginning `measured:` or `operator:`. A hosted
+    model's window an operator chose passes by saying so; a copy of a catalogue
+    has nothing true to write there. The note is safe to add because the
+    capability parser ignores names it does not recognise.
+    """
+    files = sorted(Path(__file__).resolve().parent.parent.glob("*capabilities.json"))
+    assert files, "the shipped capability files moved; point this guard at them"
+
+    unaccounted = [
+        f"{path.name}: {model}"
+        for path in files
+        for model, declared in json.loads(path.read_text()).items()
+        if isinstance(declared, dict)
+        and "context_window" in declared
+        and not str(declared.get("_context_window", "")).startswith(WINDOW_SOURCES)
+    ]
+
+    assert unaccounted == [], (
+        "a declared context_window overrides what RAVIS reads from the runtime, so each "
+        "needs a `_context_window` note beginning 'measured:' or 'operator:'"
+    )

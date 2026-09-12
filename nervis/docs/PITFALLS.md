@@ -357,7 +357,7 @@ nothing**.
 
 ## 7 · What actually catches these
 
-Since this list was written, thirteen of them became automated:
+Since this list was written, fourteen of them became automated:
 
 - **`node tools/render_check.js`** renders all 36 screens with nothing running
   and fails if one throws. Catches §6a, §6b and everything in §1 that reaches a
@@ -398,6 +398,17 @@ Since this list was written, thirteen of them became automated:
   reader to restart the wrong process. It also asserts the healthy case draws a
   frame, because a check that never sees one would pass against a tab that
   stopped working entirely. **Runs in CI.**
+- **`node tools/export_check.js`** presses Export through the page's own offer
+  and plan handlers, and sends messages through its own composer, against a
+  recorded NERVIS. It fails if an export goes out while NERVIS's record of the
+  conversation holds fewer of the person's messages than the screen shows —
+  the half file that looked finished, from a conversation saved before NERVIS
+  kept its own id, reopened and typed into. And it fails the other way: a whole
+  conversation with a greeting, an attachment, or a message NERVIS turned away
+  and the person typed again must still export. The first version counted that
+  refused message, and one bad moment made a conversation unexportable for
+  good. Listed in `tools/dashboard_gates.txt`, so the pre-commit hook and
+  `check_clean_clone.sh` run it.
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -479,6 +490,7 @@ node tools/shaping_check.js                         # adapters shape payloads as
 node tools/injection_check.js                       # provider data cannot write markup
 node tools/picture_check.js                         # a drawn picture renders; nothing else does
 node tools/editor_check.js                          # no frame for an editor that is not there
+node tools/export_check.js                          # an export never writes half a conversation
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly

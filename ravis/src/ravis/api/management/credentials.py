@@ -25,6 +25,8 @@ the state Google and OpenRouter would have shipped into.
 
 from __future__ import annotations
 
+import hmac
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -32,7 +34,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ravis.api.management import audit
-from ravis.credentials import CredentialStore
+from ravis.credentials import CredentialStore, Secret
 from ravis.errors import ForbiddenError, to_response
 from ravis.identity import ADMIN_PREFIX, CLIENT_PREFIX
 from ravis.model_filter import ModelFilter, ModelFilters
@@ -75,6 +77,22 @@ PROVIDER_LABELS = {
 # and `matched_total` is reported separately so this cap is never mistaken for
 # the answer.
 SAMPLE_LIMIT = 50
+
+# How long a successful catalogue refresh answers for when a credential write
+# **did not change the key** — so a replayed write reports the catalogue that
+# refresh left instead of fetching it again. A write that changes the key never
+# waits on this; it refreshes at once.
+#
+# **A minute, because of what a replay looks like.** It arrives seconds after
+# the write it repeats: a double-click, a browser resubmitting, or an operator
+# saving again after NERVIS gave up — and NERVIS gives this write ten seconds
+# before answering 502 (`_credential_call` in `nervis/peers/ravis.py`), so a
+# slow refresh it abandoned is repeated well inside the window. Against that, a
+# person re-saving the same key on purpose, to make RAVIS look again, waits at
+# most a minute where the alternative is the five-minute periodic refresh
+# (`models_cache_ttl_seconds`). And a minute is already how stale RAVIS lets a
+# credential lookup be (`CACHE_SECONDS`), so this adds no new kind of wait.
+REFRESH_COOLDOWN_SECONDS = 60.0
 
 
 class FilterInput(BaseModel):
@@ -244,7 +262,18 @@ def _routable(request: Request) -> set[str]:
 
 @router.put("/credentials/{name}")
 async def set_credential(name: str, body: CredentialInput, request: Request) -> Any:
-    """Store one provider credential, replacing any previous value."""
+    """Store one provider credential, replacing any previous value.
+
+    **Idempotent in effect, not only in state.** Storing the same key twice
+    always left the same state, which is why §15.1's `Idempotency-Key` was left
+    off these writes. But every write also re-read the provider's catalogue over
+    the network, so a replayed PUT repeated a live refresh while changing
+    nothing. A replay cache would have hidden that behind a remembered response;
+    the repair is not to repeat the effect. So the refresh runs when the write
+    changed the key this name resolves to, or when the last successful refresh
+    is older than `REFRESH_COOLDOWN_SECONDS` — and otherwise the total is read
+    from the snapshot that refresh left.
+    """
     refusal = _may_write_credentials(request)
     if refusal:
         return _refused(request, refusal)
@@ -254,26 +283,37 @@ async def set_credential(name: str, body: CredentialInput, request: Request) -> 
                        "type": "invalid_request_error"}},
             status_code=400,
         )
+    store = _store(request)
+    # Read before the write, so the two can be compared after it. For a name
+    # nobody has looked up in the last minute this costs one Keychain lookup,
+    # once, on a deliberate act — and `store()` makes another straight after.
+    before = store.resolve(name)
     try:
-        status = _store(request).store(name, body.secret)
+        status = store.store(name, body.secret)
     except ValueError as failure:
         # The message names the problem, never the value that caused it.
         return JSONResponse(
             {"error": {"message": str(failure), "type": "invalid_request_error"}},
             status_code=400,
         )
-    refreshed = await _recatalogue(request, name)
-    # Named facts only: which provider, and whether it is now configured. The
-    # secret is in scope one line above and is deliberately not passed — §15.1's
-    # "never expose credential values" held by construction rather than by a
-    # redaction somebody has to remember.
+    refreshed, catalogue_total = await _recatalogue(
+        request, name, changed=_changed(before, store.resolve(name))
+    )
+    # Named facts only: which provider, whether it is now configured, and
+    # whether this write re-read the catalogue or reported the last read. The
+    # secret is in scope above and is deliberately not passed — §15.1's "never
+    # expose credential values" held by construction rather than by a redaction
+    # somebody has to remember.
     audit.record(request, audit.ACTION_CREDENTIAL_SET,
                  provider=name, configured=status.configured,
-                 source=status.source, catalogue_total=refreshed)
-    return {**status.as_dict(), "catalogue_total": refreshed}
+                 source=status.source, catalogue_total=catalogue_total,
+                 catalogue_refreshed=refreshed)
+    return {**status.as_dict(), "catalogue_total": catalogue_total}
 
 
-async def _recatalogue(request: Request, name: str) -> int | None:
+async def _recatalogue(
+    request: Request, name: str, *, changed: bool
+) -> tuple[bool, int | None]:
     """Re-read the catalogue of whatever this credential unlocks.
 
     **A key is usually the reason the catalogue was empty**, and until now
@@ -293,6 +333,13 @@ async def _recatalogue(request: Request, name: str) -> int | None:
     Matched by upstream name *and* by kind, the same two-step `_key_for` uses, so
     an upstream named `gemini` of kind `google` is refreshed by a credential
     stored under either.
+
+    **Not repeated for a write that changed nothing.** When the key did not
+    change and every matched catalogue was refreshed successfully within
+    `REFRESH_COOLDOWN_SECONDS`, a second fetch could only return what the first
+    did, so the total is read from the snapshot instead. Whether a refresh ran
+    is returned beside the total so the audit can say which of the two a write
+    did; the response carries the same total either way.
     """
     transparents = getattr(request.app.state, "transparents", {})
     targets = [
@@ -300,10 +347,54 @@ async def _recatalogue(request: Request, name: str) -> int | None:
         if key == name or built.spec.kind.strip().lower() == name
     ]
     if not targets:
-        return None
+        return False, None
+    due = changed or not _recently_refreshed(targets)
+    if due:
+        for built in targets:
+            await built.registry.refresh()
+    return due, sum(len(built.registry.model_ids()) for built in targets)
+
+
+def _changed(before: Secret, after: Secret) -> bool:
+    """Whether a write changed the credential this name resolves to.
+
+    **The resolved values, compared — not the sources.** Moving a key from the
+    file into the Keychain changes where it lives and not what it is, and
+    writing the file with the value the environment already supplies changes
+    nothing an upstream will be sent. Neither is a reason to re-read a
+    catalogue. An absent credential resolves to an empty value, so a first
+    write always counts as a change.
+
+    Compared in memory with `hmac.compare_digest` and never logged, returned or
+    audited. These two `reveal()` calls are the only place a value leaves
+    `Secret` in this module, and they leave it for one comparison.
+    """
+    return not hmac.compare_digest(before.reveal().encode(), after.reveal().encode())
+
+
+def _recently_refreshed(targets: list[Any]) -> bool:
+    """Whether every matched catalogue was refreshed, successfully, inside the cooldown.
+
+    **The registry's own `refreshed_at`, not a clock kept here.** It is already
+    application state, so there is no second record of the same fact to drift
+    from the first — and it counts every refresh, startup's and the periodic
+    one's as well as an earlier write's, which is the question being asked: has
+    anybody looked recently, not has this endpoint. Compared on
+    `time.monotonic()`, the clock `ModelRegistry` stamps it with.
+
+    **A failure is not a refresh.** `refresh()` leaves `refreshed_at` alone and
+    records `last_error` when a fetch fails, so a snapshot carrying an error is
+    due however recent its last success was — the rule every catalogue cache in
+    RAVIS keeps: a failed read is not cached.
+    """
+    now = time.monotonic()
     for built in targets:
-        await built.registry.refresh()
-    return sum(len(built.registry.model_ids()) for built in targets)
+        snapshot = built.registry.snapshot
+        if not snapshot.has_been_refreshed or snapshot.last_error:
+            return False
+        if now - snapshot.refreshed_at >= REFRESH_COOLDOWN_SECONDS:
+            return False
+    return True
 
 
 @router.delete("/credentials/{name}")
@@ -313,6 +404,10 @@ async def forget_credential(name: str, request: Request) -> Any:
     The response may still report the credential configured, from the
     environment or the Keychain. That is the truth rather than a failed delete:
     RAVIS does not remove things it did not put there.
+
+    **Touches no catalogue**, unlike `set_credential`, so it has no effect a
+    replay could repeat: removing a key twice leaves the same state and sends
+    nothing anywhere. That is why the refresh cooldown has nothing to guard here.
     """
     refusal = _may_write_credentials(request)
     if refusal:

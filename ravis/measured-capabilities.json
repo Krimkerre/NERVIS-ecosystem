@@ -1,58 +1,48 @@
 {
   "_source": "clarvis/docs/benchmarks.md, measured 20 Aug 2026 by clarvis-firstrun/tools/suite2.py",
   "_machine": "MacBook Air M5, 24 GB, macOS 27.0, LM Studio 0.4.21+2 — these claims are about THIS machine's builds, not about the models in general",
-  "_provenance": "tools = MEASURED (executed tool-call trials). context_window = ADVERTISED (LM Studio's own max_context_length, GET /api/v0/models). RAVIS records both at CONFIGURED provenance, which is a downgrade and therefore safe: it never claims to have measured what it was told. Real MEASURED provenance arrives with SIRVIS evidence at M13, and should replace this file rather than sit beside it.",
+  "_provenance": "tools = MEASURED (executed tool-call trials). RAVIS records it at CONFIGURED provenance, which is a downgrade and therefore safe: it never claims to have measured what it was told. context_window is deliberately NOT declared here. Until 12 September 2026 every entry carried one, copied from LM Studio's advertised max_context_length (GET /api/v0/models) — and a declared window has no provenance ordering to lose on: apply_configured replaces the window the adapter reads from the runtime outright. So loading this file brought back the defect the LM Studio adapter was fixed for, qwen2.5-coder-7b-instruct routed as a 32768-token model while loaded at 8192. Windows now come from the adapter: the loaded length for a loaded model, LM Studio's default load context for one that is not. A window may be declared here again only beside a per-model _context_window note beginning 'measured:' or 'operator:', and tests/test_capability_config.py fails otherwise. Real MEASURED provenance arrives with SIRVIS evidence at M13, and should replace this file rather than sit beside it.",
   "_omitted": "qwen/qwen3-1.7b advertises tool_use and was never benchmarked, so it stays UNKNOWN and fails closed. text-embedding-nomic-embed-text-v1.5 is an embeddings model. Absence here is a value, not an oversight.",
   "_disagreements": "LM Studio's tool_use flag and the measurements disagree in BOTH directions, which is why this file exists instead of reading the flag. Three models advertise nothing and score 3/3: qwen2.5-coder-7b-instruct, phi-4-mini-instruct, qwen2.5-coder-14b-instruct-mlx. One model advertises tool_use in both its packagings and only works in one: granite-4.0-h-tiny is 8/8 as GGUF and 1/8 as MLX, seven calls losing their arguments to the runtime's parser (F30). Build identity is load-bearing — compare by full publisher/model, never the bare name.",
 
   "qwen2.5-coder-7b-instruct": {
     "tools": "SUPPORTED",
-    "context_window": "32768",
     "_measured": "8/8 tool calls across eight phrasings, streamed; used-result recovery; 6/6 dedupe, 6/6 fib; the benchmark's recommended model for both roles"
   },
   "phi-4-mini-instruct": {
     "tools": "SUPPORTED",
-    "context_window": "131072",
     "_measured": "3/3 tool calls; used-result recovery; 6/6 both coding tasks. Advertises no tool_use"
   },
   "qwen/qwen3-4b-2507": {
     "tools": "SUPPORTED",
-    "context_window": "262144",
     "_measured": "3/3 tool calls; used-result recovery; 6/6 both coding tasks"
   },
   "meta-llama-3.1-8b-instruct": {
     "tools": "SUPPORTED",
-    "context_window": "131072",
     "_measured": "3/3 tool calls; used-result recovery; 6/6 both coding tasks"
   },
   "ministral-8b-instruct-2410": {
     "tools": "SUPPORTED",
-    "context_window": "32768",
     "_measured": "3/3 tool calls alone. Its follow-up recovery degraded to no-call and then gave-up when sharing memory with another model — a co-residency finding RAVIS cannot express yet (M20)"
   },
   "qwen2.5-coder-14b-instruct-mlx": {
     "tools": "SUPPORTED",
-    "context_window": "32768",
     "_measured": "3/3 tool calls; identical accuracy to the 7B at a third of its generation rate. Advertises no tool_use"
   },
   "qwen3.5-2b-mlx": {
     "tools": "SUPPORTED",
-    "context_window": "262144",
     "_measured": "3/3 tool calls; fastest here at 93.6 tok/s. A vlm-typed model that has produced invented facts in earlier scenes — a quality finding, not a capability one, and RAVIS has nothing to rank on until M13"
   },
   "lfm2.5-2.6b-mlx": {
     "tools": "SUPPORTED",
-    "context_window": "128000",
     "_measured": "3/3 tool calls, so the capability claim is honest. Also 5.5s to first token and no visible output in the rate test — unusable in practice, and RAVIS will still rank it first alphabetically because it has no latency evidence until M13/M19"
   },
   "lmstudio-community/granite-4.0-h-tiny": {
     "tools": "SUPPORTED",
-    "context_window": "1048576",
     "_measured": "8/8 tool calls across eight phrasings; used-result recovery; 55.2 tok/s at 0.06s TTFT. GGUF Q4_K_M, confirmed by compatibility_type"
   },
   "mlx-community/granite-4.0-h-tiny": {
     "tools": "UNSUPPORTED",
-    "context_window": "131072",
     "_measured": "1/8 tool calls — seven lost their arguments to the MLX runtime's parser (F30), and follow-up recovery was never reached. The same model as the row above and the opposite outcome. Declared UNSUPPORTED rather than omitted, because omitting it would leave it UNKNOWN and read as unmeasured when it is the best-measured negative in the set"
   }
 }

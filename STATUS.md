@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2939 tests, no network, no live service
+.venv/bin/pytest                      # part of 2986 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1217 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2939 passing across the four, conformance `PASS`.
+Expected: all clean, 2986 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -213,7 +213,7 @@ carries an as-built note saying what exists and what does not.
 | 12 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
 | 13 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
-| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
+| 15 | **Defects recorded below and never closed** | Closed on 12 September, each under its own entry and in the dated section *The recorded defects, fixed*: a tool probe landing on a model that is not loaded (§8.7); LM Studio's advertised context window; the credential write's repeated catalogue refresh; Hand over through the proxy; the half export — and, found on the way, `LOCAL_PREFERRED` sitting behind five ranking terms. Still open: a tool refusal fails the request instead of trying another model; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
@@ -221,7 +221,7 @@ carries an as-built note saying what exists and what does not.
 | # | What | Why it waits |
 |---|---|---|
 | 1 | **NERVIS M11's content stages** | Recording prompts and responses in the API Inspector is a privacy decision — retention, redaction, where they live on disk — before it is a coding one |
-| 2 | **RAVIS's Idempotency-Key** | Left out on purpose: four of the five writes are full replacements, so a replay cache would change nothing observable. The exception is the catalogue refresh in row 15 of Next |
+| 2 | **RAVIS's Idempotency-Key** | Left out on purpose: four of the five writes are full replacements, so a replay cache would change nothing observable. The one write with a side effect, the catalogue refresh when a credential is saved, has had a one-minute cooldown since 12 September instead |
 | 3 | **Deferred by decision** | A waiting queue above SIRVIS's resource manager; Parquet telemetry; a pull event stream; web research in chat; WWAH as a second consumer; RAVIS's embeddings staying degraded; SIRVIS's CSRF token; the runbook §13 clause about rerouting queued requests |
 
 **Decisions only the owner can make**, each recorded where it came up:
@@ -3624,8 +3624,27 @@ caller asked it to."
 
 **So the offer should refuse rather than write half a file**, naming the reason,
 the way the 404 branch beside it already says the earlier turns will not be in
-the export. Not yet built; recorded here with the diagnosis so it is not
-re-derived.
+the export. ~~Not yet built; recorded here with the diagnosis so it is not
+re-derived.~~ **Built on 12 September.** Before asking for the file, the page reads
+NERVIS's record of the conversation (`GET /api/v1/chat/conversations/{id}`) and
+compares the messages the person wrote on screen with the ones NERVIS holds
+(`exportGap`, checked at the top of `runCommand`, so single offers and plan steps
+are both covered). When the record holds fewer, nothing is written and the answer
+says how many would be missing; a conversation NERVIS no longer holds gets its own
+sentence. The browser still sends no text. Because it reads the record rather than a
+flag set when reopening, it also catches conversations reopened and typed into before
+the fix. The gate `nervis/tools/export_check.js` fails four ways with the guard
+removed. **A message NERVIS turned away does not count** — without that, one send
+refused while RAVIS was down made a conversation unexportable for good. The page had
+no marker for a refused send (its error bubble looked like any reply), so a message
+whose reply never started is now kept on screen as `stored:false`, the saved copy
+keeps the mark, and the count skips it; NERVIS stores a message before it streams, so
+a reply that started means it was stored. Two further cases in the gate — a refused
+send retyped and accepted, then reopened, still exports; the same sends on a forked
+record are still refused — fail with any of the three parts removed. Limits: a
+refused message in a conversation saved before 12 September has no mark and still
+blocks that export, and a message stored but errored before its reply began is
+marked anyway, which can only make a refusal less likely.
 
 ### The plans record what shipped, 1 Sep
 
@@ -4868,7 +4887,17 @@ change no observable outcome, and a mechanism that changes nothing is worse than
 its absence because it implies a guarantee elsewhere. A test pins the property
 instead. The one genuine non-idempotent effect is `set_credential`'s live
 catalogue refresh, where the honest fix is a refresh cooldown rather than a
-replay cache, and it is not built.
+replay cache, ~~and it is not built~~. **Built on 12 September:** a save re-reads
+the provider's catalogue only when the stored key actually changed (compared in
+memory, never logged) or the provider's last *successful* refresh is more than 60
+seconds old (`REFRESH_COOLDOWN_SECONDS`, `_changed`, `_recently_refreshed` in
+`api/management/credentials.py`); otherwise it reports the count from that refresh
+without a network call, and the audit event's `catalogue_refreshed` flag says which.
+"Last refresh" is the model registry's own timestamp, so startup and the periodic
+refresh count, and a failed refresh never does. Sixty seconds covers a double click
+and a re-save after NERVIS's ten-second timeout, and is already how long a credential
+lookup is cached. `tests/test_credential_refresh_cooldown.py`, six tests; with the
+fix reverted the repeated save fetches twice.
 
 **`ravis.management@1` stays degraded, for a reason worth stating.** §15.1 asks
 that mutations be *separately* authorized. `_may_write` returns early on a
@@ -6008,10 +6037,29 @@ reviewer who disagrees should say so rather than assume it was an accident.
 
 *12 September 2026: vision and capability configuration below are settled — `ravis/vision`
 exists, and LM Studio's catalogue, SIRVIS's evidence and RAVIS's tool trials now say what a
-model can do. The advertised-versus-loaded context window is still open for LM Studio.*
+model can do. ~~The advertised-versus-loaded context window is still open for LM Studio.~~
+Closed for LM Studio on 12 September too — see the next item.*
 
 - **A model's advertised context is not the context it is loaded with, and RAVIS
-  is currently told the advertised one.** `ravis/measured-capabilities.json`
+  is currently told the advertised one.** *Closed on 12 September, for both halves.
+  The LM Studio adapter now reports `loaded_context_length` for a model LM Studio
+  says is loaded, and LM Studio's default load context — 8,192, its own
+  `defaultContextLength` setting and the context every one of 91 on-demand loads in
+  its logs opened at — for one that is not, capped by `max_context_length`
+  (`_served_window` in `providers/lmstudio.py`). RAVIS never asks for a larger load,
+  so the build's maximum described nothing it would be served. And the ten
+  `context_window` entries in `ravis/measured-capabilities.json`, which its own
+  provenance line called ADVERTISED, are gone: a declared window replaces the
+  adapter's outright (`core/capabilities.py`), so the file would have undone the fix
+  for whoever passed it. A test now fails if any shipped capability file declares a
+  window without a note saying it was measured or chosen by the operator. The
+  running RAVIS was never given that file — the launcher passes only
+  `operator-capabilities.json` — so its 32,768 came from the adapter. Visible after
+  a restart: a model that is not loaded no longer qualifies for `ravis/agent`
+  (32,768) or `ravis/long-context` (131,072); with only qwen3-1.7b loaded at 8,192,
+  `ravis/agent` keeps one local member (llama3.2:3b on Ollama) and
+  `ravis/long-context` none. A model loaded larger regains them while it stays
+  loaded.* `ravis/measured-capabilities.json`
   declares `context_window: 32768` for `qwen2.5-coder-7b-instruct` — its
   maximum. LM Studio had it *loaded* at 8192. RAVIS's `clarvis-agent` pool
   requires a 32768 minimum, so it routed agent traffic there on the strength of
@@ -6043,6 +6091,9 @@ model can do. The advertised-versus-loaded context window is still open for LM S
   (§8.7) and SIRVIS evidence is M13, so `ravis/clarvis-agent` is unroutable until
   an operator declares tools and a context window for at least one model. This is
   §5.2 working as written, not a defect, but it will surprise.
+  *(Since 12 September the file answers tool support only: its windows were LM
+  Studio's advertised maxima and were removed, and a model's window now comes from
+  what the runtime serves — see the item above.)*
   **Answered for this machine** by `ravis/measured-capabilities.json`, derived
   from `clarvis/docs/benchmarks.md` — real executed tool-call trials, not LM
   Studio's `tool_use` flag, which disagrees with the measurements in *both*
@@ -6101,9 +6152,26 @@ model can do. The advertised-versus-loaded context window is still open for LM S
   tiny tool probe to a cold or unsupported candidate and thereby make the pool
   appear incapable*, and calls it the sharpest wire-level constraint in the
   integration. Doing that needs residency-aware pre-flight, and M14's
-  observation half already reports residency, so the missing part is small. Not
+  observation half already reports residency, so the missing part is small. ~~Not
   done, because it is a routing change rather than an error-handling one and it
-  deserves its own pass.
+  deserves its own pass.~~ *Done on 12 September.* `is_tool_probe`
+  (`routing/requirements.py`) recognises §8.7's one-tool, one-token shape —
+  exactly one tool and `max_tokens` ≤ 1 — by shape, never by content, which is
+  exactly what Clarvis's `supportsTools` sends; a one-token warm-up carrying a
+  whole toolset is not a probe. For a probe only, a ranking term puts every
+  candidate that answers without a load — resident, or hosted — ahead of every
+  one that needs a load, ahead of session affinity and the pool's preference, and
+  exploration is off. Every eligible candidate can call tools, so any of them
+  answers truthfully for the pool. With only cold local candidates the probe is
+  routed as before rather than refused, because residency ranks and never
+  excludes (§9.2) and a refusal would make the pool look incapable for as long as
+  nothing is loaded. Under `LOCAL_PREFERRED` a hosted model does not count as an
+  escape from the load; since the same day that follows from the privacy lean
+  leading the whole ranking (below, in the dated section). The route explanation
+  names the probe either way. `tests/test_tool_probe_routing.py`, fourteen tests;
+  with the change reverted five fail. Known consequence: where a runtime reports
+  no residency (Ollama-only upstreams), every local model counts as cold, so a
+  probe goes to a hosted model whenever one is eligible.
 - **Where the orchestration layer lives.** Alexander Keisse's router does
   prompt-shaping, multi-pass and RAG that this ecosystem currently has nowhere.
   The proposal on the table is that it becomes a client *of* RAVIS rather than
@@ -17622,8 +17690,19 @@ redirect. The test folder went to the Trash afterwards.
 Not seen: the editor opening that folder with Clarvis offering the task. The
 browser this was checked in is not logged in to code-server, and the password
 is not something to type on the operator's behalf — that step is the live run
-with the operator. Not built: with the proxy on, the tab still opens its
-configured workspace, and the task's folder is opened by hand.
+with the operator. ~~Not built: with the proxy on, the tab still opens its
+configured workspace, and the task's folder is opened by hand.~~ **Built on 12
+September:** with the proxy on, the page now opens the editor session on the task's
+folder (`codeSession`, `openHandedOver` in `nervis/index.html`), NERVIS still checks
+that folder against the configured roots, and a refusal shows its reason. The editor
+check presses Hand over with a session already open on the root and a folder named
+`/w space#1/nervis-tasks/a&folder=/etc?x=1`, and asserts the session NERVIS was asked
+for, the frame's `folder` as its only parameter, and that a second visit opens no new
+session; removing the fix fails two assertions, and dropping the encoding fails two.
+Not seen live, because the proxy is off on this machine. Left as it was: the proxy does
+not check that a folder an address asks for lies inside its session's folder
+(code-server's own login still applies), and the earlier root session stays in memory
+until its 30-minute idle timeout.
 
 ## Named task folders, and Clarvis plans a handed-over task — 2026-09-10
 
@@ -19073,6 +19152,61 @@ NERVIS 0.28.5 → 0.28.6.
 
 Checked: the page check and every dashboard gate pass, as does the knowledge check; and the commit went
 through the dashboard hook.
+
+## The recorded defects, fixed — 2026-09-12
+
+Asked to start on the known bugs: the defects in row 15 of Next, recorded over weeks and never closed.
+Each was re-read against the code before it was fixed rather than taken from its entry, and each fix
+carries a check shown to fail with the fix removed. The owner decided the two that were theirs to
+decide: a tool refusal tries the pool's next model, and SIRVIS unloads what it loaded when it stops.
+
+**NERVIS — Hand over through the proxy, and exports that refuse rather than write half.** Both are
+recorded where they were diagnosed: under *Hand over opens the task's folder in the Code tab* and
+*Reopening a conversation forks it, still*. The first is not seen live, because the proxy is off on this
+machine. The second grew a marker for a message NERVIS turned away when it was sent, because without it
+one refused send made a conversation unexportable for good. New gate: `nervis/tools/export_check.js`,
+listed in `nervis/tools/dashboard_gates.txt` and `nervis/docs/PITFALLS.md` §7. NERVIS 0.28.6 → 0.28.7.
+Checked on a snapshot holding only these files over HEAD: ruff and mypy clean, 1217 tests pass, and every
+dashboard gate passes.
+
+**RAVIS — a credential save that repeats no refresh, and LM Studio's served context window.** Both are
+recorded where they were diagnosed: under *`Idempotency-Key` is deliberately absent* and *A model's
+advertised context is not the context it is loaded with*. The second went further than its entry asked.
+The copied windows in `ravis/measured-capabilities.json` were removed as well, because a declared window
+replaces the runtime's figure outright, and `test_no_shipped_capability_file_declares_a_window_it_cannot_account_for`
+keeps any capability file from declaring one nobody measured or chose. The running RAVIS never read that
+file, so it was not the source of the recorded 32,768; the adapter was. **What changes after a restart:**
+a local LM Studio model that is not loaded counts at 8,192, so `ravis/agent` (32,768) keeps one local
+member while only qwen3-1.7b is loaded — llama3.2:3b on Ollama — and `ravis/long-context` (131,072) has
+none; `ravis/clarvis-agent` had no local member before and has none now. Not built: a setting like
+`RAVIS_OLLAMA_DEFAULT_CONTEXT` for LM Studio, for a machine whose LM Studio default is not 8,192. Vision
+builds that ignore a requested length and load at their own (gemma-4-e2b at 131,072) are under-reported
+until loaded.
+
+**RAVIS — a tool probe routed to a model that answers without a load (§8.7).** Recorded under *§8.7's
+literal instruction is still not followed*. Not a defect anyone had seen fail today, but row 15 carried it.
+
+**RAVIS — `LOCAL_PREFERRED` now leads the ranking. Found, not recorded.** The §8.7 change put its probe
+term ahead of the privacy term and said so, and the question it raised — what else sits ahead of it —
+had a worse answer than expected. `LOCAL_PREFERRED` is the one privacy level that ranks rather than
+excludes, and the comment beside it already said its position is its whole protection and recorded the
+earlier bug of this shape (a budget lean ahead of it). Five terms still were: the probe, session
+affinity, the short-session load brake, `prefer_remote` and `prefer_fast`; and exploration could pick a
+hosted alternative, which `chat.py` then records as the session's sticky model. Each was confirmed with a
+failing test and a control showing the pull really does move an ordinary request hosted. `_privacy_lean`
+now leads the sort key when the level applies and is absent otherwise, so no other pool's ranking changes
+— the existing routing tests pass unedited. Exploration skips hosted alternatives when the winner is
+local. **Privacy before affinity, deliberately:** every turn re-sends the whole conversation, so staying
+on a hosted model sends the history off the machine again each turn, and §12.1 already lists a policy
+change as a reason to break stickiness; affinity still holds among local models. The probe's own
+hosted-counts-as-cold case became redundant and was removed, with identical picks and fallback order over
+an exhaustive 4,512 routes. `_locality_note` puts the reason first in the route explanation.
+`tests/test_local_preferred_ranking.py`, twenty tests; with the original engine eleven fail. One visible
+change: `LOCAL_PREFERRED` with a measured short session under memory pressure now pays a local load
+instead of going hosted.
+
+RAVIS 0.23.3 → 0.23.4. Checked on a snapshot holding only these files over HEAD: ruff and mypy clean, and
+1195 tests pass — forty-seven new, and one removed that pinned the advertised window.
 
 ## Starting the thing
 

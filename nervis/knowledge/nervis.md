@@ -48,6 +48,8 @@ Four rooms, and which one a file is in says how it got there.
   task, named for it (`pomodoro-timer`, or whatever you called it when NERVIS
   asked), opened in the Code tab the moment Hand over is pressed, as that
   task's own workspace, so one task's plan and notes never mix with another's.
+  That holds with NERVIS's editor proxy switched on as well (since 12 September
+  2026; before, the proxied tab stayed on its configured folder).
 
 Each can be pointed somewhere else on its own
 (`NERVIS_WORKSPACE_IMPORT_PATH`, `NERVIS_WORKSPACE_LIBRARY_PATH`,
@@ -417,6 +419,17 @@ an extra glance, not a gate. A conversation export is never checked this way
 there is nothing this glance could catch there. Offering to save a reply as
 a PDF now says this outright, unprompted, in that same offer — not only when
 asked about it afterward.
+
+**An export refuses rather than write half a conversation** (since 12 September
+2026). An export is written from NERVIS's own record of the conversation, never
+from what the page shows, and an old conversation reopened and typed into can
+have a record that lacks its start — it was stored before conversations kept the
+id that ties the two together. So before writing, the page compares the messages
+you wrote on screen with the ones NERVIS holds, and when the record holds fewer,
+nothing is written and the answer says how many of your messages would be
+missing. A message NERVIS turned away when it was sent (RAVIS briefly not
+answering, say) was never part of the record and does not count against it —
+except in a conversation saved before this change, which has no way to tell.
 
 Also that day: **chat can now see a document's pages, not only read its
 text.** Extraction gives prose back intact and destroys everything else — a
