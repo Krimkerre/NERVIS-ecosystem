@@ -18184,6 +18184,45 @@ unreachable, slow or unregistered RAVIS marked for the page; only management
 and ecosystem paths relayable; the route refusing the gateway and any verb but
 GET.
 
+## A reset for the spend tile, and a Spending page of daily totals — 2026-09-12
+
+Asked for the same day: a button that sets the RAVIS dashboard's spend tile back
+to zero while keeping every record, and a page to look up what was spent each
+day.
+
+The Spend tile has a Reset to 0 button. It stores the moment as a NERVIS setting,
+so a reset holds across reloads and browsers, and the tile then counts from that
+moment — "0.00 · nothing spent since <time>" until a call lands. Nothing is
+deleted and RAVIS's monthly budget keeps its own window: RAVIS's usage read
+simply takes the moment as `since`. Calls that ran unpriced still read as not
+measured rather than nought.
+
+RAVIS → Spending lists each calendar day RAVIS served a call, newest first: the
+estimated total, calls priced and unpriced, and tokens, and each day opens into
+its models and applications. Four tiles lead it: today, the last seven days, the
+costliest day and the days recorded. Only days with calls appear, because a day
+without a record is not a day that cost nothing — records survive restarts only
+from this date on. RAVIS's new /api/v1/usage/daily serves it under the same
+rules as the 24-hour figure: estimated, never billed, one currency or no total.
+The ledger's time-range reads now come from its database, so a month's budget or
+ninety days of totals no longer stop at the in-memory bound.
+
+Live, after committing 10ef5b5 and restarting: the tile read $0.00049 over the
+last 24 hours. Pressing Reset to 0 stored the moment, and the tile read "0.00 ·
+nothing spent since 12 Sep, 12:35" with a notice that nothing was deleted. The
+test reset was then undone — the setting written empty, which the page reads as
+never reset — and the tile returned to $0.00049. The Spending page showed one
+day, 12 September: $0.00049 over six calls, three of them unpriced, 224 tokens
+in and 184 out, opening into six models and two applications. Five of the calls
+were RAVIS's own tool trials of Google's Gemini models, three of which have no
+rate in the price book; the sixth was the Claude Haiku test call from the entry
+above.
+
+Checked: ruff and mypy clean, RAVIS's and NERVIS's full suites pass, the page's
+script parses. New test: calls on two local days come back as two rows newest
+first with the right counts, total, costliest model and application, and a
+`since` window counts only what came after it.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
