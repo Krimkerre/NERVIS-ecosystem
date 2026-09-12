@@ -49,7 +49,7 @@ BY_KEY: dict[str, Surface] = {surface.key: surface for surface in SURFACES}
 
 
 async def decision_for(
-    client: httpx.AsyncClient, entry: RegistryEntry | None, request_id: str
+    client: httpx.AsyncClient, entry: RegistryEntry | None, request_id: str, credential: str
 ) -> dict[str, Any] | None:
     """The route decision behind one request, or None.
 
@@ -67,7 +67,8 @@ async def decision_for(
     if not request_id:
         return None
     result = await read(
-        client, entry, BY_KEY["routes"], service=SERVICE, params={"limit": 50}
+        client, entry, BY_KEY["routes"], service=SERVICE, params={"limit": 50},
+        credential=credential,
     )
     if not result.available or not isinstance(result.data, Mapping):
         return None

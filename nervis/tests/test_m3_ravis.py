@@ -53,7 +53,9 @@ class Recorder:
 
 
 def do_read(recorder: Recorder, entry: RegistryEntry | None, key: str = "providers", **kw: Any):
-    return asyncio.run(peer.read(recorder.client(), entry, peer.BY_KEY[key], **kw))
+    return asyncio.run(
+        peer.read(recorder.client(), entry, peer.BY_KEY[key], **{"credential": "", **kw})
+    )
 
 
 # ── Without touching its DB ─────────────────────────────────────────────────
@@ -190,6 +192,7 @@ def test_a_service_that_dies_between_the_probe_and_the_read_is_reported() -> Non
             httpx.AsyncClient(transport=httpx.MockTransport(handle)),
             entry_with({"ravis.management": "available"}),
             peer.BY_KEY["providers"],
+            credential="",
         )
     )
 
@@ -225,6 +228,7 @@ def test_a_non_json_answer_is_not_mistaken_for_data() -> None:
             httpx.AsyncClient(transport=httpx.MockTransport(handle)),
             entry_with({"ravis.management": "available"}),
             peer.BY_KEY["providers"],
+            credential="",
         )
     )
 
@@ -271,6 +275,20 @@ def test_query_parameters_reach_ravis() -> None:
 
 
 # ── The endpoints ───────────────────────────────────────────────────────────
+
+
+def test_chat_s_route_lookup_names_nervis_to_ravis() -> None:
+    """Found 12 September 2026: this read, and the API Inspector's two, went out
+    anonymously, because the reader's credential defaulted to empty and none of them
+    passed one. The reader now has no default, so a caller that forgets fails the type
+    check; this pins the one that has no request to take the credential from."""
+    recorder = Recorder({"items": [{"request_id": "req-1", "decision_id": "d-1"}]})
+    entry = entry_with({"ravis.routing.explanations": "available"})
+
+    found = asyncio.run(peer.decision_for(recorder.client(), entry, "req-1", "client.nervis"))
+
+    assert found is not None and found["decision_id"] == "d-1"
+    assert recorder.requests[0].headers["authorization"] == "Bearer client.nervis"
 
 
 def an_api() -> TestClient:

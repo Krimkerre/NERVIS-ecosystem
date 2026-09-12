@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from nervis import chat, inspector
 from nervis.errors import NotFoundError
 from nervis.peers import ravis as ravis_peer
+from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as read_surface
 
 router = APIRouter(prefix="/api/v1/inspector", tags=["inspector"])
@@ -33,6 +34,7 @@ async def list_inspectable(request: Request) -> dict[str, Any]:
     result = await read_surface(
         request.app.state.probe_client, entry, ravis_peer.BY_KEY["routes"],
         service=ravis_peer.SERVICE, params={"limit": 25},
+        credential=peer_credential(request, ravis_peer.SERVICE),
     )
     if not result.available or not isinstance(result.data, dict):
         return {"items": [], "live": False, "reason": result.reason or "RAVIS is not answering",
@@ -76,6 +78,7 @@ async def inspect_one(decision_id: str, request: Request) -> dict[str, Any]:
     result = await read_surface(
         request.app.state.probe_client, entry, ravis_peer.BY_KEY["routes"],
         service=ravis_peer.SERVICE, params={"limit": 50},
+        credential=peer_credential(request, ravis_peer.SERVICE),
     )
     found = None
     if result.available and isinstance(result.data, dict):

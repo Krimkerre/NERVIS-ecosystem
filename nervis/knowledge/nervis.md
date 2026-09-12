@@ -289,7 +289,11 @@ which hosted models can use tools instead of waiting for the operator to
 declare them. Also that day: RAVIS's spend tile on the dashboard got a Reset to
 0 button, which makes the tile count from that moment without deleting anything
 or touching the budget, and RAVIS got a Spending page listing what was spent
-each day, with each day opening into its models and apps.
+each day, with each day opening into its models and apps. Later still: the API
+Inspector and the lookup that shows which route answered a chat reply were the
+last things NERVIS read from RAVIS anonymously, and now name NERVIS like
+everything else; the shared reader no longer allows a read that leaves its
+credential out.
 
 As of 6 September 2026: chat's own background retrieval, described above,
 went live the same day — before it, a paraphrase sharing no vocabulary with

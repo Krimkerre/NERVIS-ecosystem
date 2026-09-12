@@ -574,5 +574,6 @@ async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]
             request.app.state.probe_client,
             request.app.state.registry.get("ravis"),
             request_id,
+            peer_credential(request, ravis_peer.SERVICE),
         ),
     }

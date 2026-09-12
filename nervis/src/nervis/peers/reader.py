@@ -105,9 +105,16 @@ async def read(
     params: Mapping[str, Any] | None = None,
     request_id: str = "",
     trace_id: str = "",
-    credential: str = "",
+    credential: str,
 ) -> PeerRead:
     """One negotiated read of one peer surface.
+
+    **`credential` has no default, since 12 September 2026.** It defaulted to empty,
+    and the API Inspector's two reads of RAVIS and chat's route lookup never passed
+    one, so each went out as an anonymous caller sharing RAVIS's one allowance of sixty
+    a minute with everything else on the machine. A caller now says which identity it
+    presents — `peer_credential(request, service)`, empty for a peer NERVIS holds no
+    credential for — and the type checker refuses a call that says nothing.
 
     `request_id` is forwarded rather than regenerated, so a NERVIS screen, the
     NERVIS log line and the peer's log line for the same click all carry one id

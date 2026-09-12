@@ -483,7 +483,10 @@ the `/v1` gateway. NERVIS presents its own client credential and returns RAVIS's
 unchanged; a RAVIS that did not answer comes back as 502 or 504 marked `x-nervis-relay`, which the
 page shows as unreachable or slow. Read directly, every open tab shared RAVIS's one anonymous
 allowance of sixty requests a minute with any other local caller, and the overview alone used
-about twenty-seven. The browser holds no RAVIS credential either way.
+about twenty-seven. The browser holds no RAVIS credential either way. Every read NERVIS itself
+makes of RAVIS names NERVIS too: the shared peer reader takes no default credential, so a reader
+cannot go out anonymous by omission — found on 12 September 2026 in the API Inspector's two reads
+and chat's per-reply route lookup, the last to do so.
 
 **Spending** (since 12 September 2026): the RAVIS Spending page reads `/api/v1/usage/daily`, and
 the dashboard's spend tile has a reset. The reset is a NERVIS setting, `ravis.spend_counted_since`,
