@@ -25,7 +25,217 @@ every entry.
 
 ---
 
-## Clarvis — 0.12.8
+## Clarvis — 0.15.4
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+0.12.9 to 0.15.4 shipped without notes on 10-12 September 2026, while this file's Clarvis
+head stood at 0.12.8. Each is summarised here from its own commits in the Clarvis repository —
+the one that bumps it, which names the version, and any committed since the bump before —
+and from nothing else.
+
+- **Git answers come from the repository the open folder is in, not the first one found.**
+  With a folder open that has no repository of its own but holds projects that do — a folder
+  of task folders — the Git extension, which scans subfolders, found one of those projects,
+  and the briefing named that project's branch and untracked file as this folder's. Eight
+  places took the first repository found: the briefing, commit noticing, the review wizard,
+  an agent run's branch and commits, the branch-flow check and plan commit, the agent's git
+  tools, and branch switching and plain git status. All of them now use the deepest
+  repository whose root contains the open folder, and none at all when no repository does;
+  the check for a git problem counts only that one.
+
+### 0.15.3
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **"You were last in" names only project files.** In code-server the editor's own settings
+  live under `code-server/User/`, which the exclusion for `Code/User` never matched. Every
+  setting Clarvis wrote saved that file, and the briefing opened the next window with "You
+  were last in settings.json" about a project with nothing open. A path outside the open
+  workspace folders is no longer remembered; with no folder open the named exclusions apply
+  as before, and `code-server/User` is now one of them. The stored list is filtered the same
+  way, so the stale entry is dropped on the next start.
+
+### 0.15.2
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Clarvis names itself to RAVIS with the launcher's credential.** Every unnamed caller on a
+  machine shares RAVIS's sixty requests a minute, and a NERVIS dashboard open in a browser
+  reads RAVIS about twenty-four times a minute, leaving a Clarvis build roughly thirty-six
+  before RAVIS turns it away. The ecosystem launcher sets `CLARVIS_RAVIS_CREDENTIAL` for
+  code-server — NERVIS already presents a credential the launcher mints — and Clarvis now
+  presents it, so RAVIS knows it as the client `clarvis`, with six hundred a minute. It is
+  sent only for a `ravis/` model on a loopback address: another host, another model or an
+  empty variable gets nothing, and a stored key still comes first.
+
+### 0.15.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Stop ends what a command started, not only its shell.** The first live run of 0.15.0 ran
+  `cd src && python3 main.py`, a stub that loops for ever, and Stop did nothing: it killed
+  the shell Clarvis had spawned, the program that shell launched lived on holding the output
+  open, and the command only counted as finished once every copy of its output had closed.
+  The ten-minute time limit had the same blind spot. Commands now run as the leader of their
+  own process group, and Stop and the time limit end the whole group. Windows has no process
+  groups and keeps the old behaviour.
+- **A command is finished when it exits.** Anything it left running in its group is stopped
+  and the model is told a check has to end on its own; output still open two seconds later
+  is closed.
+
+### 0.15.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **"Find another way" leads to a plan that builds.** The first live run of 0.14.1 met a
+  missing tkinter and asked. The answer was *Find another way*; the model said the plan could
+  not work without tkinter and stopped, and the run still ended as a finished milestone — it
+  committed a stray `main.py`, offered to merge it, and the merge put it on master. Told to
+  find another way, the model now proposes the smallest change to the plan that avoids the
+  missing piece, and stops. Clarvis then offers: change the plan like that, I will install it
+  myself, or leave it for now. Changing the plan starts a run that rewrites only what
+  depended on the missing piece, then builds the unfinished milestone. Among waiting offers,
+  this question comes after review and before resuming or building.
+- **A run that never got past a missing dependency is blocked, whatever the answer was.**
+  What a run found missing is kept until the command that found it succeeds; until then
+  nothing is ticked, landed or reviewed, and the offer that follows names what is still
+  missing.
+- **"Continue building" while that proposal stands asks the same question** instead of
+  starting a run. It used to get back the step and its check copied out of `plan.md`, and
+  nothing else.
+- A reply with no tool calls that announces a step anywhere in it gets the one nudge to carry
+  it out, not only a reply that is nothing but the announcement.
+
+### 0.14.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **What you type during a run reaches the model.** Typing mid-run is meant to redirect the
+  agent: the message is queued and handed over with the next step's tool results, in the same
+  turn. Neither provider sent it when the turn carried tool results, so "no, use the other
+  library" was logged as a redirect, taken off the queue, and never reached the model. With
+  Anthropic a text block now follows the tool results in the same message; with an
+  OpenAI-compatible provider a separate user message follows the last tool result. A step
+  nobody interrupted still sends the results alone. The feature had been tested where its
+  wording is built, never where it is sent.
+- Stop from chat acts on the stop decision that is tested, rather than on a second read of
+  whether a run is going. Behaviour is unchanged: the two lines were missed when 0.13.2 was
+  committed out of a working tree shared with other sessions, and ride in this version.
+
+### 0.14.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A command that finds something missing from this computer stops the run and asks.** A
+  pomodoro build needed tkinter, and the machine's Python was built without it. The check
+  said `No module named '_tkinter'` and the run read past it: it tried `pyenv install` and
+  `pyenv global`, which no gate rule named, ticked steps whose checks never ran, rewrote the
+  plan around the gap, and chat later described the Python project as Go. Clarvis now reads,
+  from failed commands only, the ways common toolchains say something is missing — Python
+  modules and Python's own parts, Node packages, Ruby gems, Go modules, programs, system
+  libraries and headers, Xcode command line tools — and asks in every mode, Unattended
+  included: install it into this project (only where that is possible), install it myself,
+  find another way, or stop. Any answer but another way halts the run and ends on a
+  question, and the milestone is neither settled nor offered for landing or review.
+- **Changing the toolchain always asks.** A new gate category — `pyenv`, `asdf`, `nvm`,
+  `rustup`, `conda`, `pipx`, `uv python`, `brew upgrade`, `apt` and the like — asks every
+  time; only looking does not.
+- **Chat knows more of the project:** the last missing dependency, for three days; the
+  project's files two levels deep; and the language the plan chose.
+- A reply that only announces its step is asked, once, to carry it out.
+- Milestone briefs tell the model never to tick a step whose check did not pass, but to keep
+  its wording and say why.
+
+### 0.13.2
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Stop releases a question waiting on screen.** Stop pressed while *Do it / Skip this step*
+  waited signalled the run to stop and did nothing else: the run stayed parked on the
+  unanswered question, the buttons stayed in the panel, and the stop only took effect once
+  someone answered. Over the end-of-run *fold this into master?* question Stop said "Nothing
+  to stop", because that question is asked after the run finishes. Stop now cancels the
+  waiting question as well, and a waiting question counts as something to stop with no run
+  in progress. A *Do it* that raced the stop does not start the step, and nothing is
+  reported as skipped. Switching to Unattended still answers a waiting step *Do it*.
+
+### 0.13.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A planned build can reach a finished project.** The first build from a NERVIS handoff
+  stalled after a good interview and plan, and each change below is a fault found in that
+  run's own log.
+- **Python's output arrives as it is written.** A milestone check ran `python timer.py 5` —
+  five minutes, by the plan's own command line — with Python holding its output back, so it
+  looked hung and was stopped. Commands now run with `PYTHONUNBUFFERED`, and milestone briefs
+  say a check must finish in seconds.
+- **A project's work gets committed.** A stopped run committed nothing, and *Run git init*
+  left a repository with no commits, so every later run treated the project's files as the
+  user's and nothing was ever committed. A stopped run now commits the files it wrote, and
+  the git offer makes an empty first commit.
+- **"Fold this into master?" takes only its own buttons.** Any typed reply was taken as a
+  merge — "that last command failed" merged. Anything else now drops the question and is
+  handled as an ordinary message.
+- **Closing the unsaved plan draft leaves nothing behind.** It left `# Clockwork.md` beside
+  `plan.md`; the draft is emptied before its tab is closed, so there is nothing to save.
+- **"continue from plan.md…" picks the plan back up.** After a stopped milestone it ran as a
+  one-off job. A message starting with *continue*, *carry on*, *keep building* or *resume*
+  now resumes the approved plan at its unfinished milestone, in the edit modes only.
+- **Tool calls written as text are read as calls.** A reply with `<function=listFiles>` in
+  its text ended the run after 0 steps; the Qwen3-Coder and Hermes shapes are recognised now.
+- **Answers about the project have a file list** of its top-level entries, and say "never
+  committed" of a tree they used to call clean.
+- Starting a build keeps Unattended instead of forcing Agent; Agent's approval of every step
+  is unchanged and intentional.
+
+### 0.13.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A task handed over from NERVIS goes through the planning interview.** It arrived with
+  *Start it / Not now*, and *Start it* ran the brief as a job straight away. The first live
+  handoff was the one line "make me a pomodoro timer", and what the person wanted was to be
+  asked what that meant before anything was built. The task now starts the interview,
+  pre-typed in the answer box for its first question: change it or send it as it is, and the
+  interview, analysis and plan sign-off follow as for any project. A brief from another
+  program is never an answer until somebody in the editor sends it, which is how §9's rule is
+  kept. *Start it* is gone.
+- **The task file is kept until the first answers are saved**, so a window closed at the
+  first question offers the task again rather than losing it.
+- `package-lock.json` recorded its own version as 0.11.2 while `package.json` had moved on
+  over several releases; the two agree again, and no dependency changed.
+
+### 0.12.9
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Search no longer hands a secret to the model unasked.** Found by the external audit of
+  the ecosystem. Reading a file puts every sensitive path behind a question before a key or
+  a `.env` reaches the model; search returns the matching line verbatim and was never gated,
+  so a pattern that happened to appear in a credential file handed the secret over with no
+  prompt at all. Search now skips sensitive files outright rather than asking — it touches
+  hundreds of files, and a question per file is not one anybody can answer. The model can
+  still ask for such a file by name, which is where the question lives.
+- **A symlink is not a way out of the workspace.** A link to a file outside the workspace
+  arrived in search results looking like an ordinary file, and was followed. Its target is
+  now resolved and checked against the real workspace root before it is opened; a link
+  pointing back inside the workspace is still searched.
+- **Tutor Mode is dropped as an idea, not deferred.** Its milestone, design section,
+  standalone guide, risk-register rows, and README and manual entries are gone, with the
+  five places in the documented planning flow where a question or a comment rule behaved
+  differently in it. No code implemented it; only documents changed.
+- **Two more cells of the code-server matrix were settled live, with no code change.**
+  Rolling back to an earlier `.vsix` — 0.12.6 force-downgraded to 0.12.3 on a real workspace
+  with conversation history and provider keys — kept its secrets and workspace state byte for
+  byte, and the session from before the test was archived, not lost. Two code-server tabs
+  open at once registered with NERVIS as two instances on distinct ports, and closing one
+  left it marked not live rather than vanishing or lingering as live. The operator also
+  confirmed, on several occasions, that the panel renders correctly under VSCodium. Only
+  Bridge teardown under code-server remains untested.
+
+### 0.12.8
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
