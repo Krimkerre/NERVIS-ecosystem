@@ -213,7 +213,7 @@ carries an as-built note saying what exists and what does not.
 | 12 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
 | 13 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
-| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests |
+| 15 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
@@ -19011,6 +19011,29 @@ NERVIS 0.28.2 → 0.28.3.
 
 Checked: the launcher's status test, now covering every address, and the knowledge tests pass; the app
 builds and refreshed its copy in Applications; and the commit went through the dashboard hook.
+
+## The menu bar app's figures, readable, with a busy CPU or GPU in red — 2026-09-12
+
+The machine figures were drawn as disabled menu items, which macOS greys — grey on the menu's grey, as
+the owner put it. They are now enabled items with no action, in the menu's own text colour, which is
+white on a dark menu bar, and the CPU or GPU percentage turns red above 85%. `NERVIS --preview-figures`
+prints the two figures at 85%, 86% and 100% and marks the red ones, so the threshold can be checked
+without a busy Mac: 85% stayed plain, 86% and 100% were red. The live menu then showed CPU 7%, GPU 13%
+and memory 58%, all in plain text.
+
+**The app found not running, and what did not stop it.** Swapping in this build found no NERVIS app
+running, while the stack and the qwen3-1.7b the owner had loaded from the menu were both still up — so
+it had not quit through its menu, which stops the stack and unloads the menu's models first. The obvious
+suspect was the build refreshing the copy in Applications underneath the running app. It is not: `ditto`
+writes a new file rather than overwriting the old one, and a running copy of the app, refreshed exactly
+that way, kept running and then quit normally when told to. No crash report and no system-log entry names
+the app, so the cause is open and is listed in Next. Meanwhile nothing had renewed the model's lease; it
+was renewed by hand, as the app would have done, and the new app renews it from here.
+
+NERVIS 0.28.3 → 0.28.4.
+
+Checked: the app builds and refreshed its copy in Applications; the figure preview behaves as above; the
+knowledge tests pass; and the commit went through the dashboard hook.
 
 ## Starting the thing
 

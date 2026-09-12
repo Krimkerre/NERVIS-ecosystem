@@ -313,7 +313,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.3
+## NERVIS — 0.28.4
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The menu bar app's machine figures are readable, and CPU and GPU turn red when busy.** They were drawn
+  as disabled items, grey on the menu's grey; they are now in the menu's own text colour, white on a dark
+  menu bar, and the CPU or GPU percentage turns red above 85%.
+
+### 0.28.3
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

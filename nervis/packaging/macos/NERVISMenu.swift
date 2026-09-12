@@ -355,26 +355,44 @@ enum GPUMeter {
     }
 }
 
+@MainActor
 enum Figures {
     private static let gibibyte = 1_073_741_824.0
+    /// CPU or GPU use above this is drawn in red — the owner's threshold, 12 September 2026.
+    static let busy = 85
 
     /// The machine figures the menu shows, each only when it was measured. CPU and GPU come
     /// from this app's own meters, so they show even while the stack is down; memory, swap,
     /// disk and heat from NERVIS's reading, so the menu and the dashboard agree on them.
-    static func lines(cpu: Int?, gpu: Int?, system: StackReport.System?) -> [String] {
-        var lines: [String] = []
-        if let cpu { lines.append("CPU \(cpu)%") }
-        if let gpu { lines.append("GPU \(gpu)%") }
+    static func lines(cpu: Int?, gpu: Int?, system: StackReport.System?) -> [NSAttributedString] {
+        var lines: [NSAttributedString] = []
+        if let cpu { lines.append(percentage("CPU", cpu)) }
+        if let gpu { lines.append(percentage("GPU", gpu)) }
         if let total = system?.memoryTotalBytes, let available = system?.memoryAvailableBytes, total > 0 {
             let used = total - available
-            lines.append("Memory \(Int((used / total * 100).rounded()))% · \(gb(used)) of \(gb(total)) GB")
+            lines.append(plain("Memory \(Int((used / total * 100).rounded()))% · \(gb(used)) of \(gb(total)) GB"))
         }
         var rest: [String] = []
         if let swap = system?.swapUsedBytes { rest.append("Swap \(gb(swap)) GB") }
         if let disk = system?.diskFreeBytes { rest.append(String(format: "%.0f GB disk free", disk / gibibyte)) }
         if let thermal = system?.thermalState { rest.append("thermal \(thermal)") }
-        if !rest.isEmpty { lines.append(rest.joined(separator: " · ")) }
+        if !rest.isEmpty { lines.append(plain(rest.joined(separator: " · "))) }
         return lines
+    }
+
+    /// In the menu's own text colour — white on a dark menu, black on a light one.
+    private static func plain(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [.foregroundColor: NSColor.labelColor,
+                                                      .font: NSFont.menuFont(ofSize: 0)])
+    }
+
+    /// "CPU 92%", with the figure in red above `busy`.
+    private static func percentage(_ label: String, _ value: Int) -> NSAttributedString {
+        let line = NSMutableAttributedString(attributedString: plain("\(label) "))
+        let colour = value > busy ? NSColor.systemRed : NSColor.labelColor
+        line.append(NSAttributedString(string: "\(value)%", attributes: [.foregroundColor: colour,
+                                                                         .font: NSFont.menuFont(ofSize: 0)]))
+        return line
     }
 
     private static func gb(_ bytes: Double) -> String { String(format: "%.1f", bytes / gibibyte) }
@@ -775,7 +793,7 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let figures = Figures.lines(cpu: cpuPercent, gpu: gpuPercent, system: report?.system)
         if !figures.isEmpty {
             menu.addItem(NSMenuItem.sectionHeader(title: "This Mac"))
-            figures.forEach { menu.addItem(note($0)) }
+            figures.forEach { menu.addItem(reading($0)) }
         }
         menu.addItem(.separator())
         let stopping = phase == .stopping
@@ -821,6 +839,16 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if service.name == "LM Studio" {
             item.submenu = lmStudioMenu()
         }
+        return item
+    }
+
+    /// A machine figure. Enabled with no action, like a service line, so it is drawn in the
+    /// menu's normal text colour instead of the grey a disabled item gets — grey on the menu's
+    /// grey was hard to read — and so a figure can be red.
+    private func reading(_ text: NSAttributedString) -> NSMenuItem {
+        let item = NSMenuItem(title: text.string, action: nil, keyEquivalent: "")
+        item.attributedTitle = text
+        item.isEnabled = true
         return item
     }
 
@@ -887,6 +915,14 @@ enum Preview {
         printItems(bar.menu.items, indent: "  ")
     }
 
+    static func hasRed(_ text: NSAttributedString) -> Bool {
+        var found = false
+        text.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if (value as? NSColor) == NSColor.systemRed { found = true }
+        }
+        return found
+    }
+
     @MainActor
     private static func printItems(_ items: [NSMenuItem], indent: String) {
         for item in items {
@@ -895,7 +931,8 @@ enum Preview {
             let mark = item.state == .on ? "✓ " : item.state == .mixed ? "– " : ""
             let opens = item.toolTip.map { "  → \($0)" } ?? ""
             let enabled = item.isEnabled ? "" : "  (disabled)"
-            print(item.isSectionHeader ? "\(indent)[\(title)]" : "\(indent)\(mark)\(title)\(enabled)\(opens)")
+            let red = item.attributedTitle.map(hasRed) == true ? "  [red]" : ""
+            print(item.isSectionHeader ? "\(indent)[\(title)]" : "\(indent)\(mark)\(title)\(enabled)\(red)\(opens)")
             if let submenu = item.submenu { printItems(submenu.items, indent: indent + "      ") }
         }
     }
@@ -920,6 +957,15 @@ MainActor.assumeIsolated {
     let arguments = CommandLine.arguments
     if let flag = arguments.firstIndex(of: "--render-icon"), arguments.indices.contains(flag + 1) {
         exit(Preview.writeIcon(to: arguments[flag + 1]) ? 0 : 1)
+    }
+    if arguments.contains("--preview-figures") {
+        // The red threshold, checked without waiting for a busy Mac: 85 stays plain, 86 is red.
+        for (cpu, gpu) in [(85, 86), (22, 100)] {
+            for line in Figures.lines(cpu: cpu, gpu: gpu, system: nil) {
+                print(line.string + (Preview.hasRed(line) ? "  [red]" : ""))
+            }
+        }
+        exit(0)
     }
 
     guard let repository = repositoryURL() else {

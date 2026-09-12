@@ -43,7 +43,7 @@ models), CPU, GPU and memory use, and **Quit
 NERVIS and stop the stack**. Clicking a line of the stack opens it in the browser: SIRVIS, RAVIS,
 NERVIS and CLARVIS on their screens in the dashboard, code-server at its own address. The pupil in
 the mark is solid while the whole stack answers, faint
-when part of it does not, and blinks while NERVIS has unread notifications. GPU use is the figure
+when part of it does not, and blinks while NERVIS has unread notifications. The CPU or GPU percentage turns red above 85%. GPU use is the figure
 the graphics driver publishes; Activity Monitor's GPU History is the place to compare it.
 
 It runs `tools/run.py` and holds no code of its own, so an update needs a restart and never a
