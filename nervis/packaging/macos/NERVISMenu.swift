@@ -29,10 +29,13 @@ import IOKit
 struct StackReport: Decodable {
     struct Service: Decodable {
         let name: String
-        /// "stack" for what the launcher starts, "runtime" for LM Studio and Ollama,
-        /// "editor" for Clarvis — which the menu leaves out, since it runs in an editor.
+        /// "stack" for what the launcher starts, "runtime" for LM Studio and Ollama, and
+        /// "editor" for CLARVIS — listed with the stack, but not counted when the icon asks
+        /// whether the stack is whole, because no editor window being open is not a fault.
         let group: String
         let answering: Bool
+        /// For CLARVIS, how many editor windows have a live Bridge; nil for everything else.
+        let windows: Int?
     }
 
     /// NERVIS's own machine reading, trimmed to what the menu shows. Every field is
@@ -61,6 +64,8 @@ struct StackReport: Decodable {
     let notifications: Notifications?
 
     var stack: [Service] { services.filter { $0.group == "stack" } }
+    /// The menu's Stack section: the stack with CLARVIS, in the launcher's order.
+    var stackSection: [Service] { services.filter { $0.group == "stack" || $0.group == "editor" } }
     var runtimes: [Service] { services.filter { $0.group == "runtime" } }
     var stackIsUp: Bool { !stack.isEmpty && stack.allSatisfy { $0.answering } }
 
@@ -472,6 +477,14 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    /// LM Studio's bundle identifier, read from its Info.plist on 12 September 2026.
+    static let lmStudio = "ai.elementlabs.lmstudio"
+
+    @objc private func openApplication(_ sender: NSMenuItem) {
+        guard let app = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -535,7 +548,7 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              enabled: report != nil && phase != .stopping))
         if let report {
             menu.addItem(NSMenuItem.sectionHeader(title: "Stack"))
-            report.stack.forEach { menu.addItem(row(for: $0)) }
+            report.stackSection.forEach { menu.addItem(row(for: $0)) }
             menu.addItem(NSMenuItem.sectionHeader(title: "Models"))
             report.runtimes.forEach { menu.addItem(row(for: $0)) }
         }
@@ -557,20 +570,34 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    /// A service and whether it answers, with a green or red dot. Left enabled with no
+    /// A service and whether it answers, with a green or red dot — grey for CLARVIS with no
+    /// editor window open, since that is normal rather than a fault. Left enabled with no
     /// action, because a disabled item would grey the dot out and lose the one thing the
     /// row is for.
     private func row(for service: StackReport.Service) -> NSMenuItem {
         let font = NSFont.menuFont(ofSize: 0)
-        let dot = service.answering ? NSColor.systemGreen : NSColor.systemRed
+        let idle = service.group == "editor" ? NSColor.tertiaryLabelColor : NSColor.systemRed
+        let dot = service.answering ? NSColor.systemGreen : idle
+        var state = service.answering ? "running" : "not running"
+        if service.answering, let windows = service.windows, windows > 1 { state += " · \(windows) windows" }
         let title = NSMutableAttributedString(string: "●  ", attributes: [.foregroundColor: dot, .font: font])
         title.append(NSAttributedString(string: service.name, attributes: [.font: font]))
         title.append(NSAttributedString(
-            string: service.answering ? "   running" : "   not running",
+            string: "   " + state,
             attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: font]))
         let item = NSMenuItem()
         item.attributedTitle = title
         item.isEnabled = true
+        // LM Studio is an app on this Mac, and its row opens it, as the owner asked. Found by
+        // bundle identifier, so it opens wherever it is installed; a Mac without it gets a row
+        // that does nothing, like every other row.
+        if service.name == "LM Studio",
+           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: MenuBar.lmStudio) {
+            item.representedObject = app
+            item.action = #selector(openApplication(_:))
+            item.target = self
+            item.toolTip = "Open LM Studio"
+        }
         return item
     }
 
@@ -636,7 +663,8 @@ enum Preview {
         for item in bar.menu.items {
             if item.isSeparatorItem { print("────"); continue }
             let title = item.attributedTitle?.string ?? item.title
-            print(item.isSectionHeader ? "[\(title)]" : "  \(title)\(item.isEnabled ? "" : "  (disabled)")")
+            let opens = item.toolTip.map { "  → \($0)" } ?? ""
+            print(item.isSectionHeader ? "[\(title)]" : "  \(title)\(item.isEnabled ? "" : "  (disabled)")\(opens)")
         }
     }
 }

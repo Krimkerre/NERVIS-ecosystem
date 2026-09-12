@@ -115,8 +115,11 @@ LM_STUDIO = "http://127.0.0.1:1234"
 
 EXTERNAL = [
     ("LM Studio", f"{LM_STUDIO}/v1/models"),
-    ("Clarvis", "http://127.0.0.1:7071/"),
 ]
+# Clarvis is not probed here. A Bridge has no fixed port: each editor window picks one and
+# registers it with NERVIS, so NERVIS's registry is what says whether Clarvis is running
+# (`_clarvis_bridges`). Until 12 September 2026 this list probed 127.0.0.1:7071, where no
+# Bridge listens, and so reported Clarvis as not running whatever was open.
 
 
 def code_server_binary() -> str:
@@ -1218,6 +1221,7 @@ def status(quiet: bool = False) -> dict[str, bool]:
         print()
         for name, url in EXTERNAL:
             print(f"  {name:<10} {'answering' if responds(url, 1.0) else 'not running'} (external)")
+        print(f"  {'Clarvis':<10} {_bridges_text(_clarvis_bridges())} (external)")
     return answers
 
 
@@ -1235,7 +1239,8 @@ def status_report() -> dict[str, object]:
     what the stack is — which services, on which ports, and how each is asked
     whether it is up — stays known in one place, this file. `group` is what the
     menu sorts by: "stack" for what this launcher starts, "runtime" for LM Studio
-    and Ollama, "editor" for Clarvis.
+    and Ollama, "editor" for CLARVIS, whose open windows NERVIS's
+    registry counts.
 
     Probed in parallel. One at a time, a stack that is down costs a second per
     service, and the menu asks every time it is opened.
@@ -1243,9 +1248,7 @@ def status_report() -> dict[str, object]:
     probes = [
         (name, url, "runtime" if name == "Ollama" else "stack")
         for name, _, _, _, url in _services()
-    ] + [
-        (name, url, "runtime" if name == "LM Studio" else "editor") for name, url in EXTERNAL
-    ]
+    ] + [(name, url, "runtime") for name, url in EXTERNAL]
     with ThreadPoolExecutor(max_workers=len(probes)) as pool:
         answers = list(pool.map(lambda probe: responds(probe[1], 1.0), probes))
     services = [
@@ -1253,6 +1256,12 @@ def status_report() -> dict[str, object]:
         for (name, _, group), answering in zip(probes, answers)
     ]
     nervis_up = any(service["name"] == "NERVIS" and service["answering"] for service in services)
+    # CLARVIS is listed with the stack, just above code-server, which hosts it in a browser.
+    # Grouped "editor" rather than "stack": no editor window being open is not part of the
+    # stack being down, and the menu bar icon must not say it is.
+    windows = _clarvis_bridges() if nervis_up else None
+    at = next((i for i, service in enumerate(services) if service["name"] == "code-server"), len(services))
+    services.insert(at, {"name": "CLARVIS", "group": "editor", "answering": bool(windows), "windows": windows})
     unread = _unread_notifications() if nervis_up else None
     return {
         "services": services,
@@ -1299,6 +1308,32 @@ def _unread_notifications() -> int | None:
     listing = _from_nervis("/api/v1/notifications?unread=1&limit=1")
     unread = listing.get("unread") if isinstance(listing, dict) else None
     return unread if isinstance(unread, int) else None
+
+
+def _clarvis_bridges() -> int | None:
+    """How many editor windows have a live Clarvis Bridge registered with NERVIS.
+
+    None when NERVIS cannot be asked. A Bridge picks its own port and registers it
+    (NERVIS.md §5.1), so the registry — readable without a credential, since it
+    holds no token and no path — is the only place that knows whether Clarvis is
+    running. A registration whose lease has lapsed is a window that went away.
+    """
+    listing = _from_nervis("/api/v1/registry/instances")
+    items = listing.get("items") if isinstance(listing, dict) else None
+    if not isinstance(items, list):
+        return None
+    return sum(
+        1 for item in items
+        if isinstance(item, dict) and item.get("service") == "clarvis" and item.get("live")
+    )
+
+
+def _bridges_text(windows: int | None) -> str:
+    if windows is None:
+        return "unknown — NERVIS is not answering"
+    if windows == 0:
+        return "not running"
+    return f"answering in {windows} editor window{'s' if windows > 1 else ''}"
 
 
 def _run_status() -> int:

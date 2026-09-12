@@ -313,7 +313,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.0
+## NERVIS — 0.28.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The menu bar app lists CLARVIS**, just above code-server, which hosts it. It reads as running while
+  an editor window has a live Clarvis Bridge registered with NERVIS, with a grey dot rather than a red
+  one when none is open, and it does not dim the icon: no editor being open is not the stack being down.
+- **`tools/run.py status` stops reporting Clarvis from a port no Bridge uses.** It probed
+  127.0.0.1:7071, where nothing listens, so Clarvis always read as not running; it now asks NERVIS's
+  registry how many editor windows have a live Bridge.
+- **Clicking LM Studio in the menu opens LM Studio.**
+
+### 0.28.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

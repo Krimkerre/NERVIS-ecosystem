@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2933 tests, no network, no live service
+.venv/bin/pytest                      # part of 2934 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 511 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1212 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1213 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2933 passing across the four, conformance `PASS`.
+Expected: all clean, 2934 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18899,6 +18899,29 @@ NERVIS 0.27.1 → 0.28.0.
 Checked: ruff and mypy clean in NERVIS; its suite passes, 1212 tests with the new one for
 `status --json`; the plan, status, release and knowledge checks pass; and this commit went through
 the new hook, which ran the dashboard's checks on it.
+
+## CLARVIS in the menu bar app, and LM Studio a click away — 2026-09-12
+
+Small requests on the new menu. **CLARVIS has a line**, just above code-server, which stays at
+the bottom of the Stack section: code-server is the host, and CLARVIS is what the owner uses in
+it. It reads running while an editor window has a live Clarvis Bridge registered with NERVIS —
+`tools/run.py` counts live registrations in NERVIS's registry — says how many windows when there
+is more than one, and shows a grey dot rather than a red one when none is open. It does not dim
+the icon's pupil: no editor being open is not the stack being down. **Clicking LM Studio opens
+LM Studio**, found by its bundle identifier.
+
+**Found on the way: the launcher could never see Clarvis.** Its list of external services probed
+127.0.0.1:7071, where no Bridge listens — a Bridge picks its own port and registers it with NERVIS
+— so `status` reported Clarvis as not running whatever was open. It now asks NERVIS's registry,
+which the dashboard already reads without a credential.
+
+NERVIS 0.28.0 → 0.28.1.
+
+Checked: ruff and mypy clean; the launcher's two tests and the knowledge tests pass, one test
+new, for a lapsed Bridge not counting; the app's menu, printed from a real status answer, lists
+SIRVIS, RAVIS, NERVIS, CLARVIS and code-server in that order and marks LM Studio as opening LM
+Studio; the running app was replaced with this build without touching the stack; and the commit went
+through the dashboard hook.
 
 ## Starting the thing
 

@@ -35,7 +35,8 @@ it actually is before touching anything.
 `nervis/packaging/macos/build_app.sh` and open `nervis/packaging/macos/build/NERVIS.app`. It has
 no window and no Dock icon. The NERVIS mark appears in the menu bar and the stack starts; its
 menu shows the number of unread notifications when there are any, **Open NERVIS dashboard**,
-each service and LM Studio and Ollama as running or not, CPU, GPU and memory use, and **Quit
+each service — CLARVIS among them, running while an editor window has its Bridge on — and
+LM Studio and Ollama as running or not (clicking LM Studio opens it), CPU, GPU and memory use, and **Quit
 NERVIS and stop the stack**. The pupil in the mark is solid while the whole stack answers, faint
 when part of it does not, and blinks while NERVIS has unread notifications. GPU use is the figure
 the graphics driver publishes; Activity Monitor's GPU History is the place to compare it.
